@@ -15,7 +15,7 @@ in the .cache directory. Or use your own version of zig.
 
 Run with:
 ```shell
-zig-out/bin/zat
+zig-out/bin/flow
 ```
 
 Place it in your path for convenient access.
