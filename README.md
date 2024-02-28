@@ -5,6 +5,27 @@ This is my Zig text editor. It is very much a work-in-progress, but far enough a
 
 https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f2d4c6
 
+Build with the provided zig wrapper:
+```shell
+./zig build -Doptimize=ReleaseFast
+```
+
+The zig wrapper just fetches a known good version of zig nightly and places it
+in the .cache directory. Or use your own version of zig.
+
+Run with:
+```shell
+zig-out/bin/zat
+```
+
+Place it in your path for convenient access.
+
+See --help for full command line.
+
+requirements:
+- A modern terminal with 24bit color and kitty keyboard protocol support (kitty and ghostty are the only recommended terminals at this time)
+- NerdFonts support
+- Linux (other OSes will come eventually, patches welcome!)
 
 features:
 - fast TUI interface. no user interaction should take longer than one frame (6ms) (even debug builds)
