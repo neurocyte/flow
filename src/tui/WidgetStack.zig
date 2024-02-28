@@ -1,0 +1,94 @@
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const eql = std.mem.eql;
+
+const nc = @import("notcurses");
+const tp = @import("thespian");
+const Widget = @import("Widget.zig");
+
+const Self = @This();
+
+a: Allocator,
+widgets: ArrayList(Widget),
+
+pub fn init(a_: Allocator) Self {
+    return .{
+        .a = a_,
+        .widgets = ArrayList(Widget).init(a_),
+    };
+}
+
+pub fn deinit(self: *Self) void {
+    for (self.widgets.items) |*widget|
+        widget.deinit(self.a);
+    self.widgets.deinit();
+}
+
+pub fn addWidget(self: *Self, widget: Widget) !void {
+    (try self.widgets.addOne()).* = widget;
+}
+
+pub fn swapWidget(self: *Self, n: usize, widget: Widget) Widget {
+    const old = self.widgets.items[n];
+    self.widgets.items[n] = widget;
+    return old;
+}
+
+pub fn replaceWidget(self: *Self, n: usize, widget: Widget) void {
+    const old = self.swapWidget(n, widget);
+    old.deinit(self.a);
+}
+
+pub fn deleteWidget(self: *Self, name: []const u8) bool {
+    for (self.widgets.items, 0..) |*widget, i| {
+        var buf: [64]u8 = undefined;
+        const wname = widget.name(&buf);
+        if (eql(u8, wname, name)) {
+            self.widgets.orderedRemove(i).deinit(self.a);
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn findWidget(self: *Self, name: []const u8) ?*Widget {
+    for (self.widgets.items) |*widget| {
+        var buf: [64]u8 = undefined;
+        const wname = widget.name(&buf);
+        if (eql(u8, wname, name))
+            return widget;
+    }
+    return null;
+}
+
+pub fn send(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    for (self.widgets.items) |*widget|
+        if (try widget.send(from, m))
+            return true;
+    return false;
+}
+
+pub fn update(self: *Self) void {
+    for (self.widgets.items) |*widget| widget.update();
+}
+
+pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    var more = false;
+    for (self.widgets.items) |*widget|
+        if (widget.render(theme)) {
+            more = true;
+        };
+    return more;
+}
+
+pub fn resize(self: *Self, pos: Widget.Box) void {
+    for (self.widgets.items) |*widget|
+        widget.resize(pos);
+}
+
+pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
+    for (self.widgets.items) |*w|
+        if (w.walk(walk_ctx, f)) return true;
+    return false;
+}
