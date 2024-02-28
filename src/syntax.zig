@@ -103,7 +103,7 @@ pub fn highlights_at_point(self: *const Self, ctx: anytype, comptime cb: CallBac
             const start = range.start_point;
             const end = range.end_point;
             const scope = self.query.getCaptureNameForId(capture.id);
-            if (start.row == point.row and start.row <= point.column and point.column < end.column)
+            if (start.row == point.row and start.column <= point.column and point.column < end.column)
                 cb(ctx, range, scope, capture.id, 0) catch return;
             break;
         }
