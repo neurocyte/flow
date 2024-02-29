@@ -12,9 +12,13 @@ mkdir -p .cache/cdb
 OS=$(uname)
 
 if [ "$OS" == "Linux" ] ; then
-	OS=linux
+    OS=linux
 elif [ "$OS" == "Darwin" ] ; then
-	OS=macos
+    OS=macos
+fi
+
+if [ "$ARCH" == "arm64" ] ; then
+    ARCH=aarch64
 fi
 
 ZIGVER="zig-$OS-$ARCH-$VERSION"
