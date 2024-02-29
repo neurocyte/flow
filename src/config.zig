@@ -10,6 +10,6 @@ gutter_line_numbers_relative: bool = false,
 enable_terminal_cursor: bool = false,
 highlight_current_line: bool = true,
 highlight_current_line_gutter: bool = true,
-show_whitespace: bool = true,
+show_whitespace: bool = false,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 150, //milliseconds
