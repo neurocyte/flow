@@ -996,6 +996,13 @@ pub fn load_from_string(self: *const Self, s: []const u8) !Root {
     return self.load(stream.reader(), s.len);
 }
 
+pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) !void {
+    self.root = try self.load_from_string(s);
+    self.file_path = try self.a.dupe(u8, file_path);
+    self.last_save = self.root;
+    self.file_exists = false;
+}
+
 pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bool) !Root {
     const file = cwd().openFile(file_path, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return self.new_file(file_exists),

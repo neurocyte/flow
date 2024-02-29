@@ -340,7 +340,8 @@ pub const Editor = struct {
     fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) !void {
         var new_buf = try Buffer.create(self.a);
         errdefer new_buf.deinit();
-        try new_buf.load_from_string(content);
+        try new_buf.load_from_string_and_update(file_path, content);
+        new_buf.file_exists = true;
         return self.open_buffer(file_path, new_buf);
     }
 
@@ -2603,7 +2604,7 @@ pub const Editor = struct {
         var file_path: []const u8 = undefined;
         var content: []const u8 = undefined;
         if (ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content) }) catch false) {
-            self.open(file_path) catch |e| return tp.exit_error(e);
+            self.open_scratch(file_path, content) catch |e| return tp.exit_error(e);
             self.clamp();
         } else return tp.exit_error(error.InvalidArgument);
     }
