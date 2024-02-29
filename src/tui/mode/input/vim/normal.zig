@@ -74,6 +74,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     if (self.leader) |_| return self.mapFollower(keynormal, egc, modifiers);
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
+            'U' => self.cmd("move_scroll_page_up", .{}),
+            'D' => self.cmd("move_scroll_page_down", .{}),
             'R' => self.cmd("redo", .{}),
             'O' => self.cmd("jump_back", .{}),
             'I' => self.cmd("jump_forward", .{}),
@@ -92,11 +94,9 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'X' => self.cmd("cut", .{}),
             'C' => self.cmd("copy", .{}),
             'V' => self.cmd("system_paste", .{}),
-            'U' => self.cmd("pop_cursor", .{}),
             'K' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
             'F' => self.cmd("enter_find_mode", .{}),
             'G' => self.cmd("enter_goto_mode", .{}),
-            'D' => self.cmd("add_cursor_next_match", .{}),
             'A' => self.cmd("select_all", .{}),
             '/' => self.cmd("toggle_comment", .{}),
             key.ENTER => self.cmd("insert_line_after", .{}),
