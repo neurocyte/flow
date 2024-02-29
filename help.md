@@ -1,5 +1,20 @@
 # Flow Control: a programmer's text editor
 
+## Terminal configuration
+
+Most terminals have default keybindings that conflict with common editor
+commands. I highly recommend rebinding them to keys that are not generally
+used anywhere else.
+
+For Kitty rebinding `kitty_mod` by adding this line to your kitty.conf is
+usually enough:
+```
+kitty_mod ctrl+alt
+```
+
+For other editors you will probably have to disable or rebind them each
+individually. 
+
 ## Searching
 
 Press Ctrl-f to search this help file. Type a search term and press 

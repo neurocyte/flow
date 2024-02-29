@@ -27,6 +27,19 @@ Place it in your path for convenient access.
 
 See --help for full command line.
 
+# Terminal configuration
+
+Kitty, Ghostty and most other terminals have default keybindings that conflict
+with common editor commands. I highly recommend rebinding them to keys that are
+not generally used anywhere else.
+
+For Kitty rebinding `kitty_mod` is usually enough:
+```
+kitty_mod ctrl+alt
+```
+
+For Ghostty each conflicting binding has to be reconfigured individually.
+
 # Requirements
 - A modern terminal with 24bit color and kitty keyboard protocol support (kitty and ghostty are the only recommended terminals at this time)
 - NerdFonts support
