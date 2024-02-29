@@ -657,7 +657,7 @@ pub const Editor = struct {
             const frame = tracy.initZone(@src(), .{ .name = "editor render screen" });
             defer frame.deinit();
 
-            tui.set_base_style(&self.plane, "", theme.editor);
+            tui.set_base_style(&self.plane, " ", theme.editor);
             self.plane.erase();
             if (hl_row) |_|
                 self.render_line_highlight(&self.get_primary().cursor, theme) catch {};
@@ -773,8 +773,8 @@ pub const Editor = struct {
             //_ = n.cell_load(c, "$") catch {};
             //_ = n.cell_load(c, " ") catch {};
             //_ = n.cell_load(c, "⏎") catch {};
-            _ = n.cell_load(c, "󰌑") catch {};
-            //_ = n.cell_load(c, "↩") catch {};
+            // _ = n.cell_load(c, "󰌑") catch {};
+            _ = n.cell_load(c, "↩") catch {};
             //_ = n.cell_load(c, "↲") catch {};
             //_ = n.cell_load(c, "⤶") catch {};
             //_ = n.cell_load(c, "󱞱") catch {};
