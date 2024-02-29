@@ -120,7 +120,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     tui.set_base_style(&self.plane, " ", theme.editor_gutter);
     self.plane.erase();
     if (self.linenum) {
-        const relative = self.relative or std.mem.eql(u8, tui.get_mode(), root.application_logo ++ "NOR"); // TODO: move to mode
+        const relative = self.relative or if (tui.current().input_mode) |mode| mode.line_numbers  == .relative else false;
         if (relative)
             self.render_relative(theme)
         else
@@ -158,7 +158,9 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
     const line: isize = @intCast(self.line + 1);
     var pos: usize = 0;
     var linenum: isize = row - line;
+    var abs_linenum = self.row + 1;
     var rows = self.rows;
+    var diff_symbols = self.diff_symbols.items;
     var buf: [31:0]u8 = undefined;
     while (rows > 0) : (rows -= 1) {
         if (pos > self.lines - row) return;
@@ -168,8 +170,10 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
         _ = self.plane.putstr_aligned(@intCast(pos), nc.Align.right, if (fmt.len > 6) "==> " else fmt) catch {};
         if (self.highlight and linenum == 0)
             self.render_line_highlight(pos, theme);
+        self.render_diff_symbols(&diff_symbols, pos, abs_linenum, theme);
         pos += 1;
         linenum += 1;
+        abs_linenum += 1;
     }
 }
 

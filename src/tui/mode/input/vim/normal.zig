@@ -31,6 +31,7 @@ pub fn create(a: Allocator) !tui.Mode {
     return .{
         .handler = EventHandler.to_owned(self),
         .name = root.application_logo ++ "NORMAL",
+        .line_numbers = .relative,
     };
 }
 

@@ -759,6 +759,7 @@ const cmds = struct {
 pub const Mode = struct {
     handler: EventHandler,
     name: []const u8,
+    line_numbers: enum { absolute, relative } = .absolute,
 
     fn deinit(self: *Mode) void {
         self.handler.deinit();
