@@ -829,7 +829,7 @@ pub const Editor = struct {
         return .{ 1, 9 - (abs_col % 8) };
     }
 
-    inline fn render_egc(c: *nc.Cell, n: nc.Plane, egc: [*c]const u8) struct { usize, usize } {
+    inline fn render_egc(c: *nc.Cell, n: nc.Plane, egc: [:0]const u8) struct { usize, usize } {
         const bytes = n.cell_load(c, egc) catch return .{ 1, 1 };
         const colcount = nc.cell_cols(c);
         return .{ bytes, colcount };

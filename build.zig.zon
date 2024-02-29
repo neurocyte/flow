@@ -4,8 +4,8 @@
 
     .dependencies = .{
         .notcurses = .{
-            .url = "https://github.com/neurocyte/notcurses-zig/archive/99dd02c42fc8b276fed0890369c9136316747ab9.tar.gz",
-            .hash = "1220be39bfc0c45e66f7e99cbddf3836dbe32b1fb36a8b5c616f4b13f97a275d36cf",
+            .url = "https://github.com/neurocyte/notcurses-zig/archive/2a916e439c3e9352a55a081cc76b88307aab0679.tar.gz",
+            .hash = "122097dd91bc7145a3008fce887627c196b548e80ab02a0cb443b214c56cfd52b31e",
         },
         .clap = .{
             .url = "https://github.com/Hejsil/zig-clap/archive/9c23bcb5aebe0c2542b4de4472f60959974e2222.tar.gz",
