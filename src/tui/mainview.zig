@@ -57,6 +57,8 @@ pub fn create(a: std.mem.Allocator, n: nc.Plane) !Widget {
     try widgets.add(try Widget.empty(a, n, .dynamic));
     self.statusbar = try widgets.addP(try @import("status/statusbar.zig").create(a, w));
     self.resize();
+    if (tp.env.get().is("show-input"))
+        self.toggle_inputview_async();
     return w;
 }
 
@@ -333,6 +335,10 @@ fn create_editor(self: *Self) tp.result {
     } else unreachable;
     self.widgets.replace(0, editor_widget);
     self.resize();
+}
+
+fn toggle_inputview_async(_: *Self) void {
+    tp.self_pid().send(.{ "cmd", "toggle_inputview" }) catch return;
 }
 
 fn show_home_async(_: *Self) void {

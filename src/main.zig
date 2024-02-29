@@ -24,6 +24,7 @@ pub fn main() anyerror!void {
         \\--no-alternate           Do not use the alternate terminal screen.
         \\--no-trace               Do not enable internal tracing.
         \\--restore-session        Restore restart session.
+        \\--show-input             Open the input view on start.
         \\<str>...                 File to open.
         \\                         Add +<LINE> to the command line or append
         \\                         :LINE or :LINE:COL to the file name to jump
@@ -82,6 +83,7 @@ pub fn main() anyerror!void {
 
     env.set("restore-session", (res.args.@"restore-session" != 0));
     env.set("no-alternate", (res.args.@"no-alternate" != 0));
+    env.set("show-input", (res.args.@"show-input" != 0));
     env.set("no-sleep", (res.args.@"no-sleep" != 0));
     env.set("dump-stack-trace", (res.args.@"debug-dump-on-error" != 0));
     if (res.args.@"frame-rate") |frame_rate|
