@@ -376,6 +376,7 @@ fn dispatch_input_event(self: *Self, ni: *nc.Input) tp.result {
     const keypress: u32 = ni.id;
     var buf: [256]u8 = undefined;
     self.unrendered_input_events_count += 1;
+    ni.modifiers &= nc.mod.CTRL | nc.mod.SHIFT | nc.mod.ALT | nc.mod.SUPER | nc.mod.META | nc.mod.HYPER;
     if (keypress == nc.key.RESIZE) return;
     if (keypress == nc.key.MOTION) {
         if (ni.y == 0 and ni.x == 0 and ni.ypx == -1 and ni.xpx == -1) return;
