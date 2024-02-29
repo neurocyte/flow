@@ -25,7 +25,8 @@ See --help for full command line.
 requirements:
 - A modern terminal with 24bit color and kitty keyboard protocol support (kitty and ghostty are the only recommended terminals at this time)
 - NerdFonts support
-- Linux (other OSes will come eventually, patches welcome!)
+- Linux or MacOS (help porting to *BSD or Windows is welcome!)
+- A UTF-8 locale (very important!)
 
 features:
 - fast TUI interface. no user interaction should take longer than one frame (6ms) (even debug builds)
