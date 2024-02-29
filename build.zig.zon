@@ -12,8 +12,8 @@
             .hash = "12209e829da9d7d0bc089e4e0cbc07bb882f6192cd583277277da34df53cd05b8f2a",
         },
         .@"tree-sitter" = .{
-            .url = "https://github.com/neurocyte/tree-sitter/releases/download/master-87dba6ef605389dc2e61cf8ef498ea68e816f4b1/source.tar.gz",
-            .hash = "12208fe4c5317901bf05642d1740bccbe653e989693b5cc4ed5d7a3f7814e213cbc3",
+            .url = "https://github.com/neurocyte/tree-sitter/releases/download/master-fb56a3e014f77e8189ae8b60408c555f8fe8be88/source.tar.gz",
+            .hash = "12200ead593d0f6aa6352dba239cc83a1d1457b060738560dbb890fd5cc5957d710f",
         },
         .tracy = .{
             .url = "https://github.com/neurocyte/zig-tracy/archive/d2113e7d778ebe7a063e95b5182ff145343aac38.tar.gz",
