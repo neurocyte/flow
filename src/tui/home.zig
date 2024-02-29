@@ -91,8 +91,8 @@ fn render_hints(self: *Self, style_base: Widget.Theme.Style, style_text: Widget.
     const hint_text: [:0]const u8 =
         \\Help ······················· :F1 / C-?
         \\Open file ·················· :C-o
-        \\Open recent file ··········· :C-e / C-r
-        \\Show/Run commands ·········· :C-p / C-S-p
+        \\Open recent file ··(wip)···· :C-e / C-r
+        \\Show/Run commands ·(wip)···· :C-p / C-S-p
         \\Open config file ··········· :F6
         \\Quit/Close ················· :C-q, C-w
         \\
