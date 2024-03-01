@@ -25,6 +25,7 @@ pub fn main() anyerror!void {
         \\--no-trace               Do not enable internal tracing.
         \\--restore-session        Restore restart session.
         \\--show-input             Open the input view on start.
+        \\-l, --language <str>     Force the language of the file to be opened.
         \\<str>...                 File to open.
         \\                         Add +<LINE> to the command line or append
         \\                         :LINE or :LINE:COL to the file name to jump
@@ -86,9 +87,9 @@ pub fn main() anyerror!void {
     env.set("show-input", (res.args.@"show-input" != 0));
     env.set("no-sleep", (res.args.@"no-sleep" != 0));
     env.set("dump-stack-trace", (res.args.@"debug-dump-on-error" != 0));
-    if (res.args.@"frame-rate") |frame_rate|
-        env.num_set("frame-rate", @intCast(frame_rate));
+    if (res.args.@"frame-rate") |s| env.num_set("frame-rate", @intCast(s));
     env.proc_set("log", log_proc.ref());
+    if (res.args.language) |s| env.str_set("language", s);
 
     var eh = thespian.make_exit_handler({}, print_exit_status);
     const tui_proc = try tui.spawn(a, &ctx, &eh, &env);

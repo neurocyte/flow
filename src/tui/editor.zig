@@ -357,6 +357,9 @@ pub const Editor = struct {
             var content = std.ArrayList(u8).init(self.a);
             defer content.deinit();
             try new_buf.root.store(content.writer());
+            const lang_override = tp.env.get().str("language");
+            if (lang_override.len > 0)
+                break :syntax syntax.create_file_type(self.a, content.items, lang_override) catch null;
             break :syntax syntax.create_guess_file_type(self.a, content.items, self.file_path) catch null;
         };
 
