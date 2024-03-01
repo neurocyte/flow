@@ -39,6 +39,15 @@ pub fn build(b: *std.Build) void {
 
     const dependency_optimize = if (optimize_deps_enabled) .ReleaseFast else optimize;
 
+    std.fs.cwd().makeDir(".cache") catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => std.debug.panic("makeDir(\".cache\") failed: {any}", .{e}),
+    };
+    std.fs.cwd().makeDir(".cache/cdb") catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => std.debug.panic("makeDir(\".cache/cdb\") failed: {any}", .{e}),
+    };
+
     const notcurses_dep = b.dependency("notcurses", .{
         .target = target,
         .optimize = dependency_optimize,

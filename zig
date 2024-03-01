@@ -7,8 +7,6 @@ BASEDIR="$(cd "$(dirname "$0")" && pwd)"
 ZIGDIR=$BASEDIR/.cache/zig
 VERSION=$(< build.zig.version)
 
-mkdir -p .cache/cdb
-
 OS=$(uname)
 
 if [ "$OS" == "Linux" ] ; then
@@ -54,7 +52,6 @@ get_zig
 if [ "$1" == "cdb" ] ; then
     rm -rf zig-cache
     rm -rf .cache/cdb
-    mkdir -p .cache/cdb
 
     $ZIG build
 
