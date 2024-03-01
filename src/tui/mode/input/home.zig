@@ -75,6 +75,14 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             else => {},
         },
         0 => switch (keypress) {
+            'h' => self.cmd("open_help", .{}),
+            'o' => self.cmd("enter_open_file_mode", .{}),
+            'e' => self.msg("open recent file not implemented"),
+            'r' => self.msg("open recent project not implemented"),
+            'p' => self.msg("open command palette not implemented"),
+            'c' => self.cmd("open_config", .{}),
+            'q' => self.cmd("quit", .{}),
+
             nc.key.F01 => self.cmd("open_help", .{}),
             nc.key.F06 => self.cmd("open_config", .{}),
             nc.key.F09 => self.cmd("theme_prev", .{}),
@@ -89,6 +97,10 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
 
 fn cmd(_: *Self, name_: []const u8, ctx: command.Context) tp.result {
     try command.executeName(name_, ctx);
+}
+
+fn msg(_: *Self, text: []const u8) tp.result {
+    return tp.self_pid().send(.{ "log", "home", text });
 }
 
 fn cmd_async(_: *Self, name_: []const u8) tp.result {

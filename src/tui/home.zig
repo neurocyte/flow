@@ -89,12 +89,13 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn render_hints(self: *Self, style_base: Widget.Theme.Style, style_text: Widget.Theme.Style, style_keybind: Widget.Theme.Style) void {
     const hint_text: [:0]const u8 =
-        \\Help ······················· :F1 / C-?
-        \\Open file ·················· :C-o
-        \\Open recent file ··(wip)···· :C-e / C-r
-        \\Show/Run commands ·(wip)···· :C-p / C-S-p
-        \\Open config file ··········· :F6
-        \\Quit/Close ················· :C-q, C-w
+        \\Help ······················· :h
+        \\Open file ·················· :o
+        \\Open recent file ··(wip)···· :e
+        \\Open recent project ··(wip)· :r
+        \\Show/Run commands ·(wip)···· :p
+        \\Open config file ··········· :c
+        \\Quit/Close ················· :q
         \\
     ;
 
