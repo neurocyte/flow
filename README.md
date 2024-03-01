@@ -7,16 +7,26 @@ https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f
 
 # Building
 
-Build with the provided zig wrapper:
+Make sure your system meets the requirements listed below.
+
+Flow tracks zig master most of the time. Build with:
+
+```shell
+zig build -Doptimize=ReleaseFast
+```
+
+Sometime zig master may introduce breaking changes and Flow may take a few days to
+catch up. In that case there is a simple zig wrapper script provided that will download
+and build with the last known compatible version of zig. The version is stored in
+`build.zig.version`.
+
+Build with the zig wrapper:
 ```shell
 ./zig build -Doptimize=ReleaseFast
 ```
 
-The zig wrapper just fetches a known good version of zig nightly and places it
-in the .cache directory. Or use your own version of zig. Be sure to use a version
-at least as high as the version used be the zig wrapper. It's stored in `build.zig.version`.
-
-Also, make sure your system meets the requirements listed below.
+The zig wrapper places the downloaded zig compiler in the `.cache` directory and does
+not touch your system. It requires `bash`, `curl` and `jq` to run.
 
 Run with:
 ```shell
@@ -26,6 +36,16 @@ zig-out/bin/flow
 Place it in your path for convenient access.
 
 See --help for full command line.
+
+## MacOS
+
+On MacOS you will need to link Flow against a MacOS build of notcurses 3.0.9. This
+is easiest with `brew`:
+
+```shell
+brew install notcurses
+zig build -Duse_system_notcurses=true --search-prefix /usr/local
+```
 
 # Terminal configuration
 
