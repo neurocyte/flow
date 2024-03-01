@@ -703,6 +703,7 @@ const cmds = struct {
             self.logger.print("unknown mode {s}", .{mode});
             break :ret @import("mode/input/flow.zig").create(self.a) catch |e| return tp.exit_error(e);
         };
+        self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
 
     pub fn enter_mode_default(self: *Self, _: Ctx) tp.result {
@@ -742,6 +743,7 @@ const cmds = struct {
         self.input_mode = .{
             .handler = mode_instance.handler(),
             .name = mode_instance.name(),
+            .description = mode_instance.name(),
         };
         self.mini_mode = .{};
     }
@@ -759,6 +761,7 @@ const cmds = struct {
 pub const Mode = struct {
     handler: EventHandler,
     name: []const u8,
+    description: []const u8,
     line_numbers: enum { absolute, relative } = .absolute,
 
     fn deinit(self: *Mode) void {
