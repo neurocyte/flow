@@ -5,9 +5,15 @@ This is my Zig text editor. It is very much a work-in-progress, but far enough a
 
 https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f2d4c6
 
+# Requirements
+- A modern terminal with 24bit color and kitty keyboard protocol support (kitty and ghostty are the only recommended terminals at this time)
+- NerdFonts support
+- Linux or MacOS (help porting to *BSD or Windows is welcome!)
+- A UTF-8 locale (very important!)
+
 # Building
 
-Make sure your system meets the requirements listed below.
+Make sure your system meets the requirements listed above.
 
 Flow tracks zig master most of the time. Build with:
 
@@ -39,7 +45,7 @@ See --help for full command line.
 
 ## MacOS
 
-On MacOS you will need to link Flow against a MacOS build of notcurses 3.0.9. This
+On MacOS you will need to link Flow against a MacOS build of **notcurses 3.0.9**. This
 is easiest with `brew`:
 
 ```shell
@@ -59,12 +65,6 @@ kitty_mod ctrl+alt
 ```
 
 For Ghostty each conflicting binding has to be reconfigured individually.
-
-# Requirements
-- A modern terminal with 24bit color and kitty keyboard protocol support (kitty and ghostty are the only recommended terminals at this time)
-- NerdFonts support
-- Linux or MacOS (help porting to *BSD or Windows is welcome!)
-- A UTF-8 locale (very important!)
 
 # Features
 - fast TUI interface. no user interaction should take longer than one frame (6ms) (even debug builds)
