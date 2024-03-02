@@ -112,7 +112,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const Buffer_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/Buffer.zig" },
+        .root_source_file = .{ .path = "src/buffer/Buffer.zig" },
         .imports = &.{
             .{ .name = "notcurses", .module = notcurses_mod },
             .{ .name = "cbor", .module = cbor_mod },
