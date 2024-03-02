@@ -288,6 +288,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "exit", "normal" }))
         return;
 
+    if (try m.match(.{ "exit", "timeout_error", 125, "Operation aborted." }))
+        return;
+
     return tp.unexpected(m);
 }
 
