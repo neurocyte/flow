@@ -54,12 +54,12 @@ pub fn handler(self: *Self) EventHandler {
 pub fn name(self: *Self) []const u8 {
     return switch (self.operation) {
         .move => switch (self.direction) {
-            .left => "move left to char",
-            .right => "move right to char",
+            .left => "↶ move",
+            .right => "↷ move",
         },
         .select => switch (self.direction) {
-            .left => "select left to char",
-            .right => "select right to char",
+            .left => "󰒅 ↶ select",
+            .right => "󰒅 ↷ select",
         },
     };
 }

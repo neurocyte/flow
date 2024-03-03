@@ -1149,7 +1149,7 @@ fn egc_len(egcs: []const u8, colcount: *c_int, abs_col: usize) usize {
     };
 }
 
-fn egc_chunk_width(chunk_: []const u8, abs_col_: usize) usize {
+pub fn egc_chunk_width(chunk_: []const u8, abs_col_: usize) usize {
     var abs_col = abs_col_;
     var chunk = chunk_;
     var colcount: usize = 0;

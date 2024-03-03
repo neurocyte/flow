@@ -41,7 +41,7 @@ pub fn handler(self: *Self) EventHandler {
 }
 
 pub fn name(_: *Self) []const u8 {
-    return "goto";
+    return "＃goto";
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {

@@ -54,7 +54,7 @@ pub fn handler(self: *Self) EventHandler {
 }
 
 pub fn name(_: *Self) []const u8 {
-    return "find";
+    return "󱎸 find";
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
