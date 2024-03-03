@@ -340,10 +340,28 @@ fn mapFollower(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             else => {},
         },
         0 => switch (ldr.keypress) {
-            'D', 'C' => {
+            'C' => {
                 try switch (modifiers) {
-                    mod.SHIFT => switch (keypress) {
-                        '4' => self.cmd("delete_to_end", .{}),
+                    mod.SHIFT => switch (egc) {
+                        '$' => self.cmd("delete_to_end", .{}),
+                        else => {},
+                    },
+                    0 => switch (keypress) {
+                        'W', 'E' => self.seq_count(.{ "select_word_right", "cut" }, .{}),
+                        else => {},
+                    },
+                    else => switch (egc) {
+                        '$' => self.cmd("delete_to_end", .{}),
+                        else => {},
+                    },
+                };
+                if (ldr.keypress == 'C')
+                    try self.cmd("enter_mode", command.fmt(.{"vim/insert"}));
+            },
+            'D' => {
+                try switch (modifiers) {
+                    mod.SHIFT => switch (egc) {
+                        '$' => self.cmd("delete_to_end", .{}),
                         else => {},
                     },
                     0 => switch (keypress) {
