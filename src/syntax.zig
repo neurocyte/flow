@@ -11,6 +11,7 @@ const Language = treez.Language;
 const Parser = treez.Parser;
 const Query = treez.Query;
 const Tree = treez.Tree;
+pub const Node = treez.Node;
 
 a: std.mem.Allocator,
 lang: *const Language,
@@ -73,7 +74,7 @@ pub fn refresh(self: *Self, content: []const u8) !void {
 }
 
 fn CallBack(comptime T: type) type {
-    return fn (ctx: T, sel: Range, scope: []const u8, id: u32, capture_idx: usize) error{Stop}!void;
+    return fn (ctx: T, sel: Range, scope: []const u8, id: u32, capture_idx: usize, node: *const Node) error{Stop}!void;
 }
 
 pub fn render(self: *const Self, ctx: anytype, comptime cb: CallBack(@TypeOf(ctx)), range: ?Range) !void {
@@ -85,7 +86,7 @@ pub fn render(self: *const Self, ctx: anytype, comptime cb: CallBack(@TypeOf(ctx
     while (cursor.nextMatch()) |match| {
         var idx: usize = 0;
         for (match.captures()) |capture| {
-            try cb(ctx, capture.node.getRange(), self.query.getCaptureNameForId(capture.id), capture.id, idx);
+            try cb(ctx, capture.node.getRange(), self.query.getCaptureNameForId(capture.id), capture.id, idx, &capture.node);
             idx += 1;
         }
     }
@@ -104,7 +105,7 @@ pub fn highlights_at_point(self: *const Self, ctx: anytype, comptime cb: CallBac
             const end = range.end_point;
             const scope = self.query.getCaptureNameForId(capture.id);
             if (start.row == point.row and start.column <= point.column and point.column < end.column)
-                cb(ctx, range, scope, capture.id, 0) catch return;
+                cb(ctx, range, scope, capture.id, 0, &capture.node) catch return;
             break;
         }
     }

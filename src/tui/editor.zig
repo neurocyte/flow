@@ -47,6 +47,7 @@ pub const Match = struct {
     begin: Cursor = Cursor{},
     end: Cursor = Cursor{},
     has_selection: bool = false,
+    style: ?Widget.Theme.Style = null,
 
     const List = std.ArrayList(?Self);
     const Self = @This();
@@ -724,7 +725,7 @@ pub const Editor = struct {
             if (self.is_point_before_selection(sel, y, x))
                 return;
             if (self.is_point_in_selection(sel, y, x))
-                return self.render_match_cell(theme, cell);
+                return self.render_match_cell(theme, cell, sel);
             last_idx.* += 1;
         }
     }
@@ -754,8 +755,8 @@ pub const Editor = struct {
         tui.set_cell_style_bg(cell, theme.editor_selection);
     }
 
-    inline fn render_match_cell(_: *const Self, theme: *const Widget.Theme, cell: *nc.Cell) void {
-        tui.set_cell_style_bg(cell, theme.editor_match);
+    inline fn render_match_cell(_: *const Self, theme: *const Widget.Theme, cell: *nc.Cell, match: Match) void {
+        tui.set_cell_style_bg(cell, if (match.style) |style| style else theme.editor_match);
     }
 
     inline fn render_line_highlight_cell(_: *const Self, theme: *const Widget.Theme, cell: *nc.Cell) void {
@@ -848,7 +849,7 @@ pub const Editor = struct {
             last_col: usize = std.math.maxInt(usize),
             root: Buffer.Root,
             pos_cache: PosToWidthCache,
-            fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, _: usize) error{Stop}!void {
+            fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, _: usize, _: *const syntax.Node) error{Stop}!void {
                 const sel_ = ctx.pos_cache.range_to_selection(range, ctx.root) orelse return;
                 defer {
                     ctx.last_row = sel_.begin.row;

@@ -26,6 +26,7 @@ need_clear: bool = false,
 theme: ?*const Widget.Theme = null,
 theme_name: []const u8 = "",
 pos_cache: ed.PosToWidthCache,
+last_node: usize = 0,
 
 const Self = @This();
 
@@ -101,18 +102,53 @@ fn get_buffer_text(self: *Self, buf: []u8, sel: Buffer.Selection) ?[]const u8 {
     return root.get_range(sel, buf, null, null) catch return null;
 }
 
-fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize) error{Stop}!void {
+fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, ast_node: *const syntax.Node) error{Stop}!void {
     const sel = self.pos_cache.range_to_selection(range, self.editor.get_current_root() orelse return) orelse return;
     if (self.need_clear) {
         self.need_clear = false;
         self.clear();
     }
 
-    if (self.editor.matches.items.len == 0) {
-        (self.editor.matches.addOne() catch return).* = ed.Match.from_selection(sel);
-    } else if (self.editor.matches.items.len == 1) {
-        self.editor.matches.items[0] = ed.Match.from_selection(sel);
+    var update_match: enum { no, add, set } = .no;
+    var match = ed.Match.from_selection(sel);
+    if (self.theme) |theme| match.style = .{ .bg = theme.editor_gutter_modified.fg };
+    switch (self.editor.matches.items.len) {
+        0 => {
+            (self.editor.matches.addOne() catch return).* = match;
+            update_match = .add;
+        },
+        1 => {
+            self.editor.matches.items[0] = match;
+            update_match = .add;
+        },
+        2 => {
+            self.editor.matches.items[0] = match;
+            update_match = .set;
+        },
+        else => {},
     }
+
+    const node_token = @intFromPtr(ast_node);
+    if (node_token != self.last_node) {
+        const ast = ast_node.asSExpressionString();
+        _ = self.plane.print("node: {s}\n", .{ast}) catch {};
+        syntax.Node.freeSExpressionString(ast);
+        const parent = ast_node.getParent();
+        if (!parent.isNull()) {
+            const ast_parent = parent.asSExpressionString();
+            _ = self.plane.print("parent: {s}\n", .{ast_parent}) catch {};
+            syntax.Node.freeSExpressionString(ast_parent);
+            const sel_parent = self.pos_cache.range_to_selection(parent.getRange(), self.editor.get_current_root() orelse return) orelse return;
+            var match_parent = ed.Match.from_selection(sel_parent);
+            if (self.theme) |theme| match_parent.style = .{ .bg = theme.editor_gutter_added.fg };
+            switch (update_match) {
+                .add => (self.editor.matches.addOne() catch return).* = match_parent,
+                .set => self.editor.matches.items[1] = match_parent,
+                .no => {},
+            }
+        }
+    }
+    self.last_node = @intFromPtr(ast_node);
 
     var buf: [1024]u8 = undefined;
     const text = self.get_buffer_text(&buf, sel) orelse "";
