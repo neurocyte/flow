@@ -90,3 +90,8 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 # Features planned for the future
 - multi host editing
 - multi user editing
+
+# Community
+
+Join our [Discord](https://discord.gg/ufRh5PwA6B) server or use the discussions section here on GitHub
+to meet with other Flow users!
