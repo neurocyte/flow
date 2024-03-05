@@ -1,0 +1,81 @@
+const std = @import("std");
+const nc = @import("notcurses");
+const tp = @import("thespian");
+const log = @import("log");
+
+const Widget = @import("Widget.zig");
+const command = @import("command.zig");
+const tui = @import("tui.zig");
+
+parent: nc.Plane,
+plane: nc.Plane,
+active: bool = false,
+hover: bool = false,
+opts: Options,
+
+const Self = @This();
+
+pub const Options = struct {
+    label: []const u8 = "button",
+    pos: Widget.Box = .{ .y = 0, .x = 0, .w = 8, .h = 1 },
+    ctx: ?*anyopaque = null,
+
+    on_click: *const fn (ctx: ?*anyopaque, button: *Self) void = do_nothing,
+    on_render: ?*const fn (ctx: ?*anyopaque, button: *Self, theme: *const Widget.Theme) bool = null,
+    on_layout: ?*const fn (ctx: ?*anyopaque, button: *Self) Widget.Layout = null,
+};
+
+pub fn create(a: std.mem.Allocator, parent: nc.Plane, opts: Options) !Widget {
+    const self: *Self = try a.create(Self);
+    var n = try nc.Plane.init(&opts.pos.opts(@typeName(Self)), parent);
+    errdefer n.deinit();
+    self.* = .{
+        .parent = parent,
+        .plane = n,
+        .opts = opts,
+    };
+    return Widget.to(self);
+}
+
+pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+    self.plane.deinit();
+    a.destroy(self);
+}
+
+pub fn layout(self: *Self) Widget.Layout {
+    return if (self.opts.on_layout) |on_layout|
+        on_layout(self.opts.ctx, self)
+    else
+        .{ .static = self.opts.label.len + 2 };
+}
+
+pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    if (self.opts.on_render) |on_render|
+        return on_render(self.opts.ctx, self, theme);
+    tui.set_base_style(&self.plane, " ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
+    self.plane.erase();
+    self.plane.home();
+    _ = self.plane.print(" {s} ", .{self.opts.label}) catch {};
+    return false;
+}
+
+pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+        self.active = true;
+        return true;
+    } else if (try m.match(.{ "B", nc.event_type.RELEASE, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+        self.opts.on_click(self.opts.ctx, self);
+        self.active = false;
+        return true;
+    } else if (try m.match(.{ "D", nc.event_type.RELEASE, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+        self.opts.on_click(self.opts.ctx, self);
+        self.active = false;
+        return true;
+    } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
+        tui.current().request_mouse_cursor_pointer(self.hover);
+        return true;
+    }
+    return false;
+}
+
+pub fn do_nothing(_: ?*anyopaque, _: *Self) void {}

@@ -46,7 +46,7 @@ pub const VTable = struct {
     subscribe: *const fn (ctx: *anyopaque, h: EventHandler) error{NotSupported}!void,
     unsubscribe: *const fn (ctx: *anyopaque, h: EventHandler) error{NotSupported}!void,
     get: *const fn (ctx: *anyopaque, name_: []const u8) ?*Self,
-    walk: *const fn (ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn) bool,
+    walk: *const fn (ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn, self_widget: *Self) bool,
     type_name: []const u8,
 };
 
@@ -130,8 +130,8 @@ pub fn to(pimpl: anytype) Self {
                 }
             }.get,
             .walk = struct {
-                pub fn walk(ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn) bool {
-                    return if (comptime @hasDecl(child, "walk")) child.walk(@as(*child, @ptrCast(@alignCast(ctx))), walk_ctx, f) else false;
+                pub fn walk(ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn, self: *Self) bool {
+                    return if (comptime @hasDecl(child, "walk")) child.walk(@as(*child, @ptrCast(@alignCast(ctx))), walk_ctx, f, self) else false;
                 }
             }.walk,
         },
@@ -206,7 +206,7 @@ pub fn get(self: *Self, name_: []const u8) ?*Self {
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: WalkFn) bool {
-    return if (self.vtable.walk(self.ptr, walk_ctx, f)) true else f(walk_ctx, self);
+    return if (self.vtable.walk(self.ptr, walk_ctx, f, self)) true else f(walk_ctx, self);
 }
 
 pub fn empty(a: Allocator, parent: nc.Plane, layout_: Layout) !Self {
@@ -264,7 +264,7 @@ pub fn empty(a: Allocator, parent: nc.Plane, layout_: Layout) !Self {
                 }
             }.get,
             .walk = struct {
-                pub fn walk(_: *anyopaque, _: *anyopaque, _: WalkFn) bool {
+                pub fn walk(_: *anyopaque, _: *anyopaque, _: WalkFn, _: *Self) bool {
                     return false;
                 }
             }.walk,

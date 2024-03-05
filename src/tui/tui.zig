@@ -690,7 +690,7 @@ const cmds = struct {
         var mode: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&mode)}))
             return tp.exit_error(error.InvalidArgument);
-        if (self.mini_mode) |_| std.debug.panic("attempted to switch mode to {s} while in mini mode {s}", .{ mode, self.input_mode.?.name });
+        if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
         if (self.input_mode) |*m| m.deinit();
         self.input_mode = if (std.mem.eql(u8, mode, "vim/normal"))
             @import("mode/input/vim/normal.zig").create(self.a) catch |e| return tp.exit_error(e)
@@ -829,6 +829,10 @@ pub fn request_mouse_cursor_text(self: *const Self, push_or_pop: bool) void {
 
 pub fn request_mouse_cursor_pointer(self: *const Self, push_or_pop: bool) void {
     if (push_or_pop) self.mouse_cursor_push("pointer") else self.mouse_cursor_pop();
+}
+
+pub fn request_mouse_cursor_default(self: *const Self, push_or_pop: bool) void {
+    if (push_or_pop) self.mouse_cursor_push("default") else self.mouse_cursor_pop();
 }
 
 fn mouse_cursor_push(self: *const Self, comptime name: []const u8) void {

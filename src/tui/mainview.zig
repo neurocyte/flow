@@ -21,6 +21,7 @@ const Commands = command.Collection(cmds);
 a: std.mem.Allocator,
 plane: nc.Plane,
 widgets: *WidgetList,
+widgets_widget: Widget,
 floating_views: WidgetStack,
 commands: Commands = undefined,
 statusbar: *Widget,
@@ -46,6 +47,7 @@ pub fn create(a: std.mem.Allocator, n: nc.Plane) !Widget {
         .a = a,
         .plane = n,
         .widgets = undefined,
+        .widgets_widget = undefined,
         .floating_views = WidgetStack.init(a),
         .statusbar = undefined,
         .location_history = try location_history.create(),
@@ -54,6 +56,7 @@ pub fn create(a: std.mem.Allocator, n: nc.Plane) !Widget {
     const w = Widget.to(self);
     const widgets = try WidgetList.createV(a, w, @typeName(Self), .dynamic);
     self.widgets = widgets;
+    self.widgets_widget = widgets.widget();
     try widgets.add(try Widget.empty(a, n, .dynamic));
     self.statusbar = try widgets.addP(try @import("status/statusbar.zig").create(a, w));
     self.resize();
@@ -320,8 +323,8 @@ pub fn get_editor(self: *Self) ?*ed.Editor {
     return self.editor;
 }
 
-pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
-    return if (self.floating_views.walk(walk_ctx, f)) true else self.widgets.walk(walk_ctx, f);
+pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
+    return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f, &self.widgets_widget) or f(ctx, w);
 }
 
 fn create_editor(self: *Self) tp.result {

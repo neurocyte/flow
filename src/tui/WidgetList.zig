@@ -28,18 +28,21 @@ box: ?Widget.Box = null,
 pub fn createH(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
     const self: *Self = try a.create(Self);
     self.* = try init(a, parent, name, .horizontal, layout_, Box{});
+    self.plane.move_bottom();
     return self;
 }
 
 pub fn createV(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
     const self: *Self = try a.create(Self);
     self.* = try init(a, parent, name, .vertical, layout_, Box{});
+    self.plane.move_bottom();
     return self;
 }
 
 pub fn createBox(a: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !*Self {
     const self: *Self = try a.create(Self);
     self.* = try init(a, parent, name, dir, layout_, box);
+    self.plane.move_bottom();
     return self;
 }
 
@@ -222,8 +225,8 @@ pub fn get(self: *Self, name_: []const u8) ?*Widget {
     return null;
 }
 
-pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
+pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, self_w: *Widget) bool {
     for (self.widgets.items) |*w|
-        if (w.widget.walk(walk_ctx, f)) return true;
-    return false;
+        if (w.widget.walk(ctx, f)) return true;
+    return f(ctx, self_w);
 }

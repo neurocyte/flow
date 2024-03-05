@@ -3,6 +3,8 @@ const nc = @import("notcurses");
 const tp = @import("thespian");
 
 const Widget = @import("Widget.zig");
+const WidgetList = @import("WidgetList.zig");
+const Button = @import("Button.zig");
 const tui = @import("tui.zig");
 const command = @import("command.zig");
 const fonts = @import("fonts.zig");
@@ -12,6 +14,8 @@ plane: nc.Plane,
 parent: nc.Plane,
 fire: ?Fire = null,
 commands: Commands = undefined,
+menu: *WidgetList,
+menu_widget: Widget,
 
 const Self = @This();
 
@@ -24,20 +28,86 @@ pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
         .a = a,
         .parent = parent.plane.*,
         .plane = n,
+        .menu = undefined,
+        .menu_widget = undefined,
     };
     try self.commands.init(self);
+    const w = Widget.to(self);
+    const menu = try WidgetList.createV(a, w, @typeName(Self), .{ .static = 32 });
+    self.menu = menu;
+    self.menu_widget = menu.widget();
+    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Help ······················· :h", .on_click = on_click_help, .on_render = render_menu_item }));
+    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Open file ·················· :o", .on_click = on_click_open_file, .on_render = render_menu_item }));
+    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Open recent file ····(wip)·· :e", .on_click = on_click_open_recent_file, .on_render = render_menu_item }));
+    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Open recent project ·(wip)·· :r", .on_click = on_click_open_recent_project, .on_render = render_menu_item }));
+    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Show/Run commands ···(wip)·· :p", .on_click = on_click_show_commands, .on_render = render_menu_item }));
+    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Open config file ··········· :c", .on_click = on_click_open_config, .on_render = render_menu_item }));
+    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Quit/Close ················· :q", .on_click = on_click_quit, .on_render = render_menu_item }));
+    menu.resize(.{ .y = 15, .x = 9, .w = 32, .h = menu.widgets.items.len });
     command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
-    return Widget.to(self);
+    return w;
 }
 
 pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+    self.menu.deinit(a);
     self.commands.deinit();
     self.plane.deinit();
     if (self.fire) |*fire| fire.deinit();
     a.destroy(self);
 }
 
+pub fn update(self: *Self) void {
+    self.menu.update();
+}
+
+pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
+    return self.menu.walk(walk_ctx, f, &self.menu_widget) or f(walk_ctx, w);
+}
+
+pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    var hover: bool = false;
+    if (try m.match(.{ "H", tp.extract(&hover) })) {
+        tui.current().request_mouse_cursor_default(hover);
+        return true;
+    }
+    return false;
+}
+
+fn menu_layout(_: ?*anyopaque, _: *Button) Widget.Layout {
+    return .{ .static = 1 };
+}
+
+pub fn on_click_help(_: ?*anyopaque, _: *Button) void {
+    command.executeName("open_help", .{}) catch {};
+}
+
+pub fn on_click_open_file(_: ?*anyopaque, _: *Button) void {
+    command.executeName("enter_open_file_mode", .{}) catch {};
+}
+
+pub fn on_click_open_recent_file(_: ?*anyopaque, _: *Button) void {
+    tp.self_pid().send(.{ "log", "home", "open recent file not implemented" }) catch {};
+}
+
+pub fn on_click_open_recent_project(_: ?*anyopaque, _: *Button) void {
+    tp.self_pid().send(.{ "log", "home", "open recent project not implemented" }) catch {};
+}
+
+pub fn on_click_show_commands(_: ?*anyopaque, _: *Button) void {
+    tp.self_pid().send(.{ "log", "home", "open command palette not implemented" }) catch {};
+}
+
+pub fn on_click_open_config(_: ?*anyopaque, _: *Button) void {
+    command.executeName("open_config", .{}) catch {};
+}
+
+pub fn on_click_quit(_: ?*anyopaque, _: *Button) void {
+    command.executeName("quit", .{}) catch {};
+}
+
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    const more = self.menu.render(theme);
+
     tui.set_base_style(&self.plane, " ", theme.editor);
     self.plane.erase();
     self.plane.home();
@@ -45,78 +115,58 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     const style_title = if (tui.find_scope_style(theme, "function")) |sty| sty.style else theme.editor;
     const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
-    const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else theme.editor;
-    const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else theme.editor;
 
     const title = "Flow Control";
     const subtext = "a programmer's text editor";
 
     if (self.plane.dim_x() > 120 and self.plane.dim_y() > 22) {
-        self.set_style(style_title);
-        self.plane.cursor_move_yx(2, 4) catch return false;
-        fonts.print_string_large(self.plane, title) catch return false;
+        tui.set_style(&self.plane, style_title);
+        self.plane.cursor_move_yx(2, 4) catch return more;
+        fonts.print_string_large(self.plane, title) catch return more;
 
-        self.set_style(style_subtext);
-        self.plane.cursor_move_yx(10, 8) catch return false;
-        fonts.print_string_medium(self.plane, subtext) catch return false;
+        tui.set_style(&self.plane, style_subtext);
+        self.plane.cursor_move_yx(10, 8) catch return more;
+        fonts.print_string_medium(self.plane, subtext) catch return more;
 
-        self.plane.cursor_move_yx(15, 10) catch return false;
+        self.menu.resize(.{ .y = 15, .x = 10, .w = 32, .h = self.menu.widgets.items.len });
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
-        self.set_style(style_title);
-        self.plane.cursor_move_yx(2, 4) catch return false;
-        fonts.print_string_medium(self.plane, title) catch return false;
+        tui.set_style(&self.plane, style_title);
+        self.plane.cursor_move_yx(2, 4) catch return more;
+        fonts.print_string_medium(self.plane, title) catch return more;
 
-        self.set_style(style_subtext);
-        self.plane.cursor_move_yx(7, 6) catch return false;
+        tui.set_style(&self.plane, style_subtext);
+        self.plane.cursor_move_yx(7, 6) catch return more;
         _ = self.plane.print(subtext, .{}) catch {};
 
-        self.plane.cursor_move_yx(9, 8) catch return false;
+        self.menu.resize(.{ .y = 9, .x = 8, .w = 32, .h = self.menu.widgets.items.len });
     } else {
-        self.set_style(style_title);
-        self.plane.cursor_move_yx(1, 4) catch return false;
-        _ = self.plane.print(title, .{}) catch return false;
+        tui.set_style(&self.plane, style_title);
+        self.plane.cursor_move_yx(1, 4) catch return more;
+        _ = self.plane.print(title, .{}) catch return more;
 
-        self.set_style(style_subtext);
-        self.plane.cursor_move_yx(3, 6) catch return false;
+        tui.set_style(&self.plane, style_subtext);
+        self.plane.cursor_move_yx(3, 6) catch return more;
         _ = self.plane.print(subtext, .{}) catch {};
 
-        self.plane.cursor_move_yx(5, 8) catch return false;
+        self.menu.resize(.{ .y = 5, .x = 8, .w = 32, .h = self.menu.widgets.items.len });
     }
-    if (self.plane.dim_x() > 48 and self.plane.dim_y() > 12)
-        self.render_hints(style_subtext, style_text, style_keybind);
     return true;
 }
 
-fn render_hints(self: *Self, style_base: Widget.Theme.Style, style_text: Widget.Theme.Style, style_keybind: Widget.Theme.Style) void {
-    const hint_text: [:0]const u8 =
-        \\Help ······················· :h
-        \\Open file ·················· :o
-        \\Open recent file ··(wip)···· :e
-        \\Open recent project ··(wip)· :r
-        \\Show/Run commands ·(wip)···· :p
-        \\Open config file ··········· :c
-        \\Quit/Close ················· :q
-        \\
-    ;
-
-    const left: c_int = @intCast(self.plane.cursor_x());
-    var pos: usize = 0;
-    while (std.mem.indexOfScalarPos(u8, hint_text, pos, '\n')) |next| {
-        const line = hint_text[pos..next];
-        const sep = std.mem.indexOfScalar(u8, line, ':') orelse line.len;
-        self.set_style(style_base);
-        self.set_style(style_text);
-        _ = self.plane.print("{s}", .{line[0..sep]}) catch {};
-        self.set_style(style_keybind);
-        _ = self.plane.print("{s}", .{line[sep + 1 ..]}) catch {};
-        self.plane.cursor_move_rel(1, 0) catch {};
-        self.plane.cursor_move_yx(-1, left) catch {};
-        pos = next + 1;
-    }
-}
-
-fn set_style(self: *Self, style: Widget.Theme.Style) void {
-    tui.set_style(&self.plane, style);
+fn render_menu_item(_: ?*anyopaque, button: *Button, theme: *const Widget.Theme) bool {
+    tui.set_base_style(&button.plane, " ", if (button.active) theme.editor_cursor else if (button.hover) theme.editor_selection else theme.editor);
+    button.plane.erase();
+    button.plane.home();
+    const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
+    const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else theme.editor;
+    const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else theme.editor;
+    const sep = std.mem.indexOfScalar(u8, button.opts.label, ':') orelse button.opts.label.len;
+    tui.set_style(&button.plane, style_subtext);
+    tui.set_style(&button.plane, style_text);
+    _ = button.plane.print(" {s}", .{button.opts.label[0..sep]}) catch {};
+    tui.set_style(&button.plane, style_keybind);
+    _ = button.plane.print("{s}", .{button.opts.label[sep + 1 ..]}) catch {};
+    return false;
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
