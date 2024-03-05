@@ -27,19 +27,25 @@ box: ?Widget.Box = null,
 
 pub fn createH(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
     const self: *Self = try a.create(Self);
-    self.* = try init(a, parent, name, .horizontal, layout_);
+    self.* = try init(a, parent, name, .horizontal, layout_, Box{});
     return self;
 }
 
 pub fn createV(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
     const self: *Self = try a.create(Self);
-    self.* = try init(a, parent, name, .vertical, layout_);
+    self.* = try init(a, parent, name, .vertical, layout_, Box{});
     return self;
 }
 
-fn init(a: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout) !Self {
+pub fn createBox(a: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !*Self {
+    const self: *Self = try a.create(Self);
+    self.* = try init(a, parent, name, dir, layout_, box);
+    return self;
+}
+
+fn init(a: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !Self {
     return .{
-        .plane = try nc.Plane.init(&(Box{}).opts(name), parent.plane.*),
+        .plane = try nc.Plane.init(&box.opts(name), parent.plane.*),
         .parent = parent.plane.*,
         .a = a,
         .widgets = ArrayList(WidgetState).init(a),
