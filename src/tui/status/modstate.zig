@@ -73,17 +73,13 @@ fn render_modifier(self: *Self, state: bool, off: [:0]const u8, on: [:0]const u8
     _ = self.plane.putstr(if (state) on else off) catch {};
 }
 
-fn set_modifiers(self: *Self, key: u32, modifiers: u32) void {
-    self.ctrl = nc.isCtrl(modifiers);
-    self.shift = nc.isShift(modifiers);
-    self.alt = nc.isAlt(modifiers);
-}
-
 pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    var key: u32 = 0;
     var mod: u32 = 0;
-    if (try m.match(.{ "I", tp.any, tp.extract(&key), tp.any, tp.any, tp.extract(&mod), tp.more }))
-        self.set_modifiers(key, mod);
+    if (try m.match(.{ "I", tp.any, tp.any, tp.any, tp.any, tp.extract(&mod), tp.more })) {
+        self.ctrl = nc.isCtrl(mod);
+        self.shift = nc.isShift(mod);
+        self.alt = nc.isAlt(mod);
+    }
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
