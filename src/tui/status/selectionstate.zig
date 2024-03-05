@@ -63,7 +63,7 @@ fn format(self: *Self) void {
             _ = writer.write(" ") catch {};
     }
     if (self.cursels > 1) {
-        std.fmt.format(writer, "({d} cursels)", .{self.cursels}) catch {};
+        std.fmt.format(writer, "({d} cursors)", .{self.cursels}) catch {};
         if (self.selection) |_|
             _ = writer.write(" ") catch {};
     }
