@@ -73,14 +73,7 @@ fn render_modifier(self: *Self, state: bool, off: [:0]const u8, on: [:0]const u8
     _ = self.plane.putstr(if (state) on else off) catch {};
 }
 
-fn set_modifiers(self: *Self, key: u32, mods: u32) void {
-    const modifiers = switch (key) {
-        nc.key.LCTRL, nc.key.RCTRL => mods ^ nc.mod.CTRL,
-        nc.key.LSHIFT, nc.key.RSHIFT => mods ^ nc.mod.SHIFT,
-        nc.key.LALT, nc.key.RALT => mods ^ nc.mod.ALT,
-        else => mods,
-    };
-
+fn set_modifiers(self: *Self, key: u32, modifiers: u32) void {
     self.ctrl = nc.isCtrl(modifiers);
     self.shift = nc.isShift(modifiers);
     self.alt = nc.isAlt(modifiers);
