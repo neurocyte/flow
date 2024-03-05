@@ -93,5 +93,5 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 
 # Community
 
-Join our [Discord](https://discord.gg/ufRh5PwA6B) server or use the discussions section here on GitHub
+Join our [Discord](https://discord.com/invite/4wvteUPphx) server or use the discussions section here on GitHub
 to meet with other Flow users!
