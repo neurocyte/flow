@@ -788,6 +788,7 @@ const ST = "\x1B\\"; // String Terminator
 const BEL = "\x07";
 const OSC0_title = OSC ++ "0;";
 const OSC52_clipboard = OSC ++ "52;c;";
+const OSC52_clipboard_paste = OSC ++ "52;p;";
 const OSC22_cursor = OSC ++ "22;";
 const OSC22_cursor_reply = OSC ++ "22:";
 
@@ -845,6 +846,8 @@ fn handle_escape_code(self: *Self) tp.result {
     const code = self.escape_code.items;
     if (code.len > OSC52_clipboard.len - 1 and std.mem.eql(u8, OSC52_clipboard[1..], code[0 .. OSC52_clipboard.len - 1]))
         return self.handle_system_clipboard(code[OSC52_clipboard.len - 1 ..]);
+    if (code.len > OSC52_clipboard_paste.len - 1 and std.mem.eql(u8, OSC52_clipboard_paste[1..], code[0 .. OSC52_clipboard_paste.len - 1]))
+        return self.handle_system_clipboard(code[OSC52_clipboard_paste.len - 1 ..]);
     if (code.len > OSC22_cursor_reply.len - 1 and std.mem.eql(u8, OSC22_cursor_reply[1..], code[0 .. OSC22_cursor_reply.len - 1]))
         return self.handle_mouse_cursor(code[OSC22_cursor_reply.len - 1 ..]);
     self.logger.print("ignored escape code: {s}", .{std.fmt.fmtSliceEscapeLower(code)});
