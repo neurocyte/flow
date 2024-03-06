@@ -32,7 +32,7 @@ pub fn create(a: Allocator) !tui.Mode {
         .handler = EventHandler.to_owned(self),
         .name = root.application_logo ++ "NORMAL",
         .description = "vim",
-        .line_numbers = .relative,
+        .line_numbers = if (tui.current().config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
     };
 }
 
