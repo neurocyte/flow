@@ -5,6 +5,7 @@ const tp = @import("thespian");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const Button = @import("Button.zig");
+const Menu = @import("Menu.zig");
 const tui = @import("tui.zig");
 const command = @import("command.zig");
 const fonts = @import("fonts.zig");
@@ -14,8 +15,7 @@ plane: nc.Plane,
 parent: nc.Plane,
 fire: ?Fire = null,
 commands: Commands = undefined,
-menu: *WidgetList,
-menu_widget: Widget,
+menu: *Menu,
 
 const Self = @This();
 
@@ -24,28 +24,33 @@ pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
     var n = try nc.Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
     errdefer n.deinit();
 
+    const w = Widget.to(self);
     self.* = .{
         .a = a,
         .parent = parent.plane.*,
         .plane = n,
-        .menu = undefined,
-        .menu_widget = undefined,
+        .menu = try Menu.create(a, w),
     };
     try self.commands.init(self);
-    const w = Widget.to(self);
-    const menu = try WidgetList.createV(a, w, @typeName(Self), .{ .static = 32 });
-    self.menu = menu;
-    self.menu_widget = menu.widget();
-    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Help ······················· :h", .on_click = on_click_help, .on_render = render_menu_item }));
-    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Open file ·················· :o", .on_click = on_click_open_file, .on_render = render_menu_item }));
-    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Open recent file ····(wip)·· :e", .on_click = on_click_open_recent_file, .on_render = render_menu_item }));
-    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Open recent project ·(wip)·· :r", .on_click = on_click_open_recent_project, .on_render = render_menu_item }));
-    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Show/Run commands ···(wip)·· :p", .on_click = on_click_show_commands, .on_render = render_menu_item }));
-    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Open config file ··········· :c", .on_click = on_click_open_config, .on_render = render_menu_item }));
-    try menu.add(try Button.create(a, parent.plane.*, .{ .on_layout = menu_layout, .label = "Quit/Close ················· :q", .on_click = on_click_quit, .on_render = render_menu_item }));
-    menu.resize(.{ .y = 15, .x = 9, .w = 32, .h = menu.widgets.items.len });
+    try self.menu.add_item("Help ······················· :h", menu_action_help);
+    try self.menu.add_item("Open file ·················· :o", menu_action_open_file);
+    try self.menu.add_item("Open recent file ····(wip)·· :e", menu_action_open_recent_file);
+    try self.menu.add_item("Open recent project ·(wip)·· :r", menu_action_open_recent_project);
+    try self.menu.add_item("Show/Run commands ···(wip)·· :p", menu_action_show_commands);
+    try self.menu.add_item("Open config file ··········· :c", menu_action_open_config);
+    try self.menu.add_item("Quit/Close ················· :q", menu_action_quit);
+    self.menu.resize(.{ .y = 15, .x = 9, .w = 32 });
     command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
     return w;
+}
+
+fn menu_item(self: *Self, label: []const u8, on_click: *const fn (_: void, _: *Button.State(void)) void) !void {
+    try self.menu.add(try Button.create({}, self.a, self.parent, .{
+        .on_layout = menu_layout,
+        .label = label,
+        .on_click = on_click,
+        .on_render = render_menu_item,
+    }));
 }
 
 pub fn deinit(self: *Self, a: std.mem.Allocator) void {
@@ -61,7 +66,7 @@ pub fn update(self: *Self) void {
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
-    return self.menu.walk(walk_ctx, f, &self.menu_widget) or f(walk_ctx, w);
+    return self.menu.walk(walk_ctx, f) or f(walk_ctx, w);
 }
 
 pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -73,35 +78,35 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn menu_layout(_: ?*anyopaque, _: *Button) Widget.Layout {
+fn menu_layout(_: void, _: *Button.State(void)) Widget.Layout {
     return .{ .static = 1 };
 }
 
-pub fn on_click_help(_: ?*anyopaque, _: *Button) void {
+fn menu_action_help(_: void, _: *Button.State(void)) void {
     command.executeName("open_help", .{}) catch {};
 }
 
-pub fn on_click_open_file(_: ?*anyopaque, _: *Button) void {
+fn menu_action_open_file(_: void, _: *Button.State(void)) void {
     command.executeName("enter_open_file_mode", .{}) catch {};
 }
 
-pub fn on_click_open_recent_file(_: ?*anyopaque, _: *Button) void {
+fn menu_action_open_recent_file(_: void, _: *Button.State(void)) void {
     tp.self_pid().send(.{ "log", "home", "open recent file not implemented" }) catch {};
 }
 
-pub fn on_click_open_recent_project(_: ?*anyopaque, _: *Button) void {
+fn menu_action_open_recent_project(_: void, _: *Button.State(void)) void {
     tp.self_pid().send(.{ "log", "home", "open recent project not implemented" }) catch {};
 }
 
-pub fn on_click_show_commands(_: ?*anyopaque, _: *Button) void {
+fn menu_action_show_commands(_: void, _: *Button.State(void)) void {
     tp.self_pid().send(.{ "log", "home", "open command palette not implemented" }) catch {};
 }
 
-pub fn on_click_open_config(_: ?*anyopaque, _: *Button) void {
+fn menu_action_open_config(_: void, _: *Button.State(void)) void {
     command.executeName("open_config", .{}) catch {};
 }
 
-pub fn on_click_quit(_: ?*anyopaque, _: *Button) void {
+fn menu_action_quit(_: void, _: *Button.State(void)) void {
     command.executeName("quit", .{}) catch {};
 }
 
@@ -128,7 +133,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.cursor_move_yx(10, 8) catch return more;
         fonts.print_string_medium(self.plane, subtext) catch return more;
 
-        self.menu.resize(.{ .y = 15, .x = 10, .w = 32, .h = self.menu.widgets.items.len });
+        self.menu.resize(.{ .y = 15, .x = 10, .w = 32 });
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
         tui.set_style(&self.plane, style_title);
         self.plane.cursor_move_yx(2, 4) catch return more;
@@ -138,7 +143,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.cursor_move_yx(7, 6) catch return more;
         _ = self.plane.print(subtext, .{}) catch {};
 
-        self.menu.resize(.{ .y = 9, .x = 8, .w = 32, .h = self.menu.widgets.items.len });
+        self.menu.resize(.{ .y = 9, .x = 8, .w = 32 });
     } else {
         tui.set_style(&self.plane, style_title);
         self.plane.cursor_move_yx(1, 4) catch return more;
@@ -148,12 +153,12 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.cursor_move_yx(3, 6) catch return more;
         _ = self.plane.print(subtext, .{}) catch {};
 
-        self.menu.resize(.{ .y = 5, .x = 8, .w = 32, .h = self.menu.widgets.items.len });
+        self.menu.resize(.{ .y = 5, .x = 8, .w = 32 });
     }
     return true;
 }
 
-fn render_menu_item(_: ?*anyopaque, button: *Button, theme: *const Widget.Theme) bool {
+fn render_menu_item(_: void, button: *Button.State(void), theme: *const Widget.Theme) bool {
     tui.set_base_style(&button.plane, " ", if (button.active) theme.editor_cursor else if (button.hover) theme.editor_selection else theme.editor);
     button.plane.erase();
     button.plane.home();
