@@ -44,7 +44,7 @@ pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
     return w;
 }
 
-fn menu_item(self: *Self, label: []const u8, on_click: *const fn (_: void, _: *Button.State(void)) void) !void {
+fn menu_item(self: *Self, label: []const u8, on_click: *const fn (_: *void, _: *Button.State(void)) void) !void {
     try self.menu.add(try Button.create({}, self.a, self.parent, .{
         .on_layout = menu_layout,
         .label = label,
@@ -78,35 +78,35 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn menu_layout(_: void, _: *Button.State(void)) Widget.Layout {
+fn menu_layout(_: *void, _: *Button.State(void)) Widget.Layout {
     return .{ .static = 1 };
 }
 
-fn menu_action_help(_: void, _: *Button.State(void)) void {
+fn menu_action_help(_: *void, _: *Button.State(void)) void {
     command.executeName("open_help", .{}) catch {};
 }
 
-fn menu_action_open_file(_: void, _: *Button.State(void)) void {
+fn menu_action_open_file(_: *void, _: *Button.State(void)) void {
     command.executeName("enter_open_file_mode", .{}) catch {};
 }
 
-fn menu_action_open_recent_file(_: void, _: *Button.State(void)) void {
+fn menu_action_open_recent_file(_: *void, _: *Button.State(void)) void {
     tp.self_pid().send(.{ "log", "home", "open recent file not implemented" }) catch {};
 }
 
-fn menu_action_open_recent_project(_: void, _: *Button.State(void)) void {
+fn menu_action_open_recent_project(_: *void, _: *Button.State(void)) void {
     tp.self_pid().send(.{ "log", "home", "open recent project not implemented" }) catch {};
 }
 
-fn menu_action_show_commands(_: void, _: *Button.State(void)) void {
+fn menu_action_show_commands(_: *void, _: *Button.State(void)) void {
     tp.self_pid().send(.{ "log", "home", "open command palette not implemented" }) catch {};
 }
 
-fn menu_action_open_config(_: void, _: *Button.State(void)) void {
+fn menu_action_open_config(_: *void, _: *Button.State(void)) void {
     command.executeName("open_config", .{}) catch {};
 }
 
-fn menu_action_quit(_: void, _: *Button.State(void)) void {
+fn menu_action_quit(_: *void, _: *Button.State(void)) void {
     command.executeName("quit", .{}) catch {};
 }
 
@@ -158,7 +158,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     return true;
 }
 
-fn render_menu_item(_: void, button: *Button.State(void), theme: *const Widget.Theme) bool {
+fn render_menu_item(_: *void, button: *Button.State(void), theme: *const Widget.Theme) bool {
     tui.set_base_style(&button.plane, " ", if (button.active) theme.editor_cursor else if (button.hover) theme.editor_selection else theme.editor);
     button.plane.erase();
     button.plane.home();

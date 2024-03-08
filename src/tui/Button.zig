@@ -13,12 +13,24 @@ pub fn Options(context: type) type {
         pos: Widget.Box = .{ .y = 0, .x = 0, .w = 8, .h = 1 },
         ctx: context = {},
 
-        on_click: *const fn (ctx: context, button: *State(Context)) void = do_nothing,
-        on_render: ?*const fn (ctx: context, button: *State(Context), theme: *const Widget.Theme) bool = null,
-        on_layout: ?*const fn (ctx: context, button: *State(Context)) Widget.Layout = null,
+        on_click: *const fn (ctx: *context, button: *State(Context)) void = do_nothing,
+        on_render: *const fn (ctx: *context, button: *State(Context), theme: *const Widget.Theme) bool = on_render_default,
+        on_layout: *const fn (ctx: *context, button: *State(Context)) Widget.Layout = on_layout_default,
 
         pub const Context = context;
-        pub fn do_nothing(_: context, _: *State(Context)) void {}
+        pub fn do_nothing(_: *context, _: *State(Context)) void {}
+
+        pub fn on_render_default(_: *context, self: *State(Context), theme: *const Widget.Theme) bool {
+            tui.set_base_style(&self.plane, " ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
+            self.plane.erase();
+            self.plane.home();
+            _ = self.plane.print(" {s} ", .{self.opts.label}) catch {};
+            return false;
+        }
+
+        pub fn on_layout_default(_: *context, self: *State(Context)) Widget.Layout {
+            return .{ .static = self.opts.label.len + 2 };
+        }
     };
 }
 
@@ -52,20 +64,11 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn layout(self: *Self) Widget.Layout {
-            return if (self.opts.on_layout) |on_layout|
-                on_layout(self.opts.ctx, self)
-            else
-                .{ .static = self.opts.label.len + 2 };
+            return self.opts.on_layout(&self.opts.ctx, self);
         }
 
         pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-            if (self.opts.on_render) |on_render|
-                return on_render(self.opts.ctx, self, theme);
-            tui.set_base_style(&self.plane, " ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
-            self.plane.erase();
-            self.plane.home();
-            _ = self.plane.print(" {s} ", .{self.opts.label}) catch {};
-            return false;
+            return self.opts.on_render(&self.opts.ctx, self, theme);
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -73,11 +76,11 @@ pub fn State(ctx_type: type) type {
                 self.active = true;
                 return true;
             } else if (try m.match(.{ "B", nc.event_type.RELEASE, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
-                self.opts.on_click(self.opts.ctx, self);
+                self.opts.on_click(&self.opts.ctx, self);
                 self.active = false;
                 return true;
             } else if (try m.match(.{ "D", nc.event_type.RELEASE, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
-                self.opts.on_click(self.opts.ctx, self);
+                self.opts.on_click(&self.opts.ctx, self);
                 self.active = false;
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {

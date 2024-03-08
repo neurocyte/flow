@@ -23,7 +23,7 @@ pub fn create(a: std.mem.Allocator, parent: Widget) !*Self {
     return self;
 }
 
-pub fn add_item(self: *Self, label: []const u8, on_click: *const fn (_: void, _: *Button.State(void)) void) !void {
+pub fn add_item(self: *Self, label: []const u8, on_click: *const fn (_: *void, _: *Button.State(void)) void) !void {
     try self.menu.add(try Button.create({}, self.a, self.menu.parent, .{
         .on_layout = menu_layout,
         .label = label,
@@ -55,11 +55,11 @@ pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
     return self.menu.walk(walk_ctx, f, &self.menu_widget);
 }
 
-fn menu_layout(_: void, _: *Button.State(void)) Widget.Layout {
+fn menu_layout(_: *void, _: *Button.State(void)) Widget.Layout {
     return .{ .static = 1 };
 }
 
-fn render_menu_item(_: void, button: *Button.State(void), theme: *const Widget.Theme) bool {
+fn render_menu_item(_: *void, button: *Button.State(void), theme: *const Widget.Theme) bool {
     tui.set_base_style(&button.plane, " ", if (button.active) theme.editor_cursor else if (button.hover) theme.editor_selection else theme.editor);
     button.plane.erase();
     button.plane.home();
