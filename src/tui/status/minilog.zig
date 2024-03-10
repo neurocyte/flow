@@ -25,7 +25,7 @@ pub fn create(a: std.mem.Allocator, parent: nc.Plane) !Widget {
         .plane = try nc.Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .msg = std.ArrayList(u8).init(a),
     };
-    try tui.current().message_filters.add(MessageFilter.bind(self, log_receive));
+    try tui.current().message_filters.add(MessageFilter.bind(self, receive_log));
     try log.subscribe();
     return Widget.to(self);
 }
@@ -58,9 +58,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     return false;
 }
 
-pub fn log_receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "log", tp.more })) {
-        self.log_process(m) catch |e| return tp.exit_error(e);
+        self.process_log(m) catch |e| return tp.exit_error(e);
         if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.logview_enabled)
             return false; // pass on log messages to logview
         return true;
@@ -68,7 +68,7 @@ pub fn log_receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return false;
 }
 
-pub fn log_process(self: *Self, m: tp.message) !void {
+fn process_log(self: *Self, m: tp.message) !void {
     var src: []const u8 = undefined;
     var context: []const u8 = undefined;
     var msg: []const u8 = undefined;
@@ -76,6 +76,8 @@ pub fn log_process(self: *Self, m: tp.message) !void {
         if (self.is_error) return;
         try self.set(msg, false);
     } else if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
+        if (std.mem.eql(u8, msg, "error.Stop"))
+            return;
         try self.set(msg, true);
     } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
         self.is_error = true;
