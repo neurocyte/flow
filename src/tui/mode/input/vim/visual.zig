@@ -101,7 +101,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'G' => self.cmd("enter_goto_mode", .{}),
             'A' => self.cmd("select_all", .{}),
             '/' => self.cmd("toggle_comment", .{}),
-            key.ENTER => self.cmd("insert_line_after", .{}),
+            key.ENTER => self.cmd("smart_insert_line_after", .{}),
             key.SPACE => self.cmd("selections_reverse", .{}),
             key.END => self.cmd("select_buffer_end", .{}),
             key.HOME => self.cmd("select_buffer_begin", .{}),
@@ -124,7 +124,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'L' => self.cmd_async("toggle_logview"),
             'I' => self.cmd_async("toggle_inputview"),
             '/' => self.cmd("log_widgets", .{}),
-            key.ENTER => self.cmd("insert_line_before", .{}),
+            key.ENTER => self.cmd("smart_insert_line_before", .{}),
             key.END => self.cmd("select_buffer_end", .{}),
             key.HOME => self.cmd("select_buffer_begin", .{}),
             key.UP => self.cmd("select_scroll_up", .{}),
@@ -169,7 +169,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.END => self.cmd("select_end", .{}),
             key.PGUP => self.cmd("select_page_up", .{}),
             key.PGDOWN => self.cmd("select_page_down", .{}),
-            key.ENTER => self.cmd("insert_line_before", .{}),
+            key.ENTER => self.cmd("smart_insert_line_before", .{}),
             key.BACKSPACE => self.cmd("delete_backward", .{}),
             key.TAB => self.cmd("unindent", .{}),
 
@@ -186,7 +186,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
                     try self.cmd_count("move_down", .{});
             },
 
-            'O' => self.seq(.{ "insert_line_before", "enter_mode" }, command.fmt(.{"vim/insert"})),
+            'O' => self.seq(.{ "smart_insert_line_before", "enter_mode" }, command.fmt(.{"vim/insert"})),
 
             else => {},
         },

@@ -2522,12 +2522,55 @@ pub const Editor = struct {
         self.clamp();
     }
 
+    pub fn smart_insert_line_before(self: *Self, _: command.Context) tp.result {
+        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+        var root = b.root;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row), cursel.cursor.col);
+            move_cursor_begin(root, &cursel.cursor) catch |e| return tp.exit_error(e);
+            root = self.insert(root, cursel, "\n", b.a) catch |e| return tp.exit_error(e);
+            move_cursor_left(root, &cursel.cursor) catch |e| return tp.exit_error(e);
+            var sfa = std.heap.stackFallback(512, self.a);
+            const a = sfa.get();
+            var stream = std.ArrayList(u8).init(a);
+            defer stream.deinit();
+            var writer = stream.writer();
+            while (leading_ws > 0) : (leading_ws -= 1)
+                _ = writer.write(" ") catch |e| return tp.exit_error(e);
+            if (stream.items.len > 0)
+                root = self.insert(root, cursel, stream.items, b.a) catch |e| return tp.exit_error(e);
+        };
+        self.update_buf(root) catch |e| return tp.exit_error(e);
+        self.clamp();
+    }
+
     pub fn insert_line_after(self: *Self, _: command.Context) tp.result {
         const b = self.buf_for_update() catch |e| return tp.exit_error(e);
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             move_cursor_end(root, &cursel.cursor) catch |e| return tp.exit_error(e);
             root = self.insert(root, cursel, "\n", b.a) catch |e| return tp.exit_error(e);
+        };
+        self.update_buf(root) catch |e| return tp.exit_error(e);
+        self.clamp();
+    }
+
+    pub fn smart_insert_line_after(self: *Self, _: command.Context) tp.result {
+        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+        var root = b.root;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row), cursel.cursor.col);
+            move_cursor_end(root, &cursel.cursor) catch |e| return tp.exit_error(e);
+            var sfa = std.heap.stackFallback(512, self.a);
+            const a = sfa.get();
+            var stream = std.ArrayList(u8).init(a);
+            defer stream.deinit();
+            var writer = stream.writer();
+            _ = writer.write("\n") catch |e| return tp.exit_error(e);
+            while (leading_ws > 0) : (leading_ws -= 1)
+                _ = writer.write(" ") catch |e| return tp.exit_error(e);
+            if (stream.items.len > 0)
+                root = self.insert(root, cursel, stream.items, b.a) catch |e| return tp.exit_error(e);
         };
         self.update_buf(root) catch |e| return tp.exit_error(e);
         self.clamp();
