@@ -700,14 +700,17 @@ pub const Editor = struct {
     }
 
     fn render_line_highlight(self: *const Self, cursor: *const Cursor, theme: *const Widget.Theme) !void {
-        if (self.screen_cursor(cursor)) |pos| {
-            for (0..self.view.cols) |i| {
-                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(i)) catch return;
-                var cell = self.plane.cell_init();
-                _ = self.plane.at_cursor_cell(&cell) catch return;
-                self.render_line_highlight_cell(theme, &cell);
-                _ = self.plane.putc(&cell) catch {};
-            }
+        const row_min = self.view.row;
+        const row_max = row_min + self.view.rows;
+        if (cursor.row < row_min or row_max < cursor.row)
+            return;
+        const row = cursor.row - self.view.row;
+        for (0..self.view.cols) |i| {
+            self.plane.cursor_move_yx(@intCast(row), @intCast(i)) catch return;
+            var cell = self.plane.cell_init();
+            _ = self.plane.at_cursor_cell(&cell) catch return;
+            self.render_line_highlight_cell(theme, &cell);
+            _ = self.plane.putc(&cell) catch {};
         }
     }
 
