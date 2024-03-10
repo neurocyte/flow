@@ -2435,6 +2435,7 @@ pub const Editor = struct {
     fn select_word_at_cursor(self: *Self, cursel: *CurSel) !*Selection {
         const root = try self.buf_root();
         const sel = cursel.enable_selection();
+        defer cursel.check_selection();
         sel.normalize();
         try move_cursor_word_begin(root, &sel.begin);
         try move_cursor_word_end(root, &sel.end);
