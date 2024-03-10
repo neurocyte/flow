@@ -219,6 +219,7 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Symbol, pos: usize, 
 fn primary_click(self: *const Self, y: i32) error{Exit}!bool {
     var line = self.row + 1;
     line += @intCast(y);
+    if (line > self.lines) line = self.lines;
     try command.executeName("goto_line", command.fmt(.{line}));
     try command.executeName("goto_column", command.fmt(.{1}));
     try command.executeName("select_end", .{});
