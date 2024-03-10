@@ -120,7 +120,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     tui.set_base_style(&self.plane, " ", theme.editor_gutter);
     self.plane.erase();
     if (self.linenum) {
-        const relative = self.relative or if (tui.current().input_mode) |mode| mode.line_numbers  == .relative else false;
+        const relative = self.relative or if (tui.current().input_mode) |mode| mode.line_numbers == .relative else false;
         if (relative)
             self.render_relative(theme)
         else
