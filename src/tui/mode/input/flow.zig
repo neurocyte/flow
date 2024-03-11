@@ -51,9 +51,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     } else if (try m.match(.{"F"})) {
         try self.flush_input();
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-        try self.flush_input();
-        try self.insert_bytes(text);
-        try self.flush_input();
+        try self.paste_bytes(text);
     }
     return false;
 }
@@ -251,6 +249,11 @@ fn insert_bytes(self: *Self, bytes: []const u8) tp.result {
     if (self.input.items.len + 4 > input_buffer_size)
         try self.flush_input();
     self.input.appendSlice(bytes) catch |e| return tp.exit_error(e);
+}
+
+fn paste_bytes(self: *Self, bytes: []const u8) tp.result {
+    try self.flush_input();
+    try command.executeName("paste", command.fmt(.{bytes}));
 }
 
 var insert_chars_id: ?command.ID = null;

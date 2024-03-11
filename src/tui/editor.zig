@@ -1743,36 +1743,84 @@ pub const Editor = struct {
         const primary = self.get_primary();
         const b = self.buf_for_update() catch return;
         var root = b.root;
-        if (primary.selection) |_| {} else {
-            const sel = primary.enable_selection();
-            move_cursor_begin(root, &sel.begin) catch |e| return tp.exit_error(e);
-            move_cursor_end(root, &sel.end) catch |e| return tp.exit_error(e);
-            move_cursor_right(root, &sel.end) catch |e| return tp.exit_error(e);
-        }
-        const cut_text, root = self.cut_selection(root, primary) catch |e| return tp.exit_error(e);
+        if (self.cursels.items.len == 1)
+            if (primary.selection) |_| {} else {
+                const sel = primary.enable_selection();
+                move_cursor_begin(root, &sel.begin) catch |e| return tp.exit_error(e);
+                move_cursor_end(root, &sel.end) catch |e| return tp.exit_error(e);
+                move_cursor_right(root, &sel.end) catch |e| return tp.exit_error(e);
+            };
+        var first = true;
+        var text = std.ArrayList(u8).init(self.a);
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            const cut_text, root = self.cut_selection(root, cursel) catch |e| return tp.exit_error(e);
+            if (first) {
+                first = false;
+            } else {
+                text.appendSlice("\n") catch |e| return tp.exit_error(e);
+            }
+            text.appendSlice(cut_text) catch |e| return tp.exit_error(e);
+        };
         self.update_buf(root) catch |e| return tp.exit_error(e);
-        self.set_clipboard(cut_text);
+        self.set_clipboard(text.items);
         self.clamp();
     }
 
     pub fn copy(self: *Self, _: command.Context) tp.result {
-        const primary = self.get_primary();
-        if (primary.selection) |sel| {
-            const root = self.buf_root() catch return;
-            const copy_text = copy_selection(root, sel, self.a) catch |e| return tp.exit_error(e);
-            if (copy_text.len > 100) {
-                self.logger.print("copy:{s}...", .{std.fmt.fmtSliceEscapeLower(copy_text[0..100])});
-            } else {
-                self.logger.print("copy:{s}", .{std.fmt.fmtSliceEscapeLower(copy_text)});
+        const root = self.buf_root() catch return;
+        var first = true;
+        var text = std.ArrayList(u8).init(self.a);
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |sel| {
+                const copy_text = copy_selection(root, sel, self.a) catch |e| return tp.exit_error(e);
+                if (first) {
+                    first = false;
+                } else {
+                    text.appendSlice("\n") catch |e| return tp.exit_error(e);
+                }
+                text.appendSlice(copy_text) catch |e| return tp.exit_error(e);
             }
-            self.set_clipboard(copy_text);
+        };
+        if (text.items.len > 0) {
+            if (text.items.len > 100) {
+                self.logger.print("copy:{s}...", .{std.fmt.fmtSliceEscapeLower(text.items[0..100])});
+            } else {
+                self.logger.print("copy:{s}", .{std.fmt.fmtSliceEscapeLower(text.items)});
+            }
+            self.set_clipboard(text.items);
         }
     }
 
-    pub fn paste(self: *Self, _: command.Context) tp.result {
-        if (self.clipboard) |text| {
-            return self.insert_chars(command.fmt(.{text}));
+    pub fn paste(self: *Self, ctx: command.Context) tp.result {
+        var text: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&text)})) {
+            if (self.clipboard) |text_| text = text_ else return;
         }
+        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+        var root = b.root;
+        if (self.cursels.items.len == 1) {
+            const primary = self.get_primary();
+            root = self.insert(root, primary, text, b.a) catch |e| return tp.exit_error(e);
+        } else {
+            if (std.mem.indexOfScalar(u8, text, '\n')) |_| {
+                var pos: usize = 0;
+                for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                    if (std.mem.indexOfScalarPos(u8, text, pos, '\n')) |next| {
+                        root = self.insert(root, cursel, text[pos..next], b.a) catch |e| return tp.exit_error(e);
+                        pos = next + 1;
+                    } else {
+                        root = self.insert(root, cursel, text[pos..], b.a) catch |e| return tp.exit_error(e);
+                        pos = 0;
+                    }
+                };
+            } else {
+                for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                    root = self.insert(root, cursel, text, b.a) catch |e| return tp.exit_error(e);
+                };
+            }
+        }
+        self.update_buf(root) catch |e| return tp.exit_error(e);
+        self.clamp();
     }
 
     pub fn system_paste(_: *Self, _: command.Context) tp.result {
