@@ -30,7 +30,18 @@ pub fn find_prefix(prefix: []const u8, text: []const u8) ?usize {
     return null;
 }
 
-fn toggle_prefix_in_line(prefix: []const u8, text: []const u8, writer: TextWriter) !void {
+fn add_prefix_in_line(prefix: []const u8, text: []const u8, writer: TextWriter, pos: usize) !void {
+    if (text.len >= pos and find_first_non_ws(text) != null) {
+        _ = try writer.write(text[0..pos]);
+        _ = try writer.write(prefix);
+        _ = try writer.write(" ");
+        _ = try writer.write(text[pos..]);
+    } else {
+        _ = try writer.write(text);
+    }
+}
+
+fn remove_prefix_in_line(prefix: []const u8, text: []const u8, writer: TextWriter) !void {
     if (find_prefix(prefix, text)) |pos| {
         _ = try writer.write(text[0..pos]);
         if (text.len > pos + prefix.len) {
@@ -39,13 +50,7 @@ fn toggle_prefix_in_line(prefix: []const u8, text: []const u8, writer: TextWrite
             else
                 writer.write(text[pos + prefix.len ..]);
         }
-    } else if (find_first_non_ws(text)) |pos| {
-        _ = try writer.write(text[0..pos]);
-        _ = try writer.write(prefix);
-        _ = try writer.write(" ");
-        _ = try writer.write(text[pos..]);
     } else {
-        _ = try writer.write(prefix);
         _ = try writer.write(text);
     }
 }
@@ -54,8 +59,31 @@ pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, a: std.mem.Al
     var result = try std.ArrayList(u8).initCapacity(a, prefix.len + text.len);
     const writer = result.writer();
     var pos: usize = 0;
+    var prefix_pos: usize = std.math.maxInt(usize);
+    var have_prefix = true;
     while (std.mem.indexOfScalarPos(u8, text, pos, '\n')) |next| {
-        try toggle_prefix_in_line(prefix, text[pos..next], writer);
+        if (find_prefix(prefix, text[pos..next])) |_| {} else {
+            if (find_first_non_ws(text[pos..next])) |_| {
+                have_prefix = false;
+                break;
+            }
+        }
+        pos = next + 1;
+    }
+    pos = 0;
+    if (!have_prefix)
+        while (std.mem.indexOfScalarPos(u8, text, pos, '\n')) |next| {
+            if (find_first_non_ws(text[pos..next])) |prefix_pos_|
+                prefix_pos = @min(prefix_pos, prefix_pos_);
+            pos = next + 1;
+        };
+    pos = 0;
+    while (std.mem.indexOfScalarPos(u8, text, pos, '\n')) |next| {
+        if (have_prefix) {
+            try remove_prefix_in_line(prefix, text[pos..next], writer);
+        } else {
+            try add_prefix_in_line(prefix, text[pos..next], writer, prefix_pos);
+        }
         _ = try writer.write("\n");
         pos = next + 1;
     }
