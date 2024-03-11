@@ -183,7 +183,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn render_file_icon(self: *Self, _: *const Widget.Theme) void {
     var cell = self.plane.cell_init();
     _ = self.plane.at_cursor_cell(&cell) catch return;
-    if (self.file_color != 0x000001) {
+    if (!(self.file_color == 0xFFFFFF or self.file_color == 0x000000 or self.file_color == 0x000001)) {
         nc.channels_set_fg_rgb(&cell.channels, self.file_color) catch {};
         nc.channels_set_fg_alpha(&cell.channels, nc.ALPHA_OPAQUE) catch {};
     }
