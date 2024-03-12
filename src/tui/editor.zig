@@ -843,6 +843,8 @@ pub const Editor = struct {
     }
 
     fn render_syntax(self: *const Self, theme: *const Widget.Theme, cache: *StyleCache, root: Buffer.Root) !void {
+        const frame = tracy.initZone(@src(), .{ .name = "editor render syntax" });
+        defer frame.deinit();
         const syn = if (self.syntax) |syn| syn else return;
         const Ctx = struct {
             self: *const Self,
@@ -1091,6 +1093,23 @@ pub const Editor = struct {
         self.cursels.clearRetainingCapacity();
     }
 
+    fn collapse_cursors(self: *Self) void {
+        const frame = tracy.initZone(@src(), .{ .name = "collapse cursors" });
+        defer frame.deinit();
+        var old = self.cursels;
+        defer old.deinit();
+        self.cursels = CurSel.List.initCapacity(self.a, old.items.len) catch return;
+        for (old.items[0 .. old.items.len - 1], 0..) |*a_, i| if (a_.*) |*a| {
+            for (old.items[i + 1 ..], i + 1..) |*b_, j| if (b_.*) |*b| {
+                if (a.cursor.eql(b.cursor))
+                    old.items[j] = null;
+            };
+        };
+        for (old.items) |*item_| if (item_.*) |*item| {
+            (self.cursels.addOne() catch return).* = item.*;
+        };
+    }
+
     fn cancel_all_selections(self: *Self) void {
         var primary = if (self.cursels.getLast()) |p| p else CurSel{};
         primary.selection = null;
@@ -1125,6 +1144,7 @@ pub const Editor = struct {
             cursel.selection = null;
             try with_cursor_const(root, move, cursel);
         };
+        self.collapse_cursors();
     }
 
     fn with_cursor_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: command.Context) error{Stop}!void {
@@ -1136,6 +1156,7 @@ pub const Editor = struct {
             cursel.selection = null;
             try with_cursor_const_arg(root, move, cursel, ctx);
         };
+        self.collapse_cursors();
     }
 
     fn with_cursor_and_view_const(root: Buffer.Root, move: cursor_view_operator_const, cursel: *CurSel, view: *const View) error{Stop}!void {
@@ -1148,6 +1169,7 @@ pub const Editor = struct {
             with_cursor_and_view_const(root, move, cursel, view) catch {
                 someone_stopped = true;
             };
+        self.collapse_cursors();
         return if (someone_stopped) error.Stop else {};
     }
 
@@ -1161,6 +1183,7 @@ pub const Editor = struct {
             cursel.selection = null;
             root = try with_cursor(root, move, cursel, a);
         }
+        self.collapse_cursors();
         return root;
     }
 
@@ -1177,6 +1200,7 @@ pub const Editor = struct {
             with_selection_const(root, move, cursel) catch {
                 someone_stopped = true;
             };
+        self.collapse_cursors();
         return if (someone_stopped) error.Stop else {};
     }
 
@@ -1193,6 +1217,7 @@ pub const Editor = struct {
             with_selection_const_arg(root, move, cursel, ctx) catch {
                 someone_stopped = true;
             };
+        self.collapse_cursors();
         return if (someone_stopped) error.Stop else {};
     }
 
@@ -1208,6 +1233,7 @@ pub const Editor = struct {
             with_selection_and_view_const(root, move, cursel, view) catch {
                 someone_stopped = true;
             };
+        self.collapse_cursors();
         return if (someone_stopped) error.Stop else {};
     }
 
@@ -1224,7 +1250,7 @@ pub const Editor = struct {
                 break :ret root;
             };
         };
-
+        self.collapse_cursors();
         return if (someone_stopped) error.Stop else root;
     }
 
@@ -1241,7 +1267,7 @@ pub const Editor = struct {
                 break :ret root;
             };
         };
-
+        self.collapse_cursors();
         return if (someone_stopped) error.Stop else root;
     }
 
@@ -1252,6 +1278,7 @@ pub const Editor = struct {
     fn with_cursels_const(self: *Self, root: Buffer.Root, move: cursel_operator_const) error{Stop}!void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             with_cursel_const(root, move, cursel) catch return error.Stop;
+        self.collapse_cursors();
     }
 
     fn nudge_insert(self: *Self, nudge: Selection, exclude: *const CurSel, size: usize) void {
