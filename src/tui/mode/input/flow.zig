@@ -72,6 +72,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     if (self.leader) |_| return self.mapFollower(keynormal, egc, modifiers);
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
+            'E' => self.cmd("enter_overlay_mode", command.fmt(.{"open_recent"})),
             'J' => self.cmd("toggle_logview", .{}),
             'Z' => self.cmd("undo", .{}),
             'Y' => self.cmd("redo", .{}),

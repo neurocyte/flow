@@ -87,10 +87,9 @@ pub fn update(self: *Self) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    var more = self.widgets.render(theme);
-    if (self.floating_views.render(theme))
-        more = true;
-    return more;
+    const widgets_more = self.widgets.render(theme);
+    const views_more = self.floating_views.render(theme);
+    return widgets_more or views_more;
 }
 
 pub fn resize(self: *Self) void {

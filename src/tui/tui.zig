@@ -692,6 +692,10 @@ const cmds = struct {
             return tp.exit_error(error.InvalidArgument);
         if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
         if (self.input_mode) |*m| m.deinit();
+        if (self.input_mode_outer) |*m| {
+            m.deinit();
+            self.input_mode_outer = null;
+        }
         self.input_mode = if (std.mem.eql(u8, mode, "vim/normal"))
             @import("mode/input/vim/normal.zig").create(self.a) catch |e| return tp.exit_error(e)
         else if (std.mem.eql(u8, mode, "vim/insert"))
@@ -711,6 +715,34 @@ const cmds = struct {
 
     pub fn enter_mode_default(self: *Self, _: Ctx) tp.result {
         return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
+    }
+
+    pub fn enter_overlay_mode(self: *Self, ctx: Ctx) tp.result {
+        var mode: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&mode)}))
+            return tp.exit_error(error.InvalidArgument);
+        if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |*m| {
+            m.deinit();
+            self.input_mode_outer = null;
+        }
+        self.input_mode = if (std.mem.eql(u8, mode, "open_recent")) ret: {
+            self.input_mode_outer = self.input_mode;
+            break :ret @import("mode/overlay/open_recent.zig").create(self.a) catch |e| return tp.exit_error(e);
+        } else {
+            self.logger.print("unknown mode {s}", .{mode});
+            return;
+        };
+        self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
+    }
+
+    pub fn exit_overlay_mode(self: *Self, _: Ctx) tp.result {
+        if (self.input_mode_outer) |_| {} else return;
+        defer {
+            self.input_mode = self.input_mode_outer;
+            self.input_mode_outer = null;
+        }
+        if (self.input_mode) |*mode| mode.deinit();
     }
 
     pub fn enter_find_mode(self: *Self, ctx: Ctx) tp.result {
@@ -755,6 +787,7 @@ const cmds = struct {
         if (self.mini_mode) |_| {} else return;
         defer {
             self.input_mode = self.input_mode_outer;
+            self.input_mode_outer = null;
             self.mini_mode = null;
         }
         if (self.input_mode) |*mode| mode.deinit();
@@ -914,6 +947,21 @@ pub inline fn set_cell_style_bg(cell: *nc.Cell, style: Widget.Theme.Style) void 
 pub inline fn set_base_style(plane: *const nc.Plane, egc: [*c]const u8, style: Widget.Theme.Style) void {
     var channels: u64 = 0;
     channels_from_style(&channels, style);
+    if (style.fg) |fg| plane.set_fg_rgb(fg) catch {};
+    if (style.bg) |bg| plane.set_bg_rgb(bg) catch {};
+    _ = plane.set_base(egc, 0, channels) catch {};
+}
+
+pub fn set_base_style_alpha(plane: nc.Plane, egc: [*:0]const u8, style: Widget.Theme.Style, fg_alpha: c_uint, bg_alpha: c_uint) !void {
+    var channels: u64 = 0;
+    if (style.fg) |fg| {
+        nc.channels_set_fg_rgb(&channels, fg) catch {};
+        nc.channels_set_fg_alpha(&channels, fg_alpha) catch {};
+    }
+    if (style.bg) |bg| {
+        nc.channels_set_bg_rgb(&channels, bg) catch {};
+        nc.channels_set_bg_alpha(&channels, bg_alpha) catch {};
+    }
     if (style.fg) |fg| plane.set_fg_rgb(fg) catch {};
     if (style.bg) |bg| plane.set_bg_rgb(bg) catch {};
     _ = plane.set_base(egc, 0, channels) catch {};

@@ -25,22 +25,27 @@ pub fn deinit(self: *Self) void {
     self.widgets.deinit();
 }
 
-pub fn addWidget(self: *Self, widget: Widget) !void {
+pub fn add(self: *Self, widget: Widget) !void {
     (try self.widgets.addOne()).* = widget;
 }
 
-pub fn swapWidget(self: *Self, n: usize, widget: Widget) Widget {
+pub fn swap(self: *Self, n: usize, widget: Widget) Widget {
     const old = self.widgets.items[n];
     self.widgets.items[n] = widget;
     return old;
 }
 
-pub fn replaceWidget(self: *Self, n: usize, widget: Widget) void {
+pub fn replace(self: *Self, n: usize, widget: Widget) void {
     const old = self.swapWidget(n, widget);
     old.deinit(self.a);
 }
 
-pub fn deleteWidget(self: *Self, name: []const u8) bool {
+pub fn remove(self: *Self, w: Widget) void {
+    for (self.widgets.items, 0..) |p, i| if (p.ptr == w.ptr)
+        self.widgets.orderedRemove(i).deinit(self.a);
+}
+
+pub fn delete(self: *Self, name: []const u8) bool {
     for (self.widgets.items, 0..) |*widget, i| {
         var buf: [64]u8 = undefined;
         const wname = widget.name(&buf);
@@ -52,7 +57,7 @@ pub fn deleteWidget(self: *Self, name: []const u8) bool {
     return false;
 }
 
-pub fn findWidget(self: *Self, name: []const u8) ?*Widget {
+pub fn find(self: *Self, name: []const u8) ?*Widget {
     for (self.widgets.items) |*widget| {
         var buf: [64]u8 = undefined;
         const wname = widget.name(&buf);
