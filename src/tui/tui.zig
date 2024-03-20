@@ -49,6 +49,8 @@ theme: Widget.Theme,
 escape_state: EscapeState = .none,
 escape_initial: ?nc.Input = null,
 escape_code: ArrayList(u8),
+bracketed_paste: bool = false,
+bracketed_paste_buffer: ArrayList(u8),
 idle_frame_count: usize = 0,
 unrendered_input_events_count: usize = 0,
 unflushed_events_count: usize = 0,
@@ -57,8 +59,6 @@ sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
 
 const init_delay = 1; // ms
-
-const EscapeState = enum { none, init, code, st };
 
 const Self = @This();
 
@@ -132,6 +132,7 @@ fn init(a: Allocator) !*Self {
         .input_listeners = EventHandler.List.init(a),
         .logger = log.logger("tui"),
         .escape_code = ArrayList(u8).init(a),
+        .bracketed_paste_buffer = ArrayList(u8).init(a),
         .init_timer = try tp.timeout.init_ms(init_delay, tp.message.fmt(.{"init"})),
         .theme = theme,
         .no_sleep = tp.env.get().is("no-sleep"),
@@ -146,6 +147,7 @@ fn init(a: Allocator) !*Self {
     try nc_.render();
     try self.save_config();
     // self.request_mouse_cursor_support_detect();
+    self.bracketed_paste_enable();
     if (tp.env.get().is("restore-session")) {
         command.executeName("restore_session", .{}) catch |e| self.logger.err("restore_session", e);
         self.logger.print("session restored", .{});
@@ -169,6 +171,7 @@ fn init_delayed(self: *Self) tp.result {
 }
 
 fn deinit(self: *Self) void {
+    self.bracketed_paste_buffer.deinit();
     self.escape_code.deinit();
     if (self.input_mode) |*m| m.deinit();
     self.commands.deinit();
@@ -491,6 +494,8 @@ fn normalized_evtype(evtype: c_uint) c_uint {
     return if (evtype == nc.event_type.UNKNOWN) @as(c_uint, @intCast(nc.event_type.PRESS)) else evtype;
 }
 
+const EscapeState = enum { none, init, OSC, st, CSI };
+
 fn handle_escape(self: *Self, ni: *nc.Input) tp.result {
     switch (self.escape_state) {
         .none => switch (ni.id) {
@@ -500,22 +505,37 @@ fn handle_escape(self: *Self, ni: *nc.Input) tp.result {
             },
             else => unreachable,
         },
-        .init => {
-            self.escape_state = .code;
-            try self.handle_escape(ni);
+        .init => switch (ni.id) {
+            ']' => self.escape_state = .OSC,
+            '[' => self.escape_state = .CSI,
+            else => {
+                try self.handle_escape_short();
+                _ = try self.dispatch_input_event(ni);
+            },
         },
-        .code => switch (ni.id) {
+        .OSC => switch (ni.id) {
             '\x1B' => self.escape_state = .st,
-            '\\' => try self.handle_escape_code(),
+            '\\' => try self.handle_OSC_escape_code(),
             ' '...'\\' - 1, '\\' + 1...127 => {
                 const p = self.escape_code.addOne() catch |e| return tp.exit_error(e);
                 p.* = @intCast(ni.id);
             },
-            else => try self.handle_escape_code(),
+            else => try self.handle_OSC_escape_code(),
         },
         .st => switch (ni.id) {
-            '\\' => try self.handle_escape_code(),
-            else => try self.handle_escape_code(),
+            '\\' => try self.handle_OSC_escape_code(),
+            else => try self.handle_OSC_escape_code(),
+        },
+        .CSI => switch (ni.id) {
+            '0'...'9', ';', ' ', '-', '?' => {
+                const p = self.escape_code.addOne() catch |e| return tp.exit_error(e);
+                p.* = @intCast(ni.id);
+            },
+            else => {
+                const p = self.escape_code.addOne() catch |e| return tp.exit_error(e);
+                p.* = @intCast(ni.id);
+                try self.handle_CSI_escape_code();
+            },
         },
     }
 }
@@ -616,6 +636,10 @@ fn send_mouse_drag(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!boo
 
 fn send_input(self: *Self, from: tp.pid_ref, m: tp.message) void {
     tp.trace(tp.channel.input, m);
+    if (self.bracketed_paste) {
+        self.handle_bracketed_paste_input(m) catch |e| self.logger.err("bracketed paste input handler", e);
+        return;
+    }
     self.input_listeners.send(from, m) catch {};
     if (self.keyboard_focus) |w|
         if (w.send(from, m) catch |e| ret: {
@@ -876,18 +900,25 @@ fn mouse_cursor_pop(self: *const Self) void {
     self.write_stdout(OSC22_cursor ++ "default" ++ ST);
 }
 
-fn handle_escape_code(self: *Self) tp.result {
+fn match_code(self: *const Self, match: []const u8, skip: usize) bool {
+    const code = self.escape_code.items;
+    if (!(code.len >= match.len - skip)) return false;
+    const code_prefix = code[0 .. match.len - skip];
+    return std.mem.eql(u8, match[skip..], code_prefix);
+}
+
+fn handle_OSC_escape_code(self: *Self) tp.result {
     self.escape_state = .none;
     self.escape_initial = null;
     defer self.escape_code.clearAndFree();
     const code = self.escape_code.items;
-    if (code.len > OSC52_clipboard.len - 1 and std.mem.eql(u8, OSC52_clipboard[1..], code[0 .. OSC52_clipboard.len - 1]))
-        return self.handle_system_clipboard(code[OSC52_clipboard.len - 1 ..]);
-    if (code.len > OSC52_clipboard_paste.len - 1 and std.mem.eql(u8, OSC52_clipboard_paste[1..], code[0 .. OSC52_clipboard_paste.len - 1]))
-        return self.handle_system_clipboard(code[OSC52_clipboard_paste.len - 1 ..]);
-    if (code.len > OSC22_cursor_reply.len - 1 and std.mem.eql(u8, OSC22_cursor_reply[1..], code[0 .. OSC22_cursor_reply.len - 1]))
-        return self.handle_mouse_cursor(code[OSC22_cursor_reply.len - 1 ..]);
-    self.logger.print("ignored escape code: {s}", .{std.fmt.fmtSliceEscapeLower(code)});
+    if (self.match_code(OSC52_clipboard, OSC.len))
+        return self.handle_system_clipboard(code[OSC52_clipboard.len - OSC.len ..]);
+    if (self.match_code(OSC52_clipboard_paste, OSC.len))
+        return self.handle_system_clipboard(code[OSC52_clipboard_paste.len - OSC.len ..]);
+    if (self.match_code(OSC22_cursor_reply, OSC.len))
+        return self.handle_mouse_cursor(code[OSC22_cursor_reply.len - OSC.len ..]);
+    self.logger.print("ignored escape code: OSC {s}", .{std.fmt.fmtSliceEscapeLower(code)});
 }
 
 fn handle_system_clipboard(self: *Self, base64: []const u8) tp.result {
@@ -904,6 +935,60 @@ fn handle_system_clipboard(self: *Self, base64: []const u8) tp.result {
 
 fn handle_mouse_cursor(self: *Self, text: []const u8) tp.result {
     self.logger.print("mouse cursor report: {s}", .{text});
+}
+
+const CSI = "\x1B["; // Control Sequence Introducer
+const CSI_bracketed_paste_enable = CSI ++ "?2004h";
+const CSI_bracketed_paste_disable = CSI ++ "?2004h";
+const CIS_bracketed_paste_begin = CSI ++ "200~";
+const CIS_bracketed_paste_end = CSI ++ "201~";
+
+fn handle_CSI_escape_code(self: *Self) tp.result {
+    self.escape_state = .none;
+    self.escape_initial = null;
+    defer self.escape_code.clearAndFree();
+    const code = self.escape_code.items;
+    if (self.match_code(CIS_bracketed_paste_begin, CSI.len))
+        return self.handle_bracketed_paste_begin();
+    if (self.match_code(CIS_bracketed_paste_end, CSI.len))
+        return self.handle_bracketed_paste_end();
+    self.logger.print("ignored escape code: CSI {s}", .{std.fmt.fmtSliceEscapeLower(code)});
+}
+
+fn handle_bracketed_paste_begin(self: *Self) tp.result {
+    _ = try self.dispatch_flush_input_event();
+    self.bracketed_paste_buffer.clearAndFree();
+    self.bracketed_paste = true;
+}
+
+fn handle_bracketed_paste_input(self: *Self, m: tp.message) tp.result {
+    var keypress: u32 = undefined;
+    var egc: u32 = undefined;
+    if (try m.match(.{ "I", tp.number, tp.extract(&keypress), tp.extract(&egc), tp.string, tp.number })) {
+        switch (keypress) {
+            nc.key.ENTER => self.bracketed_paste_buffer.appendSlice("\n") catch |e| return tp.exit_error(e),
+            else => if (!nc.key.synthesized_p(keypress)) {
+                var buf: [6]u8 = undefined;
+                const bytes = nc.ucs32_to_utf8(&[_]u32{egc}, &buf) catch |e| return tp.exit_error(e);
+                self.bracketed_paste_buffer.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
+            },
+        }
+    }
+}
+
+fn handle_bracketed_paste_end(self: *Self) tp.result {
+    defer self.bracketed_paste_buffer.clearAndFree();
+    if (!self.bracketed_paste) return;
+    self.bracketed_paste = false;
+    return tp.self_pid().send(.{ "system_clipboard", self.bracketed_paste_buffer.items });
+}
+
+fn bracketed_paste_enable(self: *const Self) void {
+    self.write_stdout(CSI_bracketed_paste_enable);
+}
+
+fn bracketed_paste_disable(self: *const Self) void {
+    self.write_stdout(CSI_bracketed_paste_disable);
 }
 
 pub inline fn fg_channels_from_style(channels: *u64, style: Widget.Theme.Style) void {
