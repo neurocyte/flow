@@ -636,8 +636,11 @@ fn send_mouse_drag(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!boo
 
 fn send_input(self: *Self, from: tp.pid_ref, m: tp.message) void {
     tp.trace(tp.channel.input, m);
-    if (self.bracketed_paste) {
-        self.handle_bracketed_paste_input(m) catch |e| self.logger.err("bracketed paste input handler", e);
+    if (self.bracketed_paste and self.handle_bracketed_paste_input(m) catch |e| {
+        self.bracketed_paste_buffer.clearAndFree();
+        self.bracketed_paste = false;
+        return self.logger.err("bracketed paste input handler", e);
+    }) {
         return;
     }
     self.input_listeners.send(from, m) catch {};
@@ -961,19 +964,24 @@ fn handle_bracketed_paste_begin(self: *Self) tp.result {
     self.bracketed_paste = true;
 }
 
-fn handle_bracketed_paste_input(self: *Self, m: tp.message) tp.result {
+fn handle_bracketed_paste_input(self: *Self, m: tp.message) !bool {
     var keypress: u32 = undefined;
     var egc: u32 = undefined;
-    if (try m.match(.{ "I", tp.number, tp.extract(&keypress), tp.extract(&egc), tp.string, tp.number })) {
+    if (try m.match(.{ "I", tp.number, tp.extract(&keypress), tp.extract(&egc), tp.string, 0 })) {
         switch (keypress) {
-            nc.key.ENTER => self.bracketed_paste_buffer.appendSlice("\n") catch |e| return tp.exit_error(e),
+            nc.key.ENTER => try self.bracketed_paste_buffer.appendSlice("\n"),
             else => if (!nc.key.synthesized_p(keypress)) {
                 var buf: [6]u8 = undefined;
-                const bytes = nc.ucs32_to_utf8(&[_]u32{egc}, &buf) catch |e| return tp.exit_error(e);
-                self.bracketed_paste_buffer.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
+                const bytes = try nc.ucs32_to_utf8(&[_]u32{egc}, &buf);
+                try self.bracketed_paste_buffer.appendSlice(buf[0..bytes]);
+            } else {
+                try self.handle_bracketed_paste_end();
+                return false;
             },
         }
+        return true;
     }
+    return false;
 }
 
 fn handle_bracketed_paste_end(self: *Self) tp.result {
