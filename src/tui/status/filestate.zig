@@ -33,7 +33,7 @@ const Self = @This();
 pub fn create(a: Allocator, parent: nc.Plane) !Widget {
     const self: *Self = try a.create(Self);
     self.* = try init(a, parent);
-    self.show_cwd();
+    self.show_project();
     return Widget.to(self);
 }
 
@@ -171,7 +171,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.line = 0;
         self.column = 0;
         self.file_exists = true;
-        self.show_cwd();
+        self.show_project();
     }
     if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
         self.detailed = !self.detailed;
@@ -192,10 +192,12 @@ fn render_file_icon(self: *Self, _: *const Widget.Theme) void {
     self.plane.cursor_move_rel(0, 1) catch {};
 }
 
-fn show_cwd(self: *Self) void {
+fn show_project(self: *Self) void {
     self.file_icon = "";
     self.file_color = 0x000001;
-    self.name = std.fs.cwd().realpath(".", &self.name_buf) catch "(none)";
+    const project_name = tp.env.get().str("project");
+    @memcpy(self.name_buf[0..project_name.len], project_name);
+    self.name = self.name_buf[0..project_name.len];
     self.abbrv_home();
 }
 

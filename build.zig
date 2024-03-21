@@ -137,6 +137,16 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const project_manager_mod = b.createModule(.{
+        .root_source_file = .{ .path = "src/project_manager.zig" },
+        .imports = &.{
+            .{ .name = "log", .module = log_mod },
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "tracy", .module = tracy_mod },
+        },
+    });
+
     const diff_mod = b.createModule(.{
         .root_source_file = .{ .path = "src/diff.zig" },
         .imports = &.{
@@ -163,6 +173,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "config", .module = config_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "location_history", .module = location_history_mod },
+            .{ .name = "project_manager", .module = project_manager_mod },
             .{ .name = "syntax", .module = syntax_dep.module("syntax") },
             .{ .name = "text_manip", .module = text_manip_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
