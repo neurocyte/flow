@@ -25,6 +25,7 @@ pub fn main() anyerror!void {
         \\--no-trace               Do not enable internal tracing.
         \\--restore-session        Restore restart session.
         \\--show-input             Open the input view on start.
+        \\--show-log               Open the log view on start.
         \\-l, --language <str>     Force the language of the file to be opened.
         \\<str>...                 File to open.
         \\                         Add +<LINE> to the command line or append
@@ -85,6 +86,7 @@ pub fn main() anyerror!void {
     env.set("restore-session", (res.args.@"restore-session" != 0));
     env.set("no-alternate", (res.args.@"no-alternate" != 0));
     env.set("show-input", (res.args.@"show-input" != 0));
+    env.set("show-log", (res.args.@"show-log" != 0));
     env.set("no-sleep", (res.args.@"no-sleep" != 0));
     env.set("dump-stack-trace", (res.args.@"debug-dump-on-error" != 0));
     if (res.args.@"frame-rate") |s| env.num_set("frame-rate", @intCast(s));

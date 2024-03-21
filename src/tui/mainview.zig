@@ -62,6 +62,8 @@ pub fn create(a: std.mem.Allocator, n: nc.Plane) !Widget {
     self.resize();
     if (tp.env.get().is("show-input"))
         self.toggle_inputview_async();
+    if (tp.env.get().is("show-log"))
+        self.toggle_logview_async();
     return w;
 }
 
@@ -337,6 +339,10 @@ fn create_editor(self: *Self) tp.result {
     } else unreachable;
     self.widgets.replace(0, editor_widget);
     self.resize();
+}
+
+fn toggle_logview_async(_: *Self) void {
+    tp.self_pid().send(.{ "cmd", "toggle_logview" }) catch return;
 }
 
 fn toggle_inputview_async(_: *Self) void {
