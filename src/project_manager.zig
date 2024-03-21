@@ -196,7 +196,17 @@ fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) tp.result {
     }.spawn_link(a_, root_path_);
 }
 
-const filtered_dirs = [_][]const u8{ ".git", ".cache", "zig-out", "zig-cache" };
+const filtered_dirs = [_][]const u8{
+    ".git",
+    ".cache",
+    ".var",
+    "zig-out",
+    "zig-cache",
+    ".rustup",
+    ".npm",
+    ".cargo",
+    "node_modules",
+};
 
 fn is_filtered_dir(dirname: []const u8) bool {
     for (filtered_dirs) |filter|
