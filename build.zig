@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const CrossTarget = std.zig.CrossTarget;
 
@@ -34,7 +35,8 @@ pub fn build(b: *std.Build) void {
 
     const options_mod = options.createModule();
 
-    const target = b.standardTargetOptions(.{});
+    const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
+    // std.debug.print("target abi: {s}\n", .{@tagName(target.result.abi)});
     const optimize = b.standardOptimizeOption(.{});
 
     const dependency_optimize = if (optimize_deps_enabled) .ReleaseFast else optimize;
