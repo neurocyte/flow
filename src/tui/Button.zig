@@ -43,7 +43,10 @@ pub fn create(ctx_type: type, a: std.mem.Allocator, parent: nc.Plane, opts: Opti
         .parent = parent,
         .plane = n,
         .opts = opts,
+        .label = std.ArrayList(u8).init(a),
     };
+    try self.label.appendSlice(self.opts.label);
+    self.opts.label = self.label.items;
     return Widget.to(self);
 }
 
@@ -53,12 +56,14 @@ pub fn State(ctx_type: type) type {
         plane: nc.Plane,
         active: bool = false,
         hover: bool = false,
+        label: std.ArrayList(u8),
         opts: Options(ctx_type),
 
         const Self = @This();
         pub const Context = ctx_type;
 
         pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+            self.label.deinit();
             self.plane.deinit();
             a.destroy(self);
         }
