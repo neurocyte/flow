@@ -103,6 +103,8 @@ const Process = struct {
             });
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.send_raw(tp.exit_message(e));
+        } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory) })) {
+            self.request_recent_files(from, project_directory) catch |e| return from.send_raw(tp.exit_message(e));
         } else if (try m.match(.{"shutdown"})) {
             return tp.exit_normal();
         } else if (try m.match(.{ "exit", "normal" })) {
@@ -120,6 +122,11 @@ const Process = struct {
             try self.projects.put(try self.a.dupe(u8, project_directory), project);
             try walk_tree_async(self.a, project_directory);
         }
+    }
+
+    fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8) error{ OutOfMemory, Exit }!void {
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.request_recent_files(from);
     }
 };
 
@@ -150,6 +157,13 @@ const Project = struct {
     fn add_file(self: *Project, path: []const u8) error{OutOfMemory}!void {
         if (self.files.get(path) != null) return;
         try self.files.put(try self.a.dupe(u8, path), {});
+    }
+
+    fn request_recent_files(self: *Project, from: tp.pid_ref) error{ OutOfMemory, Exit }!void {
+        var i = self.files.iterator();
+        while (i.next()) |file| {
+            try from.send(.{ "PRJ", "recent", file.key_ptr.* });
+        }
     }
 };
 
