@@ -36,7 +36,7 @@ pub fn main() anyerror!void {
 
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't pickup junk from previous application/shell
-        _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.os.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
+        _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
     }
 
     const a = std.heap.c_allocator;
@@ -56,7 +56,7 @@ pub fn main() anyerror!void {
     if (res.args.help != 0)
         return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
 
-    if (std.os.getenv("JITDEBUG")) |_| thespian.install_debugger();
+    if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();
 
     if (res.args.@"debug-wait" != 0) {
         std.debug.print("press return to start", .{});
@@ -196,9 +196,9 @@ extern fn ___tracy_emit_message(txt: [*]const u8, size: usize, callstack: c_int)
 fn exit(status: u8) noreturn {
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't leave junk at the next prompt
-        _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.os.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
+        _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
     }
-    std.os.exit(status);
+    std.posix.exit(status);
 }
 
 const config = @import("config");
@@ -261,14 +261,14 @@ pub fn get_config_dir() ![]const u8 {
 
 fn get_app_config_dir(appname: []const u8) ![]const u8 {
     const local = struct {
-        var config_dir_buffer: [std.os.PATH_MAX]u8 = undefined;
+        var config_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var config_dir: ?[]const u8 = null;
     };
     const config_dir = if (local.config_dir) |dir|
         dir
-    else if (std.os.getenv("XDG_CONFIG_HOME")) |xdg|
+    else if (std.posix.getenv("XDG_CONFIG_HOME")) |xdg|
         try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/{s}", .{ xdg, appname })
-    else if (std.os.getenv("HOME")) |home|
+    else if (std.posix.getenv("HOME")) |home|
         try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/.config/{s}", .{ home, appname })
     else
         return error.AppConfigDirUnavailable;
@@ -282,7 +282,7 @@ fn get_app_config_dir(appname: []const u8) ![]const u8 {
 
 fn get_app_config_file_name(appname: []const u8) ![]const u8 {
     const local = struct {
-        var config_file_buffer: [std.os.PATH_MAX]u8 = undefined;
+        var config_file_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var config_file: ?[]const u8 = null;
     };
     const config_file_name = "config.json";
@@ -300,7 +300,7 @@ pub fn get_config_file_name() ![]const u8 {
 
 pub fn get_restore_file_name() ![]const u8 {
     const local = struct {
-        var restore_file_buffer: [std.os.PATH_MAX]u8 = undefined;
+        var restore_file_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var restore_file: ?[]const u8 = null;
     };
     const restore_file_name = "restore";

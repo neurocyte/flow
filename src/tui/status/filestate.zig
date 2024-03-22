@@ -203,7 +203,7 @@ fn show_project(self: *Self) void {
 
 fn abbrv_home(self: *Self) void {
     if (std.fs.path.isAbsolute(self.name)) {
-        if (std.os.getenv("HOME")) |homedir| {
+        if (std.posix.getenv("HOME")) |homedir| {
             const homerelpath = std.fs.path.relative(self.a, homedir, self.name) catch return;
             if (homerelpath.len == 0) {
                 self.name = "~";

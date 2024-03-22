@@ -189,7 +189,7 @@ fn deinit(self: *Self) void {
 
 fn listen_sigwinch(self: *Self) tp.result {
     if (self.sigwinch_signal) |old| old.deinit();
-    self.sigwinch_signal = tp.signal.init(std.os.SIG.WINCH, tp.message.fmt(.{"sigwinch"})) catch |e| return tp.exit_error(e);
+    self.sigwinch_signal = tp.signal.init(std.posix.SIG.WINCH, tp.message.fmt(.{"sigwinch"})) catch |e| return tp.exit_error(e);
 }
 
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
@@ -854,7 +854,7 @@ const OSC22_cursor_reply = OSC ++ "22:";
 
 pub fn set_terminal_title(text: []const u8) void {
     var writer = std.io.getStdOut().writer();
-    var buf: [std.os.PATH_MAX]u8 = undefined;
+    var buf: [std.posix.PATH_MAX]u8 = undefined;
     const term_cmd = std.fmt.bufPrint(&buf, OSC0_title ++ "{s}" ++ BEL, .{text}) catch return;
     _ = writer.write(term_cmd) catch return;
 }

@@ -167,7 +167,7 @@ pub fn Collection(comptime Namespace: type) type {
     const Fields = @Type(.{
         .Struct = .{
             .is_tuple = false,
-            .layout = .Auto,
+            .layout = .auto,
             .decls = &.{},
             .fields = &fields,
         },
