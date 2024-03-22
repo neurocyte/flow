@@ -1,29 +1,41 @@
 const std = @import("std");
 const nc = @import("notcurses");
 const tp = @import("thespian");
-const root = @import("root");
+const log = @import("log");
 
 const tui = @import("../../tui.zig");
 const command = @import("../../command.zig");
 const EventHandler = @import("../../EventHandler.zig");
+const MessageFilter = @import("../../MessageFilter.zig");
 const Button = @import("../../Button.zig");
 const Menu = @import("../../Menu.zig");
+const Widget = @import("../../Widget.zig");
 const mainview = @import("../../mainview.zig");
+const project_manager = @import("project_manager");
 
 const Self = @This();
 
 a: std.mem.Allocator,
 f: usize = 0,
 menu: *Menu.State(*Self),
+logger: log.Logger,
+count: usize = 0,
+longest: usize = 0,
 
 pub fn create(a: std.mem.Allocator) !tui.Mode {
     const mv = if (tui.current().mainview.dynamic_cast(mainview)) |mv_| mv_ else return error.NotFound;
     const self: *Self = try a.create(Self);
     self.* = .{
         .a = a,
-        .menu = try Menu.create(*Self, a, tui.current().mainview, .{ .ctx = self }),
+        .menu = try Menu.create(*Self, a, tui.current().mainview, .{
+            .ctx = self,
+            .on_render = on_render_menu,
+            .on_resize = on_resize_menu,
+        }),
+        .logger = log.logger(@typeName(Self)),
     };
-    try self.menu.add_item_with_handler("open help", menu_action_help);
+    try tui.current().message_filters.add(MessageFilter.bind(self, receive_project_manager));
+    try project_manager.request_recent_files();
     self.menu.resize(.{ .y = 0, .x = 25, .w = 32 });
     try mv.floating_views.add(self.menu.menu_widget);
     return .{
@@ -34,13 +46,56 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
 }
 
 pub fn deinit(self: *Self) void {
+    tui.current().message_filters.remove_ptr(self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv|
         mv.floating_views.remove(self.menu.menu_widget);
     self.a.destroy(self);
 }
 
-fn menu_action_help(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("open_help", .{}) catch {};
+fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme) bool {
+    const style_base = if (button.active) theme.editor_cursor else if (button.hover) theme.editor_selection else theme.editor_widget;
+    try tui.set_base_style_alpha(button.plane, " ", style_base, nc.ALPHA_TRANSPARENT, nc.ALPHA_OPAQUE);
+    button.plane.erase();
+    button.plane.home();
+    _ = button.plane.print(" {s} ", .{button.opts.label}) catch {};
+    return false;
+}
+
+fn on_resize_menu(self: *Self, state: *Menu.State(*Self), box: Widget.Box) void {
+    const w = @min(box.w, @min(self.longest, 80) + 2);
+    self.menu.resize(.{
+        .y = 0,
+        .x = box.w - w / 2,
+        .h = state.menu.widgets.items.len,
+        .w = w,
+    });
+}
+
+fn menu_action_open_file(menu: *Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
+    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = button.label.items } }) catch |e| menu.opts.ctx.logger.err("navigate", e);
+}
+
+fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (try m.match(.{ "PRJ", tp.more })) {
+        try self.process_project_manager(m);
+        return true;
+    }
+    return false;
+}
+
+fn process_project_manager(self: *Self, m: tp.message) tp.result {
+    var file_name: []const u8 = undefined;
+    if (try m.match(.{ "PRJ", "recent", tp.extract(&file_name) })) {
+        if (self.count < 15) {
+            self.count += 1;
+            self.longest = @max(self.longest, file_name.len);
+            self.menu.add_item_with_handler(file_name, menu_action_open_file) catch |e| return tp.exit_error(e);
+            self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, 80) + 2 });
+            tui.need_render();
+        }
+    } else {
+        self.logger.err("receive", tp.unexpected(m));
+    }
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
