@@ -216,6 +216,26 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const check_exe = b.addExecutable(.{
+        .name = "flow",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    if (use_llvm_option) |enabled| check_exe.use_llvm = enabled;
+    if (use_lld_option) |enabled| check_exe.use_lld = enabled;
+
+    check_exe.root_module.addImport("build_options", options_mod);
+    check_exe.root_module.addImport("clap", clap_dep.module("clap"));
+    check_exe.root_module.addImport("cbor", cbor_mod);
+    check_exe.root_module.addImport("config", config_mod);
+    check_exe.root_module.addImport("tui", tui_mod);
+    check_exe.root_module.addImport("thespian", thespian_mod);
+    check_exe.root_module.addImport("log", log_mod);
+    check_exe.root_module.addImport("tracy", tracy_mod);
+    const check = b.step("check", "Check the app");
+    check.dependOn(&check_exe.step);
+
     const tests = b.addTest(.{
         .root_source_file = .{ .path = "test/tests.zig" },
         .target = target,
