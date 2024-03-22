@@ -38,7 +38,7 @@ pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
     try self.commands.init(self);
     try self.menu.add_item_with_handler("Help ······················· :h", menu_action_help);
     try self.menu.add_item_with_handler("Open file ·················· :o", menu_action_open_file);
-    try self.menu.add_item_with_handler("Open recent file ····(wip)·· :e", menu_action_open_recent_file);
+    try self.menu.add_item_with_handler("Open recent file ··········· :e", menu_action_open_recent_file);
     try self.menu.add_item_with_handler("Open recent project ·(wip)·· :r", menu_action_open_recent_project);
     try self.menu.add_item_with_handler("Show/Run commands ···(wip)·· :p", menu_action_show_commands);
     try self.menu.add_item_with_handler("Open config file ··········· :c", menu_action_open_config);
@@ -122,7 +122,7 @@ fn menu_action_open_file(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Se
 }
 
 fn menu_action_open_recent_file(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    tp.self_pid().send(.{ "log", "home", "open recent file not implemented" }) catch {};
+    command.executeName("enter_overlay_mode", command.fmt(.{"open_recent"})) catch {};
 }
 
 fn menu_action_open_recent_project(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {

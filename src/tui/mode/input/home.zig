@@ -55,6 +55,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("quit", .{}),
             'O' => self.cmd("enter_open_file_mode", .{}),
+            'E' => self.cmd("enter_overlay_mode", command.fmt(.{"open_recent"})),
             '/' => self.cmd("open_help", .{}),
             else => {},
         },
@@ -77,7 +78,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
         0 => switch (keypress) {
             'h' => self.cmd("open_help", .{}),
             'o' => self.cmd("enter_open_file_mode", .{}),
-            'e' => self.msg("open recent file not implemented"),
+            'e' => self.cmd("enter_overlay_mode", command.fmt(.{"open_recent"})),
             'r' => self.msg("open recent project not implemented"),
             'p' => self.msg("open command palette not implemented"),
             'c' => self.cmd("open_config", .{}),
