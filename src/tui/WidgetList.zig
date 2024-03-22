@@ -24,6 +24,8 @@ widgets: ArrayList(WidgetState),
 layout: Layout,
 direction: Direction,
 box: ?Widget.Box = null,
+on_resize: *const fn (ctx: ?*anyopaque, self: *Self, pos_: Widget.Box) void = on_resize_default,
+on_resize_ctx: ?*anyopaque = null,
 
 pub fn createH(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
     const self: *Self = try a.create(Self);
@@ -166,12 +168,16 @@ fn get_loc_b(self: *Self, pos: *Widget.Box) *usize {
     };
 }
 
-pub fn resize(self: *Self, pos: Widget.Box) void {
-    return self.handle_resize(pos);
-}
-
 fn refresh_layout(self: *Self) void {
     return if (self.box) |box| self.handle_resize(box);
+}
+
+pub fn resize(self: *Self, pos: Widget.Box) void {
+    return self.on_resize(self.on_resize_ctx, self, pos);
+}
+
+fn on_resize_default(_: ?*anyopaque, self: *Self, pos: Widget.Box) void {
+    self.handle_resize(pos);
 }
 
 pub fn handle_resize(self: *Self, pos_: Widget.Box) void {
