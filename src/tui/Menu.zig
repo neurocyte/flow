@@ -14,6 +14,7 @@ pub fn Options(context: type) type {
         on_click: *const fn (ctx: context, button: *Button.State(*State(Context))) void = do_nothing,
         on_render: *const fn (ctx: context, button: *Button.State(*State(Context)), theme: *const Widget.Theme) bool = on_render_default,
         on_layout: *const fn (ctx: context, button: *Button.State(*State(Context))) Widget.Layout = on_layout_default,
+        on_resize: *const fn (ctx: context, menu: *State(Context), box: Widget.Box) void = on_resize_default,
 
         pub const Context = context;
         pub fn do_nothing(_: context, _: *Button.State(*State(Context))) void {}
@@ -31,6 +32,12 @@ pub fn Options(context: type) type {
         pub fn on_layout_default(_: context, _: *Button.State(*State(Context))) Widget.Layout {
             return .{ .static = 1 };
         }
+
+        pub fn on_resize_default(_: context, state: *State(Context), box_: Widget.Box) void {
+            var box = box_;
+            box.h = state.menu.widgets.items.len;
+            state.menu.handle_resize(box);
+        }
     };
 }
 
@@ -42,6 +49,8 @@ pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Widget, opts: Option
         .menu_widget = self.menu.widget(),
         .opts = opts,
     };
+    self.menu.on_resize_ctx = self;
+    self.menu.on_resize = State(ctx_type).on_resize_menu_widgetlist;
     return self;
 }
 
@@ -91,10 +100,13 @@ pub fn State(ctx_type: type) type {
             return self.opts.on_render(self.opts.ctx, button, theme);
         }
 
-        pub fn resize(self: *Self, box_: Widget.Box) void {
-            var box = box_;
-            box.h = self.menu.widgets.items.len;
-            self.menu.resize(box);
+        fn on_resize_menu_widgetlist(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return self.opts.on_resize(self.opts.ctx, self, box);
+        }
+
+        pub fn resize(self: *Self, box: Widget.Box) void {
+            self.menu.handle_resize(box);
         }
 
         pub fn update(self: *Self) void {
