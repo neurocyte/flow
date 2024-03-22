@@ -32,7 +32,6 @@ last_match_text: ?[]const u8 = null,
 logview_enabled: bool = false,
 
 location_history: location_history,
-project_manager: project_manager,
 
 const NavState = struct {
     time: i64 = 0,
@@ -44,12 +43,7 @@ const NavState = struct {
 };
 
 pub fn create(a: std.mem.Allocator, n: nc.Plane) !Widget {
-    const project_manager_ = try project_manager.create(a);
-    tp.env.get().proc_set("project", project_manager_.pid.?.ref());
-    var project_name_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const project_name = std.fs.cwd().realpath(".", &project_name_buf) catch "(none)";
-    tp.env.get().str_set("project", project_name);
-    // try project_manager_.open(project_name);
+    try project_manager.open_cwd();
     const self = try a.create(Self);
     self.* = .{
         .a = a,
@@ -59,7 +53,6 @@ pub fn create(a: std.mem.Allocator, n: nc.Plane) !Widget {
         .floating_views = WidgetStack.init(a),
         .statusbar = undefined,
         .location_history = try location_history.create(),
-        .project_manager = project_manager_,
     };
     try self.commands.init(self);
     const w = Widget.to(self);

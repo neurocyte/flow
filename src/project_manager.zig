@@ -4,37 +4,45 @@ const cbor = @import("cbor");
 const log = @import("log");
 const tracy = @import("tracy");
 
-pid: ?tp.pid,
+pid: tp.pid_ref,
 
 const Self = @This();
 const module_name = @typeName(Self);
-pub const Error = error{ OutOfMemory, Exit };
 
-pub fn create(a: std.mem.Allocator) Error!Self {
-    return .{ .pid = try Process.create(a) };
+pub fn get() error{Exit}!Self {
+    const pid = tp.env.get().proc(module_name);
+    return if (pid.expired()) create() else .{ .pid = pid };
 }
 
-pub fn from_pid(pid: tp.pid_ref) Error!Self {
-    return .{ .pid = pid.clone() };
+fn create() error{Exit}!Self {
+    const pid = Process.create() catch |e| return tp.exit_error(e);
+    defer pid.deinit();
+    tp.env.get().proc_set(module_name, pid.ref());
+    return .{ .pid = tp.env.get().proc(module_name) };
 }
 
-pub fn deinit(self: *Self) void {
-    if (self.pid) |pid| {
-        self.pid = null;
-        pid.deinit();
-    }
+pub fn shutdown() void {
+    const pid = tp.env.get().proc(module_name);
+    if (pid.expired()) return;
+    pid.send(.{"shutdown"}) catch {};
 }
 
-pub fn shutdown(self: *Self) void {
-    if (self.pid) |pid| {
-        pid.send(.{"shutdown"}) catch {};
-        self.deinit();
-    }
+pub fn open_cwd() tp.result {
+    var cwd_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const cwd = std.fs.cwd().realpath(".", &cwd_buf) catch "(none)";
+    return open(cwd);
 }
 
-pub fn open(self: *const Self, project_directory: []const u8) tp.result {
-    const pid = if (self.pid) |pid| pid else return tp.exit_error(error.Shutdown);
-    try pid.send(.{ "open", project_directory });
+pub fn open(project_directory: []const u8) tp.result {
+    tp.env.get().str_set("project", project_directory);
+    return (try get()).pid.send(.{ "open", project_directory });
+}
+
+pub fn request_recent_files() tp.result {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "request_recent_files", project });
 }
 
 const Process = struct {
@@ -47,7 +55,8 @@ const Process = struct {
     const Receiver = tp.Receiver(*Process);
     const ProjectsMap = std.StringHashMap(*Project);
 
-    pub fn create(a: std.mem.Allocator) Error!tp.pid {
+    fn create() !tp.pid {
+        const a = std.heap.c_allocator;
         const self = try a.create(Process);
         self.* = .{
             .a = a,
