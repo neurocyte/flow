@@ -409,7 +409,9 @@ pub const Editor = struct {
                 return primary;
         if (idx == 0) {
             self.logger.print("ERROR: no more cursors", .{});
-            (@constCast(self).cursels.addOne() catch unreachable).* = CurSel{};
+            (@constCast(self).cursels.addOne() catch |e| switch (e) {
+                error.OutOfMemory => @panic("get_primary error.OutOfMemory"),
+            }).* = CurSel{};
         }
         return self.get_primary();
     }
@@ -2770,7 +2772,7 @@ pub const Editor = struct {
         if (query.len == 0) return;
         const history = if (self.find_history) |*hist| hist else ret: {
             self.find_history = std.ArrayList([]const u8).init(self.a);
-            if (self.find_history) |*hist| break :ret hist else unreachable;
+            break :ret &self.find_history.?;
         };
         for (history.items, 0..) |entry, i|
             if (std.mem.eql(u8, entry, query))

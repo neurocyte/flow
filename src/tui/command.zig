@@ -10,7 +10,7 @@ pub const Context = struct {
     args: tp.message = .{},
 
     pub fn fmt(value: anytype) Context {
-        return .{ .args = tp.message.fmtbuf(&context_buffer, value) catch unreachable };
+        return .{ .args = tp.message.fmtbuf(&context_buffer, value) catch @panic("command.Context.fmt failed") };
     }
 };
 threadlocal var context_buffer: [tp.max_message_size]u8 = undefined;

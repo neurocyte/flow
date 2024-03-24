@@ -150,7 +150,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     try tui.set_base_style_alpha(self.plane, "", theme.editor, nc.ALPHA_TRANSPARENT, nc.ALPHA_TRANSPARENT);
     self.plane.erase();
     self.plane.home();
-    if (self.fire) |*fire| fire.render() catch unreachable;
+    if (self.fire) |*fire| fire.render();
 
     const style_title = if (tui.find_scope_style(theme, "function")) |sty| sty.style else theme.editor;
     const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
@@ -199,7 +199,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     if (self.fire) |*fire| {
         fire.deinit();
-        self.fire = Fire.init(self.a, self.plane, pos) catch unreachable;
+        self.fire = Fire.init(self.a, self.plane, pos) catch return;
     }
 }
 
@@ -278,7 +278,7 @@ const Fire = struct {
     const fire_black: u8 = 0;
     const fire_white: u8 = fire_palette.len - 1;
 
-    fn render(self: *Fire) !void {
+    fn render(self: *Fire) void {
         var rand = self.prng.random();
 
         //update fire buf
@@ -328,9 +328,9 @@ const Fire = struct {
                 const px_hi = self.screen_buf[frame_y * self.FIRE_W + frame_x];
                 const px_lo = self.screen_buf[(frame_y + 1) * self.FIRE_W + frame_x];
 
-                try self.plane.set_fg_palindex(fire_palette[px_hi]);
-                try self.plane.set_bg_palindex(fire_palette[px_lo]);
-                _ = try self.plane.putstr(px);
+                self.plane.set_fg_palindex(fire_palette[px_hi]) catch {};
+                self.plane.set_bg_palindex(fire_palette[px_lo]) catch {};
+                _ = self.plane.putstr(px) catch {};
             }
             self.plane.cursor_move_yx(-1, 0) catch {};
             self.plane.cursor_move_rel(1, 0) catch {};

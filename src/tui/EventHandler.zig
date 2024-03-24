@@ -157,7 +157,7 @@ pub const List = struct {
 
     pub fn send(self: *const List, from: tp.pid_ref, m: tp.message) tp.result {
         if (self.recursion_check)
-            unreachable;
+            @panic("recursive EventHandler call");
         const self_nonconst = @constCast(self);
         self_nonconst.recursion_check = true;
         defer self_nonconst.recursion_check = false;

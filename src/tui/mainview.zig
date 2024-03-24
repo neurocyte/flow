@@ -335,10 +335,10 @@ fn create_editor(self: *Self) tp.result {
     var editor_widget = ed.create(self.a, Widget.to(self)) catch |e| return tp.exit_error(e);
     errdefer editor_widget.deinit(self.a);
     if (editor_widget.get("editor")) |editor| {
-        editor.subscribe(EventHandler.to_unowned(self.statusbar)) catch unreachable;
-        editor.subscribe(EventHandler.bind(self, handle_editor_event)) catch unreachable;
+        editor.subscribe(EventHandler.to_unowned(self.statusbar)) catch @panic("subscribe unsupported");
+        editor.subscribe(EventHandler.bind(self, handle_editor_event)) catch @panic("subscribe unsupported");
         self.editor = if (editor.dynamic_cast(ed.EditorWidget)) |p| &p.editor else null;
-    } else unreachable;
+    } else @panic("mainview editor not found");
     self.widgets.replace(0, editor_widget);
     self.resize();
 }

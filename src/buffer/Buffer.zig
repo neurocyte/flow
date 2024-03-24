@@ -966,7 +966,7 @@ pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
         return error.BufferUnderrun;
     const final_read = try reader.read(buf);
     if (final_read != 0)
-        unreachable;
+        @panic("unexpected data in final read");
 
     var leaf_count: usize = 1;
     for (0..buf.len) |i| {

@@ -272,7 +272,7 @@ const FilteredWalker = struct {
                         if (is_filtered_dir(base.name))
                             continue;
                         var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
-                            error.NameTooLong => unreachable, // no path sep in base.name
+                            error.NameTooLong => @panic("unexpected error.NameTooLong"), // no path sep in base.name
                             else => continue,
                         };
                         {
