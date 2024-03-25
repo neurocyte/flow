@@ -17,7 +17,7 @@ pub const application_logo = "󱞏 ";
 pub fn main() anyerror!void {
     const params = comptime clap.parseParamsComptime(
         \\-h, --help               Display this help and exit.
-        \\-f, --frame-rate <usize> Set target frame rate. (default: 60)
+        \\-f, --frame-rate <num>   Set target frame rate. (default: 60)
         \\--debug-wait             Wait for key press before starting UI.
         \\--debug-dump-on-error    Dump stack traces on errors.
         \\--no-sleep               Do not sleep the main loop when idle.
@@ -26,8 +26,8 @@ pub fn main() anyerror!void {
         \\--restore-session        Restore restart session.
         \\--show-input             Open the input view on start.
         \\--show-log               Open the log view on start.
-        \\-l, --language <str>     Force the language of the file to be opened.
-        \\<str>...                 File to open.
+        \\-l, --language <lang>    Force the language of the file to be opened.
+        \\<file>...                File to open.
         \\                         Add +<LINE> to the command line or append
         \\                         :LINE or :LINE:COL to the file name to jump
         \\                         to a location in the file.
@@ -41,8 +41,14 @@ pub fn main() anyerror!void {
 
     const a = std.heap.c_allocator;
 
+    const parsers = comptime .{
+        .num = clap.parsers.int(usize, 10),
+        .lang = clap.parsers.string,
+        .file = clap.parsers.string,
+    };
+
     var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+    var res = clap.parse(clap.Help, &params, parsers, .{
         .diagnostic = &diag,
         .allocator = a,
     }) catch |err| {
