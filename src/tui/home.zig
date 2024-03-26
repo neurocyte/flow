@@ -95,9 +95,9 @@ fn set_style(plane: nc.Plane, style: Widget.Theme.Style) void {
     };
 }
 
-fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme) bool {
-    const style_base = if (button.active) theme.editor_cursor else if (button.hover) theme.editor_selection else theme.editor;
-    const bg_alpha: c_uint = if (button.active or button.hover) nc.ALPHA_OPAQUE else nc.ALPHA_TRANSPARENT;
+fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+    const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor;
+    const bg_alpha: c_uint = if (button.active or button.hover or selected) nc.ALPHA_OPAQUE else nc.ALPHA_TRANSPARENT;
     try tui.set_base_style_alpha(button.plane, " ", style_base, nc.ALPHA_OPAQUE, bg_alpha);
     button.plane.erase();
     button.plane.home();
@@ -107,7 +107,8 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     const sep = std.mem.indexOfScalar(u8, button.opts.label, ':') orelse button.opts.label.len;
     set_style(button.plane, style_subtext);
     set_style(button.plane, style_text);
-    _ = button.plane.print(" {s}", .{button.opts.label[0..sep]}) catch {};
+    const pointer = if (selected) "⏵" else " ";
+    _ = button.plane.print("{s}{s}", .{ pointer, button.opts.label[0..sep] }) catch {};
     set_style(button.plane, style_keybind);
     _ = button.plane.print("{s}", .{button.opts.label[sep + 1 ..]}) catch {};
     return false;
@@ -208,6 +209,18 @@ const Commands = command.Collection(cmds);
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+
+    pub fn home_menu_down(self: *Self, _: Ctx) tp.result {
+        self.menu.select_down();
+    }
+
+    pub fn home_menu_up(self: *Self, _: Ctx) tp.result {
+        self.menu.select_up();
+    }
+
+    pub fn home_menu_activate(self: *Self, _: Ctx) tp.result {
+        self.menu.activate_selected();
+    }
 
     pub fn home_sheeran(self: *Self, _: Ctx) tp.result {
         self.fire = if (self.fire) |*fire| ret: {

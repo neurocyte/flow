@@ -24,8 +24,9 @@ widgets: ArrayList(WidgetState),
 layout: Layout,
 direction: Direction,
 box: ?Widget.Box = null,
+ctx: ?*anyopaque = null,
+on_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
 on_resize: *const fn (ctx: ?*anyopaque, self: *Self, pos_: Widget.Box) void = on_resize_default,
-on_resize_ctx: ?*anyopaque = null,
 
 pub fn createH(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
     const self: *Self = try a.create(Self);
@@ -125,6 +126,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         break;
     };
 
+    self.on_render(self.ctx, theme);
+
     var more = false;
     for (self.widgets.items) |*w|
         if (w.widget.render(theme)) {
@@ -132,6 +135,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         };
     return more;
 }
+
+fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
 
 pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     for (self.widgets.items) |*w|
@@ -173,7 +178,7 @@ fn refresh_layout(self: *Self) void {
 }
 
 pub fn resize(self: *Self, pos: Widget.Box) void {
-    return self.on_resize(self.on_resize_ctx, self, pos);
+    return self.on_resize(self.ctx, self, pos);
 }
 
 fn on_resize_default(_: ?*anyopaque, self: *Self, pos: Widget.Box) void {

@@ -42,6 +42,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn mapEvent(self: *Self, evtype: u32, keypress: u32, modifiers: u32) tp.result {
     return switch (evtype) {
         nc.event_type.PRESS => self.mapPress(keypress, modifiers),
+        nc.event_type.REPEAT => self.mapPress(keypress, modifiers),
         else => {},
     };
 }
@@ -90,6 +91,9 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             nc.key.F10 => self.cmd("theme_next", .{}),
             nc.key.F11 => self.cmd("toggle_logview", .{}),
             nc.key.F12 => self.cmd("toggle_inputview", .{}),
+            nc.key.UP => self.cmd("home_menu_up", .{}),
+            nc.key.DOWN => self.cmd("home_menu_down", .{}),
+            nc.key.ENTER => self.cmd("home_menu_activate", .{}),
             else => {},
         },
         else => {},

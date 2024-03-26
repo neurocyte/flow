@@ -21,19 +21,17 @@ menu: *Menu.State(*Self),
 logger: log.Logger,
 count: usize = 0,
 longest: usize = 0,
+commands: Commands = undefined,
 
 pub fn create(a: std.mem.Allocator) !tui.Mode {
     const mv = if (tui.current().mainview.dynamic_cast(mainview)) |mv_| mv_ else return error.NotFound;
     const self: *Self = try a.create(Self);
     self.* = .{
         .a = a,
-        .menu = try Menu.create(*Self, a, tui.current().mainview, .{
-            .ctx = self,
-            .on_render = on_render_menu,
-            .on_resize = on_resize_menu,
-        }),
+        .menu = try Menu.create(*Self, a, tui.current().mainview, .{ .ctx = self, .on_render = on_render_menu, .on_resize = on_resize_menu }),
         .logger = log.logger(@typeName(Self)),
     };
+    try self.commands.init(self);
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_project_manager));
     try project_manager.request_recent_files();
     self.menu.resize(.{ .y = 0, .x = 25, .w = 32 });
@@ -46,18 +44,20 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
 }
 
 pub fn deinit(self: *Self) void {
+    self.commands.deinit();
     tui.current().message_filters.remove_ptr(self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv|
         mv.floating_views.remove(self.menu.menu_widget);
     self.a.destroy(self);
 }
 
-fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme) bool {
-    const style_base = if (button.active) theme.editor_cursor else if (button.hover) theme.editor_selection else theme.editor_widget;
-    try tui.set_base_style_alpha(button.plane, " ", style_base, nc.ALPHA_TRANSPARENT, nc.ALPHA_OPAQUE);
+fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+    const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
+    try tui.set_base_style_alpha(button.plane, " ", style_base, nc.ALPHA_OPAQUE, nc.ALPHA_OPAQUE);
     button.plane.erase();
     button.plane.home();
-    _ = button.plane.print(" {s} ", .{button.opts.label}) catch {};
+    const pointer = if (selected) "⏵" else " ";
+    _ = button.plane.print("{s}{s} ", .{ pointer, button.opts.label }) catch {};
     return false;
 }
 
@@ -112,6 +112,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn mapEvent(self: *Self, evtype: u32, keypress: u32, modifiers: u32) tp.result {
     return switch (evtype) {
         nc.event_type.PRESS => self.mapPress(keypress, modifiers),
+        nc.event_type.REPEAT => self.mapPress(keypress, modifiers),
         else => {},
     };
 }
@@ -123,6 +124,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'J' => self.cmd("toggle_logview", .{}),
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("close_file", .{}),
+            'E' => self.cmd("open_recent_menu_down", .{}),
             else => {},
         },
         nc.mod.CTRL | nc.mod.SHIFT => switch (keynormal) {
@@ -130,6 +132,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'R' => self.cmd("restart", .{}),
             'L' => self.cmd_async("toggle_logview"),
             'I' => self.cmd_async("toggle_inputview"),
+            'E' => self.cmd("open_recent_menu_up", .{}),
             else => {},
         },
         nc.mod.ALT => switch (keynormal) {
@@ -143,7 +146,9 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             nc.key.F11 => self.cmd("toggle_logview", .{}),
             nc.key.F12 => self.cmd("toggle_inputview", .{}),
             nc.key.ESC => self.cmd("exit_overlay_mode", .{}),
-            nc.key.ENTER => self.cmd("exit_overlay_mode", .{}),
+            nc.key.UP => self.cmd("open_recent_menu_up", .{}),
+            nc.key.DOWN => self.cmd("open_recent_menu_down", .{}),
+            nc.key.ENTER => self.cmd("open_recent_menu_activate", .{}),
             else => {},
         },
         else => {},
@@ -161,3 +166,21 @@ fn msg(_: *Self, text: []const u8) tp.result {
 fn cmd_async(_: *Self, name_: []const u8) tp.result {
     return tp.self_pid().send(.{ "cmd", name_ });
 }
+
+const Commands = command.Collection(cmds);
+const cmds = struct {
+    pub const Target = Self;
+    const Ctx = command.Context;
+
+    pub fn open_recent_menu_down(self: *Self, _: Ctx) tp.result {
+        self.menu.select_down();
+    }
+
+    pub fn open_recent_menu_up(self: *Self, _: Ctx) tp.result {
+        self.menu.select_up();
+    }
+
+    pub fn open_recent_menu_activate(self: *Self, _: Ctx) tp.result {
+        self.menu.activate_selected();
+    }
+};
