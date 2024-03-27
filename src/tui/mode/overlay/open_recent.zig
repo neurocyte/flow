@@ -14,6 +14,7 @@ const mainview = @import("../../mainview.zig");
 const project_manager = @import("project_manager");
 
 const Self = @This();
+const max_recent_files: usize = 25;
 
 a: std.mem.Allocator,
 f: usize = 0,
@@ -33,7 +34,7 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
     };
     try self.commands.init(self);
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_project_manager));
-    try project_manager.request_recent_files();
+    try project_manager.request_recent_files(max_recent_files);
     self.menu.resize(.{ .y = 0, .x = 25, .w = 32 });
     try mv.floating_views.add(self.menu.menu_widget);
     return .{
@@ -87,7 +88,7 @@ fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit
 fn process_project_manager(self: *Self, m: tp.message) tp.result {
     var file_name: []const u8 = undefined;
     if (try m.match(.{ "PRJ", "recent", tp.extract(&file_name) })) {
-        if (self.count < 15) {
+        if (self.count < max_recent_files) {
             self.count += 1;
             self.longest = @max(self.longest, file_name.len);
             self.menu.add_item_with_handler(file_name, menu_action_open_file) catch |e| return tp.exit_error(e);

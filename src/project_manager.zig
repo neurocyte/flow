@@ -41,11 +41,11 @@ pub fn open(project_directory: []const u8) tp.result {
     return (try get()).pid.send(.{ "open", project_directory });
 }
 
-pub fn request_recent_files() tp.result {
+pub fn request_recent_files(max: usize) tp.result {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
-    return (try get()).pid.send(.{ "request_recent_files", project });
+    return (try get()).pid.send(.{ "request_recent_files", project, max });
 }
 
 const Process = struct {
@@ -95,6 +95,7 @@ const Process = struct {
         var path: []const u8 = undefined;
         var high: i64 = 0;
         var low: i64 = 0;
+        var max: usize = 0;
 
         if (try m.match(.{ "walk_tree_entry", tp.extract(&project_directory), tp.extract(&path), tp.extract(&high), tp.extract(&low) })) {
             const mtime = (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low));
@@ -113,8 +114,8 @@ const Process = struct {
             });
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.send_raw(tp.exit_message(e));
-        } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory) })) {
-            self.request_recent_files(from, project_directory) catch |e| return from.send_raw(tp.exit_message(e));
+        } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
+            self.request_recent_files(from, project_directory, max) catch |e| return from.send_raw(tp.exit_message(e));
         } else if (try m.match(.{"shutdown"})) {
             if (self.walker) |pid| pid.send(.{"stop"}) catch {};
             try from.send(.{ "project_manager", "shutdown" });
@@ -136,9 +137,10 @@ const Process = struct {
         }
     }
 
-    fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8) error{ OutOfMemory, Exit }!void {
+    fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) error{ OutOfMemory, Exit }!void {
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        return project.request_recent_files(from);
+        project.sort_files_by_mtime();
+        return project.request_recent_files(from, max);
     }
 };
 
@@ -181,9 +183,11 @@ const Project = struct {
         std.mem.sort(File, self.files.items, {}, less_fn);
     }
 
-    fn request_recent_files(self: *Project, from: tp.pid_ref) error{ OutOfMemory, Exit }!void {
-        for (self.files.items) |file|
+    fn request_recent_files(self: *Project, from: tp.pid_ref, max: usize) error{ OutOfMemory, Exit }!void {
+        for (self.files.items, 0..) |file, i| {
             try from.send(.{ "PRJ", "recent", file.path });
+            if (i >= max) return;
+        }
     }
 };
 
