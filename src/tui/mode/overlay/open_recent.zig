@@ -113,6 +113,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, modifiers: u32) tp.result {
     return switch (evtype) {
         nc.event_type.PRESS => self.mapPress(keypress, modifiers),
         nc.event_type.REPEAT => self.mapPress(keypress, modifiers),
+        nc.event_type.RELEASE => self.mapRelease(keypress, modifiers),
         else => {},
     };
 }
@@ -125,6 +126,10 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("close_file", .{}),
             'E' => self.cmd("open_recent_menu_down", .{}),
+            nc.key.ESC => self.cmd("exit_overlay_mode", .{}),
+            nc.key.UP => self.cmd("open_recent_menu_up", .{}),
+            nc.key.DOWN => self.cmd("open_recent_menu_down", .{}),
+            nc.key.ENTER => self.cmd("open_recent_menu_activate", .{}),
             else => {},
         },
         nc.mod.CTRL | nc.mod.SHIFT => switch (keynormal) {
@@ -151,6 +156,13 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             nc.key.ENTER => self.cmd("open_recent_menu_activate", .{}),
             else => {},
         },
+        else => {},
+    };
+}
+
+fn mapRelease(self: *Self, keypress: u32, _: u32) tp.result {
+    return switch (keypress) {
+        nc.key.LCTRL, nc.key.RCTRL => self.cmd("open_recent_menu_activate", .{}),
         else => {},
     };
 }
