@@ -166,6 +166,8 @@ const cmds = struct {
     }
 
     pub fn navigate(self: *Self, ctx: Ctx) tp.result {
+        if (self.editor) |editor| if (editor.is_dirty())
+            return tp.exit("unsaved changes");
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });
         defer frame.deinit();
         var file: ?[]const u8 = null;
