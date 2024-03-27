@@ -89,16 +89,20 @@ const Process = struct {
         errdefer self.deinit();
         var project_directory: []const u8 = undefined;
         var path: []const u8 = undefined;
+        var high: i64 = 0;
+        var low: i64 = 0;
 
-        if (try m.match(.{ "walk_tree_entry", tp.extract(&project_directory), tp.extract(&path) })) {
+        if (try m.match(.{ "walk_tree_entry", tp.extract(&project_directory), tp.extract(&path), tp.extract(&high), tp.extract(&low) })) {
+            const mtime = (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low));
             if (self.projects.get(project_directory)) |project|
-                project.add_file(path) catch |e| self.logger.err("walk_tree_entry", e);
+                project.add_file(path, mtime) catch |e| self.logger.err("walk_tree_entry", e);
             // self.logger.print("file: {s}", .{path});
         } else if (try m.match(.{ "walk_tree_done", tp.extract(&project_directory) })) {
             const project = self.projects.get(project_directory) orelse return;
+            project.sort_files_by_mtime();
             self.logger.print("opened: {s} with {d} files in {d} ms", .{
                 project_directory,
-                project.files.count(),
+                project.files.items.len,
                 std.time.milliTimestamp() - project.open_time,
             });
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
@@ -133,37 +137,45 @@ const Process = struct {
 const Project = struct {
     a: std.mem.Allocator,
     name: []const u8,
-    files: FilesMap,
+    files: std.ArrayList(File),
     open_time: i64,
 
-    const FilesMap = std.StringHashMap(void);
+    const File = struct {
+        path: []const u8,
+        mtime: i128,
+    };
 
     fn init(a: std.mem.Allocator, name: []const u8) error{OutOfMemory}!Project {
         return .{
             .a = a,
             .name = try a.dupe(u8, name),
-            .files = FilesMap.init(a),
+            .files = std.ArrayList(File).init(a),
             .open_time = std.time.milliTimestamp(),
         };
     }
 
     fn deinit(self: *Project) void {
-        var i = self.files.iterator();
-        while (i.next()) |p| self.a.free(p.key_ptr.*);
+        for (self.files.items) |file| self.a.free(file.path);
         self.files.deinit();
         self.a.free(self.name);
     }
 
-    fn add_file(self: *Project, path: []const u8) error{OutOfMemory}!void {
-        if (self.files.get(path) != null) return;
-        try self.files.put(try self.a.dupe(u8, path), {});
+    fn add_file(self: *Project, path: []const u8, mtime: i128) error{OutOfMemory}!void {
+        (try self.files.addOne()).* = .{ .path = try self.a.dupe(u8, path), .mtime = mtime };
+    }
+
+    fn sort_files_by_mtime(self: *Project) void {
+        const less_fn = struct {
+            fn less_fn(_: void, lhs: File, rhs: File) bool {
+                return lhs.mtime > rhs.mtime;
+            }
+        }.less_fn;
+        std.mem.sort(File, self.files.items, {}, less_fn);
     }
 
     fn request_recent_files(self: *Project, from: tp.pid_ref) error{ OutOfMemory, Exit }!void {
-        var i = self.files.iterator();
-        while (i.next()) |file| {
-            try from.send(.{ "PRJ", "recent", file.key_ptr.* });
-        }
+        for (self.files.items) |file|
+            try from.send(.{ "PRJ", "recent", file.path });
     }
 };
 
@@ -213,8 +225,14 @@ fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) tp.result {
             var walker = try walk_filtered(dir, self.a);
             defer walker.deinit();
 
-            while (try walker.next()) |path|
-                try self.parent.send(.{ "walk_tree_entry", self.root_path, path });
+            while (try walker.next()) |path| {
+                const stat = dir.statFile(path) catch continue;
+                const mtime = stat.mtime;
+                const high: i64 = @intCast(mtime >> 64);
+                const low: i64 = @truncate(mtime);
+                std.debug.assert(mtime == (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low)));
+                try self.parent.send(.{ "walk_tree_entry", self.root_path, path, high, low });
+            }
         }
     }.spawn_link(a_, root_path_);
 }
