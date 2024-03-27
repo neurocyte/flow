@@ -3,6 +3,7 @@ const nc = @import("notcurses");
 const tp = @import("thespian");
 const log = @import("log");
 const config = @import("config");
+const project_manager = @import("project_manager");
 const build_options = @import("build_options");
 const root = @import("root");
 
@@ -223,6 +224,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         return command.executeName(cmd, ctx) catch |e| self.logger.err(cmd, e);
     }
     if (try m.match(.{"quit"})) {
+        project_manager.shutdown();
+        return tp.exit_normal();
+    }
+    if (try m.match(.{ "project_manager", "shutdown" })) {
         return tp.exit_normal();
     }
 

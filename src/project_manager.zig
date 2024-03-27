@@ -23,7 +23,10 @@ fn create() error{Exit}!Self {
 
 pub fn shutdown() void {
     const pid = tp.env.get().proc(module_name);
-    if (pid.expired()) return;
+    if (pid.expired()) {
+        tp.self_pid().send(.{ "project_manager", "shutdown" }) catch {};
+        return;
+    }
     pid.send(.{"shutdown"}) catch {};
 }
 
@@ -51,6 +54,7 @@ const Process = struct {
     logger: log.Logger,
     receiver: Receiver,
     projects: ProjectsMap,
+    walker: ?tp.pid = null,
 
     const Receiver = tp.Receiver(*Process);
     const ProjectsMap = std.StringHashMap(*Project);
@@ -98,6 +102,8 @@ const Process = struct {
                 project.add_file(path, mtime) catch |e| self.logger.err("walk_tree_entry", e);
             // self.logger.print("file: {s}", .{path});
         } else if (try m.match(.{ "walk_tree_done", tp.extract(&project_directory) })) {
+            if (self.walker) |pid| pid.deinit();
+            self.walker = null;
             const project = self.projects.get(project_directory) orelse return;
             project.sort_files_by_mtime();
             self.logger.print("opened: {s} with {d} files in {d} ms", .{
@@ -110,6 +116,8 @@ const Process = struct {
         } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory) })) {
             self.request_recent_files(from, project_directory) catch |e| return from.send_raw(tp.exit_message(e));
         } else if (try m.match(.{"shutdown"})) {
+            if (self.walker) |pid| pid.send(.{"stop"}) catch {};
+            try from.send(.{ "project_manager", "shutdown" });
             return tp.exit_normal();
         } else if (try m.match(.{ "exit", "normal" })) {
             return;
@@ -124,7 +132,7 @@ const Process = struct {
             const project = try self.a.create(Project);
             project.* = try Project.init(self.a, project_directory);
             try self.projects.put(try self.a.dupe(u8, project_directory), project);
-            try walk_tree_async(self.a, project_directory);
+            self.walker = try walk_tree_async(self.a, project_directory);
         }
     }
 
@@ -179,59 +187,72 @@ const Project = struct {
     }
 };
 
-fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) tp.result {
+fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) error{Exit}!tp.pid {
     return struct {
         a: std.mem.Allocator,
         root_path: []const u8,
         parent: tp.pid,
+        receiver: Receiver,
+        dir: std.fs.Dir,
+        walker: FilteredWalker,
 
         const tree_walker = @This();
+        const Receiver = tp.Receiver(*tree_walker);
 
-        fn spawn_link(a: std.mem.Allocator, root_path: []const u8) tp.result {
+        fn spawn_link(a: std.mem.Allocator, root_path: []const u8) error{Exit}!tp.pid {
             const self = a.create(tree_walker) catch |e| return tp.exit_error(e);
-            self.* = tree_walker.init(a, root_path) catch |e| return tp.exit_error(e);
-            const pid = tp.spawn_link(a, self, tree_walker.start, module_name ++ ".tree_walker") catch |e| return tp.exit_error(e);
-            pid.deinit();
-        }
-
-        fn init(a: std.mem.Allocator, root_path: []const u8) error{OutOfMemory}!tree_walker {
-            return .{
+            self.* = .{
                 .a = a,
-                .root_path = try a.dupe(u8, root_path),
+                .root_path = a.dupe(u8, root_path) catch |e| return tp.exit_error(e),
                 .parent = tp.self_pid().clone(),
+                .receiver = Receiver.init(tree_walker.receive, self),
+                .dir = std.fs.cwd().openDir(self.root_path, .{ .iterate = true }) catch |e| return tp.exit_error(e),
+                .walker = walk_filtered(self.dir, self.a) catch |e| return tp.exit_error(e),
             };
+            return tp.spawn_link(a, self, tree_walker.start, module_name ++ ".tree_walker") catch |e| return tp.exit_error(e);
         }
 
         fn start(self: *tree_walker) tp.result {
-            self.walk() catch |e| return tp.exit_error(e);
-            return tp.exit_normal();
+            errdefer self.deinit();
+            const frame = tracy.initZone(@src(), .{ .name = "project scan" });
+            defer frame.deinit();
+            tp.receive(&self.receiver);
+            self.next() catch |e| return tp.exit_error(e);
         }
 
         fn deinit(self: *tree_walker) void {
+            self.walker.deinit();
+            self.dir.close();
             self.a.free(self.root_path);
             self.parent.deinit();
         }
 
-        fn walk(self: *tree_walker) !void {
+        fn receive(self: *tree_walker, _: tp.pid_ref, m: tp.message) tp.result {
+            errdefer self.deinit();
             const frame = tracy.initZone(@src(), .{ .name = "project scan" });
             defer frame.deinit();
-            defer {
-                self.parent.send(.{ "walk_tree_done", self.root_path }) catch {};
-                self.deinit();
+
+            if (try m.match(.{"next"})) {
+                self.next() catch |e| return tp.exit_error(e);
+            } else if (try m.match(.{"stop"})) {
+                return tp.exit_normal();
+            } else {
+                return tp.unexpected(m);
             }
-            var dir = try std.fs.cwd().openDir(self.root_path, .{ .iterate = true });
-            defer dir.close();
+        }
 
-            var walker = try walk_filtered(dir, self.a);
-            defer walker.deinit();
-
-            while (try walker.next()) |path| {
-                const stat = dir.statFile(path) catch continue;
+        fn next(self: *tree_walker) !void {
+            if (try self.walker.next()) |path| {
+                const stat = self.dir.statFile(path) catch return tp.self_pid().send(.{"next"});
                 const mtime = stat.mtime;
                 const high: i64 = @intCast(mtime >> 64);
                 const low: i64 = @truncate(mtime);
                 std.debug.assert(mtime == (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low)));
                 try self.parent.send(.{ "walk_tree_entry", self.root_path, path, high, low });
+                return tp.self_pid().send(.{"next"});
+            } else {
+                self.parent.send(.{ "walk_tree_done", self.root_path }) catch {};
+                return tp.exit_normal();
             }
         }
     }.spawn_link(a_, root_path_);
