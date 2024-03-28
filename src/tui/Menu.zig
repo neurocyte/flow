@@ -64,6 +64,7 @@ pub fn State(ctx_type: type) type {
         selected: ?usize = null,
         render_idx: usize = 0,
         selected_active: bool = false,
+        header_count: usize = 0,
 
         const Self = @This();
         const options_type = Options(ctx_type);
@@ -72,6 +73,12 @@ pub fn State(ctx_type: type) type {
         pub fn deinit(self: *Self, a: std.mem.Allocator) void {
             self.menu.deinit(a);
             a.destroy(self);
+        }
+
+        pub fn add_header(self: *Self, w_: Widget) !*Widget {
+            self.header_count += 1;
+            try self.menu.add(w_);
+            return &self.menu.widgets.items[self.menu.widgets.items.len - 1].widget;
         }
 
         pub fn add_item(self: *Self, label: []const u8) !void {
@@ -92,6 +99,13 @@ pub fn State(ctx_type: type) type {
                 .on_click = on_click,
                 .on_render = on_render,
             }));
+        }
+
+        pub fn reset_items(self: *Self) void {
+            for (self.menu.widgets.items, 0..) |*w, i|
+                if (i >= self.header_count)
+                    w.widget.deinit(self.a);
+            self.menu.widgets.shrinkRetainingCapacity(self.header_count);
         }
 
         pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -152,7 +166,8 @@ pub fn State(ctx_type: type) type {
         pub fn activate_selected(self: *Self) void {
             const selected = self.selected orelse return;
             self.selected_active = true;
-            const button = self.menu.widgets.items[selected].widget.dynamic_cast(button_type) orelse return;
+            const pos = selected + self.header_count;
+            const button = self.menu.widgets.items[pos].widget.dynamic_cast(button_type) orelse return;
             button.opts.on_click(button.opts.ctx, button);
         }
     };

@@ -1,7 +1,6 @@
 const std = @import("std");
 const nc = @import("notcurses");
 const tp = @import("thespian");
-const log = @import("log");
 
 const Widget = @import("Widget.zig");
 const command = @import("command.zig");
