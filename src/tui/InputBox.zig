@@ -1,0 +1,117 @@
+const std = @import("std");
+const nc = @import("notcurses");
+const tp = @import("thespian");
+
+const Widget = @import("Widget.zig");
+const command = @import("command.zig");
+const tui = @import("tui.zig");
+
+pub fn Options(context: type) type {
+    return struct {
+        label: []const u8 = "Enter text",
+        pos: Widget.Box = .{ .y = 0, .x = 0, .w = 12, .h = 1 },
+        ctx: Context,
+
+        on_click: *const fn (ctx: context, button: *State(Context)) void = do_nothing,
+        on_render: *const fn (ctx: context, button: *State(Context), theme: *const Widget.Theme) bool = on_render_default,
+        on_layout: *const fn (ctx: context, button: *State(Context)) Widget.Layout = on_layout_default,
+
+        pub const Context = context;
+        pub fn do_nothing(_: context, _: *State(Context)) void {}
+
+        pub fn on_render_default(_: context, self: *State(Context), theme: *const Widget.Theme) bool {
+            tui.set_base_style(&self.plane, " ", if (self.text.items.len > 0) theme.input else theme.input_placeholder);
+            self.plane.erase();
+            self.plane.home();
+            if (self.text.items.len > 0) {
+                _ = self.plane.print(" {s} ", .{self.text.items}) catch {};
+            } else {
+                _ = self.plane.print(" {s} ", .{self.label.items}) catch {};
+            }
+            if (self.cursor) |cursor| {
+                const pos: c_int = @intCast(cursor);
+                self.plane.cursor_move_yx(0, pos + 1) catch return false;
+                var cell = self.plane.cell_init();
+                _ = self.plane.at_cursor_cell(&cell) catch return false;
+                tui.set_cell_style(&cell, theme.editor_cursor);
+                _ = self.plane.putc(&cell) catch {};
+            }
+            return false;
+        }
+
+        pub fn on_layout_default(_: context, _: *State(Context)) Widget.Layout {
+            return .{ .static = 1 };
+        }
+    };
+}
+
+pub fn create(ctx_type: type, a: std.mem.Allocator, parent: nc.Plane, opts: Options(ctx_type)) !Widget {
+    const Self = State(ctx_type);
+    const self = try a.create(Self);
+    var n = try nc.Plane.init(&opts.pos.opts(@typeName(Self)), parent);
+    errdefer n.deinit();
+    self.* = .{
+        .parent = parent,
+        .plane = n,
+        .opts = opts,
+        .label = std.ArrayList(u8).init(a),
+        .text = std.ArrayList(u8).init(a),
+    };
+    try self.label.appendSlice(self.opts.label);
+    self.opts.label = self.label.items;
+    return Widget.to(self);
+}
+
+pub fn State(ctx_type: type) type {
+    return struct {
+        parent: nc.Plane,
+        plane: nc.Plane,
+        active: bool = false,
+        hover: bool = false,
+        label: std.ArrayList(u8),
+        opts: Options(ctx_type),
+        text: std.ArrayList(u8),
+        cursor: ?usize = 0,
+
+        const Self = @This();
+        pub const Context = ctx_type;
+
+        pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+            self.text.deinit();
+            self.label.deinit();
+            self.plane.deinit();
+            a.destroy(self);
+        }
+
+        pub fn layout(self: *Self) Widget.Layout {
+            return self.opts.on_layout(self.opts.ctx, self);
+        }
+
+        pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+            return self.opts.on_render(self.opts.ctx, self, theme);
+        }
+
+        pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+            if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+                self.active = true;
+                tui.need_render();
+                return true;
+            } else if (try m.match(.{ "B", nc.event_type.RELEASE, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+                self.opts.on_click(self.opts.ctx, self);
+                self.active = false;
+                tui.need_render();
+                return true;
+            } else if (try m.match(.{ "D", nc.event_type.RELEASE, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+                self.opts.on_click(self.opts.ctx, self);
+                self.active = false;
+                tui.need_render();
+                return true;
+            } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
+                tui.current().request_mouse_cursor_pointer(self.hover);
+                tui.need_render();
+                return true;
+            }
+            return false;
+        }
+    };
+}
