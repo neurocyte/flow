@@ -206,6 +206,9 @@ cycle style of editing.
 - Ctrl-o =>
         Open file
 
+- Ctrl-e =>
+        Open recent file
+
 - Ctrl-q =>
         Exit
 
