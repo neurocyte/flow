@@ -299,6 +299,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "exit", "timeout_error", 125, "Operation aborted." }))
         return;
 
+    if (try m.match(.{ "PRJ", tp.more })) // drop late project manager query responses
+        return;
+
     return tp.unexpected(m);
 }
 
