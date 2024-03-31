@@ -155,10 +155,11 @@ const Process = struct {
 
     fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) error{ OutOfMemory, Exit }!void {
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        const start_time = std.time.milliTimestamp();
+        // const start_time = std.time.milliTimestamp();
         // project.sort_files_by_mtime();
         const matched = try project.query_recent_files(from, max, query);
-        self.logger.print("queried: {s} for {s} match {d} in {d} ms", .{ project_directory, query, matched, std.time.milliTimestamp() - start_time });
+        _ = matched;
+        // self.logger.print("queried: {s} for {s} match {d} in {d} ms", .{ project_directory, query, matched, std.time.milliTimestamp() - start_time });
     }
 };
 
