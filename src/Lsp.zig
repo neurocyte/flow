@@ -52,7 +52,7 @@ const Process = struct {
             .recv_buf = std.ArrayList(u8).init(a),
             .parent = tp.self_pid().clone(),
             .tag = try a.dupeZ(u8, tag),
-            .logger = log.logger(@typeName(Self)),
+            .logger = log.logger(module_name),
         };
         return tp.spawn_link(self.a, self, Process.start, tag) catch |e| tp.exit_error(e);
     }
@@ -72,7 +72,7 @@ const Process = struct {
 
     fn start(self: *Process) tp.result {
         _ = tp.set_trap(true);
-        self.sp = tp.subprocess.init(self.a, self.cmd, sp_tag, self.stdin_behavior) catch |e| return tp.exit_error(e);
+        self.sp = tp.subprocess.init(self.a, self.cmd, sp_tag, .Pipe) catch |e| return tp.exit_error(e);
         tp.receive(&self.receiver);
     }
 
@@ -101,30 +101,20 @@ const Process = struct {
 
     fn handle_output(self: *Process, bytes: []u8) !void {
         try self.recv_buf.appendSlice(bytes);
-        @import("log").logger(module_name).print("{s}", .{bytes}) catch {};
+        self.logger.print("{s}", .{bytes});
         const message = try self.frame_message() orelse return;
         _ = message;
     }
 
     fn handle_terminated(self: *Process) !void {
-        const recv_buf = try self.recv_buf.toOwnedSlice();
-        var it = std.mem.splitScalar(u8, recv_buf, '\n');
-        while (it.next()) |json| {
-            if (json.len == 0) continue;
-            var msg_buf: [tp.max_message_size]u8 = undefined;
-            const msg: tp.message = .{ .buf = try cbor.fromJson(json, &msg_buf) };
-            try self.dispatch(msg);
-            // var buf: [tp.max_message_size]u8 = undefined;
-            // @import("log").logger(module_name).print("json: {s}", .{try msg.to_json(&buf)}) catch {};
-        }
-        @import("log").logger(module_name).print("done", .{}) catch {};
+        self.logger.print("done", .{});
         try self.parent.send(.{ self.tag, "done" });
     }
 
-    fn frame_message(self: *Self) !?Message {
-        const end = std.mem.indexOf(u8, self.recv_buf, "\r\n\r\n") orelse return null;
-        const headers = try Headers.parse(self.recv_buf[0..end]);
-        const body = self.recv_buf[end + 2 ..];
+    fn frame_message(self: *Process) !?Message {
+        const end = std.mem.indexOf(u8, self.recv_buf.items, "\r\n\r\n") orelse return null;
+        const headers = try Headers.parse(self.recv_buf.items[0..end]);
+        const body = self.recv_buf.items[end + 2 ..];
         if (body.len < headers.content_length) return null;
         return .{ .body = body };
     }
@@ -153,14 +143,14 @@ const Headers = struct {
             else
                 sep + 1;
             const value = buf[vstart..end];
-            ret.parse_one(name, value);
+            try ret.parse_one(name, value);
             buf = if (end < buf.len - 2) buf[end + 2 ..] else return ret;
         }
     }
 
-    fn parse_one(self: *Headers, name: []const u8, value: []const u8) void {
+    fn parse_one(self: *Headers, name: []const u8, value: []const u8) !void {
         if (std.mem.eql(u8, "Content-Length", name)) {
-            self.content_length = std.fmt.parseInt(@TypeOf(self.content_length), value, 10);
+            self.content_length = try std.fmt.parseInt(@TypeOf(self.content_length), value, 10);
         } else if (std.mem.eql(u8, "Content-Type", name)) {
             self.content_type = value;
         }

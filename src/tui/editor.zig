@@ -9,6 +9,7 @@ const ripgrep = @import("ripgrep");
 const tracy = @import("tracy");
 const text_manip = @import("text_manip");
 const syntax = @import("syntax");
+const project_manager = @import("project_manager");
 
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor_gutter = @import("editor_gutter.zig");
@@ -3144,6 +3145,13 @@ pub const Editor = struct {
         if (have_sel) primary.selection = sel;
         try self.scroll_view_center(.{});
         try self.send_editor_jump_destination();
+    }
+
+    pub fn goto_definition(self: *Self, _: command.Context) tp.result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        const file_type = (self.syntax orelse return).file_type.name;
+        return project_manager.goto_definition(file_path, file_type, primary.cursor.row, primary.cursor.col);
     }
 
     pub fn select(self: *Self, ctx: command.Context) tp.result {
