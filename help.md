@@ -139,6 +139,9 @@ cycle style of editing.
 - Alt-Shift-Down, Alt-Shift-Up =>
         Add cursor on the previous/next line
 
+- Ctrl-Shift-l =>
+        Add cursors to all matches
+
 - Ctrl-MouseLeft =>
         Add cursor at mouse click
 
@@ -237,7 +240,7 @@ cycle style of editing.
 
 ### Debugging Commands
 
-- F5 =>
+- F5, Ctrl-Shift-i =>
         Toggle inspector view
 
 - F6 =>
@@ -246,10 +249,10 @@ cycle style of editing.
 - F7 =>
         Dump current line to log view
 
-- F11, Ctrl-J, Ctrl-Shift-l =>
+- F11, Ctrl-J, Alt-l =>
         Toggle log view
 
-- F12, Ctrl-Shift-i =>
+- F12, Alt-i =>
         Toggle input view
 
 - Ctrl-Shift-/ =>

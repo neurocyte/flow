@@ -2083,6 +2083,21 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
 
+    pub fn add_cursor_all_matches(self: *Self, _: command.Context) tp.result {
+        if (self.matches.items.len == 0) return;
+        try self.send_editor_jump_source();
+        while (self.get_next_match(self.get_primary().cursor)) |match| {
+            self.push_cursor() catch |e| return tp.exit_error(e);
+            const primary = self.get_primary();
+            const root = self.buf_root() catch return;
+            primary.selection = match.to_selection();
+            match.has_selection = true;
+            primary.cursor.move_to(root, match.end.row, match.end.col) catch return;
+        }
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+
     fn pull_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
@@ -2954,6 +2969,14 @@ pub const Editor = struct {
         (self.matches.addOne() catch return).* = match;
     }
 
+    fn scan_first_match(self: *const Self) ?*Match {
+        for (self.matches.items) |*match_| if (match_.*) |*match| {
+            if (match.has_selection) continue;
+            return match;
+        };
+        return null;
+    }
+
     fn scan_next_match(self: *const Self, cursor: Cursor) ?*Match {
         const row = cursor.row;
         const col = cursor.col;
@@ -2968,7 +2991,7 @@ pub const Editor = struct {
         if (self.scan_next_match(cursor)) |match| return match;
         var cursor_ = cursor;
         cursor_.move_buffer_begin();
-        return self.scan_next_match(cursor_);
+        return self.scan_first_match();
     }
 
     fn scan_prev_match(self: *const Self, cursor: Cursor) ?*Match {
