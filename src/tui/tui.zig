@@ -745,7 +745,7 @@ const cmds = struct {
             self.logger.print("unknown mode {s}", .{mode});
             break :ret @import("mode/input/flow.zig").create(self.a) catch |e| return tp.exit_error(e);
         };
-        self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
+        // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
 
     pub fn enter_mode_default(self: *Self, _: Ctx) tp.result {
@@ -768,7 +768,7 @@ const cmds = struct {
             self.logger.print("unknown mode {s}", .{mode});
             return;
         };
-        self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
+        // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) tp.result {
