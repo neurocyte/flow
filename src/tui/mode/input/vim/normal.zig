@@ -157,6 +157,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'F' => self.cmd("filter", command.fmt(.{ "zig", "fmt", "--stdin" })),
             'S' => self.cmd("filter", command.fmt(.{ "sort", "-u" })),
             'V' => self.cmd("paste", .{}),
+            'I' => self.cmd("add_cursors_to_line_ends", .{}),
             key.LEFT => self.cmd("move_scroll_left", .{}),
             key.RIGHT => self.cmd("move_scroll_right", .{}),
             key.UP => self.cmd("add_cursor_up", .{}),

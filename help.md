@@ -142,6 +142,9 @@ cycle style of editing.
 - Ctrl-Shift-l =>
         Add cursors to all matches
 
+- Shift-Alt-i =>
+        Add cursors to line ends
+
 - Ctrl-MouseLeft =>
         Add cursor at mouse click
 

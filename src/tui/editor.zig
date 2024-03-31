@@ -2098,6 +2098,33 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
 
+    fn add_cursors_to_cursel_line_ends(self: *Self, root: Buffer.Root, cursel: *CurSel) !void {
+        var sel = cursel.enable_selection();
+        sel.normalize();
+        var row = sel.begin.row;
+        while (row <= sel.end.row) : (row += 1) {
+            const new_cursel = try self.cursels.addOne();
+            new_cursel.* = CurSel{
+                .selection = null,
+                .cursor = .{
+                    .row = row,
+                    .col = 0,
+                },
+            };
+            new_cursel.*.?.cursor.move_end(root);
+        }
+    }
+
+    pub fn add_cursors_to_line_ends(self: *Self, _: command.Context) tp.result {
+        const root = self.buf_root() catch |e| return tp.exit_error(e);
+        const cursels = self.cursels.toOwnedSlice() catch |e| return tp.exit_error(e);
+        defer self.cursels.allocator.free(cursels);
+        for (cursels) |*cursel_| if (cursel_.*) |*cursel|
+            self.add_cursors_to_cursel_line_ends(root, cursel) catch |e| return tp.exit_error(e);
+        self.collapse_cursors();
+        self.clamp();
+    }
+
     fn pull_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
