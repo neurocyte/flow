@@ -32,7 +32,6 @@ pub fn create(a: Allocator, parent: nc.Plane) !Widget {
     const self: *Self = try a.create(Self);
     self.* = init(parent) catch |e| return tp.exit_error(e);
     try tui.current().message_filters.add(MessageFilter.bind(self, log_receive));
-    try log.subscribe();
     return Widget.to(self);
 }
 
@@ -46,7 +45,6 @@ fn init(parent: nc.Plane) !Self {
 }
 
 pub fn deinit(self: *Self, a: Allocator) void {
-    log.unsubscribe() catch {};
     tui.current().message_filters.remove_ptr(self);
     self.plane.deinit();
     a.destroy(self);
