@@ -5,6 +5,7 @@ const log = @import("log");
 const tui = @import("tui.zig");
 
 pub const ID = usize;
+pub const ID_unknown = std.math.maxInt(ID);
 
 pub const Context = struct {
     args: tp.message = .{},
@@ -17,7 +18,7 @@ threadlocal var context_buffer: [tp.max_message_size]u8 = undefined;
 pub const fmt = Context.fmt;
 
 const Vtable = struct {
-    id: ID = 0,
+    id: ID = ID_unknown,
     name: []const u8,
     run: *const fn (self: *Vtable, ctx: Context) tp.result,
 };
@@ -43,8 +44,15 @@ pub fn Closure(comptime T: type) type {
         }
 
         pub fn register(self: *Self) !void {
-            self.vtbl.id = try addCommand(&self.vtbl);
-            // try log.logger("cmd").print("addCommand({s}) => {d}", .{ self.vtbl.name, self.vtbl.id });
+            if (command_names.get(self.vtbl.name)) |id| {
+                self.vtbl.id = id;
+                reAddCommand(&self.vtbl) catch |e| return log.logger("cmd").err("reAddCommand", e);
+                // log.logger("cmd").print("reAddCommand({s}) => {d}", .{ self.vtbl.name, self.vtbl.id });
+            } else {
+                self.vtbl.id = try addCommand(&self.vtbl);
+                command_names.put(self.vtbl.name, self.vtbl.id) catch |e| return log.logger("cmd").err("addCommand", e);
+                // log.logger("cmd").print("addCommand({s}) => {d}", .{ self.vtbl.name, self.vtbl.id });
+            }
         }
 
         pub fn unregister(self: *Self) void {
@@ -63,11 +71,18 @@ pub fn Closure(comptime T: type) type {
 }
 
 const CommandTable = std.ArrayList(?*Vtable);
-var commands: CommandTable = CommandTable.init(std.heap.page_allocator);
+var commands: CommandTable = CommandTable.init(command_table_allocator);
+var command_names: std.StringHashMap(ID) = std.StringHashMap(ID).init(command_table_allocator);
+const command_table_allocator = std.heap.c_allocator;
 
 fn addCommand(cmd: *Vtable) !ID {
     try commands.append(cmd);
     return commands.items.len - 1;
+}
+
+fn reAddCommand(cmd: *Vtable) !void {
+    if (commands.items[cmd.id] != null) return error.DuplicateCommand;
+    commands.items[cmd.id] = cmd;
 }
 
 pub fn removeCommand(id: ID) void {
