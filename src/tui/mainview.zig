@@ -333,6 +333,7 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
 }
 
 fn create_editor(self: *Self) tp.result {
+    self.widgets.replace(0, Widget.empty(self.a, self.plane, .dynamic) catch |e| return tp.exit_error(e));
     command.executeName("enter_mode_default", .{}) catch {};
     var editor_widget = ed.create(self.a, Widget.to(self)) catch |e| return tp.exit_error(e);
     errdefer editor_widget.deinit(self.a);
