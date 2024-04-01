@@ -70,6 +70,11 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) t
 fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     if (self.leader) |_| return self.mapFollower(keynormal, egc, modifiers);
+    switch (keypress) {
+        key.LCTRL, key.RCTRL => return self.cmd("enable_fast_scroll", .{}),
+        key.LALT, key.RALT => return self.cmd("enable_fast_scroll", .{}),
+        else => {},
+    }
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
             'E' => self.cmd("enter_overlay_mode", command.fmt(.{"open_recent"})),
@@ -200,8 +205,6 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.END => self.cmd("move_end", .{}),
             key.PGUP => self.cmd("move_page_up", .{}),
             key.PGDOWN => self.cmd("move_page_down", .{}),
-            key.LCTRL, key.RCTRL => self.cmd("enable_fast_scroll", .{}),
-            key.LALT, key.RALT => self.cmd("enable_fast_scroll", .{}),
             key.TAB => self.cmd("indent", .{}),
             else => if (!key.synthesized_p(keypress))
                 self.insert_code_point(egc)
