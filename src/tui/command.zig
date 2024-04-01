@@ -139,7 +139,7 @@ fn getTargetType(comptime Namespace: type) type {
     return @field(Namespace, "Target");
 }
 
-fn getCommands(comptime Namespace: type) []CmdDef(*getTargetType(Namespace)) {
+fn getCommands(comptime Namespace: type) []const CmdDef(*getTargetType(Namespace)) {
     comptime switch (@typeInfo(Namespace)) {
         .Struct => |info| {
             var count = 0;
@@ -158,7 +158,8 @@ fn getCommands(comptime Namespace: type) []CmdDef(*getTargetType(Namespace)) {
                     i += 1;
                 }
             }
-            return &cmds;
+            const cmds_const = cmds;
+            return &cmds_const;
         },
         else => @compileError("expected tuple or struct type"),
     };
@@ -168,10 +169,10 @@ pub fn Collection(comptime Namespace: type) type {
     const cmds = comptime getCommands(Namespace);
     const Target = getTargetType(Namespace);
     const Clsr = Closure(*Target);
-    var fields: [cmds.len]std.builtin.Type.StructField = undefined;
+    var fields_var: [cmds.len]std.builtin.Type.StructField = undefined;
     inline for (cmds, 0..) |cmd, i| {
         @setEvalBranchQuota(10_000);
-        fields[i] = .{
+        fields_var[i] = .{
             .name = cmd.name,
             .type = Clsr,
             .default_value = null,
@@ -179,6 +180,7 @@ pub fn Collection(comptime Namespace: type) type {
             .alignment = if (@sizeOf(Clsr) > 0) @alignOf(Clsr) else 0,
         };
     }
+    const fields: [cmds.len]std.builtin.Type.StructField = fields_var;
     const Fields = @Type(.{
         .Struct = .{
             .is_tuple = false,

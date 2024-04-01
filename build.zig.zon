@@ -8,8 +8,8 @@
             .hash = "1220882e05fd3aad5cfdcf13b988b0ecb26a7009870379a1e7aa7fad9e2486b3a8fa",
         },
         .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/209ba4da76e46412acfe18f711cb0b041ff37f10.tar.gz",
-            .hash = "12200103e7b4a0cb162f2912df4fe97914024a25b5c9fcce6ea4119744f3f2a7f24e",
+            .url = "https://github.com/Hejsil/zig-clap/archive/8c98e6404b22aafc0184e999d8f068b81cc22fa1.tar.gz",
+            .hash = "122014e73fd712190e109950837b97f6143f02d7e2b6986e1db70b6f4aadb5ba6a0d",
         },
         .tracy = .{
             .url = "https://github.com/neurocyte/zig-tracy/archive/d2113e7d778ebe7a063e95b5182ff145343aac38.tar.gz",
