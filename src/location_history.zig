@@ -119,8 +119,8 @@ const Process = struct {
 
     fn forward(self: *Process, from: tp.pid_ref, cb_addr: usize) void {
         const cb: *CallBack = if (cb_addr == 0) return else @ptrFromInt(cb_addr);
-        if (self.pos == self.records.items.len - 1)
-            return;
+        if (self.records.items.len == 0) return;
+        if (self.pos == self.records.items.len - 1) return;
         self.pos += 1;
         const entry = self.records.items[self.pos];
         cb(from, entry.cursor, entry.selection);
