@@ -192,6 +192,7 @@ fn deinit(self: *Self) void {
     if (self.sigwinch_signal) |sig| sig.deinit();
     self.frame_clock.deinit();
     self.nc.stop();
+    self.logger.deinit();
     self.a.destroy(self);
 }
 
@@ -718,6 +719,7 @@ const cmds = struct {
 
     pub fn log_widgets(self: *Self, _: Ctx) tp.result {
         const l = log.logger("z stack");
+        defer l.deinit();
         var buf: [256]u8 = undefined;
         var buf_parent: [256]u8 = undefined;
         var z: i32 = 0;

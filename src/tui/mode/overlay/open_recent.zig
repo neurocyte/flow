@@ -58,6 +58,7 @@ pub fn deinit(self: *Self) void {
     tui.current().message_filters.remove_ptr(self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv|
         mv.floating_views.remove(self.menu.menu_widget);
+    self.logger.deinit();
     self.a.destroy(self);
 }
 

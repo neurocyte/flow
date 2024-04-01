@@ -57,6 +57,7 @@ const Process = struct {
 
     fn deinit(self: *Process) void {
         self.parent.deinit();
+        self.logger.deinit();
         self.a.destroy(self);
     }
 

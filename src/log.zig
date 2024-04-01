@@ -104,22 +104,24 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 }
 
 pub const Logger = struct {
-    proc: tp.pid_ref,
+    proc: tp.pid,
     tag: []const u8,
 
-    const Self_ = @This();
+    pub fn deinit(self: *const Logger) void {
+        self.proc.deinit();
+    }
 
-    pub fn write(self: Self_, value: anytype) void {
+    pub fn write(self: Logger, value: anytype) void {
         self.proc.send(.{ "log", self.tag } ++ value) catch {};
     }
 
-    pub fn print(self: Self_, comptime fmt: anytype, args: anytype) void {
+    pub fn print(self: Logger, comptime fmt: anytype, args: anytype) void {
         var buf: [max_log_message]u8 = undefined;
         const output = std.fmt.bufPrint(&buf, fmt, args) catch "MESSAGE TOO LARGE";
         self.proc.send(.{ "log", self.tag, output }) catch {};
     }
 
-    pub fn err(self: Self_, context: []const u8, e: anyerror) void {
+    pub fn err(self: Logger, context: []const u8, e: anyerror) void {
         defer tp.reset_error();
         var buf: [max_log_message]u8 = undefined;
         var msg: []const u8 = "UNKNOWN";
@@ -146,7 +148,19 @@ pub const Logger = struct {
 };
 
 pub fn logger(tag: []const u8) Logger {
-    return .{ .proc = tp.env.get().proc("log"), .tag = tag };
+    return .{ .proc = tp.env.get().proc("log").clone(), .tag = tag };
+}
+
+pub fn print(tag: []const u8, comptime fmt: anytype, args: anytype) void {
+    const l = logger(tag);
+    defer l.deinit();
+    return l.print(fmt, args);
+}
+
+pub fn err(tag: []const u8, context: []const u8, e: anyerror) void {
+    const l = logger(tag);
+    defer l.deinit();
+    return l.err(context, e);
 }
 
 pub fn subscribe() tp.result {

@@ -100,6 +100,7 @@ const Process = struct {
 
     fn deinit(self: *Process) void {
         self.output.deinit();
+        self.logger.deinit();
         self.a.free(self.query);
         self.close() catch {};
     }
@@ -149,7 +150,7 @@ const Process = struct {
 
     fn handle_output(self: *Process, bytes: []u8) !void {
         try self.output.appendSlice(bytes);
-        // @import("log").logger(module_name).print("{s}", .{bytes}) catch {};
+        // self.logger.print("{s}", .{bytes}) catch {};
     }
 
     fn handle_terminated(self: *Process) !void {
@@ -161,9 +162,9 @@ const Process = struct {
             const msg: tp.message = .{ .buf = try cbor.fromJson(json, &msg_buf) };
             try self.dispatch(msg);
             // var buf: [tp.max_message_size]u8 = undefined;
-            // @import("log").logger(module_name).print("json: {s}", .{try msg.to_json(&buf)}) catch {};
+            // self.logger.print("json: {s}", .{try msg.to_json(&buf)}) catch {};
         }
-        // @import("log").logger(module_name).print("done", .{}) catch {};
+        // self.logger.print("done", .{}) catch {};
         try self.parent.send(.{ self.tag, "done" });
     }
 

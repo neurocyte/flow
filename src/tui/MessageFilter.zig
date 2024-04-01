@@ -107,7 +107,7 @@ pub const List = struct {
 
     pub fn add(self: *List, h: MessageFilter) !void {
         (try self.list.addOne()).* = h;
-        // @import("log").logger("MessageFilter").print("add: {d} {s}", .{ self.list.items.len, self.list.items[self.list.items.len - 1].vtable.type_name });
+        // @import("log").print("MessageFilter", "add: {d} {s}", .{ self.list.items.len, self.list.items[self.list.items.len - 1].vtable.type_name });
     }
 
     pub fn remove(self: *List, h: MessageFilter) !void {

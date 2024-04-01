@@ -297,6 +297,7 @@ pub const Editor = struct {
         self.cursels.deinit();
         self.matches.deinit();
         self.handlers.deinit();
+        self.logger.deinit();
         if (self.buffer) |p| p.deinit();
     }
 

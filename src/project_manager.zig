@@ -97,6 +97,7 @@ const Process = struct {
         }
         self.projects.deinit();
         self.parent.deinit();
+        self.logger.deinit();
         self.a.destroy(self);
     }
 

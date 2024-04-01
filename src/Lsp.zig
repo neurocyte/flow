@@ -59,6 +59,7 @@ const Process = struct {
 
     fn deinit(self: *Process) void {
         self.recv_buf.deinit();
+        self.logger.deinit();
         self.a.free(self.cmd.buf);
         self.close() catch {};
     }

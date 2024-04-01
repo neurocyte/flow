@@ -250,7 +250,7 @@ fn diff_update(self: *Self) !void {
 }
 
 fn diff_result(from: tp.pid_ref, edits: []diff.Edit) void {
-    diff_result_send(from, edits) catch |e| @import("log").logger(@typeName(Self)).err("diff", e);
+    diff_result_send(from, edits) catch |e| @import("log").err(@typeName(Self), "diff", e);
 }
 
 fn diff_result_send(from: tp.pid_ref, edits: []diff.Edit) !void {

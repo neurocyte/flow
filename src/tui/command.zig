@@ -46,12 +46,12 @@ pub fn Closure(comptime T: type) type {
         pub fn register(self: *Self) !void {
             if (command_names.get(self.vtbl.name)) |id| {
                 self.vtbl.id = id;
-                reAddCommand(&self.vtbl) catch |e| return log.logger("cmd").err("reAddCommand", e);
-                // log.logger("cmd").print("reAddCommand({s}) => {d}", .{ self.vtbl.name, self.vtbl.id });
+                reAddCommand(&self.vtbl) catch |e| return log.err("cmd", "reAddCommand", e);
+                // log.print("cmd", "reAddCommand({s}) => {d}", .{ self.vtbl.name, self.vtbl.id });
             } else {
                 self.vtbl.id = try addCommand(&self.vtbl);
-                command_names.put(self.vtbl.name, self.vtbl.id) catch |e| return log.logger("cmd").err("addCommand", e);
-                // log.logger("cmd").print("addCommand({s}) => {d}", .{ self.vtbl.name, self.vtbl.id });
+                command_names.put(self.vtbl.name, self.vtbl.id) catch |e| return log.err("cmd", "addCommand", e);
+                // log.print("cmd", "addCommand({s}) => {d}", .{ self.vtbl.name, self.vtbl.id });
             }
         }
 
@@ -96,7 +96,7 @@ pub fn execute(id: ID, ctx: Context) tp.result {
     const cmd = commands.items[id];
     if (cmd) |p| {
         // var buf: [tp.max_message_size]u8 = undefined;
-        // log.logger("cmd").print("execute({s}) {s}", .{ p.name, ctx.args.to_json(&buf) catch "" }) catch |e| return tp.exit_error(e);
+        // log.print("cmd", "execute({s}) {s}", .{ p.name, ctx.args.to_json(&buf) catch "" }) catch |e| return tp.exit_error(e);
         return p.run(p, ctx);
     } else {
         return tp.exit_fmt("CommandNotAvailable: {d}", .{id});
