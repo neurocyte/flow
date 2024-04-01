@@ -48,7 +48,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.home();
     if (self.is_error)
         tui.set_base_style(&self.plane, " ", theme.editor_error);
-    _ = self.plane.print(" {s} ", .{self.msg.items}) catch return false;
+    _ = self.plane.print(" {s} ", .{self.msg.items}) catch {};
 
     const curr_time = std.time.milliTimestamp();
     if (curr_time < self.clear_time)
