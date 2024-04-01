@@ -27,7 +27,9 @@ column: usize,
 file_exists: bool,
 file_dirty: bool = false,
 detailed: bool = false,
+project: bool = false,
 
+const project_icon = "";
 const Self = @This();
 
 pub fn create(a: Allocator, parent: nc.Plane) !Widget {
@@ -117,11 +119,16 @@ fn render_detailed(self: *Self, theme: *const Widget.Theme) void {
         self.render_file_icon(theme);
         _ = self.plane.print(" ", .{}) catch {};
     }
-    _ = self.plane.putstr(if (!self.file_exists) "󰽂" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
-    _ = self.plane.print(" {s}:{d}:{d}", .{ self.name, self.line + 1, self.column + 1 }) catch {};
-    _ = self.plane.print(" of {d} lines", .{self.lines}) catch {};
-    if (self.file_type.len > 0)
-        _ = self.plane.print(" ({s})", .{self.file_type}) catch {};
+    if (self.project) {
+        const project_name = tp.env.get().str("project");
+        _ = self.plane.print("{s} ({s})", .{self.name, project_name}) catch {};
+    } else {
+        _ = self.plane.putstr(if (!self.file_exists) "󰽂" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
+        _ = self.plane.print(" {s}:{d}:{d}", .{ self.name, self.line + 1, self.column + 1 }) catch {};
+        _ = self.plane.print(" of {d} lines", .{self.lines}) catch {};
+        if (self.file_type.len > 0)
+            _ = self.plane.print(" ({s})", .{self.file_type}) catch {};
+    }
     return;
 }
 
@@ -165,6 +172,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.file_icon = self.file_icon_buf[0..file_icon.len :0];
         self.file_dirty = false;
         self.abbrv_home();
+        self.project = false;
     } else if (try m.match(.{ "E", "close" })) {
         self.name = "";
         self.lines = 0;
@@ -193,12 +201,13 @@ fn render_file_icon(self: *Self, _: *const Widget.Theme) void {
 }
 
 fn show_project(self: *Self) void {
-    self.file_icon = "";
+    self.file_icon = project_icon;
     self.file_color = 0x000001;
     const project_name = tp.env.get().str("project");
     @memcpy(self.name_buf[0..project_name.len], project_name);
     self.name = self.name_buf[0..project_name.len];
     self.abbrv_home();
+    self.project = true;
 }
 
 fn abbrv_home(self: *Self) void {
