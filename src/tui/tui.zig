@@ -58,6 +58,13 @@ unflushed_events_count: usize = 0,
 init_timer: ?tp.timeout,
 sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
+mods: ModState = .{},
+
+const ModState = struct {
+    ctrl: bool = false,
+    shift: bool = false,
+    alt: bool = false,
+};
 
 const init_delay = 1; // ms
 
@@ -392,6 +399,7 @@ fn dispatch_input_event(self: *Self, ni: *nc.Input) tp.result {
     self.unrendered_input_events_count += 1;
     ni.modifiers &= nc.mod.CTRL | nc.mod.SHIFT | nc.mod.ALT | nc.mod.SUPER | nc.mod.META | nc.mod.HYPER;
     if (keypress == nc.key.RESIZE) return;
+    try self.sync_mod_state(keypress, ni.modifiers);
     if (keypress == nc.key.MOTION) {
         if (ni.y == 0 and ni.x == 0 and ni.ypx == -1 and ni.xpx == -1) return;
         self.dispatch_mouse(ni.y, ni.x, tp.self_pid(), tp.message.fmtbuf(&buf, .{
@@ -664,6 +672,40 @@ fn send_input(self: *Self, from: tp.pid_ref, m: tp.message) void {
 
 fn save_config(self: *const Self) !void {
     try root.write_config(self.config, self.a);
+}
+
+fn sync_mod_state(self: *Self, keypress: u32, modifiers: u32) tp.result {
+    if (keypress == nc.key.LCTRL or keypress == nc.key.RCTRL or keypress == nc.key.LALT or keypress == nc.key.RALT or
+        keypress == nc.key.LSHIFT or keypress == nc.key.RSHIFT or keypress == nc.key.LSUPER or keypress == nc.key.RSUPER) return;
+    if (nc.isCtrl(modifiers) and !self.mods.ctrl)
+        try self.send_key(nc.event_type.PRESS, nc.key.LCTRL, "lctrl", modifiers);
+    if (!nc.isCtrl(modifiers) and self.mods.ctrl)
+        try self.send_key(nc.event_type.RELEASE, nc.key.LCTRL, "lctrl", modifiers);
+    if (nc.isAlt(modifiers) and !self.mods.alt)
+        try self.send_key(nc.event_type.PRESS, nc.key.LALT, "lalt", modifiers);
+    if (!nc.isAlt(modifiers) and self.mods.alt)
+        try self.send_key(nc.event_type.RELEASE, nc.key.LALT, "lalt", modifiers);
+    if (nc.isShift(modifiers) and !self.mods.shift)
+        try self.send_key(nc.event_type.PRESS, nc.key.LSHIFT, "lshift", modifiers);
+    if (!nc.isShift(modifiers) and self.mods.shift)
+        try self.send_key(nc.event_type.RELEASE, nc.key.LSHIFT, "lshift", modifiers);
+    self.mods = .{
+        .ctrl = nc.isCtrl(modifiers),
+        .alt = nc.isAlt(modifiers),
+        .shift = nc.isShift(modifiers),
+    };
+}
+
+fn send_key(self: *Self, event_type: c_int, keypress: u32, key_string: []const u8, modifiers: u32) tp.result {
+    var buf: [256]u8 = undefined;
+    self.send_input(tp.self_pid(), tp.message.fmtbuf(&buf, .{
+        "I",
+        event_type,
+        keypress,
+        keypress,
+        key_string,
+        modifiers,
+    }) catch |e| return tp.exit_error(e));
 }
 
 const cmds = struct {
