@@ -286,6 +286,31 @@ fn get_app_config_dir(appname: []const u8) ![]const u8 {
     return config_dir;
 }
 
+pub fn get_cache_dir() ![]const u8 {
+    return get_app_cache_dir(application_name);
+}
+
+fn get_app_cache_dir(appname: []const u8) ![]const u8 {
+    const local = struct {
+        var cache_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var cache_dir: ?[]const u8 = null;
+    };
+    const cache_dir = if (local.cache_dir) |dir|
+        dir
+    else if (std.posix.getenv("XDG_CACHE_HOME")) |xdg|
+        try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/{s}", .{ xdg, appname })
+    else if (std.posix.getenv("HOME")) |home|
+        try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/.cache/{s}", .{ home, appname })
+    else
+        return error.AppCacheDirUnavailable;
+    local.cache_dir = cache_dir;
+    std.fs.makeDirAbsolute(cache_dir) catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => return e,
+    };
+    return cache_dir;
+}
+
 fn get_app_config_file_name(appname: []const u8) ![]const u8 {
     const local = struct {
         var config_file_buffer: [std.posix.PATH_MAX]u8 = undefined;

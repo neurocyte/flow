@@ -57,11 +57,18 @@ pub fn query_recent_files(max: usize, query: []const u8) tp.result {
     return (try get()).pid.send(.{ "query_recent_files", project, max, query });
 }
 
-pub fn goto_definition(file_path: []const u8, file_type: []const u8, row: usize, col: usize) tp.result {
+pub fn did_open(file_path: []const u8, file_type: []const u8, version: usize, text: []const u8) tp.result {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
-    return (try get()).pid.send(.{ "goto_definition", project, file_path, file_type, row, col });
+    return (try get()).pid.send(.{ "did_open", project, file_path, file_type, version, @intFromPtr(text.ptr), text.len });
+}
+
+pub fn goto_definition(file_path: []const u8, row: usize, col: usize) tp.result {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "goto_definition", project, file_path, row, col });
 }
 
 const Process = struct {
@@ -117,6 +124,9 @@ const Process = struct {
         var max: usize = 0;
         var row: usize = 0;
         var col: usize = 0;
+        var version: usize = 0;
+        var text_ptr: usize = 0;
+        var text_len: usize = 0;
 
         if (try m.match(.{ "walk_tree_entry", tp.extract(&project_directory), tp.extract(&path), tp.extract(&high), tp.extract(&low) })) {
             const mtime = (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low));
@@ -139,8 +149,10 @@ const Process = struct {
             self.request_recent_files(from, project_directory, max) catch |e| return from.send_raw(tp.exit_message(e));
         } else if (try m.match(.{ "query_recent_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
             self.query_recent_files(from, project_directory, max, query) catch |e| return from.send_raw(tp.exit_message(e));
-        } else if (try m.match(.{ "goto_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract(&row), tp.extract(&col) })) {
-            self.goto_definition(from, project_directory, path, file_type, row, col) catch |e| return from.send_raw(tp.exit_message(e));
+        } else if (try m.match(.{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
+            self.did_open(from, project_directory, path, file_type, version, @as([*]const u8, @ptrFromInt(text_ptr))[0..text_len]) catch |e| return from.send_raw(tp.exit_message(e));
+        } else if (try m.match(.{ "goto_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+            self.goto_definition(from, project_directory, path, row, col) catch |e| return from.send_raw(tp.exit_message(e));
         } else if (try m.match(.{"shutdown"})) {
             if (self.walker) |pid| pid.send(.{"stop"}) catch {};
             try from.send(.{ "project_manager", "shutdown" });
@@ -177,9 +189,18 @@ const Process = struct {
         // self.logger.print("queried: {s} for {s} match {d} in {d} ms", .{ project_directory, query, matched, std.time.milliTimestamp() - start_time });
     }
 
-    fn goto_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, file_type: []const u8, row: usize, col: usize) tp.result {
+    fn did_open(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, file_type: []const u8, version: usize, text: []const u8) tp.result {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_open" });
+        defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        return project.goto_definition(from, file_path, file_type, row, col);
+        return project.did_open(from, file_path, file_type, version, text);
+    }
+
+    fn goto_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_definition" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.goto_definition(from, file_path, row, col);
     }
 };
 

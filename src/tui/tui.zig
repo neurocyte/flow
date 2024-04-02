@@ -202,6 +202,8 @@ fn listen_sigwinch(self: *Self) tp.result {
 }
 
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
+    const frame = tracy.initZone(@src(), .{ .name = "tui" });
+    defer frame.deinit();
     instance_ = self;
     defer instance_ = null;
     errdefer self.deinit();

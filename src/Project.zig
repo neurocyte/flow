@@ -1,13 +1,16 @@
 const std = @import("std");
 const tp = @import("thespian");
+const cbor = @import("cbor");
+const root = @import("root");
 
-const Lsp = @import("Lsp.zig");
+const LSP = @import("LSP.zig");
 
 a: std.mem.Allocator,
 name: []const u8,
 files: std.ArrayList(File),
 open_time: i64,
-lsp: ?Lsp = null,
+lsp: ?LSP = null,
+lsp_name: [:0]const u8,
 
 const Self = @This();
 
@@ -22,6 +25,7 @@ pub fn init(a: std.mem.Allocator, name: []const u8) error{OutOfMemory}!Self {
         .name = try a.dupe(u8, name),
         .files = std.ArrayList(File).init(a),
         .open_time = std.time.milliTimestamp(),
+        .lsp_name = "zls",
     };
 }
 
@@ -32,10 +36,43 @@ pub fn deinit(self: *Self) void {
     self.a.free(self.name);
 }
 
-fn get_lsp(self: *Self) !Lsp {
+fn get_lsp(self: *Self) !LSP {
     if (self.lsp) |lsp| return lsp;
-    self.lsp = try Lsp.open(self.a, tp.message.fmt(.{"zls"}), "LSP");
+    self.lsp = try LSP.open(self.a, tp.message.fmt(.{self.lsp_name}), self.lsp_name);
+    const uri = try self.make_URI(null);
+    defer self.a.free(uri);
+    const response = try self.lsp.?.send_request(self.a, "initialize", .{
+        .processId = std.os.linux.getpid(),
+        .rootUri = uri,
+        .clientInfo = .{ .name = root.application_name },
+        .capabilities = .{
+            .workspace = .{
+                .applyEdit = true,
+                .codeLens = .{ .refreshSupport = true },
+                .configuration = true,
+                .diagnostics = .{ .refreshSupport = true },
+                .fileOperations = .{
+                    .didCreate = true,
+                    .didDelete = true,
+                    .didRename = true,
+                    .willCreate = true,
+                    .willDelete = true,
+                    .willRename = true,
+                },
+            },
+        },
+    });
+    defer self.a.free(response.buf);
     return self.lsp.?;
+}
+
+fn make_URI(self: *Self, file_path: ?[]const u8) ![]const u8 {
+    var buf = std.ArrayList(u8).init(self.a);
+    if (file_path) |path|
+        try buf.writer().print("file:/{s}/{s}", .{ self.name, path })
+    else
+        try buf.writer().print("file:/{s}", .{self.name});
+    return buf.toOwnedSlice();
 }
 
 pub fn add_file(self: *Self, path: []const u8, mtime: i128) error{OutOfMemory}!void {
@@ -73,12 +110,30 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
     return i;
 }
 
-pub fn goto_definition(self: *Self, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, row: usize, col: usize) tp.result {
+pub fn did_open(self: *Self, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, version: usize, text: []const u8) tp.result {
     const lsp = self.get_lsp() catch |e| return tp.exit_error(e);
+    const uri = self.make_URI(file_path) catch |e| return tp.exit_error(e);
+    defer self.a.free(uri);
+    const response = try lsp.send_request(self.a, "textDocument/didOpen", .{
+        .textDocument = .{
+            .uri = uri,
+            .languageId = file_type,
+            .version = version,
+            .text = text,
+        },
+    });
+    defer self.a.free(response.buf);
     _ = from;
-    _ = file_path;
-    _ = file_type;
-    _ = row;
-    _ = col;
-    _ = lsp;
+}
+
+pub fn goto_definition(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) tp.result {
+    const lsp = self.get_lsp() catch |e| return tp.exit_error(e);
+    const uri = self.make_URI(file_path) catch |e| return tp.exit_error(e);
+    defer self.a.free(uri);
+    const response = try lsp.send_request(self.a, "textDocument/definition", .{
+        .textDocument = .{ .uri = uri },
+        .position = .{ .line = row, .character = col },
+    });
+    defer self.a.free(response.buf);
+    _ = from;
 }

@@ -164,6 +164,7 @@ pub const Editor = struct {
 
     file_path: ?[]const u8,
     buffer: ?*Buffer,
+    lsp_version: usize = 0,
 
     cursels: CurSel.List,
     cursels_saved: CurSel.List,
@@ -356,15 +357,18 @@ pub const Editor = struct {
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
 
+        var content = std.ArrayList(u8).init(self.a);
+        defer content.deinit();
+        try new_buf.root.store(content.writer());
         self.syntax = syntax: {
-            var content = std.ArrayList(u8).init(self.a);
-            defer content.deinit();
-            try new_buf.root.store(content.writer());
             const lang_override = tp.env.get().str("language");
             if (lang_override.len > 0)
                 break :syntax syntax.create_file_type(self.a, content.items, lang_override) catch null;
             break :syntax syntax.create_guess_file_type(self.a, content.items, self.file_path) catch null;
         };
+        // TODO: fix and enable
+        // if (self.syntax) |syn|
+        //     project_manager.did_open(file_path, syn.file_type.name, self.lsp_version, try content.toOwnedSlice()) catch {};
 
         const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
         const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";
@@ -3151,8 +3155,7 @@ pub const Editor = struct {
     pub fn goto_definition(self: *Self, _: command.Context) tp.result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
-        const file_type = (self.syntax orelse return).file_type.name;
-        return project_manager.goto_definition(file_path, file_type, primary.cursor.row, primary.cursor.col);
+        return project_manager.goto_definition(file_path, primary.cursor.row, primary.cursor.col);
     }
 
     pub fn select(self: *Self, ctx: command.Context) tp.result {
