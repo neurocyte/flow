@@ -20,7 +20,7 @@
             .hash = "1220a7cf5f59b61257993bc5b02991ffc523d103f66842fa8d8ab5c9fdba52799340",
         },
         .thespian = .{
-            .url = "https://github.com/neurocyte/thespian/archive/0559a75dbbe5fb372f3799f02d35a4b86ffdbc26.tar.gz",
+            .url = "https://github.com/neurocyte/thespian/archive/a738c98f339a90dbc83421b609d9efe18b1e28a5.tar.gz",
             .hash = "1220d09aa407fc93e8c133e71bc92e9270c2bb8881bd592f92d5438837ce126b1bc8",
         },
         .themes = .{
