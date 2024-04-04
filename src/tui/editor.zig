@@ -164,7 +164,7 @@ pub const Editor = struct {
 
     file_path: ?[]const u8,
     buffer: ?*Buffer,
-    lsp_version: usize = 0,
+    lsp_version: usize = 1,
 
     cursels: CurSel.List,
     cursels_saved: CurSel.List,

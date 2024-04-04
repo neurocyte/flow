@@ -9,7 +9,7 @@ pid: ?tp.pid,
 
 const Self = @This();
 const module_name = @typeName(Self);
-const sp_tag = "LSP";
+const sp_tag = "child";
 const debug_lsp = true;
 pub const Error = error{ OutOfMemory, Exit };
 
@@ -55,6 +55,7 @@ const Process = struct {
     recv_buf: std.ArrayList(u8),
     parent: tp.pid,
     tag: [:0]const u8,
+    sp_tag: [:0]const u8,
     log_file: ?std.fs.File = null,
     next_id: i32 = 0,
     requests: std.AutoHashMap(i32, tp.pid),
@@ -63,6 +64,10 @@ const Process = struct {
 
     pub fn create(a: std.mem.Allocator, cmd: tp.message, tag: [:0]const u8) Error!tp.pid {
         const self = try a.create(Process);
+        var sp_tag_ = std.ArrayList(u8).init(a);
+        defer sp_tag_.deinit();
+        try sp_tag_.appendSlice(tag);
+        try sp_tag_.appendSlice("-" ++ sp_tag);
         self.* = .{
             .a = a,
             .cmd = try cmd.clone(a),
@@ -71,6 +76,7 @@ const Process = struct {
             .parent = tp.self_pid().clone(),
             .tag = try a.dupeZ(u8, tag),
             .requests = std.AutoHashMap(i32, tp.pid).init(a),
+            .sp_tag = try sp_tag_.toOwnedSliceSentinel(0),
         };
         return tp.spawn_link(self.a, self, Process.start, tag) catch |e| tp.exit_error(e);
     }
@@ -78,16 +84,19 @@ const Process = struct {
     fn deinit(self: *Process) void {
         var i = self.requests.iterator();
         while (i.next()) |req| req.value_ptr.deinit();
+        self.a.free(self.sp_tag);
         self.recv_buf.deinit();
         self.a.free(self.cmd.buf);
-        if (self.log_file) |file| file.close();
         self.close() catch {};
+        self.write_log("### terminated LSP process ###\n", .{});
+        if (self.log_file) |file| file.close();
     }
 
     fn close(self: *Process) tp.result {
         if (self.sp) |*sp| {
             defer self.sp = null;
             try sp.close();
+            self.write_log("### closed ###\n", .{});
         }
     }
 
@@ -95,7 +104,7 @@ const Process = struct {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ " start" });
         defer frame.deinit();
         _ = tp.set_trap(true);
-        self.sp = tp.subprocess.init(self.a, self.cmd, sp_tag, .Pipe) catch |e| return tp.exit_error(e);
+        self.sp = tp.subprocess.init(self.a, self.cmd, self.sp_tag, .Pipe) catch |e| return tp.exit_error(e);
         tp.receive(&self.receiver);
 
         var log_file_path = std.ArrayList(u8).init(self.a);
@@ -111,21 +120,24 @@ const Process = struct {
         errdefer self.deinit();
         var method: []u8 = "";
         var bytes: []u8 = "";
+        var err: []u8 = "";
+        var code: u32 = 0;
 
         if (try m.match(.{ "REQ", tp.extract(&method), tp.extract(&bytes) })) {
             self.send_request(from, method, bytes) catch |e| return tp.exit_error(e);
         } else if (try m.match(.{ "NTFY", tp.extract(&method), tp.extract(&bytes) })) {
             self.send_notification(method, bytes) catch |e| return tp.exit_error(e);
         } else if (try m.match(.{"close"})) {
+            self.write_log("### LSP close ###\n", .{});
             try self.close();
-        } else if (try m.match(.{ sp_tag, "stdout", tp.extract(&bytes) })) {
+        } else if (try m.match(.{ self.sp_tag, "stdout", tp.extract(&bytes) })) {
             self.handle_output(bytes) catch |e| return tp.exit_error(e);
-        } else if (try m.match(.{ sp_tag, "term", tp.more })) {
-            self.handle_terminated() catch |e| return tp.exit_error(e);
-        } else if (try m.match(.{ sp_tag, "stderr", tp.extract(&bytes) })) {
+        } else if (try m.match(.{ self.sp_tag, "term", tp.extract(&err), tp.extract(&code) })) {
+            self.handle_terminated(err, code) catch |e| return tp.exit_error(e);
+        } else if (try m.match(.{ self.sp_tag, "stderr", tp.extract(&bytes) })) {
             self.write_log("{s}\n", .{bytes});
         } else if (try m.match(.{ "exit", "normal" })) {
-            return tp.exit_normal();
+            // self.write_log("### exit normal ###\n", .{});
         } else {
             const e = tp.unexpected(m);
             self.write_log("{s}\n", .{tp.error_text()});
@@ -189,9 +201,9 @@ const Process = struct {
         try self.frame_message_recv();
     }
 
-    fn handle_terminated(self: *Process) !void {
-        self.write_log("terminated\n", .{});
-        try self.parent.send(.{ self.tag, "done" });
+    fn handle_terminated(self: *Process, err: []const u8, code: u32) !void {
+        self.write_log("### subprocess terminated {s} {d} ###\n", .{ err, code });
+        try self.parent.send(.{ sp_tag, self.tag, "done" });
     }
 
     fn send_request(self: *Process, from: tp.pid_ref, method: []const u8, params_cb: []const u8) !void {
@@ -218,7 +230,7 @@ const Process = struct {
         var output = std.ArrayList(u8).init(self.a);
         defer output.deinit();
         const writer = output.writer();
-        try writer.print("Content-Length: {d}\r\n\r\n", .{json.len});
+        try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{json.len});
         _ = try writer.write(json);
 
         try sp.send(output.items);
@@ -273,6 +285,16 @@ const Process = struct {
         const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.a, p) else null;
         defer if (json) |p| self.a.free(p);
         self.write_log("### RECV req: {d}\nmethod: {s}\n{s}\n###\n", .{ id, method, json orelse "no params" });
+        var msg = std.ArrayList(u8).init(self.a);
+        defer msg.deinit();
+        const writer = msg.writer();
+        try cbor.writeArrayHeader(writer, 6);
+        try cbor.writeValue(writer, sp_tag);
+        try cbor.writeValue(writer, self.tag);
+        try cbor.writeValue(writer, "request");
+        try cbor.writeValue(writer, method);
+        try cbor.writeValue(writer, id);
+        if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
     }
 
     fn receive_lsp_response(self: *Process, id: i32, result: ?[]const u8, err: ?[]const u8) !void {
@@ -285,13 +307,15 @@ const Process = struct {
         var msg = std.ArrayList(u8).init(self.a);
         defer msg.deinit();
         const writer = msg.writer();
-        try cbor.writeArrayHeader(writer, 2);
+        try cbor.writeArrayHeader(writer, 4);
+        try cbor.writeValue(writer, sp_tag);
+        try cbor.writeValue(writer, self.tag);
         if (err) |err_| {
             try cbor.writeValue(writer, "error");
-            try cbor.writeValue(writer, err_);
+            _ = try writer.write(err_);
         } else if (result) |result_| {
             try cbor.writeValue(writer, "result");
-            try cbor.writeValue(writer, result_);
+            _ = try writer.write(result_);
         }
         try from.send_raw(.{ .buf = msg.items });
     }
@@ -300,6 +324,15 @@ const Process = struct {
         const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.a, p) else null;
         defer if (json) |p| self.a.free(p);
         self.write_log("### RECV notify:\nmethod: {s}\n{s}\n###\n", .{ method, json orelse "no params" });
+        var msg = std.ArrayList(u8).init(self.a);
+        defer msg.deinit();
+        const writer = msg.writer();
+        try cbor.writeArrayHeader(writer, 5);
+        try cbor.writeValue(writer, sp_tag);
+        try cbor.writeValue(writer, self.tag);
+        try cbor.writeValue(writer, "notify");
+        try cbor.writeValue(writer, method);
+        if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
     }
 
     fn write_log(self: *Process, comptime format: []const u8, args: anytype) void {
