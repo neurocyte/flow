@@ -366,9 +366,8 @@ pub const Editor = struct {
                 break :syntax syntax.create_file_type(self.a, content.items, lang_override) catch null;
             break :syntax syntax.create_guess_file_type(self.a, content.items, self.file_path) catch null;
         };
-        // TODO: fix and enable
-        // if (self.syntax) |syn|
-        //     project_manager.did_open(file_path, syn.file_type.name, self.lsp_version, try content.toOwnedSlice()) catch {};
+        if (self.syntax) |syn|
+            project_manager.did_open(file_path, syn.file_type, self.lsp_version, try content.toOwnedSlice()) catch {};
 
         const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
         const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";

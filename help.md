@@ -241,6 +241,11 @@ cycle style of editing.
 - Ctrl-F10 =>
         Toggle visible whitespace mode
 
+### Language Server Commands
+
+- F12 =>
+        Goto definition
+
 ### Debugging Commands
 
 - F5, Ctrl-Shift-i =>
@@ -254,9 +259,6 @@ cycle style of editing.
 
 - F11, Ctrl-J, Alt-l =>
         Toggle log view
-
-- F12, Alt-i =>
-        Toggle input view
 
 - Ctrl-Shift-/ =>
         Dump current widget tree to log view

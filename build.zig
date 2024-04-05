@@ -144,6 +144,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "tracy", .module = tracy_mod },
+            .{ .name = "syntax", .module = syntax_dep.module("syntax") },
         },
     });
 

@@ -5,7 +5,7 @@ const root = @import("root");
 const tracy = @import("tracy");
 
 a: std.mem.Allocator,
-pid: ?tp.pid,
+pid: tp.pid,
 
 const Self = @This();
 const module_name = @typeName(Self);
@@ -13,34 +13,29 @@ const sp_tag = "child";
 const debug_lsp = true;
 pub const Error = error{ OutOfMemory, Exit };
 
-pub fn open(a: std.mem.Allocator, cmd: tp.message, tag: [:0]const u8) Error!Self {
-    return .{ .a = a, .pid = try Process.create(a, cmd, tag) };
+pub fn open(a: std.mem.Allocator, cmd: tp.message) Error!Self {
+    return .{ .a = a, .pid = try Process.create(a, cmd) };
 }
 
 pub fn deinit(self: *Self) void {
-    if (self.pid) |pid| {
-        pid.send(.{"close"}) catch {};
-        self.pid = null;
-        pid.deinit();
-    }
+    self.pid.send(.{"close"}) catch {};
+    self.pid.deinit();
 }
 
 pub fn send_request(self: Self, a: std.mem.Allocator, method: []const u8, m: anytype) error{Exit}!tp.message {
     // const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".send_request" });
     // defer frame.deinit();
-    const pid = if (self.pid) |pid| pid else return tp.exit_error(error.Closed);
     var cb = std.ArrayList(u8).init(self.a);
     defer cb.deinit();
     cbor.writeValue(cb.writer(), m) catch |e| return tp.exit_error(e);
-    return pid.call(a, .{ "REQ", method, cb.items }) catch |e| return tp.exit_error(e);
+    return self.pid.call(a, .{ "REQ", method, cb.items }) catch |e| return tp.exit_error(e);
 }
 
 pub fn send_notification(self: Self, method: []const u8, m: anytype) tp.result {
-    const pid = if (self.pid) |pid| pid else return tp.exit_error(error.Closed);
     var cb = std.ArrayList(u8).init(self.a);
     defer cb.deinit();
     cbor.writeValue(cb.writer(), m) catch |e| return tp.exit_error(e);
-    return pid.send(.{ "NTFY", method, cb.items });
+    return self.pid.send(.{ "NTFY", method, cb.items });
 }
 
 pub fn close(self: *Self) void {
@@ -62,7 +57,15 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(a: std.mem.Allocator, cmd: tp.message, tag: [:0]const u8) Error!tp.pid {
+    pub fn create(a: std.mem.Allocator, cmd: tp.message) Error!tp.pid {
+        var tag: []const u8 = undefined;
+        if (try cmd.match(.{tp.extract(&tag)})) {
+            //
+        } else if (try cmd.match(.{ tp.extract(&tag), tp.more })) {
+            //
+        } else {
+            return tp.exit("no LSP command");
+        }
         const self = try a.create(Process);
         var sp_tag_ = std.ArrayList(u8).init(a);
         defer sp_tag_.deinit();
@@ -78,7 +81,7 @@ const Process = struct {
             .requests = std.AutoHashMap(i32, tp.pid).init(a),
             .sp_tag = try sp_tag_.toOwnedSliceSentinel(0),
         };
-        return tp.spawn_link(self.a, self, Process.start, tag) catch |e| tp.exit_error(e);
+        return tp.spawn_link(self.a, self, Process.start, self.tag) catch |e| tp.exit_error(e);
     }
 
     fn deinit(self: *Process) void {
@@ -225,13 +228,16 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "params");
         _ = try msg_writer.write(params_cb);
 
-        const json = try cbor.toJsonPrettyAlloc(self.a, msg.items);
+        const json = try cbor.toJsonAlloc(self.a, msg.items);
         defer self.a.free(json);
         var output = std.ArrayList(u8).init(self.a);
         defer output.deinit();
         const writer = output.writer();
-        try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{json.len});
+        const terminator = "\r\n";
+        const content_length = json.len + terminator.len;
+        try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
         _ = try writer.write(json);
+        _ = try writer.write(terminator);
 
         try sp.send(output.items);
         self.write_log("### SEND request:\n{s}\n###\n", .{output.items});
@@ -240,6 +246,8 @@ const Process = struct {
 
     fn send_notification(self: *Process, method: []const u8, params_cb: []const u8) !void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
+
+        const have_params = !(cbor.match(params_cb, cbor.null_) catch false);
 
         var msg = std.ArrayList(u8).init(self.a);
         defer msg.deinit();
@@ -250,15 +258,22 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "method");
         try cbor.writeValue(msg_writer, method);
         try cbor.writeValue(msg_writer, "params");
-        _ = try msg_writer.write(params_cb);
+        if (have_params) {
+            _ = try msg_writer.write(params_cb);
+        } else {
+            try cbor.writeMapHeader(msg_writer, 0);
+        }
 
-        const json = try cbor.toJsonPrettyAlloc(self.a, msg.items);
+        const json = try cbor.toJsonAlloc(self.a, msg.items);
         defer self.a.free(json);
         var output = std.ArrayList(u8).init(self.a);
         defer output.deinit();
         const writer = output.writer();
-        try writer.print("Content-Length: {d}\r\n\r\n", .{json.len});
+        const terminator = "\r\n";
+        const content_length = json.len + terminator.len;
+        try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
         _ = try writer.write(json);
+        _ = try writer.write(terminator);
 
         try sp.send(output.items);
         self.write_log("### SEND notification:\n{s}\n###\n", .{output.items});
