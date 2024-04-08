@@ -22,6 +22,7 @@ pub fn main() anyerror!void {
         \\--debug-dump-on-error    Dump stack traces on errors.
         \\--no-sleep               Do not sleep the main loop when idle.
         \\--no-alternate           Do not use the alternate terminal screen.
+        \\-t, --trace              Enable internal tracing. (repeat to increase detail)
         \\--no-trace               Do not enable internal tracing.
         \\--restore-session        Restore restart session.
         \\--show-input             Open the input view on start.
@@ -83,6 +84,34 @@ pub fn main() anyerror!void {
         if (res.args.@"no-trace" == 0) {
             env.enable_all_channels();
             env.on_trace(trace);
+        }
+    } else {
+        if (res.args.trace != 0) {
+            env.enable_all_channels();
+            var threshold: usize = 1;
+            if (res.args.trace < threshold) {
+                env.disable(thespian.channel.widget);
+            }
+            threshold += 1;
+            if (res.args.trace < threshold) {
+                env.disable(thespian.channel.receive);
+            }
+            threshold += 1;
+            if (res.args.trace < threshold) {
+                env.disable(thespian.channel.event);
+            }
+            threshold += 1;
+            if (res.args.trace < threshold) {
+                env.disable(thespian.channel.metronome);
+                env.disable(thespian.channel.execute);
+                env.disable(thespian.channel.link);
+            }
+            threshold += 1;
+            if (res.args.trace < threshold) {
+                env.disable(thespian.channel.input);
+                env.disable(thespian.channel.send);
+            }
+            env.on_trace(trace_to_file);
         }
     }
 
@@ -198,6 +227,52 @@ fn trace_json(json: thespian.message.json_string_view) callconv(.C) void {
     ___tracy_emit_message(json.base, json.len, callstack_depth);
 }
 extern fn ___tracy_emit_message(txt: [*]const u8, size: usize, callstack: c_int) void;
+
+fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.C) void {
+    const cbor = @import("cbor");
+    const State = struct {
+        file: std.fs.File,
+        last_time: i64,
+        var state: ?@This() = null;
+
+        fn write_tdiff(writer: anytype, tdiff: i64) !void {
+            const msi = @divFloor(tdiff, std.time.us_per_ms);
+            if (msi < 10) {
+                const d: f64 = @floatFromInt(tdiff);
+                const ms = d / std.time.us_per_ms;
+                _ = try writer.print("{d:6.2} ", .{ms});
+            } else {
+                const ms: u64 = @intCast(msi);
+                _ = try writer.print("{d:6} ", .{ms});
+            }
+        }
+    };
+    var state: *State = &(State.state orelse init: {
+        const a = std.heap.c_allocator;
+        var path = std.ArrayList(u8).init(a);
+        defer path.deinit();
+        path.writer().print("{s}/trace.log", .{get_cache_dir() catch return}) catch return;
+        const file = std.fs.createFileAbsolute(path.items, .{ .truncate = true }) catch return;
+        State.state = .{
+            .file = file,
+            .last_time = std.time.microTimestamp(),
+        };
+        break :init State.state.?;
+    });
+    const file_writer = state.file.writer();
+    var buffer = std.io.bufferedWriter(file_writer);
+    const writer = buffer.writer();
+
+    const ts = std.time.microTimestamp();
+    State.write_tdiff(writer, ts - state.last_time) catch {};
+    state.last_time = ts;
+
+    var stream = std.json.writeStream(writer, .{});
+    var iter: []const u8 = m.base[0..m.len];
+    cbor.JsonStream(@TypeOf(buffer)).jsonWriteValue(&stream, &iter) catch {};
+    _ = writer.write("\n") catch {};
+    buffer.flush() catch {};
+}
 
 fn exit(status: u8) noreturn {
     if (builtin.os.tag == .linux) {
