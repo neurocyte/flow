@@ -245,6 +245,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 
     if (try m.match(.{"restart"})) {
         _ = try self.mainview.msg(.{"write_restore_info"});
+        project_manager.shutdown();
         return tp.exit("restart");
     }
 
