@@ -60,6 +60,8 @@ sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
 mods: ModState = .{},
 
+const idle_frames = 1;
+
 const ModState = struct {
     ctrl: bool = false,
     shift: bool = false,
@@ -342,7 +344,7 @@ fn render(self: *Self, current_time: i64) void {
     else
         self.idle_frame_count + 1;
 
-    if (more or self.idle_frame_count < 5 or self.no_sleep) {
+    if (more or self.idle_frame_count < idle_frames or self.no_sleep) {
         self.unrendered_input_events_count = 0;
         if (!self.frame_clock_running) {
             self.frame_clock.start() catch {};
