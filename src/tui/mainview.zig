@@ -193,18 +193,23 @@ const cmds = struct {
             file = file_name;
         } else return tp.exit_error(error.InvalidArgument);
 
-        if (file) |f| {
+        const f = normalize_file_path(file orelse return);
+        const same_file = if (self.editor) |editor| if (editor.file_path) |fp|
+            std.mem.eql(u8, fp, f)
+        else
+            false else false;
+        if (!same_file) {
             try self.create_editor();
             try command.executeName("open_file", command.fmt(.{f}));
-            if (line) |l| {
-                try command.executeName("goto_line", command.fmt(.{l}));
-            }
-            if (column) |col| {
-                try command.executeName("goto_column", command.fmt(.{col}));
-            }
-            try command.executeName("scroll_view_center", .{});
-            tui.need_render();
         }
+        if (line) |l| {
+            try command.executeName("goto_line", command.fmt(.{l}));
+        }
+        if (column) |col| {
+            try command.executeName("goto_column", command.fmt(.{col}));
+        }
+        try command.executeName("scroll_view_center", .{});
+        tui.need_render();
     }
 
     pub fn open_help(self: *Self, _: Ctx) tp.result {
@@ -390,4 +395,13 @@ fn read_restore_info(self: *Self) !void {
         const size = try file.readAll(buf);
         try editor.extract_state(buf[0..size]);
     }
+}
+
+fn normalize_file_path(file_path: []const u8) []const u8 {
+    const project = tp.env.get().str("project");
+    if (project.len == 0) return file_path;
+    if (project.len >= file_path.len) return file_path;
+    if (std.mem.eql(u8, project, file_path[0..project.len]) and file_path[project.len] == std.fs.path.sep)
+        return file_path[project.len + 1 ..];
+    return file_path;
 }
