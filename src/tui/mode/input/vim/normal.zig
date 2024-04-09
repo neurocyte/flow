@@ -211,7 +211,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.F09 => self.cmd("theme_prev", .{}),
             key.F10 => self.cmd("theme_next", .{}),
             key.F11 => self.cmd("toggle_logview", .{}),
-            key.F12 => self.cmd("toggle_inputview", .{}),
+            key.F12 => self.cmd("goto_definition", .{}),
             key.F34 => self.cmd("toggle_whitespace", .{}), // C-F10
             key.ESC => self.cmd("cancel", .{}),
             key.ENTER => self.cmd("smart_insert_line", .{}),
