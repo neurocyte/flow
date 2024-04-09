@@ -296,16 +296,20 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
 pub fn location_update(self: *Self, m: tp.message) tp.result {
     var row: usize = 0;
     var col: usize = 0;
+    const file_path = (self.editor orelse return).file_path orelse return;
 
-    if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col) }))
-        return self.location_history.add(.{ .row = row + 1, .col = col + 1 }, null);
+    if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col) })) {
+        if (row == 0 and col == 0) return;
+        return self.location_history.update(file_path, .{ .row = row + 1, .col = col + 1 }, null);
+    }
 
     var sel: location_history.Selection = .{};
     if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col), tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) }))
-        return self.location_history.add(.{ .row = row + 1, .col = col + 1 }, sel);
+        return self.location_history.update(file_path, .{ .row = row + 1, .col = col + 1 }, sel);
 }
 
-fn location_jump(from: tp.pid_ref, cursor: location_history.Cursor, selection: ?location_history.Selection) void {
+fn location_jump(from: tp.pid_ref, file_path: []const u8, cursor: location_history.Cursor, selection: ?location_history.Selection) void {
+    from.send(.{ "cmd", "navigate", .{ .file = file_path } }) catch return;
     if (selection) |sel|
         from.send(.{ "cmd", "goto", .{ cursor.row, cursor.col, sel.begin.row, sel.begin.col, sel.end.row, sel.end.col } }) catch return
     else
