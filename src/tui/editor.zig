@@ -1478,12 +1478,25 @@ pub const Editor = struct {
         return false;
     }
 
+    fn is_eol_right_vim(root: Buffer.Root, cursor: *const Cursor) bool {
+        const line_width = root.line_width(cursor.row) catch return true;
+        if (line_width == 0) return true;
+        if (cursor.col >= line_width - 1)
+            return true;
+        return false;
+    }
+
     fn move_cursor_left(root: Buffer.Root, cursor: *Cursor) error{Stop}!void {
         try cursor.move_left(root);
     }
 
     fn move_cursor_left_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate) void {
         while (!pred(root, cursor))
+            move_cursor_left(root, cursor) catch return;
+    }
+
+    fn move_cursor_left_unless(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate) void {
+        if (!pred(root, cursor))
             move_cursor_left(root, cursor) catch return;
     }
 
@@ -1502,6 +1515,11 @@ pub const Editor = struct {
 
     fn move_cursor_right_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate) void {
         while (!pred(root, cursor))
+            move_cursor_right(root, cursor) catch return;
+    }
+
+    fn move_cursor_right_unless(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate) void {
+        if (!pred(root, cursor))
             move_cursor_right(root, cursor) catch return;
     }
 
@@ -1925,6 +1943,26 @@ pub const Editor = struct {
     pub fn move_right(self: *Self, _: command.Context) tp.result {
         const root = self.buf_root() catch |e| return tp.exit_error(e);
         self.with_cursors_const(root, move_cursor_right) catch {};
+        self.clamp();
+    }
+
+    fn move_cursor_left_vim(root: Buffer.Root, cursor: *Cursor) error{Stop}!void {
+        move_cursor_left_unless(root, cursor, is_eol_left);
+    }
+
+    fn move_cursor_right_vim(root: Buffer.Root, cursor: *Cursor) error{Stop}!void {
+        move_cursor_right_unless(root, cursor, is_eol_right_vim);
+    }
+
+    pub fn move_left_vim(self: *Self, _: command.Context) tp.result {
+        const root = self.buf_root() catch |e| return tp.exit_error(e);
+        self.with_cursors_const(root, move_cursor_left_vim) catch {};
+        self.clamp();
+    }
+
+    pub fn move_right_vim(self: *Self, _: command.Context) tp.result {
+        const root = self.buf_root() catch |e| return tp.exit_error(e);
+        self.with_cursors_const(root, move_cursor_right_vim) catch {};
         self.clamp();
     }
 

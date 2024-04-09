@@ -224,11 +224,11 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             '/' => self.cmd("enter_find_mode", .{}),
             'n' => self.cmd("goto_next_match", .{}),
 
-            'h' => self.cmd_count("move_left", .{}),
+            'h' => self.cmd_count("move_left_vim", .{}),
             'j' => self.cmd_count("move_down", .{}),
             'k' => self.cmd_count("move_up", .{}),
-            'l' => self.cmd_count("move_right", .{}),
-            ' ' => self.cmd_count("move_right", .{}),
+            'l' => self.cmd_count("move_right_vim", .{}),
+            ' ' => self.cmd_count("move_right_vim", .{}),
 
             'b' => self.cmd_count("move_word_left", .{}),
             'w' => self.cmd_count("move_word_right_vim", .{}),
@@ -260,8 +260,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'p' => self.cmd("paste", .{}),
             'o' => self.seq(.{ "smart_insert_line_after", "enter_mode" }, command.fmt(.{"vim/insert"})),
 
-            key.LEFT => self.cmd("move_left", .{}),
-            key.RIGHT => self.cmd("move_right", .{}),
+            key.LEFT => self.cmd("move_left_vim", .{}),
+            key.RIGHT => self.cmd("move_right_vim", .{}),
             key.UP => self.cmd("move_up", .{}),
             key.DOWN => self.cmd("move_down", .{}),
             key.HOME => self.cmd("smart_move_begin", .{}),
