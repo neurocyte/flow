@@ -76,7 +76,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     if (self.leader) |_| return self.mapFollower(keynormal, egc, modifiers);
     switch (keypress) {
         key.LCTRL, key.RCTRL => return self.cmd("enable_fast_scroll", .{}),
-        key.LALT, key.RALT => return self.cmd("enable_fast_scroll", .{}),
+        key.LALT, key.RALT => return self.cmd("enable_jump_mode", .{}),
         else => {},
     }
     return switch (modifiers) {
@@ -435,7 +435,7 @@ fn mapFollower(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
 fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) tp.result {
     return switch (keypress) {
         key.LCTRL, key.RCTRL => self.cmd("disable_fast_scroll", .{}),
-        key.LALT, key.RALT => self.cmd("disable_fast_scroll", .{}),
+        key.LALT, key.RALT => self.cmd("disable_jump_mode", .{}),
         else => {},
     };
 }
