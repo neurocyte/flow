@@ -129,7 +129,7 @@ pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) !v
     for (self.files.items) |*file| {
         if (!std.mem.eql(u8, file.path, file_path)) continue;
         if (file.row != 0)
-            try from.send(.{ "cmd", "goto", .{ file.row, file.col } });
+            try from.send(.{ "cmd", "goto", .{ file.row + 1, file.col + 1 } });
         return;
     }
 }
