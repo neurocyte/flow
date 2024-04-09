@@ -213,7 +213,7 @@ cycle style of editing.
         Open file
 
 - Ctrl-e =>
-        Open recent file
+        Open recent file, repeat for quick select
 
 - Ctrl-q =>
         Exit
