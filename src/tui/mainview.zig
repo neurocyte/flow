@@ -204,11 +204,12 @@ const cmds = struct {
         }
         if (line) |l| {
             try command.executeName("goto_line", command.fmt(.{l}));
+            if (!same_file)
+                try command.executeName("scroll_view_center", .{});
         }
         if (column) |col| {
             try command.executeName("goto_column", command.fmt(.{col}));
         }
-        try command.executeName("scroll_view_center", .{});
         tui.need_render();
     }
 
@@ -300,12 +301,15 @@ pub fn location_update(self: *Self, m: tp.message) tp.result {
 
     if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col) })) {
         if (row == 0 and col == 0) return;
+        project_manager.update_mru(file_path, row, col) catch {};
         return self.location_history.update(file_path, .{ .row = row + 1, .col = col + 1 }, null);
     }
 
     var sel: location_history.Selection = .{};
-    if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col), tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) }))
+    if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col), tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) })) {
+        project_manager.update_mru(file_path, row, col) catch {};
         return self.location_history.update(file_path, .{ .row = row + 1, .col = col + 1 }, sel);
+    }
 }
 
 fn location_jump(from: tp.pid_ref, file_path: []const u8, cursor: location_history.Cursor, selection: ?location_history.Selection) void {

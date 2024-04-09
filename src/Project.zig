@@ -17,6 +17,8 @@ const Self = @This();
 const File = struct {
     path: []const u8,
     mtime: i128,
+    row: usize = 0,
+    col: usize = 0,
 };
 
 pub fn init(a: std.mem.Allocator, name: []const u8) error{OutOfMemory}!Self {
@@ -109,7 +111,32 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
     return i;
 }
 
-pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
+pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) !void {
+    defer self.sort_files_by_mtime();
+    for (self.files.items) |*file| {
+        if (!std.mem.eql(u8, file.path, file_path)) continue;
+        file.mtime = std.time.nanoTimestamp();
+        if (row != 0) {
+            file.row = row;
+            file.col = col;
+        }
+        return;
+    }
+    return self.add_file(file_path, std.time.nanoTimestamp());
+}
+
+pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) !void {
+    for (self.files.items) |*file| {
+        if (!std.mem.eql(u8, file.path, file_path)) continue;
+        if (file.row != 0)
+            try from.send(.{ "cmd", "goto", .{ file.row, file.col } });
+        return;
+    }
+}
+
+pub fn did_open(self: *Self, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
+    self.update_mru(file_path, 0, 0) catch {};
+    self.get_mru_position(from, file_path) catch {};
     const lsp = self.get_lsp(language_server) catch |e| return tp.exit_error(e);
     if (!self.file_language_server.contains(file_path)) {
         const key = self.a.dupe(u8, file_path) catch |e| return tp.exit_error(e);

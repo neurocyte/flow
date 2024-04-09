@@ -73,6 +73,20 @@ pub fn goto_definition(file_path: []const u8, row: usize, col: usize) tp.result 
     return (try get()).pid.send(.{ "goto_definition", project, file_path, row, col });
 }
 
+pub fn update_mru(file_path: []const u8, row: usize, col: usize) tp.result {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "update_mru", project, file_path, row, col });
+}
+
+pub fn get_mru_position(file_path: []const u8) tp.result {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "get_mru_position", project, file_path });
+}
+
 const Process = struct {
     a: std.mem.Allocator,
     parent: tp.pid,
@@ -146,6 +160,8 @@ const Process = struct {
                 project.files.items.len,
                 std.time.milliTimestamp() - project.open_time,
             });
+        } else if (try m.match(.{ "update_mru", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+            self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
@@ -154,9 +170,11 @@ const Process = struct {
             self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
             const text = if (text_len > 0) @as([*]const u8, @ptrFromInt(text_ptr))[0..text_len] else "";
-            self.did_open(project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e);
+            self.did_open(from, project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "goto_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.goto_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e);
+        } else if (try m.match(.{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
+            self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e);
         } else if (try m.match(.{"shutdown"})) {
             if (self.walker) |pid| pid.send(.{"stop"}) catch {};
             try from.send(.{ "project_manager", "shutdown" });
@@ -193,11 +211,11 @@ const Process = struct {
         // self.logger.print("queried: {s} for {s} match {d} in {d} ms", .{ project_directory, query, matched, std.time.milliTimestamp() - start_time });
     }
 
-    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
+    fn did_open(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_open" });
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        return project.did_open(file_path, file_type, language_server, version, text);
+        return project.did_open(from, file_path, file_type, language_server, version, text);
     }
 
     fn goto_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {
@@ -205,6 +223,18 @@ const Process = struct {
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.goto_definition(from, file_path, row, col) catch |e| tp.exit_error(e);
+    }
+
+    fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) tp.result {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".get_mru_position" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.get_mru_position(from, file_path) catch |e| tp.exit_error(e);
+    }
+
+    fn update_mru(self: *Process, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.update_mru(file_path, row, col) catch |e| tp.exit_error(e);
     }
 };
 
