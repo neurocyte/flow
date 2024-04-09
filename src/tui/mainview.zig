@@ -199,6 +199,7 @@ const cmds = struct {
         else
             false else false;
         if (!same_file) {
+            if (self.editor) |editor| editor.send_editor_jump_source() catch {};
             try self.create_editor();
             try command.executeName("open_file", command.fmt(.{f}));
         }

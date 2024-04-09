@@ -1047,7 +1047,7 @@ pub const Editor = struct {
         try self.send_editor_cursel_msg("modified", self.get_primary());
     }
 
-    fn send_editor_jump_source(self: *Self) !void {
+    pub fn send_editor_jump_source(self: *Self) !void {
         try self.send_editor_cursel_msg("jump_source", self.get_primary());
     }
 
