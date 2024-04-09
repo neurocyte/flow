@@ -3162,7 +3162,10 @@ pub const Editor = struct {
             @intCast(if (column < 1) 0 else column - 1),
         ) catch |e| return tp.exit_error(e);
         if (have_sel) primary.selection = sel;
-        try self.scroll_view_center(.{});
+        if (self.view.is_visible(&primary.cursor))
+            self.clamp()
+        else
+            try self.scroll_view_center(.{});
         try self.send_editor_jump_destination();
     }
 
