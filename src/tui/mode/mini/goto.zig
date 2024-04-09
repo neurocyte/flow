@@ -25,7 +25,7 @@ pub fn create(a: Allocator, _: command.Context) !*Self {
     if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
         self.* = .{
             .a = a,
-            .start = editor.get_primary().cursor.row,
+            .start = editor.get_primary().cursor.row + 1,
         };
         return self;
     };
