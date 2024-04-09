@@ -174,7 +174,22 @@ fn navigate_to_location_link(self: *Self, from: tp.pid_ref, location_link: []con
     if (!std.mem.eql(u8, targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
     const file_path = try std.Uri.unescapeString(self.a, targetUri.?[7..]);
     defer self.a.free(file_path);
-    try from.send(.{ "cmd", "navigate", .{ .file = file_path, .line = targetRange.?.start.line + 1, .column = targetRange.?.start.character + 1 } });
+    try from.send(.{ "cmd", "navigate", .{ .file = file_path } });
+    if (targetSelectionRange) |sel| {
+        try from.send(.{ "cmd", "goto", .{
+            targetRange.?.start.line + 1,
+            targetRange.?.start.character + 1,
+            sel.start.line,
+            sel.start.character,
+            sel.end.line,
+            sel.end.character,
+        } });
+    } else {
+        try from.send(.{ "cmd", "goto", .{
+            targetRange.?.start.line + 1,
+            targetRange.?.start.character + 1,
+        } });
+    }
 }
 
 const Range = struct { start: Position, end: Position };
