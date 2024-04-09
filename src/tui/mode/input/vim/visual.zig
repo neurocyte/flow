@@ -81,6 +81,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     }
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
+            'E' => self.cmd("enter_overlay_mode", command.fmt(.{"open_recent"})),
             'U' => self.cmd("move_scroll_page_up", .{}),
             'D' => self.cmd("move_scroll_page_down", .{}),
             'R' => self.cmd("redo", .{}),
