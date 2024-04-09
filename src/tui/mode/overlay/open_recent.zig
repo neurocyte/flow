@@ -16,6 +16,7 @@ const project_manager = @import("project_manager");
 
 const Self = @This();
 const max_recent_files: usize = 25;
+const max_menu_width = 80;
 
 a: std.mem.Allocator,
 f: usize = 0,
@@ -68,12 +69,16 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     button.plane.erase();
     button.plane.home();
     const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s}{s} ", .{ pointer, button.opts.label }) catch {};
+    var buf: [max_menu_width]u8 = undefined;
+    _ = button.plane.print("{s}{s} ", .{
+        pointer,
+        if (button.opts.label.len > max_menu_width - 2) shorten_path(&buf, button.opts.label) else button.opts.label,
+    }) catch {};
     return false;
 }
 
 fn on_resize_menu(self: *Self, state: *Menu.State(*Self), box: Widget.Box) void {
-    const w = @min(box.w, @min(self.longest, 80) + 2);
+    const w = @min(box.w, @min(self.longest, max_menu_width) + 2);
     self.menu.resize(.{
         .y = 0,
         .x = box.w - w / 2,
@@ -85,6 +90,26 @@ fn on_resize_menu(self: *Self, state: *Menu.State(*Self), box: Widget.Box) void 
 fn menu_action_open_file(menu: *Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.opts.ctx.logger.err("navigate", e);
     tp.self_pid().send(.{ "cmd", "navigate", .{ .file = button.label.items } }) catch |e| menu.opts.ctx.logger.err("navigate", e);
+}
+
+fn shorten_path(buf: []u8, path: []const u8) []const u8 {
+    const max_len = max_menu_width - 2;
+    if (path.len < max_len) return path;
+    const basename_pos = std.mem.lastIndexOfScalar(u8, path, std.fs.path.sep) orelse return path;
+    if (path.len - basename_pos > max_len) return path;
+    var stream = std.io.fixedBufferStream(buf);
+    const writer = stream.writer();
+    // try writer.print("this is line {d}\n", .{self.line_num});
+    var pos: usize = 0;
+    while (std.mem.indexOfScalarPos(u8, path, pos, std.fs.path.sep)) |next| {
+        if (next == basename_pos or stream.getWritten().len + path[next..].len < max_len) {
+            _ = writer.write(path[next..]) catch return path;
+            return stream.getWritten();
+        }
+        writer.print("{c}{c}", .{ std.fs.path.sep, path[next + 1] }) catch return path;
+        pos = next + 1;
+    }
+    return stream.getWritten();
 }
 
 fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -102,7 +127,7 @@ fn process_project_manager(self: *Self, m: tp.message) tp.result {
         if (self.need_reset) self.reset_results();
         self.longest = @max(self.longest, file_name.len);
         self.menu.add_item_with_handler(file_name, menu_action_open_file) catch |e| return tp.exit_error(e);
-        self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, 80) + 2 });
+        self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
         if (self.need_select_first) {
             self.menu.select_down();
             self.need_select_first = false;
