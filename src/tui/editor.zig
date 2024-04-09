@@ -196,6 +196,7 @@ pub const Editor = struct {
     handlers: EventHandler.List,
     scroll_dest: usize = 0,
     fast_scroll: bool = false,
+    jump_mode: bool = false,
 
     animation_step: usize = 0,
     animation_frame_rate: i64,
@@ -1540,9 +1541,12 @@ pub const Editor = struct {
         const primary = self.get_primary();
         primary.selection = null;
         self.selection_mode = .char;
+        try self.send_editor_jump_source();
         const root = self.buf_root() catch return;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x)) catch return;
         self.clamp_mouse();
+        try self.send_editor_jump_destination();
+        if (self.jump_mode) try self.goto_definition(.{});
     }
 
     pub fn primary_double_click(self: *Self, y: c_int, x: c_int) tp.result {
@@ -2709,6 +2713,16 @@ pub const Editor = struct {
         self.fast_scroll = false;
     }
 
+    pub fn enable_jump_mode(self: *Self, _: command.Context) tp.result {
+        self.jump_mode = true;
+        tui.current().request_mouse_cursor_pointer(true);
+    }
+
+    pub fn disable_jump_mode(self: *Self, _: command.Context) tp.result {
+        self.jump_mode = false;
+        tui.current().request_mouse_cursor_text(true);
+    }
+
     fn update_syntax(self: *Self) !void {
         const frame = tracy.initZone(@src(), .{ .name = "editor update syntax" });
         defer frame.deinit();
@@ -3348,7 +3362,10 @@ pub const EditorWidget = struct {
         } else if (try m.match(.{ "A", tp.more })) {
             self.editor.add_match(m) catch {};
         } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-            tui.current().request_mouse_cursor_text(self.hover);
+            if (self.editor.jump_mode)
+                tui.current().request_mouse_cursor_pointer(self.hover)
+            else
+                tui.current().request_mouse_cursor_text(self.hover);
         } else if (try m.match(.{ "show_whitespace", tp.extract(&self.editor.show_whitespace) })) {
             _ = "";
         } else {
@@ -3365,6 +3382,8 @@ pub const EditorWidget = struct {
             nc.key.BUTTON3 => &mouse_click_button3,
             nc.key.BUTTON4 => &mouse_click_button4,
             nc.key.BUTTON5 => &mouse_click_button5,
+            nc.key.BUTTON8 => &mouse_click_button8, //back
+            nc.key.BUTTON9 => &mouse_click_button9, //forward
             else => return,
         })(self, y, x, ypx, xpx);
         self.last_btn = btn;
@@ -3431,6 +3450,14 @@ pub const EditorWidget = struct {
 
     fn mouse_click_button5(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) tp.result {
         try self.editor.scroll_down_pagedown(.{});
+    }
+
+    fn mouse_click_button8(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) tp.result {
+        try command.executeName("jump_back", .{});
+    }
+
+    fn mouse_click_button9(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) tp.result {
+        try command.executeName("jump_forward", .{});
     }
 
     pub fn handle_resize(self: *Self, pos: Widget.Box) void {

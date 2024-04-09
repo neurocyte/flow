@@ -58,7 +58,7 @@ cycle style of editing.
 - Ctrl-Home, Ctrl-End =>
         Move to the beginning/end of the file
 
-- Alt-Left, Alt-Right =>
+- Alt-Left, Alt-Right, MouseBack, MouseForward =>
         Jump to previous/next location in the location history
 
 - Ctrl-f =>
@@ -244,7 +244,10 @@ cycle style of editing.
 ### Language Server Commands
 
 - F12 =>
-        Goto definition
+        Goto definition of symbol at cursor
+
+- Alt-MouseLeft =>
+        Goto definition of symbol at click
 
 ### Debugging Commands
 
