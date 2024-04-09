@@ -593,13 +593,14 @@ pub const Editor = struct {
                 const bufsize = 4095;
                 var bufstatic: [bufsize:0]u8 = undefined;
                 const len = leaf.buf.len;
-                var chunk: [:0]u8 = if (len > bufsize)
-                    std.heap.c_allocator.allocSentinel(u8, len, 0) catch |e| return Buffer.Walker{ .err = e }
-                else
-                    &bufstatic;
-                if (len > bufsize) {
-                    defer std.heap.c_allocator.free(chunk);
-                }
+                var chunk_alloc: ?[:0]u8 = null;
+                var chunk: [:0]u8 = if (len > bufsize) ret: {
+                    const ptr = self_.a.allocSentinel(u8, len, 0) catch |e| return Buffer.Walker{ .err = e };
+                    chunk_alloc = ptr;
+                    break :ret ptr;
+                } else &bufstatic;
+                defer if (chunk_alloc) |p| self_.a.free(p);
+
                 @memcpy(chunk[0..leaf.buf.len], leaf.buf);
                 chunk[leaf.buf.len] = 0;
                 chunk.len = leaf.buf.len;
