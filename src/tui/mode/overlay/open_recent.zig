@@ -174,6 +174,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'E' => self.cmd("open_recent_menu_down", .{}),
             'P' => self.cmd("open_recent_menu_up", .{}),
             'N' => self.cmd("open_recent_menu_down", .{}),
+            'C' => self.cmd("exit_overlay_mode", .{}),
+            'G' => self.cmd("exit_overlay_mode", .{}),
             nc.key.ESC => self.cmd("exit_overlay_mode", .{}),
             nc.key.UP => self.cmd("open_recent_menu_up", .{}),
             nc.key.DOWN => self.cmd("open_recent_menu_down", .{}),
