@@ -241,6 +241,9 @@ cycle style of editing.
 - Ctrl-F10 =>
         Toggle visible whitespace mode
 
+- Alt-F10 =>
+        Change gutter mode
+
 ### Language Server Commands
 
 - F12 =>
