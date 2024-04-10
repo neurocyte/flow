@@ -14,7 +14,7 @@ const ed = @import("../editor.zig");
 const tui = @import("../tui.zig");
 
 pub fn create(a: Allocator, parent: nc.Plane) !Widget {
-    return Button.create(void, a, parent, .{
+    return Button.create_widget(void, a, parent, .{
         .ctx = {},
         .label = tui.get_mode(),
         .on_click = on_click,
@@ -23,7 +23,7 @@ pub fn create(a: Allocator, parent: nc.Plane) !Widget {
     });
 }
 
-pub fn layout(_: void, _: *Button.State(void)) Widget.Layout {
+pub fn layout(_: *void, _: *Button.State(void)) Widget.Layout {
     const name = tui.get_mode();
     const width = Buffer.egc_chunk_width(name, 0);
     const padding: usize = if (is_mini_mode()) 3 else 2;
@@ -34,7 +34,7 @@ fn is_mini_mode() bool {
     return if (tui.current().mini_mode) |_| true else false;
 }
 
-pub fn render(_: void, self: *Button.State(void), theme: *const Widget.Theme) bool {
+pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) bool {
     tui.set_base_style(&self.plane, " ", if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover);
     self.plane.on_styles(nc.style.bold);
     self.plane.erase();
@@ -52,6 +52,6 @@ fn render_separator(self: *Button.State(void), theme: *const Widget.Theme) void 
     _ = self.plane.putstr("") catch {};
 }
 
-fn on_click(_: void, _: *Button.State(void)) void {
+fn on_click(_: *void, _: *Button.State(void)) void {
     command.executeName("toggle_input_mode", .{}) catch {};
 }

@@ -87,9 +87,9 @@ fn on_resize_menu(self: *Self, state: *Menu.State(*Self), box: Widget.Box) void 
     });
 }
 
-fn menu_action_open_file(menu: *Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.opts.ctx.logger.err("navigate", e);
-    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = button.label.items } }) catch |e| menu.opts.ctx.logger.err("navigate", e);
+fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
+    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = button.label.items } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
 }
 
 fn shorten_path(buf: []u8, path: []const u8) []const u8 {

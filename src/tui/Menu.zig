@@ -91,8 +91,8 @@ pub fn State(ctx_type: type) type {
             }));
         }
 
-        pub fn add_item_with_handler(self: *Self, label: []const u8, on_click: *const fn (_: *Self, _: *Button.State(*Self)) void) !void {
-            try self.menu.add(try Button.create(*Self, self.a, self.menu.parent, .{
+        pub fn add_item_with_handler(self: *Self, label: []const u8, on_click: *const fn (_: **Self, _: *Button.State(*Self)) void) !void {
+            try self.menu.add(try Button.create_widget(*Self, self.a, self.menu.parent, .{
                 .ctx = self,
                 .on_layout = on_layout,
                 .label = label,
@@ -117,14 +117,14 @@ pub fn State(ctx_type: type) type {
             self.render_idx = 0;
         }
 
-        pub fn on_layout(self: *Self, button: *Button.State(*Self)) Widget.Layout {
-            return self.opts.on_layout(self.opts.ctx, button);
+        pub fn on_layout(self: **Self, button: *Button.State(*Self)) Widget.Layout {
+            return self.*.opts.on_layout(self.*.opts.ctx, button);
         }
 
-        pub fn on_render(self: *Self, button: *Button.State(*Self), theme: *const Widget.Theme) bool {
-            defer self.render_idx += 1;
-            std.debug.assert(self.render_idx < self.menu.widgets.items.len);
-            return self.opts.on_render(self.opts.ctx, button, theme, self.render_idx == self.selected);
+        pub fn on_render(self: **Self, button: *Button.State(*Self), theme: *const Widget.Theme) bool {
+            defer self.*.render_idx += 1;
+            std.debug.assert(self.*.render_idx < self.*.menu.widgets.items.len);
+            return self.*.opts.on_render(self.*.opts.ctx, button, theme, self.*.render_idx == self.*.selected);
         }
 
         fn on_resize_menu_widgetlist(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) void {
@@ -168,7 +168,7 @@ pub fn State(ctx_type: type) type {
             self.selected_active = true;
             const pos = selected + self.header_count;
             const button = self.menu.widgets.items[pos].widget.dynamic_cast(button_type) orelse return;
-            button.opts.on_click(button.opts.ctx, button);
+            button.opts.on_click(&button.opts.ctx, button);
         }
     };
 }

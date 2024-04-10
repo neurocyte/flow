@@ -114,31 +114,31 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     return false;
 }
 
-fn menu_action_help(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+fn menu_action_help(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
     command.executeName("open_help", .{}) catch {};
 }
 
-fn menu_action_open_file(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+fn menu_action_open_file(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
     command.executeName("enter_open_file_mode", .{}) catch {};
 }
 
-fn menu_action_open_recent_file(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+fn menu_action_open_recent_file(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
     command.executeName("enter_overlay_mode", command.fmt(.{"open_recent"})) catch {};
 }
 
-fn menu_action_open_recent_project(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+fn menu_action_open_recent_project(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
     tp.self_pid().send(.{ "log", "home", "open recent project not implemented" }) catch {};
 }
 
-fn menu_action_show_commands(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+fn menu_action_show_commands(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
     tp.self_pid().send(.{ "log", "home", "open command palette not implemented" }) catch {};
 }
 
-fn menu_action_open_config(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+fn menu_action_open_config(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
     command.executeName("open_config", .{}) catch {};
 }
 
-fn menu_action_quit(_: *Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+fn menu_action_quit(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
     command.executeName("quit", .{}) catch {};
 }
 
