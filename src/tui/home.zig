@@ -145,7 +145,7 @@ fn menu_action_quit(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const more = self.menu.render(theme);
 
-    try tui.set_base_style_alpha(self.background, " ", theme.editor, nc.ALPHA_OPAQUE, nc.ALPHA_TRANSPARENT);
+    try tui.set_base_style_alpha(self.background, " ", theme.editor, nc.ALPHA_OPAQUE, nc.ALPHA_OPAQUE);
     self.background.erase();
     self.background.home();
     try tui.set_base_style_alpha(self.plane, "", theme.editor, nc.ALPHA_TRANSPARENT, nc.ALPHA_TRANSPARENT);
