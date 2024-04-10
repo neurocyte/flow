@@ -209,6 +209,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.F11 => self.cmd("toggle_logview", .{}),
             key.F12 => self.cmd("goto_definition", .{}),
             key.F34 => self.cmd("toggle_whitespace", .{}), // C-F10
+            key.F58 => self.cmd("gutter_mode_next", .{}), // A-F10
             key.ESC => self.seq(.{ "cancel", "enter_mode" }, command.fmt(.{"vim/normal"})),
             key.ENTER => self.cmd("smart_insert_line", .{}),
             key.DEL => self.cmd("delete_forward", .{}),

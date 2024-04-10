@@ -262,6 +262,31 @@ const cmds = struct {
     pub fn show_home(self: *Self, _: Ctx) tp.result {
         return self.create_home();
     }
+
+    pub fn gutter_mode_next(self: *Self, _: Ctx) tp.result {
+        const tui_ = tui.current();
+        var ln = tui_.config.gutter_line_numbers;
+        var lnr = tui_.config.gutter_line_numbers_relative;
+        if (ln and !lnr) {
+            ln = true;
+            lnr = true;
+        } else if (ln and lnr) {
+            ln = false;
+            lnr = false;
+        } else {
+            ln = true;
+            lnr = false;
+        }
+        tui_.config.gutter_line_numbers = ln;
+        tui_.config.gutter_line_numbers_relative = lnr;
+        tui_.save_config() catch |e| return tp.exit_error(e);
+        if (self.widgets.get("editor_gutter")) |gutter_widget| {
+            const gutter = if (gutter_widget.dynamic_cast(@import("editor_gutter.zig"))) |p| p else return;
+            gutter.linenum = ln;
+            gutter.relative = lnr;
+        }
+    }
+
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {

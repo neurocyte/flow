@@ -89,6 +89,8 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
     if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
         return self.primary_click(y);
+    if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON3, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
+        return self.secondary_click();
     if (try m.match(.{ "D", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
         return self.primary_drag(y);
     if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON4, tp.more }))
@@ -229,6 +231,11 @@ fn primary_click(self: *const Self, y: i32) error{Exit}!bool {
 
 fn primary_drag(_: *const Self, y: i32) error{Exit}!bool {
     try command.executeName("drag_to", command.fmt(.{ y + 1, 0 }));
+    return true;
+}
+
+fn secondary_click(_: *Self) error{Exit}!bool {
+    try command.executeName("gutter_mode_next", .{});
     return true;
 }
 

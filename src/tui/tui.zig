@@ -679,7 +679,7 @@ fn send_input(self: *Self, from: tp.pid_ref, m: tp.message) void {
         mode.handler.send(from, m) catch |e| self.logger.err("input handler", e);
 }
 
-fn save_config(self: *const Self) !void {
+pub fn save_config(self: *const Self) !void {
     try root.write_config(self.config, self.a);
 }
 
