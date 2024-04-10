@@ -6,12 +6,11 @@ const tracy = @import("tracy");
 const root = @import("root");
 
 const Widget = @import("../Widget.zig");
+const Button = @import("../Button.zig");
 const command = @import("../command.zig");
 const tui = @import("../tui.zig");
 
 a: Allocator,
-parent: nc.Plane,
-plane: nc.Plane,
 name: []const u8,
 name_buf: [512]u8 = undefined,
 title: []const u8 = "",
@@ -33,61 +32,71 @@ const project_icon = "";
 const Self = @This();
 
 pub fn create(a: Allocator, parent: nc.Plane) !Widget {
-    const self: *Self = try a.create(Self);
-    self.* = try init(a, parent);
-    self.show_project();
-    return Widget.to(self);
+    const btn = try Button.create(Self, a, parent, .{
+        .ctx = .{
+            .a = a,
+            .name = "",
+            .file_type = "",
+            .lines = 0,
+            .line = 0,
+            .column = 0,
+            .file_exists = true,
+        },
+        .label = "",
+        .on_click = on_click,
+        .on_click2 = on_click2,
+        .on_click3 = on_click3,
+        .on_layout = layout,
+        .on_render = render,
+        .on_receive = receive,
+    });
+    btn.opts.ctx.show_project();
+    return Widget.to(btn);
 }
 
-fn init(a: Allocator, parent: nc.Plane) !Self {
-    var n = try nc.Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent);
-    errdefer n.deinit();
-
-    return .{
-        .a = a,
-        .parent = parent,
-        .plane = n,
-        .name = "",
-        .file_type = "",
-        .lines = 0,
-        .line = 0,
-        .column = 0,
-        .file_exists = true,
-    };
+fn on_click(_: *Self, _: *Button.State(Self)) void {
+    command.executeName("enter_overlay_mode", command.fmt(.{"open_recent"})) catch {};
 }
 
-pub fn deinit(self: *Self, a: Allocator) void {
-    self.plane.deinit();
-    a.destroy(self);
+fn on_click2(_: *Self, _: *Button.State(Self)) void {
+    command.executeName("close_file", .{}) catch {};
 }
 
-pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+fn on_click3(self: *Self, _: *Button.State(Self)) void {
+    self.detailed = !self.detailed;
+}
+
+pub fn layout(_: *Self, _: *Button.State(Self)) Widget.Layout {
+    return .dynamic;
+}
+
+pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = @typeName(@This()) ++ " render" });
     defer frame.deinit();
-    tui.set_base_style(&self.plane, " ", theme.statusbar);
-    self.plane.erase();
-    self.plane.home();
+    tui.set_base_style(&btn.plane, " ", if (btn.active) theme.editor_cursor else theme.statusbar);
+    btn.plane.erase();
+    btn.plane.home();
     if (tui.current().mini_mode) |_|
-        self.render_mini_mode(theme)
+        render_mini_mode(&btn.plane, theme)
     else if (self.detailed)
-        self.render_detailed(theme)
+        self.render_detailed(&btn.plane, theme)
     else
-        self.render_normal(theme);
+        self.render_normal(&btn.plane, theme);
     self.render_terminal_title();
     return false;
 }
 
-fn render_mini_mode(self: *Self, theme: *const Widget.Theme) void {
-    self.plane.off_styles(nc.style.italic);
+fn render_mini_mode(plane: *nc.Plane, theme: *const Widget.Theme) void {
+    plane.off_styles(nc.style.italic);
     const mini_mode = if (tui.current().mini_mode) |m| m else return;
-    _ = self.plane.print(" {s}", .{mini_mode.text}) catch {};
+    _ = plane.print(" {s}", .{mini_mode.text}) catch {};
     if (mini_mode.cursor) |cursor| {
         const pos: c_int = @intCast(cursor);
-        self.plane.cursor_move_yx(0, pos + 1) catch return;
-        var cell = self.plane.cell_init();
-        _ = self.plane.at_cursor_cell(&cell) catch return;
+        plane.cursor_move_yx(0, pos + 1) catch return;
+        var cell = plane.cell_init();
+        _ = plane.at_cursor_cell(&cell) catch return;
         tui.set_cell_style(&cell, theme.editor_cursor);
-        _ = self.plane.putc(&cell) catch {};
+        _ = plane.putc(&cell) catch {};
     }
     return;
 }
@@ -100,34 +109,34 @@ fn render_mini_mode(self: *Self, theme: *const Widget.Theme) void {
 // 󱣪 Content save check
 // 󱑛 Content save cog
 // 󰆔 Content save all
-fn render_normal(self: *Self, theme: *const Widget.Theme) void {
-    self.plane.on_styles(nc.style.italic);
-    _ = self.plane.putstr(" ") catch {};
+fn render_normal(self: *Self, plane: *nc.Plane, theme: *const Widget.Theme) void {
+    plane.on_styles(nc.style.italic);
+    _ = plane.putstr(" ") catch {};
     if (self.file_icon.len > 0) {
-        self.render_file_icon(theme);
-        _ = self.plane.print(" ", .{}) catch {};
+        self.render_file_icon(plane, theme);
+        _ = plane.print(" ", .{}) catch {};
     }
-    _ = self.plane.putstr(if (!self.file_exists) "󰽂 " else if (self.file_dirty) "󰆓 " else "") catch {};
-    _ = self.plane.print("{s}", .{self.name}) catch {};
+    _ = plane.putstr(if (!self.file_exists) "󰽂 " else if (self.file_dirty) "󰆓 " else "") catch {};
+    _ = plane.print("{s}", .{self.name}) catch {};
     return;
 }
 
-fn render_detailed(self: *Self, theme: *const Widget.Theme) void {
-    self.plane.on_styles(nc.style.italic);
-    _ = self.plane.putstr(" ") catch {};
+fn render_detailed(self: *Self, plane: *nc.Plane, theme: *const Widget.Theme) void {
+    plane.on_styles(nc.style.italic);
+    _ = plane.putstr(" ") catch {};
     if (self.file_icon.len > 0) {
-        self.render_file_icon(theme);
-        _ = self.plane.print(" ", .{}) catch {};
+        self.render_file_icon(plane, theme);
+        _ = plane.print(" ", .{}) catch {};
     }
     if (self.project) {
         const project_name = tp.env.get().str("project");
-        _ = self.plane.print("{s} ({s})", .{self.name, project_name}) catch {};
+        _ = plane.print("{s} ({s})", .{ self.name, project_name }) catch {};
     } else {
-        _ = self.plane.putstr(if (!self.file_exists) "󰽂" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
-        _ = self.plane.print(" {s}:{d}:{d}", .{ self.name, self.line + 1, self.column + 1 }) catch {};
-        _ = self.plane.print(" of {d} lines", .{self.lines}) catch {};
+        _ = plane.putstr(if (!self.file_exists) "󰽂" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
+        _ = plane.print(" {s}:{d}:{d}", .{ self.name, self.line + 1, self.column + 1 }) catch {};
+        _ = plane.print(" of {d} lines", .{self.lines}) catch {};
         if (self.file_type.len > 0)
-            _ = self.plane.print(" ({s})", .{self.file_type}) catch {};
+            _ = plane.print(" ({s})", .{self.file_type}) catch {};
     }
     return;
 }
@@ -147,7 +156,7 @@ fn render_terminal_title(self: *Self) void {
     tui.set_terminal_title(self.title);
 }
 
-pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var file_path: []const u8 = undefined;
     var file_type: []const u8 = undefined;
     var file_icon: []const u8 = undefined;
@@ -181,23 +190,19 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.file_exists = true;
         self.show_project();
     }
-    if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
-        self.detailed = !self.detailed;
-        return true;
-    }
     return false;
 }
 
-fn render_file_icon(self: *Self, _: *const Widget.Theme) void {
-    var cell = self.plane.cell_init();
-    _ = self.plane.at_cursor_cell(&cell) catch return;
+fn render_file_icon(self: *Self, plane: *nc.Plane, _: *const Widget.Theme) void {
+    var cell = plane.cell_init();
+    _ = plane.at_cursor_cell(&cell) catch return;
     if (!(self.file_color == 0xFFFFFF or self.file_color == 0x000000 or self.file_color == 0x000001)) {
         nc.channels_set_fg_rgb(&cell.channels, self.file_color) catch {};
         nc.channels_set_fg_alpha(&cell.channels, nc.ALPHA_OPAQUE) catch {};
     }
-    _ = self.plane.cell_load(&cell, self.file_icon) catch {};
-    _ = self.plane.putc(&cell) catch {};
-    self.plane.cursor_move_rel(0, 1) catch {};
+    _ = plane.cell_load(&cell, self.file_icon) catch {};
+    _ = plane.putc(&cell) catch {};
+    plane.cursor_move_rel(0, 1) catch {};
 }
 
 fn show_project(self: *Self) void {
@@ -211,19 +216,17 @@ fn show_project(self: *Self) void {
 }
 
 fn abbrv_home(self: *Self) void {
-    if (std.fs.path.isAbsolute(self.name)) {
-        if (std.posix.getenv("HOME")) |homedir| {
-            const homerelpath = std.fs.path.relative(self.a, homedir, self.name) catch return;
-            if (homerelpath.len == 0) {
-                self.name = "~";
-            } else if (homerelpath.len > 3 and std.mem.eql(u8, homerelpath[0..3], "../")) {
-                return;
-            } else {
-                self.name_buf[0] = '~';
-                self.name_buf[1] = '/';
-                @memcpy(self.name_buf[2 .. homerelpath.len + 2], homerelpath);
-                self.name = self.name_buf[0 .. homerelpath.len + 2];
-            }
-        }
+    if (!std.fs.path.isAbsolute(self.name)) return;
+    const homedir = std.posix.getenv("HOME") orelse return;
+    const homerelpath = std.fs.path.relative(self.a, homedir, self.name) catch return;
+    if (homerelpath.len == 0) {
+        self.name = "~";
+    } else if (homerelpath.len > 3 and std.mem.eql(u8, homerelpath[0..3], "../")) {
+        return;
+    } else {
+        self.name_buf[0] = '~';
+        self.name_buf[1] = '/';
+        @memcpy(self.name_buf[2 .. homerelpath.len + 2], homerelpath);
+        self.name = self.name_buf[0 .. homerelpath.len + 2];
     }
 }
