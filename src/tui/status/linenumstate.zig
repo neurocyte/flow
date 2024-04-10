@@ -5,10 +5,10 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 
 const Widget = @import("../Widget.zig");
+const Button = @import("../Button.zig");
 const tui = @import("../tui.zig");
+const command = @import("../command.zig");
 
-parent: nc.Plane,
-plane: nc.Plane,
 line: usize = 0,
 lines: usize = 0,
 column: usize = 0,
@@ -18,35 +18,29 @@ rendered: [:0]const u8 = "",
 const Self = @This();
 
 pub fn create(a: Allocator, parent: nc.Plane) !Widget {
-    const self: *Self = try a.create(Self);
-    self.* = try init(parent);
-    return Widget.to(self);
+    return Button.create_widget(Self, a, parent, .{
+        .ctx = .{},
+        .label = "",
+        .on_click = on_click,
+        .on_layout = layout,
+        .on_render = render,
+        .on_receive = receive,
+    });
 }
 
-fn init(parent: nc.Plane) !Self {
-    var n = try nc.Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent);
-    errdefer n.deinit();
-
-    return .{
-        .parent = parent,
-        .plane = n,
-    };
+fn on_click(_: *Self, _: *Button.State(Self)) void {
+    command.executeName("enter_goto_mode", .{}) catch {};
 }
 
-pub fn deinit(self: *Self, a: Allocator) void {
-    self.plane.deinit();
-    a.destroy(self);
-}
-
-pub fn layout(self: *Self) Widget.Layout {
+pub fn layout(self: *Self, _: *Button.State(Self)) Widget.Layout {
     return .{ .static = self.rendered.len };
 }
 
-pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    tui.set_base_style(&self.plane, " ", theme.statusbar);
-    self.plane.erase();
-    self.plane.home();
-    _ = self.plane.putstr(self.rendered) catch {};
+pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
+    tui.set_base_style(&btn.plane, " ", if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar);
+    btn.plane.erase();
+    btn.plane.home();
+    _ = btn.plane.putstr(self.rendered) catch {};
     return false;
 }
 
@@ -58,7 +52,7 @@ fn format(self: *Self) void {
     self.buf[self.rendered.len] = 0;
 }
 
-pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "E", "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.extract(&self.column) })) {
         self.format();
     } else if (try m.match(.{ "E", "close" })) {
