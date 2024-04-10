@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const root = @import("root");
+const builtin = @import("builtin");
 
 const LSP = @import("LSP.zig");
 
@@ -267,7 +268,7 @@ fn read_position(position: []const u8) !Position {
 
 fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) error{Exit}!tp.message {
     return lsp.send_request(self.a, "initialize", .{
-        .processId = std.os.linux.getpid(),
+        .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
         .rootPath = project_path,
         .rootUri = project_uri,
         .workspaceFolders = .{
