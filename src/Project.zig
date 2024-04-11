@@ -20,6 +20,7 @@ const File = struct {
     mtime: i128,
     row: usize = 0,
     col: usize = 0,
+    visited: bool = false,
 };
 
 pub fn init(a: std.mem.Allocator, name: []const u8) error{OutOfMemory}!Self {
@@ -46,6 +47,34 @@ pub fn deinit(self: *Self) void {
     for (self.files.items) |file| self.a.free(file.path);
     self.files.deinit();
     self.a.free(self.name);
+}
+
+pub fn write_state(self: *Self, writer: anytype) !void {
+    for (self.files.items) |file| {
+        if (!file.visited) continue;
+        try cbor.writeArrayHeader(writer, 4);
+        try cbor.writeValue(writer, file.path);
+        try cbor.writeValue(writer, file.mtime);
+        try cbor.writeValue(writer, file.row);
+        try cbor.writeValue(writer, file.col);
+    }
+}
+
+pub fn restore_state(self: *Self, data: []const u8) !void {
+    var path: []const u8 = undefined;
+    var mtime: i128 = undefined;
+    var row: usize = undefined;
+    var col: usize = undefined;
+    defer self.sort_files_by_mtime();
+    var iter: []const u8 = data;
+    while (try cbor.matchValue(&iter, .{
+        tp.extract(&path),
+        tp.extract(&mtime),
+        tp.extract(&row),
+        tp.extract(&col),
+    })) {
+        try self.update_mru_internal(path, mtime, row, col);
+    }
 }
 
 fn get_lsp(self: *Self, language_server: []const u8) !LSP {
@@ -114,12 +143,18 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
 
 pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) !void {
     defer self.sort_files_by_mtime();
+    try self.update_mru_internal(file_path, std.time.nanoTimestamp(), row, col);
+}
+
+fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usize, col: usize) !void {
+    defer self.sort_files_by_mtime();
     for (self.files.items) |*file| {
         if (!std.mem.eql(u8, file.path, file_path)) continue;
-        file.mtime = std.time.nanoTimestamp();
+        file.mtime = mtime;
         if (row != 0) {
             file.row = row;
             file.col = col;
+            file.visited = true;
         }
         return;
     }

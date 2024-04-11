@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const log = @import("log");
 const tracy = @import("tracy");
 const FileType = @import("syntax").FileType;
+const root = @import("root");
 
 const Project = @import("Project.zig");
 
@@ -154,6 +155,7 @@ const Process = struct {
             if (self.walker) |pid| pid.deinit();
             self.walker = null;
             const project = self.projects.get(project_directory) orelse return;
+            self.restore_project(project) catch {};
             project.sort_files_by_mtime();
             self.logger.print("opened: {s} with {d} files in {d} ms", .{
                 project_directory,
@@ -177,6 +179,7 @@ const Process = struct {
             self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e);
         } else if (try m.match(.{"shutdown"})) {
             if (self.walker) |pid| pid.send(.{"stop"}) catch {};
+            self.persist_projects();
             try from.send(.{ "project_manager", "shutdown" });
             return tp.exit_normal();
         } else if (try m.match(.{ "exit", "normal" })) {
@@ -235,6 +238,60 @@ const Process = struct {
     fn update_mru(self: *Process, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.update_mru(file_path, row, col) catch |e| tp.exit_error(e);
+    }
+
+    fn persist_projects(self: *Process) void {
+        var i = self.projects.iterator();
+        while (i.next()) |p| self.persist_project(p.value_ptr.*) catch {};
+    }
+
+    fn persist_project(self: *Process, project: *Project) !void {
+        self.logger.print("saving: {s}", .{project.name});
+        const file_name = try get_project_cache_file_path(self.a, project);
+        defer self.a.free(file_name);
+        var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
+        defer file.close();
+        var buffer = std.io.bufferedWriter(file.writer());
+        try project.write_state(buffer.writer());
+        return buffer.flush();
+    }
+
+    fn restore_project(self: *Process, project: *Project) !void {
+        self.logger.print("restoring: {s}", .{project.name});
+        const file_name = try get_project_cache_file_path(self.a, project);
+        defer self.a.free(file_name);
+        var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {
+            error.FileNotFound => return,
+            else => return e,
+        };
+        defer file.close();
+        const stat = try file.stat();
+        var buffer = try self.a.alloc(u8, stat.size);
+        defer self.a.free(buffer);
+        const size = try file.readAll(buffer);
+        try project.restore_state(buffer[0..size]);
+    }
+
+    fn get_project_cache_file_path(a: std.mem.Allocator, project: *Project) ![]const u8 {
+        const path = project.name;
+        var stream = std.ArrayList(u8).init(a);
+        const writer = stream.writer();
+        _ = try writer.write(try root.get_cache_dir());
+        _ = try writer.writeByte(std.fs.path.sep);
+        _ = try writer.write("projects");
+        _ = try writer.writeByte(std.fs.path.sep);
+        std.fs.makeDirAbsolute(stream.items) catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => return e,
+        };
+        var pos: usize = 0;
+        while (std.mem.indexOfScalarPos(u8, path, pos, std.fs.path.sep)) |next| {
+            _ = try writer.write(path[pos..next]);
+            _ = try writer.write("__");
+            pos = next + 1;
+        }
+        _ = try writer.write(path[pos..]);
+        return stream.toOwnedSlice();
     }
 };
 
