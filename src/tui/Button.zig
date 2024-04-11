@@ -111,6 +111,7 @@ pub fn State(ctx_type: type) type {
         }
 
         fn call_click_handler(self: *Self, btn: u32) void {
+            if (!self.hover) return;
             switch (btn) {
                 nc.key.BUTTON1 => self.opts.on_click(&self.opts.ctx, self),
                 nc.key.BUTTON2 => self.opts.on_click2(&self.opts.ctx, self),

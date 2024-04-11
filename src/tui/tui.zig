@@ -465,7 +465,7 @@ fn detect_drag_begin(self: *Self, ni: *nc.Input) error{Exit}!bool {
         self.drag_event = ni.*;
         self.drag = true;
         var buf: [256]u8 = undefined;
-        _ = try self.send_mouse_drag(tp.self_pid(), tp.message.fmtbuf(&buf, .{
+        _ = try self.send_mouse_drag(ni.y, ni.x, tp.self_pid(), tp.message.fmtbuf(&buf, .{
             "D",
             nc.event_type.PRESS,
             ni.id,
@@ -487,7 +487,7 @@ fn detect_drag_begin(self: *Self, ni: *nc.Input) error{Exit}!bool {
 fn detect_drag_end(self: *Self, ni: *nc.Input) error{Exit}!bool {
     var buf: [256]u8 = undefined;
     if (ni.id == self.drag_event.id and ni.evtype != nc.event_type.PRESS) {
-        _ = try self.send_mouse_drag(tp.self_pid(), tp.message.fmtbuf(&buf, .{
+        _ = try self.send_mouse_drag(ni.y, ni.x, tp.self_pid(), tp.message.fmtbuf(&buf, .{
             "D",
             nc.event_type.RELEASE,
             ni.id,
@@ -502,7 +502,7 @@ fn detect_drag_end(self: *Self, ni: *nc.Input) error{Exit}!bool {
         self.drag_source = null;
         return true;
     }
-    _ = try self.send_mouse_drag(tp.self_pid(), tp.message.fmtbuf(&buf, .{
+    _ = try self.send_mouse_drag(ni.y, ni.x, tp.self_pid(), tp.message.fmtbuf(&buf, .{
         "D",
         ni.evtype,
         ni.id,
@@ -648,12 +648,30 @@ fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) 
     }
 }
 
-fn send_mouse_drag(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners.send(from, m) catch {};
-    return if (self.keyboard_focus) |w|
-        w.send(from, m)
-    else if (self.drag_source) |w|
+    if (self.keyboard_focus) |w| {
+        _ = try w.send(from, m);
+        return false;
+    } else if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
+        if (if (self.hover_focus) |h| h != w else true) {
+            var buf: [256]u8 = undefined;
+            if (self.hover_focus) |h| {
+                if (self.is_live_widget_ptr(h))
+                    _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e));
+            }
+            self.hover_focus = w;
+            _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e));
+        }
+    } else {
+        if (self.hover_focus) |h| {
+            var buf: [256]u8 = undefined;
+            _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e));
+        }
+        self.hover_focus = null;
+    }
+    return if (self.drag_source) |w|
         w.send(from, m)
     else
         false;
