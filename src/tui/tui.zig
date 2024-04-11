@@ -795,12 +795,9 @@ const cmds = struct {
         var mode: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&mode)}))
             return tp.exit_error(error.InvalidArgument);
-        if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
+        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode) |*m| m.deinit();
-        if (self.input_mode_outer) |*m| {
-            m.deinit();
-            self.input_mode_outer = null;
-        }
         self.input_mode = if (std.mem.eql(u8, mode, "vim/normal"))
             @import("mode/input/vim/normal.zig").create(self.a) catch |e| return tp.exit_error(e)
         else if (std.mem.eql(u8, mode, "vim/insert"))
@@ -826,11 +823,8 @@ const cmds = struct {
         var mode: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&mode)}))
             return tp.exit_error(error.InvalidArgument);
-        if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
-        if (self.input_mode_outer) |*m| {
-            m.deinit();
-            self.input_mode_outer = null;
-        }
+        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         self.input_mode = if (std.mem.eql(u8, mode, "open_recent")) ret: {
             self.input_mode_outer = self.input_mode;
             break :ret @import("mode/overlay/open_recent.zig").create(self.a) catch |e| return tp.exit_error(e);
@@ -842,7 +836,7 @@ const cmds = struct {
     }
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) tp.result {
-        if (self.input_mode_outer) |_| {} else return;
+        if (self.input_mode_outer == null) return;
         defer {
             self.input_mode = self.input_mode_outer;
             self.input_mode_outer = null;
@@ -873,6 +867,8 @@ const cmds = struct {
     const MiniModeFactory = fn (Allocator, Ctx) error{ NotFound, OutOfMemory }!EventHandler;
 
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) tp.result {
+        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         self.input_mode_outer = self.input_mode;
         errdefer {
             self.input_mode = self.input_mode_outer;

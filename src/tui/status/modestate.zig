@@ -34,6 +34,10 @@ fn is_mini_mode() bool {
     return if (tui.current().mini_mode) |_| true else false;
 }
 
+fn is_overlay_mode() bool {
+    return if (tui.current().input_mode_outer) |_| true else false;
+}
+
 pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) bool {
     tui.set_base_style(&self.plane, " ", if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover);
     self.plane.on_styles(nc.style.bold);
@@ -53,5 +57,10 @@ fn render_separator(self: *Button.State(void), theme: *const Widget.Theme) void 
 }
 
 fn on_click(_: *void, _: *Button.State(void)) void {
-    command.executeName("toggle_input_mode", .{}) catch {};
+    command.executeName(if (is_mini_mode())
+        "exit_mini_mode"
+    else if (is_overlay_mode())
+        "exit_overlay_mode"
+    else
+        "toggle_input_mode", .{}) catch {};
 }
