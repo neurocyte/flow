@@ -143,8 +143,10 @@ pub fn build(b: *std.Build) void {
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "syntax", .module = syntax_dep.module("syntax") },
+            .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
         },
     });
 

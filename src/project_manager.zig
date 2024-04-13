@@ -67,6 +67,27 @@ pub fn did_open(file_path: []const u8, file_type: *const FileType, version: usiz
     return (try get()).pid.send(.{ "did_open", project, file_path, file_type.name, file_type.language_server, version, text_ptr, text.len });
 }
 
+pub fn did_change(file_path: []const u8, version: usize, root_dst: usize, root_src: usize) tp.result {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "did_change", project, file_path, version, root_dst, root_src });
+}
+
+pub fn did_save(file_path: []const u8) tp.result {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "did_save", project, file_path });
+}
+
+pub fn did_close(file_path: []const u8) tp.result {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "did_close", project, file_path });
+}
+
 pub fn goto_definition(file_path: []const u8, row: usize, col: usize) tp.result {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -146,6 +167,9 @@ const Process = struct {
         var text_ptr: usize = 0;
         var text_len: usize = 0;
 
+        var root_dst: usize = 0;
+        var root_src: usize = 0;
+
         if (try m.match(.{ "walk_tree_entry", tp.extract(&project_directory), tp.extract(&path), tp.extract(&high), tp.extract(&low) })) {
             const mtime = (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low));
             if (self.projects.get(project_directory)) |project|
@@ -173,6 +197,12 @@ const Process = struct {
         } else if (try m.match(.{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
             const text = if (text_len > 0) @as([*]const u8, @ptrFromInt(text_ptr))[0..text_len] else "";
             self.did_open(from, project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e);
+        } else if (try m.match(.{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&root_dst), tp.extract(&root_src) })) {
+            self.did_change(project_directory, path, version, root_dst, root_src) catch |e| return from.forward_error(e);
+        } else if (try m.match(.{ "did_save", tp.extract(&project_directory), tp.extract(&path) })) {
+            self.did_save(project_directory, path) catch |e| return from.forward_error(e);
+        } else if (try m.match(.{ "did_close", tp.extract(&project_directory), tp.extract(&path) })) {
+            self.did_close(project_directory, path) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "goto_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.goto_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
@@ -219,6 +249,27 @@ const Process = struct {
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.did_open(from, file_path, file_type, language_server, version, text);
+    }
+
+    fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, root_dst: usize, root_src: usize) tp.result {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_change" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.did_change(file_path, version, root_dst, root_src) catch |e| tp.exit_error(e);
+    }
+
+    fn did_save(self: *Process, project_directory: []const u8, file_path: []const u8) tp.result {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_save" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.did_save(file_path);
+    }
+
+    fn did_close(self: *Process, project_directory: []const u8, file_path: []const u8) tp.result {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_close" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.did_close(file_path);
     }
 
     fn goto_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {

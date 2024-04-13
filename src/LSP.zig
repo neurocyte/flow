@@ -35,7 +35,11 @@ pub fn send_notification(self: Self, method: []const u8, m: anytype) tp.result {
     var cb = std.ArrayList(u8).init(self.a);
     defer cb.deinit();
     cbor.writeValue(cb.writer(), m) catch |e| return tp.exit_error(e);
-    return self.pid.send(.{ "NTFY", method, cb.items });
+    return self.send_notification_raw(method, cb.items);
+}
+
+pub fn send_notification_raw(self: Self, method: []const u8, cb: []const u8) tp.result {
+    return self.pid.send(.{ "NTFY", method, cb });
 }
 
 pub fn close(self: *Self) void {

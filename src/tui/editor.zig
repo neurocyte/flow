@@ -385,6 +385,8 @@ pub const Editor = struct {
         self.plane.home();
         self.plane.context().cursor_disable() catch {};
         _ = try self.handlers.msg(.{ "E", "close" });
+        if (self.syntax) |_| if (self.file_path) |file_path|
+            project_manager.did_close(file_path) catch {};
     }
 
     fn save(self: *Self) !void {
@@ -973,8 +975,10 @@ pub const Editor = struct {
         const dirty = if (self.buffer) |buf| buf.is_dirty() else false;
 
         const root: ?Buffer.Root = self.buf_root() catch null;
-        if (token_from(self.last.root) != token_from(root))
+        if (token_from(self.last.root) != token_from(root)) {
             try self.send_editor_update(self.last.root, root);
+            self.lsp_version += 1;
+        }
 
         if (self.last.dirty != dirty)
             try self.send_editor_dirty(dirty);
@@ -1069,6 +1073,7 @@ pub const Editor = struct {
 
     fn send_editor_save(self: *const Self, file_path: []const u8) !void {
         _ = try self.handlers.msg(.{ "E", "save", file_path });
+        if (self.syntax) |_| project_manager.did_save(file_path) catch {};
     }
 
     fn send_editor_dirty(self: *const Self, file_dirty: bool) !void {
@@ -1081,6 +1086,8 @@ pub const Editor = struct {
 
     fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root) !void {
         _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root) });
+        if (self.syntax) |_| if (self.file_path) |file_path|
+            project_manager.did_change(file_path, self.lsp_version, token_from(new_root), token_from(old_root)) catch {};
     }
 
     fn clamp_abs(self: *Self, abs: bool) void {
