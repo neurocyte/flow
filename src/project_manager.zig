@@ -173,19 +173,14 @@ const Process = struct {
         if (try m.match(.{ "walk_tree_entry", tp.extract(&project_directory), tp.extract(&path), tp.extract(&high), tp.extract(&low) })) {
             const mtime = (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low));
             if (self.projects.get(project_directory)) |project|
-                project.add_file(path, mtime) catch |e| self.logger.err("walk_tree_entry", e);
-            // self.logger.print("file: {s}", .{path});
+                project.add_pending_file(
+                    path,
+                    mtime,
+                ) catch |e| self.logger.err("walk_tree_entry", e);
         } else if (try m.match(.{ "walk_tree_done", tp.extract(&project_directory) })) {
             if (self.walker) |pid| pid.deinit();
             self.walker = null;
-            const project = self.projects.get(project_directory) orelse return;
-            self.restore_project(project) catch {};
-            project.sort_files_by_mtime();
-            self.logger.print("opened: {s} with {d} files in {d} ms", .{
-                project_directory,
-                project.files.items.len,
-                std.time.milliTimestamp() - project.open_time,
-            });
+            self.loaded(project_directory) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "update_mru", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
@@ -226,7 +221,19 @@ const Process = struct {
             project.* = try Project.init(self.a, project_directory);
             try self.projects.put(try self.a.dupe(u8, project_directory), project);
             self.walker = try walk_tree_async(self.a, project_directory);
+            self.restore_project(project) catch |e| self.logger.err("restore_project", e);
+            project.sort_files_by_mtime();
         }
+    }
+
+    fn loaded(self: *Process, project_directory: []const u8) error{ OutOfMemory, Exit }!void {
+        const project = self.projects.get(project_directory) orelse return;
+        try project.merge_pending_files();
+        self.logger.print("opened: {s} with {d} files in {d} ms", .{
+            project_directory,
+            project.files.items.len,
+            std.time.milliTimestamp() - project.open_time,
+        });
     }
 
     fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) error{ OutOfMemory, Exit }!void {
@@ -303,12 +310,11 @@ const Process = struct {
         var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
         defer file.close();
         var buffer = std.io.bufferedWriter(file.writer());
+        defer buffer.flush() catch {};
         try project.write_state(buffer.writer());
-        return buffer.flush();
     }
 
     fn restore_project(self: *Process, project: *Project) !void {
-        self.logger.print("restoring: {s}", .{project.name});
         const file_name = try get_project_cache_file_path(self.a, project);
         defer self.a.free(file_name);
         var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {

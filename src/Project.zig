@@ -12,6 +12,7 @@ const LSP = @import("LSP.zig");
 a: std.mem.Allocator,
 name: []const u8,
 files: std.ArrayList(File),
+pending: std.ArrayList(File),
 open_time: i64,
 language_servers: std.StringHashMap(LSP),
 file_language_server: std.StringHashMap(LSP),
@@ -31,6 +32,7 @@ pub fn init(a: std.mem.Allocator, name: []const u8) error{OutOfMemory}!Self {
         .a = a,
         .name = try a.dupe(u8, name),
         .files = std.ArrayList(File).init(a),
+        .pending = std.ArrayList(File).init(a),
         .open_time = std.time.milliTimestamp(),
         .language_servers = std.StringHashMap(LSP).init(a),
         .file_language_server = std.StringHashMap(LSP).init(a),
@@ -64,18 +66,21 @@ pub fn write_state(self: *Self, writer: anytype) !void {
 }
 
 pub fn restore_state(self: *Self, data: []const u8) !void {
+    defer self.sort_files_by_mtime();
     var path: []const u8 = undefined;
     var mtime: i128 = undefined;
     var row: usize = undefined;
     var col: usize = undefined;
-    defer self.sort_files_by_mtime();
     var iter: []const u8 = data;
-    while (try cbor.matchValue(&iter, .{
+    while (cbor.matchValue(&iter, .{
         tp.extract(&path),
         tp.extract(&mtime),
         tp.extract(&row),
         tp.extract(&col),
-    })) {
+    }) catch |e| switch (e) {
+        error.CborTooShort => return,
+        else => return e,
+    }) {
         try self.update_mru_internal(path, mtime, row, col);
     }
 }
@@ -107,10 +112,6 @@ fn make_URI(self: *Self, file_path: ?[]const u8) ![]const u8 {
     else
         try buf.writer().print("file://{s}", .{self.name});
     return buf.toOwnedSlice();
-}
-
-pub fn add_file(self: *Self, path: []const u8, mtime: i128) error{OutOfMemory}!void {
-    (try self.files.addOne()).* = .{ .path = try self.a.dupe(u8, path), .mtime = mtime };
 }
 
 pub fn sort_files_by_mtime(self: *Self) void {
@@ -192,13 +193,28 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
     return @min(max, matches.items.len);
 }
 
+pub fn add_pending_file(self: *Self, file_path: []const u8, mtime: i128) error{OutOfMemory}!void {
+    (try self.pending.addOne()).* = .{ .path = try self.a.dupe(u8, file_path), .mtime = mtime };
+}
+
+pub fn merge_pending_files(self: *Self) error{OutOfMemory}!void {
+    defer self.sort_files_by_mtime();
+    const existing = try self.files.toOwnedSlice();
+    self.files = self.pending;
+    self.pending = std.ArrayList(File).init(self.a);
+    for (existing) |*file| {
+        self.update_mru_internal(file.path, file.mtime, file.row, file.col) catch {};
+        self.a.free(file.path);
+    }
+    self.a.free(existing);
+}
+
 pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) !void {
     defer self.sort_files_by_mtime();
     try self.update_mru_internal(file_path, std.time.nanoTimestamp(), row, col);
 }
 
 fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usize, col: usize) !void {
-    defer self.sort_files_by_mtime();
     for (self.files.items) |*file| {
         if (!std.mem.eql(u8, file.path, file_path)) continue;
         file.mtime = mtime;
@@ -209,7 +225,20 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
         }
         return;
     }
-    return self.add_file(file_path, std.time.nanoTimestamp());
+    if (row != 0) {
+        (try self.files.addOne()).* = .{
+            .path = try self.a.dupe(u8, file_path),
+            .mtime = mtime,
+            .row = row,
+            .col = col,
+            .visited = true,
+        };
+    } else {
+        (try self.files.addOne()).* = .{
+            .path = try self.a.dupe(u8, file_path),
+            .mtime = mtime,
+        };
+    }
 }
 
 pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) !void {

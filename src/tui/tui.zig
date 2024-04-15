@@ -238,6 +238,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     }
     if (try m.match(.{"quit"})) {
         project_manager.shutdown();
+        return;
     }
     if (try m.match(.{ "project_manager", "shutdown" })) {
         return tp.exit(self.final_exit);
@@ -247,6 +248,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         _ = try self.mainview.msg(.{"write_restore_info"});
         project_manager.shutdown();
         self.final_exit = "restart";
+        return;
     }
 
     if (try m.match(.{"sigwinch"})) {
