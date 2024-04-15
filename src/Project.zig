@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const root = @import("root");
 const dizzy = @import("dizzy");
 const Buffer = @import("Buffer");
+const fuzzig = @import("fuzzig");
 const builtin = @import("builtin");
 
 const LSP = @import("LSP.zig");
@@ -129,18 +130,66 @@ pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) error{ Ou
     }
 }
 
-pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{ OutOfMemory, Exit }!usize {
+fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{ OutOfMemory, Exit }!usize {
     var i: usize = 0;
     defer from.send(.{ "PRJ", "recent_done", query }) catch {};
     for (self.files.items) |file| {
         if (file.path.len < query.len) continue;
-        if (std.mem.indexOf(u8, file.path, query)) |_| {
-            try from.send(.{ "PRJ", "recent", file.path });
+        if (std.mem.indexOf(u8, file.path, query)) |idx| {
+            switch (query.len) {
+                1 => try from.send(.{ "PRJ", "recent", file.path, .{idx} }),
+                2 => try from.send(.{ "PRJ", "recent", file.path, .{ idx, idx + 1 } }),
+                else => try from.send(.{ "PRJ", "recent", file.path }),
+            }
             i += 1;
             if (i >= max) return i;
         }
     }
     return i;
+}
+
+pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{ OutOfMemory, Exit }!usize {
+    if (query.len < 3)
+        return self.simple_query_recent_files(from, max, query);
+    defer from.send(.{ "PRJ", "recent_done", query }) catch {};
+
+    var searcher = try fuzzig.Ascii.init(
+        self.a,
+        std.fs.max_path_bytes, // haystack max size
+        std.fs.max_path_bytes, // needle max size
+        .{ .case_sensitive = false },
+    );
+    defer searcher.deinit();
+
+    const Match = struct {
+        path: []const u8,
+        score: i32,
+        matches: []const usize,
+    };
+    var matches = std.ArrayList(Match).init(self.a);
+
+    for (self.files.items) |file| {
+        const match = searcher.scoreMatches(file.path, query);
+        if (match.score) |score| {
+            (try matches.addOne()).* = .{
+                .path = file.path,
+                .score = score,
+                .matches = try self.a.dupe(usize, match.matches),
+            };
+        }
+    }
+    if (matches.items.len == 0) return 0;
+
+    const less_fn = struct {
+        fn less_fn(_: void, lhs: Match, rhs: Match) bool {
+            return lhs.score > rhs.score;
+        }
+    }.less_fn;
+    std.mem.sort(Match, matches.items, {}, less_fn);
+
+    for (matches.items[0..@min(max, matches.items.len)]) |match|
+        try from.send(.{ "PRJ", "recent", match.path, match.matches });
+    return @min(max, matches.items.len);
 }
 
 pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) !void {

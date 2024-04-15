@@ -66,6 +66,11 @@ pub fn build(b: *std.Build) void {
         .optimize = dependency_optimize,
     });
 
+    const fuzzig_dep = b.dependency("fuzzig", .{
+        .target = target,
+        .optimize = dependency_optimize,
+    });
+
     const tracy_dep = if (tracy_enabled) b.dependency("tracy", .{
         .target = target,
         .optimize = dependency_optimize,
@@ -147,6 +152,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "syntax", .module = syntax_dep.module("syntax") },
             .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
+            .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
         },
     });
 

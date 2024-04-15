@@ -2,6 +2,7 @@ const std = @import("std");
 const nc = @import("notcurses");
 const tp = @import("thespian");
 const log = @import("log");
+const cbor = @import("cbor");
 
 const tui = @import("../../tui.zig");
 const command = @import("../../command.zig");
@@ -68,13 +69,32 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     try tui.set_base_style_alpha(button.plane, " ", style_base, nc.ALPHA_OPAQUE, nc.ALPHA_OPAQUE);
     button.plane.erase();
     button.plane.home();
+    var file_path: []const u8 = undefined;
+    var iter = button.opts.label; // label contains cbor, first the file name, then multiple match indexes
+    if (!(cbor.matchString(&iter, &file_path) catch false))
+        file_path = "#ERROR#";
     const pointer = if (selected) "⏵" else " ";
     var buf: [max_menu_width]u8 = undefined;
     _ = button.plane.print("{s}{s} ", .{
         pointer,
-        if (button.opts.label.len > max_menu_width - 2) shorten_path(&buf, button.opts.label) else button.opts.label,
+        if (file_path.len > max_menu_width - 2) shorten_path(&buf, file_path) else file_path,
     }) catch {};
+    var index: usize = 0;
+    var len = cbor.decodeArrayHeader(&iter) catch return false;
+    while (len > 0) : (len -= 1) {
+        if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
+            render_cell(button.plane, 0, index + 1, theme.editor_match) catch break;
+        } else break;
+    }
     return false;
+}
+
+fn render_cell(plane: nc.Plane, y: usize, x: usize, style: Widget.Theme.Style) !void {
+    plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+    var cell = plane.cell_init();
+    _ = plane.at_cursor_cell(&cell) catch return;
+    tui.set_cell_style(&cell, style);
+    _ = plane.putc(&cell) catch {};
 }
 
 fn on_resize_menu(self: *Self, state: *Menu.State(*Self), box: Widget.Box) void {
@@ -88,8 +108,11 @@ fn on_resize_menu(self: *Self, state: *Menu.State(*Self), box: Widget.Box) void 
 }
 
 fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
+    var file_path: []const u8 = undefined;
+    var iter = button.opts.label;
+    if (!(cbor.matchString(&iter, &file_path) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
-    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = button.label.items } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
+    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
 }
 
 fn shorten_path(buf: []u8, path: []const u8) []const u8 {
@@ -112,6 +135,15 @@ fn shorten_path(buf: []u8, path: []const u8) []const u8 {
     return stream.getWritten();
 }
 
+fn add_item(self: *Self, file_name: []const u8, matches: ?[]const u8) !void {
+    var label = std.ArrayList(u8).init(self.a);
+    defer label.deinit();
+    const writer = label.writer();
+    try cbor.writeValue(writer, file_name);
+    if (matches) |cb| _ = try writer.write(cb);
+    try self.menu.add_item_with_handler(label.items, menu_action_open_file);
+}
+
 fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "PRJ", tp.more })) {
         try self.process_project_manager(m);
@@ -122,11 +154,22 @@ fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit
 
 fn process_project_manager(self: *Self, m: tp.message) tp.result {
     var file_name: []const u8 = undefined;
+    var matches: []const u8 = undefined;
     var query: []const u8 = undefined;
-    if (try m.match(.{ "PRJ", "recent", tp.extract(&file_name) })) {
+    if (try m.match(.{ "PRJ", "recent", tp.extract(&file_name), tp.extract_cbor(&matches) })) {
         if (self.need_reset) self.reset_results();
         self.longest = @max(self.longest, file_name.len);
-        self.menu.add_item_with_handler(file_name, menu_action_open_file) catch |e| return tp.exit_error(e);
+        self.add_item(file_name, matches) catch |e| return tp.exit_error(e);
+        self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
+        if (self.need_select_first) {
+            self.menu.select_down();
+            self.need_select_first = false;
+        }
+        tui.need_render();
+    } else if (try m.match(.{ "PRJ", "recent", tp.extract(&file_name) })) {
+        if (self.need_reset) self.reset_results();
+        self.longest = @max(self.longest, file_name.len);
+        self.add_item(file_name, null) catch |e| return tp.exit_error(e);
         self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
         if (self.need_select_first) {
             self.menu.select_down();

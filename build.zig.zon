@@ -31,6 +31,10 @@
             .url = "https://github.com/neurocyte/flow-syntax/archive/9f60a6d13b61511de6202bf96b4e85d1caae981e.tar.gz",
             .hash = "122089ff4be8879c8be3d66bc73d745cc0b32cb27c1b70cd6265dc27461072b60485",
         },
+        .fuzzig = .{
+            .url = "https://github.com/fjebaker/fuzzig/archive/c6a0e0ca1a24e55ebdce51c83b918d4325ca7032.tar.gz",
+            .hash = "1220214dfb9a0806d9c8a059beb9e3b07811fd138cd5baeb9d1da432588920a084bf",
+        },
     },
     .paths = .{
         "include",
