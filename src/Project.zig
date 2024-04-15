@@ -221,9 +221,8 @@ pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) !v
     }
 }
 
-pub fn did_open(self: *Self, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
+pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
     self.update_mru(file_path, 0, 0) catch {};
-    self.get_mru_position(from, file_path) catch {};
     const lsp = self.get_lsp(language_server) catch |e| return tp.exit_error(e);
     if (!self.file_language_server.contains(file_path)) {
         const key = self.a.dupe(u8, file_path) catch |e| return tp.exit_error(e);
@@ -411,20 +410,25 @@ fn navigate_to_location_link(self: *Self, from: tp.pid_ref, location_link: []con
     if (!std.mem.eql(u8, targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
     const file_path = try std.Uri.unescapeString(self.a, targetUri.?[7..]);
     defer self.a.free(file_path);
-    try from.send(.{ "cmd", "navigate", .{ .file = file_path } });
     if (targetSelectionRange) |sel| {
-        try from.send(.{ "cmd", "goto", .{
-            targetRange.?.start.line + 1,
-            targetRange.?.start.character + 1,
-            sel.start.line,
-            sel.start.character,
-            sel.end.line,
-            sel.end.character,
+        try from.send(.{ "cmd", "navigate", .{
+            .file = file_path,
+            .goto = .{
+                targetRange.?.start.line + 1,
+                targetRange.?.start.character + 1,
+                sel.start.line,
+                sel.start.character,
+                sel.end.line,
+                sel.end.character,
+            },
         } });
     } else {
-        try from.send(.{ "cmd", "goto", .{
-            targetRange.?.start.line + 1,
-            targetRange.?.start.character + 1,
+        try from.send(.{ "cmd", "navigate", .{
+            .file = file_path,
+            .goto = .{
+                targetRange.?.start.line + 1,
+                targetRange.?.start.character + 1,
+            },
         } });
     }
 }

@@ -196,7 +196,7 @@ const Process = struct {
             self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
             const text = if (text_len > 0) @as([*]const u8, @ptrFromInt(text_ptr))[0..text_len] else "";
-            self.did_open(from, project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e);
+            self.did_open(project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&root_dst), tp.extract(&root_src) })) {
             self.did_change(project_directory, path, version, root_dst, root_src) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "did_save", tp.extract(&project_directory), tp.extract(&path) })) {
@@ -244,11 +244,11 @@ const Process = struct {
             self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
     }
 
-    fn did_open(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
+    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_open" });
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        return project.did_open(from, file_path, file_type, language_server, version, text);
+        return project.did_open(file_path, file_type, language_server, version, text);
     }
 
     fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, root_dst: usize, root_src: usize) tp.result {

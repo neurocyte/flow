@@ -1,6 +1,7 @@
 const std = @import("std");
 const nc = @import("notcurses");
 const tp = @import("thespian");
+const cbor = @import("cbor");
 const tracy = @import("tracy");
 const root = @import("root");
 const location_history = @import("location_history");
@@ -174,22 +175,32 @@ const cmds = struct {
         var file_name: []const u8 = undefined;
         var line: ?i64 = null;
         var column: ?i64 = null;
-        var obj = std.json.ObjectMap.init(self.a);
-        defer obj.deinit();
-        if (ctx.args.match(tp.extract(&obj)) catch false) {
-            if (obj.get("line")) |v| switch (v) {
-                .integer => |line_| line = line_,
-                else => return tp.exit_error(error.InvalidArgument),
-            };
-            if (obj.get("column")) |v| switch (v) {
-                .integer => |column_| column = column_,
-                else => return tp.exit_error(error.InvalidArgument),
-            };
-            if (obj.get("file")) |v| switch (v) {
-                .string => |file_| file = file_,
-                else => return tp.exit_error(error.InvalidArgument),
-            };
-        } else if (ctx.args.match(tp.extract(&file_name)) catch false) {
+        var goto_args: []const u8 = &.{};
+
+        var iter = ctx.args.buf;
+        if (cbor.decodeMapHeader(&iter)) |len_| {
+            var len = len_;
+            while (len > 0) : (len -= 1) {
+                var field_name: []const u8 = undefined;
+                if (!(cbor.matchString(&iter, &field_name) catch |e| return tp.exit_error(e)))
+                    return tp.exit_error(error.InvalidArgument);
+                if (std.mem.eql(u8, field_name, "line")) {
+                    if (!(cbor.matchValue(&iter, cbor.extract(&line)) catch |e| return tp.exit_error(e)))
+                        return tp.exit_error(error.InvalidArgument);
+                } else if (std.mem.eql(u8, field_name, "column")) {
+                    if (!(cbor.matchValue(&iter, cbor.extract(&column)) catch |e| return tp.exit_error(e)))
+                        return tp.exit_error(error.InvalidArgument);
+                } else if (std.mem.eql(u8, field_name, "file")) {
+                    if (!(cbor.matchValue(&iter, cbor.extract(&file)) catch |e| return tp.exit_error(e)))
+                        return tp.exit_error(error.InvalidArgument);
+                } else if (std.mem.eql(u8, field_name, "goto")) {
+                    if (!(cbor.matchValue(&iter, cbor.extract_cbor(&goto_args)) catch |e| return tp.exit_error(e)))
+                        return tp.exit_error(error.InvalidArgument);
+                } else {
+                    cbor.skipValue(&iter) catch |e| return tp.exit_error(e);
+                }
+            }
+        } else |_| if (ctx.args.match(tp.extract(&file_name)) catch false) {
             file = file_name;
         } else return tp.exit_error(error.InvalidArgument);
 
@@ -198,18 +209,23 @@ const cmds = struct {
             std.mem.eql(u8, fp, f)
         else
             false else false;
+
         if (!same_file) {
             if (self.editor) |editor| editor.send_editor_jump_source() catch {};
             try self.create_editor();
             try command.executeName("open_file", command.fmt(.{f}));
         }
-        if (line) |l| {
+        if (goto_args.len != 0) {
+            try command.executeName("goto", .{ .args = .{ .buf = goto_args } });
+        } else if (line) |l| {
             try command.executeName("goto_line", command.fmt(.{l}));
             if (!same_file)
                 try command.executeName("scroll_view_center", .{});
-        }
-        if (column) |col| {
-            try command.executeName("goto_column", command.fmt(.{col}));
+            if (column) |col|
+                try command.executeName("goto_column", command.fmt(.{col}));
+        } else {
+            if (!same_file)
+                try project_manager.get_mru_position(f);
         }
         tui.need_render();
     }
@@ -286,7 +302,6 @@ const cmds = struct {
             gutter.relative = lnr;
         }
     }
-
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
@@ -339,11 +354,16 @@ pub fn location_update(self: *Self, m: tp.message) tp.result {
 }
 
 fn location_jump(from: tp.pid_ref, file_path: []const u8, cursor: location_history.Cursor, selection: ?location_history.Selection) void {
-    from.send(.{ "cmd", "navigate", .{ .file = file_path } }) catch return;
     if (selection) |sel|
-        from.send(.{ "cmd", "goto", .{ cursor.row, cursor.col, sel.begin.row, sel.begin.col, sel.end.row, sel.end.col } }) catch return
+        from.send(.{ "cmd", "navigate", .{
+            .file = file_path,
+            .goto = .{ cursor.row, cursor.col, sel.begin.row, sel.begin.col, sel.end.row, sel.end.col },
+        } }) catch return
     else
-        from.send(.{ "cmd", "goto", .{ cursor.row, cursor.col } }) catch return;
+        from.send(.{ "cmd", "navigate", .{
+            .file = file_path,
+            .goto = .{ cursor.row, cursor.col },
+        } }) catch return;
 }
 
 fn clear_auto_find(self: *Self, editor: *ed.Editor) !void {
