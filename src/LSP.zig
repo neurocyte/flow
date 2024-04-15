@@ -22,6 +22,11 @@ pub fn deinit(self: *Self) void {
     self.pid.deinit();
 }
 
+pub fn term(self: *Self) void {
+    self.pid.send(.{"term"}) catch {};
+    self.pid.deinit();
+}
+
 pub fn send_request(self: Self, a: std.mem.Allocator, method: []const u8, m: anytype) error{Exit}!tp.message {
     // const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".send_request" });
     // defer frame.deinit();
@@ -107,6 +112,14 @@ const Process = struct {
         }
     }
 
+    fn term(self: *Process) tp.result {
+        if (self.sp) |*sp| {
+            defer self.sp = null;
+            try sp.term();
+            self.write_log("### terminated ###\n", .{});
+        }
+    }
+
     fn start(self: *Process) tp.result {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ " start" });
         defer frame.deinit();
@@ -137,6 +150,9 @@ const Process = struct {
         } else if (try m.match(.{"close"})) {
             self.write_log("### LSP close ###\n", .{});
             try self.close();
+        } else if (try m.match(.{"term"})) {
+            self.write_log("### LSP terminated ###\n", .{});
+            try self.term();
         } else if (try m.match(.{ self.sp_tag, "stdout", tp.extract(&bytes) })) {
             self.handle_output(bytes) catch |e| return tp.exit_error(e);
         } else if (try m.match(.{ self.sp_tag, "term", tp.extract(&err), tp.extract(&code) })) {

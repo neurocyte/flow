@@ -45,7 +45,7 @@ pub fn deinit(self: *Self) void {
     var i = self.language_servers.iterator();
     while (i.next()) |p| {
         self.a.free(p.key_ptr.*);
-        p.value_ptr.*.deinit();
+        p.value_ptr.*.term();
     }
     for (self.files.items) |file| self.a.free(file.path);
     self.files.deinit();
