@@ -46,13 +46,12 @@ pub fn create(ctx_type: type, a: std.mem.Allocator, parent: nc.Plane, opts: Opti
     var n = try nc.Plane.init(&opts.pos.opts(@typeName(Self)), parent);
     errdefer n.deinit();
     self.* = .{
+        .a = a,
         .parent = parent,
         .plane = n,
         .opts = opts,
-        .label = std.ArrayList(u8).init(a),
     };
-    try self.label.appendSlice(self.opts.label);
-    self.opts.label = self.label.items;
+    self.opts.label = try self.a.dupe(u8, opts.label);
     return self;
 }
 
@@ -62,18 +61,18 @@ pub fn create_widget(ctx_type: type, a: std.mem.Allocator, parent: nc.Plane, opt
 
 pub fn State(ctx_type: type) type {
     return struct {
+        a: std.mem.Allocator,
         parent: nc.Plane,
         plane: nc.Plane,
         active: bool = false,
         hover: bool = false,
-        label: std.ArrayList(u8),
         opts: Options(ctx_type),
 
         const Self = @This();
         pub const Context = ctx_type;
 
         pub fn deinit(self: *Self, a: std.mem.Allocator) void {
-            self.label.deinit();
+            self.a.free(self.opts.label);
             self.plane.deinit();
             a.destroy(self);
         }
