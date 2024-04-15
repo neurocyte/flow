@@ -59,6 +59,7 @@ init_timer: ?tp.timeout,
 sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
 mods: ModState = .{},
+final_exit: []const u8 = "normal",
 
 const idle_frames = 1;
 
@@ -237,16 +238,15 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     }
     if (try m.match(.{"quit"})) {
         project_manager.shutdown();
-        return tp.exit_normal();
     }
     if (try m.match(.{ "project_manager", "shutdown" })) {
-        return tp.exit_normal();
+        return tp.exit(self.final_exit);
     }
 
     if (try m.match(.{"restart"})) {
         _ = try self.mainview.msg(.{"write_restore_info"});
         project_manager.shutdown();
-        return tp.exit("restart");
+        self.final_exit = "restart";
     }
 
     if (try m.match(.{"sigwinch"})) {
