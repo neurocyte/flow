@@ -65,7 +65,7 @@ pub fn Closure(comptime T: type) type {
         }
 
         fn fromVtable(vtbl: *Vtable) *Self {
-            return @fieldParentPtr(Self, "vtbl", vtbl);
+            return @fieldParentPtr("vtbl", vtbl);
         }
     };
 }
