@@ -158,6 +158,9 @@ const Process = struct {
         var query: []const u8 = undefined;
         var file_type: []const u8 = undefined;
         var language_server: []const u8 = undefined;
+        var method: []const u8 = undefined;
+        var id: i32 = 0;
+        var params_cb: []const u8 = undefined;
         var high: i64 = 0;
         var low: i64 = 0;
         var max: usize = 0;
@@ -183,6 +186,10 @@ const Process = struct {
             self.loaded(project_directory) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "update_mru", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e);
+        } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
+            self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("notify", e);
+        } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract(&id), tp.extract_cbor(&params_cb) })) {
+            self.dispatch_request(project_directory, language_server, method, id, params_cb) catch |e| return self.logger.err("notify", e);
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
@@ -296,6 +303,24 @@ const Process = struct {
     fn update_mru(self: *Process, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.update_mru(file_path, row, col) catch |e| tp.exit_error(e);
+    }
+
+    fn dispatch_notify(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, params_cb: []const u8) tp.result {
+        _ = language_server;
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return if (std.mem.eql(u8, method, "textDocument/publishDiagnostics"))
+            project.publish_diagnostics(self.parent.ref(), params_cb) catch |e| tp.exit_error(e)
+        else
+            tp.unexpected(.{ .buf = params_cb });
+    }
+
+    fn dispatch_request(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, id: i32, params_cb: []const u8) tp.result {
+        _ = self;
+        _ = project_directory;
+        _ = language_server;
+        _ = method;
+        _ = id;
+        return tp.unexpected(.{ .buf = params_cb });
     }
 
     fn persist_projects(self: *Process) void {

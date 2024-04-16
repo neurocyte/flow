@@ -13,8 +13,8 @@ const sp_tag = "child";
 const debug_lsp = true;
 pub const Error = error{ OutOfMemory, Exit };
 
-pub fn open(a: std.mem.Allocator, cmd: tp.message) Error!Self {
-    return .{ .a = a, .pid = try Process.create(a, cmd) };
+pub fn open(a: std.mem.Allocator, project: []const u8, cmd: tp.message) Error!Self {
+    return .{ .a = a, .pid = try Process.create(a, project, cmd) };
 }
 
 pub fn deinit(self: *Self) void {
@@ -59,6 +59,7 @@ const Process = struct {
     recv_buf: std.ArrayList(u8),
     parent: tp.pid,
     tag: [:0]const u8,
+    project: [:0]const u8,
     sp_tag: [:0]const u8,
     log_file: ?std.fs.File = null,
     next_id: i32 = 0,
@@ -66,7 +67,7 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(a: std.mem.Allocator, cmd: tp.message) Error!tp.pid {
+    pub fn create(a: std.mem.Allocator, project: []const u8, cmd: tp.message) Error!tp.pid {
         var tag: []const u8 = undefined;
         if (try cmd.match(.{tp.extract(&tag)})) {
             //
@@ -87,6 +88,7 @@ const Process = struct {
             .recv_buf = std.ArrayList(u8).init(a),
             .parent = tp.self_pid().clone(),
             .tag = try a.dupeZ(u8, tag),
+            .project = try a.dupeZ(u8, project),
             .requests = std.AutoHashMap(i32, tp.pid).init(a),
             .sp_tag = try sp_tag_.toOwnedSliceSentinel(0),
         };
@@ -323,13 +325,15 @@ const Process = struct {
         var msg = std.ArrayList(u8).init(self.a);
         defer msg.deinit();
         const writer = msg.writer();
-        try cbor.writeArrayHeader(writer, 6);
+        try cbor.writeArrayHeader(writer, 7);
         try cbor.writeValue(writer, sp_tag);
+        try cbor.writeValue(writer, self.project);
         try cbor.writeValue(writer, self.tag);
         try cbor.writeValue(writer, "request");
         try cbor.writeValue(writer, method);
         try cbor.writeValue(writer, id);
         if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
+        try self.parent.send_raw(.{ .buf = msg.items });
     }
 
     fn receive_lsp_response(self: *Process, id: i32, result: ?[]const u8, err: ?[]const u8) !void {
@@ -362,12 +366,14 @@ const Process = struct {
         var msg = std.ArrayList(u8).init(self.a);
         defer msg.deinit();
         const writer = msg.writer();
-        try cbor.writeArrayHeader(writer, 5);
+        try cbor.writeArrayHeader(writer, 6);
         try cbor.writeValue(writer, sp_tag);
+        try cbor.writeValue(writer, self.project);
         try cbor.writeValue(writer, self.tag);
         try cbor.writeValue(writer, "notify");
         try cbor.writeValue(writer, method);
         if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
+        try self.parent.send_raw(.{ .buf = msg.items });
     }
 
     fn write_log(self: *Process, comptime format: []const u8, args: anytype) void {

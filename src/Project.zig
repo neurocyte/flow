@@ -87,7 +87,7 @@ pub fn restore_state(self: *Self, data: []const u8) !void {
 
 fn get_lsp(self: *Self, language_server: []const u8) !LSP {
     if (self.language_servers.get(language_server)) |lsp| return lsp;
-    const lsp = try LSP.open(self.a, .{ .buf = language_server });
+    const lsp = try LSP.open(self.a, self.name, .{ .buf = language_server });
     try self.language_servers.put(try self.a.dupe(u8, language_server), lsp);
     const uri = try self.make_URI(null);
     defer self.a.free(uri);
@@ -410,7 +410,7 @@ pub fn goto_definition(self: *Self, from: tp.pid_ref, file_path: []const u8, row
     }
 }
 
-fn navigate_to_location_link(self: *Self, from: tp.pid_ref, location_link: []const u8) !void {
+fn navigate_to_location_link(_: *Self, from: tp.pid_ref, location_link: []const u8) !void {
     var iter = location_link;
     var targetUri: ?[]const u8 = null;
     var targetRange: ?Range = null;
@@ -437,8 +437,8 @@ fn navigate_to_location_link(self: *Self, from: tp.pid_ref, location_link: []con
     }
     if (targetUri == null or targetRange == null) return error.InvalidMessageField;
     if (!std.mem.eql(u8, targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
-    const file_path = try std.Uri.unescapeString(self.a, targetUri.?[7..]);
-    defer self.a.free(file_path);
+    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const file_path = std.Uri.percentDecodeBackwards(&file_path_buf, targetUri.?[7..]);
     if (targetSelectionRange) |sel| {
         try from.send(.{ "cmd", "navigate", .{
             .file = file_path,
@@ -460,6 +460,85 @@ fn navigate_to_location_link(self: *Self, from: tp.pid_ref, location_link: []con
             },
         } });
     }
+}
+
+pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) !void {
+    var uri: ?[]const u8 = null;
+    var diagnostics: []const u8 = &.{};
+    var iter = params_cb;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "uri")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&uri)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "diagnostics")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&diagnostics)))) return error.InvalidMessageField;
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+
+    if (uri == null) return error.InvalidMessageField;
+    if (!std.mem.eql(u8, uri.?[0..7], "file://")) return error.InvalidURI;
+    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const file_path = std.Uri.percentDecodeBackwards(&file_path_buf, uri.?[7..]);
+
+    try self.send_clear_diagnostics(to, file_path);
+
+    iter = diagnostics;
+    len = try cbor.decodeArrayHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var diagnostic: []const u8 = undefined;
+        if (try cbor.matchValue(&iter, cbor.extract_cbor(&diagnostic))) {
+            try self.send_diagnostic(to, file_path, diagnostic);
+        } else return error.InvalidMessageField;
+    }
+}
+
+fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: []const u8) !void {
+    var source: ?[]const u8 = null;
+    var code: ?[]const u8 = null;
+    var message: ?[]const u8 = null;
+    var severity: ?i64 = null;
+    var range: ?Range = null;
+    var iter = diagnostic;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "source") or std.mem.eql(u8, field_name, "uri")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&source)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "code")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&code)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "message")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&message)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "severity")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&severity)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "range")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidMessageField;
+            range = try read_range(range_);
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    if (range == null) return error.InvalidMessageField;
+    try to.send(.{ "cmd", "add_diagnostic", .{
+        file_path,
+        source,
+        code,
+        message,
+        severity,
+        range.?.start.line,
+        range.?.start.character,
+        range.?.end.line,
+        range.?.end.character,
+    } });
+}
+
+fn send_clear_diagnostics(_: *Self, to: tp.pid_ref, file_path: []const u8) !void {
+    try to.send(.{ "cmd", "clear_diagnostics", file_path });
 }
 
 const Range = struct { start: Position, end: Position };

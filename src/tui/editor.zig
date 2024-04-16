@@ -3220,6 +3220,31 @@ pub const Editor = struct {
         return project_manager.goto_definition(file_path, primary.cursor.row, primary.cursor.col);
     }
 
+    pub fn clear_diagnostics(self: *Self, _: command.Context) tp.result {
+        self.logger.print("diag: clear", .{});
+    }
+
+    pub fn add_diagnostic(self: *Self, ctx: command.Context) tp.result {
+        var file_path: []const u8 = undefined;
+        var source: []const u8 = undefined;
+        var code: []const u8 = undefined;
+        var message: []const u8 = undefined;
+        var severity: i32 = 0;
+        var sel: Selection = .{};
+        if (!try ctx.args.match(.{
+            tp.extract(&file_path),
+            tp.extract(&source),
+            tp.extract(&code),
+            tp.extract(&message),
+            tp.extract(&severity),
+            tp.extract(&sel.begin.row),
+            tp.extract(&sel.begin.col),
+            tp.extract(&sel.end.row),
+            tp.extract(&sel.end.col),
+        })) return tp.exit_error(error.InvalidArgument);
+        self.logger.print("diag: {d} {s} {s} {s} {any}", .{ severity, source, code, message, sel });
+    }
+
     pub fn select(self: *Self, ctx: command.Context) tp.result {
         var sel: Selection = .{};
         if (!try ctx.args.match(.{ tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) }))
