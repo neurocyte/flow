@@ -226,9 +226,10 @@ const Process = struct {
         try self.frame_message_recv();
     }
 
-    fn handle_terminated(self: *Process, err: []const u8, code: u32) !void {
+    fn handle_terminated(self: *Process, err: []const u8, code: u32) tp.result {
         self.write_log("### subprocess terminated {s} {d} ###\n", .{ err, code });
         try self.parent.send(.{ sp_tag, self.tag, "done" });
+        return tp.exit_normal();
     }
 
     fn send_request(self: *Process, from: tp.pid_ref, method: []const u8, params_cb: []const u8) !void {
