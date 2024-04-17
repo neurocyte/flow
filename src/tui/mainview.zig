@@ -31,8 +31,8 @@ editor: ?*ed.Editor = null,
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 logview_enabled: bool = false,
-
 location_history: location_history,
+file_stack: std.ArrayList([]const u8),
 
 const NavState = struct {
     time: i64 = 0,
@@ -54,6 +54,7 @@ pub fn create(a: std.mem.Allocator, n: nc.Plane) !Widget {
         .floating_views = WidgetStack.init(a),
         .statusbar = undefined,
         .location_history = try location_history.create(),
+        .file_stack = std.ArrayList([]const u8).init(a),
     };
     try self.commands.init(self);
     const w = Widget.to(self);
@@ -72,6 +73,8 @@ pub fn create(a: std.mem.Allocator, n: nc.Plane) !Widget {
 
 pub fn deinit(self: *Self, a: std.mem.Allocator) void {
     self.close_all_panel_views();
+    for (self.file_stack.items) |file_path| self.a.free(file_path);
+    self.file_stack.deinit();
     self.commands.deinit();
     self.widgets.deinit(a);
     self.floating_views.deinit();
@@ -312,8 +315,11 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         return self.location_update(m);
 
     if (try m.match(.{ "E", "close" })) {
+        if (self.pop_file_stack(editor.file_path)) |file_path| {
+            defer self.a.free(file_path);
+            self.show_previous_async(file_path);
+        } else self.show_home_async();
         self.editor = null;
-        self.show_home_async();
         return;
     }
 
@@ -392,6 +398,7 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
 }
 
 fn create_editor(self: *Self) tp.result {
+    if (self.editor) |editor| if (editor.file_path) |file_path| self.push_file_stack(file_path) catch {};
     self.widgets.replace(0, Widget.empty(self.a, self.plane, .dynamic) catch |e| return tp.exit_error(e));
     command.executeName("enter_mode_default", .{}) catch {};
     var editor_widget = ed.create(self.a, Widget.to(self)) catch |e| return tp.exit_error(e);
@@ -411,6 +418,10 @@ fn toggle_logview_async(_: *Self) void {
 
 fn toggle_inputview_async(_: *Self) void {
     tp.self_pid().send(.{ "cmd", "toggle_inputview" }) catch return;
+}
+
+fn show_previous_async(_: *Self, file_path: []const u8) void {
+    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch return;
 }
 
 fn show_home_async(_: *Self) void {
@@ -458,4 +469,19 @@ fn normalize_file_path(file_path: []const u8) []const u8 {
     if (std.mem.eql(u8, project, file_path[0..project.len]) and file_path[project.len] == std.fs.path.sep)
         return file_path[project.len + 1 ..];
     return file_path;
+}
+
+fn push_file_stack(self: *Self, file_path: []const u8) !void {
+    for (self.file_stack.items, 0..) |file_path_, i|
+        if (std.mem.eql(u8, file_path, file_path_))
+            self.a.free(self.file_stack.orderedRemove(i));
+    (try self.file_stack.addOne()).* = try self.a.dupe(u8, file_path);
+}
+
+fn pop_file_stack(self: *Self, closed: ?[]const u8) ?[]const u8 {
+    if (closed) |file_path|
+        for (self.file_stack.items, 0..) |file_path_, i|
+            if (std.mem.eql(u8, file_path, file_path_))
+                self.a.free(self.file_stack.orderedRemove(i));
+    return self.file_stack.popOrNull();
 }
