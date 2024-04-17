@@ -61,6 +61,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var keypress: u32 = undefined;
     var egc: u32 = undefined;
     var modifiers: u32 = undefined;
+    var text: []const u8 = undefined;
 
     defer {
         if (tui.current().mini_mode) |*mini_mode| {
@@ -73,6 +74,8 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         try self.mapEvent(evtype, keypress, egc, modifiers);
     } else if (try m.match(.{"F"})) {
         self.flush_input() catch |e| return e;
+    } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
+        try self.insert_bytes(text);
     }
     return false;
 }

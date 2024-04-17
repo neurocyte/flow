@@ -191,9 +191,12 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var keypress: u32 = undefined;
     var egc: u32 = undefined;
     var modifiers: u32 = undefined;
+    var text: []const u8 = undefined;
 
     if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
         try self.mapEvent(evtype, keypress, egc, modifiers);
+    } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
+        try self.insert_bytes(text);
     }
     return false;
 }
@@ -217,6 +220,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'E' => self.cmd("open_recent_menu_down", .{}),
             'P' => self.cmd("open_recent_menu_up", .{}),
             'N' => self.cmd("open_recent_menu_down", .{}),
+            'V' => self.cmd("system_paste", .{}),
             'C' => self.cmd("exit_overlay_mode", .{}),
             'G' => self.cmd("exit_overlay_mode", .{}),
             nc.key.ESC => self.cmd("exit_overlay_mode", .{}),
@@ -304,6 +308,12 @@ fn insert_code_point(self: *Self, c: u32) tp.result {
     var buf: [6]u8 = undefined;
     const bytes = nc.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
     self.inputbox.text.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
+    self.inputbox.cursor = self.inputbox.text.items.len;
+    return self.start_query();
+}
+
+fn insert_bytes(self: *Self, bytes: []const u8) tp.result {
+    self.inputbox.text.appendSlice(bytes) catch |e| return tp.exit_error(e);
     self.inputbox.cursor = self.inputbox.text.items.len;
     return self.start_query();
 }
