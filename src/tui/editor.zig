@@ -614,7 +614,7 @@ pub const Editor = struct {
                     var cell = n.cell_init();
                     const c = &cell;
                     const bytes, const colcount = switch (chunk[0]) {
-                        0...8, 10...31 => |code| render_control_code(c, n, code),
+                        0...8, 10...31 => |code| ctx.self.render_control_code(c, n, code, ctx.theme),
                         32 => ctx.self.render_space(c, n, ctx.theme),
                         9 => ctx.self.render_tab(c, n, ctx.buf_col, ctx.theme),
                         else => render_egc(c, n, chunk),
@@ -777,8 +777,10 @@ pub const Editor = struct {
         tui.set_cell_style_bg(cell, theme.editor_line_highlight);
     }
 
-    inline fn render_control_code(c: *nc.Cell, n: nc.Plane, code: u8) struct { usize, usize } {
+    inline fn render_control_code(self: *const Self, c: *nc.Cell, n: nc.Plane, code: u8, theme: *const Widget.Theme) struct { usize, usize } {
         const val = Buffer.unicode.control_code_to_unicode(code);
+        if (self.show_whitespace)
+            tui.set_cell_style(c, theme.editor_whitespace);
         _ = n.cell_load(c, val) catch {};
         return .{ 1, 1 };
     }
