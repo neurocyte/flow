@@ -377,8 +377,16 @@ pub const Editor = struct {
     }
 
     fn close(self: *Self) !void {
+        return self.close_internal(false);
+    }
+
+    fn close_dirty(self: *Self) !void {
+        return self.close_internal(true);
+    }
+
+    fn close_internal(self: *Self, allow_dirty_close: bool) !void {
         const b = if (self.buffer) |p| p else return error.Stop;
-        if (b.is_dirty()) return tp.exit("unsaved changes");
+        if (!allow_dirty_close and b.is_dirty()) return tp.exit("unsaved changes");
         if (self.buffer) |b_mut| b_mut.deinit();
         self.buffer = null;
         self.plane.erase();
@@ -2853,6 +2861,11 @@ pub const Editor = struct {
     pub fn close_file(self: *Self, _: command.Context) tp.result {
         self.cancel_all_selections();
         self.close() catch |e| return tp.exit_error(e);
+    }
+
+    pub fn close_file_without_saving(self: *Self, _: command.Context) tp.result {
+        self.cancel_all_selections();
+        self.close_dirty() catch |e| return tp.exit_error(e);
     }
 
     pub fn find(self: *Self, ctx: command.Context) tp.result {

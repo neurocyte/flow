@@ -232,6 +232,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
         },
         nc.mod.CTRL | nc.mod.SHIFT => switch (keynormal) {
             'Q' => self.cmd("quit_without_saving", .{}),
+            'W' => self.cmd("close_file_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
             'L' => self.cmd_async("toggle_logview"),
             'I' => self.cmd_async("toggle_inputview"),

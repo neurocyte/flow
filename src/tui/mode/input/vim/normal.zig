@@ -125,6 +125,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'D' => self.cmd("dupe_down", .{}),
             'Z' => self.cmd("redo", .{}),
             'Q' => self.cmd("quit_without_saving", .{}),
+            'W' => self.cmd("close_file_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
             'F' => self.cmd("enter_find_in_files_mode", .{}),
             'L' => self.cmd_async("add_cursor_all_matches"),
