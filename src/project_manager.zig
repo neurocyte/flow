@@ -153,6 +153,14 @@ const Process = struct {
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
         errdefer self.deinit();
+        self.receive_safe(from, m) catch |e| {
+            if (std.mem.eql(u8, "normal", tp.error_text()))
+                return e;
+            self.logger.err("receive", e);
+        };
+    }
+
+    fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
         var project_directory: []const u8 = undefined;
         var path: []const u8 = undefined;
         var query: []const u8 = undefined;
