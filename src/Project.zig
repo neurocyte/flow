@@ -538,7 +538,7 @@ fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: 
 }
 
 fn send_clear_diagnostics(_: *Self, to: tp.pid_ref, file_path: []const u8) !void {
-    try to.send(.{ "cmd", "clear_diagnostics", file_path });
+    try to.send(.{ "cmd", "clear_diagnostics", .{file_path} });
 }
 
 const Range = struct { start: Position, end: Position };

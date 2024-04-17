@@ -564,3 +564,13 @@ fn walk_filtered(dir: std.fs.Dir, allocator: std.mem.Allocator) !FilteredWalker 
         .name_buffer = name_buffer,
     };
 }
+
+pub fn normalize_file_path(file_path: []const u8) []const u8 {
+    const project = tp.env.get().str("project");
+    if (project.len == 0) return file_path;
+    if (project.len >= file_path.len) return file_path;
+    if (std.mem.eql(u8, project, file_path[0..project.len]) and file_path[project.len] == std.fs.path.sep)
+        return file_path[project.len + 1 ..];
+    return file_path;
+}
+

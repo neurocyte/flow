@@ -149,6 +149,20 @@ pub const CurSel = struct {
     }
 };
 
+const Diagnostic = struct {
+    source: []const u8,
+    code: []const u8,
+    message: []const u8,
+    severity: i32,
+    sel: Selection,
+
+    fn deinit(self: *Diagnostic, a: std.mem.Allocator) void {
+        a.free(self.source);
+        a.free(self.code);
+        a.free(self.message);
+    }
+};
+
 pub const Editor = struct {
     const SelectMode = enum {
         char,
@@ -222,6 +236,8 @@ pub const Editor = struct {
     style_cache: ?StyleCache = null,
     style_cache_theme: []const u8 = "",
 
+    diagnostics: std.ArrayList(Diagnostic),
+
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
@@ -291,10 +307,13 @@ pub const Editor = struct {
             .matches = Match.List.init(a),
             .enable_terminal_cursor = tui.current().config.enable_terminal_cursor,
             .show_whitespace = tui.current().config.show_whitespace,
+            .diagnostics = std.ArrayList(Diagnostic).init(a),
         };
     }
 
     fn deinit(self: *Self) void {
+        for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
+        self.diagnostics.deinit();
         if (self.syntax) |syn| syn.destroy();
         self.cursels.deinit();
         self.matches.deinit();
@@ -688,6 +707,7 @@ pub const Editor = struct {
             _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_) catch {};
         }
         self.render_syntax(theme, cache, root) catch {};
+        self.render_diagnostics(theme, root) catch {};
         self.render_cursors(theme) catch {};
     }
 
@@ -764,6 +784,24 @@ pub const Editor = struct {
                 if (self.is_point_in_selection(sel, y, x))
                     return self.render_selection_cell(theme, cell);
             };
+    }
+
+    fn render_diagnostics(self: *const Self, theme: *const Widget.Theme, root: Buffer.Root) !void {
+        for (self.diagnostics.items) |*diag| self.render_diagnostic(diag, theme, root);
+    }
+
+    fn render_diagnostic(self: *const Self, diag: *const Diagnostic, theme: *const Widget.Theme, _: Buffer.Root) void {
+        if (self.screen_cursor(&diag.sel.begin)) |pos| {
+            self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
+            self.render_diagnostic_cell(theme);
+        }
+    }
+
+    inline fn render_diagnostic_cell(self: *const Self, theme: *const Widget.Theme) void {
+        var cell = self.plane.cell_init();
+        _ = self.plane.at_cursor_cell(&cell) catch return;
+        tui.set_cell_style(&cell, theme.editor_error);
+        _ = self.plane.putc(&cell) catch {};
     }
 
     inline fn render_cursor_cell(self: *const Self, theme: *const Widget.Theme) void {
@@ -3235,8 +3273,12 @@ pub const Editor = struct {
         return project_manager.goto_definition(file_path, primary.cursor.row, primary.cursor.col);
     }
 
-    pub fn clear_diagnostics(self: *Self, _: command.Context) tp.result {
-        self.logger.print("diag: clear", .{});
+    pub fn clear_diagnostics(self: *Self, ctx: command.Context) tp.result {
+        var file_path: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&file_path)})) return tp.exit_error(error.InvalidArgument);
+        if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
+        for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
+        self.diagnostics.clearRetainingCapacity();
     }
 
     pub fn add_diagnostic(self: *Self, ctx: command.Context) tp.result {
@@ -3257,7 +3299,17 @@ pub const Editor = struct {
             tp.extract(&sel.end.row),
             tp.extract(&sel.end.col),
         })) return tp.exit_error(error.InvalidArgument);
-        self.logger.print("diag: {d} {s} {s} {s} {any}", .{ severity, source, code, message, sel });
+        file_path = project_manager.normalize_file_path(file_path);
+        if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
+
+        self.logger.print("diag: {d}:{d} {s}", .{ sel.begin.row, sel.begin.col, message });
+        (self.diagnostics.addOne() catch |e| return tp.exit_error(e)).* = .{
+            .source = self.diagnostics.allocator.dupe(u8, source) catch |e| return tp.exit_error(e),
+            .code = self.diagnostics.allocator.dupe(u8, code) catch |e| return tp.exit_error(e),
+            .message = self.diagnostics.allocator.dupe(u8, message) catch |e| return tp.exit_error(e),
+            .severity = severity,
+            .sel = sel,
+        };
     }
 
     pub fn select(self: *Self, ctx: command.Context) tp.result {

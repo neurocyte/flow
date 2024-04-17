@@ -207,7 +207,7 @@ const cmds = struct {
             file = file_name;
         } else return tp.exit_error(error.InvalidArgument);
 
-        const f = normalize_file_path(file orelse return);
+        const f = project_manager.normalize_file_path(file orelse return);
         const same_file = if (self.editor) |editor| if (editor.file_path) |fp|
             std.mem.eql(u8, fp, f)
         else
@@ -460,15 +460,6 @@ fn read_restore_info(self: *Self) !void {
         const size = try file.readAll(buf);
         try editor.extract_state(buf[0..size]);
     }
-}
-
-fn normalize_file_path(file_path: []const u8) []const u8 {
-    const project = tp.env.get().str("project");
-    if (project.len == 0) return file_path;
-    if (project.len >= file_path.len) return file_path;
-    if (std.mem.eql(u8, project, file_path[0..project.len]) and file_path[project.len] == std.fs.path.sep)
-        return file_path[project.len + 1 ..];
-    return file_path;
 }
 
 fn push_file_stack(self: *Self, file_path: []const u8) !void {
