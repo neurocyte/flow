@@ -33,7 +33,7 @@ pub fn send_request(self: Self, a: std.mem.Allocator, method: []const u8, m: any
     var cb = std.ArrayList(u8).init(self.a);
     defer cb.deinit();
     cbor.writeValue(cb.writer(), m) catch |e| return tp.exit_error(e);
-    return self.pid.call(a, .{ "REQ", method, cb.items }) catch |e| return tp.exit_error(e);
+    return self.pid.call(a, std.time.ns_per_s / 2, .{ "REQ", method, cb.items }) catch |e| return tp.exit_error(e);
 }
 
 pub fn send_notification(self: Self, method: []const u8, m: anytype) tp.result {
