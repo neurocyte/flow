@@ -104,8 +104,8 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn update_width(self: *Self) void {
     if (!self.linenum) return;
     var buf: [31]u8 = undefined;
-    const tmp = std.fmt.bufPrint(&buf, " {d} ", .{self.lines}) catch return;
-    self.width = if (self.relative and tmp.len > 6) 6 else @max(tmp.len, 4);
+    const tmp = std.fmt.bufPrint(&buf, "  {d} ", .{self.lines}) catch return;
+    self.width = if (self.relative and tmp.len > 7) 7 else @max(tmp.len, 5);
 }
 
 pub fn layout(self: *Self) Widget.Layout {
@@ -113,7 +113,7 @@ pub fn layout(self: *Self) Widget.Layout {
 }
 
 inline fn get_width(self: *Self) usize {
-    return if (self.linenum) self.width else 1;
+    return if (self.linenum) self.width else 3;
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -127,8 +127,26 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
             self.render_relative(theme)
         else
             self.render_linear(theme);
+    } else {
+        self.render_none(theme);
     }
+    self.render_diagnostics(theme);
     return false;
+}
+
+pub fn render_none(self: *Self, theme: *const Widget.Theme) void {
+    var pos: usize = 0;
+    var linenum = self.row + 1;
+    var rows = self.rows;
+    var diff_symbols = self.diff_symbols.items;
+    while (rows > 0) : (rows -= 1) {
+        if (linenum > self.lines) return;
+        if (self.highlight and linenum == self.line + 1)
+            self.render_line_highlight(pos, theme);
+        self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
+        pos += 1;
+        linenum += 1;
+    }
 }
 
 pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
@@ -215,6 +233,34 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Symbol, pos: usize, 
         .delete => theme.editor_gutter_deleted,
     });
     _ = self.plane.cell_load(&cell, char) catch {};
+    _ = self.plane.putc(&cell) catch {};
+}
+
+fn render_diagnostics(self: *Self, theme: *const Widget.Theme) void {
+    for (self.editor.diagnostics.items) |*diag| self.render_diagnostic(diag, theme);
+}
+
+fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widget.Theme) void {
+    const row = diag.sel.begin.row;
+    if (!(self.row < row and row < self.row + self.rows)) return;
+    const style = switch (diag.get_severity()) {
+        .Error => theme.editor_error,
+        .Warning => theme.editor_warning,
+        .Information => theme.editor_information,
+        .Hint => theme.editor_hint,
+    };
+    const icon = switch (diag.get_severity()) {
+        .Error => "",
+        .Warning => "",
+        .Information => "",
+        .Hint => "",
+    };
+    const y = row - self.row;
+    self.plane.cursor_move_yx(@intCast(y), 0) catch return;
+    var cell = self.plane.cell_init();
+    _ = self.plane.at_cursor_cell(&cell) catch return;
+    tui.set_cell_style_fg(&cell, style);
+    _ = self.plane.cell_load(&cell, icon) catch {};
     _ = self.plane.putc(&cell) catch {};
 }
 

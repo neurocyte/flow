@@ -149,7 +149,7 @@ pub const CurSel = struct {
     }
 };
 
-const Diagnostic = struct {
+pub const Diagnostic = struct {
     source: []const u8,
     code: []const u8,
     message: []const u8,
@@ -160,6 +160,21 @@ const Diagnostic = struct {
         a.free(self.source);
         a.free(self.code);
         a.free(self.message);
+    }
+
+    const Severity = enum { Error, Warning, Information, Hint };
+    pub fn get_severity(self: Diagnostic) Severity {
+        return to_severity(self.severity);
+    }
+
+    pub fn to_severity(sev: i32) Severity {
+        return switch (sev) {
+            1 => .Error,
+            2 => .Warning,
+            3 => .Information,
+            4 => .Hint,
+            else => .Error,
+        };
     }
 };
 
@@ -237,6 +252,10 @@ pub const Editor = struct {
     style_cache_theme: []const u8 = "",
 
     diagnostics: std.ArrayList(Diagnostic),
+    diag_errors: usize = 0,
+    diag_warnings: usize = 0,
+    diag_info: usize = 0,
+    diag_hints: usize = 0,
 
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
@@ -707,7 +726,7 @@ pub const Editor = struct {
             _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_) catch {};
         }
         self.render_syntax(theme, cache, root) catch {};
-        self.render_diagnostics(theme, root) catch {};
+        self.render_diagnostics(theme, hl_row) catch {};
         self.render_cursors(theme) catch {};
     }
 
@@ -786,21 +805,58 @@ pub const Editor = struct {
             };
     }
 
-    fn render_diagnostics(self: *const Self, theme: *const Widget.Theme, root: Buffer.Root) !void {
-        for (self.diagnostics.items) |*diag| self.render_diagnostic(diag, theme, root);
+    fn render_diagnostics(self: *const Self, theme: *const Widget.Theme, hl_row: ?usize) !void {
+        for (self.diagnostics.items) |*diag| self.render_diagnostic(diag, theme, hl_row);
     }
 
-    fn render_diagnostic(self: *const Self, diag: *const Diagnostic, theme: *const Widget.Theme, _: Buffer.Root) void {
-        if (self.screen_cursor(&diag.sel.begin)) |pos| {
-            self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
-            self.render_diagnostic_cell(theme);
+    fn render_diagnostic(self: *const Self, diag: *const Diagnostic, theme: *const Widget.Theme, hl_row: ?usize) void {
+        const screen_width = self.view.cols;
+        const pos = self.screen_cursor(&diag.sel.begin) orelse return;
+        var style = switch (diag.get_severity()) {
+            .Error => theme.editor_error,
+            .Warning => theme.editor_warning,
+            .Information => theme.editor_information,
+            .Hint => theme.editor_hint,
+        };
+        if (hl_row) |hlr| if (hlr == diag.sel.begin.row) {
+            style = .{ .fg = style.fg, .bg = theme.editor_line_highlight.bg };
+        };
+
+        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
+        self.render_diagnostic_cell(style);
+        if (diag.sel.begin.row == diag.sel.end.row) {
+            var col = pos.col;
+            while (col < diag.sel.end.col) : (col += 1) {
+                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(col)) catch return;
+                self.render_diagnostic_cell(style);
+            }
+        }
+        const space_begin = get_line_end_space_begin(self.plane, screen_width, pos.row);
+        if (space_begin < screen_width) {
+            self.render_diagnostic_message(diag.message, pos.row, screen_width - space_begin, style);
         }
     }
 
-    inline fn render_diagnostic_cell(self: *const Self, theme: *const Widget.Theme) void {
+    fn get_line_end_space_begin(plane: nc.Plane, screen_width: usize, screen_row: usize) usize {
+        var pos = screen_width;
+        var cell = plane.cell_init();
+        while (pos > 0) : (pos -= 1) {
+            plane.cursor_move_yx(@intCast(screen_row), @intCast(pos - 1)) catch return pos;
+            const cell_egc_bytes = plane.at_cursor_cell(&cell) catch return pos;
+            if (cell_egc_bytes > 0) return pos;
+        }
+        return pos;
+    }
+
+    fn render_diagnostic_message(self: *const Self, message: []const u8, y: usize, max_space: usize, style: Widget.Theme.Style) void {
+        tui.set_style(&self.plane, style);
+        _ = self.plane.print_aligned(@intCast(y), nc.Align.right, "{s}", .{message[0..@min(max_space, message.len)]}) catch {};
+    }
+
+    inline fn render_diagnostic_cell(self: *const Self, _: Widget.Theme.Style) void {
         var cell = self.plane.cell_init();
         _ = self.plane.at_cursor_cell(&cell) catch return;
-        tui.set_cell_style(&cell, theme.editor_error);
+        tui.set_cell_style(&cell, .{ .fs = .undercurl });
         _ = self.plane.putc(&cell) catch {};
     }
 
@@ -1093,6 +1149,10 @@ pub const Editor = struct {
     fn send_editor_view(self: *const Self) !void {
         const root = self.buf_root() catch return error.Stop;
         _ = try self.handlers.msg(.{ "E", "view", root.lines(), self.view.rows, self.view.row });
+    }
+
+    fn send_editor_diagnostics(self: *const Self) !void {
+        _ = try self.handlers.msg(.{ "E", "diag", self.diag_errors, self.diag_warnings, self.diag_info, self.diag_hints });
     }
 
     fn send_editor_modified(self: *Self) !void {
@@ -3206,6 +3266,52 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
 
+    pub fn goto_next_diagnostic(self: *Self, _: command.Context) tp.result {
+        if (self.diagnostics.items.len == 0) return;
+        self.sort_diagnostics();
+        const primary = self.get_primary();
+        for (self.diagnostics.items) |*diag| {
+            if ((diag.sel.begin.row == primary.cursor.row and diag.sel.begin.col > primary.cursor.col) or diag.sel.begin.row > primary.cursor.row)
+                return self.goto_diagnostic(diag);
+        }
+        return self.goto_diagnostic(&self.diagnostics.items[0]);
+    }
+
+    pub fn goto_prev_diagnostic(self: *Self, _: command.Context) tp.result {
+        if (self.diagnostics.items.len == 0) return;
+        self.sort_diagnostics();
+        const primary = self.get_primary();
+        var i = self.diagnostics.items.len - 1;
+        while (true) : (i -= 1) {
+            const diag = &self.diagnostics.items[i];
+            if ((diag.sel.begin.row == primary.cursor.row and diag.sel.begin.col < primary.cursor.col) or diag.sel.begin.row < primary.cursor.row)
+                return self.goto_diagnostic(diag);
+            if (i == 0) return self.goto_diagnostic(&self.diagnostics.items[self.diagnostics.items.len - 1]);
+        }
+    }
+
+    fn goto_diagnostic(self: *Self, diag: *const Diagnostic) tp.result {
+        const root = self.buf_root() catch return;
+        const primary = self.get_primary();
+        try self.send_editor_jump_source();
+        self.cancel_all_selections();
+        primary.cursor.move_to(root, diag.sel.begin.row, diag.sel.begin.col) catch |e| return tp.exit_error(e);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+
+    fn sort_diagnostics(self: *Self) void {
+        const less_fn = struct {
+            fn less_fn(_: void, lhs: Diagnostic, rhs: Diagnostic) bool {
+                return if (lhs.sel.begin.row == rhs.sel.begin.row)
+                    lhs.sel.begin.col < rhs.sel.begin.col
+                else
+                    lhs.sel.begin.row < rhs.sel.begin.row;
+            }
+        }.less_fn;
+        std.mem.sort(Diagnostic, self.diagnostics.items, {}, less_fn);
+    }
+
     pub fn goto_line(self: *Self, ctx: command.Context) tp.result {
         try self.send_editor_jump_source();
         var line: usize = 0;
@@ -3276,9 +3382,15 @@ pub const Editor = struct {
     pub fn clear_diagnostics(self: *Self, ctx: command.Context) tp.result {
         var file_path: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&file_path)})) return tp.exit_error(error.InvalidArgument);
+        file_path = project_manager.normalize_file_path(file_path);
         if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
         for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
         self.diagnostics.clearRetainingCapacity();
+        self.diag_errors = 0;
+        self.diag_warnings = 0;
+        self.diag_info = 0;
+        self.diag_hints = 0;
+        self.send_editor_diagnostics() catch {};
     }
 
     pub fn add_diagnostic(self: *Self, ctx: command.Context) tp.result {
@@ -3302,7 +3414,6 @@ pub const Editor = struct {
         file_path = project_manager.normalize_file_path(file_path);
         if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
 
-        self.logger.print("diag: {d}:{d} {s}", .{ sel.begin.row, sel.begin.col, message });
         (self.diagnostics.addOne() catch |e| return tp.exit_error(e)).* = .{
             .source = self.diagnostics.allocator.dupe(u8, source) catch |e| return tp.exit_error(e),
             .code = self.diagnostics.allocator.dupe(u8, code) catch |e| return tp.exit_error(e),
@@ -3310,6 +3421,15 @@ pub const Editor = struct {
             .severity = severity,
             .sel = sel,
         };
+
+        switch (Diagnostic.to_severity(severity)) {
+            .Error => self.diag_errors += 1,
+            .Warning => self.diag_warnings += 1,
+            .Information => self.diag_info += 1,
+            .Hint => self.diag_hints += 1,
+        }
+        self.send_editor_diagnostics() catch {};
+        // self.logger.print("diag: {d} {d} {d}:{d} {s}", .{ self.diagnostics.items.len, severity, sel.begin.row, sel.begin.col, message });
     }
 
     pub fn select(self: *Self, ctx: command.Context) tp.result {

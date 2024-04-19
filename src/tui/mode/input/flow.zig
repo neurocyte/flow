@@ -136,8 +136,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
         },
         mod.ALT => switch (keynormal) {
             'J' => self.cmd("join_next_line", .{}),
-            'N' => self.cmd("goto_next_match", .{}),
-            'P' => self.cmd("goto_prev_match", .{}),
+            'N' => self.cmd("goto_next_diagnostic", .{}),
+            'P' => self.cmd("goto_prev_diagnostic", .{}),
             'L' => self.cmd("toggle_logview", .{}),
             'I' => self.cmd("toggle_inputview", .{}),
             'B' => self.cmd("move_word_left", .{}),

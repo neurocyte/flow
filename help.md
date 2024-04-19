@@ -246,6 +246,9 @@ cycle style of editing.
 
 ### Language Server Commands
 
+- Alt-n, Alt-p
+        Goto next/previous diagnostic
+
 - F12 =>
         Goto definition of symbol at cursor
 
