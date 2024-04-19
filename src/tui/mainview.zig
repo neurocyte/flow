@@ -170,8 +170,6 @@ const cmds = struct {
     }
 
     pub fn navigate(self: *Self, ctx: Ctx) tp.result {
-        if (self.editor) |editor| if (editor.is_dirty())
-            return tp.exit("unsaved changes");
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });
         defer frame.deinit();
         var file: ?[]const u8 = null;
@@ -214,7 +212,10 @@ const cmds = struct {
             false else false;
 
         if (!same_file) {
-            if (self.editor) |editor| editor.send_editor_jump_source() catch {};
+            if (self.editor) |editor| {
+                if (editor.is_dirty()) return tp.exit("unsaved changes");
+                editor.send_editor_jump_source() catch {};
+            }
             try self.create_editor();
             try command.executeName("open_file", command.fmt(.{f}));
         }
