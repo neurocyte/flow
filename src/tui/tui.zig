@@ -1101,6 +1101,7 @@ pub inline fn set_cell_style(cell: *nc.Cell, style: Widget.Theme.Style) void {
         .bold => nc.cell_set_styles(cell, nc.style.bold),
         .italic => nc.cell_set_styles(cell, nc.style.italic),
         .underline => nc.cell_set_styles(cell, nc.style.underline),
+        .undercurl => nc.cell_set_styles(cell, nc.style.undercurl),
         .strikethrough => nc.cell_set_styles(cell, nc.style.struck),
     };
 }
@@ -1145,6 +1146,7 @@ pub inline fn set_style(plane: *const nc.Plane, style: Widget.Theme.Style) void 
         .bold => plane.set_styles(nc.style.bold),
         .italic => plane.set_styles(nc.style.italic),
         .underline => plane.set_styles(nc.style.underline),
+        .undercurl => plane.set_styles(nc.style.undercurl),
         .strikethrough => plane.set_styles(nc.style.struck),
     };
 }

@@ -91,6 +91,7 @@ fn set_style(plane: nc.Plane, style: Widget.Theme.Style) void {
         .bold => plane.set_styles(nc.style.bold),
         .italic => plane.set_styles(nc.style.italic),
         .underline => plane.set_styles(nc.style.underline),
+        .undercurl => plane.set_styles(nc.style.undercurl),
         .strikethrough => plane.set_styles(nc.style.struck),
     };
 }

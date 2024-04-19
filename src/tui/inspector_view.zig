@@ -204,6 +204,10 @@ fn show_font(self: *Self, font: ?Widget.Theme.FontStyle) void {
             self.plane.set_styles(nc.style.underline);
             _ = self.plane.print(" underline", .{}) catch return;
         },
+        .undercurl => {
+            self.plane.set_styles(nc.style.undercurl);
+            _ = self.plane.print(" undercurl", .{}) catch return;
+        },
         .strikethrough => {
             self.plane.set_styles(nc.style.struck);
             _ = self.plane.print(" strikethrough", .{}) catch return;
