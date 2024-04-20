@@ -318,6 +318,8 @@ const Process = struct {
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return if (std.mem.eql(u8, method, "textDocument/publishDiagnostics"))
             project.publish_diagnostics(self.parent.ref(), params_cb) catch |e| tp.exit_error(e)
+        else if (std.mem.eql(u8, method, "window/showMessage"))
+            project.show_message(self.parent.ref(), params_cb) catch |e| tp.exit_error(e)
         else
             tp.unexpected(.{ .buf = params_cb });
     }

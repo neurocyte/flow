@@ -1,6 +1,7 @@
 const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
+const log = @import("log");
 const root = @import("root");
 const dizzy = @import("dizzy");
 const Buffer = @import("Buffer");
@@ -585,6 +586,31 @@ fn read_position(position: []const u8) !Position {
     }
     if (line == null or character == null) return error.InvalidMessageField;
     return .{ .line = line.?, .character = character.? };
+}
+
+pub fn show_message(_: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
+    var type_: i32 = 0;
+    var message: ?[]const u8 = null;
+    var iter = params_cb;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "type")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&type_)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "message")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&message)))) return error.InvalidMessageField;
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    const msg = if (message) |m| m else return;
+    const logger = log.logger("lsp");
+    defer logger.deinit();
+    if (type_ <= 2)
+        logger.err_msg("lsp", msg)
+    else
+        logger.print("{s}", .{msg});
 }
 
 fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) error{Exit}!tp.message {

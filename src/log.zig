@@ -121,6 +121,12 @@ pub const Logger = struct {
         self.proc.send(.{ "log", self.tag, output }) catch {};
     }
 
+    pub fn print_err(self: Logger, context: []const u8, comptime fmt: anytype, args: anytype) void {
+        var buf: [max_log_message]u8 = undefined;
+        const output = std.fmt.bufPrint(&buf, fmt, args) catch "MESSAGE TOO LARGE";
+        self.err_msg(context, output);
+    }
+
     pub fn err(self: Logger, context: []const u8, e: anyerror) void {
         defer tp.reset_error();
         var buf: [max_log_message]u8 = undefined;
@@ -143,6 +149,10 @@ pub const Logger = struct {
                 msg = @errorName(e);
             },
         }
+        self.err_msg(context, msg);
+    }
+
+    pub fn err_msg(self: Logger, context: []const u8, msg: []const u8) void {
         self.proc.send(.{ "log", "error", self.tag, context, "->", msg }) catch {};
     }
 };
