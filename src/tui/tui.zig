@@ -318,7 +318,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         return;
 
     var msg: []const u8 = undefined;
-    if (try m.match(.{ "exit", tp.extract(&msg), tp.more })) {
+    if (try m.match(.{ "exit", tp.extract(&msg) }) or try m.match(.{ "exit", tp.extract(&msg), tp.more })) {
         self.logger.err_msg("tui", msg);
         return;
     }

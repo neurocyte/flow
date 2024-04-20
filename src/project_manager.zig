@@ -195,9 +195,9 @@ const Process = struct {
         } else if (try m.match(.{ "update_mru", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
-            self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("notify", e);
+            self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract(&id), tp.extract_cbor(&params_cb) })) {
-            self.dispatch_request(project_directory, language_server, method, id, params_cb) catch |e| return self.logger.err("notify", e);
+            self.dispatch_request(project_directory, language_server, method, id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
@@ -321,16 +321,16 @@ const Process = struct {
         else if (std.mem.eql(u8, method, "window/showMessage"))
             project.show_message(self.parent.ref(), params_cb) catch |e| tp.exit_error(e)
         else
-            tp.unexpected(.{ .buf = params_cb });
+            tp.exit_fmt("unsupported LSP notification: {s}", .{method});
     }
 
     fn dispatch_request(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, id: i32, params_cb: []const u8) tp.result {
         _ = self;
         _ = project_directory;
         _ = language_server;
-        _ = method;
         _ = id;
-        return tp.unexpected(.{ .buf = params_cb });
+        _ = params_cb;
+        return tp.exit_fmt("unsupported LSP request: {s}", .{method});
     }
 
     fn persist_projects(self: *Process) void {
@@ -575,4 +575,3 @@ pub fn normalize_file_path(file_path: []const u8) []const u8 {
         return file_path[project.len + 1 ..];
     return file_path;
 }
-
