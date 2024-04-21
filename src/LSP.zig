@@ -316,7 +316,8 @@ const Process = struct {
         const message = .{ .body = data[0..headers.content_length] };
         const cb = try cbor.fromJsonAlloc(self.a, message.body);
         defer self.a.free(cb);
-        return self.receive_lsp_message(cb);
+        try self.receive_lsp_message(cb);
+        if (rest.len > 0) return self.frame_message_recv();
     }
 
     fn receive_lsp_request(self: *Process, id: i32, method: []const u8, params: ?[]const u8) !void {
