@@ -1065,7 +1065,12 @@ pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) !void {
 }
 
 pub fn is_dirty(self: *const Self) bool {
-    return if (!self.file_exists) true else if (self.last_save) |p| self.root != p else true;
+    return if (!self.file_exists)
+        self.root.length() > 0
+    else if (self.last_save) |p|
+        self.root != p
+    else
+        true;
 }
 
 pub fn version(self: *const Self) usize {
