@@ -21,7 +21,13 @@ Flow tracks zig master most of the time. Build with:
 zig build -Doptimize=ReleaseFast
 ```
 
-Sometime zig master may introduce breaking changes and Flow may take a few days to
+Or, for a slightly smaller executable (with no debug info):
+
+```shell
+zig build -Doptimize=ReleaseSmall
+```
+
+Sometimes zig master may introduce breaking changes and Flow may take a few days to
 catch up. In that case there is a simple zig wrapper script provided that will download
 and build with the last known compatible version of zig. The version is stored in
 `build.zig.version`.
@@ -39,10 +45,6 @@ Run with:
 zig-out/bin/flow
 ```
 
-Place it in your path for convenient access.
-
-See --help for full command line.
-
 ## MacOS
 
 On MacOS you will need to link Flow against a MacOS build of **notcurses 3.0.9**. This
@@ -52,6 +54,59 @@ is easiest with `brew`:
 brew install notcurses
 zig build -Duse_system_notcurses=true --search-prefix /usr/local
 ```
+
+# Running Flow Control
+
+The output binary is:
+
+```shell
+zig-out/bin/flow
+```
+
+Place it in your path for convenient access:
+
+```shell
+sudo cp zig-out/bin/flow /usr/local/bin
+```
+
+Flow Control is a single statically linked binary. No further runtime is required.
+You may install it on another system by simply copying the binary.
+
+```shell
+scp zig-out/bin/flow root@otherhost:/usr/local/bin
+```
+
+Logs, traces and per-project most recently used file lists are stored in the
+standard user runtime cache directory. Usually `~/.cache/flow`.
+
+Configuration is mostly dynamically maintained with various commands in the UI.
+It stored under the standard user configuration path. Usually `~/.config/flow`.
+
+Files to load may be specifed on the command line:
+
+```shell
+flow fileA.zig fileB.zig
+```
+
+Common target line specifiers are supported to:
+
+```shell
+flow file.txt:123
+```
+
+Or Vim style:
+
+```shell
+flow file.txt +123
+```
+
+Use the --language option to force the file type of a file:
+
+```shell
+flow --language bash ~/.bash_profile
+```
+
+See `flow --help` for the full list of command line options.
 
 # Terminal configuration
 
@@ -69,6 +124,7 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 # Features
 - fast TUI interface. no user interaction should take longer than one frame (6ms) (even debug builds)
 - tree sitter based syntax highlighting
+- linting (diagnostics) and code navigation (goto definition) via language server
 - multi cursor editing support
 - first class mouse support (yes, even with a scrollbar that actually works properly!)
 - vscode compatible keybindings (thanks to kitty keyboard protocol)
@@ -79,15 +135,15 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 - infinite undo/redo (at least until you run out of ram)
 - stuff I've forgotten to mention...
 
-# Features in progress
-- LSP support for linting and navigating
+# Features in progress (aka, the road to 1.0)
+- completion UI/LSP support for completion
 - find in files
-- multi tty support (shared editor sessions across multiple ttys)
 - command palette
-- completion UI
 - persistent undo/redo
+- file watcher for auto reload
 
 # Features planned for the future
+- multi tty support (shared editor sessions across multiple ttys)
 - multi host editing
 - multi user editing
 
