@@ -148,10 +148,10 @@ fn init(a: Allocator) !*Self {
         .theme = theme,
         .no_sleep = tp.env.get().is("no-sleep"),
     };
-    try self.commands.init(self);
-    errdefer self.deinit();
     instance_ = self;
     defer instance_ = null;
+    try self.commands.init(self);
+    errdefer self.deinit();
     try self.listen_sigwinch();
     self.mainview = try mainview.create(a, n);
     try self.initUI();
