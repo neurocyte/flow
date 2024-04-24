@@ -52,8 +52,11 @@ is easiest with `brew`:
 
 ```shell
 brew install notcurses
-zig build -Duse_system_notcurses=true --search-prefix /usr/local
+zig build -Duse_system_notcurses=true --search-prefix $HOMEBREW_PREFIX
 ```
+
+If `HOMEBREW_PREFIX` is not set in your environment check your brew configuration
+with `brew config`.
 
 # Running Flow Control
 
