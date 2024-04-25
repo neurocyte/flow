@@ -1,6 +1,10 @@
 const std = @import("std");
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const key = @import("renderer").input.key;
+const mod = @import("renderer").input.modifier;
+const event_type = @import("renderer").input.event_type;
+const egc_ = @import("renderer").egc;
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
@@ -68,9 +72,9 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
     switch (evtype) {
-        nc.event_type.PRESS => try self.mapPress(keypress, egc, modifiers),
-        nc.event_type.REPEAT => try self.mapPress(keypress, egc, modifiers),
-        nc.event_type.RELEASE => try self.mapRelease(keypress, egc, modifiers),
+        event_type.PRESS => try self.mapPress(keypress, egc, modifiers),
+        event_type.REPEAT => try self.mapPress(keypress, egc, modifiers),
+        event_type.RELEASE => try self.mapRelease(keypress, egc, modifiers),
         else => {},
     }
 }
@@ -78,7 +82,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) t
 fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     return switch (modifiers) {
-        nc.mod.CTRL => switch (keynormal) {
+        mod.CTRL => switch (keynormal) {
             'Q' => self.cmd("quit", .{}),
             'V' => self.cmd("system_paste", .{}),
             'U' => self.file_path.clearRetainingCapacity(),
@@ -86,30 +90,30 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'C' => self.cancel(),
             'L' => self.cmd("scroll_view_center", .{}),
             'I' => self.insert_bytes("\t"),
-            nc.key.SPACE => self.cancel(),
-            nc.key.BACKSPACE => self.file_path.clearRetainingCapacity(),
+            key.SPACE => self.cancel(),
+            key.BACKSPACE => self.file_path.clearRetainingCapacity(),
             else => {},
         },
-        nc.mod.ALT => switch (keynormal) {
+        mod.ALT => switch (keynormal) {
             'V' => self.cmd("system_paste", .{}),
             else => {},
         },
-        nc.mod.ALT | nc.mod.SHIFT => switch (keynormal) {
+        mod.ALT | mod.SHIFT => switch (keynormal) {
             'V' => self.cmd("system_paste", .{}),
             else => {},
         },
-        nc.mod.SHIFT => switch (keypress) {
-            else => if (!nc.key.synthesized_p(keypress))
+        mod.SHIFT => switch (keypress) {
+            else => if (!key.synthesized_p(keypress))
                 self.insert_code_point(egc)
             else {},
         },
         0 => switch (keypress) {
-            nc.key.ESC => self.cancel(),
-            nc.key.ENTER => self.navigate(),
-            nc.key.BACKSPACE => if (self.file_path.items.len > 0) {
+            key.ESC => self.cancel(),
+            key.ENTER => self.navigate(),
+            key.BACKSPACE => if (self.file_path.items.len > 0) {
                 self.file_path.shrinkRetainingCapacity(self.file_path.items.len - 1);
             },
-            else => if (!nc.key.synthesized_p(keypress))
+            else => if (!key.synthesized_p(keypress))
                 self.insert_code_point(egc)
             else {},
         },
@@ -121,7 +125,7 @@ fn mapRelease(_: *Self, _: u32, _: u32, _: u32) tp.result {}
 
 fn insert_code_point(self: *Self, c: u32) tp.result {
     var buf: [32]u8 = undefined;
-    const bytes = nc.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
+    const bytes = egc_.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
     self.file_path.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
 }
 

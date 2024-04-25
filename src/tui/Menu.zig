@@ -1,6 +1,7 @@
 const std = @import("std");
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const planeutils = @import("renderer").planeutils;
 
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
@@ -21,8 +22,7 @@ pub fn Options(context: type) type {
 
         pub fn on_render_default(_: context, button: *Button.State(*State(Context)), theme: *const Widget.Theme, selected: bool) bool {
             const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor;
-            const bg_alpha: c_uint = if (button.active or button.hover or selected) nc.ALPHA_OPAQUE else nc.ALPHA_TRANSPARENT;
-            try tui.set_base_style_alpha(button.plane, " ", style_base, nc.ALPHA_TRANSPARENT, bg_alpha);
+            button.plane.set_base_style(" ", style_base);
             button.plane.erase();
             button.plane.home();
             _ = button.plane.print(" {s} ", .{button.opts.label}) catch {};

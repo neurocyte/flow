@@ -1,6 +1,10 @@
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const root = @import("root");
+
+const key = @import("renderer").input.key;
+const mod = @import("renderer").input.modifier;
+const event_type = @import("renderer").input.event_type;
+const egc_ = @import("renderer").egc;
 
 const tui = @import("../../../tui.zig");
 const command = @import("../../../command.zig");
@@ -10,8 +14,6 @@ const Allocator = @import("std").mem.Allocator;
 const ArrayList = @import("std").ArrayList;
 const json = @import("std").json;
 const eql = @import("std").mem.eql;
-const mod = nc.mod;
-const key = nc.key;
 
 const Self = @This();
 const input_buffer_size = 1024;
@@ -63,9 +65,9 @@ pub fn add_keybind() void {}
 
 fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
     return switch (evtype) {
-        nc.event_type.PRESS => self.mapPress(keypress, egc, modifiers),
-        nc.event_type.REPEAT => self.mapPress(keypress, egc, modifiers),
-        nc.event_type.RELEASE => self.mapRelease(keypress, egc, modifiers),
+        event_type.PRESS => self.mapPress(keypress, egc, modifiers),
+        event_type.REPEAT => self.mapPress(keypress, egc, modifiers),
+        event_type.RELEASE => self.mapRelease(keypress, egc, modifiers),
         else => {},
     };
 }
@@ -249,7 +251,7 @@ fn insert_code_point(self: *Self, c: u32) tp.result {
     if (self.input.items.len + 4 > input_buffer_size)
         try self.flush_input();
     var buf: [6]u8 = undefined;
-    const bytes = nc.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
+    const bytes = egc_.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
     self.input.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
 }
 

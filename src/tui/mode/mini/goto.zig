@@ -1,5 +1,8 @@
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const key = @import("renderer").input.key;
+const mod = @import("renderer").input.modifier;
+const event_type = @import("renderer").input.event_type;
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
@@ -10,8 +13,6 @@ const Allocator = @import("std").mem.Allocator;
 const json = @import("std").json;
 const eql = @import("std").mem.eql;
 const fmt = @import("std").fmt;
-const mod = nc.mod;
-const key = nc.key;
 
 const Self = @This();
 
@@ -64,8 +65,8 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 fn mapEvent(self: *Self, evtype: u32, keypress: u32, modifiers: u32) tp.result {
     switch (evtype) {
-        nc.event_type.PRESS => try self.mapPress(keypress, modifiers),
-        nc.event_type.REPEAT => try self.mapPress(keypress, modifiers),
+        event_type.PRESS => try self.mapPress(keypress, modifiers),
+        event_type.REPEAT => try self.mapPress(keypress, modifiers),
         else => {},
     }
 }

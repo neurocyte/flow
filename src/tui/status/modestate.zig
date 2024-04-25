@@ -1,10 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const tracy = @import("tracy");
 const root = @import("root");
-const Buffer = @import("Buffer");
+const egc = @import("renderer").egc;
+
+const Plane = @import("renderer").Plane;
+const style = @import("renderer").style;
 
 const Widget = @import("../Widget.zig");
 const Menu = @import("../Menu.zig");
@@ -13,7 +15,7 @@ const command = @import("../command.zig");
 const ed = @import("../editor.zig");
 const tui = @import("../tui.zig");
 
-pub fn create(a: Allocator, parent: nc.Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane) !Widget {
     return Button.create_widget(void, a, parent, .{
         .ctx = {},
         .label = tui.get_mode(),
@@ -25,7 +27,7 @@ pub fn create(a: Allocator, parent: nc.Plane) !Widget {
 
 pub fn layout(_: *void, _: *Button.State(void)) Widget.Layout {
     const name = tui.get_mode();
-    const width = Buffer.egc_chunk_width(name, 0);
+    const width = egc.chunk_width(name, 0);
     const padding: usize = if (is_mini_mode()) 3 else 2;
     return .{ .static = width + padding };
 }
@@ -39,8 +41,8 @@ fn is_overlay_mode() bool {
 }
 
 pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) bool {
-    tui.set_base_style(&self.plane, " ", if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover);
-    self.plane.on_styles(nc.style.bold);
+    self.plane.set_base_style(" ", if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover);
+    self.plane.on_styles(style.bold);
     self.plane.erase();
     self.plane.home();
     var buf: [31:0]u8 = undefined;

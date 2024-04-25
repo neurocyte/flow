@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
@@ -10,6 +9,11 @@ const tracy = @import("tracy");
 const text_manip = @import("text_manip");
 const syntax = @import("syntax");
 const project_manager = @import("project_manager");
+
+const Plane = @import("renderer").Plane;
+const Cell = @import("renderer").Cell;
+const key = @import("renderer").input.key;
+const event_type = @import("renderer").input.event_type;
 
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor_gutter = @import("editor_gutter.zig");
@@ -30,9 +34,6 @@ const copy = std.mem.copy;
 const fmt = std.fmt;
 const split = std.mem.split;
 const time = std.time;
-
-const A = nc.Align;
-const key = nc.key;
 
 const scroll_step_small = 3;
 const scroll_page_ratio = 3;
@@ -188,7 +189,7 @@ pub const Editor = struct {
     pub const Target = Self;
 
     a: Allocator,
-    plane: nc.Plane,
+    plane: Plane,
     logger: log.Logger,
 
     file_path: ?[]const u8,
@@ -307,7 +308,7 @@ pub const Editor = struct {
         }
     }
 
-    fn init(self: *Self, a: Allocator, n: nc.Plane) void {
+    fn init(self: *Self, a: Allocator, n: Plane) void {
         const logger = log.logger("editor");
         var frame_rate = tp.env.get().num("frame-rate");
         if (frame_rate == 0) frame_rate = 60;
@@ -429,7 +430,7 @@ pub const Editor = struct {
         self.buffer = null;
         self.plane.erase();
         self.plane.home();
-        self.plane.context().cursor_disable() catch {};
+        tui.current().rdr.cursor_disable();
         _ = try self.handlers.msg(.{ "E", "close" });
         if (self.syntax) |_| if (self.file_path) |file_path|
             project_manager.did_close(file_path) catch {};
@@ -718,7 +719,7 @@ pub const Editor = struct {
             const frame = tracy.initZone(@src(), .{ .name = "editor render screen" });
             defer frame.deinit();
 
-            tui.set_base_style(&self.plane, " ", theme.editor);
+            self.plane.set_base_style(" ", theme.editor);
             self.plane.erase();
             if (hl_row) |_|
                 self.render_line_highlight(&self.get_primary().cursor, theme) catch {};
@@ -735,9 +736,9 @@ pub const Editor = struct {
             var y: c_int = @intCast(cursor.row);
             var x: c_int = @intCast(cursor.col);
             self.plane.rel_yx_to_abs(&y, &x);
-            self.plane.context().cursor_enable(y, x) catch {};
+            tui.current().rdr.cursor_enable(y, x) catch {};
         } else {
-            self.plane.context().cursor_disable() catch {};
+            tui.current().rdr.cursor_disable();
         }
     }
 
@@ -772,7 +773,7 @@ pub const Editor = struct {
         }
     }
 
-    fn render_matches(self: *const Self, last_idx: *usize, theme: *const Widget.Theme, cell: *nc.Cell) void {
+    fn render_matches(self: *const Self, last_idx: *usize, theme: *const Widget.Theme, cell: *Cell) void {
         var y: c_uint = undefined;
         var x: c_uint = undefined;
         self.plane.cursor_yx(&y, &x);
@@ -791,7 +792,7 @@ pub const Editor = struct {
         }
     }
 
-    fn render_selections(self: *const Self, theme: *const Widget.Theme, cell: *nc.Cell) void {
+    fn render_selections(self: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
         var y: c_uint = undefined;
         var x: c_uint = undefined;
         self.plane.cursor_yx(&y, &x);
@@ -837,7 +838,7 @@ pub const Editor = struct {
         }
     }
 
-    fn get_line_end_space_begin(plane: nc.Plane, screen_width: usize, screen_row: usize) usize {
+    fn get_line_end_space_begin(plane: Plane, screen_width: usize, screen_row: usize) usize {
         var pos = screen_width;
         var cell = plane.cell_init();
         while (pos > 0) : (pos -= 1) {
@@ -849,49 +850,49 @@ pub const Editor = struct {
     }
 
     fn render_diagnostic_message(self: *const Self, message: []const u8, y: usize, max_space: usize, style: Widget.Theme.Style) void {
-        tui.set_style(&self.plane, style);
-        _ = self.plane.print_aligned(@intCast(y), nc.Align.right, "{s}", .{message[0..@min(max_space, message.len)]}) catch {};
+        self.plane.set_style(style);
+        _ = self.plane.print_aligned_right(@intCast(y), "{s}", .{message[0..@min(max_space, message.len)]}) catch {};
     }
 
     inline fn render_diagnostic_cell(self: *const Self, _: Widget.Theme.Style) void {
         var cell = self.plane.cell_init();
         _ = self.plane.at_cursor_cell(&cell) catch return;
-        tui.set_cell_style(&cell, .{ .fs = .undercurl });
+        cell.set_style(.{ .fs = .undercurl });
         _ = self.plane.putc(&cell) catch {};
     }
 
     inline fn render_cursor_cell(self: *const Self, theme: *const Widget.Theme) void {
         var cell = self.plane.cell_init();
         _ = self.plane.at_cursor_cell(&cell) catch return;
-        tui.set_cell_style(&cell, theme.editor_cursor);
+        cell.set_style(theme.editor_cursor);
         _ = self.plane.putc(&cell) catch {};
     }
 
-    inline fn render_selection_cell(_: *const Self, theme: *const Widget.Theme, cell: *nc.Cell) void {
-        tui.set_cell_style_bg(cell, theme.editor_selection);
+    inline fn render_selection_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
+        cell.set_style_bg(theme.editor_selection);
     }
 
-    inline fn render_match_cell(_: *const Self, theme: *const Widget.Theme, cell: *nc.Cell, match: Match) void {
-        tui.set_cell_style_bg(cell, if (match.style) |style| style else theme.editor_match);
+    inline fn render_match_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell, match: Match) void {
+        cell.set_style_bg(if (match.style) |style| style else theme.editor_match);
     }
 
-    inline fn render_line_highlight_cell(_: *const Self, theme: *const Widget.Theme, cell: *nc.Cell) void {
-        tui.set_cell_style_bg(cell, theme.editor_line_highlight);
+    inline fn render_line_highlight_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
+        cell.set_style_bg(theme.editor_line_highlight);
     }
 
-    inline fn render_control_code(self: *const Self, c: *nc.Cell, n: nc.Plane, code: u8, theme: *const Widget.Theme) struct { usize, usize } {
+    inline fn render_control_code(self: *const Self, c: *Cell, n: Plane, code: u8, theme: *const Widget.Theme) struct { usize, usize } {
         const val = Buffer.unicode.control_code_to_unicode(code);
         if (self.show_whitespace)
-            tui.set_cell_style(c, theme.editor_whitespace);
+            c.set_style(theme.editor_whitespace);
         _ = n.cell_load(c, val) catch {};
         return .{ 1, 1 };
     }
 
-    inline fn render_eol(self: *const Self, n: nc.Plane, theme: *const Widget.Theme) nc.Cell {
+    inline fn render_eol(self: *const Self, n: Plane, theme: *const Widget.Theme) Cell {
         var cell = n.cell_init();
         const c = &cell;
         if (self.show_whitespace) {
-            tui.set_cell_style(c, theme.editor_whitespace);
+            c.set_style(theme.editor_whitespace);
             //_ = n.cell_load(c, "$") catch {};
             //_ = n.cell_load(c, " ") catch {};
             //_ = n.cell_load(c, "⏎") catch {};
@@ -912,16 +913,16 @@ pub const Editor = struct {
         return cell;
     }
 
-    inline fn render_terminator(n: nc.Plane, theme: *const Widget.Theme) nc.Cell {
+    inline fn render_terminator(n: Plane, theme: *const Widget.Theme) Cell {
         var cell = n.cell_init();
-        tui.set_cell_style(&cell, theme.editor);
+        cell.set_style(theme.editor);
         _ = n.cell_load(&cell, "\u{2003}") catch unreachable;
         return cell;
     }
 
-    inline fn render_space(self: *const Self, c: *nc.Cell, n: nc.Plane, theme: *const Widget.Theme) struct { usize, usize } {
+    inline fn render_space(self: *const Self, c: *Cell, n: Plane, theme: *const Widget.Theme) struct { usize, usize } {
         if (self.show_whitespace) {
-            tui.set_cell_style(c, theme.editor_whitespace);
+            c.set_style(theme.editor_whitespace);
             _ = n.cell_load(c, "·") catch {};
             //_ = n.cell_load(c, "•") catch {};
             //_ = n.cell_load(c, "⁃") catch {};
@@ -940,9 +941,9 @@ pub const Editor = struct {
         return .{ 1, 1 };
     }
 
-    inline fn render_tab(self: *const Self, c: *nc.Cell, n: nc.Plane, abs_col: usize, theme: *const Widget.Theme) struct { usize, usize } {
+    inline fn render_tab(self: *const Self, c: *Cell, n: Plane, abs_col: usize, theme: *const Widget.Theme) struct { usize, usize } {
         if (self.show_whitespace) {
-            tui.set_cell_style(c, theme.editor_whitespace);
+            c.set_style(theme.editor_whitespace);
             _ = n.cell_load(c, "→") catch {};
             //_ = n.cell_load(c, "⭲") catch {};
         } else {
@@ -951,9 +952,9 @@ pub const Editor = struct {
         return .{ 1, 9 - (abs_col % 8) };
     }
 
-    inline fn render_egc(c: *nc.Cell, n: nc.Plane, egc: [:0]const u8) struct { usize, usize } {
+    inline fn render_egc(c: *Cell, n: Plane, egc: [:0]const u8) struct { usize, usize } {
         const bytes = n.cell_load(c, egc) catch return .{ 1, 1 };
-        const colcount = nc.cell_cols(c);
+        const colcount = c.columns();
         return .{ bytes, colcount };
     }
 
@@ -1007,7 +1008,7 @@ pub const Editor = struct {
                 ctx.self.plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
                 var cell = ctx.self.plane.cell_init();
                 _ = ctx.self.plane.at_cursor_cell(&cell) catch return;
-                tui.set_cell_style(&cell, style);
+                cell.set_style(style);
                 _ = ctx.self.plane.putc(&cell) catch {};
             }
         };
@@ -1850,7 +1851,7 @@ pub const Editor = struct {
         if (self.clipboard) |old|
             self.a.free(old);
         self.clipboard = text;
-        tui.current().copy_to_system_clipboard(text);
+        tui.renderer.copy_to_system_clipboard(self.a, text);
     }
 
     fn copy_selection(root: Buffer.Root, sel: Selection, text_a: Allocator) ![]const u8 {
@@ -1985,7 +1986,7 @@ pub const Editor = struct {
     }
 
     pub fn system_paste(_: *Self, _: command.Context) tp.result {
-        tui.current().request_system_clipboard();
+        tui.renderer.request_system_clipboard();
     }
 
     pub fn delete_forward(self: *Self, _: command.Context) tp.result {
@@ -2857,12 +2858,12 @@ pub const Editor = struct {
 
     pub fn enable_jump_mode(self: *Self, _: command.Context) tp.result {
         self.jump_mode = true;
-        tui.current().request_mouse_cursor_pointer(true);
+        tui.renderer.request_mouse_cursor_pointer(true);
     }
 
     pub fn disable_jump_mode(self: *Self, _: command.Context) tp.result {
         self.jump_mode = false;
-        tui.current().request_mouse_cursor_text(true);
+        tui.renderer.request_mouse_cursor_text(true);
     }
 
     fn update_syntax(self: *Self) !void {
@@ -3530,8 +3531,8 @@ pub fn create(a: Allocator, parent: Widget) !Widget {
 }
 
 pub const EditorWidget = struct {
-    plane: nc.Plane,
-    parent: nc.Plane,
+    plane: Plane,
+    parent: Plane,
 
     editor: Editor,
     commands: Commands = undefined,
@@ -3558,7 +3559,7 @@ pub const EditorWidget = struct {
     }
 
     fn init(self: *Self, a: Allocator, parent: Widget) !void {
-        var n = try nc.Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
+        var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
         errdefer n.deinit();
 
         self.* = .{
@@ -3612,9 +3613,9 @@ pub const EditorWidget = struct {
             self.editor.add_match(m) catch {};
         } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
             if (self.editor.jump_mode)
-                tui.current().request_mouse_cursor_pointer(self.hover)
+                tui.renderer.request_mouse_cursor_pointer(self.hover)
             else
-                tui.current().request_mouse_cursor_text(self.hover);
+                tui.renderer.request_mouse_cursor_text(self.hover);
         } else if (try m.match(.{ "show_whitespace", tp.extract(&self.editor.show_whitespace) })) {
             _ = "";
         } else {
@@ -3624,15 +3625,15 @@ pub const EditorWidget = struct {
     }
 
     fn mouse_click_event(self: *Self, evtype: c_int, btn: c_int, y: c_int, x: c_int, ypx: c_int, xpx: c_int) tp.result {
-        if (evtype != nc.event_type.PRESS) return;
+        if (evtype != event_type.PRESS) return;
         const ret = (switch (btn) {
-            nc.key.BUTTON1 => &mouse_click_button1,
-            nc.key.BUTTON2 => &mouse_click_button2,
-            nc.key.BUTTON3 => &mouse_click_button3,
-            nc.key.BUTTON4 => &mouse_click_button4,
-            nc.key.BUTTON5 => &mouse_click_button5,
-            nc.key.BUTTON8 => &mouse_click_button8, //back
-            nc.key.BUTTON9 => &mouse_click_button9, //forward
+            key.BUTTON1 => &mouse_click_button1,
+            key.BUTTON2 => &mouse_click_button2,
+            key.BUTTON3 => &mouse_click_button3,
+            key.BUTTON4 => &mouse_click_button4,
+            key.BUTTON5 => &mouse_click_button5,
+            key.BUTTON8 => &mouse_click_button8, //back
+            key.BUTTON9 => &mouse_click_button9, //forward
             else => return,
         })(self, y, x, ypx, xpx);
         self.last_btn = btn;
@@ -3641,11 +3642,11 @@ pub const EditorWidget = struct {
     }
 
     fn mouse_drag_event(self: *Self, evtype: c_int, btn: c_int, y: c_int, x: c_int, ypx: c_int, xpx: c_int) tp.result {
-        if (evtype != nc.event_type.PRESS) return;
+        if (evtype != event_type.PRESS) return;
         return (switch (btn) {
-            nc.key.BUTTON1 => &mouse_drag_button1,
-            nc.key.BUTTON2 => &mouse_drag_button2,
-            nc.key.BUTTON3 => &mouse_drag_button3,
+            key.BUTTON1 => &mouse_drag_button1,
+            key.BUTTON2 => &mouse_drag_button2,
+            key.BUTTON3 => &mouse_drag_button3,
             else => return,
         })(self, y, x, ypx, xpx);
     }
@@ -3653,7 +3654,7 @@ pub const EditorWidget = struct {
     fn mouse_click_button1(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) tp.result {
         var y_, var x_ = .{ y, x };
         self.editor.plane.abs_yx_to_rel(&y_, &x_);
-        if (self.last_btn == nc.key.BUTTON1) {
+        if (self.last_btn == key.BUTTON1) {
             const click_time_ms = time.milliTimestamp() - self.last_btn_time_ms;
             if (click_time_ms <= double_click_time_ms) {
                 if (self.last_btn_count == 2) {

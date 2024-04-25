@@ -1,11 +1,11 @@
-const nc = @import("notcurses");
+const Plane = @import("renderer").Plane;
 
-pub fn print_string_large(n: nc.Plane, s: []const u8) !void {
+pub fn print_string_large(n: Plane, s: []const u8) !void {
     for (s) |c|
         print_char_large(n, c) catch break;
 }
 
-pub fn print_char_large(n: nc.Plane, char: u8) !void {
+pub fn print_char_large(n: Plane, char: u8) !void {
     const bitmap = font8x8[char];
     for (0..8) |y| {
         for (0..8) |x| {
@@ -21,14 +21,14 @@ pub fn print_char_large(n: nc.Plane, char: u8) !void {
     n.cursor_move_rel(-8, 8) catch {};
 }
 
-pub fn print_string_medium(n: nc.Plane, s: []const u8) !void {
+pub fn print_string_medium(n: Plane, s: []const u8) !void {
     for (s) |c|
         print_char_medium(n, c) catch break;
 }
 
 const QUADBLOCKS = [_][:0]const u8{ " ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█" };
 
-pub fn print_char_medium(n: nc.Plane, char: u8) !void {
+pub fn print_char_medium(n: Plane, char: u8) !void {
     const bitmap = font8x8[char];
     for (0..4) |y| {
         for (0..4) |x| {

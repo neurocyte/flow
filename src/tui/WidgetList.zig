@@ -2,8 +2,10 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const Plane = @import("renderer").Plane;
+
 const Widget = @import("Widget.zig");
 const Box = @import("Box.zig");
 
@@ -17,8 +19,8 @@ const WidgetState = struct {
     layout: Layout = .{},
 };
 
-plane: nc.Plane,
-parent: nc.Plane,
+plane: Plane,
+parent: Plane,
 a: Allocator,
 widgets: ArrayList(WidgetState),
 layout: Layout,
@@ -51,7 +53,7 @@ pub fn createBox(a: Allocator, parent: Widget, name: [:0]const u8, dir: Directio
 
 fn init(a: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !Self {
     return .{
-        .plane = try nc.Plane.init(&box.opts(name), parent.plane.*),
+        .plane = try Plane.init(&box.opts(name), parent.plane.*),
         .parent = parent.plane.*,
         .a = a,
         .widgets = ArrayList(WidgetState).init(a),

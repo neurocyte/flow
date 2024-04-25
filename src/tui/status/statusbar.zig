@@ -1,12 +1,8 @@
 const std = @import("std");
-const nc = @import("notcurses");
 
 const Widget = @import("../Widget.zig");
 const WidgetList = @import("../WidgetList.zig");
 const tui = @import("../tui.zig");
-
-parent: nc.Plane,
-plane: nc.Plane,
 
 const Self = @This();
 

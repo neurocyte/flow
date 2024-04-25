@@ -1,9 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const tracy = @import("tracy");
 const root = @import("root");
+
+const Plane = @import("renderer").Plane;
+const style = @import("renderer").style;
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
@@ -31,7 +33,7 @@ project: bool = false,
 const project_icon = "";
 const Self = @This();
 
-pub fn create(a: Allocator, parent: nc.Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane) !Widget {
     const btn = try Button.create(Self, a, parent, .{
         .ctx = .{
             .a = a,
@@ -73,7 +75,7 @@ pub fn layout(_: *Self, _: *Button.State(Self)) Widget.Layout {
 pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = @typeName(@This()) ++ " render" });
     defer frame.deinit();
-    tui.set_base_style(&btn.plane, " ", if (btn.active) theme.editor_cursor else theme.statusbar);
+    btn.plane.set_base_style(" ", if (btn.active) theme.editor_cursor else theme.statusbar);
     btn.plane.erase();
     btn.plane.home();
     if (tui.current().mini_mode) |_|
@@ -86,8 +88,8 @@ pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme)
     return false;
 }
 
-fn render_mini_mode(plane: *nc.Plane, theme: *const Widget.Theme) void {
-    plane.off_styles(nc.style.italic);
+fn render_mini_mode(plane: *Plane, theme: *const Widget.Theme) void {
+    plane.off_styles(style.italic);
     const mini_mode = if (tui.current().mini_mode) |m| m else return;
     _ = plane.print(" {s}", .{mini_mode.text}) catch {};
     if (mini_mode.cursor) |cursor| {
@@ -95,7 +97,7 @@ fn render_mini_mode(plane: *nc.Plane, theme: *const Widget.Theme) void {
         plane.cursor_move_yx(0, pos + 1) catch return;
         var cell = plane.cell_init();
         _ = plane.at_cursor_cell(&cell) catch return;
-        tui.set_cell_style(&cell, theme.editor_cursor);
+        cell.set_style(theme.editor_cursor);
         _ = plane.putc(&cell) catch {};
     }
     return;
@@ -109,8 +111,8 @@ fn render_mini_mode(plane: *nc.Plane, theme: *const Widget.Theme) void {
 // 󱣪 Content save check
 // 󱑛 Content save cog
 // 󰆔 Content save all
-fn render_normal(self: *Self, plane: *nc.Plane, theme: *const Widget.Theme) void {
-    plane.on_styles(nc.style.italic);
+fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
+    plane.on_styles(style.italic);
     _ = plane.putstr(" ") catch {};
     if (self.file_icon.len > 0) {
         self.render_file_icon(plane, theme);
@@ -121,8 +123,8 @@ fn render_normal(self: *Self, plane: *nc.Plane, theme: *const Widget.Theme) void
     return;
 }
 
-fn render_detailed(self: *Self, plane: *nc.Plane, theme: *const Widget.Theme) void {
-    plane.on_styles(nc.style.italic);
+fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
+    plane.on_styles(style.italic);
     _ = plane.putstr(" ") catch {};
     if (self.file_icon.len > 0) {
         self.render_file_icon(plane, theme);
@@ -153,7 +155,7 @@ fn render_terminal_title(self: *Self) void {
     if (std.mem.eql(u8, self.title, new_title)) return;
     @memcpy(self.title_buf[0..new_title.len], new_title);
     self.title = self.title_buf[0..new_title.len];
-    tui.set_terminal_title(self.title);
+    tui.renderer.set_terminal_title(self.title);
 }
 
 pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -193,12 +195,11 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
     return false;
 }
 
-fn render_file_icon(self: *Self, plane: *nc.Plane, _: *const Widget.Theme) void {
+fn render_file_icon(self: *Self, plane: *Plane, _: *const Widget.Theme) void {
     var cell = plane.cell_init();
     _ = plane.at_cursor_cell(&cell) catch return;
     if (!(self.file_color == 0xFFFFFF or self.file_color == 0x000000 or self.file_color == 0x000001)) {
-        nc.channels_set_fg_rgb(&cell.channels, self.file_color) catch {};
-        nc.channels_set_fg_alpha(&cell.channels, nc.ALPHA_OPAQUE) catch {};
+        cell.set_fg_rgb(self.file_color) catch {};
     }
     _ = plane.cell_load(&cell, self.file_icon) catch {};
     _ = plane.putc(&cell) catch {};

@@ -1,6 +1,9 @@
 const std = @import("std");
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const Plane = @import("renderer").Plane;
+const key = @import("renderer").input.key;
+const event_type = @import("renderer").input.event_type;
 
 const Widget = @import("Widget.zig");
 const command = @import("command.zig");
@@ -23,7 +26,7 @@ pub fn Options(context: type) type {
         pub fn do_nothing(_: *context, _: *State(Context)) void {}
 
         pub fn on_render_default(_: *context, self: *State(Context), theme: *const Widget.Theme) bool {
-            tui.set_base_style(&self.plane, " ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
+            self.plane.set_base_style(" ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
             self.plane.erase();
             self.plane.home();
             _ = self.plane.print(" {s} ", .{self.opts.label}) catch {};
@@ -40,10 +43,10 @@ pub fn Options(context: type) type {
     };
 }
 
-pub fn create(ctx_type: type, a: std.mem.Allocator, parent: nc.Plane, opts: Options(ctx_type)) !*State(ctx_type) {
+pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !*State(ctx_type) {
     const Self = State(ctx_type);
     const self = try a.create(Self);
-    var n = try nc.Plane.init(&opts.pos.opts(@typeName(Self)), parent);
+    var n = try Plane.init(&opts.pos.opts(@typeName(Self)), parent);
     errdefer n.deinit();
     self.* = .{
         .a = a,
@@ -55,15 +58,15 @@ pub fn create(ctx_type: type, a: std.mem.Allocator, parent: nc.Plane, opts: Opti
     return self;
 }
 
-pub fn create_widget(ctx_type: type, a: std.mem.Allocator, parent: nc.Plane, opts: Options(ctx_type)) !Widget {
+pub fn create_widget(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !Widget {
     return Widget.to(try create(ctx_type, a, parent, opts));
 }
 
 pub fn State(ctx_type: type) type {
     return struct {
         a: std.mem.Allocator,
-        parent: nc.Plane,
-        plane: nc.Plane,
+        parent: Plane,
+        plane: Plane,
         active: bool = false,
         hover: bool = false,
         opts: Options(ctx_type),
@@ -87,22 +90,22 @@ pub fn State(ctx_type: type) type {
 
         pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             var btn: u32 = 0;
-            if (try m.match(.{ "B", nc.event_type.PRESS, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            if (try m.match(.{ "B", event_type.PRESS, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.active = true;
                 tui.need_render();
                 return true;
-            } else if (try m.match(.{ "B", nc.event_type.RELEASE, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            } else if (try m.match(.{ "B", event_type.RELEASE, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.call_click_handler(btn);
                 self.active = false;
                 tui.need_render();
                 return true;
-            } else if (try m.match(.{ "D", nc.event_type.RELEASE, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            } else if (try m.match(.{ "D", event_type.RELEASE, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.call_click_handler(btn);
                 self.active = false;
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-                tui.current().request_mouse_cursor_pointer(self.hover);
+                tui.renderer.request_mouse_cursor_pointer(self.hover);
                 tui.need_render();
                 return true;
             }
@@ -112,9 +115,9 @@ pub fn State(ctx_type: type) type {
         fn call_click_handler(self: *Self, btn: u32) void {
             if (!self.hover) return;
             switch (btn) {
-                nc.key.BUTTON1 => self.opts.on_click(&self.opts.ctx, self),
-                nc.key.BUTTON2 => self.opts.on_click2(&self.opts.ctx, self),
-                nc.key.BUTTON3 => self.opts.on_click3(&self.opts.ctx, self),
+                key.BUTTON1 => self.opts.on_click(&self.opts.ctx, self),
+                key.BUTTON2 => self.opts.on_click2(&self.opts.ctx, self),
+                key.BUTTON3 => self.opts.on_click3(&self.opts.ctx, self),
                 else => {},
             }
         }

@@ -1,13 +1,16 @@
 const Allocator = @import("std").mem.Allocator;
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const tracy = @import("tracy");
+
+const Plane = @import("renderer").Plane;
+const key = @import("renderer").input.key;
+const event_type = @import("renderer").input.event_type;
 
 const Widget = @import("Widget.zig");
 const EventHandler = @import("EventHandler.zig");
 const tui = @import("tui.zig");
 
-plane: nc.Plane,
+plane: Plane,
 pos_scrn: u32 = 0,
 view_scrn: u32 = 8,
 size_scrn: u32 = 8,
@@ -33,7 +36,7 @@ pub fn create(a: Allocator, parent: Widget, event_source: Widget) !Widget {
 
 fn init(parent: Widget) !Self {
     return .{
-        .plane = try nc.Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
+        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
         .parent = parent,
     };
 }
@@ -63,21 +66,21 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var y: i32 = undefined;
     var ypx: i32 = undefined;
 
-    if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
+    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
         self.active = true;
         self.move_to(y, ypx);
         return true;
-    } else if (try m.match(.{ "B", nc.event_type.RELEASE, tp.more })) {
+    } else if (try m.match(.{ "B", event_type.RELEASE, tp.more })) {
         self.active = false;
         return true;
-    } else if (try m.match(.{ "D", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
+    } else if (try m.match(.{ "D", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
         self.active = true;
         self.move_to(y, ypx);
         return true;
-    } else if (try m.match(.{ "B", nc.event_type.RELEASE, tp.more })) {
+    } else if (try m.match(.{ "B", event_type.RELEASE, tp.more })) {
         self.active = false;
         return true;
-    } else if (try m.match(.{ "D", nc.event_type.RELEASE, tp.more })) {
+    } else if (try m.match(.{ "D", event_type.RELEASE, tp.more })) {
         self.active = false;
         return true;
     } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
@@ -118,7 +121,7 @@ fn pos_scrn_to_virt(self: Self, pos_scrn_: u32) u32 {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = "scrollbar_v render" });
     defer frame.deinit();
-    tui.set_base_style(&self.plane, " ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
+    self.plane.set_base_style(" ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
     self.plane.erase();
     smooth_bar_at(self.plane, @intCast(self.pos_scrn), @intCast(self.view_scrn)) catch {};
     return false;
@@ -148,7 +151,7 @@ const eighths_b = [_][]const u8{ "█", "▇", "▆", "▅", "▄", "▃", "▂"
 const eighths_t = [_][]const u8{ " ", "▔", "🮂", "🮃", "▀", "🮄", "🮅", "🮆" };
 const eighths_c: i32 = @intCast(eighths_b.len);
 
-fn smooth_bar_at(plane: nc.Plane, pos_: i32, size_: i32) !void {
+fn smooth_bar_at(plane: Plane, pos_: i32, size_: i32) !void {
     const height: i32 = @intCast(plane.dim_y());
     var size = @max(size_, 8);
     const pos: i32 = @min(height * eighths_c - size, pos_);

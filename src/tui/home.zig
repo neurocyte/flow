@@ -1,6 +1,10 @@
 const std = @import("std");
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const Plane = @import("renderer").Plane;
+const planeutils = @import("renderer").planeutils;
+const channels_ = @import("renderer").channels;
+const style_ = @import("renderer").style;
 
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
@@ -11,9 +15,9 @@ const command = @import("command.zig");
 const fonts = @import("fonts.zig");
 
 a: std.mem.Allocator,
-background: nc.Plane,
-plane: nc.Plane,
-parent: nc.Plane,
+background: Plane,
+plane: Plane,
+parent: Plane,
 fire: ?Fire = null,
 commands: Commands = undefined,
 menu: *Menu.State(*Self),
@@ -22,9 +26,9 @@ const Self = @This();
 
 pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
     const self: *Self = try a.create(Self);
-    var background = try nc.Plane.init(&(Widget.Box{}).opts("background"), parent.plane.*);
+    var background = try Plane.init(&(Widget.Box{}).opts("background"), parent.plane.*);
     errdefer background.deinit();
-    var n = try nc.Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
+    var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
     errdefer n.deinit();
 
     const w = Widget.to(self);
@@ -68,49 +72,31 @@ pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) boo
 pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var hover: bool = false;
     if (try m.match(.{ "H", tp.extract(&hover) })) {
-        tui.current().request_mouse_cursor_default(hover);
+        tui.renderer.request_mouse_cursor_default(hover);
         tui.need_render();
         return true;
     }
     return false;
 }
 
-fn set_style(plane: nc.Plane, style: Widget.Theme.Style) void {
-    var channels: u64 = 0;
-    if (style.fg) |fg| {
-        nc.channels_set_fg_rgb(&channels, fg) catch {};
-        nc.channels_set_fg_alpha(&channels, nc.ALPHA_OPAQUE) catch {};
-    }
-    if (style.bg) |bg| {
-        nc.channels_set_bg_rgb(&channels, bg) catch {};
-        nc.channels_set_bg_alpha(&channels, nc.ALPHA_TRANSPARENT) catch {};
-    }
-    plane.set_channels(channels);
-    if (style.fs) |fs| switch (fs) {
-        .normal => plane.set_styles(nc.style.none),
-        .bold => plane.set_styles(nc.style.bold),
-        .italic => plane.set_styles(nc.style.italic),
-        .underline => plane.set_styles(nc.style.underline),
-        .undercurl => plane.set_styles(nc.style.undercurl),
-        .strikethrough => plane.set_styles(nc.style.struck),
-    };
-}
-
 fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor;
-    const bg_alpha: c_uint = if (button.active or button.hover or selected) nc.ALPHA_OPAQUE else nc.ALPHA_TRANSPARENT;
-    try tui.set_base_style_alpha(button.plane, " ", style_base, nc.ALPHA_OPAQUE, bg_alpha);
+    if (button.active or button.hover or selected) {
+        button.plane.set_base_style(" ", style_base);
+    } else {
+        button.plane.set_base_style_bg_transparent(" ", style_base);
+    }
     button.plane.erase();
     button.plane.home();
     const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
     const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else theme.editor;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else theme.editor;
     const sep = std.mem.indexOfScalar(u8, button.opts.label, ':') orelse button.opts.label.len;
-    set_style(button.plane, style_subtext);
-    set_style(button.plane, style_text);
+    button.plane.set_style(style_subtext);
+    button.plane.set_style(style_text);
     const pointer = if (selected) "⏵" else " ";
     _ = button.plane.print("{s}{s}", .{ pointer, button.opts.label[0..sep] }) catch {};
-    set_style(button.plane, style_keybind);
+    button.plane.set_style(style_keybind);
     _ = button.plane.print("{s}", .{button.opts.label[sep + 1 ..]}) catch {};
     return false;
 }
@@ -146,10 +132,10 @@ fn menu_action_quit(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const more = self.menu.render(theme);
 
-    try tui.set_base_style_alpha(self.background, " ", theme.editor, nc.ALPHA_OPAQUE, nc.ALPHA_OPAQUE);
+    self.background.set_base_style(" ", theme.editor);
     self.background.erase();
     self.background.home();
-    try tui.set_base_style_alpha(self.plane, "", theme.editor, nc.ALPHA_TRANSPARENT, nc.ALPHA_TRANSPARENT);
+    self.plane.set_base_style_transparent("", theme.editor);
     self.plane.erase();
     self.plane.home();
     if (self.fire) |*fire| fire.render();
@@ -161,31 +147,31 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const subtext = "a programmer's text editor";
 
     if (self.plane.dim_x() > 120 and self.plane.dim_y() > 22) {
-        set_style(self.plane, style_title);
+        self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(2, 4) catch return more;
         fonts.print_string_large(self.plane, title) catch return more;
 
-        set_style(self.plane, style_subtext);
+        self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(10, 8) catch return more;
         fonts.print_string_medium(self.plane, subtext) catch return more;
 
         self.menu.resize(.{ .y = 15, .x = 10, .w = 32 });
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
-        set_style(self.plane, style_title);
+        self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(2, 4) catch return more;
         fonts.print_string_medium(self.plane, title) catch return more;
 
-        set_style(self.plane, style_subtext);
+        self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(7, 6) catch return more;
         _ = self.plane.print(subtext, .{}) catch {};
 
         self.menu.resize(.{ .y = 9, .x = 8, .w = 32 });
     } else {
-        set_style(self.plane, style_title);
+        self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(1, 4) catch return more;
         _ = self.plane.print(title, .{}) catch return more;
 
-        set_style(self.plane, style_subtext);
+        self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(3, 6) catch return more;
         _ = self.plane.print(subtext, .{}) catch {};
 
@@ -235,7 +221,7 @@ const Fire = struct {
     const px = "▀";
 
     allocator: std.mem.Allocator,
-    plane: nc.Plane,
+    plane: Plane,
     prng: std.rand.DefaultPrng,
 
     //scope cache - spread fire
@@ -253,7 +239,7 @@ const Fire = struct {
     const MAX_COLOR = 256;
     const LAST_COLOR = MAX_COLOR - 1;
 
-    fn init(a: std.mem.Allocator, plane: nc.Plane, pos: Widget.Box) !Fire {
+    fn init(a: std.mem.Allocator, plane: Plane, pos: Widget.Box) !Fire {
         const FIRE_H = @as(u16, @intCast(pos.h)) * 2;
         const FIRE_W = @as(u16, @intCast(pos.w));
         var self: Fire = .{

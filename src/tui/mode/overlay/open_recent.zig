@@ -1,8 +1,14 @@
 const std = @import("std");
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
+
+const Plane = @import("renderer").Plane;
+const planeutils = @import("renderer").planeutils;
+const key = @import("renderer").input.key;
+const mod = @import("renderer").input.modifier;
+const event_type = @import("renderer").input.event_type;
+const egc_ = @import("renderer").egc;
 
 const tui = @import("../../tui.zig");
 const command = @import("../../command.zig");
@@ -66,7 +72,7 @@ pub fn deinit(self: *Self) void {
 
 fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
-    try tui.set_base_style_alpha(button.plane, " ", style_base, nc.ALPHA_OPAQUE, nc.ALPHA_OPAQUE);
+    button.plane.set_base_style(" ", style_base);
     button.plane.erase();
     button.plane.home();
     var file_path: []const u8 = undefined;
@@ -89,11 +95,11 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     return false;
 }
 
-fn render_cell(plane: nc.Plane, y: usize, x: usize, style: Widget.Theme.Style) !void {
+fn render_cell(plane: Plane, y: usize, x: usize, style: Widget.Theme.Style) !void {
     plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
     var cell = plane.cell_init();
     _ = plane.at_cursor_cell(&cell) catch return;
-    tui.set_cell_style(&cell, style);
+    cell.set_style(style);
     _ = plane.putc(&cell) catch {};
 }
 
@@ -203,9 +209,9 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
     return switch (evtype) {
-        nc.event_type.PRESS => self.mapPress(keypress, egc, modifiers),
-        nc.event_type.REPEAT => self.mapPress(keypress, egc, modifiers),
-        nc.event_type.RELEASE => self.mapRelease(keypress, modifiers),
+        event_type.PRESS => self.mapPress(keypress, egc, modifiers),
+        event_type.REPEAT => self.mapPress(keypress, egc, modifiers),
+        event_type.RELEASE => self.mapRelease(keypress, modifiers),
         else => {},
     };
 }
@@ -213,7 +219,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) t
 fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     return switch (modifiers) {
-        nc.mod.CTRL => switch (keynormal) {
+        mod.CTRL => switch (keynormal) {
             'J' => self.cmd("toggle_logview", .{}),
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("close_file", .{}),
@@ -223,14 +229,14 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'V' => self.cmd("system_paste", .{}),
             'C' => self.cmd("exit_overlay_mode", .{}),
             'G' => self.cmd("exit_overlay_mode", .{}),
-            nc.key.ESC => self.cmd("exit_overlay_mode", .{}),
-            nc.key.UP => self.cmd("open_recent_menu_up", .{}),
-            nc.key.DOWN => self.cmd("open_recent_menu_down", .{}),
-            nc.key.ENTER => self.cmd("open_recent_menu_activate", .{}),
-            nc.key.BACKSPACE => self.delete_word(),
+            key.ESC => self.cmd("exit_overlay_mode", .{}),
+            key.UP => self.cmd("open_recent_menu_up", .{}),
+            key.DOWN => self.cmd("open_recent_menu_down", .{}),
+            key.ENTER => self.cmd("open_recent_menu_activate", .{}),
+            key.BACKSPACE => self.delete_word(),
             else => {},
         },
-        nc.mod.CTRL | nc.mod.SHIFT => switch (keynormal) {
+        mod.CTRL | mod.SHIFT => switch (keynormal) {
             'Q' => self.cmd("quit_without_saving", .{}),
             'W' => self.cmd("close_file_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
@@ -239,27 +245,27 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'E' => self.cmd("open_recent_menu_up", .{}),
             else => {},
         },
-        nc.mod.ALT => switch (keynormal) {
+        mod.ALT => switch (keynormal) {
             'L' => self.cmd("toggle_logview", .{}),
             'I' => self.cmd("toggle_inputview", .{}),
             else => {},
         },
-        nc.mod.SHIFT => switch (keypress) {
-            else => if (!nc.key.synthesized_p(keypress))
+        mod.SHIFT => switch (keypress) {
+            else => if (!key.synthesized_p(keypress))
                 self.insert_code_point(egc)
             else {},
         },
         0 => switch (keypress) {
-            nc.key.F09 => self.cmd("theme_prev", .{}),
-            nc.key.F10 => self.cmd("theme_next", .{}),
-            nc.key.F11 => self.cmd("toggle_logview", .{}),
-            nc.key.F12 => self.cmd("toggle_inputview", .{}),
-            nc.key.ESC => self.cmd("exit_overlay_mode", .{}),
-            nc.key.UP => self.cmd("open_recent_menu_up", .{}),
-            nc.key.DOWN => self.cmd("open_recent_menu_down", .{}),
-            nc.key.ENTER => self.cmd("open_recent_menu_activate", .{}),
-            nc.key.BACKSPACE => self.delete_code_point(),
-            else => if (!nc.key.synthesized_p(keypress))
+            key.F09 => self.cmd("theme_prev", .{}),
+            key.F10 => self.cmd("theme_next", .{}),
+            key.F11 => self.cmd("toggle_logview", .{}),
+            key.F12 => self.cmd("toggle_inputview", .{}),
+            key.ESC => self.cmd("exit_overlay_mode", .{}),
+            key.UP => self.cmd("open_recent_menu_up", .{}),
+            key.DOWN => self.cmd("open_recent_menu_down", .{}),
+            key.ENTER => self.cmd("open_recent_menu_activate", .{}),
+            key.BACKSPACE => self.delete_code_point(),
+            else => if (!key.synthesized_p(keypress))
                 self.insert_code_point(egc)
             else {},
         },
@@ -269,7 +275,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
 
 fn mapRelease(self: *Self, keypress: u32, _: u32) tp.result {
     return switch (keypress) {
-        nc.key.LCTRL, nc.key.RCTRL => if (self.menu.selected orelse 0 > 0) return self.cmd("open_recent_menu_activate", .{}),
+        key.LCTRL, key.RCTRL => if (self.menu.selected orelse 0 > 0) return self.cmd("open_recent_menu_activate", .{}),
         else => {},
     };
 }
@@ -307,7 +313,7 @@ fn delete_code_point(self: *Self) tp.result {
 
 fn insert_code_point(self: *Self, c: u32) tp.result {
     var buf: [6]u8 = undefined;
-    const bytes = nc.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
+    const bytes = egc_.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
     self.inputbox.text.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
     self.inputbox.cursor = self.inputbox.text.items.len;
     return self.start_query();

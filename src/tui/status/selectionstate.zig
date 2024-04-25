@@ -1,15 +1,15 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const tracy = @import("tracy");
+
+const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
 const ed = @import("../editor.zig");
 const tui = @import("../tui.zig");
 
-parent: nc.Plane,
-plane: nc.Plane,
+plane: Plane,
 matches: usize = 0,
 cursels: usize = 0,
 selection: ?ed.Selection = null,
@@ -18,18 +18,17 @@ rendered: [:0]const u8 = "",
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: nc.Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
     self.* = try init(parent);
     return Widget.to(self);
 }
 
-fn init(parent: nc.Plane) !Self {
-    var n = try nc.Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent);
+fn init(parent: Plane) !Self {
+    var n = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent);
     errdefer n.deinit();
 
     return .{
-        .parent = parent,
         .plane = n,
     };
 }
@@ -46,7 +45,7 @@ pub fn layout(self: *Self) Widget.Layout {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = @typeName(@This()) ++ " render" });
     defer frame.deinit();
-    tui.set_base_style(&self.plane, " ", theme.statusbar);
+    self.plane.set_base_style(" ", theme.statusbar);
     self.plane.erase();
     self.plane.home();
     _ = self.plane.putstr(self.rendered) catch {};

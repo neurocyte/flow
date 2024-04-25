@@ -1,4 +1,4 @@
-const Plane = @import("notcurses").Plane;
+const Plane = @import("renderer").Plane;
 
 const Self = @This();
 
@@ -8,14 +8,14 @@ h: usize = 1,
 w: usize = 1,
 
 pub fn opts(self: Self, name_: [:0]const u8) Plane.Options {
-    return self.opts_flags(name_, 0);
+    return self.opts_flags(name_, Plane.option.none);
 }
 
 pub fn opts_vscroll(self: Self, name_: [:0]const u8) Plane.Options {
     return self.opts_flags(name_, Plane.option.VSCROLL);
 }
 
-fn opts_flags(self: Self, name_: [:0]const u8, flags: u64) Plane.Options {
+fn opts_flags(self: Self, name_: [:0]const u8, flags: Plane.option) Plane.Options {
     return Plane.Options{
         .y = @intCast(self.y),
         .x = @intCast(self.x),

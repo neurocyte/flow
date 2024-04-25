@@ -4,20 +4,20 @@ const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
 const Mutex = @import("std").Thread.Mutex;
 
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const log = @import("log");
+
+const Plane = @import("renderer").Plane;
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 
 const escape = fmt.fmtSliceEscapeLower;
-const A = nc.Align;
 
 pub const name = @typeName(Self);
 
-plane: nc.Plane,
+plane: Plane,
 lastbuf_src: [128]u8 = undefined,
 lastbuf_msg: [log.max_log_message]u8 = undefined,
 last_src: []u8 = "",
@@ -28,15 +28,15 @@ last_tdiff: i64 = 0,
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: nc.Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
     self.* = init(parent) catch |e| return tp.exit_error(e);
     try tui.current().message_filters.add(MessageFilter.bind(self, log_receive));
     return Widget.to(self);
 }
 
-fn init(parent: nc.Plane) !Self {
-    var n = try nc.Plane.init(&(Widget.Box{}).opts_vscroll(name), parent);
+fn init(parent: Plane) !Self {
+    var n = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent);
     errdefer n.deinit();
     return .{
         .plane = n,
@@ -51,7 +51,7 @@ pub fn deinit(self: *Self, a: Allocator) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    tui.set_base_style(&self.plane, " ", theme.panel);
+    self.plane.set_base_style(" ", theme.panel);
     return false;
 }
 

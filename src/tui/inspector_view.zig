@@ -3,11 +3,13 @@ const fmt = @import("std").fmt;
 const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
 
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const Buffer = @import("Buffer");
 const color = @import("color");
 const syntax = @import("syntax");
+
+const Plane = @import("renderer").Plane;
+const style = @import("renderer").style;
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
@@ -15,11 +17,9 @@ const EventHandler = @import("EventHandler.zig");
 const mainview = @import("mainview.zig");
 const ed = @import("editor.zig");
 
-const A = nc.Align;
-
 pub const name = @typeName(Self);
 
-plane: nc.Plane,
+plane: Plane,
 editor: *ed.Editor,
 need_render: bool = true,
 need_clear: bool = false,
@@ -30,11 +30,11 @@ last_node: usize = 0,
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: nc.Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane) !Widget {
     if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
         const self: *Self = try a.create(Self);
         self.* = .{
-            .plane = try nc.Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
+            .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
             .editor = editor,
             .pos_cache = try ed.PosToWidthCache.init(a),
         };
@@ -189,33 +189,33 @@ fn show_color(self: *Self, tag: []const u8, c_: ?Widget.Theme.Color) void {
 fn show_font(self: *Self, font: ?Widget.Theme.FontStyle) void {
     if (font) |fs| switch (fs) {
         .normal => {
-            self.plane.set_styles(nc.style.none);
+            self.plane.set_styles(style.normal);
             _ = self.plane.print(" normal", .{}) catch return;
         },
         .bold => {
-            self.plane.set_styles(nc.style.bold);
+            self.plane.set_styles(style.bold);
             _ = self.plane.print(" bold", .{}) catch return;
         },
         .italic => {
-            self.plane.set_styles(nc.style.italic);
+            self.plane.set_styles(style.italic);
             _ = self.plane.print(" italic", .{}) catch return;
         },
         .underline => {
-            self.plane.set_styles(nc.style.underline);
+            self.plane.set_styles(style.underline);
             _ = self.plane.print(" underline", .{}) catch return;
         },
         .undercurl => {
-            self.plane.set_styles(nc.style.undercurl);
+            self.plane.set_styles(style.undercurl);
             _ = self.plane.print(" undercurl", .{}) catch return;
         },
         .strikethrough => {
-            self.plane.set_styles(nc.style.struck);
+            self.plane.set_styles(style.struck);
             _ = self.plane.print(" strikethrough", .{}) catch return;
         },
     };
-    self.plane.set_styles(nc.style.none);
+    self.plane.set_styles(style.normal);
 }
 
 fn reset_style(self: *Self) void {
-    tui.set_base_style(&self.plane, " ", (self.theme orelse return).panel);
+    self.plane.set_base_style(" ", (self.theme orelse return).panel);
 }

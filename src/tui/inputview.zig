@@ -4,19 +4,18 @@ const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
 const Mutex = @import("std").Thread.Mutex;
 
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const Plane = @import("renderer").Plane;
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const EventHandler = @import("EventHandler.zig");
 
-const A = nc.Align;
-
 pub const name = "inputview";
 
-parent: nc.Plane,
-plane: nc.Plane,
+parent: Plane,
+plane: Plane,
 lastbuf: [4096]u8 = undefined,
 last: []u8 = "",
 last_count: u64 = 0,
@@ -25,15 +24,15 @@ last_tdiff: i64 = 0,
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: nc.Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
     self.* = try init(parent);
     try tui.current().input_listeners.add(EventHandler.bind(self, listen));
     return Widget.to(self);
 }
 
-fn init(parent: nc.Plane) !Self {
-    var n = try nc.Plane.init(&(Widget.Box{}).opts_vscroll(@typeName(Self)), parent);
+fn init(parent: Plane) !Self {
+    var n = try Plane.init(&(Widget.Box{}).opts_vscroll(@typeName(Self)), parent);
     errdefer n.deinit();
     return .{
         .parent = parent,
@@ -49,7 +48,7 @@ pub fn deinit(self: *Self, a: Allocator) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    tui.set_base_style(&self.plane, " ", theme.panel);
+    self.plane.set_base_style(" ", theme.panel);
     return false;
 }
 

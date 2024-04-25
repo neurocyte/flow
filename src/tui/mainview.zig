@@ -1,11 +1,12 @@
 const std = @import("std");
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const tracy = @import("tracy");
 const root = @import("root");
 const location_history = @import("location_history");
 const project_manager = @import("project_manager");
+
+const Plane = @import("renderer").Plane;
 
 const tui = @import("tui.zig");
 const command = @import("command.zig");
@@ -21,7 +22,7 @@ const Self = @This();
 const Commands = command.Collection(cmds);
 
 a: std.mem.Allocator,
-plane: nc.Plane,
+plane: Plane,
 widgets: *WidgetList,
 widgets_widget: Widget,
 floating_views: WidgetStack,
@@ -43,7 +44,7 @@ const NavState = struct {
     matches: usize = 0,
 };
 
-pub fn create(a: std.mem.Allocator, n: nc.Plane) !Widget {
+pub fn create(a: std.mem.Allocator, n: Plane) !Widget {
     try project_manager.open_cwd();
     const self = try a.create(Self);
     self.* = .{

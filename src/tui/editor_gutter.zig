@@ -1,11 +1,15 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const tracy = @import("tracy");
 const diff = @import("diff");
 const cbor = @import("cbor");
 const root = @import("root");
+
+const Plane = @import("renderer").Plane;
+const style = @import("renderer").style;
+const key = @import("renderer").input.key;
+const event_type = @import("renderer").input.event_type;
 
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
@@ -16,7 +20,7 @@ const command = @import("command.zig");
 const ed = @import("editor.zig");
 
 a: Allocator,
-plane: nc.Plane,
+plane: Plane,
 parent: Widget,
 
 lines: u32 = 0,
@@ -40,7 +44,7 @@ pub fn create(a: Allocator, parent: Widget, event_source: Widget, editor: *ed.Ed
     const self: *Self = try a.create(Self);
     self.* = .{
         .a = a,
-        .plane = try nc.Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
+        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
         .parent = parent,
         .linenum = tui.current().config.gutter_line_numbers,
         .relative = tui.current().config.gutter_line_numbers_relative,
@@ -87,15 +91,15 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var y: i32 = undefined;
     var ypx: i32 = undefined;
 
-    if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
+    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
         return self.primary_click(y);
-    if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON3, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
+    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON3, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
         return self.secondary_click();
-    if (try m.match(.{ "D", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
+    if (try m.match(.{ "D", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
         return self.primary_drag(y);
-    if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON4, tp.more }))
+    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON4, tp.more }))
         return self.mouse_click_button4();
-    if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON5, tp.more }))
+    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON5, tp.more }))
         return self.mouse_click_button5();
 
     return false;
@@ -119,7 +123,7 @@ inline fn get_width(self: *Self) usize {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = "gutter render" });
     defer frame.deinit();
-    tui.set_base_style(&self.plane, " ", theme.editor_gutter);
+    self.plane.set_base_style(" ", theme.editor_gutter);
     self.plane.erase();
     if (self.linenum) {
         const relative = self.relative or if (tui.current().input_mode) |mode| mode.line_numbers == .relative else false;
@@ -158,13 +162,13 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
         if (linenum == self.line + 1) {
-            tui.set_base_style(&self.plane, " ", theme.editor_gutter_active);
-            self.plane.on_styles(nc.style.bold);
+            self.plane.set_base_style(" ", theme.editor_gutter_active);
+            self.plane.on_styles(style.bold);
         } else {
-            tui.set_base_style(&self.plane, " ", theme.editor_gutter);
-            self.plane.off_styles(nc.style.bold);
+            self.plane.set_base_style(" ", theme.editor_gutter);
+            self.plane.off_styles(style.bold);
         }
-        _ = self.plane.putstr_aligned(@intCast(pos), nc.Align.right, std.fmt.bufPrintZ(&buf, "{d} ", .{linenum}) catch return) catch {};
+        _ = self.plane.print_aligned_right(@intCast(pos), "{s}", .{std.fmt.bufPrintZ(&buf, "{d} ", .{linenum}) catch return}) catch {};
         if (self.highlight and linenum == self.line + 1)
             self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
@@ -184,10 +188,10 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
     var buf: [31:0]u8 = undefined;
     while (rows > 0) : (rows -= 1) {
         if (pos > self.lines - row) return;
-        tui.set_base_style(&self.plane, " ", if (linenum == 0) theme.editor_gutter_active else theme.editor_gutter);
+        self.plane.set_base_style(" ", if (linenum == 0) theme.editor_gutter_active else theme.editor_gutter);
         const val = @abs(if (linenum == 0) line else linenum);
         const fmt = std.fmt.bufPrintZ(&buf, "{d} ", .{val}) catch return;
-        _ = self.plane.putstr_aligned(@intCast(pos), nc.Align.right, if (fmt.len > 6) "==> " else fmt) catch {};
+        _ = self.plane.print_aligned_right(@intCast(pos), "{s}", .{if (fmt.len > 6) "==> " else fmt}) catch {};
         if (self.highlight and linenum == 0)
             self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, abs_linenum, theme);
@@ -202,7 +206,7 @@ inline fn render_line_highlight(self: *Self, pos: usize, theme: *const Widget.Th
         self.plane.cursor_move_yx(@intCast(pos), @intCast(i)) catch return;
         var cell = self.plane.cell_init();
         _ = self.plane.at_cursor_cell(&cell) catch return;
-        tui.set_cell_style_bg(&cell, theme.editor_line_highlight);
+        cell.set_style_bg(theme.editor_line_highlight);
         _ = self.plane.putc(&cell) catch {};
     }
 }
@@ -227,7 +231,7 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Symbol, pos: usize, 
     self.plane.cursor_move_yx(@intCast(pos), @intCast(self.get_width() - 1)) catch return;
     var cell = self.plane.cell_init();
     _ = self.plane.at_cursor_cell(&cell) catch return;
-    tui.set_cell_style_fg(&cell, switch (sym.kind) {
+    cell.set_style_fg(switch (sym.kind) {
         .insert => theme.editor_gutter_added,
         .modified => theme.editor_gutter_modified,
         .delete => theme.editor_gutter_deleted,
@@ -243,7 +247,7 @@ fn render_diagnostics(self: *Self, theme: *const Widget.Theme) void {
 fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widget.Theme) void {
     const row = diag.sel.begin.row;
     if (!(self.row < row and row < self.row + self.rows)) return;
-    const style = switch (diag.get_severity()) {
+    const style_ = switch (diag.get_severity()) {
         .Error => theme.editor_error,
         .Warning => theme.editor_warning,
         .Information => theme.editor_information,
@@ -259,7 +263,7 @@ fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widg
     self.plane.cursor_move_yx(@intCast(y), 0) catch return;
     var cell = self.plane.cell_init();
     _ = self.plane.at_cursor_cell(&cell) catch return;
-    tui.set_cell_style_fg(&cell, style);
+    cell.set_style_fg(style_);
     _ = self.plane.cell_load(&cell, icon) catch {};
     _ = self.plane.putc(&cell) catch {};
 }

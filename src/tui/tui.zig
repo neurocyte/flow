@@ -1,13 +1,13 @@
 const std = @import("std");
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const log = @import("log");
 const config = @import("config");
 const project_manager = @import("project_manager");
 const build_options = @import("build_options");
 const root = @import("root");
-
 const tracy = @import("tracy");
+
+pub const renderer = @import("renderer");
 
 const command = @import("command.zig");
 const WidgetStack = @import("WidgetStack.zig");
@@ -25,7 +25,7 @@ const Mutex = std.Thread.Mutex;
 const maxInt = std.math.maxInt;
 
 a: Allocator,
-nc: nc.Context,
+rdr: renderer,
 config: config,
 frame_time: usize, // in microseconds
 frame_clock: tp.metronome,
@@ -43,31 +43,16 @@ mini_mode: ?MiniModeState = null,
 hover_focus: ?*Widget = null,
 commands: Commands = undefined,
 logger: log.Logger,
-drag: bool = false,
-drag_event: nc.Input = nc.input(),
 drag_source: ?*Widget = null,
 theme: Widget.Theme,
-escape_state: EscapeState = .none,
-escape_initial: ?nc.Input = null,
-escape_code: ArrayList(u8),
-bracketed_paste: bool = false,
-bracketed_paste_buffer: ArrayList(u8),
 idle_frame_count: usize = 0,
 unrendered_input_events_count: usize = 0,
-unflushed_events_count: usize = 0,
 init_timer: ?tp.timeout,
 sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
-mods: ModState = .{},
 final_exit: []const u8 = "normal",
 
 const idle_frames = 1;
-
-const ModState = struct {
-    ctrl: bool = false,
-    shift: bool = false,
-    alt: bool = false,
-};
 
 const init_delay = 1; // ms
 
@@ -91,20 +76,8 @@ fn start(args: StartArgs) tp.result {
 }
 
 fn init(a: Allocator) !*Self {
-    var opts = nc.Context.Options{
-        .termtype = null,
-        .loglevel = @intFromEnum(nc.LogLevel.silent),
-        .margin_t = 0,
-        .margin_r = 0,
-        .margin_b = 0,
-        .margin_l = 0,
-        .flags = nc.Context.option.SUPPRESS_BANNERS | nc.Context.option.INHIBIT_SETLOCALE | nc.Context.option.NO_WINCH_SIGHANDLER,
-    };
-    if (tp.env.get().is("no-alternate"))
-        opts.flags |= nc.Context.option.NO_ALTERNATE_SCREEN;
-    const nc_ = try nc.Context.core_init(&opts, null);
-    nc_.mice_enable(nc.mice.ALL_EVENTS) catch {};
-    try nc_.linesigs_disable();
+    var self = try a.create(Self);
+    const ctx = try renderer.init(a, self, tp.env.get().is("no-alternate"));
 
     var conf_buf: ?[]const u8 = null;
     var conf = root.read_config(a, &conf_buf);
@@ -120,18 +93,17 @@ fn init(a: Allocator) !*Self {
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 
-    const fd_stdin = try tp.file_descriptor.init("stdin", nc_.inputready_fd());
+    const fd_stdin = try tp.file_descriptor.init("stdin", ctx.input_fd());
     // const fd_stdin = try tp.file_descriptor.init("stdin", std.os.STDIN_FILENO);
-    const n = nc_.stdplane();
+    const n = ctx.stdplane();
 
     try frame_clock.start();
     try fd_stdin.wait_read();
 
-    var self = try a.create(Self);
     self.* = .{
         .a = a,
         .config = conf,
-        .nc = nc_,
+        .rdr = ctx,
         .frame_time = frame_time,
         .frame_clock = frame_clock,
         .frame_clock_running = true,
@@ -142,23 +114,23 @@ fn init(a: Allocator) !*Self {
         .input_mode = null,
         .input_listeners = EventHandler.List.init(a),
         .logger = log.logger("tui"),
-        .escape_code = ArrayList(u8).init(a),
-        .bracketed_paste_buffer = ArrayList(u8).init(a),
         .init_timer = try tp.timeout.init_ms(init_delay, tp.message.fmt(.{"init"})),
         .theme = theme,
         .no_sleep = tp.env.get().is("no-sleep"),
     };
     instance_ = self;
     defer instance_ = null;
+    self.rdr.handler_ctx = self;
+    self.rdr.dispatch_input = dispatch_input;
+    self.rdr.dispatch_mouse = dispatch_mouse;
+    self.rdr.dispatch_mouse_drag = dispatch_mouse_drag;
+    self.rdr.dispatch_event = dispatch_event;
     try self.commands.init(self);
     errdefer self.deinit();
     try self.listen_sigwinch();
     self.mainview = try mainview.create(a, n);
-    try self.initUI();
-    try nc_.render();
+    try ctx.render();
     try self.save_config();
-    // self.request_mouse_cursor_support_detect();
-    self.bracketed_paste_enable();
     if (tp.env.get().is("restore-session")) {
         command.executeName("restore_session", .{}) catch |e| self.logger.err("restore_session", e);
         self.logger.print("session restored", .{});
@@ -166,24 +138,11 @@ fn init(a: Allocator) !*Self {
     return self;
 }
 
-pub fn initUI(self: *Self) !void {
-    const n = self.nc.stdplane();
-    var channels: u64 = 0;
-    try nc.channels_set_fg_rgb(&channels, 0x88aa00);
-    try nc.channels_set_bg_rgb(&channels, 0x000088);
-    try nc.channels_set_bg_alpha(&channels, nc.ALPHA_TRANSPARENT);
-    _ = try n.set_base(" ", 0, channels);
-    try n.set_fg_rgb(0x40f040);
-    try n.set_fg_rgb(0x00dddd);
-}
-
 fn init_delayed(self: *Self) tp.result {
     if (self.input_mode) |_| {} else return cmds.enter_mode(self, command.Context.fmt(.{self.config.input_mode}));
 }
 
 fn deinit(self: *Self) void {
-    self.bracketed_paste_buffer.deinit();
-    self.escape_code.deinit();
     if (self.input_mode) |*m| m.deinit();
     self.commands.deinit();
     self.fd_stdin.deinit();
@@ -194,7 +153,7 @@ fn deinit(self: *Self) void {
         self.frame_clock.stop() catch {};
     if (self.sigwinch_signal) |sig| sig.deinit();
     self.frame_clock.deinit();
-    self.nc.stop();
+    self.rdr.stop();
     self.logger.deinit();
     self.a.destroy(self);
 }
@@ -211,7 +170,7 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     defer instance_ = null;
     errdefer self.deinit();
     errdefer self.fd_stdin.cancel() catch {};
-    errdefer self.nc.leave_alternate_screen();
+    errdefer self.rdr.leave_alternate_screen();
     self.receive_safe(from, m) catch |e| {
         if (std.mem.eql(u8, "normal", tp.error_text()))
             return e;
@@ -253,8 +212,8 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 
     if (try m.match(.{"sigwinch"})) {
         try self.listen_sigwinch();
-        self.nc.refresh() catch |e| return self.logger.err("refresh", e);
-        self.mainview.resize(Widget.Box.from(self.nc.stdplane()));
+        self.rdr.refresh() catch |e| return self.logger.err("refresh", e);
+        self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
         need_render();
         return;
     }
@@ -265,7 +224,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         return;
     }
 
-    if (self.dispatch_input(m) catch |e| b: {
+    if (self.dispatch_input_fd(m) catch |e| b: {
         self.logger.err("input dispatch", e);
         break :b true;
     })
@@ -341,14 +300,14 @@ fn render(self: *Self, current_time: i64) void {
     const more = ret: {
         const frame = tracy.initZone(@src(), .{ .name = "tui render" });
         defer frame.deinit();
-        self.nc.stdplane().erase();
+        self.rdr.stdplane().erase();
         break :ret self.mainview.render(&self.theme);
     };
 
     {
         const frame = tracy.initZone(@src(), .{ .name = "notcurses render" });
         defer frame.deinit();
-        self.nc.render() catch |e| self.logger.err("render", e);
+        self.rdr.render() catch |e| self.logger.err("render", e);
     }
 
     self.idle_frame_count = if (self.unrendered_input_events_count > 0)
@@ -370,14 +329,23 @@ fn render(self: *Self, current_time: i64) void {
     }
 }
 
-fn dispatch_input(self: *Self, m: tp.message) error{Exit}!bool {
+fn dispatch_flush_input_event(self: *Self) tp.result {
+    var buf: [32]u8 = undefined;
+    if (self.input_mode) |mode|
+        try mode.handler.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{"F"}) catch |e| return tp.exit_error(e));
+}
+
+fn dispatch_input_fd(self: *Self, m: tp.message) error{Exit}!bool {
     const frame = tracy.initZone(@src(), .{ .name = "tui input" });
     defer frame.deinit();
     var err: i64 = 0;
     var err_msg: []u8 = "";
     if (try m.match(.{ "fd", "stdin", "read_ready" })) {
         self.fd_stdin.wait_read() catch |e| return tp.exit_error(e);
-        try self.dispatch_notcurses();
+        self.rdr.process_input() catch |e| return tp.exit_error(e);
+        try self.dispatch_flush_input_event();
+        if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
+            need_render();
         return true; // consume message
     }
     if (try m.match(.{ "fd", "stdin", "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
@@ -386,199 +354,50 @@ fn dispatch_input(self: *Self, m: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn dispatch_notcurses(self: *Self) tp.result {
-    var input_buffer: [256]nc.Input = undefined;
-
-    while (true) {
-        const nivec = self.nc.getvec_nblock(&input_buffer) catch |e| return tp.exit_error(e);
-        if (nivec.len == 0)
-            break;
-        for (nivec) |*ni| {
-            if (ni.id == 27 or self.escape_state != .none) {
-                try self.handle_escape(ni);
-                continue;
-            }
-            self.dispatch_input_event(ni) catch |e|
-                self.logger.err("input dispatch", e);
-        }
-    }
-    if (self.escape_state == .init)
-        try self.handle_escape_short();
-    if (self.unflushed_events_count > 0)
-        _ = try self.dispatch_flush_input_event();
-    if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
-        need_render();
-}
-
-fn dispatch_input_event(self: *Self, ni: *nc.Input) tp.result {
-    const keypress: u32 = ni.id;
-    var buf: [256]u8 = undefined;
+fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    const m: tp.message = .{ .buf = cbor_msg };
+    const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
-    ni.modifiers &= nc.mod.CTRL | nc.mod.SHIFT | nc.mod.ALT | nc.mod.SUPER | nc.mod.META | nc.mod.HYPER;
-    if (keypress == nc.key.RESIZE) return;
-    try self.sync_mod_state(keypress, ni.modifiers);
-    if (keypress == nc.key.MOTION) {
-        if (ni.y == 0 and ni.x == 0 and ni.ypx == -1 and ni.xpx == -1) return;
-        self.dispatch_mouse(ni.y, ni.x, tp.self_pid(), tp.message.fmtbuf(&buf, .{
-            "M",
-            ni.x,
-            ni.y,
-            ni.xpx,
-            ni.ypx,
-        }) catch |e| return tp.exit_error(e));
-    } else if (keypress > nc.key.MOTION and keypress <= nc.key.BUTTON11) {
-        if (ni.y == 0 and ni.x == 0 and ni.ypx == -1 and ni.xpx == -1) return;
-        if (try self.detect_drag(ni)) return;
-        self.dispatch_mouse(ni.y, ni.x, tp.self_pid(), tp.message.fmtbuf(&buf, .{
-            "B",
-            ni.evtype,
-            keypress,
-            nc.key_string(ni),
-            ni.x,
-            ni.y,
-            ni.xpx,
-            ni.ypx,
-        }) catch |e| return tp.exit_error(e));
-    } else {
-        self.unflushed_events_count += 1;
-        self.send_input(tp.self_pid(), tp.message.fmtbuf(&buf, .{
-            "I",
-            normalized_evtype(ni.evtype),
-            keypress,
-            if (@hasField(nc.Input, "eff_text")) ni.eff_text[0] else keypress,
-            nc.key_string(ni),
-            ni.modifiers,
-        }) catch |e| return tp.exit_error(e));
-    }
-}
-
-fn dispatch_flush_input_event(self: *Self) error{Exit}!bool {
-    var buf: [32]u8 = undefined;
-    self.unflushed_events_count = 0;
+    tp.trace(tp.channel.input, m);
+    self.input_listeners.send(from, m) catch {};
+    if (self.keyboard_focus) |w|
+        if (w.send(from, m) catch |e| ret: {
+            self.logger.err("focus", e);
+            break :ret false;
+        })
+            return;
     if (self.input_mode) |mode|
-        try mode.handler.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{"F"}) catch |e| return tp.exit_error(e));
-    return false;
+        mode.handler.send(from, m) catch |e| self.logger.err("input handler", e);
 }
 
-fn detect_drag(self: *Self, ni: *nc.Input) error{Exit}!bool {
-    return switch (ni.id) {
-        nc.key.BUTTON1...nc.key.BUTTON3, nc.key.BUTTON6...nc.key.BUTTON9 => if (self.drag) self.detect_drag_end(ni) else self.detect_drag_begin(ni),
-        else => false,
-    };
+fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    const m: tp.message = .{ .buf = cbor_msg };
+    const from = tp.self_pid();
+    self.unrendered_input_events_count += 1;
+    self.send_mouse(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
 
-fn detect_drag_begin(self: *Self, ni: *nc.Input) error{Exit}!bool {
-    if (ni.evtype == nc.event_type.PRESS and self.drag_event.id == ni.id) {
-        self.drag_source = self.find_coord_widget(@intCast(self.drag_event.y), @intCast(self.drag_event.x));
-        self.drag_event = ni.*;
-        self.drag = true;
-        var buf: [256]u8 = undefined;
-        _ = try self.send_mouse_drag(ni.y, ni.x, tp.self_pid(), tp.message.fmtbuf(&buf, .{
-            "D",
-            nc.event_type.PRESS,
-            ni.id,
-            nc.key_string(ni),
-            ni.x,
-            ni.y,
-            ni.xpx,
-            ni.ypx,
-        }) catch |e| return tp.exit_error(e));
-        return true;
-    }
-    if (ni.evtype == nc.event_type.PRESS)
-        self.drag_event = ni.*
-    else
-        self.drag_event = nc.input();
-    return false;
-}
-
-fn detect_drag_end(self: *Self, ni: *nc.Input) error{Exit}!bool {
-    var buf: [256]u8 = undefined;
-    if (ni.id == self.drag_event.id and ni.evtype != nc.event_type.PRESS) {
-        _ = try self.send_mouse_drag(ni.y, ni.x, tp.self_pid(), tp.message.fmtbuf(&buf, .{
-            "D",
-            nc.event_type.RELEASE,
-            ni.id,
-            nc.key_string(ni),
-            ni.x,
-            ni.y,
-            ni.xpx,
-            ni.ypx,
-        }) catch |e| return tp.exit_error(e));
-        self.drag = false;
-        self.drag_event = nc.input();
+fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, dragging: bool, cbor_msg: []const u8) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    const m: tp.message = .{ .buf = cbor_msg };
+    const from = tp.self_pid();
+    self.unrendered_input_events_count += 1;
+    if (dragging) {
+        if (self.drag_source == null) self.drag_source = self.find_coord_widget(@intCast(y), @intCast(x));
+    } else {
         self.drag_source = null;
-        return true;
     }
-    _ = try self.send_mouse_drag(ni.y, ni.x, tp.self_pid(), tp.message.fmtbuf(&buf, .{
-        "D",
-        ni.evtype,
-        ni.id,
-        nc.key_string(ni),
-        ni.x,
-        ni.y,
-        ni.xpx,
-        ni.ypx,
-    }) catch |e| return tp.exit_error(e));
-    return true;
+    self.send_mouse_drag(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
 
-fn normalized_evtype(evtype: c_uint) c_uint {
-    return if (evtype == nc.event_type.UNKNOWN) @as(c_uint, @intCast(nc.event_type.PRESS)) else evtype;
-}
-
-const EscapeState = enum { none, init, OSC, st, CSI };
-
-fn handle_escape(self: *Self, ni: *nc.Input) tp.result {
-    switch (self.escape_state) {
-        .none => switch (ni.id) {
-            '\x1B' => {
-                self.escape_state = .init;
-                self.escape_initial = ni.*;
-            },
-            else => unreachable,
-        },
-        .init => switch (ni.id) {
-            ']' => self.escape_state = .OSC,
-            '[' => self.escape_state = .CSI,
-            else => {
-                try self.handle_escape_short();
-                _ = try self.dispatch_input_event(ni);
-            },
-        },
-        .OSC => switch (ni.id) {
-            '\x1B' => self.escape_state = .st,
-            '\\' => try self.handle_OSC_escape_code(),
-            ' '...'\\' - 1, '\\' + 1...127 => {
-                const p = self.escape_code.addOne() catch |e| return tp.exit_error(e);
-                p.* = @intCast(ni.id);
-            },
-            else => try self.handle_OSC_escape_code(),
-        },
-        .st => switch (ni.id) {
-            '\\' => try self.handle_OSC_escape_code(),
-            else => try self.handle_OSC_escape_code(),
-        },
-        .CSI => switch (ni.id) {
-            '0'...'9', ';', ' ', '-', '?' => {
-                const p = self.escape_code.addOne() catch |e| return tp.exit_error(e);
-                p.* = @intCast(ni.id);
-            },
-            else => {
-                const p = self.escape_code.addOne() catch |e| return tp.exit_error(e);
-                p.* = @intCast(ni.id);
-                try self.handle_CSI_escape_code();
-            },
-        },
-    }
-}
-
-fn handle_escape_short(self: *Self) tp.result {
-    self.escape_code.clearAndFree();
-    self.escape_state = .none;
-    defer self.escape_initial = null;
-    if (self.escape_initial) |*ni|
-        _ = try self.dispatch_input_event(ni);
+fn dispatch_event(ctx: *anyopaque, cbor_msg: []const u8) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    const m: tp.message = .{ .buf = cbor_msg };
+    self.unrendered_input_events_count += 1;
+    self.dispatch_flush_input_event() catch |e| self.logger.err("dispatch event flush", e);
+    tp.self_pid().send_raw(m) catch |e| self.logger.err("dispatch event", e);
 }
 
 fn find_coord_widget(self: *Self, y: usize, x: usize) ?*Widget {
@@ -626,11 +445,6 @@ fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.mainview.send(from, m);
 }
 
-fn dispatch_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) void {
-    self.send_mouse(y, x, from, m) catch |e|
-        self.logger.err("dispatch mouse", e);
-}
-
 fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners.send(from, m) catch {};
@@ -656,12 +470,12 @@ fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) 
     }
 }
 
-fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners.send(from, m) catch {};
     if (self.keyboard_focus) |w| {
         _ = try w.send(from, m);
-        return false;
+        return;
     } else if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
         if (if (self.hover_focus) |h| h != w else true) {
             var buf: [256]u8 = undefined;
@@ -679,68 +493,11 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
         }
         self.hover_focus = null;
     }
-    return if (self.drag_source) |w|
-        w.send(from, m)
-    else
-        false;
-}
-
-fn send_input(self: *Self, from: tp.pid_ref, m: tp.message) void {
-    tp.trace(tp.channel.input, m);
-    if (self.bracketed_paste and self.handle_bracketed_paste_input(m) catch |e| {
-        self.bracketed_paste_buffer.clearAndFree();
-        self.bracketed_paste = false;
-        return self.logger.err("bracketed paste input handler", e);
-    }) {
-        return;
-    }
-    self.input_listeners.send(from, m) catch {};
-    if (self.keyboard_focus) |w|
-        if (w.send(from, m) catch |e| ret: {
-            self.logger.err("focus", e);
-            break :ret false;
-        })
-            return;
-    if (self.input_mode) |mode|
-        mode.handler.send(from, m) catch |e| self.logger.err("input handler", e);
+    if (self.drag_source) |w| _ = try w.send(from, m);
 }
 
 pub fn save_config(self: *const Self) !void {
     try root.write_config(self.config, self.a);
-}
-
-fn sync_mod_state(self: *Self, keypress: u32, modifiers: u32) tp.result {
-    if (keypress == nc.key.LCTRL or keypress == nc.key.RCTRL or keypress == nc.key.LALT or keypress == nc.key.RALT or
-        keypress == nc.key.LSHIFT or keypress == nc.key.RSHIFT or keypress == nc.key.LSUPER or keypress == nc.key.RSUPER) return;
-    if (nc.isCtrl(modifiers) and !self.mods.ctrl)
-        try self.send_key(nc.event_type.PRESS, nc.key.LCTRL, "lctrl", modifiers);
-    if (!nc.isCtrl(modifiers) and self.mods.ctrl)
-        try self.send_key(nc.event_type.RELEASE, nc.key.LCTRL, "lctrl", modifiers);
-    if (nc.isAlt(modifiers) and !self.mods.alt)
-        try self.send_key(nc.event_type.PRESS, nc.key.LALT, "lalt", modifiers);
-    if (!nc.isAlt(modifiers) and self.mods.alt)
-        try self.send_key(nc.event_type.RELEASE, nc.key.LALT, "lalt", modifiers);
-    if (nc.isShift(modifiers) and !self.mods.shift)
-        try self.send_key(nc.event_type.PRESS, nc.key.LSHIFT, "lshift", modifiers);
-    if (!nc.isShift(modifiers) and self.mods.shift)
-        try self.send_key(nc.event_type.RELEASE, nc.key.LSHIFT, "lshift", modifiers);
-    self.mods = .{
-        .ctrl = nc.isCtrl(modifiers),
-        .alt = nc.isAlt(modifiers),
-        .shift = nc.isShift(modifiers),
-    };
-}
-
-fn send_key(self: *Self, event_type: c_int, keypress: u32, key_string: []const u8, modifiers: u32) tp.result {
-    var buf: [256]u8 = undefined;
-    self.send_input(tp.self_pid(), tp.message.fmtbuf(&buf, .{
-        "I",
-        event_type,
-        keypress,
-        keypress,
-        key_string,
-        modifiers,
-    }) catch |e| return tp.exit_error(e));
 }
 
 const cmds = struct {
@@ -757,13 +514,13 @@ const cmds = struct {
         var buf: [256]u8 = undefined;
         var buf_parent: [256]u8 = undefined;
         var z: i32 = 0;
-        var n = self.nc.stdplane();
+        var n = self.rdr.stdplane();
         while (n.below()) |n_| : (n = n_) {
             z -= 1;
             l.print("{d} {s} {s}", .{ z, n_.name(&buf), n_.parent().name(&buf_parent) });
         }
         z = 0;
-        n = self.nc.stdplane();
+        n = self.rdr.stdplane();
         while (n.above()) |n_| : (n = n_) {
             z += 1;
             l.print("{d} {s} {s}", .{ z, n_.name(&buf), n_.parent().name(&buf_parent) });
@@ -923,238 +680,6 @@ threadlocal var instance_: ?*Self = null;
 
 pub fn current() *Self {
     return if (instance_) |p| p else @panic("tui call out of context");
-}
-
-const OSC = "\x1B]"; // Operating System Command
-const ST = "\x1B\\"; // String Terminator
-const BEL = "\x07";
-const OSC0_title = OSC ++ "0;";
-const OSC52_clipboard = OSC ++ "52;c;";
-const OSC52_clipboard_paste = OSC ++ "52;p;";
-const OSC22_cursor = OSC ++ "22;";
-const OSC22_cursor_reply = OSC ++ "22:";
-
-pub fn set_terminal_title(text: []const u8) void {
-    var writer = std.io.getStdOut().writer();
-    var buf: [std.posix.PATH_MAX]u8 = undefined;
-    const term_cmd = std.fmt.bufPrint(&buf, OSC0_title ++ "{s}" ++ BEL, .{text}) catch return;
-    _ = writer.write(term_cmd) catch return;
-}
-
-pub fn copy_to_system_clipboard(self: *const Self, text: []const u8) void {
-    self.copy_to_system_clipboard_with_errors(text) catch |e| self.logger.err("copy_to_system_clipboard", e);
-}
-
-pub fn copy_to_system_clipboard_with_errors(self: *const Self, text: []const u8) !void {
-    var writer = std.io.getStdOut().writer();
-    const encoder = std.base64.standard.Encoder;
-    const size = OSC52_clipboard.len + encoder.calcSize(text.len) + ST.len;
-    const buf = try self.a.alloc(u8, size);
-    defer self.a.free(buf);
-    @memcpy(buf[0..OSC52_clipboard.len], OSC52_clipboard);
-    const b64 = encoder.encode(buf[OSC52_clipboard.len..], text);
-    @memcpy(buf[OSC52_clipboard.len + b64.len ..], ST);
-    _ = try writer.write(buf);
-}
-
-pub fn write_stdout(self: *const Self, bytes: []const u8) void {
-    _ = std.io.getStdOut().writer().write(bytes) catch |e| self.logger.err("stdout", e);
-}
-
-pub fn request_system_clipboard(self: *const Self) void {
-    self.write_stdout(OSC52_clipboard ++ "?" ++ ST);
-}
-
-pub fn request_mouse_cursor_text(self: *const Self, push_or_pop: bool) void {
-    if (push_or_pop) self.mouse_cursor_push("text") else self.mouse_cursor_pop();
-}
-
-pub fn request_mouse_cursor_pointer(self: *const Self, push_or_pop: bool) void {
-    if (push_or_pop) self.mouse_cursor_push("pointer") else self.mouse_cursor_pop();
-}
-
-pub fn request_mouse_cursor_default(self: *const Self, push_or_pop: bool) void {
-    if (push_or_pop) self.mouse_cursor_push("default") else self.mouse_cursor_pop();
-}
-
-fn mouse_cursor_push(self: *const Self, comptime name: []const u8) void {
-    self.write_stdout(OSC22_cursor ++ name ++ ST);
-}
-
-fn mouse_cursor_pop(self: *const Self) void {
-    self.write_stdout(OSC22_cursor ++ "default" ++ ST);
-}
-
-fn match_code(self: *const Self, match: []const u8, skip: usize) bool {
-    const code = self.escape_code.items;
-    if (!(code.len >= match.len - skip)) return false;
-    const code_prefix = code[0 .. match.len - skip];
-    return std.mem.eql(u8, match[skip..], code_prefix);
-}
-
-fn handle_OSC_escape_code(self: *Self) tp.result {
-    self.escape_state = .none;
-    self.escape_initial = null;
-    defer self.escape_code.clearAndFree();
-    const code = self.escape_code.items;
-    if (self.match_code(OSC52_clipboard, OSC.len))
-        return self.handle_system_clipboard(code[OSC52_clipboard.len - OSC.len ..]);
-    if (self.match_code(OSC52_clipboard_paste, OSC.len))
-        return self.handle_system_clipboard(code[OSC52_clipboard_paste.len - OSC.len ..]);
-    if (self.match_code(OSC22_cursor_reply, OSC.len))
-        return self.handle_mouse_cursor(code[OSC22_cursor_reply.len - OSC.len ..]);
-    self.logger.print("ignored escape code: OSC {s}", .{std.fmt.fmtSliceEscapeLower(code)});
-}
-
-fn handle_system_clipboard(self: *Self, base64: []const u8) tp.result {
-    const decoder = std.base64.standard.Decoder;
-    // try self.logger.print("clipboard: b64 {s}", .{base64});
-    const text = self.a.alloc(
-        u8,
-        decoder.calcSizeForSlice(base64) catch |e| return tp.exit_error(e),
-    ) catch |e| return tp.exit_error(e);
-    decoder.decode(text, base64) catch |e| return tp.exit_error(e);
-    // try self.logger.print("clipboard: txt {s}", .{std.fmt.fmtSliceEscapeLower(text)});
-    return tp.self_pid().send(.{ "system_clipboard", text });
-}
-
-fn handle_mouse_cursor(self: *Self, text: []const u8) tp.result {
-    self.logger.print("mouse cursor report: {s}", .{text});
-}
-
-const CSI = "\x1B["; // Control Sequence Introducer
-const CSI_bracketed_paste_enable = CSI ++ "?2004h";
-const CSI_bracketed_paste_disable = CSI ++ "?2004h";
-const CIS_bracketed_paste_begin = CSI ++ "200~";
-const CIS_bracketed_paste_end = CSI ++ "201~";
-
-fn handle_CSI_escape_code(self: *Self) tp.result {
-    self.escape_state = .none;
-    self.escape_initial = null;
-    defer self.escape_code.clearAndFree();
-    const code = self.escape_code.items;
-    if (self.match_code(CIS_bracketed_paste_begin, CSI.len))
-        return self.handle_bracketed_paste_begin();
-    if (self.match_code(CIS_bracketed_paste_end, CSI.len))
-        return self.handle_bracketed_paste_end();
-    self.logger.print("ignored escape code: CSI {s}", .{std.fmt.fmtSliceEscapeLower(code)});
-}
-
-fn handle_bracketed_paste_begin(self: *Self) tp.result {
-    _ = try self.dispatch_flush_input_event();
-    self.bracketed_paste_buffer.clearAndFree();
-    self.bracketed_paste = true;
-}
-
-fn handle_bracketed_paste_input(self: *Self, m: tp.message) !bool {
-    var keypress: u32 = undefined;
-    var egc: u32 = undefined;
-    if (try m.match(.{ "I", tp.number, tp.extract(&keypress), tp.extract(&egc), tp.string, 0 })) {
-        switch (keypress) {
-            nc.key.ENTER => try self.bracketed_paste_buffer.appendSlice("\n"),
-            else => if (!nc.key.synthesized_p(keypress)) {
-                var buf: [6]u8 = undefined;
-                const bytes = try nc.ucs32_to_utf8(&[_]u32{egc}, &buf);
-                try self.bracketed_paste_buffer.appendSlice(buf[0..bytes]);
-            } else {
-                try self.handle_bracketed_paste_end();
-                return false;
-            },
-        }
-        return true;
-    }
-    return false;
-}
-
-fn handle_bracketed_paste_end(self: *Self) tp.result {
-    defer self.bracketed_paste_buffer.clearAndFree();
-    if (!self.bracketed_paste) return;
-    self.bracketed_paste = false;
-    return tp.self_pid().send(.{ "system_clipboard", self.bracketed_paste_buffer.items });
-}
-
-fn bracketed_paste_enable(self: *const Self) void {
-    self.write_stdout(CSI_bracketed_paste_enable);
-}
-
-fn bracketed_paste_disable(self: *const Self) void {
-    self.write_stdout(CSI_bracketed_paste_disable);
-}
-
-pub inline fn fg_channels_from_style(channels: *u64, style: Widget.Theme.Style) void {
-    if (style.fg) |fg| {
-        nc.channels_set_fg_rgb(channels, fg) catch {};
-        nc.channels_set_fg_alpha(channels, nc.ALPHA_OPAQUE) catch {};
-    }
-}
-
-pub inline fn bg_channels_from_style(channels: *u64, style: Widget.Theme.Style) void {
-    if (style.bg) |bg| {
-        nc.channels_set_bg_rgb(channels, bg) catch {};
-        nc.channels_set_bg_alpha(channels, nc.ALPHA_OPAQUE) catch {};
-    }
-}
-
-pub inline fn channels_from_style(channels: *u64, style: Widget.Theme.Style) void {
-    fg_channels_from_style(channels, style);
-    bg_channels_from_style(channels, style);
-}
-
-pub inline fn set_cell_style(cell: *nc.Cell, style: Widget.Theme.Style) void {
-    channels_from_style(&cell.channels, style);
-    if (style.fs) |fs| switch (fs) {
-        .normal => nc.cell_set_styles(cell, nc.style.none),
-        .bold => nc.cell_set_styles(cell, nc.style.bold),
-        .italic => nc.cell_set_styles(cell, nc.style.italic),
-        .underline => nc.cell_set_styles(cell, nc.style.underline),
-        .undercurl => nc.cell_set_styles(cell, nc.style.undercurl),
-        .strikethrough => nc.cell_set_styles(cell, nc.style.struck),
-    };
-}
-
-pub inline fn set_cell_style_fg(cell: *nc.Cell, style: Widget.Theme.Style) void {
-    fg_channels_from_style(&cell.channels, style);
-}
-
-pub inline fn set_cell_style_bg(cell: *nc.Cell, style: Widget.Theme.Style) void {
-    bg_channels_from_style(&cell.channels, style);
-}
-
-pub inline fn set_base_style(plane: *const nc.Plane, egc: [*c]const u8, style: Widget.Theme.Style) void {
-    var channels: u64 = 0;
-    channels_from_style(&channels, style);
-    if (style.fg) |fg| plane.set_fg_rgb(fg) catch {};
-    if (style.bg) |bg| plane.set_bg_rgb(bg) catch {};
-    _ = plane.set_base(egc, 0, channels) catch {};
-}
-
-pub fn set_base_style_alpha(plane: nc.Plane, egc: [*:0]const u8, style: Widget.Theme.Style, fg_alpha: c_uint, bg_alpha: c_uint) !void {
-    var channels: u64 = 0;
-    if (style.fg) |fg| {
-        nc.channels_set_fg_rgb(&channels, fg) catch {};
-        nc.channels_set_fg_alpha(&channels, fg_alpha) catch {};
-    }
-    if (style.bg) |bg| {
-        nc.channels_set_bg_rgb(&channels, bg) catch {};
-        nc.channels_set_bg_alpha(&channels, bg_alpha) catch {};
-    }
-    if (style.fg) |fg| plane.set_fg_rgb(fg) catch {};
-    if (style.bg) |bg| plane.set_bg_rgb(bg) catch {};
-    _ = plane.set_base(egc, 0, channels) catch {};
-}
-
-pub inline fn set_style(plane: *const nc.Plane, style: Widget.Theme.Style) void {
-    var channels: u64 = 0;
-    channels_from_style(&channels, style);
-    plane.set_channels(channels);
-    if (style.fs) |fs| switch (fs) {
-        .normal => plane.set_styles(nc.style.none),
-        .bold => plane.set_styles(nc.style.bold),
-        .italic => plane.set_styles(nc.style.italic),
-        .underline => plane.set_styles(nc.style.underline),
-        .undercurl => plane.set_styles(nc.style.undercurl),
-        .strikethrough => plane.set_styles(nc.style.struck),
-    };
 }
 
 pub fn get_mode() []const u8 {

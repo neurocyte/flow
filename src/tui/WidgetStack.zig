@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const eql = std.mem.eql;
 
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const Widget = @import("Widget.zig");
 

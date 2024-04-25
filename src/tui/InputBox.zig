@@ -1,6 +1,9 @@
 const std = @import("std");
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const Plane = @import("renderer").Plane;
+const key = @import("renderer").input.key;
+const event_type = @import("renderer").input.event_type;
 
 const Widget = @import("Widget.zig");
 const command = @import("command.zig");
@@ -20,7 +23,7 @@ pub fn Options(context: type) type {
         pub fn do_nothing(_: context, _: *State(Context)) void {}
 
         pub fn on_render_default(_: context, self: *State(Context), theme: *const Widget.Theme) bool {
-            tui.set_base_style(&self.plane, " ", if (self.text.items.len > 0) theme.input else theme.input_placeholder);
+            self.plane.set_base_style(" ", if (self.text.items.len > 0) theme.input else theme.input_placeholder);
             self.plane.erase();
             self.plane.home();
             if (self.text.items.len > 0) {
@@ -33,7 +36,7 @@ pub fn Options(context: type) type {
                 self.plane.cursor_move_yx(0, pos + 1) catch return false;
                 var cell = self.plane.cell_init();
                 _ = self.plane.at_cursor_cell(&cell) catch return false;
-                tui.set_cell_style(&cell, theme.editor_cursor);
+                cell.set_style(theme.editor_cursor);
                 _ = self.plane.putc(&cell) catch {};
             }
             return false;
@@ -45,10 +48,10 @@ pub fn Options(context: type) type {
     };
 }
 
-pub fn create(ctx_type: type, a: std.mem.Allocator, parent: nc.Plane, opts: Options(ctx_type)) !Widget {
+pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !Widget {
     const Self = State(ctx_type);
     const self = try a.create(Self);
-    var n = try nc.Plane.init(&opts.pos.opts(@typeName(Self)), parent);
+    var n = try Plane.init(&opts.pos.opts(@typeName(Self)), parent);
     errdefer n.deinit();
     self.* = .{
         .parent = parent,
@@ -64,8 +67,8 @@ pub fn create(ctx_type: type, a: std.mem.Allocator, parent: nc.Plane, opts: Opti
 
 pub fn State(ctx_type: type) type {
     return struct {
-        parent: nc.Plane,
-        plane: nc.Plane,
+        parent: Plane,
+        plane: Plane,
         active: bool = false,
         hover: bool = false,
         label: std.ArrayList(u8),
@@ -92,22 +95,22 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            if (try m.match(.{ "B", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.active = true;
                 tui.need_render();
                 return true;
-            } else if (try m.match(.{ "B", nc.event_type.RELEASE, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            } else if (try m.match(.{ "B", event_type.RELEASE, key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.opts.on_click(self.opts.ctx, self);
                 self.active = false;
                 tui.need_render();
                 return true;
-            } else if (try m.match(.{ "D", nc.event_type.RELEASE, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            } else if (try m.match(.{ "D", event_type.RELEASE, key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.opts.on_click(self.opts.ctx, self);
                 self.active = false;
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-                tui.current().request_mouse_cursor_pointer(self.hover);
+                tui.renderer.request_mouse_cursor_pointer(self.hover);
                 tui.need_render();
                 return true;
             }

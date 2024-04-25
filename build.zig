@@ -55,6 +55,7 @@ pub fn build(b: *std.Build) void {
         .optimize = dependency_optimize,
         .use_system_notcurses = use_system_notcurses,
     });
+    const notcurses_mod = notcurses_dep.module("notcurses");
 
     const clap_dep = b.dependency("clap", .{
         .target = target,
@@ -94,7 +95,6 @@ pub fn build(b: *std.Build) void {
 
     const thespian_mod = thespian_dep.module("thespian");
     const cbor_mod = thespian_dep.module("cbor");
-    const notcurses_mod = notcurses_dep.module("notcurses");
 
     const help_mod = b.createModule(.{
         .root_source_file = .{ .path = "help.md" },
@@ -118,10 +118,22 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "src/color.zig" },
     });
 
+    const notcurses_renderer_mod = b.createModule(.{
+        .root_source_file = .{ .path = "src/renderer/notcurses/renderer.zig" },
+        .imports = &.{
+            .{ .name = "notcurses", .module = notcurses_mod },
+            .{ .name = "theme", .module = themes_dep.module("theme") },
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "log", .module = log_mod },
+        },
+    });
+
+    const renderer_mod = notcurses_renderer_mod;
+
     const Buffer_mod = b.createModule(.{
         .root_source_file = .{ .path = "src/buffer/Buffer.zig" },
         .imports = &.{
-            .{ .name = "notcurses", .module = notcurses_mod },
+            .{ .name = "renderer", .module = renderer_mod },
             .{ .name = "cbor", .module = cbor_mod },
         },
     });
@@ -176,7 +188,7 @@ pub fn build(b: *std.Build) void {
     const tui_mod = b.createModule(.{
         .root_source_file = .{ .path = "src/tui/tui.zig" },
         .imports = &.{
-            .{ .name = "notcurses", .module = notcurses_mod },
+            .{ .name = "renderer", .module = renderer_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "config", .module = config_mod },

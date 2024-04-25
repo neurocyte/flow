@@ -1,7 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const Plane = @import("renderer").Plane;
 
 pub const Box = @import("Box.zig");
 pub const EventHandler = @import("EventHandler.zig");
@@ -10,7 +11,7 @@ pub const themes = @import("themes").themes;
 pub const scopes = @import("themes").scopes;
 
 ptr: *anyopaque,
-plane: *nc.Plane,
+plane: *Plane,
 vtable: *const VTable,
 
 const Self = @This();
@@ -209,10 +210,10 @@ pub fn walk(self: *Self, walk_ctx: *anyopaque, f: WalkFn) bool {
     return if (self.vtable.walk(self.ptr, walk_ctx, f, self)) true else f(walk_ctx, self);
 }
 
-pub fn empty(a: Allocator, parent: nc.Plane, layout_: Layout) !Self {
-    const child: type = struct { plane: nc.Plane, layout: Layout };
+pub fn empty(a: Allocator, parent: Plane, layout_: Layout) !Self {
+    const child: type = struct { plane: Plane, layout: Layout };
     const widget = try a.create(child);
-    const n = try nc.Plane.init(&(Box{}).opts("empty"), parent);
+    const n = try Plane.init(&(Box{}).opts("empty"), parent);
     widget.* = .{ .plane = n, .layout = layout_ };
     return .{
         .ptr = widget,

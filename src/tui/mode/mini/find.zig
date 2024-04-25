@@ -1,5 +1,9 @@
-const nc = @import("notcurses");
 const tp = @import("thespian");
+
+const key = @import("renderer").input.key;
+const mod = @import("renderer").input.modifier;
+const event_type = @import("renderer").input.event_type;
+const egc_ = @import("renderer").egc;
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
@@ -10,8 +14,6 @@ const ed = @import("../../editor.zig");
 const Allocator = @import("std").mem.Allocator;
 const json = @import("std").json;
 const eql = @import("std").mem.eql;
-const mod = nc.mod;
-const key = nc.key;
 
 const Self = @This();
 
@@ -83,9 +85,9 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
     switch (evtype) {
-        nc.event_type.PRESS => try self.mapPress(keypress, egc, modifiers),
-        nc.event_type.REPEAT => try self.mapPress(keypress, egc, modifiers),
-        nc.event_type.RELEASE => try self.mapRelease(keypress, egc, modifiers),
+        event_type.PRESS => try self.mapPress(keypress, egc, modifiers),
+        event_type.REPEAT => try self.mapPress(keypress, egc, modifiers),
+        event_type.RELEASE => try self.mapRelease(keypress, egc, modifiers),
         else => {},
     }
 }
@@ -159,7 +161,7 @@ fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) tp.result {
 fn insert_code_point(self: *Self, c: u32) tp.result {
     if (self.input.len + 16 > self.buf.len)
         try self.flush_input();
-    const bytes = nc.ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]) catch |e| return tp.exit_error(e);
+    const bytes = egc_.ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]) catch |e| return tp.exit_error(e);
     self.input = self.buf[0 .. self.input.len + bytes];
 }
 

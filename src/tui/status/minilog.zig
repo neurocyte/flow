@@ -1,15 +1,16 @@
 const std = @import("std");
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const log = @import("log");
+
+const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
 const mainview = @import("../mainview.zig");
 
-parent: nc.Plane,
-plane: nc.Plane,
+parent: Plane,
+plane: Plane,
 msg: std.ArrayList(u8),
 is_error: bool = false,
 clear_time: i64 = 0,
@@ -18,11 +19,11 @@ const message_display_time_seconds = 2;
 const error_display_time_seconds = 4;
 const Self = @This();
 
-pub fn create(a: std.mem.Allocator, parent: nc.Plane) !Widget {
+pub fn create(a: std.mem.Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
     self.* = .{
         .parent = parent,
-        .plane = try nc.Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
+        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .msg = std.ArrayList(u8).init(a),
     };
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_log));
@@ -43,11 +44,11 @@ pub fn layout(self: *Self) Widget.Layout {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    tui.set_base_style(&self.plane, " ", if (self.msg.items.len > 0) theme.sidebar else theme.statusbar);
+    self.plane.set_base_style(" ", if (self.msg.items.len > 0) theme.sidebar else theme.statusbar);
     self.plane.erase();
     self.plane.home();
     if (self.is_error)
-        tui.set_base_style(&self.plane, " ", theme.editor_error);
+        self.plane.set_base_style(" ", theme.editor_error);
     _ = self.plane.print(" {s} ", .{self.msg.items}) catch {};
 
     const curr_time = std.time.milliTimestamp();

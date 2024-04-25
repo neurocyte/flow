@@ -1,8 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const tracy = @import("tracy");
+
+const Plane = @import("renderer").Plane;
+const utils = @import("renderer").input.utils;
+const key_ = @import("renderer").input.key;
+const event_type = @import("renderer").input.event_type;
 
 const Widget = @import("../Widget.zig");
 const command = @import("../command.zig");
@@ -11,8 +15,8 @@ const EventHandler = @import("../EventHandler.zig");
 
 const history = 8;
 
-parent: nc.Plane,
-plane: nc.Plane,
+parent: Plane,
+plane: Plane,
 frame: u64 = 0,
 idle_frame: u64 = 0,
 key_active_frame: u64 = 0,
@@ -28,15 +32,15 @@ const Self = @This();
 const idle_msg = "🐶";
 pub const width = idle_msg.len + 20;
 
-pub fn create(a: Allocator, parent: nc.Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
     self.* = try init(parent);
     try tui.current().input_listeners.add(EventHandler.bind(self, listen));
     return self.widget();
 }
 
-fn init(parent: nc.Plane) !Self {
-    var n = try nc.Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent);
+fn init(parent: Plane) !Self {
+    var n = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent);
     errdefer n.deinit();
     var frame_rate = tp.env.get().num("frame-rate");
     if (frame_rate == 0) frame_rate = 60;
@@ -69,15 +73,15 @@ fn render_active(self: *Self) bool {
             return true;
         if (c > 0)
             _ = self.plane.putstr(" ") catch {};
-        if (nc.isSuper(k.mod))
+        if (utils.isSuper(k.mod))
             _ = self.plane.putstr("H-") catch {};
-        if (nc.isCtrl(k.mod))
+        if (utils.isCtrl(k.mod))
             _ = self.plane.putstr("C-") catch {};
-        if (nc.isShift(k.mod))
+        if (utils.isShift(k.mod))
             _ = self.plane.putstr("S-") catch {};
-        if (nc.isAlt(k.mod))
+        if (utils.isAlt(k.mod))
             _ = self.plane.putstr("A-") catch {};
-        _ = self.plane.print("{s}", .{nc.key_id_string(k.id)}) catch {};
+        _ = self.plane.print("{s}", .{utils.key_id_string(k.id)}) catch {};
         c += 1;
     }
     return true;
@@ -91,7 +95,7 @@ fn render_idle(self: *Self) bool {
         return self.animate();
     } else {
         const i = @mod(self.idle_frame / 8, idle_spinner.len);
-        _ = self.plane.print_aligned(0, .center, "{s} {s} {s}", .{ idle_spinner[i], idle_msg, idle_spinner[i] }) catch {};
+        _ = self.plane.print_aligned_center(0, "{s} {s} {s}", .{ idle_spinner[i], idle_msg, idle_spinner[i] }) catch {};
     }
     return true;
 }
@@ -99,7 +103,7 @@ fn render_idle(self: *Self) bool {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = @typeName(@This()) ++ " render" });
     defer frame.deinit();
-    tui.set_base_style(&self.plane, " ", if (self.hover) theme.statusbar_hover else theme.statusbar);
+    self.plane.set_base_style(" ", if (self.hover) theme.statusbar_hover else theme.statusbar);
     self.frame += 1;
     if (self.frame - self.key_active_frame > self.wipe_after_frames)
         self.unset_key_all();
@@ -163,20 +167,20 @@ fn set_key(self: *Self, key: Key, val: bool) void {
 pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var key: u32 = 0;
     var mod: u32 = 0;
-    if (try m.match(.{ "I", nc.event_type.PRESS, tp.extract(&key), tp.any, tp.any, tp.extract(&mod), tp.more })) {
+    if (try m.match(.{ "I", event_type.PRESS, tp.extract(&key), tp.any, tp.any, tp.extract(&mod), tp.more })) {
         self.set_key(.{ .id = key, .mod = mod }, true);
-    } else if (try m.match(.{ "I", nc.event_type.RELEASE, tp.extract(&key), tp.any, tp.any, tp.extract(&mod), tp.more })) {
+    } else if (try m.match(.{ "I", event_type.RELEASE, tp.extract(&key), tp.any, tp.any, tp.extract(&mod), tp.more })) {
         self.set_key(.{ .id = key, .mod = mod }, false);
     }
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ "B", nc.event_type.PRESS, nc.key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+    if (try m.match(.{ "B", event_type.PRESS, key_.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
         command.executeName("toggle_inputview", .{}) catch {};
         return true;
     }
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-        tui.current().request_mouse_cursor_pointer(self.hover);
+        tui.renderer.request_mouse_cursor_pointer(self.hover);
         return true;
     }
 
@@ -200,7 +204,7 @@ const eighths_l = [_][]const u8{ "█", "▉", "▊", "▋", "▌", "▍", "▎"
 const eighths_r = [_][]const u8{ " ", "▕", "🮇", "🮈", "▐", "🮉", "🮊", "🮋" };
 const eighths_c = eighths_l.len;
 
-fn smooth_block_at(plane: nc.Plane, pos: u64) void {
+fn smooth_block_at(plane: Plane, pos: u64) void {
     const blk = @mod(pos, eighths_c) + 1;
     const l = eighths_l[eighths_c - blk];
     const r = eighths_r[eighths_c - blk];

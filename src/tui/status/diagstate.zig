@@ -1,8 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const nc = @import("notcurses");
 const tp = @import("thespian");
 const tracy = @import("tracy");
+
+const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
@@ -18,7 +19,7 @@ rendered: [:0]const u8 = "",
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: nc.Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane) !Widget {
     return Button.create_widget(Self, a, parent, .{
         .ctx = .{},
         .label = "",
@@ -39,7 +40,7 @@ pub fn layout(self: *Self, _: *Button.State(Self)) Widget.Layout {
 
 pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
     const bg_style = if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar;
-    tui.set_base_style(&btn.plane, " ", bg_style);
+    btn.plane.set_base_style(" ", bg_style);
     btn.plane.erase();
     btn.plane.home();
     _ = btn.plane.putstr(self.rendered) catch {};

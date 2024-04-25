@@ -1,9 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const nc = @import("notcurses");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const cwd = std.fs.cwd;
+
+const egc_length = @import("renderer").egc.length;
+const egc_chunk_width = @import("renderer").egc.chunk_width;
 
 const Self = @This();
 
@@ -156,7 +158,7 @@ pub const Leaf = struct {
                 buf = buf[1..];
                 pos.* -= 1;
             } else {
-                const bytes = egc_len(buf, &cols, abs_col);
+                const bytes = egc_length(buf, &cols, abs_col);
                 buf = buf[bytes..];
                 pos.* -= bytes;
             }
@@ -179,7 +181,7 @@ pub const Leaf = struct {
         return while (buf.len > 0) {
             if (col == 0)
                 break @intFromPtr(buf.ptr) - @intFromPtr(self.buf.ptr);
-            const bytes = egc_len(buf, &cols, abs_col);
+            const bytes = egc_length(buf, &cols, abs_col);
             buf = buf[bytes..];
             if (col < cols)
                 break @intFromPtr(buf.ptr) - @intFromPtr(self.buf.ptr);
@@ -212,7 +214,7 @@ pub const Leaf = struct {
                     buf = buf[1..];
                 },
                 else => {
-                    const bytes = egc_len(buf, &cols, 0);
+                    const bytes = egc_length(buf, &cols, 0);
                     var buf_: [4096]u8 = undefined;
                     try l.appendSlice(try std.fmt.bufPrint(&buf_, "{s}", .{std.fmt.fmtSliceEscapeLower(buf[0..bytes])}));
                     buf = buf[bytes..];
@@ -471,7 +473,7 @@ const Node = union(enum) {
                 var buf: []const u8 = leaf.buf;
                 while (buf.len > 0) {
                     var cols: c_int = undefined;
-                    const bytes = egc_len(buf, &cols, ctx.abs_col);
+                    const bytes = egc_length(buf, &cols, ctx.abs_col);
                     const ret = ctx.walker_f(ctx.walker_ctx, buf[0..bytes], @intCast(cols));
                     if (ret.err) |e| return .{ .err = e };
                     buf = buf[bytes..];
@@ -1141,30 +1143,4 @@ pub fn redo(self: *Self) error{Stop}![]const u8 {
     self.root = h.root;
     self.push_undo(u);
     return h.meta;
-}
-
-fn egc_len(egcs: []const u8, colcount: *c_int, abs_col: usize) usize {
-    if (egcs[0] == '\t') {
-        colcount.* = @intCast(8 - abs_col % 8);
-        return 1;
-    }
-    return nc.ncegc_len(egcs, colcount) catch ret: {
-        colcount.* = 1;
-        break :ret 1;
-    };
-}
-
-pub fn egc_chunk_width(chunk_: []const u8, abs_col_: usize) usize {
-    var abs_col = abs_col_;
-    var chunk = chunk_;
-    var colcount: usize = 0;
-    var cols: c_int = 0;
-    while (chunk.len > 0) {
-        const bytes = egc_len(chunk, &cols, abs_col);
-        colcount += @intCast(cols);
-        abs_col += @intCast(cols);
-        if (chunk.len < bytes) break;
-        chunk = chunk[bytes..];
-    }
-    return colcount;
 }
