@@ -77,6 +77,9 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     } else if (try m.match(.{ "B", nc.event_type.RELEASE, tp.more })) {
         self.active = false;
         return true;
+    } else if (try m.match(.{ "D", nc.event_type.RELEASE, tp.more })) {
+        self.active = false;
+        return true;
     } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         self.active = false;
         return true;
