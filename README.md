@@ -52,7 +52,7 @@ is easiest with `brew`:
 
 ```shell
 brew install notcurses
-zig build -Duse_system_notcurses=true --search-prefix $HOMEBREW_PREFIX
+zig build -Doptimize=ReleaseFast -Duse_system_notcurses=true --search-prefix $HOMEBREW_PREFIX
 ```
 
 If `HOMEBREW_PREFIX` is not set in your environment check your brew configuration
