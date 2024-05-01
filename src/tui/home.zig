@@ -15,7 +15,6 @@ const command = @import("command.zig");
 const fonts = @import("fonts.zig");
 
 a: std.mem.Allocator,
-background: Plane,
 plane: Plane,
 parent: Plane,
 fire: ?Fire = null,
@@ -26,8 +25,6 @@ const Self = @This();
 
 pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
     const self: *Self = try a.create(Self);
-    var background = try Plane.init(&(Widget.Box{}).opts("background"), parent.plane.*);
-    errdefer background.deinit();
     var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
     errdefer n.deinit();
 
@@ -35,7 +32,6 @@ pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
     self.* = .{
         .a = a,
         .parent = parent.plane.*,
-        .background = background,
         .plane = n,
         .menu = try Menu.create(*Self, a, w, .{ .ctx = self, .on_render = menu_on_render }),
     };
@@ -56,7 +52,6 @@ pub fn deinit(self: *Self, a: std.mem.Allocator) void {
     self.menu.deinit(a);
     self.commands.deinit();
     self.plane.deinit();
-    self.background.deinit();
     if (self.fire) |*fire| fire.deinit();
     a.destroy(self);
 }
@@ -130,15 +125,12 @@ fn menu_action_quit(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    const more = self.menu.render(theme);
-
-    self.background.set_base_style(" ", theme.editor);
-    self.background.erase();
-    self.background.home();
     self.plane.set_base_style_transparent("", theme.editor);
     self.plane.erase();
     self.plane.home();
     if (self.fire) |*fire| fire.render();
+
+    const more = self.menu.render(theme);
 
     const style_title = if (tui.find_scope_style(theme, "function")) |sty| sty.style else theme.editor;
     const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
@@ -147,19 +139,16 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const subtext = "a programmer's text editor";
 
     if (self.plane.dim_x() > 120 and self.plane.dim_y() > 22) {
-        self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(2, 4) catch return more;
-        fonts.print_string_large(self.plane, title) catch return more;
+        fonts.print_string_large(&self.plane, title, style_title) catch return more;
 
-        self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(10, 8) catch return more;
-        fonts.print_string_medium(self.plane, subtext) catch return more;
+        fonts.print_string_medium(&self.plane, subtext, style_subtext) catch return more;
 
         self.menu.resize(.{ .y = 15, .x = 10, .w = 32 });
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
-        self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(2, 4) catch return more;
-        fonts.print_string_medium(self.plane, title) catch return more;
+        fonts.print_string_medium(&self.plane, title, style_title) catch return more;
 
         self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(7, 6) catch return more;
@@ -181,13 +170,11 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
-    self.background.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
-    self.background.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     if (self.fire) |*fire| {
         fire.deinit();
-        self.fire = Fire.init(self.a, self.plane, pos) catch return;
+        self.fire = Fire.init(self.a, self.plane) catch return;
     }
 }
 
@@ -213,7 +200,7 @@ const cmds = struct {
         self.fire = if (self.fire) |*fire| ret: {
             fire.deinit();
             break :ret null;
-        } else Fire.init(self.a, self.background, Widget.Box.from(self.background)) catch |e| return tp.exit_error(e);
+        } else Fire.init(self.a, self.plane) catch |e| return tp.exit_error(e);
     }
 };
 
@@ -239,7 +226,8 @@ const Fire = struct {
     const MAX_COLOR = 256;
     const LAST_COLOR = MAX_COLOR - 1;
 
-    fn init(a: std.mem.Allocator, plane: Plane, pos: Widget.Box) !Fire {
+    fn init(a: std.mem.Allocator, plane: Plane) !Fire {
+        const pos = Widget.Box.from(plane);
         const FIRE_H = @as(u16, @intCast(pos.h)) * 2;
         const FIRE_W = @as(u16, @intCast(pos.w));
         var self: Fire = .{

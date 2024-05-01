@@ -33,21 +33,21 @@ on_resize: *const fn (ctx: ?*anyopaque, self: *Self, pos_: Widget.Box) void = on
 pub fn createH(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
     const self: *Self = try a.create(Self);
     self.* = try init(a, parent, name, .horizontal, layout_, Box{});
-    self.plane.move_bottom();
+    self.plane.hide();
     return self;
 }
 
 pub fn createV(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
     const self: *Self = try a.create(Self);
     self.* = try init(a, parent, name, .vertical, layout_, Box{});
-    self.plane.move_bottom();
+    self.plane.hide();
     return self;
 }
 
 pub fn createBox(a: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !*Self {
     const self: *Self = try a.create(Self);
     self.* = try init(a, parent, name, dir, layout_, box);
-    self.plane.move_bottom();
+    self.plane.hide();
     return self;
 }
 

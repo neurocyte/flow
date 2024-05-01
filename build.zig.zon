@@ -35,6 +35,10 @@
             .url = "https://github.com/fjebaker/fuzzig/archive/c6a0e0ca1a24e55ebdce51c83b918d4325ca7032.tar.gz",
             .hash = "1220214dfb9a0806d9c8a059beb9e3b07811fd138cd5baeb9d1da432588920a084bf",
         },
+        .vaxis = .{
+            .url = "https://github.com/rockorager/libvaxis/archive/972129a764910c033042cfc50732002af62a0f83.tar.gz",
+            .hash = "1220b34a066de45d8e58d3d85173bcd24edbd9e87b93791e621acc696d97e8e45c4c",
+        },
     },
     .paths = .{
         "include",

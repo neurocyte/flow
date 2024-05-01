@@ -1,11 +1,9 @@
 const std = @import("std");
+const Plane = @import("renderer").Plane;
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const cwd = std.fs.cwd;
-
-const egc_length = @import("renderer").egc.length;
-const egc_chunk_width = @import("renderer").egc.chunk_width;
 
 const Self = @This();
 
@@ -53,7 +51,7 @@ pub const WalkerMut = struct {
     pub const stop = WalkerMut{ .keep_walking = false };
     pub const found = WalkerMut{ .found = true };
 
-    const F = *const fn (ctx: *anyopaque, leaf: *const Leaf) WalkerMut;
+    const F = *const fn (ctx: *anyopaque, leaf: *const Leaf, plane: Plane) WalkerMut;
 };
 
 pub const Walker = struct {
@@ -65,7 +63,7 @@ pub const Walker = struct {
     pub const stop = Walker{ .keep_walking = false };
     pub const found = Walker{ .found = true };
 
-    const F = *const fn (ctx: *anyopaque, leaf: *const Leaf) Walker;
+    const F = *const fn (ctx: *anyopaque, leaf: *const Leaf, plane: Plane) Walker;
 };
 
 pub const Weights = struct {
@@ -147,7 +145,7 @@ pub const Leaf = struct {
         return self.buf.len == 0 and !self.bol and !self.eol;
     }
 
-    fn pos_to_width(self: *const Leaf, pos: *usize, abs_col_: usize) usize {
+    fn pos_to_width(self: *const Leaf, pos: *usize, abs_col_: usize, plane: Plane) usize {
         var col: usize = 0;
         var abs_col = abs_col_;
         var cols: c_int = 0;
@@ -158,7 +156,7 @@ pub const Leaf = struct {
                 buf = buf[1..];
                 pos.* -= 1;
             } else {
-                const bytes = egc_length(buf, &cols, abs_col);
+                const bytes = plane.egc_length(buf, &cols, abs_col);
                 buf = buf[bytes..];
                 pos.* -= bytes;
             }
@@ -168,12 +166,12 @@ pub const Leaf = struct {
         return col;
     }
 
-    fn width(self: *const Leaf, abs_col: usize) usize {
+    fn width(self: *const Leaf, abs_col: usize, plane: Plane) usize {
         var pos: usize = std.math.maxInt(usize);
-        return self.pos_to_width(&pos, abs_col);
+        return self.pos_to_width(&pos, abs_col, plane);
     }
 
-    inline fn width_to_pos(self: *const Leaf, col_: usize, abs_col_: usize) !usize {
+    inline fn width_to_pos(self: *const Leaf, col_: usize, abs_col_: usize, plane: Plane) !usize {
         var abs_col = abs_col_;
         var col = col_;
         var cols: c_int = 0;
@@ -181,7 +179,7 @@ pub const Leaf = struct {
         return while (buf.len > 0) {
             if (col == 0)
                 break @intFromPtr(buf.ptr) - @intFromPtr(self.buf.ptr);
-            const bytes = egc_length(buf, &cols, abs_col);
+            const bytes = plane.egc_length(buf, &cols, abs_col);
             buf = buf[bytes..];
             if (col < cols)
                 break @intFromPtr(buf.ptr) - @intFromPtr(self.buf.ptr);
@@ -190,20 +188,20 @@ pub const Leaf = struct {
         } else error.BufferUnderrun;
     }
 
-    inline fn dump(self: *const Leaf, l: *ArrayList(u8), abs_col: usize) !void {
+    inline fn dump(self: *const Leaf, l: *ArrayList(u8), abs_col: usize, plane: Plane) !void {
         var buf: [16]u8 = undefined;
-        const wcwidth = try std.fmt.bufPrint(&buf, "{d}", .{self.width(abs_col)});
+        const wcwidth = try std.fmt.bufPrint(&buf, "{d}", .{self.width(abs_col, plane)});
         if (self.bol)
             try l.appendSlice("BOL ");
         try l.appendSlice(wcwidth);
         try l.append('"');
-        try debug_render_chunk(self.buf, l);
+        try debug_render_chunk(self.buf, l, plane);
         try l.appendSlice("\" ");
         if (self.eol)
             try l.appendSlice("EOL ");
     }
 
-    fn debug_render_chunk(chunk: []const u8, l: *ArrayList(u8)) !void {
+    fn debug_render_chunk(chunk: []const u8, l: *ArrayList(u8), plane: Plane) !void {
         var cols: c_int = 0;
         var buf = chunk;
         while (buf.len > 0) {
@@ -214,7 +212,7 @@ pub const Leaf = struct {
                     buf = buf[1..];
                 },
                 else => {
-                    const bytes = egc_length(buf, &cols, 0);
+                    const bytes = plane.egc_length(buf, &cols, 0);
                     var buf_: [4096]u8 = undefined;
                     try l.appendSlice(try std.fmt.bufPrint(&buf_, "{s}", .{std.fmt.fmtSliceEscapeLower(buf[0..bytes])}));
                     buf = buf[bytes..];
@@ -316,27 +314,27 @@ const Node = union(enum) {
         return leaves.toOwnedSlice();
     }
 
-    fn walk_const(self: *const Node, f: Walker.F, ctx: *anyopaque) Walker {
+    fn walk_const(self: *const Node, f: Walker.F, ctx: *anyopaque, plane: Plane) Walker {
         switch (self.*) {
             .node => |*node| {
-                const left = node.left.walk_const(f, ctx);
+                const left = node.left.walk_const(f, ctx, plane);
                 if (!left.keep_walking) {
                     var result = Walker{};
                     result.err = left.err;
                     result.found = left.found;
                     return result;
                 }
-                const right = node.right.walk_const(f, ctx);
+                const right = node.right.walk_const(f, ctx, plane);
                 return node.merge_results_const(left, right);
             },
-            .leaf => |*l| return f(ctx, l),
+            .leaf => |*l| return f(ctx, l, plane),
         }
     }
 
-    fn walk(self: *const Node, a: Allocator, f: WalkerMut.F, ctx: *anyopaque) WalkerMut {
+    fn walk(self: *const Node, a: Allocator, f: WalkerMut.F, ctx: *anyopaque, plane: Plane) WalkerMut {
         switch (self.*) {
             .node => |*node| {
-                const left = node.left.walk(a, f, ctx);
+                const left = node.left.walk(a, f, ctx, plane);
                 if (!left.keep_walking) {
                     var result = WalkerMut{};
                     result.err = left.err;
@@ -346,26 +344,26 @@ const Node = union(enum) {
                     }
                     return result;
                 }
-                const right = node.right.walk(a, f, ctx);
+                const right = node.right.walk(a, f, ctx, plane);
                 return node.merge_results(a, left, right);
             },
-            .leaf => |*l| return f(ctx, l),
+            .leaf => |*l| return f(ctx, l, plane),
         }
     }
 
-    fn walk_from_line_begin_const_internal(self: *const Node, line: usize, f: Walker.F, ctx: *anyopaque) Walker {
+    fn walk_from_line_begin_const_internal(self: *const Node, line: usize, f: Walker.F, ctx: *anyopaque, plane: Plane) Walker {
         switch (self.*) {
             .node => |*node| {
                 const left_bols = node.weights.bols;
                 if (line >= left_bols)
-                    return node.right.walk_from_line_begin_const_internal(line - left_bols, f, ctx);
-                const left_result = node.left.walk_from_line_begin_const_internal(line, f, ctx);
-                const right_result = if (left_result.found and left_result.keep_walking) node.right.walk_const(f, ctx) else Walker{};
+                    return node.right.walk_from_line_begin_const_internal(line - left_bols, f, ctx, plane);
+                const left_result = node.left.walk_from_line_begin_const_internal(line, f, ctx, plane);
+                const right_result = if (left_result.found and left_result.keep_walking) node.right.walk_const(f, ctx, plane) else Walker{};
                 return node.merge_results_const(left_result, right_result);
             },
             .leaf => |*l| {
                 if (line == 0) {
-                    var result = f(ctx, l);
+                    var result = f(ctx, l, plane);
                     if (result.err) |_| return result;
                     result.found = true;
                     return result;
@@ -375,18 +373,18 @@ const Node = union(enum) {
         }
     }
 
-    pub fn walk_from_line_begin_const(self: *const Node, line: usize, f: Walker.F, ctx: *anyopaque) !bool {
-        const result = self.walk_from_line_begin_const_internal(line, f, ctx);
+    pub fn walk_from_line_begin_const(self: *const Node, line: usize, f: Walker.F, ctx: *anyopaque, plane: Plane) !bool {
+        const result = self.walk_from_line_begin_const_internal(line, f, ctx, plane);
         if (result.err) |e| return e;
         return result.found;
     }
 
-    fn walk_from_line_begin_internal(self: *const Node, a: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque) WalkerMut {
+    fn walk_from_line_begin_internal(self: *const Node, a: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque, plane: Plane) WalkerMut {
         switch (self.*) {
             .node => |*node| {
                 const left_bols = node.weights.bols;
                 if (line >= left_bols) {
-                    const right_result = node.right.walk_from_line_begin_internal(a, line - left_bols, f, ctx);
+                    const right_result = node.right.walk_from_line_begin_internal(a, line - left_bols, f, ctx, plane);
                     if (right_result.replace) |p| {
                         var result = WalkerMut{};
                         result.err = right_result.err;
@@ -401,13 +399,13 @@ const Node = union(enum) {
                         return right_result;
                     }
                 }
-                const left_result = node.left.walk_from_line_begin_internal(a, line, f, ctx);
-                const right_result = if (left_result.found and left_result.keep_walking) node.right.walk(a, f, ctx) else WalkerMut{};
+                const left_result = node.left.walk_from_line_begin_internal(a, line, f, ctx, plane);
+                const right_result = if (left_result.found and left_result.keep_walking) node.right.walk(a, f, ctx, plane) else WalkerMut{};
                 return node.merge_results(a, left_result, right_result);
             },
             .leaf => |*l| {
                 if (line == 0) {
-                    var result = f(ctx, l);
+                    var result = f(ctx, l, plane);
                     if (result.err) |_| {
                         result.replace = null;
                         return result;
@@ -420,8 +418,8 @@ const Node = union(enum) {
         }
     }
 
-    pub fn walk_from_line_begin(self: *const Node, a: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque) !struct { bool, ?Root } {
-        const result = self.walk_from_line_begin_internal(a, line, f, ctx);
+    pub fn walk_from_line_begin(self: *const Node, a: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque, plane: Plane) !struct { bool, ?Root } {
+        const result = self.walk_from_line_begin_internal(a, line, f, ctx, plane);
         if (result.err) |e| return e;
         return .{ result.found, result.replace };
     }
@@ -461,27 +459,27 @@ const Node = union(enum) {
         }
     }
 
-    const EgcF = *const fn (ctx: *anyopaque, egc: []const u8, wcwidth: usize) Walker;
+    const EgcF = *const fn (ctx: *anyopaque, egc: []const u8, wcwidth: usize, plane: Plane) Walker;
 
-    pub fn walk_egc_forward(self: *const Node, line: usize, walker_f: EgcF, walker_ctx: *anyopaque) !void {
+    pub fn walk_egc_forward(self: *const Node, line: usize, walker_f: EgcF, walker_ctx: *anyopaque, plane_: Plane) !void {
         const Ctx = struct {
             walker_f: EgcF,
             walker_ctx: @TypeOf(walker_ctx),
             abs_col: usize = 0,
-            fn walker(ctx_: *anyopaque, leaf: *const Self.Leaf) Walker {
+            fn walker(ctx_: *anyopaque, leaf: *const Self.Leaf, plane: Plane) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 var buf: []const u8 = leaf.buf;
                 while (buf.len > 0) {
                     var cols: c_int = undefined;
-                    const bytes = egc_length(buf, &cols, ctx.abs_col);
-                    const ret = ctx.walker_f(ctx.walker_ctx, buf[0..bytes], @intCast(cols));
+                    const bytes = plane.egc_length(buf, &cols, ctx.abs_col);
+                    const ret = ctx.walker_f(ctx.walker_ctx, buf[0..bytes], @intCast(cols), plane);
                     if (ret.err) |e| return .{ .err = e };
                     buf = buf[bytes..];
                     ctx.abs_col += @intCast(cols);
                     if (!ret.keep_walking) return Walker.stop;
                 }
                 if (leaf.eol) {
-                    const ret = ctx.walker_f(ctx.walker_ctx, "\n", 1);
+                    const ret = ctx.walker_f(ctx.walker_ctx, "\n", 1, plane);
                     if (ret.err) |e| return .{ .err = e };
                     if (!ret.keep_walking) return Walker.stop;
                     ctx.abs_col = 0;
@@ -490,16 +488,16 @@ const Node = union(enum) {
             }
         };
         var ctx: Ctx = .{ .walker_f = walker_f, .walker_ctx = walker_ctx };
-        const found = try self.walk_from_line_begin_const(line, Ctx.walker, &ctx);
+        const found = try self.walk_from_line_begin_const(line, Ctx.walker, &ctx, plane_);
         if (!found) return error.NotFound;
     }
 
-    pub fn ecg_at(self: *const Node, line: usize, col: usize) error{NotFound}!struct { []const u8, usize, usize } {
+    pub fn ecg_at(self: *const Node, line: usize, col: usize, plane: Plane) error{NotFound}!struct { []const u8, usize, usize } {
         const ctx_ = struct {
             col: usize,
             at: ?[]const u8 = null,
             wcwidth: usize = 0,
-            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize) Walker {
+            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Plane) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 ctx.at = egc;
                 ctx.wcwidth = wcwidth;
@@ -510,20 +508,20 @@ const Node = union(enum) {
             }
         };
         var ctx: ctx_ = .{ .col = col };
-        self.walk_egc_forward(line, ctx_.walker, &ctx) catch return .{ "?", 1, 0 };
+        self.walk_egc_forward(line, ctx_.walker, &ctx, plane) catch return .{ "?", 1, 0 };
         return if (ctx.at) |at| .{ at, ctx.wcwidth, ctx.col } else error.NotFound;
     }
 
-    pub fn test_at(self: *const Node, pred: *const fn (c: []const u8) bool, line: usize, col: usize) bool {
-        const ecg, _, _ = self.ecg_at(line, col) catch return false;
+    pub fn test_at(self: *const Node, pred: *const fn (c: []const u8) bool, line: usize, col: usize, plane: Plane) bool {
+        const ecg, _, _ = self.ecg_at(line, col, plane) catch return false;
         return pred(ecg);
     }
 
-    pub fn get_line_width_map(self: *const Node, line: usize, map: *ArrayList(u16)) error{ Stop, NoSpaceLeft }!void {
+    pub fn get_line_width_map(self: *const Node, line: usize, map: *ArrayList(u16), plane: Plane) error{ Stop, NoSpaceLeft }!void {
         const Ctx = struct {
             map: *ArrayList(u16),
             wcwidth: usize = 0,
-            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize) Walker {
+            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Plane) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 var n = egc.len;
                 while (n > 0) : (n -= 1) {
@@ -535,20 +533,20 @@ const Node = union(enum) {
             }
         };
         var ctx: Ctx = .{ .map = map };
-        self.walk_egc_forward(line, Ctx.walker, &ctx) catch |e| return switch (e) {
+        self.walk_egc_forward(line, Ctx.walker, &ctx, plane) catch |e| return switch (e) {
             error.NoSpaceLeft => error.NoSpaceLeft,
             else => error.Stop,
         };
     }
 
-    pub fn get_range(self: *const Node, sel: Selection, copy_buf: ?[]u8, size: ?*usize, wcwidth_: ?*usize) error{ Stop, NoSpaceLeft }!?[]u8 {
+    pub fn get_range(self: *const Node, sel: Selection, copy_buf: ?[]u8, size: ?*usize, wcwidth_: ?*usize, plane_: Plane) error{ Stop, NoSpaceLeft }!?[]u8 {
         const Ctx = struct {
             col: usize = 0,
             sel: Selection,
             out: ?[]u8,
             bytes: usize = 0,
             wcwidth: usize = 0,
-            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize) Walker {
+            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Plane) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 if (ctx.col < ctx.sel.begin.col) {
                     ctx.col += wcwidth;
@@ -581,7 +579,7 @@ const Node = union(enum) {
         ctx.sel.normalize();
         if (sel.begin.eql(sel.end))
             return error.Stop;
-        self.walk_egc_forward(sel.begin.row, Ctx.walker, &ctx) catch |e| return switch (e) {
+        self.walk_egc_forward(sel.begin.row, Ctx.walker, &ctx, plane_) catch |e| return switch (e) {
             error.NoSpaceLeft => error.NoSpaceLeft,
             else => error.Stop,
         };
@@ -590,20 +588,20 @@ const Node = union(enum) {
         return if (copy_buf) |buf_| buf_[0..ctx.bytes] else null;
     }
 
-    pub fn delete_range(self: *const Node, sel: Selection, a: Allocator, size: ?*usize) error{Stop}!Root {
+    pub fn delete_range(self: *const Node, sel: Selection, a: Allocator, size: ?*usize, plane: Plane) error{Stop}!Root {
         var wcwidth: usize = 0;
-        _ = self.get_range(sel, null, size, &wcwidth) catch return error.Stop;
-        return self.del_chars(sel.begin.row, sel.begin.col, wcwidth, a) catch return error.Stop;
+        _ = self.get_range(sel, null, size, &wcwidth, plane) catch return error.Stop;
+        return self.del_chars(sel.begin.row, sel.begin.col, wcwidth, a, plane) catch return error.Stop;
     }
 
-    pub fn del_chars(self: *const Node, line: usize, col: usize, count: usize, a: Allocator) !Root {
+    pub fn del_chars(self: *const Node, line: usize, col: usize, count: usize, a: Allocator, plane_: Plane) !Root {
         const Ctx = struct {
             a: Allocator,
             col: usize,
             abs_col: usize = 0,
             count: usize,
             delete_next_bol: bool = false,
-            fn walker(Ctx: *anyopaque, leaf: *const Leaf) WalkerMut {
+            fn walker(Ctx: *anyopaque, leaf: *const Leaf, plane: Plane) WalkerMut {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(Ctx)));
                 var result = WalkerMut.keep_walking;
                 if (ctx.delete_next_bol and ctx.count == 0) {
@@ -612,7 +610,7 @@ const Node = union(enum) {
                     ctx.delete_next_bol = false;
                     return result;
                 }
-                const leaf_wcwidth = leaf.width(ctx.abs_col);
+                const leaf_wcwidth = leaf.width(ctx.abs_col, plane);
                 const leaf_bol = leaf.bol and !ctx.delete_next_bol;
                 ctx.delete_next_bol = false;
                 const base_col = ctx.abs_col;
@@ -636,7 +634,7 @@ const Node = union(enum) {
                             result.replace = Leaf.new(ctx.a, "", leaf_bol, leaf.eol) catch |e| return .{ .err = e };
                             ctx.count = 0;
                         } else {
-                            const pos = leaf.width_to_pos(ctx.count, base_col) catch |e| return .{ .err = e };
+                            const pos = leaf.width_to_pos(ctx.count, base_col, plane) catch |e| return .{ .err = e };
                             result.replace = Leaf.new(ctx.a, leaf.buf[pos..], leaf_bol, leaf.eol) catch |e| return .{ .err = e };
                             ctx.count = 0;
                         }
@@ -650,7 +648,7 @@ const Node = union(enum) {
                     } else {
                         if (ctx.col + ctx.count >= leaf_wcwidth) {
                             ctx.count -= leaf_wcwidth - ctx.col;
-                            const pos = leaf.width_to_pos(ctx.col, base_col) catch |e| return .{ .err = e };
+                            const pos = leaf.width_to_pos(ctx.col, base_col, plane) catch |e| return .{ .err = e };
                             const leaf_eol = if (leaf.eol and ctx.count > 0) leaf_eol: {
                                 ctx.count -= 1;
                                 ctx.delete_next_bol = true;
@@ -659,8 +657,8 @@ const Node = union(enum) {
                             result.replace = Leaf.new(ctx.a, leaf.buf[0..pos], leaf_bol, leaf_eol) catch |e| return .{ .err = e };
                             ctx.col = 0;
                         } else {
-                            const pos = leaf.width_to_pos(ctx.col, base_col) catch |e| return .{ .err = e };
-                            const pos_end = leaf.width_to_pos(ctx.col + ctx.count, base_col) catch |e| return .{ .err = e };
+                            const pos = leaf.width_to_pos(ctx.col, base_col, plane) catch |e| return .{ .err = e };
+                            const pos_end = leaf.width_to_pos(ctx.col + ctx.count, base_col, plane) catch |e| return .{ .err = e };
                             const left = Leaf.new(ctx.a, leaf.buf[0..pos], leaf_bol, false) catch |e| return .{ .err = e };
                             const right = Leaf.new(ctx.a, leaf.buf[pos_end..], false, leaf.eol) catch |e| return .{ .err = e };
                             result.replace = Node.new(ctx.a, left, right) catch |e| return .{ .err = e };
@@ -674,7 +672,7 @@ const Node = union(enum) {
             }
         };
         var ctx: Ctx = .{ .a = a, .col = col, .count = count };
-        const found, const root = try self.walk_from_line_begin(a, line, Ctx.walker, &ctx);
+        const found, const root = try self.walk_from_line_begin(a, line, Ctx.walker, &ctx, plane_);
         return if (found) (if (root) |r| r else error.Stop) else error.NotFound;
     }
 
@@ -704,36 +702,43 @@ const Node = union(enum) {
         return if (!found) error.NotFound;
     }
 
-    pub fn line_width(self: *const Node, line: usize) !usize {
+    pub fn line_width(self: *const Node, line: usize, plane_: Plane) !usize {
         const do = struct {
             result: usize = 0,
-            fn walker(ctx: *anyopaque, leaf: *const Leaf) Walker {
+            fn walker(ctx: *anyopaque, leaf: *const Leaf, plane: Plane) Walker {
                 const do = @as(*@This(), @ptrCast(@alignCast(ctx)));
-                do.result += leaf.width(do.result);
+                do.result += leaf.width(do.result, plane);
                 return if (!leaf.eol) Walker.keep_walking else Walker.stop;
             }
         };
         var ctx: do = .{};
-        const found = self.walk_from_line_begin_const(line, do.walker, &ctx) catch true;
+        const found = self.walk_from_line_begin_const(line, do.walker, &ctx, plane_) catch true;
         return if (found) ctx.result else error.NotFound;
     }
 
-    pub fn pos_to_width(self: *const Node, line: usize, pos: usize) !usize {
+    pub fn pos_to_width(self: *const Node, line: usize, pos: usize, plane_: Plane) !usize {
         const do = struct {
             result: usize = 0,
             pos: usize,
-            fn walker(ctx: *anyopaque, leaf: *const Leaf) Walker {
+            fn walker(ctx: *anyopaque, leaf: *const Leaf, plane: Plane) Walker {
                 const do = @as(*@This(), @ptrCast(@alignCast(ctx)));
-                do.result += leaf.pos_to_width(&do.pos, do.result);
+                do.result += leaf.pos_to_width(&do.pos, do.result, plane);
                 return if (!(leaf.eol or do.pos == 0)) Walker.keep_walking else Walker.stop;
             }
         };
         var ctx: do = .{ .pos = pos };
-        const found = self.walk_from_line_begin_const(line, do.walker, &ctx) catch true;
+        const found = self.walk_from_line_begin_const(line, do.walker, &ctx, plane_) catch true;
         return if (found) ctx.result else error.NotFound;
     }
 
-    pub fn insert_chars(self_: *const Node, line_: usize, col_: usize, s: []const u8, a: Allocator) !struct { usize, usize, Root } {
+    pub fn insert_chars(
+        self_: *const Node,
+        line_: usize,
+        col_: usize,
+        s: []const u8,
+        a: Allocator,
+        plane_: Plane,
+    ) !struct { usize, usize, Root } {
         var self = self_;
         const Ctx = struct {
             a: Allocator,
@@ -742,9 +747,9 @@ const Node = union(enum) {
             s: []const u8,
             eol: bool,
 
-            fn walker(ctx: *anyopaque, leaf: *const Leaf) WalkerMut {
+            fn walker(ctx: *anyopaque, leaf: *const Leaf, plane: Plane) WalkerMut {
                 const Ctx = @as(*@This(), @ptrCast(@alignCast(ctx)));
-                const leaf_wcwidth = leaf.width(Ctx.abs_col);
+                const leaf_wcwidth = leaf.width(Ctx.abs_col, plane);
                 const base_col = Ctx.abs_col;
                 Ctx.abs_col += leaf_wcwidth;
 
@@ -776,7 +781,7 @@ const Node = union(enum) {
                 }
 
                 if (leaf_wcwidth > Ctx.col) {
-                    const pos = leaf.width_to_pos(Ctx.col, base_col) catch |e| return .{ .err = e };
+                    const pos = leaf.width_to_pos(Ctx.col, base_col, plane) catch |e| return .{ .err = e };
                     if (Ctx.eol and Ctx.s.len == 0) {
                         const left = Leaf.new(Ctx.a, leaf.buf[0..pos], leaf.bol, Ctx.eol) catch |e| return .{ .err = e };
                         const right = Leaf.new(Ctx.a, leaf.buf[pos..], Ctx.eol, leaf.eol) catch |e| return .{ .err = e };
@@ -813,14 +818,14 @@ const Node = union(enum) {
                 need_eol = false;
             }
             var ctx: Ctx = .{ .a = a, .col = col, .s = chunk, .eol = need_eol };
-            const found, const replace = try self.walk_from_line_begin(a, line, Ctx.walker, &ctx);
+            const found, const replace = try self.walk_from_line_begin(a, line, Ctx.walker, &ctx, plane_);
             if (!found) return error.NotFound;
             if (replace) |root| self = root;
             if (need_eol) {
                 line += 1;
                 col = 0;
             } else {
-                col += egc_chunk_width(chunk, col);
+                col += plane_.egc_chunk_width(chunk, col);
             }
         }
         return .{ line, col, self };
@@ -913,19 +918,19 @@ const Node = union(enum) {
         return self.store(ctx.writer());
     }
 
-    pub fn debug_render_chunks(self: *const Node, line: usize, output: *ArrayList(u8)) !void {
+    pub fn debug_render_chunks(self: *const Node, line: usize, output: *ArrayList(u8), plane_: Plane) !void {
         const ctx_ = struct {
             l: *ArrayList(u8),
             wcwidth: usize = 0,
-            fn walker(ctx_: *anyopaque, leaf: *const Leaf) Walker {
+            fn walker(ctx_: *anyopaque, leaf: *const Leaf, plane: Plane) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-                leaf.dump(ctx.l, ctx.wcwidth) catch |e| return .{ .err = e };
-                ctx.wcwidth += leaf.width(ctx.wcwidth);
+                leaf.dump(ctx.l, ctx.wcwidth, plane) catch |e| return .{ .err = e };
+                ctx.wcwidth += leaf.width(ctx.wcwidth, plane);
                 return if (!leaf.eol) Walker.keep_walking else Walker.stop;
             }
         };
         var ctx: ctx_ = .{ .l = output };
-        const found = self.walk_from_line_begin_const(line, ctx_.walker, &ctx) catch true;
+        const found = self.walk_from_line_begin_const(line, ctx_.walker, &ctx, plane_) catch true;
         if (!found) return error.NotFound;
 
         var buf: [16]u8 = undefined;

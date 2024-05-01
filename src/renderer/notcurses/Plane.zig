@@ -77,15 +77,19 @@ pub const Plane = struct {
         return self.plane.dim_x();
     }
 
-    pub fn abs_yx_to_rel(self: Plane, y: ?*c_int, x: ?*c_int) void {
-        self.plane.abs_yx_to_rel(y, x);
+    pub fn abs_yx_to_rel(self: Plane, y: c_int, x: c_int) struct { c_int, c_int } {
+        var y_, var x_ = .{ y, x };
+        self.plane.abs_yx_to_rel(&y_, &x_);
+        return .{ y_, x_ };
     }
 
-    pub fn rel_yx_to_abs(self: Plane, y: ?*c_int, x: ?*c_int) void {
-        self.plane.rel_yx_to_abs(y, x);
+    pub fn rel_yx_to_abs(self: Plane, y: c_int, x: c_int) struct { c_int, c_int } {
+        var y_, var x_ = .{ y, x };
+        self.plane.rel_yx_to_abs(&y_, &x_);
+        return .{ y_, x_ };
     }
 
-    pub fn move_bottom(self: Plane) void {
+    pub fn hide(self: Plane) void {
         self.plane.move_bottom();
     }
 
@@ -243,5 +247,31 @@ pub const Plane = struct {
             .undercurl => plane.plane.set_styles(nc.style.undercurl),
             .strikethrough => plane.plane.set_styles(nc.style.struck),
         };
+    }
+
+    pub fn egc_length(_: Plane, egcs: []const u8, colcount: *c_int, abs_col: usize) usize {
+        if (egcs[0] == '\t') {
+            colcount.* = @intCast(8 - abs_col % 8);
+            return 1;
+        }
+        return nc.ncegc_len(egcs, colcount) catch ret: {
+            colcount.* = 1;
+            break :ret 1;
+        };
+    }
+
+    pub fn egc_chunk_width(plane: Plane, chunk_: []const u8, abs_col_: usize) usize {
+        var abs_col = abs_col_;
+        var chunk = chunk_;
+        var colcount: usize = 0;
+        var cols: c_int = 0;
+        while (chunk.len > 0) {
+            const bytes = plane.egc_length(chunk, &cols, abs_col);
+            colcount += @intCast(cols);
+            abs_col += @intCast(cols);
+            if (chunk.len < bytes) break;
+            chunk = chunk[bytes..];
+        }
+        return colcount;
     }
 };

@@ -22,6 +22,7 @@ pub fn build(b: *std.Build) void {
     const use_llvm_option = b.option(bool, "use_llvm", "Enable llvm backend (default: yes)");
     const use_lld_option = b.option(bool, "use_lld", "Enable lld backend (default: yes)");
     const use_system_notcurses = b.option(bool, "use_system_notcurses", "Build against system notcurses (default: no)") orelse false;
+    const use_vaxis = b.option(bool, "use_vaxis", "Enable libvaxis rendering backend (default: no)") orelse false;
 
     const tracy_enabled = if (enable_tracy_option) |enabled| enabled else false;
     const optimize_deps_enabled = if (optimize_deps_option) |enabled| enabled else true;
@@ -32,6 +33,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "use_llvm", use_llvm_option orelse false);
     options.addOption(bool, "use_lld", use_lld_option orelse false);
     options.addOption(bool, "use_system_notcurses", use_system_notcurses);
+    options.addOption(bool, "use_vaxis", use_vaxis);
 
     const options_mod = options.createModule();
 
@@ -56,6 +58,12 @@ pub fn build(b: *std.Build) void {
         .use_system_notcurses = use_system_notcurses,
     });
     const notcurses_mod = notcurses_dep.module("notcurses");
+
+    const vaxis_dep = b.dependency("vaxis", .{
+        .target = target,
+        .optimize = dependency_optimize,
+    });
+    const vaxis_mod = vaxis_dep.module("vaxis");
 
     const clap_dep = b.dependency("clap", .{
         .target = target,
@@ -128,7 +136,17 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const renderer_mod = notcurses_renderer_mod;
+    const vaxis_renderer_mod = b.createModule(.{
+        .root_source_file = .{ .path = "src/renderer/vaxis/renderer.zig" },
+        .imports = &.{
+            .{ .name = "vaxis", .module = vaxis_mod },
+            .{ .name = "theme", .module = themes_dep.module("theme") },
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "log", .module = log_mod },
+        },
+    });
+
+    const renderer_mod = if (use_vaxis) vaxis_renderer_mod else notcurses_renderer_mod;
 
     const Buffer_mod = b.createModule(.{
         .root_source_file = .{ .path = "src/buffer/Buffer.zig" },
@@ -210,7 +228,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "flow",
+        .name = if (use_vaxis) "flow-vaxis" else "flow",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
@@ -238,7 +256,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const check_exe = b.addExecutable(.{
-        .name = "flow",
+        .name = if (use_vaxis) "flow-vaxis" else "flow",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,

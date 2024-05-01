@@ -123,7 +123,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     defer frame.deinit();
     self.plane.set_base_style(" ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
     self.plane.erase();
-    smooth_bar_at(self.plane, @intCast(self.pos_scrn), @intCast(self.view_scrn)) catch {};
+    smooth_bar_at(&self.plane, @intCast(self.pos_scrn), @intCast(self.view_scrn)) catch {};
     return false;
 }
 
@@ -151,7 +151,7 @@ const eighths_b = [_][]const u8{ "█", "▇", "▆", "▅", "▄", "▃", "▂"
 const eighths_t = [_][]const u8{ " ", "▔", "🮂", "🮃", "▀", "🮄", "🮅", "🮆" };
 const eighths_c: i32 = @intCast(eighths_b.len);
 
-fn smooth_bar_at(plane: Plane, pos_: i32, size_: i32) !void {
+fn smooth_bar_at(plane: *Plane, pos_: i32, size_: i32) !void {
     const height: i32 = @intCast(plane.dim_y());
     var size = @max(size_, 8);
     const pos: i32 = @min(height * eighths_c - size, pos_);

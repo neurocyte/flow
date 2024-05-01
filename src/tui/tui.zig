@@ -93,13 +93,6 @@ fn init(a: Allocator) !*Self {
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 
-    const fd_stdin = try tp.file_descriptor.init("stdin", ctx.input_fd());
-    // const fd_stdin = try tp.file_descriptor.init("stdin", std.os.STDIN_FILENO);
-    const n = ctx.stdplane();
-
-    try frame_clock.start();
-    try fd_stdin.wait_read();
-
     self.* = .{
         .a = a,
         .config = conf,
@@ -107,7 +100,7 @@ fn init(a: Allocator) !*Self {
         .frame_time = frame_time,
         .frame_clock = frame_clock,
         .frame_clock_running = true,
-        .fd_stdin = fd_stdin,
+        .fd_stdin = undefined,
         .receiver = Receiver.init(receive, self),
         .mainview = undefined,
         .message_filters = MessageFilter.List.init(a),
@@ -120,6 +113,15 @@ fn init(a: Allocator) !*Self {
     };
     instance_ = self;
     defer instance_ = null;
+
+    try self.rdr.run();
+    self.fd_stdin = try tp.file_descriptor.init("stdin", self.rdr.input_fd());
+    // self.fd_stdin = try tp.file_descriptor.init("stdin", std.os.STDIN_FILENO);
+    const n = self.rdr.stdplane();
+
+    try frame_clock.start();
+    try self.fd_stdin.wait_read();
+
     self.rdr.handler_ctx = self;
     self.rdr.dispatch_input = dispatch_input;
     self.rdr.dispatch_mouse = dispatch_mouse;
@@ -129,7 +131,7 @@ fn init(a: Allocator) !*Self {
     errdefer self.deinit();
     try self.listen_sigwinch();
     self.mainview = try mainview.create(a, n);
-    try ctx.render();
+    try self.rdr.render();
     try self.save_config();
     if (tp.env.get().is("restore-session")) {
         command.executeName("restore_session", .{}) catch |e| self.logger.err("restore_session", e);
@@ -305,7 +307,7 @@ fn render(self: *Self, current_time: i64) void {
     };
 
     {
-        const frame = tracy.initZone(@src(), .{ .name = "notcurses render" });
+        const frame = tracy.initZone(@src(), .{ .name = renderer.log_name ++ " render" });
         defer frame.deinit();
         self.rdr.render() catch |e| self.logger.err("render", e);
     }
@@ -342,7 +344,10 @@ fn dispatch_input_fd(self: *Self, m: tp.message) error{Exit}!bool {
     var err_msg: []u8 = "";
     if (try m.match(.{ "fd", "stdin", "read_ready" })) {
         self.fd_stdin.wait_read() catch |e| return tp.exit_error(e);
-        self.rdr.process_input() catch |e| return tp.exit_error(e);
+        self.rdr.process_input() catch |e| switch (e) {
+            error.WouldBlock => return true,
+            else => return tp.exit_error(e),
+        };
         try self.dispatch_flush_input_event();
         if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
             need_render();
@@ -512,18 +517,17 @@ const cmds = struct {
         const l = log.logger("z stack");
         defer l.deinit();
         var buf: [256]u8 = undefined;
-        var buf_parent: [256]u8 = undefined;
         var z: i32 = 0;
         var n = self.rdr.stdplane();
         while (n.below()) |n_| : (n = n_) {
             z -= 1;
-            l.print("{d} {s} {s}", .{ z, n_.name(&buf), n_.parent().name(&buf_parent) });
+            l.print("{d} {s}", .{ z, n_.name(&buf) });
         }
         z = 0;
         n = self.rdr.stdplane();
         while (n.above()) |n_| : (n = n_) {
             z += 1;
-            l.print("{d} {s} {s}", .{ z, n_.name(&buf), n_.parent().name(&buf_parent) });
+            l.print("{d} {s}", .{ z, n_.name(&buf) });
         }
     }
 

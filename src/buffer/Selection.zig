@@ -1,4 +1,5 @@
 const std = @import("std");
+const Plane = @import("renderer").Plane;
 const Buffer = @import("Buffer.zig");
 const Cursor = @import("Cursor.zig");
 
@@ -15,12 +16,12 @@ pub fn from_cursor(cursor: *const Cursor) Self {
     return .{ .begin = cursor.*, .end = cursor.* };
 }
 
-pub fn line_from_cursor(cursor: Cursor, root: Buffer.Root) Self {
+pub fn line_from_cursor(cursor: Cursor, root: Buffer.Root, plane: Plane) Self {
     var begin = cursor;
     var end = cursor;
     begin.move_begin();
-    end.move_end(root);
-    end.move_right(root) catch {};
+    end.move_end(root, plane);
+    end.move_right(root, plane) catch {};
     return .{ .begin = begin, .end = end };
 }
 

@@ -1,17 +1,18 @@
 const Plane = @import("renderer").Plane;
+const Style = @import("theme").Style;
 
-pub fn print_string_large(n: Plane, s: []const u8) !void {
+pub fn print_string_large(n: *Plane, s: []const u8, style: Style) !void {
     for (s) |c|
-        print_char_large(n, c) catch break;
+        print_char_large(n, c, style) catch break;
 }
 
-pub fn print_char_large(n: Plane, char: u8) !void {
+pub fn print_char_large(n: *Plane, char: u8, style: Style) !void {
     const bitmap = font8x8[char];
     for (0..8) |y| {
         for (0..8) |x| {
             const set = bitmap[y] & @as(usize, 1) << @intCast(x);
             if (set != 0) {
-                _ = try n.putstr("█");
+                try write_cell(n, "█", style);
             } else {
                 n.cursor_move_rel(0, 1) catch {};
             }
@@ -21,14 +22,14 @@ pub fn print_char_large(n: Plane, char: u8) !void {
     n.cursor_move_rel(-8, 8) catch {};
 }
 
-pub fn print_string_medium(n: Plane, s: []const u8) !void {
+pub fn print_string_medium(n: *Plane, s: []const u8, style: Style) !void {
     for (s) |c|
-        print_char_medium(n, c) catch break;
+        print_char_medium(n, c, style) catch break;
 }
 
 const QUADBLOCKS = [_][:0]const u8{ " ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█" };
 
-pub fn print_char_medium(n: Plane, char: u8) !void {
+pub fn print_char_medium(n: *Plane, char: u8, style: Style) !void {
     const bitmap = font8x8[char];
     for (0..4) |y| {
         for (0..4) |x| {
@@ -43,7 +44,7 @@ pub fn print_char_medium(n: Plane, char: u8) !void {
             const quadidx: u4 = setbr | setbl | settr | settl;
             const c = QUADBLOCKS[quadidx];
             if (quadidx != 0) {
-                _ = try n.putstr(c);
+                try write_cell(n, c, style);
             } else {
                 n.cursor_move_rel(0, 1) catch {};
             }
@@ -51,6 +52,14 @@ pub fn print_char_medium(n: Plane, char: u8) !void {
         n.cursor_move_rel(1, -4) catch {};
     }
     n.cursor_move_rel(-4, 4) catch {};
+}
+
+fn write_cell(n: *Plane, egc: [:0]const u8, style: Style) !void {
+    var cell = n.cell_init();
+    _ = n.at_cursor_cell(&cell) catch return;
+    _ = n.cell_load(&cell, egc) catch {};
+    cell.set_style_fg(style);
+    _ = n.putc(&cell) catch {};
 }
 
 pub const font8x8: [128][8]u8 = [128][8]u8{

@@ -3,7 +3,7 @@ const tp = @import("thespian");
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
-const egc_ = @import("renderer").egc;
+const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
@@ -161,7 +161,7 @@ fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) tp.result {
 fn insert_code_point(self: *Self, c: u32) tp.result {
     if (self.input.len + 16 > self.buf.len)
         try self.flush_input();
-    const bytes = egc_.ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]) catch |e| return tp.exit_error(e);
+    const bytes = ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]) catch |e| return tp.exit_error(e);
     self.input = self.buf[0 .. self.input.len + bytes];
 }
 

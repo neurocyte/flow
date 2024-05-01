@@ -4,7 +4,6 @@ const log = @import("log");
 const nc = @import("notcurses");
 const Style = @import("theme").Style;
 
-pub const egc = @import("egc.zig");
 pub const input = @import("input.zig");
 
 pub const Plane = @import("Plane.zig").Plane;
@@ -18,7 +17,7 @@ const key = input.key;
 const event_type = input.event_type;
 
 const Self = @This();
-const log_name = "ncrender";
+pub const log_name = "notcurses";
 
 a: std.mem.Allocator,
 ctx: nc.Context,
@@ -79,6 +78,8 @@ pub fn deinit(self: *Self) void {
     self.bracketed_paste_buffer.deinit();
 }
 
+pub fn run(_: *Self) !void {}
+
 pub fn render(self: Self) !void {
     return self.ctx.render();
 }
@@ -103,11 +104,25 @@ pub fn leave_alternate_screen(self: Self) void {
     return self.ctx.leave_alternate_screen();
 }
 
-pub fn process_input(self: *Self) !void {
+const InputError = error{
+    OutOfMemory,
+    InvalidCharacter,
+    NoSpaceLeft,
+    CborIntegerTooLarge,
+    CborIntegerTooSmall,
+    CborInvalidType,
+    CborTooShort,
+    Ucs32toUtf8Error,
+    InvalidPadding,
+    ReadInputError,
+    WouldBlock,
+};
+
+pub fn process_input(self: *Self) InputError!void {
     var input_buffer: [256]nc.Input = undefined;
 
     while (true) {
-        const nivec = try self.ctx.getvec_nblock(&input_buffer);
+        const nivec = self.ctx.getvec_nblock(&input_buffer) catch return error.ReadInputError;
         if (nivec.len == 0)
             break;
         for (nivec) |*ni| {
@@ -191,7 +206,7 @@ fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
             key.ENTER => try self.bracketed_paste_buffer.appendSlice("\n"),
             else => if (!key.synthesized_p(keypress)) {
                 var buf: [6]u8 = undefined;
-                const bytes = try egc.ucs32_to_utf8(&[_]u32{egc_}, &buf);
+                const bytes = try ucs32_to_utf8(&[_]u32{egc_}, &buf);
                 try self.bracketed_paste_buffer.appendSlice(buf[0..bytes]);
             } else {
                 try self.handle_bracketed_paste_end();
@@ -506,3 +521,5 @@ pub fn cursor_enable(self: Self, y: c_int, x: c_int) !void {
 pub fn cursor_disable(self: Self) void {
     self.ctx.cursor_disable() catch {};
 }
+
+pub const ucs32_to_utf8 = nc.ucs32_to_utf8;

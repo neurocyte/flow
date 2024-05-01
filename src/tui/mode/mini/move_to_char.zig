@@ -3,7 +3,7 @@ const tp = @import("thespian");
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
-const egc_ = @import("renderer").egc;
+const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
@@ -114,7 +114,7 @@ fn execute_operation(self: *Self, c: u32) void {
         },
     };
     var buf: [6]u8 = undefined;
-    const bytes = egc_.ucs32_to_utf8(&[_]u32{c}, &buf) catch return;
+    const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch return;
     command.executeName(cmd, command.fmt(.{buf[0..bytes]})) catch {};
     command.executeName("exit_mini_mode", .{}) catch {};
 }

@@ -8,7 +8,7 @@ const planeutils = @import("renderer").planeutils;
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
-const egc_ = @import("renderer").egc;
+const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 
 const tui = @import("../../tui.zig");
 const command = @import("../../command.zig");
@@ -89,13 +89,13 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            render_cell(button.plane, 0, index + 1, theme.editor_match) catch break;
+            render_cell(&button.plane, 0, index + 1, theme.editor_match) catch break;
         } else break;
     }
     return false;
 }
 
-fn render_cell(plane: Plane, y: usize, x: usize, style: Widget.Theme.Style) !void {
+fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !void {
     plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
     var cell = plane.cell_init();
     _ = plane.at_cursor_cell(&cell) catch return;
@@ -313,7 +313,7 @@ fn delete_code_point(self: *Self) tp.result {
 
 fn insert_code_point(self: *Self, c: u32) tp.result {
     var buf: [6]u8 = undefined;
-    const bytes = egc_.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
+    const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
     self.inputbox.text.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
     self.inputbox.cursor = self.inputbox.text.items.len;
     return self.start_query();

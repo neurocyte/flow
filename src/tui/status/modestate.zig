@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const tracy = @import("tracy");
 const root = @import("root");
-const egc = @import("renderer").egc;
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
@@ -25,9 +24,9 @@ pub fn create(a: Allocator, parent: Plane) !Widget {
     });
 }
 
-pub fn layout(_: *void, _: *Button.State(void)) Widget.Layout {
+pub fn layout(_: *void, btn: *Button.State(void)) Widget.Layout {
     const name = tui.get_mode();
-    const width = egc.chunk_width(name, 0);
+    const width = btn.plane.egc_chunk_width(name, 0);
     const padding: usize = if (is_mini_mode()) 3 else 2;
     return .{ .static = width + padding };
 }

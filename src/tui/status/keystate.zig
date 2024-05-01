@@ -195,7 +195,7 @@ fn animate(self: *Self) bool {
     else
         frame;
 
-    smooth_block_at(self.plane, pos);
+    smooth_block_at(&self.plane, pos);
     return false;
     // return pos != 0;
 }
@@ -204,7 +204,7 @@ const eighths_l = [_][]const u8{ "█", "▉", "▊", "▋", "▌", "▍", "▎"
 const eighths_r = [_][]const u8{ " ", "▕", "🮇", "🮈", "▐", "🮉", "🮊", "🮋" };
 const eighths_c = eighths_l.len;
 
-fn smooth_block_at(plane: Plane, pos: u64) void {
+fn smooth_block_at(plane: *Plane, pos: u64) void {
     const blk = @mod(pos, eighths_c) + 1;
     const l = eighths_l[eighths_c - blk];
     const r = eighths_r[eighths_c - blk];

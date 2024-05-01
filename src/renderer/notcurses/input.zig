@@ -1,6 +1,7 @@
 const nc = @import("notcurses");
 
 pub const key = nc.key;
+pub const key_type = u32;
 pub const modifier = nc.mod;
 pub const event_type = nc.event_type;
 
