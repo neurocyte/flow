@@ -298,25 +298,16 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
     try dizzy.PrimitiveSliceDiffer(u8).diff(self.a, &dizzy_edits, src.items, dst.items, scratch.items);
 
     var lines_dst: usize = 0;
-    var pos_src: usize = 0;
-    var pos_dst: usize = 0;
     var last_offset: usize = 0;
     var edits_count: usize = 0;
 
     for (dizzy_edits.items) |dizzy_edit| {
         switch (dizzy_edit.kind) {
             .equal => {
-                const dist = dizzy_edit.range.end - dizzy_edit.range.start;
-                pos_src += dist;
-                pos_dst += dist;
                 scan_char(src.items[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
             },
             .insert => {
-                const dist = dizzy_edit.range.end - dizzy_edit.range.start;
-                pos_src += 0;
-                pos_dst += dist;
                 const line_start_dst: usize = lines_dst;
-                scan_char(dst.items[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', null);
                 try cbor.writeValue(writer, .{
                     .range = .{
                         .start = .{ .line = line_start_dst, .character = last_offset },
@@ -325,15 +316,12 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
                     .text = dst.items[dizzy_edit.range.start..dizzy_edit.range.end],
                 });
                 edits_count += 1;
+                scan_char(dst.items[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
             },
             .delete => {
-                const dist = dizzy_edit.range.end - dizzy_edit.range.start;
-                pos_src += dist;
-                pos_dst += 0;
                 var line_end_dst: usize = lines_dst;
                 var offset_end_dst: usize = last_offset;
                 scan_char(src.items[dizzy_edit.range.start..dizzy_edit.range.end], &line_end_dst, '\n', &offset_end_dst);
-                if (lines_dst == line_end_dst) offset_end_dst = last_offset + dist;
                 try cbor.writeValue(writer, .{
                     .range = .{
                         .start = .{ .line = lines_dst, .character = last_offset },
@@ -361,6 +349,7 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
 
 fn scan_char(chars: []const u8, lines: *usize, char: u8, last_offset: ?*usize) void {
     var pos = chars;
+    if (last_offset) |off| off.* += pos.len;
     while (pos.len > 0) {
         if (pos[0] == char) {
             if (last_offset) |off| off.* = pos.len - 1;
