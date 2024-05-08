@@ -1427,6 +1427,7 @@ pub const Editor = struct {
     }
 
     fn nudge_delete(self: *Self, nudge: Selection, exclude: *const CurSel, size: usize) void {
+        _ = size;
         for (self.cursels.items, 0..) |*cursel_, i| if (cursel_.*) |*cursel|
             if (cursel != exclude)
                 if (!cursel.nudge_delete(nudge)) {
@@ -1436,19 +1437,7 @@ pub const Editor = struct {
             if (!match.nudge_delete(nudge)) {
                 self.matches.items[i] = null;
             };
-        if (self.syntax) |syn| {
-            const root = self.buf_root() catch return;
-            var start_byte: usize = 0;
-            _ = root.get_range(.{ .begin = .{}, .end = nudge.begin }, null, &start_byte, null) catch return;
-            syn.edit(.{
-                .start_byte = @intCast(start_byte),
-                .old_end_byte = @intCast(start_byte + size),
-                .new_end_byte = @intCast(start_byte),
-                .start_point = .{ .row = @intCast(nudge.begin.row), .column = @intCast(nudge.begin.col) },
-                .old_end_point = .{ .row = @intCast(nudge.end.row), .column = @intCast(nudge.end.col) },
-                .new_end_point = .{ .row = @intCast(nudge.begin.row), .column = @intCast(nudge.begin.col) },
-            });
-        }
+        self.reset_syntax();
     }
 
     fn delete_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
