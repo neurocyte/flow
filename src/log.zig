@@ -180,3 +180,19 @@ pub fn subscribe() tp.result {
 pub fn unsubscribe() tp.result {
     return tp.env.get().proc("log").send(.{"unsubscribe"});
 }
+
+pub fn std_log_function(
+    comptime level: std.log.Level,
+    comptime scope: @TypeOf(.EnumLiteral),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const prefix = "[" ++ comptime level.asText() ++ "] ";
+    var buf: [max_log_message]u8 = undefined;
+    const output = std.fmt.bufPrint(&buf, prefix ++ format, args) catch "MESSAGE TOO LARGE";
+    if (level == .err) {
+        tp.env.get().proc("log").send(.{ "log", "error", @tagName(scope), "std.log", "->", output }) catch {};
+    } else {
+        tp.env.get().proc("log").send(.{ "log", @tagName(scope), output }) catch {};
+    }
+}

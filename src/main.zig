@@ -14,6 +14,11 @@ const log = @import("log");
 pub const application_name = "flow";
 pub const application_logo = "󱞏 ";
 
+pub const std_options = .{
+    .log_level = .debug,
+    .logFn = log.std_log_function,
+};
+
 pub fn main() anyerror!void {
     const params = comptime clap.parseParamsComptime(
         \\-h, --help               Display this help and exit.
