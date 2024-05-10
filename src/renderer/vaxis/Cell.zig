@@ -22,7 +22,7 @@ pub inline fn set_style(self: *Cell, style_: Style) void {
         switch (fs) {
             .normal => {},
             .bold => self.cell.style.bold = true,
-            .italic => self.cell.style.italic = false,
+            .italic => self.cell.style.italic = true,
             .underline => self.cell.style.ul_style = .single,
             .undercurl => self.cell.style.ul_style = .curly,
             .strikethrough => self.cell.style.strikethrough = true,

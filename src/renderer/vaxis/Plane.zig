@@ -1,5 +1,6 @@
 const std = @import("std");
 const Style = @import("theme").Style;
+const FontStyle = @import("theme").FontStyle;
 const StyleBits = @import("style.zig").StyleBits;
 const Cell = @import("Cell.zig");
 const vaxis = @import("vaxis");
@@ -13,6 +14,7 @@ name_buf: [128]u8,
 name_len: usize,
 cache: GraphemeCache = .{},
 style: vaxis.Cell.Style = .{},
+style_base: vaxis.Cell.Style = .{},
 
 pub const Options = struct {
     y: usize = 0,
@@ -61,7 +63,7 @@ pub fn below(_: Plane) ?Plane {
 }
 
 pub fn erase(self: Plane) void {
-    self.window.clear();
+    self.window.fill(.{ .style = self.style_base });
 }
 
 pub inline fn abs_y(self: Plane) c_int {
@@ -136,10 +138,8 @@ pub fn putstr(self: *Plane, text: []const u8) !usize {
     const width = self.window.width;
     var iter = self.window.screen.unicode.graphemeIterator(text);
     while (iter.next()) |grapheme| {
-        if (self.col >= width) {
-            self.row += 1;
-            self.col = 0;
-        }
+        if (self.col >= width)
+            return result;
         const s = grapheme.bytes(text);
         if (std.mem.eql(u8, s, "\n")) {
             self.row += 1;
@@ -172,10 +172,6 @@ pub fn putc_yx(self: *Plane, y: c_int, x: c_int, cell: *const Cell) !usize {
     if (w == 0) return w;
     self.window.writeCell(@intCast(self.col), @intCast(self.row), cell.cell);
     self.col += @intCast(w);
-    if (self.col >= self.window.width) {
-        self.row += 1;
-        self.col = 0;
-    }
     return w;
 }
 
@@ -230,22 +226,28 @@ pub fn at_cursor_cell(self: Plane, cell: *Cell) !usize {
     return cell.cell.char.grapheme.len;
 }
 
-pub fn set_styles(self: Plane, stylebits: StyleBits) void {
-    _ = self;
-    _ = stylebits;
-    // FIXME
+pub fn set_styles(self: *Plane, stylebits: StyleBits) void {
+    self.style.strikethrough = false;
+    self.style.bold = false;
+    self.style.ul_style = .off;
+    self.style.italic = false;
+    self.on_styles(stylebits);
 }
 
-pub fn on_styles(self: Plane, stylebits: StyleBits) void {
-    _ = self;
-    _ = stylebits;
-    // FIXME
+pub fn on_styles(self: *Plane, stylebits: StyleBits) void {
+    if (stylebits.struck) self.style.strikethrough = true;
+    if (stylebits.bold) self.style.bold = true;
+    if (stylebits.undercurl) self.style.ul_style = .curly;
+    if (stylebits.underline) self.style.ul_style = .single;
+    if (stylebits.italic) self.style.italic = true;
 }
 
-pub fn off_styles(self: Plane, stylebits: StyleBits) void {
-    _ = self;
-    _ = stylebits;
-    // FIXME
+pub fn off_styles(self: *Plane, stylebits: StyleBits) void {
+    if (stylebits.struck) self.style.strikethrough = false;
+    if (stylebits.bold) self.style.bold = false;
+    if (stylebits.undercurl) self.style.ul_style = .off;
+    if (stylebits.underline) self.style.ul_style = .off;
+    if (stylebits.italic) self.style.italic = false;
 }
 
 pub fn set_fg_rgb(self: *Plane, channel: u32) !void {
@@ -264,42 +266,52 @@ pub fn set_bg_palindex(self: *Plane, idx: c_uint) !void {
     self.style.bg = .{ .index = @intCast(idx) };
 }
 
-pub fn set_channels(self: Plane, channels_: u64) void {
-    _ = self;
-    _ = channels_;
-    // FIXME
+pub inline fn set_base_style(self: *Plane, _: [*c]const u8, style_: Style) void {
+    self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    if (style_.fs) |fs| set_font_style(&self.style, fs);
+    self.set_style(style_);
 }
 
-pub inline fn set_base_style(self: *const Plane, egc_: [*c]const u8, style_: Style) void {
-    _ = self;
-    _ = egc_;
-    _ = style_;
-    // FIXME
+pub fn set_base_style_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
+    self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    if (style_.fs) |fs| set_font_style(&self.style, fs);
+    self.set_style(style_);
 }
 
-pub fn set_base_style_transparent(self: Plane, egc_: [*:0]const u8, style_: Style) void {
-    _ = self;
-    _ = egc_;
-    _ = style_;
-    // FIXME
-}
-
-pub fn set_base_style_bg_transparent(self: Plane, egc_: [*:0]const u8, style_: Style) void {
-    _ = self;
-    _ = egc_;
-    _ = style_;
-    // FIXME
+pub fn set_base_style_bg_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
+    self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    if (style_.fs) |fs| set_font_style(&self.style, fs);
+    self.set_style(style_);
 }
 
 pub inline fn set_style(self: *Plane, style_: Style) void {
     if (style_.fg) |color| self.style.fg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
     if (style_.bg) |color| self.style.bg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
-    // if (style_.fs) |fontstyle| ... FIXME
+    if (style_.fs) |fs| set_font_style(&self.style, fs);
 }
 
 pub inline fn set_style_bg_transparent(self: *Plane, style_: Style) void {
     if (style_.fg) |color| self.style.fg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
     self.style.bg = .default;
+    if (style_.fs) |fs| set_font_style(&self.style, fs);
+}
+
+inline fn set_font_style(style: *vaxis.Cell.Style, fs: FontStyle) void {
+    switch (fs) {
+        .normal => {
+            style.bold = false;
+            style.italic = false;
+            style.dim = false;
+        },
+        .bold => style.bold = true,
+        .italic => style.italic = true,
+        .underline => style.ul_style = .single,
+        .undercurl => style.ul_style = .curly,
+        .strikethrough => style.strikethrough = true,
+    }
 }
 
 pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *c_int, abs_col: usize) usize {
