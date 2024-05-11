@@ -46,9 +46,12 @@ const Event = union(enum) {
 };
 
 pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !Self {
+    const opts: vaxis.Vaxis.Options = .{
+        .kitty_keyboard_flags = .{ .report_events = true },
+    };
     return .{
         .a = a,
-        .vx = try vaxis.init(a, .{}),
+        .vx = try vaxis.init(a, opts),
         .no_alternate = no_alternate,
         .event_buffer = std.ArrayList(u8).init(a),
         .bracketed_paste_buffer = std.ArrayList(u8).init(a),
