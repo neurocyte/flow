@@ -88,6 +88,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "src/tracy_noop.zig" },
     });
 
+    const zg_dep = b.dependency("zg", .{
+        .target = target,
+        .optimize = dependency_optimize,
+    });
+
     const themes_dep = b.dependency("themes", .{});
 
     const syntax_dep = b.dependency("syntax", .{
@@ -224,6 +229,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "color", .module = color_mod },
             .{ .name = "diff", .module = diff_mod },
             .{ .name = "help.md", .module = help_mod },
+            .{ .name = "CaseData", .module = zg_dep.module("CaseData") },
         },
     });
 

@@ -9,6 +9,7 @@ const tracy = @import("tracy");
 const text_manip = @import("text_manip");
 const syntax = @import("syntax");
 const project_manager = @import("project_manager");
+const CaseData = @import("CaseData");
 
 const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;
@@ -3532,6 +3533,64 @@ pub const Editor = struct {
         const state = if (self.filter) |*s| s else return;
         if (state.whole_file) |*buf| buf.deinit();
         self.filter = null;
+    }
+
+    fn to_upper_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+        var root = root_;
+        const saved = cursel.*;
+        const sel = if (cursel.selection) |*sel| sel else ret: {
+            var sel = cursel.enable_selection();
+            move_cursor_word_begin(root, &sel.begin, self.plane) catch return error.Stop;
+            move_cursor_word_end(root, &sel.end, self.plane) catch return error.Stop;
+            break :ret sel;
+        };
+        var sfa = std.heap.stackFallback(4096, self.a);
+        const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
+        defer a.free(cut_text);
+        const cd = CaseData.init(a) catch return error.Stop;
+        defer cd.deinit();
+        const ucased = cd.toUpperStr(a, cut_text) catch return error.Stop;
+        defer a.free(ucased);
+        root = try self.delete_selection(root, cursel, a);
+        root = self.insert(root, cursel, ucased, a) catch return error.Stop;
+        cursel.* = saved;
+        return root;
+    }
+
+    pub fn to_upper(self: *Self, _: command.Context) tp.result {
+        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+        const root = self.with_cursels_mut(b.root, to_upper_cursel, b.a) catch |e| return tp.exit_error(e);
+        self.update_buf(root) catch |e| return tp.exit_error(e);
+        self.clamp();
+    }
+
+    fn to_lower_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+        var root = root_;
+        const saved = cursel.*;
+        const sel = if (cursel.selection) |*sel| sel else ret: {
+            var sel = cursel.enable_selection();
+            move_cursor_word_begin(root, &sel.begin, self.plane) catch return error.Stop;
+            move_cursor_word_end(root, &sel.end, self.plane) catch return error.Stop;
+            break :ret sel;
+        };
+        var sfa = std.heap.stackFallback(4096, self.a);
+        const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
+        defer a.free(cut_text);
+        const cd = CaseData.init(a) catch return error.Stop;
+        defer cd.deinit();
+        const ucased = cd.toLowerStr(a, cut_text) catch return error.Stop;
+        defer a.free(ucased);
+        root = try self.delete_selection(root, cursel, a);
+        root = self.insert(root, cursel, ucased, a) catch return error.Stop;
+        cursel.* = saved;
+        return root;
+    }
+
+    pub fn to_lower(self: *Self, _: command.Context) tp.result {
+        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+        const root = self.with_cursels_mut(b.root, to_lower_cursel, b.a) catch |e| return tp.exit_error(e);
+        self.update_buf(root) catch |e| return tp.exit_error(e);
+        self.clamp();
     }
 };
 
