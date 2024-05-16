@@ -24,8 +24,8 @@
             .hash = "1220c8ff98a15efe5a187adc2dc8c24a35664417c8b1232cb0a02f2412212ffea374",
         },
         .themes = .{
-            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-0386d791da9f484f2a01ff9b93268a39b106349d/flow-themes.tar.gz",
-            .hash = "1220c2bf00d031bf53a6f786623b8e232a94d5511419134d8b7a658108288b6662ae",
+            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-68a95a4984088ec8480252af93f3069f25f21b66/flow-themes.tar.gz",
+            .hash = "122016a42d46713954340e55981a9102b209c838b855895842d71ad6aebd2d07a58d",
         },
         .syntax = .{
             .url = "https://github.com/neurocyte/flow-syntax/archive/9ed377279e0723f53e0063f0577fbe17d2f7bd73.tar.gz",
