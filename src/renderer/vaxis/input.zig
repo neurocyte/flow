@@ -115,7 +115,6 @@ pub const key = struct {
             Key.enter => true,
             Key.tab => true,
             Key.escape => true,
-            Key.space => true,
             Key.backspace => true,
             else => false,
         };
