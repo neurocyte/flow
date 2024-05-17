@@ -36,8 +36,8 @@
             .hash = "1220214dfb9a0806d9c8a059beb9e3b07811fd138cd5baeb9d1da432588920a084bf",
         },
         .vaxis = .{
-            .url = "https://github.com/rockorager/libvaxis/archive/4f5db2b224012136138123ab43bd5c886f292612.tar.gz",
-            .hash = "122044fbb20188ac115bd4f68713181dcc54560b4c333e03575cfdcdf52206cf0afe",
+            .url = "https://github.com/rockorager/libvaxis/archive/0333e178bdccb786bf8ceedb7203068b8177716d.tar.gz",
+            .hash = "12208132b6f3dec359721d5df03887bead68615f969475b260863e69944f085308c9",
         },
         .zg = .{
             .url = "git+https://codeberg.org/dude_the_builder/zg#16735685fcc3410de361ba3411788ad1fb4fe188",
