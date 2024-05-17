@@ -61,8 +61,6 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
 }
 
 pub fn deinit(self: *Self) void {
-    self.vx.screen.tty.write(vaxis.ctlseqs.show_cursor);
-    self.vx.screen.tty.flush();
     self.vx.deinit(self.a);
     self.bracketed_paste_buffer.deinit();
     self.event_buffer.deinit();

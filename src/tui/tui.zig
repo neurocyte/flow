@@ -147,7 +147,6 @@ fn init_delayed(self: *Self) tp.result {
 fn deinit(self: *Self) void {
     if (self.input_mode) |*m| m.deinit();
     self.commands.deinit();
-    self.fd_stdin.deinit();
     self.mainview.deinit(self.a);
     self.message_filters.deinit();
     self.input_listeners.deinit();
@@ -156,6 +155,8 @@ fn deinit(self: *Self) void {
     if (self.sigwinch_signal) |sig| sig.deinit();
     self.frame_clock.deinit();
     self.rdr.stop();
+    self.rdr.deinit();
+    self.fd_stdin.deinit();
     self.logger.deinit();
     self.a.destroy(self);
 }
