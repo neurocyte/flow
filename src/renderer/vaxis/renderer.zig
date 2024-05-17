@@ -25,6 +25,7 @@ vx: vaxis.Vaxis,
 
 no_alternate: bool,
 event_buffer: std.ArrayList(u8),
+input_buffer: std.ArrayList(u8),
 
 bracketed_paste: bool = false,
 bracketed_paste_buffer: std.ArrayList(u8),
@@ -54,6 +55,7 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
         .vx = try vaxis.init(a, opts),
         .no_alternate = no_alternate,
         .event_buffer = std.ArrayList(u8).init(a),
+        .input_buffer = std.ArrayList(u8).init(a),
         .bracketed_paste_buffer = std.ArrayList(u8).init(a),
         .handler_ctx = handler_ctx,
         .logger = log.logger(log_name),
@@ -63,6 +65,7 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
 pub fn deinit(self: *Self) void {
     self.vx.deinit(self.a);
     self.bracketed_paste_buffer.deinit();
+    self.input_buffer.deinit();
     self.event_buffer.deinit();
 }
 
@@ -70,7 +73,7 @@ pub fn run(self: *Self) !void {
     if (self.vx.tty == null) self.vx.tty = try vaxis.Tty.init();
     if (!self.no_alternate) try self.vx.enterAltScreen();
     try self.vx.queryTerminal();
-    const ws = try vaxis.Tty.getWinsize(self.input_fd());
+    const ws = try vaxis.Tty.getWinsize(self.input_fd_blocking());
     try self.vx.resize(self.a, ws);
     self.vx.queueRefresh();
     try self.vx.setMouseMode(true);
@@ -82,7 +85,7 @@ pub fn render(self: *Self) !void {
 }
 
 pub fn refresh(self: *Self) !void {
-    const ws = try vaxis.Tty.getWinsize(self.input_fd());
+    const ws = try vaxis.Tty.getWinsize(self.input_fd_blocking());
     try self.vx.resize(self.a, ws);
     self.vx.queueRefresh();
 }
@@ -102,7 +105,7 @@ pub fn stdplane(self: *Self) Plane {
     return plane;
 }
 
-pub fn input_fd(self: Self) i32 {
+pub fn input_fd_blocking(self: Self) i32 {
     return self.vx.tty.?.fd;
 }
 
@@ -110,19 +113,27 @@ pub fn leave_alternate_screen(self: *Self) void {
     self.vx.exitAltScreen() catch {};
 }
 
-pub fn process_input(self: *Self) !void {
+pub fn process_input(self: *Self, input_: []const u8) !void {
     var parser: vaxis.Parser = .{
         .grapheme_data = &self.vx.screen.unicode.grapheme_data,
     };
-    var buf: [1024]u8 = undefined;
-    var start: usize = 0;
-    const n = std.posix.read(self.input_fd(), &buf) catch |e| switch (e) {
-        error.WouldBlock => return,
-        else => return e,
-    };
-    while (start < n) {
-        const result = try parser.parse(buf[start..n]);
-        start += result.n;
+    try self.input_buffer.appendSlice(input_);
+    var buf = self.input_buffer.items;
+    defer {
+        if (buf.len == 0) {
+            self.input_buffer.clearRetainingCapacity();
+        } else {
+            const rest = self.a.alloc(u8, buf.len) catch |e| std.debug.panic("{any}", .{e});
+            @memcpy(rest, buf);
+            self.input_buffer.deinit();
+            self.input_buffer = std.ArrayList(u8).fromOwnedSlice(self.a, rest);
+        }
+    }
+    while (buf.len > 0) {
+        const result = try parser.parse(buf);
+        if (result.n == 0)
+            return;
+        buf = buf[result.n..];
         const event = result.event orelse continue;
         switch (event) {
             .key_press => |key_| {
@@ -176,16 +187,17 @@ pub fn process_input(self: *Self) !void {
                         0,
                         0,
                     })),
-                    .drag => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
-                        "D",
-                        event_type.PRESS,
-                        @intFromEnum(mouse.button),
-                        input.utils.button_id_string(@intFromEnum(mouse.button)),
-                        mouse.col,
-                        mouse.row,
-                        0,
-                        0,
-                    })),
+                    .drag => if (self.dispatch_mouse_drag) |f_|
+                        f_(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), true, try self.fmtmsg(.{
+                            "D",
+                            event_type.PRESS,
+                            @intFromEnum(mouse.button),
+                            input.utils.button_id_string(@intFromEnum(mouse.button)),
+                            mouse.col,
+                            mouse.row,
+                            0,
+                            0,
+                        })),
                 };
             },
             .focus_in => {

@@ -51,6 +51,7 @@ init_timer: ?tp.timeout,
 sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
 final_exit: []const u8 = "normal",
+input_reader: ?*InputReader = null,
 
 const idle_frames = 1;
 
@@ -115,12 +116,16 @@ fn init(a: Allocator) !*Self {
     defer instance_ = null;
 
     try self.rdr.run();
-    self.fd_stdin = try tp.file_descriptor.init("stdin", self.rdr.input_fd());
-    // self.fd_stdin = try tp.file_descriptor.init("stdin", std.os.STDIN_FILENO);
+    if (comptime @hasDecl(renderer, "input_fd"))
+        self.fd_stdin = try tp.file_descriptor.init("stdin", self.rdr.input_fd());
     const n = self.rdr.stdplane();
 
     try frame_clock.start();
-    try self.fd_stdin.wait_read();
+    if (comptime @hasDecl(renderer, "input_fd")) {
+        try self.fd_stdin.wait_read();
+    } else {
+        self.input_reader = try InputReader.create(a, self.rdr.input_fd_blocking());
+    }
 
     self.rdr.handler_ctx = self;
     self.rdr.dispatch_input = dispatch_input;
@@ -156,8 +161,10 @@ fn deinit(self: *Self) void {
     self.frame_clock.deinit();
     self.rdr.stop();
     self.rdr.deinit();
-    self.fd_stdin.deinit();
+    if (comptime @hasDecl(renderer, "input_fd"))
+        self.fd_stdin.deinit();
     self.logger.deinit();
+    if (self.input_reader) |p| p.stop();
     self.a.destroy(self);
 }
 
@@ -172,7 +179,9 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     instance_ = self;
     defer instance_ = null;
     errdefer self.deinit();
-    errdefer self.fd_stdin.cancel() catch {};
+
+    errdefer if (comptime @hasDecl(renderer, "input_fd"))
+        self.fd_stdin.cancel() catch {};
     errdefer self.rdr.leave_alternate_screen();
     self.receive_safe(from, m) catch |e| {
         if (std.mem.eql(u8, "normal", tp.error_text()))
@@ -227,11 +236,22 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         return;
     }
 
-    if (self.dispatch_input_fd(m) catch |e| b: {
-        self.logger.err("input dispatch", e);
-        break :b true;
-    })
-        return;
+    if (comptime @hasDecl(renderer, "input_fd")) {
+        if (self.dispatch_input_fd(m) catch |e| b: {
+            self.logger.err("input dispatch", e);
+            break :b true;
+        })
+            return;
+    } else {
+        var input: []const u8 = undefined;
+        if (try m.match(.{ "process_input", tp.extract(&input) })) {
+            self.rdr.process_input(input) catch |e| return tp.exit_error(e);
+            try self.dispatch_flush_input_event();
+            if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
+                need_render();
+            return;
+        }
+    }
 
     if (try m.match(.{"render"})) {
         if (!self.frame_clock_running)
@@ -788,4 +808,45 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "string", .tm = "string.quoted" },
     .{ .ts = "repeat", .tm = "keyword.control.flow" },
     .{ .ts = "field", .tm = "variable" },
+};
+
+const InputReader = struct {
+    a: std.mem.Allocator,
+    fd: std.posix.fd_t,
+    pid: tp.pid,
+    id: ?std.Thread.Id = null,
+
+    fn create(a: std.mem.Allocator, fd: std.posix.fd_t) error{Exit}!*InputReader {
+        const self = a.create(InputReader) catch |e| return tp.exit_error(e);
+        self.* = .{
+            .a = a,
+            .fd = fd,
+            .pid = tp.self_pid().clone(),
+        };
+        const pid = tp.spawn_link(self.a, self, InputReader.start, "tui.InputReader") catch |e| return tp.exit_error(e);
+        pid.deinit();
+        return self;
+    }
+
+    fn deinit(self: *InputReader) void {
+        self.pid.deinit();
+        self.a.destroy(self);
+    }
+
+    fn start(self: *InputReader) tp.result {
+        defer self.deinit();
+        self.id = std.Thread.getCurrentId();
+        var buf: [4096]u8 = undefined;
+        while (true) {
+            const n = std.posix.read(self.fd, &buf) catch |e| return tp.exit_error(e);
+            if (n == 0)
+                return tp.exit_normal();
+            try self.pid.send(.{ "process_input", buf[0..n] });
+        }
+    }
+
+    fn stop(self: *InputReader) void {
+        if (self.id) |id|
+            _ = std.os.linux.tkill(@intCast(id), std.os.linux.SIG.INT);
+    }
 };
