@@ -81,17 +81,14 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     } else {
         button.plane.set_base_style_bg_transparent(" ", style_base);
     }
-    button.plane.erase();
     button.plane.home();
-    const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
     const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else theme.editor;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else theme.editor;
     const sep = std.mem.indexOfScalar(u8, button.opts.label, ':') orelse button.opts.label.len;
-    button.plane.set_style(style_subtext);
-    button.plane.set_style(style_text);
+    button.plane.set_style_bg_transparent(style_text);
     const pointer = if (selected) "⏵" else " ";
     _ = button.plane.print("{s}{s}", .{ pointer, button.opts.label[0..sep] }) catch {};
-    button.plane.set_style(style_keybind);
+    button.plane.set_style_bg_transparent(style_keybind);
     _ = button.plane.print("{s}", .{button.opts.label[sep + 1 ..]}) catch {};
     return false;
 }
@@ -125,7 +122,7 @@ fn menu_action_quit(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style_transparent("", theme.editor);
+    self.plane.set_base_style("", theme.editor);
     self.plane.erase();
     self.plane.home();
     if (self.fire) |*fire| fire.render();
@@ -267,6 +264,7 @@ const Fire = struct {
     const fire_white: u8 = fire_palette.len - 1;
 
     fn render(self: *Fire) void {
+        self.plane.home();
         var rand = self.prng.random();
 
         //update fire buf
