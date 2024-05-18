@@ -78,6 +78,7 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor;
     if (button.active or button.hover or selected) {
         button.plane.set_base_style(" ", style_base);
+        button.plane.erase();
     } else {
         button.plane.set_base_style_bg_transparent(" ", style_base);
     }
@@ -85,10 +86,18 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else theme.editor;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else theme.editor;
     const sep = std.mem.indexOfScalar(u8, button.opts.label, ':') orelse button.opts.label.len;
-    button.plane.set_style_bg_transparent(style_text);
+    if (button.active or button.hover or selected) {
+        button.plane.set_style(style_text);
+    } else {
+        button.plane.set_style_bg_transparent(style_text);
+    }
     const pointer = if (selected) "⏵" else " ";
     _ = button.plane.print("{s}{s}", .{ pointer, button.opts.label[0..sep] }) catch {};
-    button.plane.set_style_bg_transparent(style_keybind);
+    if (button.active or button.hover or selected) {
+        button.plane.set_style(style_keybind);
+    } else {
+        button.plane.set_style_bg_transparent(style_keybind);
+    }
     _ = button.plane.print("{s}", .{button.opts.label[sep + 1 ..]}) catch {};
     return false;
 }

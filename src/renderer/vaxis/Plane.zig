@@ -286,7 +286,7 @@ pub inline fn set_base_style(self: *Plane, _: [*c]const u8, style_: Style) void 
 
 pub fn set_base_style_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
     self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
-    self.style.bg = .default;
+    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.set_style(style_);
     self.transparent = true;
@@ -294,7 +294,7 @@ pub fn set_base_style_transparent(self: *Plane, _: [*:0]const u8, style_: Style)
 
 pub fn set_base_style_bg_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
     self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
-    self.style.bg = .default;
+    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.set_style(style_);
     self.transparent = true;
@@ -309,7 +309,7 @@ pub inline fn set_style(self: *Plane, style_: Style) void {
 
 pub inline fn set_style_bg_transparent(self: *Plane, style_: Style) void {
     if (style_.fg) |color| self.style.fg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
-    self.style.bg = .default;
+    if (style_.bg) |color| self.style.bg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.transparent = true;
 }
