@@ -80,7 +80,6 @@ pub fn run(self: *Self) !void {
 }
 
 pub fn render(self: *Self) !void {
-    self.vx.queueRefresh(); // FIXME: differential updates may break if we overflow the output buffer and get a WouldBlock
     return self.vx.render();
 }
 
