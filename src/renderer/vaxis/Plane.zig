@@ -15,6 +15,8 @@ name_len: usize,
 cache: GraphemeCache = .{},
 style: vaxis.Cell.Style = .{},
 style_base: vaxis.Cell.Style = .{},
+scrolling: bool = false,
+transparent: bool = false,
 
 pub const Options = struct {
     y: usize = 0,
@@ -42,6 +44,7 @@ pub fn init(nopts: *const Options, parent_: Plane) !Plane {
         .window = parent_.window.child(opts),
         .name_buf = undefined,
         .name_len = std.mem.span(nopts.name).len,
+        .scrolling = nopts.flags == .VSCROLL,
     };
     @memcpy(plane.name_buf[0..plane.name_len], nopts.name);
     return plane;
@@ -135,6 +138,7 @@ pub fn print_aligned_center(self: *Plane, y: c_int, comptime fmt: anytype, args:
 
 pub fn putstr(self: *Plane, text: []const u8) !usize {
     var result: usize = 0;
+    const height = self.window.height;
     const width = self.window.width;
     var iter = self.window.screen.unicode.graphemeIterator(text);
     while (iter.next()) |grapheme| {
@@ -142,21 +146,15 @@ pub fn putstr(self: *Plane, text: []const u8) !usize {
             return result;
         const s = grapheme.bytes(text);
         if (std.mem.eql(u8, s, "\n")) {
-            self.row += 1;
+            if (self.scrolling and self.row == height - 1)
+                self.window.scroll(1)
+            else
+                self.row += 1;
             self.col = 0;
             result += 1;
             continue;
         }
-        const w = self.window.gwidth(s);
-        if (w == 0) continue;
-        self.window.writeCell(@intCast(self.col), @intCast(self.row), .{
-            .char = .{
-                .grapheme = self.cache.put(s),
-                .width = w,
-            },
-            .style = self.style,
-        });
-        self.col += @intCast(w);
+        self.write_cell(@intCast(self.col), @intCast(self.row), s);
         result += 1;
     }
     return result;
@@ -173,6 +171,20 @@ pub fn putc_yx(self: *Plane, y: c_int, x: c_int, cell: *const Cell) !usize {
     self.window.writeCell(@intCast(self.col), @intCast(self.row), cell.cell);
     self.col += @intCast(w);
     return w;
+}
+
+fn write_cell(self: *Plane, col: usize, row: usize, egc: []const u8) void {
+    var cell: vaxis.Cell = self.window.readCell(col, row) orelse .{ .style = self.style };
+    const w = self.window.gwidth(egc);
+    cell.char.grapheme = self.cache.put(egc);
+    cell.char.width = w;
+    if (self.transparent) {
+        cell.style.fg = self.style.fg;
+    } else {
+        cell.style = self.style;
+    }
+    self.window.writeCell(col, row, cell);
+    self.col += @intCast(w);
 }
 
 pub fn cursor_yx(self: Plane, y: *c_uint, x: *c_uint) void {
@@ -212,7 +224,6 @@ pub fn cell_init(self: Plane) Cell {
 }
 
 pub fn cell_load(self: *Plane, cell: *Cell, gcluster: [:0]const u8) !usize {
-    cell.* = .{ .cell = .{ .style = self.style } };
     var cols: c_int = 0;
     const bytes = self.egc_length(gcluster, &cols, 0);
     cell.cell.char.grapheme = self.cache.put(gcluster[0..bytes]);
@@ -275,28 +286,32 @@ pub inline fn set_base_style(self: *Plane, _: [*c]const u8, style_: Style) void 
 
 pub fn set_base_style_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
     self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
-    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    self.style.bg = .default;
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.set_style(style_);
+    self.transparent = true;
 }
 
 pub fn set_base_style_bg_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
     self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
-    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    self.style.bg = .default;
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.set_style(style_);
+    self.transparent = true;
 }
 
 pub inline fn set_style(self: *Plane, style_: Style) void {
     if (style_.fg) |color| self.style.fg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
     if (style_.bg) |color| self.style.bg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
     if (style_.fs) |fs| set_font_style(&self.style, fs);
+    self.transparent = false;
 }
 
 pub inline fn set_style_bg_transparent(self: *Plane, style_: Style) void {
     if (style_.fg) |color| self.style.fg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
     self.style.bg = .default;
     if (style_.fs) |fs| set_font_style(&self.style, fs);
+    self.transparent = true;
 }
 
 inline fn set_font_style(style: *vaxis.Cell.Style, fs: FontStyle) void {
