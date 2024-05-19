@@ -8,6 +8,7 @@ const Widget = @import("../Widget.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
 const mainview = @import("../mainview.zig");
+const logview = @import("../logview.zig");
 
 parent: Plane,
 plane: Plane,
@@ -26,6 +27,7 @@ pub fn create(a: std.mem.Allocator, parent: Plane) !Widget {
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .msg = std.ArrayList(u8).init(a),
     };
+    logview.init(a);
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_log));
     try log.subscribe();
     return Widget.to(self);
@@ -61,9 +63,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "log", tp.more })) {
+        logview.process_log(m) catch |e| return tp.exit_error(e);
         self.process_log(m) catch |e| return tp.exit_error(e);
-        if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.logview_enabled)
-            return false; // pass on log messages to logview
         return true;
     }
     return false;

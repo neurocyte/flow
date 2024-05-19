@@ -3,6 +3,7 @@ const fmt = @import("std").fmt;
 const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
 const Mutex = @import("std").Thread.Mutex;
+const ArrayList = @import("std").ArrayList;
 
 const tp = @import("thespian");
 const log = @import("log");
@@ -18,62 +19,50 @@ const escape = fmt.fmtSliceEscapeLower;
 pub const name = @typeName(Self);
 
 plane: Plane,
-lastbuf_src: [128]u8 = undefined,
-lastbuf_msg: [log.max_log_message]u8 = undefined,
-last_src: []u8 = "",
-last_msg: []u8 = "",
-last_count: u64 = 0,
-last_time: i64 = 0,
-last_tdiff: i64 = 0,
+
+var persistent_buffer: ?Buffer = null;
+var last_count: u64 = 0;
 
 const Self = @This();
 
+const Entry = struct {
+    src: []u8,
+    msg: []u8,
+    time: i64,
+    tdiff: i64,
+};
+const Buffer = ArrayList(Entry);
+
 pub fn create(a: Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
-    self.* = init(parent) catch |e| return tp.exit_error(e);
-    try tui.current().message_filters.add(MessageFilter.bind(self, log_receive));
+    self.* = .{ .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent) };
     return Widget.to(self);
 }
 
-fn init(parent: Plane) !Self {
-    var n = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent);
-    errdefer n.deinit();
-    return .{
-        .plane = n,
-        .last_time = time.microTimestamp(),
-    };
-}
-
 pub fn deinit(self: *Self, a: Allocator) void {
-    tui.current().message_filters.remove_ptr(self);
     self.plane.deinit();
     a.destroy(self);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(" ", theme.panel);
-    return false;
-}
 
-pub fn log_receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ "log", tp.more })) {
-        self.log_process(m) catch |e| return tp.exit_error(e);
-        return true;
+    self.plane.erase();
+    self.plane.home();
+    const height = self.plane.dim_y();
+    var first = true;
+    const buffer = if (persistent_buffer) |*p| p else return false;
+    const count = buffer.items.len;
+    const begin_at = if (height > count) 0 else count - height;
+    for (buffer.items[begin_at..]) |item| {
+        if (first) first = false else _ = self.plane.putstr("\n") catch return false;
+        self.output_tdiff(item.tdiff) catch return false;
+        _ = self.plane.print("{s}: {s}", .{ escape(item.src), escape(item.msg) }) catch return false;
     }
-    return false;
-}
+    if (last_count > 0)
+        _ = self.plane.print(" ({})", .{last_count}) catch {};
 
-pub fn log_process(self: *Self, m: tp.message) !void {
-    var src: []const u8 = undefined;
-    var context: []const u8 = undefined;
-    var msg: []const u8 = undefined;
-    if (try m.match(.{ "log", tp.extract(&src), tp.extract(&msg) })) {
-        try self.output(src, msg);
-    } else if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
-        try self.output_error(src, context, msg);
-    } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
-        try self.output_json(src, m);
-    }
+    return false;
 }
 
 fn output_tdiff(self: *Self, tdiff: i64) !void {
@@ -81,50 +70,62 @@ fn output_tdiff(self: *Self, tdiff: i64) !void {
     if (msi == 0) {
         const d: f64 = @floatFromInt(tdiff);
         const ms = d / time.us_per_ms;
-        _ = try self.plane.print("\n{d:6.2} ▏", .{ms});
+        _ = try self.plane.print("{d:6.2} ▏", .{ms});
     } else {
         const ms: u64 = @intCast(msi);
-        _ = try self.plane.print("\n{d:6} ▏", .{ms});
+        _ = try self.plane.print("{d:6} ▏", .{ms});
     }
 }
 
-fn output_new(self: *Self, src: []const u8, msg: []const u8) !void {
+pub fn process_log(m: tp.message) !void {
+    var src: []const u8 = undefined;
+    var context: []const u8 = undefined;
+    var msg: []const u8 = undefined;
+    const buffer = get_buffer();
+    if (try m.match(.{ "log", tp.extract(&src), tp.extract(&msg) })) {
+        try append(buffer, src, msg);
+    } else if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
+        try append_error(buffer, src, context, msg);
+    } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
+        try append_json(buffer, src, m);
+    }
+}
+
+fn append(buffer: *Buffer, src: []const u8, msg: []const u8) !void {
     const ts = time.microTimestamp();
-    const tdiff = ts - self.last_time;
-    self.last_count = 0;
-    self.last_src = self.lastbuf_src[0..src.len];
-    self.last_msg = self.lastbuf_msg[0..msg.len];
-    @memcpy(self.last_src, src);
-    @memcpy(self.last_msg, msg);
-    try self.output_tdiff(tdiff);
-    _ = try self.plane.print("{s}: {s}", .{ escape(src), escape(msg) });
-    self.last_time = ts;
-    self.last_tdiff = tdiff;
+    const tdiff = if (buffer.getLastOrNull()) |last| ret: {
+        if (eql(u8, msg, last.src) and eql(u8, msg, last.msg)) {
+            last_count += 1;
+            return;
+        }
+        break :ret ts - last.time;
+    } else 0;
+    last_count = 0;
+    (try buffer.addOne()).* = .{
+        .time = ts,
+        .tdiff = tdiff,
+        .src = try buffer.allocator.dupeZ(u8, src),
+        .msg = try buffer.allocator.dupeZ(u8, msg),
+    };
 }
 
-fn output_repeat(self: *Self, src: []const u8, msg: []const u8) !void {
-    _ = src;
-    self.last_count += 1;
-    try self.plane.cursor_move_rel(-1, 0);
-    try self.output_tdiff(self.last_tdiff);
-    _ = try self.plane.print("{s} ({})", .{ escape(msg), self.last_count });
-}
-
-fn output(self: *Self, src: []const u8, msg: []const u8) !void {
-    return if (eql(u8, msg, self.last_src) and eql(u8, msg, self.last_msg))
-        self.output_repeat(src, msg)
-    else
-        self.output_new(src, msg);
-}
-
-fn output_error(self: *Self, src: []const u8, context: []const u8, msg_: []const u8) !void {
+fn append_error(buffer: *Buffer, src: []const u8, context: []const u8, msg_: []const u8) !void {
     var buf: [4096]u8 = undefined;
     const msg = try fmt.bufPrint(&buf, "error in {s}: {s}", .{ context, msg_ });
-    try self.output(src, msg);
+    try append(buffer, src, msg);
 }
 
-fn output_json(self: *Self, src: []const u8, m: tp.message) !void {
+fn append_json(buffer: *Buffer, src: []const u8, m: tp.message) !void {
     var buf: [4096]u8 = undefined;
     const json = try m.to_json(&buf);
-    try self.output(src, json);
+    try append(buffer, src, json);
+}
+
+fn get_buffer() *Buffer {
+    return if (persistent_buffer) |*p| p else @panic("logview.get_buffer called before init");
+}
+
+pub fn init(a: Allocator) void {
+    if (persistent_buffer) |_| @panic("logview.init unexpected call");
+    persistent_buffer = Buffer.init(a);
 }
