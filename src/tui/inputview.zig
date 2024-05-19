@@ -3,6 +3,7 @@ const fmt = @import("std").fmt;
 const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
 const Mutex = @import("std").Thread.Mutex;
+const ArrayList = @import("std").ArrayList;
 
 const tp = @import("thespian");
 
@@ -14,41 +15,59 @@ const EventHandler = @import("EventHandler.zig");
 
 pub const name = "inputview";
 
+a: Allocator,
 parent: Plane,
 plane: Plane,
-lastbuf: [4096]u8 = undefined,
-last: []u8 = "",
 last_count: u64 = 0,
-last_time: i64 = 0,
-last_tdiff: i64 = 0,
+buffer: Buffer,
 
 const Self = @This();
 
+const Entry = struct {
+    time: i64,
+    tdiff: i64,
+    json: [:0]u8,
+};
+const Buffer = ArrayList(Entry);
+
 pub fn create(a: Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
-    self.* = try init(parent);
+    var n = try Plane.init(&(Widget.Box{}).opts_vscroll(@typeName(Self)), parent);
+    errdefer n.deinit();
+    self.* = .{
+        .a = a,
+        .parent = parent,
+        .plane = n,
+        .buffer = Buffer.init(a),
+    };
     try tui.current().input_listeners.add(EventHandler.bind(self, listen));
     return Widget.to(self);
 }
 
-fn init(parent: Plane) !Self {
-    var n = try Plane.init(&(Widget.Box{}).opts_vscroll(@typeName(Self)), parent);
-    errdefer n.deinit();
-    return .{
-        .parent = parent,
-        .plane = n,
-        .last_time = time.microTimestamp(),
-    };
-}
-
 pub fn deinit(self: *Self, a: Allocator) void {
     tui.current().input_listeners.remove_ptr(self);
+    for (self.buffer.items) |item|
+        self.buffer.allocator.free(item.json);
+    self.buffer.deinit();
     self.plane.deinit();
     a.destroy(self);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(" ", theme.panel);
+    self.plane.erase();
+    self.plane.home();
+    const height = self.plane.dim_y();
+    var first = true;
+    const count = self.buffer.items.len;
+    const begin_at = if (height > count) 0 else count - height;
+    for (self.buffer.items[begin_at..]) |item| {
+        if (first) first = false else _ = self.plane.putstr("\n") catch return false;
+        self.output_tdiff(item.tdiff) catch return false;
+        _ = self.plane.putstr(item.json) catch return false;
+    }
+    if (self.last_count > 0)
+        _ = self.plane.print(" ({})", .{self.last_count}) catch {};
     return false;
 }
 
@@ -64,40 +83,28 @@ fn output_tdiff(self: *Self, tdiff: i64) !void {
     }
 }
 
-fn output_new(self: *Self, json: []const u8) !void {
-    if (self.plane.cursor_x() != 0)
-        _ = try self.plane.putstr("\n");
+fn append(self: *Self, json: []const u8) !void {
     const ts = time.microTimestamp();
-    const tdiff = ts - self.last_time;
+    const tdiff = if (self.buffer.getLastOrNull()) |last| ret: {
+        if (eql(u8, json, last.json)) {
+            self.last_count += 1;
+            return;
+        }
+        break :ret ts - last.time;
+    } else 0;
     self.last_count = 0;
-    self.last = self.lastbuf[0..json.len];
-    @memcpy(self.last, json);
-    try self.output_tdiff(tdiff);
-    _ = try self.plane.print("{s}", .{json});
-    self.last_time = ts;
-    self.last_tdiff = tdiff;
-}
-
-fn output_repeat(self: *Self, json: []const u8) !void {
-    if (self.plane.cursor_x() != 0)
-        try self.plane.cursor_move_yx(-1, 0);
-    self.last_count += 1;
-    try self.output_tdiff(self.last_tdiff);
-    _ = try self.plane.print("{s} ({})", .{ json, self.last_count });
-}
-
-fn output(self: *Self, json: []const u8) !void {
-    return if (!eql(u8, json, self.last))
-        self.output_new(json)
-    else
-        self.output_repeat(json);
+    (try self.buffer.addOne()).* = .{
+        .time = ts,
+        .tdiff = tdiff,
+        .json = try self.a.dupeZ(u8, json),
+    };
 }
 
 pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "M", tp.more })) return;
     var buf: [4096]u8 = undefined;
     const json = m.to_json(&buf) catch |e| return tp.exit_error(e);
-    self.output(json) catch |e| return tp.exit_error(e);
+    self.append(json) catch |e| return tp.exit_error(e);
 }
 
 pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
