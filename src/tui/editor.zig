@@ -3371,6 +3371,7 @@ pub const Editor = struct {
         else
             try self.scroll_view_center(.{});
         try self.send_editor_jump_destination();
+        self.need_render();
     }
 
     pub fn goto_definition(self: *Self, _: command.Context) tp.result {
@@ -3391,6 +3392,7 @@ pub const Editor = struct {
         self.diag_info = 0;
         self.diag_hints = 0;
         self.send_editor_diagnostics() catch {};
+        self.need_render();
     }
 
     pub fn add_diagnostic(self: *Self, ctx: command.Context) tp.result {
@@ -3430,6 +3432,7 @@ pub const Editor = struct {
         }
         self.send_editor_diagnostics() catch {};
         // self.logger.print("diag: {d} {d} {d}:{d} {s}", .{ self.diagnostics.items.len, severity, sel.begin.row, sel.begin.col, message });
+        self.need_render();
     }
 
     pub fn select(self: *Self, ctx: command.Context) tp.result {
