@@ -46,7 +46,6 @@ pub fn deinit(self: *Self, a: Allocator) void {
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(" ", theme.panel);
-
     self.plane.erase();
     self.plane.home();
     const height = self.plane.dim_y();
@@ -57,11 +56,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     for (buffer.items[begin_at..]) |item| {
         if (first) first = false else _ = self.plane.putstr("\n") catch return false;
         self.output_tdiff(item.tdiff) catch return false;
-        _ = self.plane.print("{s}: {s}", .{ escape(item.src), escape(item.msg) }) catch return false;
+        _ = self.plane.print("{s}: {s}", .{ escape(item.src), escape(item.msg) }) catch {};
     }
     if (last_count > 0)
         _ = self.plane.print(" ({})", .{last_count}) catch {};
-
     return false;
 }
 

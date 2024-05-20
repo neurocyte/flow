@@ -142,8 +142,6 @@ pub fn putstr(self: *Plane, text: []const u8) !usize {
     const width = self.window.width;
     var iter = self.window.screen.unicode.graphemeIterator(text);
     while (iter.next()) |grapheme| {
-        if (self.col >= width)
-            return result;
         const s = grapheme.bytes(text);
         if (std.mem.eql(u8, s, "\n")) {
             if (self.scrolling and self.row == height - 1)
@@ -153,6 +151,12 @@ pub fn putstr(self: *Plane, text: []const u8) !usize {
             self.col = 0;
             result += 1;
             continue;
+        }
+        if (self.col >= width) {
+            if (self.scrolling) {
+                self.row += 1;
+                self.col = 0;
+            } else return result;
         }
         self.write_cell(@intCast(self.col), @intCast(self.row), s);
         result += 1;
