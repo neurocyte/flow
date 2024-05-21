@@ -287,6 +287,12 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         return;
     }
 
+    if (try m.match(.{"focus_in"}))
+        return;
+
+    if (try m.match(.{"focus_out"}))
+        return;
+
     if (try self.send_widgets(from, m))
         return;
 

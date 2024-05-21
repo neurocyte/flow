@@ -1860,7 +1860,7 @@ pub const Editor = struct {
         if (self.clipboard) |old|
             self.a.free(old);
         self.clipboard = text;
-        tui.renderer.copy_to_system_clipboard(self.a, text);
+        tui.current().rdr.copy_to_system_clipboard(text);
     }
 
     fn copy_selection(root: Buffer.Root, sel: Selection, text_a: Allocator, plane: Plane) ![]const u8 {
@@ -1967,6 +1967,7 @@ pub const Editor = struct {
         if (!try ctx.args.match(.{tp.extract(&text)})) {
             if (self.clipboard) |text_| text = text_ else return;
         }
+        self.logger.print("paste: {d} bytes", .{text.len});
         const b = self.buf_for_update() catch |e| return tp.exit_error(e);
         var root = b.root;
         if (self.cursels.items.len == 1) {
@@ -1992,10 +1993,11 @@ pub const Editor = struct {
         }
         self.update_buf(root) catch |e| return tp.exit_error(e);
         self.clamp();
+        self.need_render();
     }
 
     pub fn system_paste(_: *Self, _: command.Context) tp.result {
-        tui.renderer.request_system_clipboard();
+        tui.current().rdr.request_system_clipboard();
     }
 
     pub fn delete_forward(self: *Self, _: command.Context) tp.result {
@@ -2867,12 +2869,12 @@ pub const Editor = struct {
 
     pub fn enable_jump_mode(self: *Self, _: command.Context) tp.result {
         self.jump_mode = true;
-        tui.renderer.request_mouse_cursor_pointer(true);
+        tui.current().rdr.request_mouse_cursor_pointer(true);
     }
 
     pub fn disable_jump_mode(self: *Self, _: command.Context) tp.result {
         self.jump_mode = false;
-        tui.renderer.request_mouse_cursor_text(true);
+        tui.current().rdr.request_mouse_cursor_text(true);
     }
 
     fn update_syntax(self: *Self) !void {
@@ -3684,9 +3686,9 @@ pub const EditorWidget = struct {
             self.editor.add_match(m) catch {};
         } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
             if (self.editor.jump_mode)
-                tui.renderer.request_mouse_cursor_pointer(self.hover)
+                tui.current().rdr.request_mouse_cursor_pointer(self.hover)
             else
-                tui.renderer.request_mouse_cursor_text(self.hover);
+                tui.current().rdr.request_mouse_cursor_text(self.hover);
         } else if (try m.match(.{ "show_whitespace", tp.extract(&self.editor.show_whitespace) })) {
             _ = "";
         } else {

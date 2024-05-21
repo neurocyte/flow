@@ -463,42 +463,42 @@ fn handle_bracketed_paste_end(self: *Self) !void {
     if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", self.bracketed_paste_buffer.items }));
 }
 
-pub fn set_terminal_title(text: []const u8) void {
+pub fn set_terminal_title(_: *Self, text: []const u8) void {
     var writer = std.io.getStdOut().writer();
     var buf: [std.posix.PATH_MAX]u8 = undefined;
     const term_cmd = std.fmt.bufPrint(&buf, OSC0_title ++ "{s}" ++ BEL, .{text}) catch return;
     _ = writer.write(term_cmd) catch return;
 }
 
-pub fn copy_to_system_clipboard(tmp_a: std.mem.Allocator, text: []const u8) void {
-    copy_to_system_clipboard_with_errors(tmp_a, text) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
+pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
+    self.copy_to_system_clipboard_with_errors(text) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
 }
 
-fn copy_to_system_clipboard_with_errors(tmp_a: std.mem.Allocator, text: []const u8) !void {
+fn copy_to_system_clipboard_with_errors(self: *Self, text: []const u8) !void {
     var writer = std.io.getStdOut().writer();
     const encoder = std.base64.standard.Encoder;
     const size = OSC52_clipboard.len + encoder.calcSize(text.len) + ST.len;
-    const buf = try tmp_a.alloc(u8, size);
-    defer tmp_a.free(buf);
+    const buf = try self.a.alloc(u8, size);
+    defer self.a.free(buf);
     @memcpy(buf[0..OSC52_clipboard.len], OSC52_clipboard);
     const b64 = encoder.encode(buf[OSC52_clipboard.len..], text);
     @memcpy(buf[OSC52_clipboard.len + b64.len ..], ST);
     _ = try writer.write(buf);
 }
 
-pub fn request_system_clipboard() void {
+pub fn request_system_clipboard(_: *Self) void {
     write_stdout(OSC52_clipboard ++ "?" ++ ST);
 }
 
-pub fn request_mouse_cursor_text(push_or_pop: bool) void {
+pub fn request_mouse_cursor_text(_: *Self, push_or_pop: bool) void {
     if (push_or_pop) mouse_cursor_push("text") else mouse_cursor_pop();
 }
 
-pub fn request_mouse_cursor_pointer(push_or_pop: bool) void {
+pub fn request_mouse_cursor_pointer(_: *Self, push_or_pop: bool) void {
     if (push_or_pop) mouse_cursor_push("pointer") else mouse_cursor_pop();
 }
 
-pub fn request_mouse_cursor_default(push_or_pop: bool) void {
+pub fn request_mouse_cursor_default(_: *Self, push_or_pop: bool) void {
     if (push_or_pop) mouse_cursor_push("default") else mouse_cursor_pop();
 }
 

@@ -67,7 +67,7 @@ pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) boo
 pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var hover: bool = false;
     if (try m.match(.{ "H", tp.extract(&hover) })) {
-        tui.renderer.request_mouse_cursor_default(hover);
+        tui.current().rdr.request_mouse_cursor_default(hover);
         tui.need_render();
         return true;
     }

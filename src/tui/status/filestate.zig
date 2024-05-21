@@ -155,7 +155,7 @@ fn render_terminal_title(self: *Self) void {
     if (std.mem.eql(u8, self.title, new_title)) return;
     @memcpy(self.title_buf[0..new_title.len], new_title);
     self.title = self.title_buf[0..new_title.len];
-    tui.renderer.set_terminal_title(self.title);
+    tui.current().rdr.set_terminal_title(self.title);
 }
 
 pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {

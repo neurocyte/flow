@@ -48,7 +48,13 @@ const Event = union(enum) {
 
 pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !Self {
     const opts: vaxis.Vaxis.Options = .{
-        .kitty_keyboard_flags = .{ .report_events = true },
+        .kitty_keyboard_flags = .{
+            .disambiguate = true,
+            .report_events = true,
+            .report_alternate_keys = true,
+            .report_all_as_ctl_seqs = true,
+            .report_text = true,
+        },
     };
     return .{
         .a = a,
@@ -72,11 +78,12 @@ pub fn deinit(self: *Self) void {
 pub fn run(self: *Self) !void {
     if (self.vx.tty == null) self.vx.tty = try vaxis.Tty.init();
     if (!self.no_alternate) try self.vx.enterAltScreen();
-    try self.vx.queryTerminal();
+    try self.vx.queryTerminalSend();
     const ws = try vaxis.Tty.getWinsize(self.input_fd_blocking());
     try self.vx.resize(self.a, ws);
     self.vx.queueRefresh();
     try self.vx.setMouseMode(.pixels);
+    try self.vx.setBracketedPaste(true);
 }
 
 pub fn render(self: *Self) !void {
@@ -129,7 +136,7 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
         }
     }
     while (buf.len > 0) {
-        const result = try parser.parse(buf);
+        const result = try parser.parse(buf, self.a);
         if (result.n == 0)
             return;
         buf = buf[result.n..];
@@ -141,10 +148,14 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                     event_type.PRESS,
                     key_.codepoint,
                     key_.shifted_codepoint orelse key_.codepoint,
-                    key_.text orelse input.utils.key_id_string(key_.codepoint),
+                    key_.text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
                     @as(u8, @bitCast(key_.mods)),
                 });
-                if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
+                if (self.bracketed_paste and self.handle_bracketed_paste_input(cbor_msg) catch |e| {
+                    self.bracketed_paste_buffer.clearAndFree();
+                    self.bracketed_paste = false;
+                    return e;
+                }) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
             },
             .key_release => |*key_| {
                 const cbor_msg = try self.fmtmsg(.{
@@ -152,10 +163,10 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                     event_type.RELEASE,
                     key_.codepoint,
                     key_.shifted_codepoint orelse key_.codepoint,
-                    key_.text orelse input.utils.key_id_string(key_.codepoint),
+                    key_.text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
                     @as(u8, @bitCast(key_.mods)),
                 });
-                if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
+                if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
             },
             .mouse => |mouse| {
                 const ypos = mouse.row - 1;
@@ -208,29 +219,30 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                 };
             },
             .focus_in => {
-                // FIXME
+                if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_in"}));
             },
             .focus_out => {
-                // FIXME
+                if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_out"}));
             },
             .paste_start => {
                 self.bracketed_paste = true;
                 self.bracketed_paste_buffer.clearRetainingCapacity();
             },
-            .paste_end => {
-                defer self.bracketed_paste_buffer.clearAndFree();
-                if (!self.bracketed_paste) return;
-                self.bracketed_paste = false;
-                if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", self.bracketed_paste_buffer.items }));
+            .paste_end => try self.handle_bracketed_paste_end(),
+            .paste => |text| {
+                defer self.a.free(text);
+                if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
             },
             .cap_unicode => {
+                self.logger.print("unicode capability detected", .{});
                 self.vx.caps.unicode = .unicode;
                 self.vx.screen.width_method = .unicode;
             },
             .cap_da1 => {
-                std.Thread.Futex.wake(&self.vx.query_futex, 10);
+                self.vx.enableDetectedFeatures() catch |e| self.logger.err("enable features", e);
             },
             .cap_kitty_keyboard => {
+                self.logger.print("kitty keyboard capability detected", .{});
                 self.vx.caps.kitty_keyboard = true;
             },
             .cap_kitty_graphics => {
@@ -239,6 +251,7 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                 }
             },
             .cap_rgb => {
+                self.logger.print("rgb capability detected", .{});
                 self.vx.caps.rgb = true;
             },
         }
@@ -251,70 +264,55 @@ fn fmtmsg(self: *Self, value: anytype) ![]const u8 {
     return self.event_buffer.items;
 }
 
-const OSC = "\x1B]"; // Operating System Command
-const ST = "\x1B\\"; // String Terminator
-const BEL = "\x07";
-const OSC0_title = OSC ++ "0;";
-const OSC52_clipboard = OSC ++ "52;c;";
-const OSC52_clipboard_paste = OSC ++ "52;p;";
-const OSC22_cursor = OSC ++ "22;";
-const OSC22_cursor_reply = OSC ++ "22:";
-
-const CSI = "\x1B["; // Control Sequence Introducer
-const CSI_bracketed_paste_enable = CSI ++ "?2004h";
-const CSI_bracketed_paste_disable = CSI ++ "?2004h";
-const CIS_bracketed_paste_begin = CSI ++ "200~";
-const CIS_bracketed_paste_end = CSI ++ "201~";
-
-pub fn set_terminal_title(text: []const u8) void {
-    var writer = std.io.getStdOut().writer();
-    var buf: [std.posix.PATH_MAX]u8 = undefined;
-    const term_cmd = std.fmt.bufPrint(&buf, OSC0_title ++ "{s}" ++ BEL, .{text}) catch return;
-    _ = writer.write(term_cmd) catch return;
+fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
+    var keypress: u32 = undefined;
+    var egc_: u32 = undefined;
+    if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.string, 0 })) {
+        switch (keypress) {
+            key.ENTER => try self.bracketed_paste_buffer.appendSlice("\n"),
+            else => if (!key.synthesized_p(keypress)) {
+                var buf: [6]u8 = undefined;
+                const bytes = try ucs32_to_utf8(&[_]u32{egc_}, &buf);
+                try self.bracketed_paste_buffer.appendSlice(buf[0..bytes]);
+            } else {
+                try self.handle_bracketed_paste_end();
+                return false;
+            },
+        }
+        return true;
+    }
+    return false;
 }
 
-pub fn copy_to_system_clipboard(tmp_a: std.mem.Allocator, text: []const u8) void {
-    copy_to_system_clipboard_with_errors(tmp_a, text) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
+fn handle_bracketed_paste_end(self: *Self) !void {
+    defer self.bracketed_paste_buffer.clearAndFree();
+    if (!self.bracketed_paste) return;
+    self.bracketed_paste = false;
+    if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", self.bracketed_paste_buffer.items }));
 }
 
-fn copy_to_system_clipboard_with_errors(tmp_a: std.mem.Allocator, text: []const u8) !void {
-    var writer = std.io.getStdOut().writer();
-    const encoder = std.base64.standard.Encoder;
-    const size = OSC52_clipboard.len + encoder.calcSize(text.len) + ST.len;
-    const buf = try tmp_a.alloc(u8, size);
-    defer tmp_a.free(buf);
-    @memcpy(buf[0..OSC52_clipboard.len], OSC52_clipboard);
-    const b64 = encoder.encode(buf[OSC52_clipboard.len..], text);
-    @memcpy(buf[OSC52_clipboard.len + b64.len ..], ST);
-    _ = try writer.write(buf);
+pub fn set_terminal_title(self: *Self, text: []const u8) void {
+    self.vx.setTitle(text) catch {};
 }
 
-pub fn request_system_clipboard() void {
-    write_stdout(OSC52_clipboard ++ "?" ++ ST);
+pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
+    self.vx.copyToSystemClipboard(text, self.a) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
 }
 
-pub fn request_mouse_cursor_text(push_or_pop: bool) void {
-    if (push_or_pop) mouse_cursor_push("text") else mouse_cursor_pop();
+pub fn request_system_clipboard(self: *Self) void {
+    self.vx.requestSystemClipboard() catch |e| log.logger(log_name).err("request_system_clipboard", e);
 }
 
-pub fn request_mouse_cursor_pointer(push_or_pop: bool) void {
-    if (push_or_pop) mouse_cursor_push("pointer") else mouse_cursor_pop();
+pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {
+    if (push_or_pop) self.vx.setMouseShape(.text) else self.vx.setMouseShape(.default);
 }
 
-pub fn request_mouse_cursor_default(push_or_pop: bool) void {
-    if (push_or_pop) mouse_cursor_push("default") else mouse_cursor_pop();
+pub fn request_mouse_cursor_pointer(self: *Self, push_or_pop: bool) void {
+    if (push_or_pop) self.vx.setMouseShape(.pointer) else self.vx.setMouseShape(.default);
 }
 
-fn mouse_cursor_push(comptime name: []const u8) void {
-    write_stdout(OSC22_cursor ++ name ++ ST);
-}
-
-fn mouse_cursor_pop() void {
-    write_stdout(OSC22_cursor ++ "default" ++ ST);
-}
-
-fn write_stdout(bytes: []const u8) void {
-    _ = std.io.getStdOut().writer().write(bytes) catch |e| log.logger(log_name).err("stdout", e);
+pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
+    if (push_or_pop) self.vx.setMouseShape(.default) else self.vx.setMouseShape(.default);
 }
 
 pub fn cursor_enable(self: *Self, y: c_int, x: c_int) !void {

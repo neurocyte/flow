@@ -180,7 +180,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return true;
     }
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-        tui.renderer.request_mouse_cursor_pointer(self.hover);
+        tui.current().rdr.request_mouse_cursor_pointer(self.hover);
         return true;
     }
 
