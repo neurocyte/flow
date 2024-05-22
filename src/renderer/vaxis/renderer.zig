@@ -248,10 +248,7 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
             },
             .cap_da1 => {
                 self.vx.enableDetectedFeatures() catch |e| self.logger.err("enable features", e);
-                self.vx.setMouseMode(.pixels) catch |e| switch (e) {
-                    error.NoSgrPixelsCapability => try self.vx.setMouseMode(.cells),
-                    else => return e,
-                };
+                try self.vx.setMouseMode(true);
             },
             .cap_kitty_keyboard => {
                 self.logger.print("kitty keyboard capability detected", .{});
