@@ -407,6 +407,7 @@ fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) voi
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
     self.send_mouse(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
+    self.drag_source = null;
 }
 
 fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, dragging: bool, cbor_msg: []const u8) void {
