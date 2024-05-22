@@ -250,6 +250,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("thespian", thespian_mod);
     exe.root_module.addImport("log", log_mod);
     exe.root_module.addImport("tracy", tracy_mod);
+    exe.root_module.addImport("renderer", renderer_mod);
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
