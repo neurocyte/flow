@@ -51,7 +51,6 @@ init_timer: ?tp.timeout,
 sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
 final_exit: []const u8 = "normal",
-input_reader: ?*InputReader = null,
 
 const idle_frames = 1;
 
@@ -124,7 +123,7 @@ fn init(a: Allocator) !*Self {
     if (comptime @hasDecl(renderer, "input_fd")) {
         try self.fd_stdin.wait_read();
     } else {
-        self.input_reader = try InputReader.create(a, self.rdr.input_fd_blocking());
+        try InputReader.create(a, self.rdr.input_fd_blocking());
     }
 
     self.rdr.handler_ctx = self;
@@ -164,7 +163,6 @@ fn deinit(self: *Self) void {
     if (comptime @hasDecl(renderer, "input_fd"))
         self.fd_stdin.deinit();
     self.logger.deinit();
-    if (self.input_reader) |p| p.stop();
     self.a.destroy(self);
 }
 
@@ -820,18 +818,16 @@ const InputReader = struct {
     a: std.mem.Allocator,
     fd: std.posix.fd_t,
     pid: tp.pid,
-    id: ?std.Thread.Id = null,
+    thread: std.Thread,
 
-    fn create(a: std.mem.Allocator, fd: std.posix.fd_t) error{Exit}!*InputReader {
+    fn create(a: std.mem.Allocator, fd: std.posix.fd_t) error{Exit}!void {
         const self = a.create(InputReader) catch |e| return tp.exit_error(e);
         self.* = .{
             .a = a,
             .fd = fd,
             .pid = tp.self_pid().clone(),
+            .thread = std.Thread.spawn(.{}, InputReader.start, .{self}) catch |e| return tp.exit_error(e),
         };
-        const pid = tp.spawn_link(self.a, self, InputReader.start, "tui.InputReader") catch |e| return tp.exit_error(e);
-        pid.deinit();
-        return self;
     }
 
     fn deinit(self: *InputReader) void {
@@ -839,20 +835,13 @@ const InputReader = struct {
         self.a.destroy(self);
     }
 
-    fn start(self: *InputReader) tp.result {
+    fn start(self: *InputReader) void {
         defer self.deinit();
-        self.id = std.Thread.getCurrentId();
         var buf: [4096]u8 = undefined;
         while (true) {
-            const n = std.posix.read(self.fd, &buf) catch |e| return tp.exit_error(e);
-            if (n == 0)
-                return tp.exit_normal();
-            try self.pid.send(.{ "process_input", buf[0..n] });
+            const n = std.posix.read(self.fd, &buf) catch return;
+            if (n == 0) return;
+            self.pid.send(.{ "process_input", buf[0..n] }) catch {};
         }
-    }
-
-    fn stop(self: *InputReader) void {
-        if (self.id) |id|
-            _ = std.os.linux.tkill(@intCast(id), std.os.linux.SIG.INT);
     }
 };
