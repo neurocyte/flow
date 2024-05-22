@@ -69,14 +69,24 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
 }
 
 pub fn deinit(self: *Self) void {
+    panic_cleanup_tty = null;
     self.vx.deinit(self.a);
     self.bracketed_paste_buffer.deinit();
     self.input_buffer.deinit();
     self.event_buffer.deinit();
 }
 
+var panic_cleanup_tty: ?*vaxis.Tty = null;
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+    if (panic_cleanup_tty) |tty| tty.deinit();
+    return std.builtin.default_panic(msg, error_return_trace, ret_addr);
+}
+
 pub fn run(self: *Self) !void {
-    if (self.vx.tty == null) self.vx.tty = try vaxis.Tty.init();
+    if (self.vx.tty == null) {
+        self.vx.tty = try vaxis.Tty.init();
+        panic_cleanup_tty = &(self.vx.tty.?);
+    }
     if (!self.no_alternate) try self.vx.enterAltScreen();
     try self.vx.queryTerminalSend();
     const ws = try vaxis.Tty.getWinsize(self.input_fd_blocking());

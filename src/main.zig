@@ -15,9 +15,14 @@ pub const application_name = "flow";
 pub const application_logo = "󱞏 ";
 
 pub const std_options = .{
-    .log_level = .debug,
+    // .log_level = if (builtin.mode == .Debug) .debug else .warn,
+    .log_level = if (builtin.mode == .Debug) .info else .warn,
     .logFn = log.std_log_function,
 };
+
+const renderer = @import("renderer");
+
+pub const panic = if (@hasDecl(renderer, "panic")) renderer.panic else std.builtin.default_panic;
 
 pub fn main() anyerror!void {
     const params = comptime clap.parseParamsComptime(
