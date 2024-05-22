@@ -92,7 +92,6 @@ pub fn run(self: *Self) !void {
     const ws = try vaxis.Tty.getWinsize(self.input_fd_blocking());
     try self.vx.resize(self.a, ws);
     self.vx.queueRefresh();
-    try self.vx.setMouseMode(.pixels);
     try self.vx.setBracketedPaste(true);
 }
 
@@ -178,53 +177,47 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                 });
                 if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
             },
-            .mouse => |mouse| {
-                const ypos = mouse.row - 1;
-                const xpos = mouse.col - 1;
-                const ycell = self.vx.screen.height_pix / self.vx.screen.height;
-                const xcell = self.vx.screen.width_pix / self.vx.screen.width;
-                const y = ypos / ycell;
-                const x = xpos / xcell;
-                const ypx = ypos % ycell;
-                const xpx = xpos % xcell;
+            .mouse => |mouse_| {
+                const mouse = self.vx.translateMouse(mouse_);
+                // const mouse = mouse_;
                 if (self.dispatch_mouse) |f| switch (mouse.type) {
-                    .motion => f(self.handler_ctx, @intCast(y), @intCast(x), try self.fmtmsg(.{
+                    .motion => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
                         "M",
-                        x,
-                        y,
-                        xpx,
-                        ypx,
+                        mouse.col,
+                        mouse.row,
+                        mouse.xoffset,
+                        mouse.yoffset,
                     })),
-                    .press => f(self.handler_ctx, @intCast(y), @intCast(x), try self.fmtmsg(.{
+                    .press => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
                         "B",
                         event_type.PRESS,
                         @intFromEnum(mouse.button),
                         input.utils.button_id_string(@intFromEnum(mouse.button)),
-                        x,
-                        y,
-                        xpx,
-                        ypx,
+                        mouse.col,
+                        mouse.row,
+                        mouse.xoffset,
+                        mouse.yoffset,
                     })),
-                    .release => f(self.handler_ctx, @intCast(y), @intCast(x), try self.fmtmsg(.{
+                    .release => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
                         "B",
                         event_type.RELEASE,
                         @intFromEnum(mouse.button),
                         input.utils.button_id_string(@intFromEnum(mouse.button)),
-                        x,
-                        y,
-                        xpx,
-                        ypx,
+                        mouse.col,
+                        mouse.row,
+                        mouse.xoffset,
+                        mouse.yoffset,
                     })),
                     .drag => if (self.dispatch_mouse_drag) |f_|
-                        f_(self.handler_ctx, @intCast(y), @intCast(x), true, try self.fmtmsg(.{
+                        f_(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), true, try self.fmtmsg(.{
                             "D",
                             event_type.PRESS,
                             @intFromEnum(mouse.button),
                             input.utils.button_id_string(@intFromEnum(mouse.button)),
-                            x,
-                            y,
-                            xpx,
-                            ypx,
+                            mouse.col,
+                            mouse.row,
+                            mouse.xoffset,
+                            mouse.yoffset,
                         })),
                 };
             },
@@ -248,8 +241,16 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                 self.vx.caps.unicode = .unicode;
                 self.vx.screen.width_method = .unicode;
             },
+            .cap_sgr_pixels => {
+                self.logger.print("pixel mouse capability detected", .{});
+                self.vx.caps.sgr_pixels = true;
+            },
             .cap_da1 => {
                 self.vx.enableDetectedFeatures() catch |e| self.logger.err("enable features", e);
+                self.vx.setMouseMode(.pixels) catch |e| switch (e) {
+                    error.NoSgrPixelsCapability => try self.vx.setMouseMode(.cells),
+                    else => return e,
+                };
             },
             .cap_kitty_keyboard => {
                 self.logger.print("kitty keyboard capability detected", .{});
