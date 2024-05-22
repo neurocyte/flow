@@ -234,7 +234,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = if (use_vaxis) "flow-vaxis" else "flow",
+        .name = "flow",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
@@ -263,7 +263,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const check_exe = b.addExecutable(.{
-        .name = if (use_vaxis) "flow-vaxis" else "flow",
+        .name = "flow",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
