@@ -55,6 +55,7 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
             .report_all_as_ctl_seqs = true,
             .report_text = true,
         },
+        .system_clipboard_allocator = a,
     };
     return .{
         .a = a,
