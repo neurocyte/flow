@@ -180,7 +180,6 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 
     errdefer if (comptime @hasDecl(renderer, "input_fd"))
         self.fd_stdin.cancel() catch {};
-    errdefer self.rdr.leave_alternate_screen();
     self.receive_safe(from, m) catch |e| {
         if (std.mem.eql(u8, "normal", tp.error_text()))
             return e;
