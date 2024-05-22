@@ -238,7 +238,7 @@ pub fn cell_load(self: *Plane, cell: *Cell, gcluster: [:0]const u8) !usize {
 pub fn at_cursor_cell(self: Plane, cell: *Cell) !usize {
     cell.* = .{};
     if (self.window.readCell(@intCast(self.col), @intCast(self.row))) |cell_| cell.cell = cell_;
-    return cell.cell.char.grapheme.len;
+    return if (std.mem.eql(u8, cell.cell.char.grapheme, " ")) 0 else cell.cell.char.grapheme.len;
 }
 
 pub fn set_styles(self: *Plane, stylebits: StyleBits) void {
