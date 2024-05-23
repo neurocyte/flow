@@ -121,6 +121,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.RIGHT => self.cmd("move_word_right", .{}),
             key.BACKSPACE => self.cmd("delete_word_left", .{}),
             key.DEL => self.cmd("delete_word_right", .{}),
+            key.F05 => self.cmd("toggle_inspector_view", .{}),
+            key.F10 => self.cmd("toggle_whitespace", .{}), // aka F34
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
@@ -158,6 +160,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.UP => self.cmd("pull_up", .{}),
             key.DOWN => self.cmd("pull_down", .{}),
             key.ENTER => self.cmd("insert_line", .{}),
+            key.F10 => self.cmd("gutter_mode_next", .{}), // aka F58
             else => {},
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {
