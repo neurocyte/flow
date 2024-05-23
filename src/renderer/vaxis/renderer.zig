@@ -84,6 +84,8 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
 }
 
 pub fn run(self: *Self) !void {
+    self.vx.sgr = .legacy;
+
     if (self.vx.tty == null) {
         self.vx.tty = try vaxis.Tty.init();
         panic_cleanup_tty = &(self.vx.tty.?);
