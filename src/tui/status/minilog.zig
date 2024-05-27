@@ -13,12 +13,17 @@ const logview = @import("../logview.zig");
 parent: Plane,
 plane: Plane,
 msg: std.ArrayList(u8),
-is_error: bool = false,
 clear_time: i64 = 0,
+level: Level = .info,
 
 const message_display_time_seconds = 2;
 const error_display_time_seconds = 4;
 const Self = @This();
+
+const Level = enum {
+    info,
+    err,
+};
 
 pub fn create(a: std.mem.Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
@@ -46,11 +51,13 @@ pub fn layout(self: *Self) Widget.Layout {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style(" ", if (self.msg.items.len > 0) theme.sidebar else theme.statusbar);
+    const style_normal = theme.statusbar;
+    const style_info: Widget.Theme.Style = .{ .fg = theme.statusbar.fg, .fs = theme.editor_information.fs };
+    const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs };
+    self.plane.set_base_style(" ", style_normal);
     self.plane.erase();
     self.plane.home();
-    if (self.is_error)
-        self.plane.set_base_style(" ", theme.editor_error);
+    self.plane.set_style(if (self.level == .err) style_error else style_info);
     _ = self.plane.print(" {s} ", .{self.msg.items}) catch {};
 
     const curr_time = std.time.milliTimestamp();
@@ -75,14 +82,13 @@ fn process_log(self: *Self, m: tp.message) !void {
     var context: []const u8 = undefined;
     var msg: []const u8 = undefined;
     if (try m.match(.{ "log", tp.extract(&src), tp.extract(&msg) })) {
-        if (self.is_error) return;
-        try self.set(msg, false);
+        try self.set(msg, .info);
     } else if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
         if (std.mem.eql(u8, msg, "error.Stop"))
             return;
-        try self.set(msg, true);
+        try self.set(msg, .err);
     } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
-        self.is_error = true;
+        self.level = .err;
         var s = std.json.writeStream(self.msg.writer(), .{});
         var iter: []const u8 = m.buf;
         try @import("cbor").JsonStream(@TypeOf(self.msg)).jsonWriteValue(&s, &iter);
@@ -92,20 +98,21 @@ fn process_log(self: *Self, m: tp.message) !void {
 }
 
 fn update_clear_time(self: *Self) void {
-    const delay: i64 = std.time.ms_per_s * @as(i64, if (self.is_error) error_display_time_seconds else message_display_time_seconds);
+    const delay: i64 = std.time.ms_per_s * @as(i64, if (self.level == .err) error_display_time_seconds else message_display_time_seconds);
     self.clear_time = std.time.milliTimestamp() + delay;
 }
 
-fn set(self: *Self, msg: []const u8, is_error: bool) !void {
+fn set(self: *Self, msg: []const u8, level: Level) !void {
+    if (@intFromEnum(level) < @intFromEnum(self.level)) return;
     self.msg.clearRetainingCapacity();
     try self.msg.appendSlice(msg);
-    self.is_error = is_error;
+    self.level = level;
     self.update_clear_time();
     Widget.need_render();
 }
 
 fn clear(self: *Self) void {
-    self.is_error = false;
+    self.level = .info;
     self.msg.clearRetainingCapacity();
     self.clear_time = 0;
     Widget.need_render();

@@ -30,8 +30,14 @@ const Entry = struct {
     msg: []u8,
     time: i64,
     tdiff: i64,
+    level: Level,
 };
 const Buffer = ArrayList(Entry);
+
+const Level = enum {
+    info,
+    err,
+};
 
 pub fn create(a: Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
@@ -45,7 +51,10 @@ pub fn deinit(self: *Self, a: Allocator) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style(" ", theme.panel);
+    const style_normal = theme.panel;
+    const style_info: Widget.Theme.Style = .{ .fg = theme.editor_information.fg, .fs = theme.editor_information.fs };
+    const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs };
+    self.plane.set_base_style(" ", style_normal);
     self.plane.erase();
     self.plane.home();
     const height = self.plane.dim_y();
@@ -56,7 +65,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     for (buffer.items[begin_at..]) |item| {
         if (first) first = false else _ = self.plane.putstr("\n") catch return false;
         self.output_tdiff(item.tdiff) catch return false;
+        self.plane.set_style(if (item.level == .err) style_error else style_info);
         _ = self.plane.print("{s}: {s}", .{ escape(item.src), escape(item.msg) }) catch {};
+        self.plane.set_style(style_normal);
     }
     if (last_count > 0)
         _ = self.plane.print(" ({})", .{last_count}) catch {};
@@ -81,7 +92,7 @@ pub fn process_log(m: tp.message) !void {
     var msg: []const u8 = undefined;
     const buffer = get_buffer();
     if (try m.match(.{ "log", tp.extract(&src), tp.extract(&msg) })) {
-        try append(buffer, src, msg);
+        try append(buffer, src, msg, .info);
     } else if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
         try append_error(buffer, src, context, msg);
     } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
@@ -89,7 +100,7 @@ pub fn process_log(m: tp.message) !void {
     }
 }
 
-fn append(buffer: *Buffer, src: []const u8, msg: []const u8) !void {
+fn append(buffer: *Buffer, src: []const u8, msg: []const u8, level: Level) !void {
     const ts = time.microTimestamp();
     const tdiff = if (buffer.getLastOrNull()) |last| ret: {
         if (eql(u8, msg, last.src) and eql(u8, msg, last.msg)) {
@@ -104,19 +115,20 @@ fn append(buffer: *Buffer, src: []const u8, msg: []const u8) !void {
         .tdiff = tdiff,
         .src = try buffer.allocator.dupeZ(u8, src),
         .msg = try buffer.allocator.dupeZ(u8, msg),
+        .level = level,
     };
 }
 
 fn append_error(buffer: *Buffer, src: []const u8, context: []const u8, msg_: []const u8) !void {
     var buf: [4096]u8 = undefined;
     const msg = try fmt.bufPrint(&buf, "error in {s}: {s}", .{ context, msg_ });
-    try append(buffer, src, msg);
+    try append(buffer, src, msg, .err);
 }
 
 fn append_json(buffer: *Buffer, src: []const u8, m: tp.message) !void {
     var buf: [4096]u8 = undefined;
     const json = try m.to_json(&buf);
-    try append(buffer, src, json);
+    try append(buffer, src, json, .err);
 }
 
 fn get_buffer() *Buffer {
