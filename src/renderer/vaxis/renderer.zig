@@ -239,6 +239,8 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                 defer self.a.free(text);
                 if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
             },
+            .color_report => {},
+            .color_scheme => {},
             .cap_unicode => {
                 self.logger.print("unicode capability detected", .{});
                 self.vx.caps.unicode = .unicode;
@@ -265,6 +267,7 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                 self.logger.print("rgb capability detected", .{});
                 self.vx.caps.rgb = true;
             },
+            .cap_color_scheme_updates => {},
         }
     }
 }
