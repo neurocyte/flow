@@ -26,6 +26,7 @@ vx: vaxis.Vaxis,
 no_alternate: bool,
 event_buffer: std.ArrayList(u8),
 input_buffer: std.ArrayList(u8),
+mods: vaxis.Key.Modifiers = .{},
 
 bracketed_paste: bool = false,
 bracketed_paste_buffer: std.ArrayList(u8),
@@ -37,8 +38,6 @@ dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, dragging: 
 dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
 logger: log.Logger,
-
-const ModState = struct { ctrl: bool = false, shift: bool = false, alt: bool = false };
 
 const Event = union(enum) {
     key_press: vaxis.Key,
@@ -155,6 +154,7 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
         const event = result.event orelse continue;
         switch (event) {
             .key_press => |key_| {
+                try self.sync_mod_state(key_.codepoint, key_.mods);
                 const cbor_msg = try self.fmtmsg(.{
                     "I",
                     event_type.PRESS,
@@ -182,7 +182,7 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
             },
             .mouse => |mouse_| {
                 const mouse = self.vx.translateMouse(mouse_);
-                // const mouse = mouse_;
+                try self.sync_mod_state(0, .{ .ctrl = mouse.mods.ctrl, .shift = mouse.mods.shift, .alt = mouse.mods.alt });
                 if (self.dispatch_mouse) |f| switch (mouse.type) {
                     .motion => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
                         "M",
@@ -338,4 +338,34 @@ pub fn cursor_disable(self: *Self) void {
 
 pub fn ucs32_to_utf8(ucs32: []const u32, utf8: []u8) !usize {
     return @intCast(try std.unicode.utf8Encode(@intCast(ucs32[0]), utf8));
+}
+
+fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !void {
+    if (modifiers.ctrl and !self.mods.ctrl and !(keypress == key.LCTRL or keypress == key.RCTRL))
+        try self.send_sync_key(event_type.PRESS, key.LCTRL, "lctrl", modifiers);
+    if (!modifiers.ctrl and self.mods.ctrl and !(keypress == key.LCTRL or keypress == key.RCTRL))
+        try self.send_sync_key(event_type.RELEASE, key.LCTRL, "lctrl", modifiers);
+    if (modifiers.alt and !self.mods.alt and !(keypress == key.LALT or keypress == key.RALT))
+        try self.send_sync_key(event_type.PRESS, key.LALT, "lalt", modifiers);
+    if (!modifiers.alt and self.mods.alt and !(keypress == key.LALT or keypress == key.RALT))
+        try self.send_sync_key(event_type.RELEASE, key.LALT, "lalt", modifiers);
+    if (modifiers.shift and !self.mods.shift and !(keypress == key.LSHIFT or keypress == key.RSHIFT))
+        try self.send_sync_key(event_type.PRESS, key.LSHIFT, "lshift", modifiers);
+    if (!modifiers.shift and self.mods.shift and !(keypress == key.LSHIFT or keypress == key.RSHIFT))
+        try self.send_sync_key(event_type.RELEASE, key.LSHIFT, "lshift", modifiers);
+    self.mods = modifiers;
+}
+
+fn send_sync_key(self: *Self, event_type_: usize, keypress: u32, key_string: []const u8, modifiers: vaxis.Key.Modifiers) !void {
+    if (self.dispatch_input) |f| f(
+        self.handler_ctx,
+        try self.fmtmsg(.{
+            "I",
+            event_type_,
+            keypress,
+            keypress,
+            key_string,
+            @as(u8, @bitCast(modifiers)),
+        }),
+    );
 }
