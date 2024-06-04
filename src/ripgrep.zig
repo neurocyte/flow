@@ -6,7 +6,7 @@ const log = @import("log");
 pub const ripgrep_binary = "rg";
 
 pid: ?tp.pid,
-stdin_behavior: std.ChildProcess.StdIo,
+stdin_behavior: std.process.Child.StdIo,
 
 const Self = @This();
 const module_name = @typeName(Self);
@@ -25,7 +25,7 @@ pub fn find_in_files(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8)
     return create(a, query, tag, .Close);
 }
 
-fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.ChildProcess.StdIo) Error!Self {
+fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) Error!Self {
     return .{ .pid = try Process.create(a, query, tag, stdin_behavior), .stdin_behavior = stdin_behavior };
 }
 
@@ -79,11 +79,11 @@ const Process = struct {
     parent: tp.pid,
     tag: [:0]const u8,
     logger: log.Logger,
-    stdin_behavior: std.ChildProcess.StdIo,
+    stdin_behavior: std.process.Child.StdIo,
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.ChildProcess.StdIo) Error!tp.pid {
+    pub fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) Error!tp.pid {
         const self = try a.create(Process);
         self.* = .{
             .a = a,

@@ -1,47 +1,43 @@
 .{
     .name = "flow",
-    .version = "0.0.1",
+    .version = "0.1.0",
 
     .dependencies = .{
-        .notcurses = .{
-            .url = "https://github.com/neurocyte/notcurses-zig/archive/b22c7f04e4fca9d36247a9e867eb4f3f9ccf914a.tar.gz",
-            .hash = "12200a3fa3e5d76f1ff96d1ca5fab64b61ff0e3f28f953ac8464f43986ca7cf4f7eb",
-        },
         .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/8c98e6404b22aafc0184e999d8f068b81cc22fa1.tar.gz",
-            .hash = "122014e73fd712190e109950837b97f6143f02d7e2b6986e1db70b6f4aadb5ba6a0d",
+            .url = "https://github.com/Hejsil/zig-clap/archive/60cd46aacff4960104703da9ba683077b1e3c76c.tar.gz",
+            .hash = "12205eb22c644df2469045083efe9c92189d56494ebe8901b36ef1218c3717e6eb78",
         },
         .tracy = .{
-            .url = "https://github.com/neurocyte/zig-tracy/archive/303574aa9015b2c5e80e053234b3ec1d6227f0ed.tar.gz",
-            .hash = "12209136682cc51f20f5a4ff2365ca1a13445688aadfc570c4684b828bf9e48d2011",
+            .url = "https://github.com/neurocyte/zig-tracy/archive/58999b786089e5319dd0707f6afbfca04c6340e7.tar.gz",
+            .hash = "1220a2c8f8db1b5265458ac967ea1f7cc0a8ddcd1d774df3b73d86c4f529aadbfb94",
         },
         .dizzy = .{
-            .url = "https://github.com/SuperAuguste/dizzy/archive/d4aaf67d0f5ef69d0a0287ae472ddfece064d341.tar.gz",
-            .hash = "1220a7cf5f59b61257993bc5b02991ffc523d103f66842fa8d8ab5c9fdba52799340",
+            .url = "https://github.com/neurocyte/dizzy/archive/455d18369cbb2a0458ba70be919cd378338d695e.tar.gz",
+            .hash = "1220220dbc7fe91c1c54438193ca765cebbcb7d58f35cdcaee404a9d2245a42a4362",
         },
         .thespian = .{
-            .url = "https://github.com/neurocyte/thespian/archive/a98cb1f5e62a1e0ea8cdf2c8550ad3a7de87370c.tar.gz",
-            .hash = "1220c8ff98a15efe5a187adc2dc8c24a35664417c8b1232cb0a02f2412212ffea374",
+            .url = "https://github.com/neurocyte/thespian/archive/3121af2ec484841103eae059c79e4c3ddbec4149.tar.gz",
+            .hash = "1220794a8ca2f5e93e8dad61338f3bfd7a322f0c85635f367bc6cf0c178dcde70247",
         },
         .themes = .{
-            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-68a95a4984088ec8480252af93f3069f25f21b66/flow-themes.tar.gz",
-            .hash = "122016a42d46713954340e55981a9102b209c838b855895842d71ad6aebd2d07a58d",
+            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-15e8cad1619429bf2547a6819b5b999510d5c1e5/flow-themes.tar.gz",
+            .hash = "1220906d82deb37573207c5d365edb6b58a0b1b3e4ef68902019a23a0eb5e5a34298",
         },
         .syntax = .{
-            .url = "https://github.com/neurocyte/flow-syntax/archive/9ed377279e0723f53e0063f0577fbe17d2f7bd73.tar.gz",
-            .hash = "12208577d504d28012c810f5defb8f8086f46a76203020bccad33925c5b9750fd0a8",
+            .url = "https://github.com/neurocyte/flow-syntax/archive/10a9a8598b837ab1dd5b7adcba8e3a4ed4358983.tar.gz",
+            .hash = "12207c2b9285958b388e331a8d1f6066b92b30d3dc4d548b1f1d04e7e03c79f8c3c3",
         },
         .fuzzig = .{
-            .url = "https://github.com/fjebaker/fuzzig/archive/c6a0e0ca1a24e55ebdce51c83b918d4325ca7032.tar.gz",
-            .hash = "1220214dfb9a0806d9c8a059beb9e3b07811fd138cd5baeb9d1da432588920a084bf",
+            .url = "https://github.com/fjebaker/fuzzig/archive/0fd156d5097365151e85a85eef9d8cf0eebe7b00.tar.gz",
+            .hash = "122019f077d09686b1ec47928ca2b4bf264422f3a27afc5b49dafb0129a4ceca0d01",
         },
         .vaxis = .{
-            .url = "https://github.com/rockorager/libvaxis/archive/93ac8e00f880e50007d6cf049df28e44b7de889c.tar.gz",
-            .hash = "1220033e2f7770acacae66f5ba02d689f025f325b0352316e48142f0a61d352b98aa",
+            .url = "https://github.com/rockorager/libvaxis/archive/f41b4dcc0718e4c3c95db6d1f4ac0193382b767c.tar.gz",
+            .hash = "122003a9b987a0b77bbad2ea2c396b570646faa165f73503391d7419fbb935fcc363",
         },
         .zg = .{
-            .url = "git+https://codeberg.org/dude_the_builder/zg#16735685fcc3410de361ba3411788ad1fb4fe188",
-            .hash = "1220fe9ac5cdb41833d327a78745614e67d472469f8666567bd8cf9f5847a52b1c51",
+            .url = "git+https://codeberg.org/dude_the_builder/zg#c425c9c8511bf92e14b8b612d1d16e774b186f2e",
+            .hash = "1220c79009f1e443b015db4de6e5319432538ead2fea10d271f3f35d3ae83c996789",
         },
     },
     .paths = .{

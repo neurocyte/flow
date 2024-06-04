@@ -21,6 +21,7 @@ pub const log_name = "vaxis";
 
 a: std.mem.Allocator,
 
+tty: vaxis.Tty,
 vx: vaxis.Vaxis,
 
 no_alternate: bool,
@@ -58,6 +59,7 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
     };
     return .{
         .a = a,
+        .tty = try vaxis.Tty.init(),
         .vx = try vaxis.init(a, opts),
         .no_alternate = no_alternate,
         .event_buffer = std.ArrayList(u8).init(a),
@@ -70,7 +72,8 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
 
 pub fn deinit(self: *Self) void {
     panic_cleanup_tty = null;
-    self.vx.deinit(self.a);
+    self.vx.deinit(self.a, self.tty.anyWriter());
+    self.tty.deinit();
     self.bracketed_paste_buffer.deinit();
     self.input_buffer.deinit();
     self.event_buffer.deinit();
@@ -85,25 +88,22 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
 pub fn run(self: *Self) !void {
     self.vx.sgr = .legacy;
 
-    if (self.vx.tty == null) {
-        self.vx.tty = try vaxis.Tty.init();
-        panic_cleanup_tty = &(self.vx.tty.?);
-    }
-    if (!self.no_alternate) try self.vx.enterAltScreen();
-    try self.vx.queryTerminalSend();
+    panic_cleanup_tty = &self.tty;
+    if (!self.no_alternate) try self.vx.enterAltScreen(self.tty.anyWriter());
+    try self.vx.queryTerminalSend(self.tty.anyWriter());
     const ws = try vaxis.Tty.getWinsize(self.input_fd_blocking());
-    try self.vx.resize(self.a, ws);
+    try self.vx.resize(self.a, self.tty.anyWriter(), ws);
     self.vx.queueRefresh();
-    try self.vx.setBracketedPaste(true);
+    try self.vx.setBracketedPaste(self.tty.anyWriter(), true);
 }
 
 pub fn render(self: *Self) !void {
-    return self.vx.render();
+    return self.vx.render(self.tty.anyWriter());
 }
 
 pub fn refresh(self: *Self) !void {
     const ws = try vaxis.Tty.getWinsize(self.input_fd_blocking());
-    try self.vx.resize(self.a, ws);
+    try self.vx.resize(self.a, self.tty.anyWriter(), ws);
     self.vx.queueRefresh();
 }
 
@@ -123,7 +123,7 @@ pub fn stdplane(self: *Self) Plane {
 }
 
 pub fn input_fd_blocking(self: Self) i32 {
-    return self.vx.tty.?.fd;
+    return self.tty.fd;
 }
 
 pub fn leave_alternate_screen(self: *Self) void {
@@ -251,8 +251,8 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                 self.vx.caps.sgr_pixels = true;
             },
             .cap_da1 => {
-                self.vx.enableDetectedFeatures() catch |e| self.logger.err("enable features", e);
-                try self.vx.setMouseMode(true);
+                self.vx.enableDetectedFeatures(self.tty.anyWriter()) catch |e| self.logger.err("enable features", e);
+                try self.vx.setMouseMode(self.tty.anyWriter(), true);
             },
             .cap_kitty_keyboard => {
                 self.logger.print("kitty keyboard capability detected", .{});
@@ -306,15 +306,15 @@ fn handle_bracketed_paste_end(self: *Self) !void {
 }
 
 pub fn set_terminal_title(self: *Self, text: []const u8) void {
-    self.vx.setTitle(text) catch {};
+    self.vx.setTitle(self.tty.anyWriter(), text) catch {};
 }
 
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
-    self.vx.copyToSystemClipboard(text, self.a) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
+    self.vx.copyToSystemClipboard(self.tty.anyWriter(), text, self.a) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
 }
 
 pub fn request_system_clipboard(self: *Self) void {
-    self.vx.requestSystemClipboard() catch |e| log.logger(log_name).err("request_system_clipboard", e);
+    self.vx.requestSystemClipboard(self.tty.anyWriter()) catch |e| log.logger(log_name).err("request_system_clipboard", e);
 }
 
 pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {

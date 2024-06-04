@@ -464,6 +464,7 @@ const filtered_dirs = [_][]const u8{
     ".var",
     "zig-out",
     "zig-cache",
+    ".zig-cache",
     ".rustup",
     ".npm",
     ".cargo",

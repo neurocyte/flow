@@ -21,8 +21,6 @@ pub fn build(b: *std.Build) void {
     const optimize_deps_option = b.option(bool, "optimize_deps", "Enable optimization for dependecies (default: yes)");
     const use_llvm_option = b.option(bool, "use_llvm", "Enable llvm backend (default: yes)");
     const use_lld_option = b.option(bool, "use_lld", "Enable lld backend (default: yes)");
-    const use_system_notcurses = b.option(bool, "use_system_notcurses", "Build against system notcurses (default: no)") orelse false;
-    const use_vaxis = b.option(bool, "use_vaxis", "Enable libvaxis rendering backend (default: no)") orelse false;
 
     const tracy_enabled = if (enable_tracy_option) |enabled| enabled else false;
     const optimize_deps_enabled = if (optimize_deps_option) |enabled| enabled else true;
@@ -32,8 +30,6 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "optimize_deps", optimize_deps_enabled);
     options.addOption(bool, "use_llvm", use_llvm_option orelse false);
     options.addOption(bool, "use_lld", use_lld_option orelse false);
-    options.addOption(bool, "use_system_notcurses", use_system_notcurses);
-    options.addOption(bool, "use_vaxis", use_vaxis);
 
     const options_mod = options.createModule();
 
@@ -52,16 +48,13 @@ pub fn build(b: *std.Build) void {
         else => std.debug.panic("makeDir(\".cache/cdb\") failed: {any}", .{e}),
     };
 
-    const notcurses_dep = b.dependency("notcurses", .{
-        .target = target,
-        .optimize = dependency_optimize,
-        .use_system_notcurses = use_system_notcurses,
-    });
-    const notcurses_mod = notcurses_dep.module("notcurses");
-
     const vaxis_dep = b.dependency("vaxis", .{
         .target = target,
         .optimize = dependency_optimize,
+        .use_libxev = false,
+        .use_zigimg = false,
+        .use_znvim = false,
+        .use_gap_buffer = false,
     });
     const vaxis_mod = vaxis_dep.module("vaxis");
 
@@ -85,7 +78,7 @@ pub fn build(b: *std.Build) void {
         .optimize = dependency_optimize,
     }) else undefined;
     const tracy_mod = if (tracy_enabled) tracy_dep.module("tracy") else b.createModule(.{
-        .root_source_file = .{ .path = "src/tracy_noop.zig" },
+        .root_source_file = b.path("src/tracy_noop.zig"),
     });
 
     const zg_dep = b.dependency("zg", .{
@@ -110,39 +103,29 @@ pub fn build(b: *std.Build) void {
     const cbor_mod = thespian_dep.module("cbor");
 
     const help_mod = b.createModule(.{
-        .root_source_file = .{ .path = "help.md" },
+        .root_source_file = b.path("help.md"),
     });
 
     const config_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/config.zig" },
+        .root_source_file = b.path("src/config.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
         },
     });
 
     const log_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/log.zig" },
+        .root_source_file = b.path("src/log.zig"),
         .imports = &.{
             .{ .name = "thespian", .module = thespian_mod },
         },
     });
 
     const color_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/color.zig" },
+        .root_source_file = b.path("src/color.zig"),
     });
 
-    const notcurses_renderer_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/renderer/notcurses/renderer.zig" },
-        .imports = &.{
-            .{ .name = "notcurses", .module = notcurses_mod },
-            .{ .name = "theme", .module = themes_dep.module("theme") },
-            .{ .name = "cbor", .module = cbor_mod },
-            .{ .name = "log", .module = log_mod },
-        },
-    });
-
-    const vaxis_renderer_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/renderer/vaxis/renderer.zig" },
+    const renderer_mod = b.createModule(.{
+        .root_source_file = b.path("src/renderer/vaxis/renderer.zig"),
         .imports = &.{
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "theme", .module = themes_dep.module("theme") },
@@ -151,10 +134,8 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const renderer_mod = if (use_vaxis) vaxis_renderer_mod else notcurses_renderer_mod;
-
     const Buffer_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/buffer/Buffer.zig" },
+        .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
             .{ .name = "renderer", .module = renderer_mod },
             .{ .name = "cbor", .module = cbor_mod },
@@ -162,7 +143,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const ripgrep_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/ripgrep.zig" },
+        .root_source_file = b.path("src/ripgrep.zig"),
         .imports = &.{
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "cbor", .module = cbor_mod },
@@ -171,14 +152,14 @@ pub fn build(b: *std.Build) void {
     });
 
     const location_history_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/location_history.zig" },
+        .root_source_file = b.path("src/location_history.zig"),
         .imports = &.{
             .{ .name = "thespian", .module = thespian_mod },
         },
     });
 
     const project_manager_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/project_manager.zig" },
+        .root_source_file = b.path("src/project_manager.zig"),
         .imports = &.{
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
@@ -192,7 +173,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const diff_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/diff.zig" },
+        .root_source_file = b.path("src/diff.zig"),
         .imports = &.{
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
@@ -204,12 +185,12 @@ pub fn build(b: *std.Build) void {
     });
 
     const text_manip_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/text_manip.zig" },
+        .root_source_file = b.path("src/text_manip.zig"),
         .imports = &.{},
     });
 
     const tui_mod = b.createModule(.{
-        .root_source_file = .{ .path = "src/tui/tui.zig" },
+        .root_source_file = b.path("src/tui/tui.zig"),
         .imports = &.{
             .{ .name = "renderer", .module = renderer_mod },
             .{ .name = "thespian", .module = thespian_mod },
@@ -235,7 +216,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "flow",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -264,7 +245,7 @@ pub fn build(b: *std.Build) void {
 
     const check_exe = b.addExecutable(.{
         .name = "flow",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -284,7 +265,7 @@ pub fn build(b: *std.Build) void {
     check.dependOn(&check_exe.step);
 
     const tests = b.addTest(.{
-        .root_source_file = .{ .path = "test/tests.zig" },
+        .root_source_file = b.path("test/tests.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -299,4 +280,14 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run_cmd.step);
+
+    const lints_step = b.step("lint", "Run lints");
+
+    const lints = b.addFmt(.{
+        .paths = &.{ "src", "test", "build.zig" },
+        .check = true,
+    });
+
+    lints_step.dependOn(&lints.step);
+    b.default_step.dependOn(lints_step);
 }
