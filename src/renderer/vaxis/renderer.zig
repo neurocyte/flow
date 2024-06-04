@@ -98,7 +98,9 @@ pub fn run(self: *Self) !void {
 }
 
 pub fn render(self: *Self) !void {
-    return self.vx.render(self.tty.anyWriter());
+    var bufferedWriter = self.tty.bufferedWriter();
+    try self.vx.render(bufferedWriter.writer().any());
+    try bufferedWriter.flush();
 }
 
 pub fn refresh(self: *Self) !void {
@@ -310,7 +312,9 @@ pub fn set_terminal_title(self: *Self, text: []const u8) void {
 }
 
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
-    self.vx.copyToSystemClipboard(self.tty.anyWriter(), text, self.a) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
+    var bufferedWriter = self.tty.bufferedWriter();
+    self.vx.copyToSystemClipboard(bufferedWriter.writer().any(), text, self.a) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
+    bufferedWriter.flush() catch @panic("flush failed");
 }
 
 pub fn request_system_clipboard(self: *Self) void {
