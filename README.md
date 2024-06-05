@@ -6,7 +6,9 @@ This is my Zig text editor. It is very much a work-in-progress, but far enough a
 https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f2d4c6
 
 # Requirements
-- A modern terminal with 24bit color and kitty keyboard protocol support (kitty and ghostty are the only recommended terminals at this time)
+- A modern terminal with 24bit color and kitty keyboard protocol support. Kitty and
+    ghostty are the only recommended terminals at this time. Most other terminals
+    will work, but with reduced functionality.
 - NerdFonts support
 - Linux or MacOS (help porting to *BSD or Windows is welcome!)
 - A UTF-8 locale (very important!)
@@ -44,19 +46,6 @@ Run with:
 ```shell
 zig-out/bin/flow
 ```
-
-## MacOS
-
-On MacOS you will need to link Flow against a MacOS build of **notcurses 3.0.9**. This
-is easiest with `brew`:
-
-```shell
-brew install notcurses
-zig build -Doptimize=ReleaseFast -Duse_system_notcurses=true --search-prefix $HOMEBREW_PREFIX
-```
-
-If `HOMEBREW_PREFIX` is not set in your environment check your brew configuration
-with `brew config`.
 
 # Running Flow Control
 
