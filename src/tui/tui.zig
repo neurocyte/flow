@@ -31,7 +31,6 @@ frame_time: usize, // in microseconds
 frame_clock: tp.metronome,
 frame_clock_running: bool = false,
 frame_last_time: i64 = 0,
-fd_stdin: tp.file_descriptor,
 receiver: Receiver,
 mainview: Widget,
 message_filters: MessageFilter.List,
@@ -77,8 +76,6 @@ fn start(args: StartArgs) tp.result {
 
 fn init(a: Allocator) !*Self {
     var self = try a.create(Self);
-    const ctx = try renderer.init(a, self, tp.env.get().is("no-alternate"));
-
     var conf_buf: ?[]const u8 = null;
     var conf = root.read_config(a, &conf_buf);
     defer if (conf_buf) |buf| a.free(buf);
@@ -96,11 +93,10 @@ fn init(a: Allocator) !*Self {
     self.* = .{
         .a = a,
         .config = conf,
-        .rdr = ctx,
+        .rdr = try renderer.init(a, self, tp.env.get().is("no-alternate")),
         .frame_time = frame_time,
         .frame_clock = frame_clock,
         .frame_clock_running = true,
-        .fd_stdin = undefined,
         .receiver = Receiver.init(receive, self),
         .mainview = undefined,
         .message_filters = MessageFilter.List.init(a),
@@ -115,16 +111,10 @@ fn init(a: Allocator) !*Self {
     defer instance_ = null;
 
     try self.rdr.run();
-    if (comptime @hasDecl(renderer, "input_fd"))
-        self.fd_stdin = try tp.file_descriptor.init("stdin", self.rdr.input_fd());
     const n = self.rdr.stdplane();
 
     try frame_clock.start();
-    if (comptime @hasDecl(renderer, "input_fd")) {
-        try self.fd_stdin.wait_read();
-    } else {
-        try InputReader.create(a, self.rdr.input_fd_blocking());
-    }
+    try InputReader.create(a, self.rdr.input_fd_blocking());
 
     self.rdr.handler_ctx = self;
     self.rdr.dispatch_input = dispatch_input;
@@ -160,8 +150,6 @@ fn deinit(self: *Self) void {
     self.frame_clock.deinit();
     self.rdr.stop();
     self.rdr.deinit();
-    if (comptime @hasDecl(renderer, "input_fd"))
-        self.fd_stdin.deinit();
     self.logger.deinit();
     self.a.destroy(self);
 }
@@ -178,8 +166,6 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     defer instance_ = null;
     errdefer self.deinit();
 
-    errdefer if (comptime @hasDecl(renderer, "input_fd"))
-        self.fd_stdin.cancel() catch {};
     self.receive_safe(from, m) catch |e| {
         if (std.mem.eql(u8, "normal", tp.error_text()))
             return e;
@@ -221,7 +207,13 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 
     if (try m.match(.{"sigwinch"})) {
         try self.listen_sigwinch();
-        self.rdr.refresh() catch |e| return self.logger.err("refresh", e);
+        self.rdr.query_resize() catch |e| return self.logger.err("query_resize", e);
+        self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
+        need_render();
+        return;
+    }
+
+    if (try m.match(.{"resize"})) {
         self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
         need_render();
         return;
@@ -233,21 +225,13 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         return;
     }
 
-    if (comptime @hasDecl(renderer, "input_fd")) {
-        if (self.dispatch_input_fd(m) catch |e| b: {
-            self.logger.err("input dispatch", e);
-            break :b true;
-        })
-            return;
-    } else {
-        var input: []const u8 = undefined;
-        if (try m.match(.{ "process_input", tp.extract(&input) })) {
-            self.rdr.process_input(input) catch |e| return tp.exit_error(e);
-            try self.dispatch_flush_input_event();
-            if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
-                need_render();
-            return;
-        }
+    var input: []const u8 = undefined;
+    if (try m.match(.{ "process_input", tp.extract(&input) })) {
+        self.rdr.process_input(input) catch |e| return tp.exit_error(e);
+        try self.dispatch_flush_input_event();
+        if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
+            need_render();
+        return;
     }
 
     if (try m.match(.{"render"})) {
@@ -359,28 +343,6 @@ fn dispatch_flush_input_event(self: *Self) tp.result {
     var buf: [32]u8 = undefined;
     if (self.input_mode) |mode|
         try mode.handler.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{"F"}) catch |e| return tp.exit_error(e));
-}
-
-fn dispatch_input_fd(self: *Self, m: tp.message) error{Exit}!bool {
-    const frame = tracy.initZone(@src(), .{ .name = "tui input" });
-    defer frame.deinit();
-    var err: i64 = 0;
-    var err_msg: []u8 = "";
-    if (try m.match(.{ "fd", "stdin", "read_ready" })) {
-        self.fd_stdin.wait_read() catch |e| return tp.exit_error(e);
-        self.rdr.process_input() catch |e| switch (e) {
-            error.WouldBlock => return true,
-            else => return tp.exit_error(e),
-        };
-        try self.dispatch_flush_input_event();
-        if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
-            need_render();
-        return true; // consume message
-    }
-    if (try m.match(.{ "fd", "stdin", "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
-        return tp.exit(err_msg);
-    }
-    return false;
 }
 
 fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {

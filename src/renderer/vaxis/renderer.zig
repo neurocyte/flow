@@ -90,11 +90,9 @@ pub fn run(self: *Self) !void {
 
     panic_cleanup_tty = &self.tty;
     if (!self.no_alternate) try self.vx.enterAltScreen(self.tty.anyWriter());
-    try self.vx.queryTerminalSend(self.tty.anyWriter());
-    const ws = try vaxis.Tty.getWinsize(self.input_fd_blocking());
-    try self.vx.resize(self.a, self.tty.anyWriter(), ws);
-    self.vx.queueRefresh();
+    try self.query_resize();
     try self.vx.setBracketedPaste(self.tty.anyWriter(), true);
+    try self.vx.queryTerminalSend(self.tty.anyWriter());
 }
 
 pub fn render(self: *Self) !void {
@@ -103,8 +101,11 @@ pub fn render(self: *Self) !void {
     try bufferedWriter.flush();
 }
 
-pub fn refresh(self: *Self) !void {
-    const ws = try vaxis.Tty.getWinsize(self.input_fd_blocking());
+pub fn query_resize(self: *Self) !void {
+    try self.resize(try vaxis.Tty.getWinsize(self.input_fd_blocking()));
+}
+
+pub fn resize(self: *Self, ws: vaxis.Winsize) !void {
     try self.vx.resize(self.a, self.tty.anyWriter(), ws);
     self.vx.queueRefresh();
 }
@@ -243,6 +244,8 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
             },
             .color_report => {},
             .color_scheme => {},
+            .winsize => |ws| try self.resize(ws),
+
             .cap_unicode => {
                 self.logger.print("unicode capability detected", .{});
                 self.vx.caps.unicode = .unicode;

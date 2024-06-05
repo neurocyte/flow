@@ -51,10 +51,6 @@ pub fn build(b: *std.Build) void {
     const vaxis_dep = b.dependency("vaxis", .{
         .target = target,
         .optimize = dependency_optimize,
-        .use_libxev = false,
-        .use_zigimg = false,
-        .use_znvim = false,
-        .use_gap_buffer = false,
     });
     const vaxis_mod = vaxis_dep.module("vaxis");
 
