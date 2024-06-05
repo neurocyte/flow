@@ -95,11 +95,9 @@ pub fn move_page_up(self: *Self, root: Buffer.Root, view: *const View, plane: Pl
 }
 
 pub fn move_page_down(self: *Self, root: Buffer.Root, view: *const View, plane: Plane) void {
-    if (root.lines() < view.rows) {
-        self.move_buffer_last(root, plane);
-    } else if (self.row < root.lines() - view.rows - 1) {
+    if (root.lines() > self.row + view.rows) {
         self.row += view.rows;
-    } else self.row = root.lines() - 1;
+    } else self.move_buffer_last(root, plane);
     self.follow_target(root, plane);
     self.move_left_no_target(root, plane) catch return;
     self.move_right_no_target(root, plane) catch return;
