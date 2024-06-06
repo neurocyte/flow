@@ -1,8 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const CrossTarget = std.zig.CrossTarget;
-
 const cppflags = [_][]const u8{
     "-fcolor-diagnostics",
     "-std=c++20",
