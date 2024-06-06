@@ -161,7 +161,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'D' => self.cmd("dupe_up", .{}),
             // 'B' => self.cmd("select_word_left", .{}),
             // 'F' => self.cmd("select_word_right", .{}),
-            'F' => self.cmd("filter", command.fmt(.{ "zig", "fmt", "--stdin" })),
+            'F' => self.cmd("format", .{}),
             'S' => self.cmd("filter", command.fmt(.{ "sort", "-u" })),
             'V' => self.cmd("paste", .{}),
             'I' => self.cmd("add_cursors_to_line_ends", .{}),

@@ -3444,6 +3444,22 @@ pub const Editor = struct {
         self.get_primary().selection = sel;
     }
 
+    pub fn format(self: *Self, ctx: command.Context) tp.result {
+        if (ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more })) {
+            try self.filter_cmd(ctx.args);
+            return;
+        }
+        if (self.syntax) |syn| if (syn.file_type.formatter) |fmtr| if (fmtr.len > 0) {
+            var args = std.ArrayList(u8).init(self.a);
+            const writer = args.writer();
+            cbor.writeArrayHeader(writer, fmtr.len) catch |e| return tp.exit_error(e);
+            for (fmtr) |arg| cbor.writeValue(writer, arg) catch |e| return tp.exit_error(e);
+            try self.filter_cmd(.{ .buf = args.items });
+            return;
+        };
+        return tp.exit("no formatter");
+    }
+
     pub fn filter(self: *Self, ctx: command.Context) tp.result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
             return tp.exit_error(error.InvalidArgument);
@@ -3473,7 +3489,9 @@ pub const Editor = struct {
         };
         errdefer self.filter_deinit();
         const state = &self.filter.?;
-        self.logger.print("filter: start", .{});
+        var buf: [1024]u8 = undefined;
+        const json = cmd.to_json(&buf) catch |e| return tp.exit_error(e);
+        self.logger.print("filter: start {s}", .{json});
         var sp = tp.subprocess.init(self.a, cmd, "filter", .Pipe) catch |e| return tp.exit_error(e);
         defer {
             sp.close() catch {};
