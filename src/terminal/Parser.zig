@@ -81,7 +81,10 @@ inline fn parseEscape(self: *Parser, reader: Reader) !Event {
         const b = try reader.readByte();
         switch (b) {
             0x20...0x2F => continue,
-            else => return .{ .escape = self.buf.items },
+            else => {
+                try self.buf.append(b);
+                return .{ .escape = self.buf.items };
+            },
         }
     }
 }
