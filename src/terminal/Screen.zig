@@ -2,6 +2,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const vaxis = @import("../../main.zig");
 
+const ansi = @import("ansi.zig");
+
 const log = std.log.scoped(.terminal);
 
 const Screen = @This();
@@ -185,65 +187,24 @@ pub fn index(self: *Screen) !void {
     self.cursor.row += 1;
 }
 
-fn Parameter(T: type) type {
-    return struct {
-        const Self = @This();
-        val: T,
-        // indicates the next parameter is a sub-parameter
-        has_sub: bool = false,
-        is_empty: bool = false,
-
-        const Iterator = struct {
-            bytes: []const u8,
-            idx: usize = 0,
-
-            fn next(self: *Iterator) ?Self {
-                const start = self.idx;
-                var val: T = 0;
-                while (self.idx < self.bytes.len) {
-                    defer self.idx += 1; // defer so we trigger on return as well
-                    const b = self.bytes[self.idx];
-                    switch (b) {
-                        0x30...0x39 => {
-                            val = (val * 10) + (b - 0x30);
-                            if (self.idx == self.bytes.len - 1) return .{ .val = val };
-                        },
-                        ':', ';' => return .{
-                            .val = val,
-                            .is_empty = self.idx == start,
-                            .has_sub = b == ':',
-                        },
-                        else => return null,
-                    }
-                }
-                return null;
-            }
-        };
-    };
-}
-
-pub fn sgr(self: *Screen, seq: []const u8) void {
-    if (seq.len == 0) {
+pub fn sgr(self: *Screen, seq: ansi.CSI) void {
+    if (seq.params.len == 0) {
         self.cursor.style = .{};
         return;
     }
-    switch (seq[0]) {
-        0x30...0x39 => {},
-        else => return, // TODO: handle private indicator sequences
-    }
 
-    var iter: Parameter(u8).Iterator = .{ .bytes = seq };
+    var iter = seq.iterator(u8);
     while (iter.next()) |ps| {
-        switch (ps.val) {
+        switch (ps) {
             0 => self.cursor.style = .{},
             1 => self.cursor.style.bold = true,
             2 => self.cursor.style.dim = true,
             3 => self.cursor.style.italic = true,
             4 => {
-                const kind: vaxis.Style.Underline = if (ps.has_sub) blk: {
-                    const ul = iter.next() orelse break :blk .single;
-                    break :blk @enumFromInt(ul.val);
-                } else .single;
+                const kind: vaxis.Style.Underline = if (iter.next_is_sub)
+                    @enumFromInt(iter.next() orelse 1)
+                else
+                    .single;
                 self.cursor.style.ul_style = kind;
             },
             5 => self.cursor.style.blink = true,
@@ -261,72 +222,58 @@ pub fn sgr(self: *Screen, seq: []const u8) void {
             27 => self.cursor.style.reverse = false,
             28 => self.cursor.style.invisible = false,
             29 => self.cursor.style.strikethrough = false,
-            30...37 => self.cursor.style.fg = .{ .index = ps.val - 30 },
+            30...37 => self.cursor.style.fg = .{ .index = ps - 30 },
             38 => {
                 // must have another parameter
                 const kind = iter.next() orelse return;
-                switch (kind.val) {
+                switch (kind) {
                     2 => { // rgb
                         const r = r: {
                             // First param can be empty
                             var ps_r = iter.next() orelse return;
-                            while (ps_r.is_empty) {
+                            if (iter.is_empty)
                                 ps_r = iter.next() orelse return;
-                            }
-                            break :r ps_r.val;
+                            break :r ps_r;
                         };
-                        const g = g: {
-                            const ps_g = iter.next() orelse return;
-                            break :g ps_g.val;
-                        };
-                        const b = b: {
-                            const ps_b = iter.next() orelse return;
-                            break :b ps_b.val;
-                        };
+                        const g = iter.next() orelse return;
+                        const b = iter.next() orelse return;
                         self.cursor.style.fg = .{ .rgb = .{ r, g, b } };
                     },
                     5 => {
                         const idx = iter.next() orelse return;
-                        self.cursor.style.fg = .{ .index = idx.val };
+                        self.cursor.style.fg = .{ .index = idx };
                     }, // index
                     else => return,
                 }
             },
             39 => self.cursor.style.fg = .default,
-            40...47 => self.cursor.style.bg = .{ .index = ps.val - 40 },
+            40...47 => self.cursor.style.bg = .{ .index = ps - 40 },
             48 => {
                 // must have another parameter
                 const kind = iter.next() orelse return;
-                switch (kind.val) {
+                switch (kind) {
                     2 => { // rgb
                         const r = r: {
                             // First param can be empty
                             var ps_r = iter.next() orelse return;
-                            while (ps_r.is_empty) {
+                            if (iter.is_empty)
                                 ps_r = iter.next() orelse return;
-                            }
-                            break :r ps_r.val;
+                            break :r ps_r;
                         };
-                        const g = g: {
-                            const ps_g = iter.next() orelse return;
-                            break :g ps_g.val;
-                        };
-                        const b = b: {
-                            const ps_b = iter.next() orelse return;
-                            break :b ps_b.val;
-                        };
+                        const g = iter.next() orelse return;
+                        const b = iter.next() orelse return;
                         self.cursor.style.bg = .{ .rgb = .{ r, g, b } };
                     },
-                    5 => { // index
+                    5 => {
                         const idx = iter.next() orelse return;
-                        self.cursor.style.bg = .{ .index = idx.val };
-                    },
+                        self.cursor.style.bg = .{ .index = idx };
+                    }, // index
                     else => return,
                 }
             },
             49 => self.cursor.style.bg = .default,
-            90...97 => self.cursor.style.fg = .{ .index = ps.val - 90 + 8 },
-            100...107 => self.cursor.style.bg = .{ .index = ps.val - 100 + 8 },
+            90...97 => self.cursor.style.fg = .{ .index = ps - 90 + 8 },
+            100...107 => self.cursor.style.bg = .{ .index = ps - 100 + 8 },
             else => continue,
         }
     }

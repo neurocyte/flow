@@ -3,6 +3,7 @@ const Terminal = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
+const ansi = @import("ansi.zig");
 pub const Command = @import("Command.zig");
 const Parser = @import("Parser.zig");
 const Pty = @import("Pty.zig");
@@ -185,39 +186,24 @@ fn run(self: *Terminal) !void {
             },
             .c0 => |b| try self.handleC0(b),
             .csi => |seq| {
-                const final = seq[seq.len - 1];
-                switch (final) {
+                switch (seq.final) {
                     'B' => { // CUD
-                        switch (seq.len) {
-                            0 => unreachable,
-                            1 => self.back_screen.cursor.row += 1,
-                            else => {
-                                const delta = parseParam(u16, seq[2 .. seq.len - 1], 1) orelse 1;
-                                self.back_screen.cursor.row = @min(self.back_screen.height - 1, self.back_screen.cursor.row + delta);
-                            },
-                        }
+                        var iter = seq.iterator(u16);
+                        const delta = iter.next() orelse 1;
+                        self.back_screen.cursor.row = @min(self.back_screen.height - 1, self.back_screen.cursor.row + delta);
                     },
                     'H' => { // CUP
-                        const delim = std.mem.indexOfScalar(u8, seq, ';') orelse {
-                            switch (seq.len) {
-                                0 => unreachable,
-                                1 => {
-                                    self.back_screen.cursor.row = 0;
-                                    self.back_screen.cursor.col = 0;
-                                },
-                                else => {
-                                    const row = parseParam(u16, seq[0 .. seq.len - 1], 1) orelse 1;
-                                    self.back_screen.cursor.row = row - 1;
-                                },
-                            }
-                            continue;
-                        };
-                        const row = parseParam(u16, seq[0..delim], 1) orelse 1;
-                        const col = parseParam(u16, seq[delim + 1 .. seq.len - 1], 1) orelse 1;
+                        var iter = seq.iterator(u16);
+                        const row = iter.next() orelse 1;
+                        const col = iter.next() orelse 1;
                         self.back_screen.cursor.col = col - 1;
                         self.back_screen.cursor.row = row - 1;
                     },
-                    'm' => self.back_screen.sgr(seq[0 .. seq.len - 1]),
+                    'm' => {
+                        if (seq.intermediate == null and seq.private_marker == null) {
+                            self.back_screen.sgr(seq);
+                        }
+                    },
                     else => {},
                 }
             },
@@ -226,15 +212,15 @@ fn run(self: *Terminal) !void {
     }
 }
 
-inline fn handleC0(self: *Terminal, b: u8) !void {
+inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
     switch (b) {
-        0x00, 0x01, 0x02 => {}, // NUL, SOH, STX
-        0x05 => {}, // ENQ
-        0x07 => self.pending_events.bell.store(true, .unordered), // BEL
-        0x08 => self.back_screen.cursorLeft(1), // BS
-        0x09 => {}, // TODO: HT
-        0x0a, 0x0b, 0x0c => try self.back_screen.index(), // LF, VT, FF
-        0x0d => { // CR
+        .NUL, .SOH, .STX => {},
+        .ENQ => {},
+        .BEL => self.pending_events.bell.store(true, .unordered),
+        .BS => self.back_screen.cursorLeft(1),
+        .HT => {}, // TODO: HT
+        .LF, .VT, .FF => try self.back_screen.index(),
+        .CR => {
             self.back_screen.cursor.pending_wrap = false;
             self.back_screen.cursor.col = if (self.mode.origin)
                 self.back_screen.scrolling_region.left
@@ -243,14 +229,8 @@ inline fn handleC0(self: *Terminal, b: u8) !void {
             else
                 0;
         },
-        0x0e => {}, // TODO: Charset shift out
-        0x0f => {}, // TODO: Charset shift in
-        else => log.warn("unhandled C0: 0x{x}", .{b}),
+        .SO => {}, // TODO: Charset shift out
+        .SI => {}, // TODO: Charset shift in
+        else => log.warn("unhandled C0: 0x{x}", .{@intFromEnum(b)}),
     }
-}
-
-/// Parse a param buffer, returning a default value if the param was empty
-inline fn parseParam(comptime T: type, buf: []const u8, default: ?T) ?T {
-    if (buf.len == 0) return default;
-    return std.fmt.parseUnsigned(T, buf, 10) catch return null;
 }

@@ -3,15 +3,16 @@ const Parser = @This();
 
 const std = @import("std");
 const Reader = std.io.AnyReader;
+const ansi = @import("ansi.zig");
 
 /// A terminal event
 const Event = union(enum) {
     print: []const u8,
-    c0: u8,
+    c0: ansi.C0,
     escape: []const u8,
     ss2: u8,
     ss3: u8,
-    csi: []const u8,
+    csi: ansi.CSI,
     osc: []const u8,
     apc: []const u8,
 };
@@ -52,7 +53,7 @@ pub fn parseReader(self: *Parser, reader: Reader) !Event {
             // C0 control
             0x00...0x1a,
             0x1c...0x1f,
-            => return .{ .c0 = b },
+            => return .{ .c0 = @enumFromInt(b) },
             else => {
                 try self.buf.append(b);
                 return self.parseGround(reader);
@@ -129,12 +130,24 @@ inline fn parseOsc(self: *Parser, reader: Reader) !Event {
 }
 
 inline fn parseCsi(self: *Parser, reader: Reader) !Event {
+    var intermediate: ?u8 = null;
+    var pm: ?u8 = null;
+
     while (true) {
         const b = try reader.readByte();
-        try self.buf.append(b);
         switch (b) {
+            0x20...0x2F => intermediate = b,
+            0x30...0x3B => try self.buf.append(b),
+            0x3C...0x3F => pm = b, // we only allow one
             // Really we should execute C0 controls, but we just ignore them
-            0x40...0xFF => return .{ .csi = self.buf.items },
+            0x40...0xFF => return .{
+                .csi = .{
+                    .intermediate = intermediate,
+                    .private_marker = pm,
+                    .params = self.buf.items,
+                    .final = b,
+                },
+            },
             else => continue,
         }
     }
