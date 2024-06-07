@@ -150,7 +150,6 @@ fn anyReader(self: *const Terminal) std.io.AnyReader {
 
 /// process the output from the command on the pty
 fn run(self: *Terminal) !void {
-    // ridiculous buffer size so we never have to handle incomplete reads
     var parser: Parser = .{
         .buf = try std.ArrayList(u8).initCapacity(self.allocator, 128),
     };
