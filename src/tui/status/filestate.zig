@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const tracy = @import("tracy");
 const root = @import("root");
+const builtin = @import("builtin");
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
@@ -217,6 +218,7 @@ fn show_project(self: *Self) void {
 }
 
 fn abbrv_home(self: *Self) void {
+    if (builtin.os.tag == .windows) return;
     if (!std.fs.path.isAbsolute(self.name)) return;
     const homedir = std.posix.getenv("HOME") orelse return;
     const homerelpath = std.fs.path.relative(self.a, homedir, self.name) catch return;

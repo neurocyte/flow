@@ -125,6 +125,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "theme", .module = themes_dep.module("theme") },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "log", .module = log_mod },
+            .{ .name = "thespian", .module = thespian_mod },
         },
     });
 

@@ -16,8 +16,8 @@
             .hash = "1220220dbc7fe91c1c54438193ca765cebbcb7d58f35cdcaee404a9d2245a42a4362",
         },
         .thespian = .{
-            .url = "https://github.com/neurocyte/thespian/archive/3121af2ec484841103eae059c79e4c3ddbec4149.tar.gz",
-            .hash = "1220794a8ca2f5e93e8dad61338f3bfd7a322f0c85635f367bc6cf0c178dcde70247",
+            .url = "https://github.com/neurocyte/thespian/archive/895d3dfb9ece213d614af97c9b636a0844e4e04b.tar.gz",
+            .hash = "122045ee52e7f37488d35d2c9c2f16d321267b27c8df05ce4d007c869f8d7d0e64a8",
         },
         .themes = .{
             .url = "https://github.com/neurocyte/flow-themes/releases/download/master-15e8cad1619429bf2547a6819b5b999510d5c1e5/flow-themes.tar.gz",
@@ -32,8 +32,8 @@
             .hash = "122019f077d09686b1ec47928ca2b4bf264422f3a27afc5b49dafb0129a4ceca0d01",
         },
         .vaxis = .{
-            .url = "https://github.com/neurocyte/libvaxis/archive/cba7e049dd22648bba6c0f4fab01eeeed2d69a5b.tar.gz",
-            .hash = "1220e9c7c197181bc3ac405266f1160826720675160ae3e2b38204322e901c4244d8",
+            .url = "https://github.com/neurocyte/libvaxis/archive/507b8d5dcaa3e2fc972739d8d9e9e2ef5a0634a3.tar.gz",
+            .hash = "1220caa1b2a6f2c638a304b9cb5db9bf3319c7d821832fae476871b720d7019cabdd",
         },
         .zg = .{
             .url = "git+https://codeberg.org/dude_the_builder/zg#c425c9c8511bf92e14b8b612d1d16e774b186f2e",

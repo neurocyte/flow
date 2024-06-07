@@ -6,6 +6,7 @@ const project_manager = @import("project_manager");
 const build_options = @import("build_options");
 const root = @import("root");
 const tracy = @import("tracy");
+const builtin = @import("builtin");
 
 pub const renderer = @import("renderer");
 
@@ -110,20 +111,19 @@ fn init(a: Allocator) !*Self {
     instance_ = self;
     defer instance_ = null;
 
-    try self.rdr.run();
-    const n = self.rdr.stdplane();
-
-    try frame_clock.start();
-    try InputReader.create(a, self.rdr.input_fd_blocking());
-
     self.rdr.handler_ctx = self;
     self.rdr.dispatch_input = dispatch_input;
     self.rdr.dispatch_mouse = dispatch_mouse;
     self.rdr.dispatch_mouse_drag = dispatch_mouse_drag;
     self.rdr.dispatch_event = dispatch_event;
+    try self.rdr.run();
+    const n = self.rdr.stdplane();
+
+    try frame_clock.start();
     try self.commands.init(self);
     errdefer self.deinit();
-    try self.listen_sigwinch();
+    if (builtin.os.tag != .windows)
+        try self.listen_sigwinch();
     self.mainview = try mainview.create(a, n);
     try self.rdr.render();
     try self.save_config();
@@ -176,6 +176,15 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 }
 
 fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
+    var input: []const u8 = undefined;
+    if (try m.match(.{ "VXS", tp.extract(&input) })) {
+        self.rdr.process_input_event(input) catch |e| return tp.exit_error(e);
+        try self.dispatch_flush_input_event();
+        if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
+            need_render();
+        return;
+    }
+
     if (self.message_filters.filter(from, m) catch |e| return self.logger.err("filter", e))
         return;
 
@@ -205,13 +214,14 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         return;
     }
 
-    if (try m.match(.{"sigwinch"})) {
-        try self.listen_sigwinch();
-        self.rdr.query_resize() catch |e| return self.logger.err("query_resize", e);
-        self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
-        need_render();
-        return;
-    }
+    if (builtin.os.tag != .windows)
+        if (try m.match(.{"sigwinch"})) {
+            try self.listen_sigwinch();
+            self.rdr.query_resize() catch |e| return self.logger.err("query_resize", e);
+            self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
+            need_render();
+            return;
+        };
 
     if (try m.match(.{"resize"})) {
         self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
@@ -222,15 +232,6 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "system_clipboard", tp.string })) {
         if (self.input_mode) |mode|
             mode.handler.send(tp.self_pid(), m) catch |e| self.logger.err("clipboard handler", e);
-        return;
-    }
-
-    var input: []const u8 = undefined;
-    if (try m.match(.{ "process_input", tp.extract(&input) })) {
-        self.rdr.process_input(input) catch |e| return tp.exit_error(e);
-        try self.dispatch_flush_input_event();
-        if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
-            need_render();
         return;
     }
 
@@ -774,36 +775,4 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "string", .tm = "string.quoted" },
     .{ .ts = "repeat", .tm = "keyword.control.flow" },
     .{ .ts = "field", .tm = "variable" },
-};
-
-const InputReader = struct {
-    a: std.mem.Allocator,
-    fd: std.posix.fd_t,
-    pid: tp.pid,
-    thread: std.Thread,
-
-    fn create(a: std.mem.Allocator, fd: std.posix.fd_t) error{Exit}!void {
-        const self = a.create(InputReader) catch |e| return tp.exit_error(e);
-        self.* = .{
-            .a = a,
-            .fd = fd,
-            .pid = tp.self_pid().clone(),
-            .thread = std.Thread.spawn(.{}, InputReader.start, .{self}) catch |e| return tp.exit_error(e),
-        };
-    }
-
-    fn deinit(self: *InputReader) void {
-        self.pid.deinit();
-        self.a.destroy(self);
-    }
-
-    fn start(self: *InputReader) void {
-        defer self.deinit();
-        var buf: [4096]u8 = undefined;
-        while (true) {
-            const n = std.posix.read(self.fd, &buf) catch return;
-            if (n == 0) return;
-            self.pid.send(.{ "process_input", buf[0..n] }) catch {};
-        }
-    }
 };

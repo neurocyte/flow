@@ -73,12 +73,18 @@ pub fn main() anyerror!void {
     if (res.args.help != 0)
         return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
 
-    if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();
+    if (builtin.os.tag != .windows)
+        if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();
 
     if (res.args.@"debug-wait" != 0) {
-        std.debug.print("press return to start", .{});
-        var buf: [10]u8 = undefined;
-        _ = std.c.read(0, &buf, @sizeOf(@TypeOf(buf)));
+        if (builtin.os.tag == .windows) {
+            std.debug.print("--debug-wait is not implemented on windows", .{});
+            return error.DebugWaitFailed;
+        } else {
+            std.debug.print("press return to start", .{});
+            var buf: [10]u8 = undefined;
+            _ = std.c.read(0, &buf, @sizeOf(@TypeOf(buf)));
+        }
     }
 
     if (c.setlocale(c.LC_ALL, "") == null) {
@@ -351,15 +357,18 @@ pub fn get_config_dir() ![]const u8 {
 }
 
 fn get_app_config_dir(appname: []const u8) ![]const u8 {
+    const a = std.heap.c_allocator;
     const local = struct {
         var config_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var config_dir: ?[]const u8 = null;
     };
     const config_dir = if (local.config_dir) |dir|
         dir
-    else if (std.posix.getenv("XDG_CONFIG_HOME")) |xdg|
-        try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/{s}", .{ xdg, appname })
-    else if (std.posix.getenv("HOME")) |home| ret: {
+    else if (std.process.getEnvVarOwned(a, "XDG_CONFIG_HOME") catch null) |xdg| ret: {
+        defer a.free(xdg);
+        break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/{s}", .{ xdg, appname });
+    } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
+        defer a.free(home);
         const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/.config", .{home});
         std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
@@ -382,15 +391,18 @@ pub fn get_cache_dir() ![]const u8 {
 }
 
 fn get_app_cache_dir(appname: []const u8) ![]const u8 {
+    const a = std.heap.c_allocator;
     const local = struct {
         var cache_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var cache_dir: ?[]const u8 = null;
     };
     const cache_dir = if (local.cache_dir) |dir|
         dir
-    else if (std.posix.getenv("XDG_CACHE_HOME")) |xdg|
-        try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/{s}", .{ xdg, appname })
-    else if (std.posix.getenv("HOME")) |home| ret: {
+    else if (std.process.getEnvVarOwned(a, "XDG_CACHE_HOME") catch null) |xdg| ret: {
+        defer a.free(xdg);
+        break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/{s}", .{ xdg, appname });
+    } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
+        defer a.free(home);
         const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/.cache", .{home});
         std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},

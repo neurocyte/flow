@@ -2,8 +2,8 @@ const std = @import("std");
 const cbor = @import("cbor");
 const log = @import("log");
 const Style = @import("theme").Style;
-
 const vaxis = @import("vaxis");
+const builtin = @import("builtin");
 
 pub const input = @import("input.zig");
 
@@ -40,6 +40,8 @@ dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
 logger: log.Logger,
 
+loop: Loop,
+
 const Event = union(enum) {
     key_press: vaxis.Key,
     winsize: vaxis.Winsize,
@@ -67,11 +69,13 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
         .bracketed_paste_buffer = std.ArrayList(u8).init(a),
         .handler_ctx = handler_ctx,
         .logger = log.logger(log_name),
+        .loop = undefined,
     };
 }
 
 pub fn deinit(self: *Self) void {
     panic_cleanup_tty = null;
+    self.loop.stop();
     self.vx.deinit(self.a, self.tty.anyWriter());
     self.tty.deinit();
     self.bracketed_paste_buffer.deinit();
@@ -93,6 +97,9 @@ pub fn run(self: *Self) !void {
     try self.query_resize();
     try self.vx.setBracketedPaste(self.tty.anyWriter(), true);
     try self.vx.queryTerminalSend(self.tty.anyWriter());
+
+    self.loop = Loop.init(&self.tty, &self.vx);
+    try self.loop.start();
 }
 
 pub fn render(self: *Self) !void {
@@ -102,7 +109,8 @@ pub fn render(self: *Self) !void {
 }
 
 pub fn query_resize(self: *Self) !void {
-    try self.resize(try vaxis.Tty.getWinsize(self.input_fd_blocking()));
+    if (builtin.os.tag != .windows)
+        try self.resize(try vaxis.Tty.getWinsize(self.input_fd_blocking()));
 }
 
 pub fn resize(self: *Self, ws: vaxis.Winsize) !void {
@@ -133,69 +141,70 @@ pub fn leave_alternate_screen(self: *Self) void {
     self.vx.exitAltScreen() catch {};
 }
 
-pub fn process_input(self: *Self, input_: []const u8) !void {
-    var parser: vaxis.Parser = .{
-        .grapheme_data = &self.vx.screen.unicode.grapheme_data,
-    };
-    try self.input_buffer.appendSlice(input_);
-    var buf = self.input_buffer.items;
-    defer {
-        if (buf.len == 0) {
-            self.input_buffer.clearRetainingCapacity();
-        } else {
-            const rest = self.a.alloc(u8, buf.len) catch |e| std.debug.panic("{any}", .{e});
-            @memcpy(rest, buf);
-            self.input_buffer.deinit();
-            self.input_buffer = std.ArrayList(u8).fromOwnedSlice(self.a, rest);
-        }
-    }
-    while (buf.len > 0) {
-        const result = try parser.parse(buf, self.a);
-        if (result.n == 0)
-            return;
-        buf = buf[result.n..];
-        const event = result.event orelse continue;
-        switch (event) {
-            .key_press => |key_| {
-                try self.sync_mod_state(key_.codepoint, key_.mods);
-                const cbor_msg = try self.fmtmsg(.{
-                    "I",
+pub fn process_input_event(self: *Self, input_: []const u8) !void {
+    const event = std.mem.bytesAsValue(vaxis.Event, input_);
+    switch (event.*) {
+        .key_press => |key_| {
+            try self.sync_mod_state(key_.codepoint, key_.mods);
+            const cbor_msg = try self.fmtmsg(.{
+                "I",
+                event_type.PRESS,
+                key_.codepoint,
+                key_.shifted_codepoint orelse key_.codepoint,
+                key_.text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
+                @as(u8, @bitCast(key_.mods)),
+            });
+            if (self.bracketed_paste and self.handle_bracketed_paste_input(cbor_msg) catch |e| {
+                self.bracketed_paste_buffer.clearAndFree();
+                self.bracketed_paste = false;
+                return e;
+            }) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
+        },
+        .key_release => |*key_| {
+            const cbor_msg = try self.fmtmsg(.{
+                "I",
+                event_type.RELEASE,
+                key_.codepoint,
+                key_.shifted_codepoint orelse key_.codepoint,
+                key_.text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
+                @as(u8, @bitCast(key_.mods)),
+            });
+            if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
+        },
+        .mouse => |mouse_| {
+            const mouse = self.vx.translateMouse(mouse_);
+            try self.sync_mod_state(0, .{ .ctrl = mouse.mods.ctrl, .shift = mouse.mods.shift, .alt = mouse.mods.alt });
+            if (self.dispatch_mouse) |f| switch (mouse.type) {
+                .motion => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
+                    "M",
+                    mouse.col,
+                    mouse.row,
+                    mouse.xoffset,
+                    mouse.yoffset,
+                })),
+                .press => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
+                    "B",
                     event_type.PRESS,
-                    key_.codepoint,
-                    key_.shifted_codepoint orelse key_.codepoint,
-                    key_.text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
-                    @as(u8, @bitCast(key_.mods)),
-                });
-                if (self.bracketed_paste and self.handle_bracketed_paste_input(cbor_msg) catch |e| {
-                    self.bracketed_paste_buffer.clearAndFree();
-                    self.bracketed_paste = false;
-                    return e;
-                }) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
-            },
-            .key_release => |*key_| {
-                const cbor_msg = try self.fmtmsg(.{
-                    "I",
+                    @intFromEnum(mouse.button),
+                    input.utils.button_id_string(@intFromEnum(mouse.button)),
+                    mouse.col,
+                    mouse.row,
+                    mouse.xoffset,
+                    mouse.yoffset,
+                })),
+                .release => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
+                    "B",
                     event_type.RELEASE,
-                    key_.codepoint,
-                    key_.shifted_codepoint orelse key_.codepoint,
-                    key_.text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
-                    @as(u8, @bitCast(key_.mods)),
-                });
-                if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
-            },
-            .mouse => |mouse_| {
-                const mouse = self.vx.translateMouse(mouse_);
-                try self.sync_mod_state(0, .{ .ctrl = mouse.mods.ctrl, .shift = mouse.mods.shift, .alt = mouse.mods.alt });
-                if (self.dispatch_mouse) |f| switch (mouse.type) {
-                    .motion => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
-                        "M",
-                        mouse.col,
-                        mouse.row,
-                        mouse.xoffset,
-                        mouse.yoffset,
-                    })),
-                    .press => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
-                        "B",
+                    @intFromEnum(mouse.button),
+                    input.utils.button_id_string(@intFromEnum(mouse.button)),
+                    mouse.col,
+                    mouse.row,
+                    mouse.xoffset,
+                    mouse.yoffset,
+                })),
+                .drag => if (self.dispatch_mouse_drag) |f_|
+                    f_(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), true, try self.fmtmsg(.{
+                        "D",
                         event_type.PRESS,
                         @intFromEnum(mouse.button),
                         input.utils.button_id_string(@intFromEnum(mouse.button)),
@@ -204,76 +213,54 @@ pub fn process_input(self: *Self, input_: []const u8) !void {
                         mouse.xoffset,
                         mouse.yoffset,
                     })),
-                    .release => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
-                        "B",
-                        event_type.RELEASE,
-                        @intFromEnum(mouse.button),
-                        input.utils.button_id_string(@intFromEnum(mouse.button)),
-                        mouse.col,
-                        mouse.row,
-                        mouse.xoffset,
-                        mouse.yoffset,
-                    })),
-                    .drag => if (self.dispatch_mouse_drag) |f_|
-                        f_(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), true, try self.fmtmsg(.{
-                            "D",
-                            event_type.PRESS,
-                            @intFromEnum(mouse.button),
-                            input.utils.button_id_string(@intFromEnum(mouse.button)),
-                            mouse.col,
-                            mouse.row,
-                            mouse.xoffset,
-                            mouse.yoffset,
-                        })),
-                };
-            },
-            .focus_in => {
-                if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_in"}));
-            },
-            .focus_out => {
-                if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_out"}));
-            },
-            .paste_start => {
-                self.bracketed_paste = true;
-                self.bracketed_paste_buffer.clearRetainingCapacity();
-            },
-            .paste_end => try self.handle_bracketed_paste_end(),
-            .paste => |text| {
-                defer self.a.free(text);
-                if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
-            },
-            .color_report => {},
-            .color_scheme => {},
-            .winsize => |ws| try self.resize(ws),
+            };
+        },
+        .focus_in => {
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_in"}));
+        },
+        .focus_out => {
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_out"}));
+        },
+        .paste_start => {
+            self.bracketed_paste = true;
+            self.bracketed_paste_buffer.clearRetainingCapacity();
+        },
+        .paste_end => try self.handle_bracketed_paste_end(),
+        .paste => |text| {
+            defer self.a.free(text);
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
+        },
+        .color_report => {},
+        .color_scheme => {},
+        .winsize => |ws| try self.resize(ws),
 
-            .cap_unicode => {
-                self.logger.print("unicode capability detected", .{});
-                self.vx.caps.unicode = .unicode;
-                self.vx.screen.width_method = .unicode;
-            },
-            .cap_sgr_pixels => {
-                self.logger.print("pixel mouse capability detected", .{});
-                self.vx.caps.sgr_pixels = true;
-            },
-            .cap_da1 => {
-                self.vx.enableDetectedFeatures(self.tty.anyWriter()) catch |e| self.logger.err("enable features", e);
-                try self.vx.setMouseMode(self.tty.anyWriter(), true);
-            },
-            .cap_kitty_keyboard => {
-                self.logger.print("kitty keyboard capability detected", .{});
-                self.vx.caps.kitty_keyboard = true;
-            },
-            .cap_kitty_graphics => {
-                if (!self.vx.caps.kitty_graphics) {
-                    self.vx.caps.kitty_graphics = true;
-                }
-            },
-            .cap_rgb => {
-                self.logger.print("rgb capability detected", .{});
-                self.vx.caps.rgb = true;
-            },
-            .cap_color_scheme_updates => {},
-        }
+        .cap_unicode => {
+            self.logger.print("unicode capability detected", .{});
+            self.vx.caps.unicode = .unicode;
+            self.vx.screen.width_method = .unicode;
+        },
+        .cap_sgr_pixels => {
+            self.logger.print("pixel mouse capability detected", .{});
+            self.vx.caps.sgr_pixels = true;
+        },
+        .cap_da1 => {
+            self.vx.enableDetectedFeatures(self.tty.anyWriter()) catch |e| self.logger.err("enable features", e);
+            try self.vx.setMouseMode(self.tty.anyWriter(), true);
+        },
+        .cap_kitty_keyboard => {
+            self.logger.print("kitty keyboard capability detected", .{});
+            self.vx.caps.kitty_keyboard = true;
+        },
+        .cap_kitty_graphics => {
+            if (!self.vx.caps.kitty_graphics) {
+                self.vx.caps.kitty_graphics = true;
+            }
+        },
+        .cap_rgb => {
+            self.logger.print("rgb capability detected", .{});
+            self.vx.caps.rgb = true;
+        },
+        .cap_color_scheme_updates => {},
     }
 }
 
@@ -379,3 +366,120 @@ fn send_sync_key(self: *Self, event_type_: usize, keypress: u32, key_string: []c
         }),
     );
 }
+
+const Loop = struct {
+    tty: *vaxis.Tty,
+    vaxis: *vaxis.Vaxis,
+    pid: tp.pid,
+
+    thread: ?std.Thread = null,
+    should_quit: bool = false,
+    cache: vaxis.GraphemeCache = .{},
+
+    const tp = @import("thespian");
+
+    pub fn init(tty: *vaxis.Tty, vaxis_: *vaxis.Vaxis) Loop {
+        return .{
+            .tty = tty,
+            .vaxis = vaxis_,
+            .pid = tp.self_pid().clone(),
+        };
+    }
+
+    pub fn deinit(self: *Loop) void {
+        self.pid.deinit();
+    }
+
+    /// spawns the input thread to read input from the tty
+    pub fn start(self: *Loop) !void {
+        if (self.thread) |_| return;
+        self.thread = try std.Thread.spawn(.{}, Loop.ttyRun, .{
+            self,
+            &self.vaxis.unicode.grapheme_data,
+            self.vaxis.opts.system_clipboard_allocator,
+        });
+    }
+
+    /// stops reading from the tty.
+    pub fn stop(self: *Loop) void {
+        self.should_quit = true;
+        // trigger a read
+        self.vaxis.deviceStatusReport(self.tty.anyWriter()) catch {};
+
+        if (self.thread) |thread| {
+            thread.join();
+            self.thread = null;
+            self.should_quit = false;
+        }
+    }
+
+    fn postEvent(self: *Loop, event: vaxis.Event) void {
+        switch (event) {
+            .key_press => |key_| {
+                var mut_key = key_;
+                if (key_.text) |text|
+                    mut_key.text = self.cache.put(text);
+            },
+            .key_release => |key_| {
+                var mut_key = key_;
+                if (key_.text) |text|
+                    mut_key.text = self.cache.put(text);
+            },
+            else => {},
+        }
+        self.pid.send(.{ "VXS", std.mem.asBytes(&event) }) catch @panic("send VXS event failed");
+    }
+
+    /// read input from the tty. This is run in a separate thread
+    fn ttyRun(
+        self: *Loop,
+        grapheme_data: *const vaxis.grapheme.GraphemeData,
+        paste_allocator: ?std.mem.Allocator,
+    ) !void {
+        switch (builtin.os.tag) {
+            .windows => {
+                while (!self.should_quit) {
+                    self.postEvent(try self.tty.nextEvent());
+                }
+            },
+            else => {
+                // get our initial winsize
+                const winsize = try vaxis.Tty.getWinsize(self.tty.fd);
+                if (@hasField(Event, "winsize")) {
+                    self.postEvent(.{ .winsize = winsize });
+                }
+
+                var parser: vaxis.Parser = .{
+                    .grapheme_data = grapheme_data,
+                };
+
+                // initialize the read buffer
+                var buf: [1024]u8 = undefined;
+                var read_start: usize = 0;
+                // read loop
+                while (!self.should_quit) {
+                    const n = try self.tty.read(buf[read_start..]);
+                    var seq_start: usize = 0;
+                    while (seq_start < n) {
+                        const result = try parser.parse(buf[seq_start..n], paste_allocator);
+                        if (result.n == 0) {
+                            // copy the read to the beginning. We don't use memcpy because
+                            // this could be overlapping, and it's also rare
+                            const initial_start = seq_start;
+                            while (seq_start < n) : (seq_start += 1) {
+                                buf[seq_start - initial_start] = buf[seq_start];
+                            }
+                            read_start = seq_start - initial_start + 1;
+                            continue;
+                        }
+                        read_start = 0;
+                        seq_start += result.n;
+
+                        const event = result.event orelse continue;
+                        self.postEvent(event);
+                    }
+                }
+            },
+        }
+    }
+};
