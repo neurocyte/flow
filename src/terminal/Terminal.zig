@@ -11,6 +11,7 @@ const vaxis = @import("../../main.zig");
 const Winsize = vaxis.Winsize;
 const Screen = @import("Screen.zig");
 const DisplayWidth = @import("DisplayWidth");
+const Key = vaxis.Key;
 
 const grapheme = @import("grapheme");
 
@@ -26,6 +27,11 @@ pub const Options = struct {
 pub const Mode = struct {
     origin: bool = false,
     cursor: bool = true,
+    sync: bool = false,
+};
+
+pub const InputEvent = union(enum) {
+    key_press: vaxis.Key,
 };
 
 allocator: std.mem.Allocator,
@@ -134,7 +140,7 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
 
 pub fn draw(self: *Terminal, win: vaxis.Window) !void {
     // TODO: check sync
-    if (self.back_mutex.tryLock()) {
+    if (self.back_mutex.tryLock() and !self.mode.sync) {
         defer self.back_mutex.unlock();
         try self.back_screen.copyTo(&self.front_screen);
     }
@@ -151,6 +157,24 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
 
     if (self.front_screen.cursor.visible)
         win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
+}
+
+pub fn update(self: *Terminal, event: InputEvent) !void {
+    switch (event) {
+        .key_press => |key| try self.encodeKey(key, true),
+    }
+}
+
+fn opaqueWrite(ptr: *const anyopaque, buf: []const u8) !usize {
+    const self: *const Terminal = @ptrCast(@alignCast(ptr));
+    return posix.write(self.pty.pty, buf);
+}
+
+pub fn anyWriter(self: *const Terminal) std.io.AnyWriter {
+    return .{
+        .context = self,
+        .writeFn = Terminal.opaqueWrite,
+    };
 }
 
 fn opaqueRead(ptr: *const anyopaque, buf: []u8) !usize {
@@ -199,7 +223,26 @@ fn run(self: *Terminal) !void {
                     'B' => { // CUD
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
-                        self.back_screen.cursor.row = @min(self.back_screen.height - 1, self.back_screen.cursor.row + delta);
+                        self.back_screen.cursor.row = @min(
+                            self.back_screen.height - 1,
+                            self.back_screen.cursor.row + delta,
+                        );
+                    },
+                    'C' => {
+                        self.back_screen.cursor.pending_wrap = false;
+                        var iter = seq.iterator(u16);
+                        const delta = iter.next() orelse 1;
+                        const within = self.back_screen.withinScrollingRegion();
+                        if (within)
+                            self.back_screen.cursor.col = @min(
+                                self.back_screen.cursor.col + delta,
+                                self.back_screen.scrolling_region.right,
+                            )
+                        else
+                            self.back_screen.cursor.col = @min(
+                                self.back_screen.cursor.col + delta,
+                                self.back_screen.width,
+                            );
                     },
                     'H' => { // CUP
                         var iter = seq.iterator(u16);
@@ -207,6 +250,17 @@ fn run(self: *Terminal) !void {
                         const col = iter.next() orelse 1;
                         self.back_screen.cursor.col = col - 1;
                         self.back_screen.cursor.row = row - 1;
+                    },
+                    'K' => {
+                        // TODO selective erase (private_marker == '?')
+                        var iter = seq.iterator(u8);
+                        const ps = iter.next() orelse 0;
+                        switch (ps) {
+                            0 => self.back_screen.eraseRight(),
+                            1 => {},
+                            2 => {},
+                            else => continue,
+                        }
                     },
                     'h', 'l' => {
                         var iter = seq.iterator(u16);
@@ -256,9 +310,30 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
 
 pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
     switch (mode) {
-        25 => {
-            self.mode.cursor = val;
+        25 => self.mode.cursor = val,
+        1049 => {
+            if (val)
+                self.back_screen = &self.back_screen_alt
+            else
+                self.back_screen = &self.back_screen_pri;
         },
+        2026 => self.mode.sync = val,
         else => return,
+    }
+}
+
+pub fn encodeKey(self: *Terminal, key: vaxis.Key, press: bool) !void {
+    switch (press) {
+        true => {
+            if (key.text) |text| {
+                try self.anyWriter().writeAll(text);
+                return;
+            }
+            switch (key.codepoint) {
+                0x00...0x7F => try self.anyWriter().writeByte(@intCast(key.codepoint)),
+                else => {},
+            }
+        },
+        false => {},
     }
 }

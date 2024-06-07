@@ -13,10 +13,22 @@ pub const Cell = struct {
     style: vaxis.Style = .{},
     uri: std.ArrayList(u8) = undefined,
     uri_id: std.ArrayList(u8) = undefined,
-    width: u8 = 0,
+    width: u8 = 1,
 
     wrapped: bool = false,
     dirty: bool = true,
+
+    pub fn erase(self: *Cell, bg: vaxis.Color) void {
+        self.char.clearRetainingCapacity();
+        self.char.append(' ') catch unreachable; // we never completely free this list
+        self.style = .{};
+        self.style.bg = bg;
+        self.uri.clearRetainingCapacity();
+        self.uri_id.clearRetainingCapacity();
+        self.width = 1;
+        self.wrapped = false;
+        self.dirty = true;
+    }
 };
 
 pub const Cursor = struct {
@@ -128,6 +140,11 @@ pub fn readCell(self: *Screen, col: usize, row: usize) ?vaxis.Cell {
         .char = .{ .grapheme = cell.char.items, .width = cell.width },
         .style = cell.style,
     };
+}
+
+/// returns true if the current cursor position is within the scrolling region
+pub fn withinScrollingRegion(self: Screen) bool {
+    return self.scrolling_region.contains(self.cursor.col, self.cursor.row);
 }
 
 /// writes a cell to a location. 0 indexed
@@ -287,4 +304,13 @@ pub fn cursorLeft(self: *Screen, n: usize) void {
 
     self.cursor.pending_wrap = false;
     self.cursor.col -= cnt;
+}
+
+pub fn eraseRight(self: *Screen) void {
+    self.cursor.pending_wrap = false;
+    const end = (self.cursor.row * self.width) + (self.width);
+    var i = (self.cursor.row * self.width) + self.cursor.col;
+    while (i < end) : (i += 1) {
+        self.buf[i].erase(self.cursor.style.bg);
+    }
 }
