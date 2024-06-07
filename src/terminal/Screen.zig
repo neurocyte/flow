@@ -27,6 +27,7 @@ pub const Cursor = struct {
     row: usize = 0,
     pending_wrap: bool = false,
     shape: vaxis.Cell.CursorShape = .default,
+    visible: bool = true,
 
     pub fn isOutsideScrollingRegion(self: Cursor, sr: ScrollingRegion) bool {
         return self.row < sr.top or
@@ -99,6 +100,7 @@ pub fn deinit(self: *Screen, alloc: std.mem.Allocator) void {
 
 /// copies the visible area to the destination screen
 pub fn copyTo(self: *Screen, dst: *Screen) !void {
+    dst.cursor = self.cursor;
     for (self.buf, 0..) |cell, i| {
         if (!cell.dirty) continue;
         self.buf[i].dirty = false;

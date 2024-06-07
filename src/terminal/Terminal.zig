@@ -25,6 +25,7 @@ pub const Options = struct {
 
 pub const Mode = struct {
     origin: bool = false,
+    cursor: bool = true,
 };
 
 allocator: std.mem.Allocator,
@@ -145,6 +146,9 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
             col += @max(cell.char.width, 1);
         }
     }
+
+    if (self.front_screen.cursor.visible)
+        win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
 }
 
 fn opaqueRead(ptr: *const anyopaque, buf: []u8) !usize {
@@ -199,6 +203,14 @@ fn run(self: *Terminal) !void {
                         self.back_screen.cursor.col = col - 1;
                         self.back_screen.cursor.row = row - 1;
                     },
+                    'h', 'l' => {
+                        var iter = seq.iterator(u16);
+                        const mode = iter.next() orelse continue;
+                        // There is only one collision (mode = 4), and we don't support the private
+                        // version of it
+                        if (seq.private_marker != null and mode == 4) continue;
+                        self.setMode(mode, seq.final == 'h');
+                    },
                     'm' => {
                         if (seq.intermediate == null and seq.private_marker == null) {
                             self.back_screen.sgr(seq);
@@ -232,5 +244,14 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
         .SO => {}, // TODO: Charset shift out
         .SI => {}, // TODO: Charset shift in
         else => log.warn("unhandled C0: 0x{x}", .{@intFromEnum(b)}),
+    }
+}
+
+pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
+    switch (mode) {
+        25 => {
+            self.mode.cursor = val;
+        },
+        else => return,
     }
 }
