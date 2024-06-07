@@ -22,6 +22,10 @@ pub const Options = struct {
     winsize: Winsize = .{ .rows = 24, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
 };
 
+pub const Mode = struct {
+    origin: bool = false,
+};
+
 allocator: std.mem.Allocator,
 scrollback_size: usize,
 
@@ -43,6 +47,12 @@ back_mutex: std.Thread.Mutex = .{},
 
 unicode: *const vaxis.Unicode,
 should_quit: bool = false,
+
+mode: Mode = .{},
+
+pending_events: struct {
+    bell: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+} = .{},
 
 /// initialize a Terminal. This sets the size of the underlying pty and allocates the sizes of the
 /// screen
@@ -218,8 +228,23 @@ fn run(self: *Terminal) !void {
 
 inline fn handleC0(self: *Terminal, b: u8) !void {
     switch (b) {
-        0x0a, 0x0b, 0x0c => try self.back_screen.index(), // line feed
-        0x0d => {}, // carriage return
+        0x00, 0x01, 0x02 => {}, // NUL, SOH, STX
+        0x05 => {}, // ENQ
+        0x07 => self.pending_events.bell.store(true, .unordered), // BEL
+        0x08 => self.back_screen.cursorLeft(1), // BS
+        0x09 => {}, // TODO: HT
+        0x0a, 0x0b, 0x0c => try self.back_screen.index(), // LF, VT, FF
+        0x0d => { // CR
+            self.back_screen.cursor.pending_wrap = false;
+            self.back_screen.cursor.col = if (self.mode.origin)
+                self.back_screen.scrolling_region.left
+            else if (self.back_screen.cursor.col >= self.back_screen.scrolling_region.left)
+                self.back_screen.scrolling_region.left
+            else
+                0;
+        },
+        0x0e => {}, // TODO: Charset shift out
+        0x0f => {}, // TODO: Charset shift in
         else => log.warn("unhandled C0: 0x{x}", .{b}),
     }
 }

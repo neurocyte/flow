@@ -331,3 +331,11 @@ pub fn sgr(self: *Screen, seq: []const u8) void {
         }
     }
 }
+
+pub fn cursorLeft(self: *Screen, n: usize) void {
+    // default to 1, max of current cursor location
+    const cnt = @min(self.cursor.col, @max(n, 1));
+
+    self.cursor.pending_wrap = false;
+    self.cursor.col -= cnt;
+}
