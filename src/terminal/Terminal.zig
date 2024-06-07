@@ -89,6 +89,9 @@ pub fn deinit(self: *Terminal) void {
     self.should_quit = true;
     self.cmd.kill();
     if (self.thread) |thread| {
+        // write an EOT into the tty to trigger a read on our thread
+        const EOT = "\x04";
+        _ = std.posix.write(self.pty.tty, EOT) catch {};
         thread.join();
         self.thread = null;
     }
