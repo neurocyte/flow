@@ -1,3 +1,5 @@
+const std = @import("std");
+
 /// Control bytes. See man 7 ascii
 pub const C0 = enum(u8) {
     NUL = 0x00,
@@ -51,6 +53,40 @@ pub const CSI = struct {
 
     pub fn iterator(self: CSI, comptime T: type) ParamIterator(T) {
         return .{ .bytes = self.params };
+    }
+
+    pub fn format(
+        self: CSI,
+        comptime layout: []const u8,
+        opts: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = layout;
+        _ = opts;
+        if (self.private_marker == null and self.intermediate == null)
+            try std.fmt.format(writer, "CSI {s} {c}", .{
+                self.params,
+                self.final,
+            })
+        else if (self.private_marker != null and self.intermediate == null)
+            try std.fmt.format(writer, "CSI {c} {s} {c}", .{
+                self.private_marker.?,
+                self.params,
+                self.final,
+            })
+        else if (self.private_marker == null and self.intermediate != null)
+            try std.fmt.format(writer, "CSI {s} {c} {c}", .{
+                self.params,
+                self.intermediate.?,
+                self.final,
+            })
+        else
+            try std.fmt.format(writer, "CSI {c} {s} {c} {c}", .{
+                self.private_marker.?,
+                self.params,
+                self.intermediate.?,
+                self.final,
+            });
     }
 };
 

@@ -109,15 +109,14 @@ pub fn spawn(self: *Terminal) !void {
     self.thread = try std.Thread.spawn(.{}, Terminal.run, .{self});
 }
 
-/// resize the screen. Locks access to the back screen. Should only be called from the main thread
+/// resize the screen. Locks access to the back screen. Should only be called from the main thread.
+/// This is safe to call every render cycle: there is a guard to only perform a resize if the size
+/// of the window has changed.
 pub fn resize(self: *Terminal, ws: Winsize) !void {
     // don't deinit with no size change
     if (ws.cols == self.front_screen.width and
         ws.rows == self.front_screen.height)
-    {
-        std.log.debug("resize requested but no change", .{});
         return;
-    }
 
     self.back_mutex.lock();
     defer self.back_mutex.unlock();
@@ -181,9 +180,9 @@ fn run(self: *Terminal) !void {
         const event = try parser.parseReader(reader);
         self.back_mutex.lock();
         defer self.back_mutex.unlock();
+
         switch (event) {
             .print => |str| {
-                std.log.err("print: {s}", .{str});
                 var iter = grapheme.Iterator.init(str, &self.unicode.grapheme_data);
                 while (iter.next()) |g| {
                     const bytes = g.bytes(str);
@@ -192,6 +191,9 @@ fn run(self: *Terminal) !void {
                 }
             },
             .c0 => |b| try self.handleC0(b),
+            .escape => |str| std.log.err("unhandled escape: {s}", .{str}),
+            .ss2 => |ss2| std.log.err("unhandled ss2: {c}", .{ss2}),
+            .ss3 => |ss3| std.log.err("unhandled ss3: {c}", .{ss3}),
             .csi => |seq| {
                 switch (seq.final) {
                     'B' => { // CUD
@@ -219,10 +221,11 @@ fn run(self: *Terminal) !void {
                             self.back_screen.sgr(seq);
                         }
                     },
-                    else => {},
+                    else => std.log.err("unhandled CSI: {}", .{seq}),
                 }
             },
-            else => {},
+            .osc => |osc| std.log.err("unhandled osc: {s}", .{osc}),
+            .apc => |apc| std.log.err("unhandled apc: {s}", .{apc}),
         }
     }
 }
@@ -230,6 +233,7 @@ fn run(self: *Terminal) !void {
 inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
     switch (b) {
         .NUL, .SOH, .STX => {},
+        .EOT => {}, // we send EOT to quit the read thread
         .ENQ => {},
         .BEL => self.pending_events.bell.store(true, .unordered),
         .BS => self.back_screen.cursorLeft(1),
