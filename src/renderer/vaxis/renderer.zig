@@ -94,7 +94,7 @@ pub fn run(self: *Self) !void {
 
     panic_cleanup_tty = &self.tty;
     if (!self.no_alternate) try self.vx.enterAltScreen(self.tty.anyWriter());
-    try self.resize(.{ .rows = 0, .cols = 0, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
+    try self.resize(.{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
     try self.query_resize();
     try self.vx.setBracketedPaste(self.tty.anyWriter(), true);
     try self.vx.queryTerminalSend(self.tty.anyWriter());
@@ -114,9 +114,10 @@ pub fn query_resize(self: *Self) !void {
         try self.resize(try vaxis.Tty.getWinsize(self.input_fd_blocking()));
 }
 
-pub fn resize(self: *Self, ws: vaxis.Winsize) !void {
+fn resize(self: *Self, ws: vaxis.Winsize) !void {
     try self.vx.resize(self.a, self.tty.anyWriter(), ws);
     self.vx.queueRefresh();
+    if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"resize"}));
 }
 
 pub fn stop(self: *Self) void {

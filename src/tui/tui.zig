@@ -125,6 +125,7 @@ fn init(a: Allocator) !*Self {
     if (builtin.os.tag != .windows)
         try self.listen_sigwinch();
     self.mainview = try mainview.create(a, n);
+    self.resize();
     try self.rdr.render();
     try self.save_config();
     if (tp.env.get().is("restore-session")) {
@@ -218,14 +219,11 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         if (try m.match(.{"sigwinch"})) {
             try self.listen_sigwinch();
             self.rdr.query_resize() catch |e| return self.logger.err("query_resize", e);
-            self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
-            need_render();
             return;
         };
 
     if (try m.match(.{"resize"})) {
-        self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
-        need_render();
+        self.resize();
         return;
     }
 
@@ -680,6 +678,11 @@ pub fn get_mode() []const u8 {
 
 pub fn need_render() void {
     tp.self_pid().send(.{"render"}) catch {};
+}
+
+pub fn resize(self: *Self) void {
+    self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
+    need_render();
 }
 
 pub fn get_theme_by_name(name: []const u8) ?Widget.Theme {

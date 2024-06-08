@@ -64,7 +64,6 @@ pub fn create(a: std.mem.Allocator, n: Plane) !Widget {
     self.widgets_widget = widgets.widget();
     try widgets.add(try Widget.empty(a, n, .dynamic));
     self.statusbar = try widgets.addP(try @import("status/statusbar.zig").create(a, w));
-    self.resize();
     if (tp.env.get().is("show-input"))
         self.toggle_inputview_async();
     if (tp.env.get().is("show-log"))
@@ -101,10 +100,6 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     return widgets_more or views_more;
 }
 
-pub fn resize(self: *Self) void {
-    self.handle_resize(Box.from(self.plane));
-}
-
 pub fn handle_resize(self: *Self, pos: Box) void {
     self.widgets.resize(pos);
     self.floating_views.resize(pos);
@@ -135,7 +130,7 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) error{Exit}!
         panels.add(view.create(self.a, self.widgets.plane) catch |e| return tp.exit_error(e)) catch |e| return tp.exit_error(e);
         self.panels = panels;
     }
-    self.resize();
+    tui.current().resize();
     return enabled;
 }
 
@@ -144,7 +139,7 @@ fn close_all_panel_views(self: *Self) void {
         self.widgets.remove(panels.widget());
         self.panels = null;
     }
-    self.resize();
+    tui.current().resize();
 }
 
 fn toggle_view(self: *Self, view: anytype) tp.result {
@@ -153,7 +148,7 @@ fn toggle_view(self: *Self, view: anytype) tp.result {
     } else {
         self.widgets.add(view.create(self.a, self.plane) catch |e| return tp.exit_error(e)) catch |e| return tp.exit_error(e);
     }
-    self.resize();
+    tui.current().resize();
 }
 
 const cmds = struct {
@@ -411,7 +406,7 @@ fn create_editor(self: *Self) tp.result {
         self.editor = if (editor.dynamic_cast(ed.EditorWidget)) |p| &p.editor else null;
     } else @panic("mainview editor not found");
     self.widgets.replace(0, editor_widget);
-    self.resize();
+    tui.current().resize();
 }
 
 fn toggle_logview_async(_: *Self) void {
@@ -435,7 +430,7 @@ fn create_home(self: *Self) tp.result {
     var home_widget = home.create(self.a, Widget.to(self)) catch |e| return tp.exit_error(e);
     errdefer home_widget.deinit(self.a);
     self.widgets.replace(0, home_widget);
-    self.resize();
+    tui.current().resize();
 }
 
 fn write_restore_info(self: *Self) void {
