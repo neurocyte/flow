@@ -146,7 +146,8 @@ pub fn leave_alternate_screen(self: *Self) void {
 pub fn process_input_event(self: *Self, input_: []const u8) !void {
     const event = std.mem.bytesAsValue(vaxis.Event, input_);
     switch (event.*) {
-        .key_press => |key_| {
+        .key_press => |key__| {
+            const key_ = filter_mods(key__);
             try self.sync_mod_state(key_.codepoint, key_.mods);
             const cbor_msg = try self.fmtmsg(.{
                 "I",
@@ -162,7 +163,8 @@ pub fn process_input_event(self: *Self, input_: []const u8) !void {
                 return e;
             }) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
         },
-        .key_release => |*key_| {
+        .key_release => |key__| {
+            const key_ = filter_mods(key__);
             const cbor_msg = try self.fmtmsg(.{
                 "I",
                 event_type.RELEASE,
@@ -367,6 +369,16 @@ fn send_sync_key(self: *Self, event_type_: usize, keypress: u32, key_string: []c
             @as(u8, @bitCast(modifiers)),
         }),
     );
+}
+
+fn filter_mods(key_: vaxis.Key) vaxis.Key {
+    var key__ = key_;
+    key__.mods = .{
+        .shift = key_.mods.shift,
+        .alt = key_.mods.alt,
+        .ctrl = key_.mods.ctrl,
+    };
+    return key__;
 }
 
 const Loop = struct {
