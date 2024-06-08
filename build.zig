@@ -284,5 +284,5 @@ pub fn build(b: *std.Build) void {
     });
 
     lints_step.dependOn(&lints.step);
-    b.default_step.dependOn(lints_step);
+    // b.default_step.dependOn(lints_step);
 }
