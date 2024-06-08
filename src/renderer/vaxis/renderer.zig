@@ -94,6 +94,7 @@ pub fn run(self: *Self) !void {
 
     panic_cleanup_tty = &self.tty;
     if (!self.no_alternate) try self.vx.enterAltScreen(self.tty.anyWriter());
+    try self.resize(.{ .rows = 0, .cols = 0, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
     try self.query_resize();
     try self.vx.setBracketedPaste(self.tty.anyWriter(), true);
     try self.vx.queryTerminalSend(self.tty.anyWriter());
