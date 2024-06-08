@@ -181,11 +181,16 @@ pub fn main() anyerror!void {
         var it = std.mem.splitScalar(u8, arg, ':');
         curr.file = it.first();
         if (it.next()) |line_|
-            curr.line = std.fmt.parseInt(usize, line_, 10) catch null;
-        if (it.next()) |col_|
-            curr.column = std.fmt.parseInt(usize, col_, 10) catch null;
-        if (it.next()) |col_|
-            curr.end_column = std.fmt.parseInt(usize, col_, 10) catch null;
+            curr.line = std.fmt.parseInt(usize, line_, 10) catch blk: {
+                curr.file = arg;
+                break :blk null;
+            };
+        if (curr.line) |_| {
+            if (it.next()) |col_|
+                curr.column = std.fmt.parseInt(usize, col_, 10) catch null;
+            if (it.next()) |col_|
+                curr.end_column = std.fmt.parseInt(usize, col_, 10) catch null;
+        }
     }
 
     for (dests.items) |dest| {
