@@ -380,9 +380,18 @@ fn get_app_config_dir(appname: []const u8) ![]const u8 {
             else => return e,
         };
         break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/.config/{s}", .{ home, appname });
-    } else {
-        return error.AppConfigDirUnavailable;
-    };
+    } else if (builtin.os.tag == .windows) ret: {
+        if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
+            defer a.free(appdata);
+            const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/{s}", .{ appdata, appname });
+            std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+                error.PathAlreadyExists => {},
+                else => return e,
+            };
+            break :ret dir;
+        } else return error.AppConfigDirUnavailable;
+    } else return error.AppConfigDirUnavailable;
+
     local.config_dir = config_dir;
     std.fs.makeDirAbsolute(config_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
@@ -414,9 +423,18 @@ fn get_app_cache_dir(appname: []const u8) ![]const u8 {
             else => return e,
         };
         break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/.cache/{s}", .{ home, appname });
-    } else {
-        return error.AppCacheDirUnavailable;
-    };
+    } else if (builtin.os.tag == .windows) ret: {
+        if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
+            defer a.free(appdata);
+            const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/{s}", .{ appdata, appname });
+            std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+                error.PathAlreadyExists => {},
+                else => return e,
+            };
+            break :ret dir;
+        } else return error.AppCacheDirUnavailable;
+    } else return error.AppCacheDirUnavailable;
+
     local.cache_dir = cache_dir;
     std.fs.makeDirAbsolute(cache_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
