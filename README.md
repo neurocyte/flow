@@ -37,6 +37,15 @@ Build with the zig wrapper:
 The zig wrapper places the downloaded zig compiler in the `.cache` directory and does
 not touch your system. It requires `bash`, `curl` and `jq` to run.
 
+Thanks to Zig you may also cross-compile from any host to pretty much any
+target. For example:
+
+```shell
+zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows --prefix zig-out/x86_64-windows
+zig build -Doptimize=ReleaseFast -Dtarget=x86_64-macos-none --prefix zig-out/x86_64-macos
+zig build -Doptimize=ReleaseFast -Dtarget=aarch64-linux-musl --prefix zig-out/aarch64-linux -Dcpu=baseline
+```
+
 # Running Flow Control
 
 The output binary is:
