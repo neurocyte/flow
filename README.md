@@ -1,7 +1,7 @@
 # Flow Control: a programmer's text editor
 
-This is my Zig text editor. It is very much a work-in-progress, but far enough along that I am daily driving it.
-
+This is my Zig text editor. It is under active development, but usually stable
+and is my daily driver for most things coding related.
 
 https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f2d4c6
 
@@ -10,7 +10,8 @@ https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f
     ghostty are the only recommended terminals at this time. Most other terminals
     will work, but with reduced functionality.
 - NerdFonts support
-- Linux or MacOS (help porting to *BSD or Windows is welcome!)
+- Linux, MacOS, (somewhat experimental) Windows or Android (Termux). *BSD
+    probably works too, but nobody has tried it yet.
 - A UTF-8 locale (very important!)
 
 # Building
@@ -21,12 +22,6 @@ Flow tracks zig master most of the time. Build with:
 
 ```shell
 zig build -Doptimize=ReleaseFast
-```
-
-Or, for a slightly smaller executable (with no debug info):
-
-```shell
-zig build -Doptimize=ReleaseSmall
 ```
 
 Sometimes zig master may introduce breaking changes and Flow may take a few days to
@@ -41,11 +36,6 @@ Build with the zig wrapper:
 
 The zig wrapper places the downloaded zig compiler in the `.cache` directory and does
 not touch your system. It requires `bash`, `curl` and `jq` to run.
-
-Run with:
-```shell
-zig-out/bin/flow
-```
 
 # Running Flow Control
 
@@ -68,11 +58,12 @@ You may install it on another system by simply copying the binary.
 scp zig-out/bin/flow root@otherhost:/usr/local/bin
 ```
 
-Logs, traces and per-project most recently used file lists are stored in the
-standard user runtime cache directory. Usually `~/.cache/flow`.
-
 Configuration is mostly dynamically maintained with various commands in the UI.
 It stored under the standard user configuration path. Usually `~/.config/flow`.
+(%APPDATA%\Roaming\flow on Windows)
+
+Logs, traces and per-project most recently used file lists are stored in the
+standard user runtime cache directory. Usually `~/.cache/flow`.
 
 Files to load may be specifed on the command line:
 
@@ -80,7 +71,7 @@ Files to load may be specifed on the command line:
 flow fileA.zig fileB.zig
 ```
 
-Common target line specifiers are supported to:
+Common target line specifiers are supported too:
 
 ```shell
 flow file.txt:123
@@ -118,10 +109,10 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 - tree sitter based syntax highlighting
 - linting (diagnostics) and code navigation (goto definition) via language server
 - multi cursor editing support
-- first class mouse support (yes, even with a scrollbar that actually works properly!)
+- first class mouse support (yes, even with a scrollbar that actually works properly!) (no mouse support on Windows yet)
 - vscode compatible keybindings (thanks to kitty keyboard protocol)
-- vim compatible keybindings (at least the basics, more to come)
-- good unicode support
+- vim compatible keybindings (the standard vimtutor bindings, more on request)
+- excellent unicode support including 2027 mode
 - hybrid rope/piece-table buffer for fast loading, saving and editing with hundreds of cursors
 - theme support (compatible with vscode themes via the flow-themes project)
 - infinite undo/redo (at least until you run out of ram)
