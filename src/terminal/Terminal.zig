@@ -139,7 +139,6 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
 }
 
 pub fn draw(self: *Terminal, win: vaxis.Window) !void {
-    // TODO: check sync
     if (self.back_mutex.tryLock() and !self.mode.sync) {
         defer self.back_mutex.unlock();
         try self.back_screen.copyTo(&self.front_screen);
@@ -155,8 +154,10 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
         }
     }
 
-    if (self.front_screen.cursor.visible)
+    if (self.front_screen.cursor.visible) {
+        win.setCursorShape(self.front_screen.cursor.shape);
         win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
+    }
 }
 
 pub fn update(self: *Terminal, event: InputEvent) !void {
@@ -220,6 +221,11 @@ fn run(self: *Terminal) !void {
             .ss3 => |ss3| std.log.err("unhandled ss3: {c}", .{ss3}),
             .csi => |seq| {
                 switch (seq.final) {
+                    'A' => {
+                        var iter = seq.iterator(u16);
+                        const delta = iter.next() orelse 1;
+                        self.back_screen.cursor.row = self.back_screen.cursor.row -| delta;
+                    },
                     'B' => { // CUD
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
@@ -275,6 +281,18 @@ fn run(self: *Terminal) !void {
                             self.back_screen.sgr(seq);
                         }
                     },
+                    'q' => {
+                        if (seq.intermediate) |int| {
+                            switch (int) {
+                                ' ' => {
+                                    var iter = seq.iterator(u8);
+                                    const shape = iter.next() orelse 0;
+                                    self.back_screen.cursor.shape = @enumFromInt(shape);
+                                },
+                                else => {},
+                            }
+                        }
+                    },
                     else => std.log.err("unhandled CSI: {}", .{seq}),
                 }
             },
@@ -316,6 +334,10 @@ pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
                 self.back_screen = &self.back_screen_alt
             else
                 self.back_screen = &self.back_screen_pri;
+            var i: usize = 0;
+            while (i < self.back_screen.buf.len) : (i += 1) {
+                self.back_screen.buf[i].dirty = true;
+            }
         },
         2026 => self.mode.sync = val,
         else => return,
