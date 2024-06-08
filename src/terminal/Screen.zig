@@ -182,8 +182,6 @@ pub fn print(
     self.buf[i].dirty = true;
 
     self.cursor.col += width;
-    // FIXME: when do we set default in this function??
-    // self.buf[i].default = false;
 }
 
 /// IND
