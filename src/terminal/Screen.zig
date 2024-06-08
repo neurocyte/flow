@@ -153,12 +153,11 @@ pub fn print(
     grapheme: []const u8,
     width: u8,
 ) void {
-
-    // FIXME: wrapping
-    // if (self.cursor.col + width >= self.width) {
-    //     self.cursor.col = 0;
-    //     self.cursor.row += 1;
-    // }
+    // TODO: wrap mode handling
+    if (self.cursor.col + width > self.width) {
+        self.cursor.col = 0;
+        self.cursor.row += 1;
+    }
     if (self.cursor.col >= self.width) return;
     if (self.cursor.row >= self.height) return;
     const col = self.cursor.col;
