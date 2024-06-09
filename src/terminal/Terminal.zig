@@ -12,6 +12,12 @@ const Winsize = vaxis.Winsize;
 const Screen = @import("Screen.zig");
 const DisplayWidth = @import("DisplayWidth");
 const Key = vaxis.Key;
+const Queue = vaxis.Queue(Event, 16);
+
+pub const Event = union(enum) {
+    exited,
+    bell,
+};
 
 const grapheme = @import("grapheme");
 
@@ -33,6 +39,9 @@ pub const Mode = struct {
 pub const InputEvent = union(enum) {
     key_press: vaxis.Key,
 };
+
+pub var global_vt_mutex: std.Thread.Mutex = .{};
+pub var global_vts: ?std.AutoHashMap(i32, *Terminal) = null;
 
 allocator: std.mem.Allocator,
 scrollback_size: usize,
@@ -58,9 +67,7 @@ should_quit: bool = false,
 
 mode: Mode = .{},
 
-pending_events: struct {
-    bell: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-} = .{},
+event_queue: Queue = .{},
 
 /// initialize a Terminal. This sets the size of the underlying pty and allocates the sizes of the
 /// screen
@@ -93,6 +100,15 @@ pub fn init(
 /// release all resources of the Terminal
 pub fn deinit(self: *Terminal) void {
     self.should_quit = true;
+
+    pid: {
+        global_vt_mutex.lock();
+        defer global_vt_mutex.unlock();
+        var vts = global_vts orelse break :pid;
+        if (self.cmd.pid) |pid|
+            _ = vts.remove(pid);
+        if (vts.count() == 0) vts.deinit();
+    }
     self.cmd.kill();
     if (self.thread) |thread| {
         // write an EOT into the tty to trigger a read on our thread
@@ -112,6 +128,17 @@ pub fn spawn(self: *Terminal) !void {
     self.back_screen = &self.back_screen_pri;
 
     try self.cmd.spawn(self.allocator);
+
+    {
+        // add to our global list
+        global_vt_mutex.lock();
+        defer global_vt_mutex.unlock();
+        if (global_vts == null)
+            global_vts = std.AutoHashMap(i32, *Terminal).init(self.allocator);
+        if (self.cmd.pid) |pid|
+            try global_vts.?.put(pid, self);
+    }
+
     self.thread = try std.Thread.spawn(.{}, Terminal.run, .{self});
 }
 
@@ -158,6 +185,10 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
         win.setCursorShape(self.front_screen.cursor.shape);
         win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
     }
+}
+
+pub fn tryEvent(self: *Terminal) ?Event {
+    return self.event_queue.tryPop();
 }
 
 pub fn update(self: *Terminal, event: InputEvent) !void {
@@ -216,7 +247,7 @@ fn run(self: *Terminal) !void {
                 }
             },
             .c0 => |b| try self.handleC0(b),
-            .escape => |str| std.log.err("unhandled escape: {s}", .{str}),
+            .escape => |_| {}, // std.log.err("unhandled escape: {s}", .{str}),
             .ss2 => |ss2| std.log.err("unhandled ss2: {c}", .{ss2}),
             .ss3 => |ss3| std.log.err("unhandled ss3: {c}", .{ss3}),
             .csi => |seq| {
@@ -250,7 +281,7 @@ fn run(self: *Terminal) !void {
                                 self.back_screen.width,
                             );
                     },
-                    'H' => { // CUP
+                    'H', 'f' => { // CUP
                         var iter = seq.iterator(u16);
                         const row = iter.next() orelse 1;
                         const col = iter.next() orelse 1;
@@ -267,6 +298,16 @@ fn run(self: *Terminal) !void {
                             2 => {},
                             else => continue,
                         }
+                    },
+                    'L' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        try self.back_screen.insertLine(n);
+                    },
+                    'M' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        try self.back_screen.deleteLine(n);
                     },
                     'h', 'l' => {
                         var iter = seq.iterator(u16);
@@ -293,6 +334,22 @@ fn run(self: *Terminal) !void {
                             }
                         }
                     },
+                    'r' => {
+                        if (seq.intermediate) |_| {
+                            // TODO: XTRESTORE
+                            continue;
+                        }
+                        if (seq.private_marker) |_| {
+                            // TODO: DECCARA
+                            continue;
+                        }
+                        // DECSTBM
+                        var iter = seq.iterator(u16);
+                        const top = iter.next() orelse 1;
+                        const bottom = iter.next() orelse self.back_screen.height;
+                        self.back_screen.scrolling_region.top = top - 1;
+                        self.back_screen.scrolling_region.bottom = bottom - 1;
+                    },
                     else => std.log.err("unhandled CSI: {}", .{seq}),
                 }
             },
@@ -307,7 +364,7 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
         .NUL, .SOH, .STX => {},
         .EOT => {}, // we send EOT to quit the read thread
         .ENQ => {},
-        .BEL => self.pending_events.bell.store(true, .unordered),
+        .BEL => self.event_queue.push(.bell),
         .BS => self.back_screen.cursorLeft(1),
         .HT => {}, // TODO: HT
         .LF, .VT, .FF => try self.back_screen.index(),

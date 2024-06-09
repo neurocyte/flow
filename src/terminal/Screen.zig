@@ -29,6 +29,20 @@ pub const Cell = struct {
         self.wrapped = false;
         self.dirty = true;
     }
+
+    pub fn copyFrom(self: *Cell, src: Cell) !void {
+        self.char.clearRetainingCapacity();
+        try self.char.appendSlice(src.char.items);
+        self.style = src.style;
+        self.uri.clearRetainingCapacity();
+        try self.uri.appendSlice(src.uri.items);
+        self.uri_id.clearRetainingCapacity();
+        try self.uri_id.appendSlice(src.uri_id.items);
+        self.width = src.width;
+        self.wrapped = src.wrapped;
+
+        self.dirty = true;
+    }
 };
 
 pub const Cursor = struct {
@@ -198,7 +212,8 @@ pub fn index(self: *Screen) !void {
         // Inside scrolling region *and* at bottom of screen, we scroll contents up and insert a
         // blank line
         // TODO: scrollback if scrolling region is entire visible screen
-        @panic("TODO");
+        try self.deleteLine(1);
+        return;
     }
     self.cursor.row += 1;
 }
@@ -309,5 +324,57 @@ pub fn eraseRight(self: *Screen) void {
     var i = (self.cursor.row * self.width) + self.cursor.col;
     while (i < end) : (i += 1) {
         self.buf[i].erase(self.cursor.style.bg);
+    }
+}
+
+/// delete n lines from te bottom of te scrolling region
+pub fn deleteLine(self: *Screen, n: usize) !void {
+    if (n == 0) return;
+
+    // Don't delete if outside scroll region
+    if (!self.withinScrollingRegion()) return;
+
+    self.cursor.pending_wrap = false;
+
+    // Number of rows from here to bottom of scroll region or n
+    const cnt = @min(self.scrolling_region.bottom - self.cursor.row + 1, n);
+    const stride = (self.width) * cnt;
+
+    var row: usize = self.scrolling_region.top;
+    while (row <= self.scrolling_region.bottom) : (row += 1) {
+        var col: usize = self.scrolling_region.left;
+        while (col <= self.scrolling_region.right) : (col += 1) {
+            const i = (row * self.width) + col;
+            if (row + cnt > self.scrolling_region.bottom)
+                self.buf[i].erase(self.cursor.style.bg)
+            else
+                try self.buf[i].copyFrom(self.buf[i + stride]);
+        }
+    }
+}
+
+/// insert n lines at the top of the scrolling region
+pub fn insertLine(self: *Screen, n: usize) !void {
+    if (n == 0) return;
+
+    // Don't insert if outside scroll region
+    if (!self.withinScrollingRegion()) return;
+
+    self.cursor.pending_wrap = false;
+
+    // Number of rows from here to top of scroll region or n
+    const cnt = @min(self.cursor.row - self.scrolling_region.top + 1, n);
+    const stride = (self.width) * cnt;
+
+    var row: usize = self.scrolling_region.bottom;
+    while (row > self.scrolling_region.top) : (row -= 1) {
+        var col: usize = self.scrolling_region.left;
+        while (col <= self.scrolling_region.right) : (col += 1) {
+            const i = (row * self.width) + col;
+            if (row - cnt < self.scrolling_region.top)
+                self.buf[i].erase(self.cursor.style.bg)
+            else
+                try self.buf[i].copyFrom(self.buf[i - stride]);
+        }
     }
 }

@@ -3,6 +3,7 @@ const Command = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const Pty = @import("Pty.zig");
+const Terminal = @import("Terminal.zig");
 
 const posix = std.posix;
 
@@ -40,17 +41,43 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
         try posix.dup2(self.pty.tty, std.posix.STDOUT_FILENO);
         try posix.dup2(self.pty.tty, std.posix.STDERR_FILENO);
 
-        // posix.close(self.pty.tty);
-        // if (self.pty.pty > 2) posix.close(self.pty.pty);
+        posix.close(self.pty.tty);
+        if (self.pty.pty > 2) posix.close(self.pty.pty);
 
         // exec
         const err = std.posix.execvpeZ(argv_buf.ptr[0].?, argv_buf.ptr, envp);
         _ = err catch {};
+        @panic("a");
+        // const EOT = "\x04";
+        // _ = std.posix.write(self.pty.tty, EOT) catch {};
     }
+
+    var act = posix.Sigaction{
+        .handler = .{ .handler = handleSigChild },
+        .mask = switch (builtin.os.tag) {
+            .macos => 0,
+            .linux => posix.empty_sigset,
+            else => @compileError("os not supported"),
+        },
+        .flags = 0,
+    };
+    try posix.sigaction(posix.SIG.CHLD, &act, null);
 
     // we are the parent
     self.pid = @intCast(pid);
     return;
+}
+
+fn handleSigChild(_: c_int) callconv(.C) void {
+    std.log.err("sigchild", .{});
+    const result = std.posix.waitpid(-1, 0);
+
+    Terminal.global_vt_mutex.lock();
+    defer Terminal.global_vt_mutex.unlock();
+    if (Terminal.global_vts) |vts| {
+        var vt = vts.get(result.pid) orelse return;
+        vt.event_queue.push(.exited);
+    }
 }
 
 pub fn kill(self: *Command) void {
