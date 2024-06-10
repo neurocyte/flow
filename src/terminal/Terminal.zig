@@ -320,13 +320,28 @@ fn run(self: *Terminal) !void {
                         self.back_screen.cursor.col = col -| 1;
                         self.back_screen.cursor.row = row -| 1;
                     },
+                    // Cursor Horizontal Tab
                     'I' => {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
                         self.horizontalTab(n);
                     },
+                    // Erase In Display
+                    'J' => {
+                        // TODO: selective erase (private_marker == '?')
+                        var iter = seq.iterator(u16);
+                        const kind = iter.next() orelse 0;
+                        switch (kind) {
+                            0 => {},
+                            1 => {},
+                            2 => {},
+                            3 => {},
+                            else => {},
+                        }
+                    },
+                    // Erase in Line
                     'K' => {
-                        // TODO selective erase (private_marker == '?')
+                        // TODO: selective erase (private_marker == '?')
                         var iter = seq.iterator(u8);
                         const ps = iter.next() orelse 0;
                         switch (ps) {
