@@ -368,7 +368,27 @@ pub fn eraseRight(self: *Screen) void {
     }
 }
 
-/// delete n lines from te bottom of te scrolling region
+pub fn eraseLeft(self: *Screen) void {
+    self.cursor.pending_wrap = false;
+    const start = self.cursor.row * self.width;
+    const end = start + self.cursor.col;
+    var i = start;
+    while (i < end) : (i += 1) {
+        self.buf[i].erase(self.cursor.style.bg);
+    }
+}
+
+pub fn eraseLine(self: *Screen) void {
+    self.cursor.pending_wrap = false;
+    const start = self.cursor.row * self.width;
+    const end = start + self.width;
+    var i = start;
+    while (i < end) : (i += 1) {
+        self.buf[i].erase(self.cursor.style.bg);
+    }
+}
+
+/// delete n lines from the bottom of the scrolling region
 pub fn deleteLine(self: *Screen, n: usize) !void {
     if (n == 0) return;
 
@@ -417,5 +437,46 @@ pub fn insertLine(self: *Screen, n: usize) !void {
             else
                 try self.buf[i].copyFrom(self.buf[i - stride]);
         }
+    }
+}
+
+pub fn eraseBelow(self: *Screen) void {
+    self.eraseRight();
+    // start is the first column of the row below us
+    const start = (self.cursor.row * self.width) + (self.width);
+    var i = start;
+    while (i < self.buf.len) : (i += 1) {
+        self.buf[i].erase(self.cursor.style.bg);
+    }
+}
+
+pub fn eraseAbove(self: *Screen) void {
+    self.eraseLeft();
+    // start is the first column of the row below us
+    const start: usize = 0;
+    const end = self.cursor.row * self.width;
+    var i = start;
+    while (i < end) : (i += 1) {
+        self.buf[i].erase(self.cursor.style.bg);
+    }
+}
+
+pub fn eraseAll(self: *Screen) void {
+    var i: usize = 0;
+    while (i < self.buf.len) : (i += 1) {
+        self.buf[i].erase(self.cursor.style.bg);
+    }
+}
+
+pub fn deleteCharacters(self: *Screen, n: usize) !void {
+    if (!self.withinScrollingRegion()) return;
+
+    self.cursor.pending_wrap = false;
+    var col = self.cursor.col;
+    while (col <= self.scrolling_region.right) : (col += 1) {
+        if (col + n <= self.scrolling_region.right)
+            try self.buf[col].copyFrom(self.buf[col + n])
+        else
+            self.buf[col].erase(self.cursor.style.bg);
     }
 }

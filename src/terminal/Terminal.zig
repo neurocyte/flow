@@ -332,9 +332,9 @@ fn run(self: *Terminal) !void {
                         var iter = seq.iterator(u16);
                         const kind = iter.next() orelse 0;
                         switch (kind) {
-                            0 => {},
-                            1 => {},
-                            2 => {},
+                            0 => self.back_screen.eraseBelow(),
+                            1 => self.back_screen.eraseAbove(),
+                            2 => self.back_screen.eraseAll(),
                             3 => {},
                             else => {},
                         }
@@ -346,20 +346,87 @@ fn run(self: *Terminal) !void {
                         const ps = iter.next() orelse 0;
                         switch (ps) {
                             0 => self.back_screen.eraseRight(),
-                            1 => {},
-                            2 => {},
+                            1 => self.back_screen.eraseLeft(),
+                            2 => self.back_screen.eraseLine(),
                             else => continue,
                         }
                     },
+                    // Insert Lines
                     'L' => {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
                         try self.back_screen.insertLine(n);
                     },
+                    // Delete Lines
                     'M' => {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
                         try self.back_screen.deleteLine(n);
+                    },
+                    // Delete Character
+                    'P' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        try self.back_screen.deleteCharacters(n);
+                    },
+                    // Scroll Up
+                    'S' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        const cur_row = self.back_screen.cursor.row;
+                        const cur_col = self.back_screen.cursor.col;
+                        const wrap = self.back_screen.cursor.pending_wrap;
+                        defer {
+                            self.back_screen.cursor.row = cur_row;
+                            self.back_screen.cursor.col = cur_col;
+                            self.back_screen.cursor.pending_wrap = wrap;
+                        }
+                        self.back_screen.cursor.col = self.back_screen.scrolling_region.left;
+                        self.back_screen.cursor.row = self.back_screen.scrolling_region.top;
+                        try self.back_screen.deleteLine(n);
+                    },
+                    // Scroll Down
+                    'T' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        const cur_row = self.back_screen.cursor.row;
+                        const cur_col = self.back_screen.cursor.col;
+                        const wrap = self.back_screen.cursor.pending_wrap;
+                        defer {
+                            self.back_screen.cursor.row = cur_row;
+                            self.back_screen.cursor.col = cur_col;
+                            self.back_screen.cursor.pending_wrap = wrap;
+                        }
+                        self.back_screen.cursor.col = self.back_screen.scrolling_region.left;
+                        self.back_screen.cursor.row = self.back_screen.scrolling_region.top;
+                        try self.back_screen.insertLine(n);
+                    },
+                    'W' => {}, // TODO: Tab control
+                    'X' => {
+                        self.back_screen.cursor.pending_wrap = false;
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        const start = self.back_screen.cursor.row * self.back_screen.width + self.back_screen.cursor.col;
+                        const end = @max(
+                            self.back_screen.cursor.row * self.back_screen.width + self.back_screen.width,
+                            n,
+                        );
+                        var i: usize = start;
+                        while (i < end) : (i += 1) {
+                            self.back_screen.buf[i].erase(self.back_screen.cursor.style.bg);
+                        }
+                    },
+                    'Z' => {}, // TODO: Back tab
+                    //
+                    // Cursor Vertial Position Aboslute
+                    'd' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        self.back_screen.cursor.pending_wrap = false;
+                        self.back_screen.cursor.row = @min(
+                            self.back_screen.height -| 1,
+                            n -| 1,
+                        );
                     },
                     'h', 'l' => {
                         var iter = seq.iterator(u16);
