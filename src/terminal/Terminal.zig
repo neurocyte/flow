@@ -107,7 +107,10 @@ pub fn deinit(self: *Terminal) void {
         var vts = global_vts orelse break :pid;
         if (self.cmd.pid) |pid|
             _ = vts.remove(pid);
-        if (vts.count() == 0) vts.deinit();
+        if (vts.count() == 0) {
+            vts.deinit();
+            global_vts = null;
+        }
     }
     self.cmd.kill();
     if (self.thread) |thread| {

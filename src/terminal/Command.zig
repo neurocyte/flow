@@ -69,7 +69,6 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 }
 
 fn handleSigChild(_: c_int) callconv(.C) void {
-    std.log.err("sigchild", .{});
     const result = std.posix.waitpid(-1, 0);
 
     Terminal.global_vt_mutex.lock();
