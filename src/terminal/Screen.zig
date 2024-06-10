@@ -371,7 +371,7 @@ pub fn eraseRight(self: *Screen) void {
 pub fn eraseLeft(self: *Screen) void {
     self.cursor.pending_wrap = false;
     const start = self.cursor.row * self.width;
-    const end = start + self.cursor.col;
+    const end = start + self.cursor.col + 1;
     var i = start;
     while (i < end) : (i += 1) {
         self.buf[i].erase(self.cursor.style.bg);

@@ -306,7 +306,7 @@ fn run(self: *Terminal) !void {
                         self.back_screen.cursorUp(delta);
                         self.carriageReturn();
                     },
-                    // Horizontal Positional Absolute
+                    // Horizontal Position Absolute
                     'G', '`' => {
                         var iter = seq.iterator(u16);
                         const col = iter.next() orelse 1;
@@ -401,7 +401,7 @@ fn run(self: *Terminal) !void {
                         self.back_screen.cursor.row = self.back_screen.scrolling_region.top;
                         try self.back_screen.insertLine(n);
                     },
-                    'W' => {}, // TODO: Tab control
+                    // 'W' => {}, // TODO: Tab control
                     'X' => {
                         self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
@@ -416,8 +416,7 @@ fn run(self: *Terminal) !void {
                             self.back_screen.buf[i].erase(self.back_screen.cursor.style.bg);
                         }
                     },
-                    'Z' => {}, // TODO: Back tab
-                    //
+                    // 'Z' => {}, // TODO: Back tab
                     // Cursor Vertial Position Aboslute
                     'd' => {
                         var iter = seq.iterator(u16);
