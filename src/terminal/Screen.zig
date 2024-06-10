@@ -332,6 +332,19 @@ pub fn cursorLeft(self: *Screen, n: usize) void {
         self.cursor.col = self.cursor.col -| n;
 }
 
+pub fn cursorRight(self: *Screen, n: usize) void {
+    if (self.withinScrollingRegion())
+        self.cursor.col = @min(
+            self.cursor.col + n,
+            self.scrolling_region.right,
+        )
+    else
+        self.cursor.col = @min(
+            self.cursor.col + n,
+            self.width,
+        );
+}
+
 pub fn cursorDown(self: *Screen, n: usize) void {
     self.cursor.pending_wrap = false;
     if (self.withinScrollingRegion())

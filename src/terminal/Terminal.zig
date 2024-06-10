@@ -67,6 +67,8 @@ should_quit: bool = false,
 
 mode: Mode = .{},
 
+tab_stops: std.ArrayList(u16),
+
 event_queue: Queue = .{},
 
 /// initialize a Terminal. This sets the size of the underlying pty and allocates the sizes of the
@@ -85,6 +87,11 @@ pub fn init(
         .env_map = env,
         .pty = pty,
     };
+    var tabs = try std.ArrayList(u16).initCapacity(allocator, opts.winsize.cols / 8);
+    var col: u16 = 0;
+    while (col < opts.winsize.cols) : (col += 8) {
+        try tabs.append(col);
+    }
     return .{
         .allocator = allocator,
         .pty = pty,
@@ -94,6 +101,7 @@ pub fn init(
         .back_screen_pri = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows + opts.scrollback_size),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .unicode = unicode,
+        .tab_stops = tabs,
     };
 }
 
@@ -124,6 +132,7 @@ pub fn deinit(self: *Terminal) void {
     self.front_screen.deinit(self.allocator);
     self.back_screen_pri.deinit(self.allocator);
     self.back_screen_alt.deinit(self.allocator);
+    self.tab_stops.deinit();
 }
 
 pub fn spawn(self: *Terminal) !void {
@@ -275,17 +284,7 @@ fn run(self: *Terminal) !void {
                         self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
-                        const within = self.back_screen.withinScrollingRegion();
-                        if (within)
-                            self.back_screen.cursor.col = @min(
-                                self.back_screen.cursor.col + delta,
-                                self.back_screen.scrolling_region.right,
-                            )
-                        else
-                            self.back_screen.cursor.col = @min(
-                                self.back_screen.cursor.col + delta,
-                                self.back_screen.width,
-                            );
+                        self.back_screen.cursorRight(delta);
                     },
                     // Cursor Left
                     'D', 'j' => {
@@ -307,12 +306,24 @@ fn run(self: *Terminal) !void {
                         self.back_screen.cursorUp(delta);
                         self.carriageReturn();
                     },
+                    // Horizontal Positional Absolute
+                    'G', '`' => {
+                        var iter = seq.iterator(u16);
+                        const col = iter.next() orelse 1;
+                        self.back_screen.cursor.col = col -| 1;
+                    },
+                    // Cursor Absolute Position
                     'H', 'f' => {
                         var iter = seq.iterator(u16);
                         const row = iter.next() orelse 1;
                         const col = iter.next() orelse 1;
                         self.back_screen.cursor.col = col -| 1;
                         self.back_screen.cursor.row = row -| 1;
+                    },
+                    'I' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        self.horizontalTab(n);
                     },
                     'K' => {
                         // TODO selective erase (private_marker == '?')
@@ -392,7 +403,7 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
         .ENQ => {},
         .BEL => self.event_queue.push(.bell),
         .BS => self.back_screen.cursorLeft(1),
-        .HT => {}, // TODO: HT
+        .HT => self.horizontalTab(1),
         .LF, .VT, .FF => try self.back_screen.index(),
         .CR => self.carriageReturn(),
         .SO => {}, // TODO: Charset shift out
@@ -443,4 +454,20 @@ pub fn carriageReturn(self: *Terminal) void {
         self.back_screen.scrolling_region.left
     else
         0;
+}
+
+pub fn horizontalTab(self: *Terminal, n: usize) void {
+    // Get the current cursor position
+    const col = self.back_screen.cursor.col;
+
+    // Find desired final position
+    var i: usize = 0;
+    const final = for (self.tab_stops.items) |ts| {
+        if (ts <= col) continue;
+        i += 1;
+        if (i == n) break ts;
+    } else self.back_screen.width - 1;
+
+    // Move right the delta
+    self.back_screen.cursorRight(final - col);
 }
