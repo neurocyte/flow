@@ -166,9 +166,12 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
 }
 
 pub fn draw(self: *Terminal, win: vaxis.Window) !void {
-    if (self.back_mutex.tryLock() and !self.mode.sync) {
+    if (self.back_mutex.tryLock()) {
         defer self.back_mutex.unlock();
-        try self.back_screen.copyTo(&self.front_screen);
+        // We keep this as a separate condition so we don't deadlock by obtaining the lock but not
+        // having sync
+        if (!self.mode.sync)
+            try self.back_screen.copyTo(&self.front_screen);
     }
 
     var row: usize = 0;
