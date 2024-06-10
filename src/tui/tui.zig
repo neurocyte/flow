@@ -52,7 +52,7 @@ sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
 final_exit: []const u8 = "normal",
 
-const idle_frames = 1;
+const idle_frames = 0;
 
 const init_delay = 1; // ms
 
@@ -235,29 +235,19 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 
     if (try m.match(.{"render"})) {
         if (!self.frame_clock_running)
-            self.render(std.time.microTimestamp());
+            self.render();
         return;
     }
 
     var counter: usize = undefined;
     if (try m.match(.{ "tick", tp.extract(&counter) })) {
-        tracy.frameMark();
-        const current_time = std.time.microTimestamp();
-        if (current_time < self.frame_last_time) { // clock moved backwards
-            self.frame_last_time = current_time;
-            return;
-        }
-        const time_delta = current_time - self.frame_last_time;
-        if (time_delta >= self.frame_time * 2 / 3) {
-            self.frame_last_time = current_time;
-            self.render(current_time);
-        }
+        self.render();
         return;
     }
 
     if (try m.match(.{"init"})) {
         try self.init_delayed();
-        self.render(std.time.microTimestamp());
+        self.render();
         if (self.init_timer) |*timer| {
             timer.deinit();
             self.init_timer = null;
@@ -297,7 +287,17 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     return tp.unexpected(m);
 }
 
-fn render(self: *Self, current_time: i64) void {
+fn render(self: *Self) void {
+    const current_time = std.time.microTimestamp();
+    if (current_time < self.frame_last_time) { // clock moved backwards
+        self.frame_last_time = current_time;
+        return;
+    }
+    const time_delta = current_time - self.frame_last_time;
+    if (!(time_delta >= self.frame_time * 2 / 3)) {
+        if (self.frame_clock_running)
+            return;
+    }
     self.frame_last_time = current_time;
 
     {
@@ -317,6 +317,7 @@ fn render(self: *Self, current_time: i64) void {
         const frame = tracy.initZone(@src(), .{ .name = renderer.log_name ++ " render" });
         defer frame.deinit();
         self.rdr.render() catch |e| self.logger.err("render", e);
+        tracy.frameMark();
     }
 
     self.idle_frame_count = if (self.unrendered_input_events_count > 0)
