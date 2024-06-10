@@ -13,10 +13,12 @@ const Screen = @import("Screen.zig");
 const DisplayWidth = @import("DisplayWidth");
 const Key = vaxis.Key;
 const Queue = vaxis.Queue(Event, 16);
+const code_point = @import("code_point");
 
 pub const Event = union(enum) {
     exited,
     bell,
+    title_change,
 };
 
 const grapheme = @import("grapheme");
@@ -68,6 +70,9 @@ should_quit: bool = false,
 mode: Mode = .{},
 
 tab_stops: std.ArrayList(u16),
+title: std.ArrayList(u8),
+
+last_printed: []const u8 = "",
 
 event_queue: Queue = .{},
 
@@ -102,6 +107,7 @@ pub fn init(
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .unicode = unicode,
         .tab_stops = tabs,
+        .title = std.ArrayList(u8).init(allocator),
     };
 }
 
@@ -133,6 +139,7 @@ pub fn deinit(self: *Terminal) void {
     self.back_screen_pri.deinit(self.allocator);
     self.back_screen_alt.deinit(self.allocator);
     self.tab_stops.deinit();
+    self.title.deinit();
 }
 
 pub fn spawn(self: *Terminal) !void {
@@ -196,10 +203,10 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
         }
     }
 
-    if (self.front_screen.cursor.visible) {
+    if (self.mode.cursor) {
         win.setCursorShape(self.front_screen.cursor.shape);
         win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
-    }
+    } else win.hideCursor();
 }
 
 pub fn tryEvent(self: *Terminal) ?Event {
@@ -256,9 +263,10 @@ fn run(self: *Terminal) !void {
             .print => |str| {
                 var iter = grapheme.Iterator.init(str, &self.unicode.grapheme_data);
                 while (iter.next()) |g| {
-                    const bytes = g.bytes(str);
-                    const w = try vaxis.gwidth.gwidth(bytes, .unicode, &self.unicode.width_data);
-                    self.back_screen.print(bytes, @truncate(w));
+                    const gr = g.bytes(str);
+                    // TODO: use actual instead of .unicode
+                    const w = try vaxis.gwidth.gwidth(gr, .unicode, &self.unicode.width_data);
+                    self.back_screen.print(gr, @truncate(w));
                 }
             },
             .c0 => |b| try self.handleC0(b),
@@ -401,7 +409,20 @@ fn run(self: *Terminal) !void {
                         self.back_screen.cursor.row = self.back_screen.scrolling_region.top;
                         try self.back_screen.insertLine(n);
                     },
-                    // 'W' => {}, // TODO: Tab control
+                    // Tab Control
+                    'W' => {
+                        if (seq.private_marker) |pm| {
+                            if (pm != '?') continue;
+                            var iter = seq.iterator(u16);
+                            const n = iter.next() orelse continue;
+                            if (n != 5) continue;
+                            self.tab_stops.clearRetainingCapacity();
+                            var col: u16 = 0;
+                            while (col < self.back_screen.width) : (col += 8) {
+                                try self.tab_stops.append(col);
+                            }
+                        }
+                    },
                     'X' => {
                         self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
@@ -410,14 +431,58 @@ fn run(self: *Terminal) !void {
                         const end = @max(
                             self.back_screen.cursor.row * self.back_screen.width + self.back_screen.width,
                             n,
+                            1, // In case n == 0
                         );
                         var i: usize = start;
                         while (i < end) : (i += 1) {
                             self.back_screen.buf[i].erase(self.back_screen.cursor.style.bg);
                         }
                     },
-                    // 'Z' => {}, // TODO: Back tab
-                    // Cursor Vertial Position Aboslute
+                    'Z' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        self.horizontalBackTab(n);
+                    },
+                    // Cursor Horizontal Position Relative
+                    'a' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        self.back_screen.cursor.pending_wrap = false;
+                        const max_end = if (self.mode.origin)
+                            self.back_screen.scrolling_region.right
+                        else
+                            self.back_screen.width - 1;
+                        self.back_screen.cursor.col = @min(
+                            self.back_screen.cursor.col + max_end,
+                            self.back_screen.cursor.col + n,
+                        );
+                    },
+                    // Repeat Previous Character
+                    'b' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        // TODO: maybe not .unicode
+                        const w = try vaxis.gwidth.gwidth(self.last_printed, .unicode, &self.unicode.width_data);
+                        var i: usize = 0;
+                        while (i < n) : (i += 1) {
+                            self.back_screen.print(self.last_printed, @truncate(w));
+                        }
+                    },
+                    // Device Attributes
+                    'c' => {
+                        if (seq.private_marker) |pm| {
+                            switch (pm) {
+                                // Secondary
+                                '>' => try self.anyWriter().writeAll("\x1B[>1;69;0c"),
+                                '=' => try self.anyWriter().writeAll("\x1B[=0000c"),
+                                else => std.log.err("unhandled CSI: {}", .{seq}),
+                            }
+                        } else {
+                            // Primary
+                            try self.anyWriter().writeAll("\x1B[?62;22c");
+                        }
+                    },
+                    // Cursor Vertical Position Absolute
                     'd' => {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
@@ -426,6 +491,34 @@ fn run(self: *Terminal) !void {
                             self.back_screen.height -| 1,
                             n -| 1,
                         );
+                    },
+                    // Cursor Horizontal Position Absolute
+                    'e' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 1;
+                        self.back_screen.cursor.pending_wrap = false;
+                        self.back_screen.cursor.col = @min(
+                            self.back_screen.width -| 1,
+                            n -| 1,
+                        );
+                    },
+                    // Tab Clear
+                    'g' => {
+                        var iter = seq.iterator(u16);
+                        const n = iter.next() orelse 0;
+                        switch (n) {
+                            0 => {
+                                const current = try self.tab_stops.toOwnedSlice();
+                                defer self.tab_stops.allocator.free(current);
+                                self.tab_stops.clearRetainingCapacity();
+                                for (current) |stop| {
+                                    if (stop == self.back_screen.cursor.col) continue;
+                                    try self.tab_stops.append(stop);
+                                }
+                            },
+                            3 => self.tab_stops.clearAndFree(),
+                            else => std.log.err("unhandled CSI: {}", .{seq}),
+                        }
                     },
                     'h', 'l' => {
                         var iter = seq.iterator(u16);
@@ -439,6 +532,40 @@ fn run(self: *Terminal) !void {
                         if (seq.intermediate == null and seq.private_marker == null) {
                             self.back_screen.sgr(seq);
                         }
+                        // TODO: private marker and intermediates
+                    },
+                    'n' => {
+                        var iter = seq.iterator(u16);
+                        const ps = iter.next() orelse 0;
+                        if (seq.intermediate == null and seq.private_marker == null) {
+                            switch (ps) {
+                                5 => try self.anyWriter().writeAll("\x1b[0n"),
+                                6 => try self.anyWriter().print("\x1b[{d};{d}R", .{
+                                    self.back_screen.cursor.row + 1,
+                                    self.back_screen.cursor.col + 1,
+                                }),
+                                else => std.log.err("unhandled CSI: {}", .{seq}),
+                            }
+                        }
+                    },
+                    'p' => {
+                        var iter = seq.iterator(u16);
+                        const ps = iter.next() orelse 0;
+                        if (seq.intermediate) |int| {
+                            switch (int) {
+                                // report mode
+                                '$' => {
+                                    switch (ps) {
+                                        2026 => try self.anyWriter().writeAll("\x1b[?2026;2$p"),
+                                        else => {
+                                            std.log.warn("unhandled mode: {}", .{ps});
+                                            try self.anyWriter().print("\x1b[?{d};0$p", .{ps});
+                                        },
+                                    }
+                                },
+                                else => std.log.err("unhandled CSI: {}", .{seq}),
+                            }
+                        }
                     },
                     'q' => {
                         if (seq.intermediate) |int| {
@@ -449,6 +576,16 @@ fn run(self: *Terminal) !void {
                                     self.back_screen.cursor.shape = @enumFromInt(shape);
                                 },
                                 else => {},
+                            }
+                        }
+                        if (seq.private_marker) |pm| {
+                            switch (pm) {
+                                // XTVERSION
+                                '>' => try self.anyWriter().print(
+                                    "\x1bP>|libvaxis {s}\x1B\\",
+                                    .{"dev"},
+                                ),
+                                else => std.log.err("unhandled CSI: {}", .{seq}),
                             }
                         }
                     },
@@ -471,7 +608,24 @@ fn run(self: *Terminal) !void {
                     else => std.log.err("unhandled CSI: {}", .{seq}),
                 }
             },
-            .osc => |osc| std.log.err("unhandled osc: {s}", .{osc}),
+            .osc => |osc| {
+                const semicolon = std.mem.indexOfScalar(u8, osc, ';') orelse {
+                    std.log.err("unhandled osc: {s}", .{osc});
+                    continue;
+                };
+                const ps = std.fmt.parseUnsigned(u8, osc[0..semicolon], 10) catch {
+                    std.log.err("unhandled osc: {s}", .{osc});
+                    continue;
+                };
+                switch (ps) {
+                    0 => {
+                        self.title.clearRetainingCapacity();
+                        try self.title.appendSlice(osc[semicolon + 1 ..]);
+                        self.event_queue.push(.title_change);
+                    },
+                    else => std.log.err("unhandled osc: {s}", .{osc}),
+                }
+            },
             .apc => |apc| std.log.err("unhandled apc: {s}", .{apc}),
         }
     }
@@ -551,4 +705,23 @@ pub fn horizontalTab(self: *Terminal, n: usize) void {
 
     // Move right the delta
     self.back_screen.cursorRight(final - col);
+}
+
+pub fn horizontalBackTab(self: *Terminal, n: usize) void {
+    // Get the current cursor position
+    const col = self.back_screen.cursor.col;
+
+    // Find the index of the next backtab
+    const idx = for (self.tab_stops.items, 0..) |ts, i| {
+        if (ts <= col) continue;
+        break i;
+    } else self.tab_stops.items.len - 1;
+
+    const final = if (self.mode.origin)
+        @max(self.tab_stops.items[idx -| (n -| 1)], self.back_screen.scrolling_region.left)
+    else
+        self.tab_stops.items[idx -| (n -| 1)];
+
+    // Move left the delta
+    self.back_screen.cursorLeft(final - col);
 }
