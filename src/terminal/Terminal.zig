@@ -281,6 +281,22 @@ fn run(self: *Terminal) !void {
                                 self.back_screen.width,
                             );
                     },
+                    'D' => {
+                        self.back_screen.cursor.pending_wrap = false;
+                        var iter = seq.iterator(u16);
+                        const delta = iter.next() orelse 1;
+                        const within = self.back_screen.withinScrollingRegion();
+                        if (within)
+                            self.back_screen.cursor.col = @max(
+                                self.back_screen.cursor.col -| delta,
+                                self.back_screen.scrolling_region.left,
+                            )
+                        else
+                            self.back_screen.cursor.col = @max(
+                                self.back_screen.cursor.col -| delta,
+                                0,
+                            );
+                    },
                     'H', 'f' => { // CUP
                         var iter = seq.iterator(u16);
                         const row = iter.next() orelse 1;
