@@ -291,8 +291,8 @@ fn run(self: *Terminal) !void {
                         var iter = seq.iterator(u16);
                         const row = iter.next() orelse 1;
                         const col = iter.next() orelse 1;
-                        self.back_screen.cursor.col = col - 1;
-                        self.back_screen.cursor.row = row - 1;
+                        self.back_screen.cursor.col = col -| 1;
+                        self.back_screen.cursor.row = row -| 1;
                     },
                     'K' => {
                         // TODO selective erase (private_marker == '?')
