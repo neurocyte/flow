@@ -258,7 +258,9 @@ fn run(self: *Terminal) !void {
             .ss3 => |ss3| std.log.err("unhandled ss3: {c}", .{ss3}),
             .csi => |seq| {
                 switch (seq.final) {
+                    // Cursor up
                     'A', 'k' => {
+                        self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
                         if (self.back_screen.withinScrollingRegion())
@@ -269,20 +271,13 @@ fn run(self: *Terminal) !void {
                         else
                             self.back_screen.cursor.row = self.back_screen.cursor.row -| delta;
                     },
-                    'B' => { // CUD
+                    // Cursor Down
+                    'B' => {
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
-                        if (self.back_screen.withinScrollingRegion())
-                            self.back_screen.cursor.row = @min(
-                                self.back_screen.scrolling_region.bottom,
-                                self.back_screen.cursor.row + delta,
-                            )
-                        else
-                            self.back_screen.cursor.row = @min(
-                                self.back_screen.height - 1,
-                                self.back_screen.cursor.row + delta,
-                            );
+                        self.back_screen.cursorDown(delta);
                     },
+                    // Cursor Right
                     'C' => {
                         self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
@@ -299,13 +294,21 @@ fn run(self: *Terminal) !void {
                                 self.back_screen.width,
                             );
                     },
+                    // Cursor Left
                     'D', 'j' => {
                         self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
                         self.back_screen.cursorLeft(delta);
                     },
-                    'H', 'f' => { // CUP
+                    // Cursor Next Line
+                    'E' => {
+                        var iter = seq.iterator(u16);
+                        const delta = iter.next() orelse 1;
+                        self.back_screen.cursorDown(delta);
+                        self.carriageReturn();
+                    },
+                    'H', 'f' => {
                         var iter = seq.iterator(u16);
                         const row = iter.next() orelse 1;
                         const col = iter.next() orelse 1;
@@ -392,15 +395,7 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
         .BS => self.back_screen.cursorLeft(1),
         .HT => {}, // TODO: HT
         .LF, .VT, .FF => try self.back_screen.index(),
-        .CR => {
-            self.back_screen.cursor.pending_wrap = false;
-            self.back_screen.cursor.col = if (self.mode.origin)
-                self.back_screen.scrolling_region.left
-            else if (self.back_screen.cursor.col >= self.back_screen.scrolling_region.left)
-                self.back_screen.scrolling_region.left
-            else
-                0;
-        },
+        .CR => self.carriageReturn(),
         .SO => {}, // TODO: Charset shift out
         .SI => {}, // TODO: Charset shift in
         else => log.warn("unhandled C0: 0x{x}", .{@intFromEnum(b)}),
@@ -439,4 +434,14 @@ pub fn encodeKey(self: *Terminal, key: vaxis.Key, press: bool) !void {
         },
         false => {},
     }
+}
+
+pub fn carriageReturn(self: *Terminal) void {
+    self.back_screen.cursor.pending_wrap = false;
+    self.back_screen.cursor.col = if (self.mode.origin)
+        self.back_screen.scrolling_region.left
+    else if (self.back_screen.cursor.col >= self.back_screen.scrolling_region.left)
+        self.back_screen.scrolling_region.left
+    else
+        0;
 }

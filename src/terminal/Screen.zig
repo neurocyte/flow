@@ -321,6 +321,20 @@ pub fn cursorLeft(self: *Screen, n: usize) void {
         self.cursor.col = self.cursor.col -| n;
 }
 
+pub fn cursorDown(self: *Screen, n: usize) void {
+    self.cursor.pending_wrap = false;
+    if (self.withinScrollingRegion())
+        self.cursor.row = @min(
+            self.scrolling_region.bottom,
+            self.cursor.row + n,
+        )
+    else
+        self.cursor.row = @min(
+            self.height -| 1,
+            self.cursor.row + n,
+        );
+}
+
 pub fn eraseRight(self: *Screen) void {
     self.cursor.pending_wrap = false;
     const end = (self.cursor.row * self.width) + (self.width);
@@ -380,4 +394,14 @@ pub fn insertLine(self: *Screen, n: usize) !void {
                 try self.buf[i].copyFrom(self.buf[i - stride]);
         }
     }
+}
+
+pub fn carriageReturn(self: *Screen) void {
+    self.cursor.pending_wrap = false;
+    self.cursor.col = if (self.mode.origin)
+        self.scrolling_region.left
+    else if (self.cursor.col >= self.scrolling_region.left)
+        self.scrolling_region.left
+    else
+        0;
 }
