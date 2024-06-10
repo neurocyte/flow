@@ -4,6 +4,7 @@ const Parser = @This();
 const std = @import("std");
 const Reader = std.io.AnyReader;
 const ansi = @import("ansi.zig");
+const BufferedReader = std.io.BufferedReader(4096, std.io.AnyReader);
 
 /// A terminal event
 const Event = union(enum) {
@@ -21,7 +22,8 @@ buf: std.ArrayList(u8),
 /// a leftover byte from a ground event
 pending_byte: ?u8 = null,
 
-pub fn parseReader(self: *Parser, reader: Reader) !Event {
+pub fn parseReader(self: *Parser, buffered: *BufferedReader) !Event {
+    const reader = buffered.reader().any();
     self.buf.clearRetainingCapacity();
     while (true) {
         const b = if (self.pending_byte) |p| p else try reader.readByte();
@@ -56,21 +58,27 @@ pub fn parseReader(self: *Parser, reader: Reader) !Event {
             => return .{ .c0 = @enumFromInt(b) },
             else => {
                 try self.buf.append(b);
-                return self.parseGround(reader);
+                return self.parseGround(buffered);
             },
         }
     }
 }
 
-inline fn parseGround(self: *Parser, reader: Reader) !Event {
+inline fn parseGround(self: *Parser, reader: *BufferedReader) !Event {
+    var buf: [1]u8 = undefined;
     while (true) {
-        const b = try reader.readByte();
+        if (reader.start == reader.end) return .{ .print = self.buf.items };
+        const n = try reader.read(&buf);
+        if (n == 0) return error.EOF;
+        const b = buf[0];
         switch (b) {
             0x00...0x1f => {
                 self.pending_byte = b;
                 return .{ .print = self.buf.items };
             },
-            else => try self.buf.append(b),
+            else => {
+                try self.buf.append(b);
+            },
         }
     }
 }

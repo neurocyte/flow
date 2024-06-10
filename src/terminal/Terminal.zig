@@ -251,11 +251,10 @@ fn run(self: *Terminal) !void {
     defer parser.buf.deinit();
 
     // Use our anyReader to make a buffered reader, then get *that* any reader
-    var buffered = std.io.bufferedReader(self.anyReader());
-    const reader = buffered.reader().any();
+    var reader = std.io.bufferedReader(self.anyReader());
 
     while (!self.should_quit) {
-        const event = try parser.parseReader(reader);
+        const event = try parser.parseReader(&reader);
         self.back_mutex.lock();
         defer self.back_mutex.unlock();
 
