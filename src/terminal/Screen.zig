@@ -310,6 +310,17 @@ pub fn sgr(self: *Screen, seq: ansi.CSI) void {
     }
 }
 
+pub fn cursorUp(self: *Screen, n: usize) void {
+    self.cursor.pending_wrap = false;
+    if (self.withinScrollingRegion())
+        self.cursor.row = @max(
+            self.cursor.row -| n,
+            self.scrolling_region.top,
+        )
+    else
+        self.cursor.row -|= n;
+}
+
 pub fn cursorLeft(self: *Screen, n: usize) void {
     self.cursor.pending_wrap = false;
     if (self.withinScrollingRegion())
@@ -394,14 +405,4 @@ pub fn insertLine(self: *Screen, n: usize) !void {
                 try self.buf[i].copyFrom(self.buf[i - stride]);
         }
     }
-}
-
-pub fn carriageReturn(self: *Screen) void {
-    self.cursor.pending_wrap = false;
-    self.cursor.col = if (self.mode.origin)
-        self.scrolling_region.left
-    else if (self.cursor.col >= self.scrolling_region.left)
-        self.scrolling_region.left
-    else
-        0;
 }

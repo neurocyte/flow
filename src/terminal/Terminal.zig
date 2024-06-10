@@ -260,16 +260,9 @@ fn run(self: *Terminal) !void {
                 switch (seq.final) {
                     // Cursor up
                     'A', 'k' => {
-                        self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
-                        if (self.back_screen.withinScrollingRegion())
-                            self.back_screen.cursor.row = @max(
-                                self.back_screen.cursor.row -| delta,
-                                self.back_screen.scrolling_region.top,
-                            )
-                        else
-                            self.back_screen.cursor.row = self.back_screen.cursor.row -| delta;
+                        self.back_screen.cursorUp(delta);
                     },
                     // Cursor Down
                     'B' => {
@@ -296,7 +289,6 @@ fn run(self: *Terminal) !void {
                     },
                     // Cursor Left
                     'D', 'j' => {
-                        self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
                         self.back_screen.cursorLeft(delta);
@@ -306,6 +298,13 @@ fn run(self: *Terminal) !void {
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
                         self.back_screen.cursorDown(delta);
+                        self.carriageReturn();
+                    },
+                    // Cursor Previous Line
+                    'F' => {
+                        var iter = seq.iterator(u16);
+                        const delta = iter.next() orelse 1;
+                        self.back_screen.cursorUp(delta);
                         self.carriageReturn();
                     },
                     'H', 'f' => {
