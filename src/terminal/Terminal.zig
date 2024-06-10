@@ -255,18 +255,30 @@ fn run(self: *Terminal) !void {
             .ss3 => |ss3| std.log.err("unhandled ss3: {c}", .{ss3}),
             .csi => |seq| {
                 switch (seq.final) {
-                    'A' => {
+                    'A', 'k' => {
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
-                        self.back_screen.cursor.row = self.back_screen.cursor.row -| delta;
+                        if (self.back_screen.withinScrollingRegion())
+                            self.back_screen.cursor.row = @max(
+                                self.back_screen.cursor.row -| delta,
+                                self.back_screen.scrolling_region.top,
+                            )
+                        else
+                            self.back_screen.cursor.row = self.back_screen.cursor.row -| delta;
                     },
                     'B' => { // CUD
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
-                        self.back_screen.cursor.row = @min(
-                            self.back_screen.height - 1,
-                            self.back_screen.cursor.row + delta,
-                        );
+                        if (self.back_screen.withinScrollingRegion())
+                            self.back_screen.cursor.row = @min(
+                                self.back_screen.scrolling_region.bottom,
+                                self.back_screen.cursor.row + delta,
+                            )
+                        else
+                            self.back_screen.cursor.row = @min(
+                                self.back_screen.height - 1,
+                                self.back_screen.cursor.row + delta,
+                            );
                     },
                     'C' => {
                         self.back_screen.cursor.pending_wrap = false;

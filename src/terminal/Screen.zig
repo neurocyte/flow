@@ -318,10 +318,7 @@ pub fn cursorLeft(self: *Screen, n: usize) void {
             self.scrolling_region.left,
         )
     else
-        self.cursor.col = @max(
-            self.cursor.col -| n,
-            0,
-        );
+        self.cursor.col = self.cursor.col -| n;
 }
 
 pub fn eraseRight(self: *Screen) void {
