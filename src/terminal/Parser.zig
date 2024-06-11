@@ -66,6 +66,17 @@ pub fn parseReader(self: *Parser, buffered: *BufferedReader) !Event {
 
 inline fn parseGround(self: *Parser, reader: *BufferedReader) !Event {
     var buf: [1]u8 = undefined;
+    {
+        std.debug.assert(self.buf.items.len > 0);
+        // Handle first byte
+        const len = try std.unicode.utf8ByteSequenceLength(self.buf.items[0]);
+        var i: usize = 1;
+        while (i < len) : (i += 1) {
+            const read = try reader.read(&buf);
+            if (read == 0) return error.EOF;
+            try self.buf.append(buf[0]);
+        }
+    }
     while (true) {
         if (reader.start == reader.end) return .{ .print = self.buf.items };
         const n = try reader.read(&buf);
@@ -78,6 +89,14 @@ inline fn parseGround(self: *Parser, reader: *BufferedReader) !Event {
             },
             else => {
                 try self.buf.append(b);
+                const len = try std.unicode.utf8ByteSequenceLength(b);
+                var i: usize = 1;
+                while (i < len) : (i += 1) {
+                    const read = try reader.read(&buf);
+                    if (read == 0) return error.EOF;
+
+                    try self.buf.append(buf[0]);
+                }
             },
         }
     }
