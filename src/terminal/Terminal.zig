@@ -14,6 +14,7 @@ const DisplayWidth = @import("DisplayWidth");
 const Key = vaxis.Key;
 const Queue = vaxis.Queue(Event, 16);
 const code_point = @import("code_point");
+const key = @import("key.zig");
 
 pub const Event = union(enum) {
     exited,
@@ -207,7 +208,7 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
     if (self.mode.cursor) {
         win.setCursorShape(self.front_screen.cursor.shape);
         win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
-    } else win.hideCursor();
+    }
 }
 
 pub fn tryEvent(self: *Terminal) ?Event {
@@ -216,7 +217,7 @@ pub fn tryEvent(self: *Terminal) ?Event {
 
 pub fn update(self: *Terminal, event: InputEvent) !void {
     switch (event) {
-        .key_press => |key| try self.encodeKey(key, true),
+        .key_press => |k| try key.encode(self.anyWriter(), k, true, self.back_screen.csi_u_flags),
     }
 }
 
@@ -695,22 +696,6 @@ pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
         },
         2026 => self.mode.sync = val,
         else => return,
-    }
-}
-
-pub fn encodeKey(self: *Terminal, key: vaxis.Key, press: bool) !void {
-    switch (press) {
-        true => {
-            if (key.text) |text| {
-                try self.anyWriter().writeAll(text);
-                return;
-            }
-            switch (key.codepoint) {
-                0x00...0x7F => try self.anyWriter().writeByte(@intCast(key.codepoint)),
-                else => {},
-            }
-        },
-        false => {},
     }
 }
 

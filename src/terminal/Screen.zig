@@ -90,6 +90,8 @@ buf: []Cell = undefined,
 
 cursor: Cursor = .{},
 
+csi_u_flags: vaxis.Key.KittyFlags = @bitCast(@as(u5, 0)),
+
 /// sets each cell to the default cell
 pub fn init(alloc: std.mem.Allocator, w: usize, h: usize) !Screen {
     var screen = Screen{
