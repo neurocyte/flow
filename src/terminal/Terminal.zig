@@ -204,10 +204,10 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
         }
     }
 
-    // if (self.mode.cursor) {
-    win.setCursorShape(self.front_screen.cursor.shape);
-    win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
-    // } else win.hideCursor();
+    if (self.mode.cursor) {
+        win.setCursorShape(self.front_screen.cursor.shape);
+        win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
+    } else win.hideCursor();
 }
 
 pub fn tryEvent(self: *Terminal) ?Event {
