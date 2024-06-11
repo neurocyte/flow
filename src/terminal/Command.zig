@@ -47,9 +47,6 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
         // exec
         const err = std.posix.execvpeZ(argv_buf.ptr[0].?, argv_buf.ptr, envp);
         _ = err catch {};
-        @panic("a");
-        // const EOT = "\x04";
-        // _ = std.posix.write(self.pty.tty, EOT) catch {};
     }
 
     var act = posix.Sigaction{

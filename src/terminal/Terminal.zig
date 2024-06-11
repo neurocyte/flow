@@ -34,6 +34,7 @@ pub const Options = struct {
 
 pub const Mode = struct {
     origin: bool = false,
+    autowrap: bool = true,
     cursor: bool = true,
     sync: bool = false,
 };
@@ -203,10 +204,10 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
         }
     }
 
-    if (self.mode.cursor) {
-        win.setCursorShape(self.front_screen.cursor.shape);
-        win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
-    } else win.hideCursor();
+    // if (self.mode.cursor) {
+    win.setCursorShape(self.front_screen.cursor.shape);
+    win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
+    // } else win.hideCursor();
 }
 
 pub fn tryEvent(self: *Terminal) ?Event {
@@ -265,11 +266,35 @@ fn run(self: *Terminal) !void {
                     const gr = g.bytes(str);
                     // TODO: use actual instead of .unicode
                     const w = try vaxis.gwidth.gwidth(gr, .unicode, &self.unicode.width_data);
-                    self.back_screen.print(gr, @truncate(w));
+                    try self.back_screen.print(gr, @truncate(w), self.mode.autowrap);
                 }
             },
             .c0 => |b| try self.handleC0(b),
-            .escape => |_| {}, // std.log.err("unhandled escape: {s}", .{str}),
+            .escape => |esc| {
+                const final = esc[esc.len - 1];
+                switch (final) {
+                    'B' => {}, // TODO: handle charsets
+                    // Index
+                    'D' => try self.back_screen.index(),
+                    // Next Line
+                    'E' => {
+                        try self.back_screen.index();
+                        self.carriageReturn();
+                    },
+                    // Horizontal Tab Set
+                    'H' => {
+                        const already_set: bool = for (self.tab_stops.items) |ts| {
+                            if (ts == self.back_screen.cursor.col) break true;
+                        } else false;
+                        if (already_set) continue;
+                        try self.tab_stops.append(@truncate(self.back_screen.cursor.col));
+                        std.mem.sort(u16, self.tab_stops.items, {}, std.sort.asc(u16));
+                    },
+                    // Reverse Index
+                    'M' => try self.back_screen.reverseIndex(),
+                    else => std.log.err("unhandled escape: {s}", .{esc}),
+                }
+            },
             .ss2 => |ss2| std.log.err("unhandled ss2: {c}", .{ss2}),
             .ss3 => |ss3| std.log.err("unhandled ss3: {c}", .{ss3}),
             .csi => |seq| {
@@ -288,7 +313,6 @@ fn run(self: *Terminal) !void {
                     },
                     // Cursor Right
                     'C' => {
-                        self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
                         const delta = iter.next() orelse 1;
                         self.back_screen.cursorRight(delta);
@@ -318,6 +342,11 @@ fn run(self: *Terminal) !void {
                         var iter = seq.iterator(u16);
                         const col = iter.next() orelse 1;
                         self.back_screen.cursor.col = col -| 1;
+                        if (self.back_screen.cursor.col < self.back_screen.scrolling_region.left)
+                            self.back_screen.cursor.col = self.back_screen.scrolling_region.left;
+                        if (self.back_screen.cursor.col > self.back_screen.scrolling_region.right)
+                            self.back_screen.cursor.col = self.back_screen.scrolling_region.right;
+                        self.back_screen.cursor.pending_wrap = false;
                     },
                     // Cursor Absolute Position
                     'H', 'f' => {
@@ -326,6 +355,7 @@ fn run(self: *Terminal) !void {
                         const col = iter.next() orelse 1;
                         self.back_screen.cursor.col = col -| 1;
                         self.back_screen.cursor.row = row -| 1;
+                        self.back_screen.cursor.pending_wrap = false;
                     },
                     // Cursor Horizontal Tab
                     'I' => {
@@ -396,17 +426,7 @@ fn run(self: *Terminal) !void {
                     'T' => {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
-                        const cur_row = self.back_screen.cursor.row;
-                        const cur_col = self.back_screen.cursor.col;
-                        const wrap = self.back_screen.cursor.pending_wrap;
-                        defer {
-                            self.back_screen.cursor.row = cur_row;
-                            self.back_screen.cursor.col = cur_col;
-                            self.back_screen.cursor.pending_wrap = wrap;
-                        }
-                        self.back_screen.cursor.col = self.back_screen.scrolling_region.left;
-                        self.back_screen.cursor.row = self.back_screen.scrolling_region.top;
-                        try self.back_screen.insertLine(n);
+                        try self.back_screen.scrollDown(n);
                     },
                     // Tab Control
                     'W' => {
@@ -464,7 +484,7 @@ fn run(self: *Terminal) !void {
                         const w = try vaxis.gwidth.gwidth(self.last_printed, .unicode, &self.unicode.width_data);
                         var i: usize = 0;
                         while (i < n) : (i += 1) {
-                            self.back_screen.print(self.last_printed, @truncate(w));
+                            try self.back_screen.print(self.last_printed, @truncate(w), self.mode.autowrap);
                         }
                     },
                     // Device Attributes
@@ -483,20 +503,25 @@ fn run(self: *Terminal) !void {
                     },
                     // Cursor Vertical Position Absolute
                     'd' => {
+                        self.back_screen.cursor.pending_wrap = false;
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
+                        const max = if (self.mode.origin)
+                            self.back_screen.scrolling_region.bottom
+                        else
+                            self.back_screen.height -| 1;
                         self.back_screen.cursor.pending_wrap = false;
                         self.back_screen.cursor.row = @min(
-                            self.back_screen.height -| 1,
+                            max,
                             n -| 1,
                         );
                     },
-                    // Cursor Horizontal Position Absolute
+                    // Cursor Vertical Position Absolute
                     'e' => {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
                         self.back_screen.cursor.pending_wrap = false;
-                        self.back_screen.cursor.col = @min(
+                        self.back_screen.cursor.row = @min(
                             self.back_screen.width -| 1,
                             n -| 1,
                         );
@@ -601,8 +626,16 @@ fn run(self: *Terminal) !void {
                         var iter = seq.iterator(u16);
                         const top = iter.next() orelse 1;
                         const bottom = iter.next() orelse self.back_screen.height;
-                        self.back_screen.scrolling_region.top = top - 1;
-                        self.back_screen.scrolling_region.bottom = bottom - 1;
+                        self.back_screen.scrolling_region.top = top -| 1;
+                        self.back_screen.scrolling_region.bottom = bottom -| 1;
+                        self.back_screen.cursor.pending_wrap = false;
+                        if (self.mode.origin) {
+                            self.back_screen.cursor.col = self.back_screen.scrolling_region.left;
+                            self.back_screen.cursor.row = self.back_screen.scrolling_region.top;
+                        } else {
+                            self.back_screen.cursor.col = 0;
+                            self.back_screen.cursor.row = 0;
+                        }
                     },
                     else => std.log.err("unhandled CSI: {}", .{seq}),
                 }
@@ -648,6 +681,7 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
 
 pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
     switch (mode) {
+        7 => self.mode.autowrap = val,
         25 => self.mode.cursor = val,
         1049 => {
             if (val)
@@ -703,7 +737,7 @@ pub fn horizontalTab(self: *Terminal, n: usize) void {
     } else self.back_screen.width - 1;
 
     // Move right the delta
-    self.back_screen.cursorRight(final - col);
+    self.back_screen.cursorRight(final -| col);
 }
 
 pub fn horizontalBackTab(self: *Terminal, n: usize) void {

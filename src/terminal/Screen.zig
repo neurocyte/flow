@@ -166,11 +166,11 @@ pub fn print(
     self: *Screen,
     grapheme: []const u8,
     width: u8,
-) void {
-    // TODO: wrap mode handling
-    if (self.cursor.col + width > self.width) {
-        self.cursor.col = 0;
-        self.cursor.row += 1;
+    wrap: bool,
+) !void {
+    if (self.cursor.pending_wrap) {
+        try self.index();
+        self.cursor.col = self.scrolling_region.left;
     }
     if (self.cursor.col >= self.width) return;
     if (self.cursor.row >= self.height) return;
@@ -195,6 +195,7 @@ pub fn print(
     self.buf[i].width = width;
     self.buf[i].dirty = true;
 
+    if (wrap and self.cursor.col >= self.width - 1) self.cursor.pending_wrap = true;
     self.cursor.col += width;
 }
 
@@ -333,6 +334,7 @@ pub fn cursorLeft(self: *Screen, n: usize) void {
 }
 
 pub fn cursorRight(self: *Screen, n: usize) void {
+    self.cursor.pending_wrap = false;
     if (self.withinScrollingRegion())
         self.cursor.col = @min(
             self.cursor.col + n,
@@ -341,7 +343,7 @@ pub fn cursorRight(self: *Screen, n: usize) void {
     else
         self.cursor.col = @min(
             self.cursor.col + n,
-            self.width,
+            self.width - 1,
         );
 }
 
@@ -418,24 +420,28 @@ pub fn deleteLine(self: *Screen, n: usize) !void {
 pub fn insertLine(self: *Screen, n: usize) !void {
     if (n == 0) return;
 
+    self.cursor.pending_wrap = false;
     // Don't insert if outside scroll region
     if (!self.withinScrollingRegion()) return;
 
-    self.cursor.pending_wrap = false;
-
-    // Number of rows from here to top of scroll region or n
-    const cnt = @min(self.cursor.row - self.scrolling_region.top + 1, n);
-    const stride = (self.width) * cnt;
+    const adjusted_n = @min(self.scrolling_region.bottom - self.cursor.row, n);
+    const stride = (self.width) * adjusted_n;
 
     var row: usize = self.scrolling_region.bottom;
-    while (row > self.scrolling_region.top) : (row -= 1) {
+    while (row >= self.scrolling_region.top + adjusted_n) : (row -|= 1) {
         var col: usize = self.scrolling_region.left;
         while (col <= self.scrolling_region.right) : (col += 1) {
             const i = (row * self.width) + col;
-            if (row - cnt < self.scrolling_region.top)
-                self.buf[i].erase(self.cursor.style.bg)
-            else
-                try self.buf[i].copyFrom(self.buf[i - stride]);
+            try self.buf[i].copyFrom(self.buf[i - stride]);
+        }
+    }
+
+    row = self.scrolling_region.top;
+    while (row < self.scrolling_region.top + adjusted_n) : (row += 1) {
+        var col: usize = self.scrolling_region.left;
+        while (col <= self.scrolling_region.right) : (col += 1) {
+            const i = (row * self.width) + col;
+            self.buf[i].erase(self.cursor.style.bg);
         }
     }
 }
@@ -479,4 +485,27 @@ pub fn deleteCharacters(self: *Screen, n: usize) !void {
         else
             self.buf[col].erase(self.cursor.style.bg);
     }
+}
+
+pub fn reverseIndex(self: *Screen) !void {
+    if (self.cursor.row != self.scrolling_region.top or
+        self.cursor.col < self.scrolling_region.left or
+        self.cursor.col > self.scrolling_region.right)
+        self.cursorUp(1)
+    else
+        try self.scrollDown(1);
+}
+
+pub fn scrollDown(self: *Screen, n: usize) !void {
+    const cur_row = self.cursor.row;
+    const cur_col = self.cursor.col;
+    const wrap = self.cursor.pending_wrap;
+    defer {
+        self.cursor.row = cur_row;
+        self.cursor.col = cur_col;
+        self.cursor.pending_wrap = wrap;
+    }
+    self.cursor.col = self.scrolling_region.left;
+    self.cursor.row = self.scrolling_region.top;
+    try self.insertLine(n);
 }
