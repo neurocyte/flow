@@ -49,19 +49,23 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
         _ = err catch {};
     }
 
-    var act = posix.Sigaction{
-        .handler = .{ .handler = handleSigChild },
-        .mask = switch (builtin.os.tag) {
-            .macos => 0,
-            .linux => posix.empty_sigset,
-            else => @compileError("os not supported"),
-        },
-        .flags = 0,
-    };
-    try posix.sigaction(posix.SIG.CHLD, &act, null);
-
     // we are the parent
     self.pid = @intCast(pid);
+
+    if (!Terminal.global_sigchild_installed) {
+        Terminal.global_sigchild_installed = true;
+        var act = posix.Sigaction{
+            .handler = .{ .handler = handleSigChild },
+            .mask = switch (builtin.os.tag) {
+                .macos => 0,
+                .linux => posix.empty_sigset,
+                else => @compileError("os not supported"),
+            },
+            .flags = 0,
+        };
+        try posix.sigaction(posix.SIG.CHLD, &act, null);
+    }
+
     return;
 }
 

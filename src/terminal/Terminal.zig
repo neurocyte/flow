@@ -46,6 +46,7 @@ pub const InputEvent = union(enum) {
 
 pub var global_vt_mutex: std.Thread.Mutex = .{};
 pub var global_vts: ?std.AutoHashMap(i32, *Terminal) = null;
+pub var global_sigchild_installed: bool = false;
 
 allocator: std.mem.Allocator,
 scrollback_size: usize,
