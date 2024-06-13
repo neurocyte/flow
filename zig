@@ -13,6 +13,11 @@ if [ "$OS" == "Linux" ] ; then
     OS=linux
 elif [ "$OS" == "Darwin" ] ; then
     OS=macos
+elif [ "$OS" == "FreeBSD" ] ; then
+    OS=freebsd
+    if [ "$ARCH" == "amd64" ] ; then
+        ARCH=x86_64
+    fi
 fi
 
 if [ "$ARCH" == "arm64" ] ; then
@@ -41,6 +46,9 @@ get_zig() {
         mkdir -p "$ZIGDIR"
         cd "$ZIGDIR"
         TARBALL="https://ziglang.org/builds/$ZIGVER.tar.xz"
+	if [ "$OS" == "freebsd" ] ; then
+            TARBALL="https://ziglang.org/download/$VERSION/$ZIGVER.tar.xz"
+        fi
 
         if [ ! -d "$ZIGVER" ] ; then
             curl "$TARBALL" | tar -xJ
