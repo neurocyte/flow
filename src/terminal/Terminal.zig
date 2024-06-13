@@ -18,6 +18,7 @@ const key = @import("key.zig");
 
 pub const Event = union(enum) {
     exited,
+    redraw,
     bell,
     title_change,
 };
@@ -66,6 +67,8 @@ back_screen_alt: Screen,
 // only applies to primary screen
 scroll_offset: usize = 0,
 back_mutex: std.Thread.Mutex = .{},
+// dirty is protected by back_mutex. Only access this field when you hold that mutex
+dirty: bool = false,
 
 unicode: *const vaxis.Unicode,
 should_quit: bool = false,
@@ -192,8 +195,10 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
         defer self.back_mutex.unlock();
         // We keep this as a separate condition so we don't deadlock by obtaining the lock but not
         // having sync
-        if (!self.mode.sync)
+        if (!self.mode.sync) {
             try self.back_screen.copyTo(&self.front_screen);
+            self.dirty = false;
+        }
     }
 
     var row: usize = 0;
@@ -260,6 +265,10 @@ fn run(self: *Terminal) !void {
         const event = try parser.parseReader(&reader);
         self.back_mutex.lock();
         defer self.back_mutex.unlock();
+
+        defer if (!self.dirty and self.event_queue.tryPush(.redraw)) {
+            self.dirty = true;
+        };
 
         switch (event) {
             .print => |str| {
