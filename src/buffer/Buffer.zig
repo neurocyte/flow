@@ -577,9 +577,9 @@ const Node = union(enum) {
 
         var ctx: Ctx = .{ .sel = sel, .out = copy_buf };
         ctx.sel.normalize();
-        if (sel.begin.eql(sel.end))
+        if (ctx.sel.begin.eql(ctx.sel.end))
             return error.Stop;
-        self.walk_egc_forward(sel.begin.row, Ctx.walker, &ctx, plane_) catch |e| return switch (e) {
+        self.walk_egc_forward(ctx.sel.begin.row, Ctx.walker, &ctx, plane_) catch |e| return switch (e) {
             error.NoSpaceLeft => error.NoSpaceLeft,
             else => error.Stop,
         };
