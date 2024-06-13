@@ -482,6 +482,14 @@ pub const Editor = struct {
         return meta.toOwnedSlice();
     }
 
+    fn store_current_undo_meta(self: *Self, a: Allocator) ![]u8 {
+        var meta = std.ArrayList(u8).init(a);
+        const writer = meta.writer();
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
+            try cursel.write(writer);
+        return meta.toOwnedSlice();
+    }
+
     fn update_buf(self: *Self, root: Buffer.Root) !void {
         const b = if (self.buffer) |p| p else return error.Stop;
         var sfa = std.heap.stackFallback(512, self.a);
@@ -510,7 +518,7 @@ pub const Editor = struct {
             self.cancel_all_matches();
             var sfa = std.heap.stackFallback(512, self.a);
             const a = sfa.get();
-            const redo_meta = try self.store_undo_meta(a);
+            const redo_meta = try self.store_current_undo_meta(a);
             defer a.free(redo_meta);
             const meta = b_mut.undo(redo_meta) catch |e| switch (e) {
                 error.Stop => {
