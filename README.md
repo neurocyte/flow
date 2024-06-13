@@ -10,8 +10,8 @@ https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f
     ghostty are the only recommended terminals at this time. Most other terminals
     will work, but with reduced functionality.
 - NerdFonts support
-- Linux, MacOS, (somewhat experimental) Windows or Android (Termux). *BSD
-    probably works too, but nobody has tried it yet.
+- Linux, MacOS, (somewhat experimental) Windows, Android (Termux) or FreeBSD. Other BSDs
+    probably work too, but nobody has tried it yet.
 - A UTF-8 locale (very important!)
 
 # Building
