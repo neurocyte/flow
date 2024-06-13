@@ -1028,6 +1028,7 @@ pub const Editor = struct {
             .root = root,
             .pos_cache = try PosToWidthCache.init(self.a),
         };
+        defer ctx.pos_cache.deinit();
         const range: syntax.Range = .{
             .start_point = .{ .row = @intCast(self.view.row), .column = 0 },
             .end_point = .{ .row = @intCast(self.view.row + self.view.rows), .column = 0 },
