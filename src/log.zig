@@ -181,18 +181,25 @@ pub fn unsubscribe() tp.result {
     return tp.env.get().proc("log").send(.{"unsubscribe"});
 }
 
+var std_log_pid: ?tp.pid_ref = null;
+
+pub fn set_std_log_pid(pid: ?tp.pid_ref) void {
+    std_log_pid = pid;
+}
+
 pub fn std_log_function(
     comptime level: std.log.Level,
     comptime scope: @TypeOf(.EnumLiteral),
     comptime format: []const u8,
     args: anytype,
 ) void {
+    const log_pid = std_log_pid orelse return;
     const prefix = "[" ++ comptime level.asText() ++ "] ";
     var buf: [max_log_message]u8 = undefined;
     const output = std.fmt.bufPrint(&buf, prefix ++ format, args) catch "MESSAGE TOO LARGE";
     if (level == .err) {
-        tp.env.get().proc("log").send(.{ "log", "error", @tagName(scope), "std.log", "->", output }) catch {};
+        log_pid.send(.{ "log", "error", @tagName(scope), "std.log", "->", output }) catch {};
     } else {
-        tp.env.get().proc("log").send(.{ "log", @tagName(scope), output }) catch {};
+        log_pid.send(.{ "log", @tagName(scope), output }) catch {};
     }
 }

@@ -133,6 +133,8 @@ pub fn main() anyerror!void {
 
     const log_proc = try log.spawn(&ctx, a, &env);
     defer log_proc.deinit();
+    log.set_std_log_pid(log_proc.ref());
+    defer log.set_std_log_pid(null);
 
     env.set("restore-session", (res.args.@"restore-session" != 0));
     env.set("no-alternate", (res.args.@"no-alternate" != 0));
