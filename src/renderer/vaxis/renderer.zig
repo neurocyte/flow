@@ -35,7 +35,7 @@ bracketed_paste_buffer: std.ArrayList(u8),
 handler_ctx: *anyopaque,
 dispatch_input: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 dispatch_mouse: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void = null,
-dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, dragging: bool, cbor_msg: []const u8) void = null,
+dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void = null,
 dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
 logger: log.Logger,
@@ -207,7 +207,7 @@ pub fn process_input_event(self: *Self, input_: []const u8) !void {
                     mouse.yoffset,
                 })),
                 .drag => if (self.dispatch_mouse_drag) |f_|
-                    f_(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), true, try self.fmtmsg(.{
+                    f_(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
                         "D",
                         event_type.PRESS,
                         @intFromEnum(mouse.button),

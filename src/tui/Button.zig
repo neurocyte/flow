@@ -91,17 +91,15 @@ pub fn State(ctx_type: type) type {
         pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             var btn: u32 = 0;
             if (try m.match(.{ "B", event_type.PRESS, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
-                self.active = true;
+                if (btn == key.BUTTON1) self.active = true;
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "B", event_type.RELEASE, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.call_click_handler(btn);
-                self.active = false;
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "D", event_type.RELEASE, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.call_click_handler(btn);
-                self.active = false;
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
@@ -113,6 +111,7 @@ pub fn State(ctx_type: type) type {
         }
 
         fn call_click_handler(self: *Self, btn: u32) void {
+            if (btn == key.BUTTON1) self.active = false;
             if (!self.hover) return;
             switch (btn) {
                 key.BUTTON1 => self.opts.on_click(&self.opts.ctx, self),

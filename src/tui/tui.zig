@@ -367,20 +367,19 @@ fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) voi
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
-    self.send_mouse(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
+    if (self.drag_source) |_|
+        self.send_mouse_drag(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e)
+    else
+        self.send_mouse(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
     self.drag_source = null;
 }
 
-fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, dragging: bool, cbor_msg: []const u8) void {
+fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
-    if (dragging) {
-        if (self.drag_source == null) self.drag_source = self.find_coord_widget(@intCast(y), @intCast(x));
-    } else {
-        self.drag_source = null;
-    }
+    if (self.drag_source == null) self.drag_source = self.find_coord_widget(@intCast(y), @intCast(x));
     self.send_mouse_drag(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
 
