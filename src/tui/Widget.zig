@@ -4,6 +4,7 @@ const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
 
+const tui = @import("tui.zig");
 pub const Box = @import("Box.zig");
 pub const EventHandler = @import("EventHandler.zig");
 pub const Theme = @import("theme");
@@ -147,7 +148,7 @@ pub fn dynamic_cast(self: Self, comptime T: type) ?*T {
 }
 
 pub fn need_render() void {
-    tp.self_pid().send(.{"render"}) catch {};
+    tui.need_render();
 }
 
 pub fn need_reflow() void {

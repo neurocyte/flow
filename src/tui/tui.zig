@@ -51,6 +51,7 @@ init_timer: ?tp.timeout,
 sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
 final_exit: []const u8 = "normal",
+render_pending: bool = false,
 
 const idle_frames = 0;
 
@@ -71,7 +72,6 @@ fn start(args: StartArgs) tp.result {
     _ = tp.set_trap(true);
     var self = init(args.a) catch |e| return tp.exit_error(e);
     errdefer self.deinit();
-    need_render();
     tp.receive(&self.receiver);
 }
 
@@ -132,6 +132,7 @@ fn init(a: Allocator) !*Self {
         command.executeName("restore_session", .{}) catch |e| self.logger.err("restore_session", e);
         self.logger.print("session restored", .{});
     }
+    need_render();
     return self;
 }
 
@@ -234,6 +235,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     }
 
     if (try m.match(.{"render"})) {
+        self.render_pending = false;
         if (!self.frame_clock_running)
             self.render();
         return;
@@ -677,7 +679,11 @@ pub fn get_mode() []const u8 {
 }
 
 pub fn need_render() void {
-    tp.self_pid().send(.{"render"}) catch {};
+    const self = current();
+    if (!(self.render_pending or self.frame_clock_running)) {
+        self.render_pending = true;
+        tp.self_pid().send(.{"render"}) catch {};
+    }
 }
 
 pub fn resize(self: *Self) void {
