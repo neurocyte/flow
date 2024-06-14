@@ -36,7 +36,7 @@ pub fn Options(context: type) type {
         pub fn on_resize_default(_: context, state: *State(Context), box_: Widget.Box) void {
             var box = box_;
             box.h = state.menu.widgets.items.len;
-            state.menu.handle_resize(box);
+            state.menu.resize(box);
         }
     };
 }
@@ -133,7 +133,7 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn resize(self: *Self, box: Widget.Box) void {
-            self.menu.handle_resize(box);
+            self.menu.resize(box);
         }
 
         pub fn update(self: *Self) void {

@@ -101,7 +101,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 }
 
 pub fn handle_resize(self: *Self, pos: Box) void {
-    self.widgets.resize(pos);
+    self.widgets.handle_resize(pos);
     self.floating_views.resize(pos);
 }
 

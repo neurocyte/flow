@@ -103,14 +103,8 @@ fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !vo
     _ = plane.putc(&cell) catch {};
 }
 
-fn on_resize_menu(self: *Self, state: *Menu.State(*Self), box: Widget.Box) void {
-    const w = @min(box.w, @min(self.longest, max_menu_width) + 2);
-    self.menu.resize(.{
-        .y = 0,
-        .x = box.w - w / 2,
-        .h = state.menu.widgets.items.len,
-        .w = w,
-    });
+fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
+    self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
 }
 
 fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {

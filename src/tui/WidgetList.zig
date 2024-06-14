@@ -179,15 +179,15 @@ fn refresh_layout(self: *Self) void {
     return if (self.box) |box| self.handle_resize(box);
 }
 
-pub fn resize(self: *Self, pos: Widget.Box) void {
-    return self.on_resize(self.ctx, self, pos);
+pub fn handle_resize(self: *Self, pos: Widget.Box) void {
+    self.on_resize(self.ctx, self, pos);
 }
 
 fn on_resize_default(_: ?*anyopaque, self: *Self, pos: Widget.Box) void {
-    self.handle_resize(pos);
+    self.resize(pos);
 }
 
-pub fn handle_resize(self: *Self, pos_: Widget.Box) void {
+pub fn resize(self: *Self, pos_: Widget.Box) void {
     self.box = pos_;
     var pos = pos_;
     const total = self.get_size_a(&pos).*;
