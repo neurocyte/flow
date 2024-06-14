@@ -126,6 +126,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
+            'P' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
             'D' => self.cmd("dupe_down", .{}),
             'Z' => self.cmd("redo", .{}),
             'Q' => self.cmd("quit_without_saving", .{}),

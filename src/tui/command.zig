@@ -71,7 +71,7 @@ pub fn Closure(comptime T: type) type {
 }
 
 const CommandTable = std.ArrayList(?*Vtable);
-var commands: CommandTable = CommandTable.init(command_table_allocator);
+pub var commands: CommandTable = CommandTable.init(command_table_allocator);
 var command_names: std.StringHashMap(ID) = std.StringHashMap(ID).init(command_table_allocator);
 const command_table_allocator = std.heap.c_allocator;
 

@@ -582,7 +582,10 @@ const cmds = struct {
             return tp.exit_error(error.InvalidArgument);
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
-        self.input_mode = if (std.mem.eql(u8, mode, "open_recent")) ret: {
+        self.input_mode = if (std.mem.eql(u8, mode, "command_palette")) ret: {
+            self.input_mode_outer = self.input_mode;
+            break :ret @import("mode/overlay/command_palette.zig").create(self.a) catch |e| return tp.exit_error(e);
+        } else if (std.mem.eql(u8, mode, "open_recent")) ret: {
             self.input_mode_outer = self.input_mode;
             break :ret @import("mode/overlay/open_recent.zig").create(self.a) catch |e| return tp.exit_error(e);
         } else {
