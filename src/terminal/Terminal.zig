@@ -266,9 +266,8 @@ fn run(self: *Terminal) !void {
         self.back_mutex.lock();
         defer self.back_mutex.unlock();
 
-        defer if (!self.dirty and self.event_queue.tryPush(.redraw)) {
+        if (!self.dirty and self.event_queue.tryPush(.redraw))
             self.dirty = true;
-        };
 
         switch (event) {
             .print => |str| {
@@ -303,11 +302,11 @@ fn run(self: *Terminal) !void {
                     },
                     // Reverse Index
                     'M' => try self.back_screen.reverseIndex(),
-                    else => std.log.err("unhandled escape: {s}", .{esc}),
+                    else => log.info("unhandled escape: {s}", .{esc}),
                 }
             },
-            .ss2 => |ss2| std.log.err("unhandled ss2: {c}", .{ss2}),
-            .ss3 => |ss3| std.log.err("unhandled ss3: {c}", .{ss3}),
+            .ss2 => |ss2| log.info("unhandled ss2: {c}", .{ss2}),
+            .ss3 => |ss3| log.info("unhandled ss3: {c}", .{ss3}),
             .csi => |seq| {
                 switch (seq.final) {
                     // Cursor up
@@ -505,7 +504,7 @@ fn run(self: *Terminal) !void {
                                 // Secondary
                                 '>' => try self.anyWriter().writeAll("\x1B[>1;69;0c"),
                                 '=' => try self.anyWriter().writeAll("\x1B[=0000c"),
-                                else => std.log.err("unhandled CSI: {}", .{seq}),
+                                else => log.info("unhandled CSI: {}", .{seq}),
                             }
                         } else {
                             // Primary
@@ -552,7 +551,7 @@ fn run(self: *Terminal) !void {
                                 }
                             },
                             3 => self.tab_stops.clearAndFree(),
-                            else => std.log.err("unhandled CSI: {}", .{seq}),
+                            else => log.info("unhandled CSI: {}", .{seq}),
                         }
                     },
                     'h', 'l' => {
@@ -579,7 +578,7 @@ fn run(self: *Terminal) !void {
                                     self.back_screen.cursor.row + 1,
                                     self.back_screen.cursor.col + 1,
                                 }),
-                                else => std.log.err("unhandled CSI: {}", .{seq}),
+                                else => log.info("unhandled CSI: {}", .{seq}),
                             }
                         }
                     },
@@ -598,7 +597,7 @@ fn run(self: *Terminal) !void {
                                         },
                                     }
                                 },
-                                else => std.log.err("unhandled CSI: {}", .{seq}),
+                                else => log.info("unhandled CSI: {}", .{seq}),
                             }
                         }
                     },
@@ -620,7 +619,7 @@ fn run(self: *Terminal) !void {
                                     "\x1bP>|libvaxis {s}\x1B\\",
                                     .{"dev"},
                                 ),
-                                else => std.log.err("unhandled CSI: {}", .{seq}),
+                                else => log.info("unhandled CSI: {}", .{seq}),
                             }
                         }
                     },
@@ -648,16 +647,16 @@ fn run(self: *Terminal) !void {
                             self.back_screen.cursor.row = 0;
                         }
                     },
-                    else => std.log.err("unhandled CSI: {}", .{seq}),
+                    else => log.info("unhandled CSI: {}", .{seq}),
                 }
             },
             .osc => |osc| {
                 const semicolon = std.mem.indexOfScalar(u8, osc, ';') orelse {
-                    std.log.err("unhandled osc: {s}", .{osc});
+                    log.info("unhandled osc: {s}", .{osc});
                     continue;
                 };
                 const ps = std.fmt.parseUnsigned(u8, osc[0..semicolon], 10) catch {
-                    std.log.err("unhandled osc: {s}", .{osc});
+                    log.info("unhandled osc: {s}", .{osc});
                     continue;
                 };
                 switch (ps) {
@@ -666,10 +665,10 @@ fn run(self: *Terminal) !void {
                         try self.title.appendSlice(osc[semicolon + 1 ..]);
                         self.event_queue.push(.title_change);
                     },
-                    else => std.log.err("unhandled osc: {s}", .{osc}),
+                    else => log.info("unhandled osc: {s}", .{osc}),
                 }
             },
-            .apc => |apc| std.log.err("unhandled apc: {s}", .{apc}),
+            .apc => |apc| log.info("unhandled apc: {s}", .{apc}),
         }
     }
 }
