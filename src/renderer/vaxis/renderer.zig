@@ -407,11 +407,7 @@ const Loop = struct {
     /// spawns the input thread to read input from the tty
     pub fn start(self: *Loop) !void {
         if (self.thread) |_| return;
-        self.thread = try std.Thread.spawn(.{}, Loop.ttyRun, .{
-            self,
-            &self.vaxis.unicode.grapheme_data,
-            self.vaxis.opts.system_clipboard_allocator,
-        });
+        self.thread = try std.Thread.spawn(.{}, Loop.ttyRun, .{self});
     }
 
     /// stops reading from the tty.
@@ -444,12 +440,7 @@ const Loop = struct {
         self.pid.send(.{ "VXS", std.mem.asBytes(&event) }) catch @panic("send VXS event failed");
     }
 
-    /// read input from the tty. This is run in a separate thread
-    fn ttyRun(
-        self: *Loop,
-        grapheme_data: *const vaxis.grapheme.GraphemeData,
-        paste_allocator: ?std.mem.Allocator,
-    ) !void {
+    fn ttyRun(self: *Loop) !void {
         switch (builtin.os.tag) {
             .windows => {
                 while (!self.should_quit) {
@@ -457,41 +448,50 @@ const Loop = struct {
                 }
             },
             else => {
-                // get our initial winsize
                 const winsize = try vaxis.Tty.getWinsize(self.tty.fd);
                 if (@hasField(Event, "winsize")) {
                     self.postEvent(.{ .winsize = winsize });
                 }
 
                 var parser: vaxis.Parser = .{
-                    .grapheme_data = grapheme_data,
+                    .grapheme_data = &self.vaxis.unicode.grapheme_data,
                 };
 
-                // initialize the read buffer
-                var buf: [1024]u8 = undefined;
-                var read_start: usize = 0;
-                // read loop
-                while (!self.should_quit) {
-                    const n = try self.tty.read(buf[read_start..]);
-                    var seq_start: usize = 0;
-                    while (seq_start < n) {
-                        const result = try parser.parse(buf[seq_start..n], paste_allocator);
-                        if (result.n == 0) {
-                            // copy the read to the beginning. We don't use memcpy because
-                            // this could be overlapping, and it's also rare
-                            const initial_start = seq_start;
-                            while (seq_start < n) : (seq_start += 1) {
-                                buf[seq_start - initial_start] = buf[seq_start];
-                            }
-                            read_start = seq_start - initial_start + 1;
-                            continue;
-                        }
-                        read_start = 0;
-                        seq_start += result.n;
+                const a = self.vaxis.opts.system_clipboard_allocator orelse @panic("no tty allocator");
 
-                        const event = result.event orelse continue;
-                        self.postEvent(event);
+                var buf = try a.alloc(u8, 512);
+                defer a.free(buf);
+                var n: usize = 0;
+                var need_read = false;
+
+                while (!self.should_quit) {
+                    if (n >= buf.len) {
+                        const buf_grow = try a.alloc(u8, buf.len * 2);
+                        @memcpy(buf_grow[0..buf.len], buf);
+                        a.free(buf);
+                        buf = buf_grow;
                     }
+                    if (n == 0 or need_read) {
+                        const n_ = try self.tty.read(buf[n..]);
+                        n = n + n_;
+                        need_read = false;
+                    }
+                    const result = try parser.parse(buf[0..n], a);
+                    if (result.n == 0) {
+                        need_read = true;
+                        continue;
+                    }
+                    if (result.n < n) {
+                        const buf_move = try a.alloc(u8, buf.len);
+                        @memcpy(buf_move[0 .. n - result.n], buf[result.n..n]);
+                        a.free(buf);
+                        buf = buf_move;
+                        n = n - result.n;
+                    } else {
+                        n = 0;
+                    }
+                    const event = result.event orelse continue;
+                    self.postEvent(event);
                 }
             },
         }
