@@ -298,6 +298,7 @@ pub const Editor = struct {
         self.last_find_query = if (query.len > 0) try self.a.dupe(u8, clipboard) else null;
         if (!try self.view.extract(&view_cbor))
             return error.RestoreView;
+        self.scroll_dest = self.view.row;
         if (!try self.get_primary().cursor.extract(&primary_cbor))
             return error.RestoreCursor;
         var len = cbor.decodeArrayHeader(&find_history) catch return error.RestoryFindHistory;
