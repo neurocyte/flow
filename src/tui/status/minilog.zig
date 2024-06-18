@@ -13,7 +13,8 @@ const logview = @import("../logview.zig");
 parent: Plane,
 plane: Plane,
 msg: std.ArrayList(u8),
-clear_time: i64 = 0,
+msg_counter: usize = 0,
+clear_timer: ?tp.Cancellable = null,
 level: Level = .info,
 
 const message_display_time_seconds = 2;
@@ -39,6 +40,11 @@ pub fn create(a: std.mem.Allocator, parent: Plane) !Widget {
 }
 
 pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+    if (self.clear_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.clear_timer = null;
+    }
     self.msg.deinit();
     log.unsubscribe() catch {};
     tui.current().message_filters.remove_ptr(self);
@@ -59,19 +65,18 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.home();
     self.plane.set_style(if (self.level == .err) style_error else style_info);
     _ = self.plane.print(" {s} ", .{self.msg.items}) catch {};
-
-    const curr_time = std.time.milliTimestamp();
-    if (curr_time < self.clear_time)
-        return true;
-
-    if (self.msg.items.len > 0) self.clear();
     return false;
 }
 
 fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    var clear_msg_num: usize = 0;
     if (try m.match(.{ "log", tp.more })) {
         logview.process_log(m) catch |e| return tp.exit_error(e);
         self.process_log(m) catch |e| return tp.exit_error(e);
+        return true;
+    } else if (try m.match(.{ "MINILOG", tp.extract(&clear_msg_num) })) {
+        if (clear_msg_num == self.msg_counter)
+            self.clear();
         return true;
     }
     return false;
@@ -92,14 +97,20 @@ fn process_log(self: *Self, m: tp.message) !void {
         var s = std.json.writeStream(self.msg.writer(), .{});
         var iter: []const u8 = m.buf;
         try @import("cbor").JsonStream(@TypeOf(self.msg)).jsonWriteValue(&s, &iter);
-        self.update_clear_time();
         Widget.need_render();
+        try self.update_clear_timer();
     }
 }
 
-fn update_clear_time(self: *Self) void {
-    const delay: i64 = std.time.ms_per_s * @as(i64, if (self.level == .err) error_display_time_seconds else message_display_time_seconds);
-    self.clear_time = std.time.milliTimestamp() + delay;
+fn update_clear_timer(self: *Self) !void {
+    self.msg_counter += 1;
+    const delay = std.time.us_per_s * @as(u64, if (self.level == .err) error_display_time_seconds else message_display_time_seconds);
+    if (self.clear_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.clear_timer = null;
+    }
+    self.clear_timer = try tp.self_pid().delay_send_cancellable(self.msg.allocator, delay, .{ "MINILOG", self.msg_counter });
 }
 
 fn set(self: *Self, msg: []const u8, level: Level) !void {
@@ -107,13 +118,16 @@ fn set(self: *Self, msg: []const u8, level: Level) !void {
     self.msg.clearRetainingCapacity();
     try self.msg.appendSlice(msg);
     self.level = level;
-    self.update_clear_time();
     Widget.need_render();
+    try self.update_clear_timer();
 }
 
 fn clear(self: *Self) void {
+    if (self.clear_timer) |*t| {
+        t.deinit();
+        self.clear_timer = null;
+    }
     self.level = .info;
     self.msg.clearRetainingCapacity();
-    self.clear_time = 0;
     Widget.need_render();
 }
