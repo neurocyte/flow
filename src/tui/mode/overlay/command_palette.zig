@@ -47,7 +47,6 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
     };
     try self.commands.init(self);
     try self.start_query();
-    self.menu.resize(.{ .y = 0, .x = 25, .w = 32 });
     try mv.floating_views.add(self.menu.menu_widget);
     return .{
         .handler = EventHandler.to_owned(self),
@@ -98,6 +97,10 @@ fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !vo
 }
 
 fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
+    self.do_resize();
+}
+
+fn do_resize(self: *Self) void {
     self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
 }
 
@@ -154,6 +157,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
+            'P' => self.cmd("exit_overlay_mode", .{}),
             'Q' => self.cmd("quit_without_saving", .{}),
             'W' => self.cmd("close_file_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
@@ -198,9 +202,14 @@ fn mapRelease(self: *Self, keypress: u32, _: u32) tp.result {
 }
 
 fn start_query(self: *Self) tp.result {
+    self.menu.reset_items();
+    self.menu.selected = null;
     for (command.commands.items) |cmd_|
-        if (cmd_) |p|
+        if (cmd_) |p| {
             self.add_item(p.name, null) catch |e| return tp.exit_error(e);
+            self.longest = @max(self.longest, p.name.len);
+        };
+    self.do_resize();
 }
 
 fn add_item(self: *Self, command_name: []const u8, matches: ?[]const u8) !void {
