@@ -32,6 +32,7 @@ const log = std.log.scoped(.terminal);
 pub const Options = struct {
     scrollback_size: usize = 500,
     winsize: Winsize = .{ .rows = 24, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
+    initial_working_directory: ?[]const u8 = null,
 };
 
 pub const Mode = struct {
@@ -97,6 +98,7 @@ pub fn init(
         .argv = argv,
         .env_map = env,
         .pty = pty,
+        .working_directory = opts.initial_working_directory,
     };
     var tabs = try std.ArrayList(u16).initCapacity(allocator, opts.winsize.cols / 8);
     var col: u16 = 0;

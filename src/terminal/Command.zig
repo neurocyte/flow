@@ -9,6 +9,8 @@ const posix = std.posix;
 
 argv: []const []const u8,
 
+working_directory: ?[]const u8,
+
 // Set after spawn()
 pid: ?std.posix.pid_t = null,
 
@@ -43,6 +45,10 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
         posix.close(self.pty.tty);
         if (self.pty.pty > 2) posix.close(self.pty.pty);
+
+        if (self.working_directory) |wd| {
+            try std.posix.chdir(wd);
+        }
 
         // exec
         const err = std.posix.execvpeZ(argv_buf.ptr[0].?, argv_buf.ptr, envp);
