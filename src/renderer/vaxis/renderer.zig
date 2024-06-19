@@ -143,7 +143,7 @@ pub fn leave_alternate_screen(self: *Self) void {
     self.vx.exitAltScreen() catch {};
 }
 
-pub fn process_input_event(self: *Self, input_: []const u8) !void {
+pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !void {
     const event = std.mem.bytesAsValue(vaxis.Event, input_);
     switch (event.*) {
         .key_press => |key__| {
@@ -154,7 +154,7 @@ pub fn process_input_event(self: *Self, input_: []const u8) !void {
                 event_type.PRESS,
                 key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
-                key_.text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
+                text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
                 @as(u8, @bitCast(key_.mods)),
             });
             if (self.bracketed_paste and self.handle_bracketed_paste_input(cbor_msg) catch |e| {
@@ -170,7 +170,7 @@ pub fn process_input_event(self: *Self, input_: []const u8) !void {
                 event_type.RELEASE,
                 key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
-                key_.text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
+                text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
                 @as(u8, @bitCast(key_.mods)),
             });
             if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
@@ -230,8 +230,7 @@ pub fn process_input_event(self: *Self, input_: []const u8) !void {
             self.bracketed_paste_buffer.clearRetainingCapacity();
         },
         .paste_end => try self.handle_bracketed_paste_end(),
-        .paste => |text| {
-            defer self.a.free(text);
+        .paste => |_| {
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
         },
         .color_report => {},
@@ -388,7 +387,6 @@ const Loop = struct {
 
     thread: ?std.Thread = null,
     should_quit: bool = false,
-    cache: vaxis.GraphemeCache = .{},
 
     const tp = @import("thespian");
 
@@ -424,20 +422,24 @@ const Loop = struct {
     }
 
     fn postEvent(self: *Loop, event: vaxis.Event) void {
+        var text: []const u8 = "";
+        var free_text: bool = false;
         switch (event) {
             .key_press => |key_| {
-                var mut_key = key_;
-                if (key_.text) |text|
-                    mut_key.text = self.cache.put(text);
+                if (key_.text) |text_| text = text_;
             },
             .key_release => |key_| {
-                var mut_key = key_;
-                if (key_.text) |text|
-                    mut_key.text = self.cache.put(text);
+                if (key_.text) |text_| text = text_;
+            },
+            .paste => |text_| {
+                text = text_;
+                free_text = true;
             },
             else => {},
         }
-        self.pid.send(.{ "VXS", std.mem.asBytes(&event) }) catch @panic("send VXS event failed");
+        self.pid.send(.{ "VXS", std.mem.asBytes(&event), text }) catch @panic("send VXS event failed");
+        if (free_text)
+            self.vaxis.opts.system_clipboard_allocator.?.free(text);
     }
 
     fn ttyRun(self: *Loop) !void {
@@ -481,6 +483,7 @@ const Loop = struct {
                         need_read = true;
                         continue;
                     }
+                    if (result.event) |event| self.postEvent(event);
                     if (result.n < n) {
                         const buf_move = try a.alloc(u8, buf.len);
                         @memcpy(buf_move[0 .. n - result.n], buf[result.n..n]);
@@ -490,8 +493,6 @@ const Loop = struct {
                     } else {
                         n = 0;
                     }
-                    const event = result.event orelse continue;
-                    self.postEvent(event);
                 }
             },
         }

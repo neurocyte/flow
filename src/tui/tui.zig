@@ -179,8 +179,9 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 
 fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     var input: []const u8 = undefined;
-    if (try m.match(.{ "VXS", tp.extract(&input) })) {
-        self.rdr.process_input_event(input) catch |e| return tp.exit_error(e);
+    var text: []const u8 = undefined;
+    if (try m.match(.{ "VXS", tp.extract(&input), tp.extract(&text) })) {
+        self.rdr.process_input_event(input, if (text.len > 0) text else null) catch |e| return tp.exit_error(e);
         try self.dispatch_flush_input_event();
         if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
             need_render();
