@@ -58,10 +58,11 @@ fn render_separator(self: *Button.State(void), theme: *const Widget.Theme) void 
 }
 
 fn on_click(_: *void, _: *Button.State(void)) void {
-    command.executeName(if (is_mini_mode())
-        "exit_mini_mode"
-    else if (is_overlay_mode())
-        "exit_overlay_mode"
-    else
-        "toggle_input_mode", .{}) catch {};
+    if (is_mini_mode()) {
+        command.executeName("exit_mini_mode", .{}) catch {};
+    } else if (is_overlay_mode()) {
+        command.executeName("exit_overlay_mode", .{}) catch {};
+    } else {
+        command.executeName("enter_overlay_mode", command.fmt(.{"command_palette"})) catch {};
+    }
 }
