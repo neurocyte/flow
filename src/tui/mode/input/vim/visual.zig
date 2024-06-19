@@ -188,6 +188,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.BACKSPACE => self.cmd("delete_backward", .{}),
             key.TAB => self.cmd("unindent", .{}),
 
+            ';' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
             'N' => self.cmd("goto_prev_match", .{}),
             'A' => self.seq(.{ "move_end", "enter_mode" }, command.fmt(.{"vim/insert"})),
             '4' => self.cmd("select_end", .{}),
@@ -223,6 +224,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.DEL => self.cmd("delete_forward", .{}),
             key.BACKSPACE => self.cmd("delete_backward", .{}),
 
+            ':' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
             'i' => self.cmd("enter_mode", command.fmt(.{"vim/insert"})),
             'a' => self.seq(.{ "move_right", "enter_mode" }, command.fmt(.{"vim/insert"})),
             'v' => self.cmd("enter_mode", command.fmt(.{"vim/visual"})),
