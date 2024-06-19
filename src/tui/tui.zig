@@ -502,24 +502,6 @@ const cmds = struct {
         try tp.self_pid().send("restart");
     }
 
-    pub fn log_widgets(self: *Self, _: Ctx) tp.result {
-        const l = log.logger("z stack");
-        defer l.deinit();
-        var buf: [256]u8 = undefined;
-        var z: i32 = 0;
-        var n = self.rdr.stdplane();
-        while (n.below()) |n_| : (n = n_) {
-            z -= 1;
-            l.print("{d} {s}", .{ z, n_.name(&buf) });
-        }
-        z = 0;
-        n = self.rdr.stdplane();
-        while (n.above()) |n_| : (n = n_) {
-            z += 1;
-            l.print("{d} {s}", .{ z, n_.name(&buf) });
-        }
-    }
-
     pub fn theme_next(self: *Self, _: Ctx) tp.result {
         self.theme = get_next_theme_by_name(self.theme.name);
         self.config.theme = self.theme.name;
