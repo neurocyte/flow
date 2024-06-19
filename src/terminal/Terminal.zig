@@ -20,7 +20,8 @@ pub const Event = union(enum) {
     exited,
     redraw,
     bell,
-    title_change,
+    title_change: []const u8,
+    pwd_change: []const u8,
 };
 
 const grapheme = @import("grapheme");
@@ -78,6 +79,7 @@ mode: Mode = .{},
 
 tab_stops: std.ArrayList(u16),
 title: std.ArrayList(u8),
+working_directory: std.ArrayList(u8),
 
 last_printed: []const u8 = "",
 
@@ -116,6 +118,7 @@ pub fn init(
         .unicode = unicode,
         .tab_stops = tabs,
         .title = std.ArrayList(u8).init(allocator),
+        .working_directory = std.ArrayList(u8).init(allocator),
     };
 }
 
@@ -148,6 +151,7 @@ pub fn deinit(self: *Terminal) void {
     self.back_screen_alt.deinit(self.allocator);
     self.tab_stops.deinit();
     self.title.deinit();
+    self.working_directory.deinit();
 }
 
 pub fn spawn(self: *Terminal) !void {
@@ -665,7 +669,27 @@ fn run(self: *Terminal) !void {
                     0 => {
                         self.title.clearRetainingCapacity();
                         try self.title.appendSlice(osc[semicolon + 1 ..]);
-                        self.event_queue.push(.title_change);
+                        self.event_queue.push(.{ .title_change = self.title.items });
+                    },
+                    7 => {
+                        // OSC 7 ; file:// <hostname> <pwd>
+                        log.err("osc: {s}", .{osc});
+                        self.working_directory.clearRetainingCapacity();
+                        const scheme = "file://";
+                        const start = std.mem.indexOfScalarPos(u8, osc, semicolon + 2 + scheme.len + 1, '/') orelse {
+                            log.info("unknown OSC 7 format: {s}", .{osc});
+                            continue;
+                        };
+                        const enc = osc[start..];
+                        var i: usize = 0;
+                        while (i < enc.len) : (i += 1) {
+                            const b = if (enc[i] == '%') blk: {
+                                defer i += 2;
+                                break :blk try std.fmt.parseUnsigned(u8, enc[i + 1 .. i + 3], 16);
+                            } else enc[i];
+                            try self.working_directory.append(b);
+                        }
+                        self.event_queue.push(.{ .pwd_change = self.working_directory.items });
                     },
                     else => log.info("unhandled osc: {s}", .{osc}),
                 }
