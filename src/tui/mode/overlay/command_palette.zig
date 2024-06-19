@@ -2,9 +2,9 @@ const std = @import("std");
 const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
+const fuzzig = @import("fuzzig");
 
 const Plane = @import("renderer").Plane;
-const planeutils = @import("renderer").planeutils;
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
@@ -13,20 +13,16 @@ const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const tui = @import("../../tui.zig");
 const command = @import("../../command.zig");
 const EventHandler = @import("../../EventHandler.zig");
-const MessageFilter = @import("../../MessageFilter.zig");
 const Button = @import("../../Button.zig");
 const InputBox = @import("../../InputBox.zig");
 const Menu = @import("../../Menu.zig");
 const Widget = @import("../../Widget.zig");
 const mainview = @import("../../mainview.zig");
-const project_manager = @import("project_manager");
 
 const Self = @This();
-const max_recent_files: usize = 25;
 const max_menu_width = 80;
 
 a: std.mem.Allocator,
-f: usize = 0,
 menu: *Menu.State(*Self),
 inputbox: *InputBox.State(*Self),
 logger: log.Logger,
@@ -204,20 +200,67 @@ fn mapRelease(self: *Self, keypress: u32, _: u32) tp.result {
 fn start_query(self: *Self) tp.result {
     self.menu.reset_items();
     self.menu.selected = null;
-    for (command.commands.items) |cmd_|
-        if (cmd_) |p| {
+    for (command.commands.items) |cmd_| if (cmd_) |p| {
+        self.longest = @max(self.longest, p.name.len);
+    };
+
+    if (self.inputbox.text.items.len == 0) {
+        for (command.commands.items) |cmd_| if (cmd_) |p| {
             self.add_item(p.name, null) catch |e| return tp.exit_error(e);
-            self.longest = @max(self.longest, p.name.len);
         };
+    } else {
+        _ = self.query_commands(self.inputbox.text.items) catch |e| return tp.exit_error(e);
+    }
     self.do_resize();
 }
 
-fn add_item(self: *Self, command_name: []const u8, matches: ?[]const u8) !void {
+fn query_commands(self: *Self, query: []const u8) error{OutOfMemory}!usize {
+    var searcher = try fuzzig.Ascii.init(
+        self.a,
+        self.longest, // haystack max size
+        self.longest, // needle max size
+        .{ .case_sensitive = false },
+    );
+    defer searcher.deinit();
+
+    const Match = struct {
+        name: []const u8,
+        score: i32,
+        matches: []const usize,
+    };
+    var matches = std.ArrayList(Match).init(self.a);
+
+    for (command.commands.items) |cmd_| if (cmd_) |c| {
+        const match = searcher.scoreMatches(c.name, query);
+        if (match.score) |score| {
+            (try matches.addOne()).* = .{
+                .name = c.name,
+                .score = score,
+                .matches = try self.a.dupe(usize, match.matches),
+            };
+        }
+    };
+    if (matches.items.len == 0) return 0;
+
+    const less_fn = struct {
+        fn less_fn(_: void, lhs: Match, rhs: Match) bool {
+            return lhs.score > rhs.score;
+        }
+    }.less_fn;
+    std.mem.sort(Match, matches.items, {}, less_fn);
+
+    for (matches.items) |match|
+        try self.add_item(match.name, match.matches);
+    return matches.items.len;
+}
+
+fn add_item(self: *Self, command_name: []const u8, matches: ?[]const usize) !void {
     var label = std.ArrayList(u8).init(self.a);
     defer label.deinit();
     const writer = label.writer();
     try cbor.writeValue(writer, command_name);
-    if (matches) |cb| _ = try writer.write(cb);
+    if (matches) |matches_|
+        try cbor.writeValue(writer, matches_);
     try self.menu.add_item_with_handler(label.items, menu_action_execute_command);
 }
 

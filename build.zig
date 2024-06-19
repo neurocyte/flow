@@ -206,6 +206,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "diff", .module = diff_mod },
             .{ .name = "help.md", .module = help_mod },
             .{ .name = "CaseData", .module = zg_dep.module("CaseData") },
+            .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
         },
     });
 
