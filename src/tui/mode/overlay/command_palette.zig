@@ -211,6 +211,7 @@ fn start_query(self: *Self) tp.result {
     } else {
         _ = self.query_commands(self.inputbox.text.items) catch |e| return tp.exit_error(e);
     }
+    self.menu.select_down();
     self.do_resize();
 }
 
