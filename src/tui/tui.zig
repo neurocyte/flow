@@ -664,6 +664,11 @@ pub fn get_mode() []const u8 {
     return if (current().input_mode) |m| m.name else "INI";
 }
 
+pub fn reset_drag_context() void {
+    const self = current();
+    self.drag_source = null;
+}
+
 pub fn need_render() void {
     const self = current();
     if (!(self.render_pending or self.frame_clock_running)) {

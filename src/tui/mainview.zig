@@ -166,6 +166,7 @@ const cmds = struct {
     }
 
     pub fn navigate(self: *Self, ctx: Ctx) tp.result {
+        tui.reset_drag_context();
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });
         defer frame.deinit();
         var file: ?[]const u8 = null;
@@ -231,6 +232,7 @@ const cmds = struct {
     }
 
     pub fn open_help(self: *Self, _: Ctx) tp.result {
+        tui.reset_drag_context();
         try self.create_editor();
         try command.executeName("open_scratch_buffer", command.fmt(.{ "help.md", @embedFile("help.md") }));
         tui.need_render();
@@ -426,6 +428,7 @@ fn show_home_async(_: *Self) void {
 }
 
 fn create_home(self: *Self) tp.result {
+    tui.reset_drag_context();
     if (self.editor) |_| return;
     var home_widget = home.create(self.a, Widget.to(self)) catch |e| return tp.exit_error(e);
     errdefer home_widget.deinit(self.a);
