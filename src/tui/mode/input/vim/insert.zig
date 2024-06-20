@@ -82,7 +82,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     }
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
-            'E' => self.cmd("enter_overlay_mode", command.fmt(.{"open_recent"})),
+            'E' => self.cmd("open_recent", .{}),
             'U' => self.cmd("move_scroll_page_up", .{}),
             'D' => self.cmd("move_scroll_page_down", .{}),
             'J' => self.cmd("toggle_logview", .{}),
@@ -123,7 +123,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
-            'P' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
+            'P' => self.cmd("open_command_palette", .{}),
             'D' => self.cmd("dupe_down", .{}),
             'Z' => self.cmd("redo", .{}),
             'Q' => self.cmd("quit_without_saving", .{}),
@@ -132,7 +132,6 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'F' => self.cmd("enter_find_in_files_mode", .{}),
             'L' => self.cmd_async("add_cursor_all_matches"),
             'I' => self.cmd_async("toggle_inspector_view"),
-            '/' => self.cmd("log_widgets", .{}),
             key.ENTER => self.cmd("smart_insert_line_before", .{}),
             key.END => self.cmd("select_buffer_end", .{}),
             key.HOME => self.cmd("select_buffer_begin", .{}),

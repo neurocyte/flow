@@ -63,6 +63,6 @@ fn on_click(_: *void, _: *Button.State(void)) void {
     } else if (is_overlay_mode()) {
         command.executeName("exit_overlay_mode", .{}) catch {};
     } else {
-        command.executeName("enter_overlay_mode", command.fmt(.{"command_palette"})) catch {};
+        command.executeName("open_command_palette", .{}) catch {};
     }
 }

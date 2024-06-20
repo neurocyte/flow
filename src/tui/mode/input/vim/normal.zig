@@ -35,6 +35,7 @@ pub fn create(a: Allocator) !tui.Mode {
         .name = root.application_logo ++ "NORMAL",
         .description = "vim",
         .line_numbers = if (tui.current().config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
+        .keybind_hints = &hints,
     };
 }
 
@@ -74,6 +75,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) t
 }
 
 fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
+    if (self.count > 0 and modifiers == 0 and '0' <= keypress and keypress <= '9') return self.add_count(keypress - '0');
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     if (self.leader) |_| return self.mapFollower(keynormal, egc, modifiers);
     switch (keypress) {
@@ -83,7 +85,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     }
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
-            'E' => self.cmd("enter_overlay_mode", command.fmt(.{"open_recent"})),
+            'E' => self.cmd("open_recent", .{}),
             'U' => self.cmd("move_scroll_page_up", .{}),
             'D' => self.cmd("move_scroll_page_down", .{}),
             'R' => self.cmd("redo", .{}),
@@ -126,7 +128,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
-            'P' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
+            'P' => self.cmd("open_command_palette", .{}),
             'D' => self.cmd("dupe_down", .{}),
             'Z' => self.cmd("redo", .{}),
             'Q' => self.cmd("quit_without_saving", .{}),
@@ -135,7 +137,6 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'F' => self.cmd("enter_find_in_files_mode", .{}),
             'L' => self.cmd_async("add_cursor_all_matches"),
             'I' => self.cmd_async("toggle_inspector_view"),
-            '/' => self.cmd("log_widgets", .{}),
             key.ENTER => self.cmd("smart_insert_line_before", .{}),
             key.END => self.cmd("select_buffer_end", .{}),
             key.HOME => self.cmd("select_buffer_begin", .{}),
@@ -166,8 +167,6 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {
             'D' => self.cmd("dupe_up", .{}),
-            // 'B' => self.cmd("select_word_left", .{}),
-            // 'F' => self.cmd("select_word_right", .{}),
             'F' => self.cmd("filter", command.fmt(.{ "zig", "fmt", "--stdin" })),
             'S' => self.cmd("filter", command.fmt(.{ "sort", "-u" })),
             'V' => self.cmd("paste", .{}),
@@ -192,11 +191,11 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.BACKSPACE => self.cmd("delete_backward", .{}),
             key.TAB => self.cmd("unindent", .{}),
 
-            ';' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
-            'N' => self.cmd("goto_prev_match", .{}),
-            'A' => self.seq(.{ "move_end", "enter_mode" }, command.fmt(.{"vim/insert"})),
+            ';' => self.cmd("open_command_palette", .{}),
+            'n' => self.cmd("goto_prev_match", .{}),
+            'a' => self.seq(.{ "move_end", "enter_mode" }, command.fmt(.{"vim/insert"})),
             '4' => self.cmd("move_end", .{}),
-            'G' => if (self.count == 0)
+            'g' => if (self.count == 0)
                 self.cmd("move_buffer_end", .{})
             else {
                 const count = self.count;
@@ -206,7 +205,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
                     try self.cmd_count("move_down", .{});
             },
 
-            'O' => self.seq(.{ "smart_insert_line_before", "enter_mode" }, command.fmt(.{"vim/insert"})),
+            'o' => self.seq(.{ "smart_insert_line_before", "enter_mode" }, command.fmt(.{"vim/insert"})),
 
             else => {},
         },
@@ -228,7 +227,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.DEL => self.cmd("delete_forward", .{}),
             key.BACKSPACE => self.cmd("delete_backward", .{}),
 
-            ':' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
+            ':' => self.cmd("open_command_palette", .{}),
             'i' => self.cmd("enter_mode", command.fmt(.{"vim/insert"})),
             'a' => self.seq(.{ "move_right", "enter_mode" }, command.fmt(.{"vim/insert"})),
             'v' => self.cmd("enter_mode", command.fmt(.{"vim/visual"})),
@@ -296,49 +295,6 @@ fn mapFollower(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
         keypress == key.RSHIFT or
         keypress == key.LSUPER or
         keypress == key.RSUPER) return;
-
-    switch (modifiers) {
-        0 => switch (keypress) {
-            '1' => {
-                self.add_count(1);
-                return;
-            },
-            '2' => {
-                self.add_count(2);
-                return;
-            },
-            '3' => {
-                self.add_count(3);
-                return;
-            },
-            '4' => {
-                self.add_count(4);
-                return;
-            },
-            '5' => {
-                self.add_count(5);
-                return;
-            },
-            '6' => {
-                self.add_count(6);
-                return;
-            },
-            '7' => {
-                self.add_count(7);
-                return;
-            },
-            '8' => {
-                self.add_count(8);
-                return;
-            },
-            '9' => {
-                self.add_count(9);
-                return;
-            },
-            else => {},
-        },
-        else => {},
-    }
 
     defer self.leader = null;
     const ldr = if (self.leader) |leader| leader else return;
@@ -531,3 +487,117 @@ fn seq_count(self: *Self, cmds: anytype, ctx: command.Context) tp.result {
         inline for (fields_info) |field_info|
             try self.cmd(@field(cmds, field_info.name), ctx);
 }
+
+const hints = tui.KeybindHints.initComptime(.{
+    .{ "add_cursor_all_matches", "C-S-l" },
+    .{ "add_cursor_down", "S-A-down" },
+    .{ "add_cursor_next_match", "C-d" },
+    .{ "add_cursors_to_line_ends", "S-A-i" },
+    .{ "add_cursor_up", "S-A-up" },
+    .{ "cancel", "esc" },
+    .{ "close_file", "C-w" },
+    .{ "close_file_without_saving", "C-S-w" },
+    .{ "copy", "C-c" },
+    .{ "cut", "C-x" },
+    .{ "delete_backward", "backspace" },
+    .{ "delete_forward", "del, x" },
+    .{ "delete_to_begin", "C-k C-u" },
+    .{ "delete_to_end", "C-k C-k, d $" },
+    .{ "delete_word_left", "C-backspace" },
+    .{ "delete_word_right", "C-del" },
+    .{ "dump_current_line", "F7" },
+    .{ "dump_current_line_tree", "F6" },
+    .{ "dupe_down", "C-S-d" },
+    .{ "dupe_up", "S-A-d" },
+    .{ "enable_fast_scroll", "hold Ctrl" },
+    .{ "enable_jump_mode", "hold Alt" },
+    .{ "enter_find_in_files_mode", "C-S-f" },
+    .{ "enter_find_mode", "C-f, /" },
+    .{ "enter_goto_mode", "C-g" },
+    .{ "enter_move_to_char_mode", "C-b, C-t" }, // true/false
+    .{ "enter_open_file_mode", "C-o" },
+    .{ "filter", "A-s" }, // self.cmd("filter", command.fmt(.{"sort"})),
+    // .{ "filter", "S-A-s" }, // self.cmd("filter", command.fmt(.{ "sort", "-u" })),
+    .{ "format", "S-A-f" },
+    .{ "goto_definition", "F12" },
+    .{ "goto_next_diagnostic", "A-n" },
+    .{ "goto_next_match", "C-n, F3, n" },
+    .{ "goto_prev_diagnostic", "A-p" },
+    .{ "goto_prev_match", "C-p, S-F3, N" },
+    .{ "gutter_mode_next", "A-F10" },
+    .{ "indent", "tab" },
+    .{ "insert_line", "A-enter" },
+    .{ "join_next_line", "A-j" },
+    .{ "jump_back", "A-left" },
+    .{ "jump_forward", "A-right" },
+    .{ "move_begin", "0" },
+    .{ "move_buffer_begin", "C-home, g g" },
+    .{ "move_buffer_end", "C-end, G" },
+    .{ "move_cursor_next_match", "C-k C-d" },
+    .{ "move_down", "down, j" },
+    .{ "move_end", "end, $, S-4" },
+    .{ "move_left", "left" },
+    .{ "move_left_vim", "h" },
+    .{ "move_page_down", "pgdn" },
+    .{ "move_page_up", "pgup" },
+    .{ "move_right", "right" },
+    .{ "move_right_vim", "l, space" },
+    .{ "move_scroll_down", "C-down" },
+    .{ "move_scroll_left", "S-A-left" },
+    .{ "move_scroll_page_down", "C-pgdn" },
+    .{ "move_scroll_page_up", "C-pgup" },
+    .{ "move_scroll_right", "S-A-right" },
+    .{ "move_scroll_up", "C-up" },
+    .{ "move_up", "up, k" },
+    .{ "move_word_left", "C-left, A-b, b" },
+    .{ "move_word_right", "C-right, A-f, e" },
+    .{ "move_word_right_vim", "w" },
+    .{ "open_command_palette", "C-S-p, :, S-;" },
+    .{ "open_recent", "C-e" },
+    .{ "paste", "A-v, p" },
+    .{ "pop_cursor", "C-u" },
+    .{ "pull_down", "A-down" },
+    .{ "pull_up", "A-up" },
+    .{ "quit", "C-q" },
+    .{ "quit_without_saving", "C-S-q" },
+    .{ "redo", "C-S-z, C-y" },
+    .{ "restart", "C-S-r" },
+    .{ "save_file", "C-s" },
+    .{ "scroll_view_bottom", "C-l, z z" },
+    .{ "scroll_view_center", "C-l, z z" },
+    .{ "scroll_view_top", "C-l, z z" },
+    .{ "select_all", "C-a" },
+    .{ "select_buffer_begin", "C-S-home" },
+    .{ "select_buffer_end", "C-S-end" },
+    .{ "select_down", "S-down" },
+    .{ "select_end", "S-end" },
+    .{ "selections_reverse", "C-space" },
+    .{ "select_left", "S-left" },
+    .{ "select_page_down", "S-pgdn" },
+    .{ "select_page_up", "S-pgup" },
+    .{ "select_right", "S-right" },
+    .{ "select_scroll_down", "C-S-down" },
+    .{ "select_scroll_up", "C-S-up" },
+    .{ "select_up", "S-up" },
+    .{ "select_word_left", "C-S-left" },
+    .{ "select_word_right", "C-S-right" },
+    .{ "smart_insert_line_after", "C-enter, o" },
+    .{ "smart_insert_line_before", "S-enter, C-S-enter, O" },
+    .{ "smart_insert_line", "enter" },
+    .{ "smart_move_begin", "home" },
+    .{ "smart_select_begin", "S-home" },
+    .{ "system_paste", "C-v" },
+    .{ "theme_next", "F10" },
+    .{ "theme_prev", "F9" },
+    .{ "toggle_comment", "C-/" },
+    .{ "toggle_input_mode", "F2" },
+    .{ "toggle_inputview", "A-i" },
+    .{ "toggle_inspector_view", "F5, C-F5, C-S-i" },
+    .{ "toggle_logview", "C-j, F11" },
+    .{ "toggle_whitespace", "C-F10" },
+    .{ "to_lower", "A-l" },
+    .{ "to_upper", "A-u" },
+    .{ "undo", "C-z" },
+    .{ "undo", "u" },
+    .{ "unindent", "S-tab" },
+});

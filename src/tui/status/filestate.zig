@@ -58,7 +58,7 @@ pub fn create(a: Allocator, parent: Plane) !Widget {
 }
 
 fn on_click(_: *Self, _: *Button.State(Self)) void {
-    command.executeName("enter_overlay_mode", command.fmt(.{"open_recent"})) catch {};
+    command.executeName("open_recent", .{}) catch {};
 }
 
 fn on_click2(_: *Self, _: *Button.State(Self)) void {

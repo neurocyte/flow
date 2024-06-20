@@ -559,23 +559,18 @@ const cmds = struct {
         return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
     }
 
-    pub fn enter_overlay_mode(self: *Self, ctx: Ctx) tp.result {
-        var mode: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&mode)}))
-            return tp.exit_error(error.InvalidArgument);
+    pub fn open_command_palette(self: *Self, _: Ctx) tp.result {
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
-        self.input_mode = if (std.mem.eql(u8, mode, "command_palette")) ret: {
-            self.input_mode_outer = self.input_mode;
-            break :ret @import("mode/overlay/command_palette.zig").create(self.a) catch |e| return tp.exit_error(e);
-        } else if (std.mem.eql(u8, mode, "open_recent")) ret: {
-            self.input_mode_outer = self.input_mode;
-            break :ret @import("mode/overlay/open_recent.zig").create(self.a) catch |e| return tp.exit_error(e);
-        } else {
-            self.logger.print("unknown mode {s}", .{mode});
-            return;
-        };
-        // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
+        self.input_mode_outer = self.input_mode;
+        self.input_mode = @import("mode/overlay/command_palette.zig").create(self.a) catch |e| return tp.exit_error(e);
+    }
+
+    pub fn open_recent(self: *Self, _: Ctx) tp.result {
+        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
+        self.input_mode_outer = self.input_mode;
+        self.input_mode = @import("mode/overlay/open_recent.zig").create(self.a) catch |e| return tp.exit_error(e);
     }
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) tp.result {
@@ -643,6 +638,7 @@ pub const Mode = struct {
     name: []const u8,
     description: []const u8,
     line_numbers: enum { absolute, relative } = .absolute,
+    keybind_hints: ?*const KeybindHints = null,
 
     fn deinit(self: *Mode) void {
         self.handler.deinit();
@@ -653,6 +649,8 @@ pub const MiniModeState = struct {
     text: []const u8 = "",
     cursor: ?usize = null,
 };
+
+pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
 
 threadlocal var instance_: ?*Self = null;
 

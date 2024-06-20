@@ -28,6 +28,8 @@ inputbox: *InputBox.State(*Self),
 logger: log.Logger,
 longest: usize = 0,
 commands: Commands = undefined,
+hints: ?*const tui.KeybindHints = null,
+longest_hint: usize = 0,
 
 pub fn create(a: std.mem.Allocator) !tui.Mode {
     const mv = if (tui.current().mainview.dynamic_cast(mainview)) |mv_| mv_ else return error.NotFound;
@@ -40,7 +42,12 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
             .ctx = self,
             .label = "Search commands",
         }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
+        .hints = if (tui.current().input_mode) |m| m.keybind_hints else null,
     };
+    if (self.hints) |hints| {
+        for (hints.values()) |val|
+            self.longest_hint = @max(self.longest_hint, val.len);
+    }
     try self.commands.init(self);
     try self.start_query();
     try mv.floating_views.add(self.menu.menu_widget);
@@ -62,18 +69,24 @@ pub fn deinit(self: *Self) void {
 
 fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
+    const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
     button.plane.set_base_style(" ", style_base);
     button.plane.erase();
     button.plane.home();
     var command_name: []const u8 = undefined;
+    var keybind_hint: []const u8 = undefined;
     var iter = button.opts.label; // label contains cbor, first the file name, then multiple match indexes
     if (!(cbor.matchString(&iter, &command_name) catch false))
         command_name = "#ERROR#";
+    if (!(cbor.matchString(&iter, &keybind_hint) catch false))
+        keybind_hint = "";
     const pointer = if (selected) "⏵" else " ";
     _ = button.plane.print("{s}{s} ", .{
         pointer,
         command_name,
     }) catch {};
+    button.plane.set_style(style_keybind);
+    _ = button.plane.print_aligned_right(0, "{s} ", .{keybind_hint}) catch {};
     var index: usize = 0;
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
@@ -139,7 +152,6 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'J' => self.cmd("toggle_logview", .{}),
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("close_file", .{}),
-            'E' => self.cmd("command_palette_menu_down", .{}),
             'P' => self.cmd("command_palette_menu_up", .{}),
             'N' => self.cmd("command_palette_menu_down", .{}),
             'V' => self.cmd("system_paste", .{}),
@@ -153,13 +165,12 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
-            'P' => self.cmd("exit_overlay_mode", .{}),
+            'P' => self.cmd("command_palette_menu_down", .{}),
             'Q' => self.cmd("quit_without_saving", .{}),
             'W' => self.cmd("close_file_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
             'L' => self.cmd_async("toggle_logview"),
             'I' => self.cmd_async("toggle_inputview"),
-            'E' => self.cmd("command_palette_menu_up", .{}),
             else => {},
         },
         mod.ALT => switch (keynormal) {
@@ -260,6 +271,7 @@ fn add_item(self: *Self, command_name: []const u8, matches: ?[]const usize) !voi
     defer label.deinit();
     const writer = label.writer();
     try cbor.writeValue(writer, command_name);
+    try cbor.writeValue(writer, if (self.hints) |hints| hints.get(command_name) else "");
     if (matches) |matches_|
         try cbor.writeValue(writer, matches_);
     try self.menu.add_item_with_handler(label.items, menu_action_execute_command);

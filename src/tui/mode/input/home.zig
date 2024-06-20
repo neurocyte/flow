@@ -24,6 +24,7 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
         .handler = EventHandler.to_owned(self),
         .name = root.application_logo ++ root.application_name,
         .description = "home",
+        .keybind_hints = &hints,
     };
 }
 
@@ -59,13 +60,13 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("quit", .{}),
             'O' => self.cmd("enter_open_file_mode", .{}),
-            'E' => self.cmd("enter_overlay_mode", command.fmt(.{"open_recent"})),
-            'P' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
+            'E' => self.cmd("open_recent", .{}),
+            'P' => self.cmd("open_command_palette", .{}),
             '/' => self.cmd("open_help", .{}),
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
-            'P' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
+            'P' => self.cmd("open_command_palette", .{}),
             'Q' => self.cmd("quit_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
             'F' => self.cmd("enter_find_in_files_mode", .{}),
@@ -84,9 +85,9 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
         0 => switch (keypress) {
             'h' => self.cmd("open_help", .{}),
             'o' => self.cmd("enter_open_file_mode", .{}),
-            'e' => self.cmd("enter_overlay_mode", command.fmt(.{"open_recent"})),
+            'e' => self.cmd("open_recent", .{}),
             'r' => self.msg("open recent project not implemented"),
-            'p' => self.cmd("enter_overlay_mode", command.fmt(.{"command_palette"})),
+            'p' => self.cmd("open_command_palette", .{}),
             'c' => self.cmd("open_config", .{}),
             'q' => self.cmd("quit", .{}),
 
@@ -124,3 +125,25 @@ fn sheeran(self: *Self) void {
         self.cmd("home_sheeran", .{}) catch {};
     }
 }
+
+const hints = tui.KeybindHints.initComptime(.{
+    .{ "enter_find_in_files_mode", "C-S-f" },
+    .{ "enter_open_file_mode", "o, C-o" },
+    .{ "open_recent", "e, C-e" },
+    .{ "open_command_palette", "p, C-S-p" },
+    .{ "home_menu_activate", "enter" },
+    .{ "home_menu_down", "down" },
+    .{ "home_menu_up", "up" },
+    .{ "jump_back", "A-left" },
+    .{ "jump_forward", "A-right" },
+    .{ "open_config", "c, F6" },
+    .{ "open_help", "C-/, C-S-/" },
+    .{ "open_help", "h, F1" },
+    .{ "quit", "q, C-q, C-w" },
+    .{ "quit_without_saving", "C-S-q" },
+    .{ "restart", "C-S-r" },
+    .{ "theme_next", "F10" },
+    .{ "theme_prev", "F9" },
+    .{ "toggle_inputview", "F12, A-i, C-S-i" },
+    .{ "toggle_logview", "F11, C-j, A-l, C-S-l" },
+});

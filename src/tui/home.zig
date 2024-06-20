@@ -111,7 +111,7 @@ fn menu_action_open_file(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*S
 }
 
 fn menu_action_open_recent_file(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("enter_overlay_mode", command.fmt(.{"open_recent"})) catch {};
+    command.executeName("open_recent", .{}) catch {};
 }
 
 fn menu_action_open_recent_project(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
@@ -119,7 +119,7 @@ fn menu_action_open_recent_project(_: **Menu.State(*Self), _: *Button.State(*Men
 }
 
 fn menu_action_show_commands(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("enter_overlay_mode", command.fmt(.{"command_palette"})) catch {};
+    command.executeName("open_command_palette", .{}) catch {};
 }
 
 fn menu_action_open_config(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
