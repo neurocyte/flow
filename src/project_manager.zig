@@ -198,6 +198,8 @@ const Process = struct {
             self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract(&id), tp.extract_cbor(&params_cb) })) {
             self.dispatch_request(project_directory, language_server, method, id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
+        } else if (try m.match(.{ "child", tp.extract(&path), "done" })) {
+            self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
@@ -223,6 +225,8 @@ const Process = struct {
             try from.send(.{ "project_manager", "shutdown" });
             return tp.exit_normal();
         } else if (try m.match(.{ "exit", "normal" })) {
+            return;
+        } else if (try m.match(.{ "exit", "DEADSEND", tp.any })) {
             return;
         } else {
             self.logger.err("receive", tp.unexpected(m));
