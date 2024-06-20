@@ -116,6 +116,7 @@ fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !vo
 
 fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
     self.do_resize();
+    self.start_query() catch {};
 }
 
 fn do_resize(self: *Self) void {
