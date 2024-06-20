@@ -85,7 +85,9 @@ pub fn deinit(self: *Self) void {
 
 var panic_cleanup_tty: ?*vaxis.Tty = null;
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    if (panic_cleanup_tty) |tty| tty.deinit();
+    const cleanup_tty = panic_cleanup_tty;
+    panic_cleanup_tty = null;
+    if (cleanup_tty) |tty| tty.deinit();
     return std.builtin.default_panic(msg, error_return_trace, ret_addr);
 }
 
