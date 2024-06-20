@@ -111,7 +111,7 @@ pub const key = struct {
     /// Is this uint32_t a synthesized event?
     pub fn synthesized_p(w: u32) bool {
         return switch (w) {
-            Key.up...Key.iso_level_5_shift => true,
+            Key.insert...Key.iso_level_5_shift => true,
             Key.enter => true,
             Key.tab => true,
             Key.escape => true,
