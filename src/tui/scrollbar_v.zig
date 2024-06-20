@@ -27,10 +27,11 @@ active: bool = false,
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: Widget, event_source: Widget) !Widget {
+pub fn create(a: Allocator, parent: Widget, event_source: ?Widget) !Widget {
     const self: *Self = try a.create(Self);
     self.* = try init(parent);
-    try event_source.subscribe(EventHandler.bind(self, handle_event));
+    if (event_source) |source|
+        try source.subscribe(EventHandler.bind(self, handle_event));
     return self.widget();
 }
 
