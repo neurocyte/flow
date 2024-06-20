@@ -676,8 +676,12 @@ pub fn need_render() void {
 }
 
 pub fn resize(self: *Self) void {
-    self.mainview.resize(Widget.Box.from(self.rdr.stdplane()));
+    self.mainview.resize(self.screen());
     need_render();
+}
+
+pub fn screen(self: *Self) Widget.Box {
+    return Widget.Box.from(self.rdr.stdplane());
 }
 
 pub fn get_theme_by_name(name: []const u8) ?Widget.Theme {

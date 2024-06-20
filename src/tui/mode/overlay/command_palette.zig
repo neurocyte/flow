@@ -13,6 +13,7 @@ const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const tui = @import("../../tui.zig");
 const command = @import("../../command.zig");
 const EventHandler = @import("../../EventHandler.zig");
+const WidgetList = @import("../../WidgetList.zig");
 const Button = @import("../../Button.zig");
 const InputBox = @import("../../InputBox.zig");
 const Menu = @import("../../Menu.zig");
@@ -31,18 +32,29 @@ commands: Commands = undefined,
 hints: ?*const tui.KeybindHints = null,
 longest_hint: usize = 0,
 
+items: usize = 0,
+view_rows: usize,
+view_pos: usize = 0,
+total_items: usize = 0,
+
 pub fn create(a: std.mem.Allocator) !tui.Mode {
     const mv = if (tui.current().mainview.dynamic_cast(mainview)) |mv_| mv_ else return error.NotFound;
     const self: *Self = try a.create(Self);
     self.* = .{
         .a = a,
-        .menu = try Menu.create(*Self, a, tui.current().mainview, .{ .ctx = self, .on_render = on_render_menu, .on_resize = on_resize_menu }),
+        .menu = try Menu.create(*Self, a, tui.current().mainview, .{
+            .ctx = self,
+            .on_render = on_render_menu,
+            .on_resize = on_resize_menu,
+            .on_scroll = EventHandler.bind(self, Self.on_scroll),
+        }),
         .logger = log.logger(@typeName(Self)),
         .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.a, self.menu.menu.parent, .{
             .ctx = self,
             .label = "Search commands",
         }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
         .hints = if (tui.current().input_mode) |m| m.keybind_hints else null,
+        .view_rows = get_view_rows(tui.current().screen()),
     };
     if (self.hints) |hints| {
         for (hints.values()) |val|
@@ -50,7 +62,7 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
     }
     try self.commands.init(self);
     try self.start_query();
-    try mv.floating_views.add(self.menu.menu_widget);
+    try mv.floating_views.add(self.menu.container_widget);
     return .{
         .handler = EventHandler.to_owned(self),
         .name = "󱊒 command",
@@ -62,7 +74,7 @@ pub fn deinit(self: *Self) void {
     self.commands.deinit();
     tui.current().message_filters.remove_ptr(self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv|
-        mv.floating_views.remove(self.menu.menu_widget);
+        mv.floating_views.remove(self.menu.container_widget);
     self.logger.deinit();
     self.a.destroy(self);
 }
@@ -81,10 +93,7 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     if (!(cbor.matchString(&iter, &keybind_hint) catch false))
         keybind_hint = "";
     const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s}{s} ", .{
-        pointer,
-        command_name,
-    }) catch {};
+    _ = button.plane.print("{s}{s} ", .{ pointer, command_name }) catch {};
     button.plane.set_style(style_keybind);
     _ = button.plane.print_aligned_right(0, "{s} ", .{keybind_hint}) catch {};
     var index: usize = 0;
@@ -110,7 +119,19 @@ fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
 }
 
 fn do_resize(self: *Self) void {
-    self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
+    const screen = tui.current().screen();
+    const w = @min(self.longest, max_menu_width) + 2 + 1 + self.longest_hint;
+    const x = if (screen.w > w) (screen.w - w) / 2 else 0;
+    self.view_rows = get_view_rows(screen);
+    const h = @min(self.items, self.view_rows);
+    self.menu.container.resize(.{ .y = 0, .x = x, .w = w, .h = h });
+    self.update_scrollbar();
+}
+
+fn get_view_rows(screen: Widget.Box) usize {
+    var h = screen.h;
+    if (h > 0) h = h / 5 * 4;
+    return h;
 }
 
 fn menu_action_execute_command(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
@@ -119,6 +140,16 @@ fn menu_action_execute_command(menu: **Menu.State(*Self), button: *Button.State(
     if (!(cbor.matchString(&iter, &command_name) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
     tp.self_pid().send(.{ "cmd", command_name, .{} }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
+}
+
+fn on_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
+    if (try m.match(.{ "scroll_to", tp.extract(&self.view_pos) })) {
+        try self.start_query();
+    }
+}
+
+fn update_scrollbar(self: *Self) void {
+    self.menu.scrollbar.?.set(@intCast(self.total_items), @intCast(self.view_rows), @intCast(self.view_pos));
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -160,6 +191,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.ESC => self.cmd("exit_overlay_mode", .{}),
             key.UP => self.cmd("command_palette_menu_up", .{}),
             key.DOWN => self.cmd("command_palette_menu_down", .{}),
+            key.PGUP => self.cmd("command_palette_menu_pageup", .{}),
+            key.PGDOWN => self.cmd("command_palette_menu_pagedown", .{}),
             key.ENTER => self.cmd("command_palette_menu_activate", .{}),
             key.BACKSPACE => self.delete_word(),
             else => {},
@@ -191,6 +224,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.ESC => self.cmd("exit_overlay_mode", .{}),
             key.UP => self.cmd("command_palette_menu_up", .{}),
             key.DOWN => self.cmd("command_palette_menu_down", .{}),
+            key.PGUP => self.cmd("command_palette_menu_pageup", .{}),
+            key.PGDOWN => self.cmd("command_palette_menu_pagedown", .{}),
             key.ENTER => self.cmd("command_palette_menu_activate", .{}),
             key.BACKSPACE => self.delete_code_point(),
             else => if (!key.synthesized_p(keypress))
@@ -209,6 +244,7 @@ fn mapRelease(self: *Self, keypress: u32, _: u32) tp.result {
 }
 
 fn start_query(self: *Self) tp.result {
+    self.items = 0;
     self.menu.reset_items();
     self.menu.selected = null;
     for (command.commands.items) |cmd_| if (cmd_) |p| {
@@ -216,8 +252,14 @@ fn start_query(self: *Self) tp.result {
     };
 
     if (self.inputbox.text.items.len == 0) {
+        self.total_items = 0;
+        var pos: usize = 0;
         for (command.commands.items) |cmd_| if (cmd_) |p| {
-            self.add_item(p.name, null) catch |e| return tp.exit_error(e);
+            defer self.total_items += 1;
+            defer pos += 1;
+            if (pos < self.view_pos) continue;
+            if (self.items < self.view_rows)
+                self.add_item(p.name, null) catch |e| return tp.exit_error(e);
         };
     } else {
         _ = self.query_commands(self.inputbox.text.items) catch |e| return tp.exit_error(e);
@@ -261,8 +303,15 @@ fn query_commands(self: *Self, query: []const u8) error{OutOfMemory}!usize {
     }.less_fn;
     std.mem.sort(Match, matches.items, {}, less_fn);
 
-    for (matches.items) |match|
-        try self.add_item(match.name, match.matches);
+    var pos: usize = 0;
+    self.total_items = 0;
+    for (matches.items) |match| {
+        defer self.total_items += 1;
+        defer pos += 1;
+        if (pos < self.view_pos) continue;
+        if (self.items < self.view_rows)
+            try self.add_item(match.name, match.matches);
+    }
     return matches.items.len;
 }
 
@@ -271,10 +320,11 @@ fn add_item(self: *Self, command_name: []const u8, matches: ?[]const usize) !voi
     defer label.deinit();
     const writer = label.writer();
     try cbor.writeValue(writer, command_name);
-    try cbor.writeValue(writer, if (self.hints) |hints| hints.get(command_name) else "");
+    try cbor.writeValue(writer, if (self.hints) |hints| hints.get(command_name) orelse "" else "");
     if (matches) |matches_|
         try cbor.writeValue(writer, matches_);
     try self.menu.add_item_with_handler(label.items, menu_action_execute_command);
+    self.items += 1;
 }
 
 fn delete_word(self: *Self) tp.result {
@@ -284,6 +334,7 @@ fn delete_word(self: *Self) tp.result {
         self.inputbox.text.shrinkRetainingCapacity(0);
     }
     self.inputbox.cursor = self.inputbox.text.items.len;
+    self.view_pos = 0;
     return self.start_query();
 }
 
@@ -292,6 +343,7 @@ fn delete_code_point(self: *Self) tp.result {
         self.inputbox.text.shrinkRetainingCapacity(self.inputbox.text.items.len - 1);
         self.inputbox.cursor = self.inputbox.text.items.len;
     }
+    self.view_pos = 0;
     return self.start_query();
 }
 
@@ -300,12 +352,14 @@ fn insert_code_point(self: *Self, c: u32) tp.result {
     const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
     self.inputbox.text.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
     self.inputbox.cursor = self.inputbox.text.items.len;
+    self.view_pos = 0;
     return self.start_query();
 }
 
 fn insert_bytes(self: *Self, bytes: []const u8) tp.result {
     self.inputbox.text.appendSlice(bytes) catch |e| return tp.exit_error(e);
     self.inputbox.cursor = self.inputbox.text.items.len;
+    self.view_pos = 0;
     return self.start_query();
 }
 
@@ -327,11 +381,44 @@ const cmds = struct {
     const Ctx = command.Context;
 
     pub fn command_palette_menu_down(self: *Self, _: Ctx) tp.result {
+        if (self.menu.selected) |selected| {
+            if (selected == self.view_rows - 1) {
+                self.view_pos += 1;
+                try self.start_query();
+                self.menu.select_last();
+                return;
+            }
+        }
         self.menu.select_down();
     }
 
     pub fn command_palette_menu_up(self: *Self, _: Ctx) tp.result {
+        if (self.menu.selected) |selected| {
+            if (selected == 0 and self.view_pos > 0) {
+                self.view_pos -= 1;
+                try self.start_query();
+                self.menu.select_first();
+                return;
+            }
+        }
         self.menu.select_up();
+    }
+
+    pub fn command_palette_menu_pagedown(self: *Self, _: Ctx) tp.result {
+        if (self.total_items > self.view_rows) {
+            self.view_pos += self.view_rows;
+            if (self.view_pos > self.total_items - self.view_rows)
+                self.view_pos = self.total_items - self.view_rows;
+        }
+        try self.start_query();
+        self.menu.select_last();
+    }
+
+    pub fn command_palette_menu_pageup(self: *Self, _: Ctx) tp.result {
+        if (self.view_pos > self.view_rows)
+            self.view_pos -= self.view_rows;
+        try self.start_query();
+        self.menu.select_first();
     }
 
     pub fn command_palette_menu_activate(self: *Self, _: Ctx) tp.result {

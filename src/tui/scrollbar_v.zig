@@ -21,25 +21,22 @@ size_virt: u32 = 1,
 
 max_ypx: i32 = 8,
 
-parent: Widget,
+event_sink: EventHandler,
 hover: bool = false,
 active: bool = false,
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: Widget, event_source: ?Widget) !Widget {
+pub fn create(a: Allocator, parent: Widget, event_source: ?Widget, event_sink: EventHandler) !Widget {
     const self: *Self = try a.create(Self);
-    self.* = try init(parent);
+    self.* = .{
+        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
+        .event_sink = event_sink,
+    };
+
     if (event_source) |source|
         try source.subscribe(EventHandler.bind(self, handle_event));
     return self.widget();
-}
-
-fn init(parent: Widget) !Self {
-    return .{
-        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
-        .parent = parent,
-    };
 }
 
 pub fn widget(self: *Self) Widget {
@@ -108,7 +105,7 @@ fn move_to(self: *Self, y_: i32, ypx_: i32) void {
     const pos_virt = self.pos_scrn_to_virt(@intFromFloat(pos_scrn_clamped));
 
     self.set(self.size_virt, self.view_virt, pos_virt);
-    _ = self.parent.msg(.{ "scroll_to", pos_virt }) catch {};
+    _ = self.event_sink.msg(.{ "scroll_to", pos_virt }) catch {};
 }
 
 fn pos_scrn_to_virt(self: Self, pos_scrn_: u32) u32 {

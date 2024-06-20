@@ -41,7 +41,11 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
     const self: *Self = try a.create(Self);
     self.* = .{
         .a = a,
-        .menu = try Menu.create(*Self, a, tui.current().mainview, .{ .ctx = self, .on_render = on_render_menu, .on_resize = on_resize_menu }),
+        .menu = try Menu.create(*Self, a, tui.current().mainview, .{
+            .ctx = self,
+            .on_render = on_render_menu,
+            .on_resize = on_resize_menu,
+        }),
         .logger = log.logger(@typeName(Self)),
         .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.a, self.menu.menu.parent, .{
             .ctx = self,
@@ -53,7 +57,7 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
     self.query_pending = true;
     try project_manager.request_recent_files(max_recent_files);
     self.menu.resize(.{ .y = 0, .x = 25, .w = 32 });
-    try mv.floating_views.add(self.menu.menu_widget);
+    try mv.floating_views.add(self.menu.container_widget);
     return .{
         .handler = EventHandler.to_owned(self),
         .name = "󰈞 open recent",
@@ -65,7 +69,7 @@ pub fn deinit(self: *Self) void {
     self.commands.deinit();
     tui.current().message_filters.remove_ptr(self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv|
-        mv.floating_views.remove(self.menu.menu_widget);
+        mv.floating_views.remove(self.menu.container_widget);
     self.logger.deinit();
     self.a.destroy(self);
 }
