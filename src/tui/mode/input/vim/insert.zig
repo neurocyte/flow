@@ -22,6 +22,7 @@ a: Allocator,
 input: ArrayList(u8),
 last_cmd: []const u8 = "",
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
+commands: Commands = undefined,
 
 pub fn create(a: Allocator) !tui.Mode {
     const self: *Self = try a.create(Self);
@@ -29,6 +30,7 @@ pub fn create(a: Allocator) !tui.Mode {
         .a = a,
         .input = try ArrayList(u8).initCapacity(a, input_buffer_size),
     };
+    try self.commands.init(self);
     return .{
         .handler = EventHandler.to_owned(self),
         .name = root.application_logo ++ "INSERT",
@@ -38,6 +40,7 @@ pub fn create(a: Allocator) !tui.Mode {
 }
 
 pub fn deinit(self: *Self) void {
+    self.commands.deinit();
     self.input.deinit();
     self.a.destroy(self);
 }
@@ -298,3 +301,31 @@ fn cmd_async(self: *Self, name_: []const u8) tp.result {
     self.last_cmd = name_;
     return tp.self_pid().send(.{ "cmd", name_ });
 }
+
+const Commands = command.Collection(cmds_);
+const cmds_ = struct {
+    pub const Target = Self;
+    const Ctx = command.Context;
+
+    pub fn @"w"(self: *Self, _: Ctx) tp.result {
+        try self.cmd("save_file", .{});
+    }
+
+    pub fn @"q"(self: *Self, _: Ctx) tp.result {
+        try self.cmd("quit", .{});
+    }
+
+    pub fn @"q!"(self: *Self, _: Ctx) tp.result {
+        try self.cmd("quit_without_saving", .{});
+    }
+
+    pub fn @"wq"(self: *Self, _: Ctx) tp.result {
+        try self.cmd("save_file", .{});
+        try self.cmd("quit", .{});
+    }
+
+    pub fn @"wq!"(self: *Self, _: Ctx) tp.result {
+        self.cmd("save_file", .{}) catch {};
+        try self.cmd("quit_without_saving", .{});
+    }
+};
