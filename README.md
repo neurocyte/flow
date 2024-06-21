@@ -6,8 +6,8 @@ and is my daily driver for most things coding related.
 https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f2d4c6
 
 # Requirements
-- A modern terminal with 24bit color and kitty keyboard protocol support. Kitty and
-    ghostty are the only recommended terminals at this time. Most other terminals
+- A modern terminal with 24bit color and kitty keyboard protocol support. Kitty, Foot
+    and Ghostty are the only recommended terminals at this time. Most other terminals
     will work, but with reduced functionality.
 - NerdFonts support
 - Linux, MacOS, (somewhat experimental) Windows, Android (Termux) or FreeBSD. Other BSDs
