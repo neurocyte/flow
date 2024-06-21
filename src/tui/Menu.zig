@@ -188,8 +188,10 @@ pub fn State(ctx_type: type) type {
             const selected = self.selected orelse return;
             self.selected_active = true;
             const pos = selected + self.header_count;
-            const button = self.menu.widgets.items[pos].widget.dynamic_cast(button_type) orelse return;
-            button.opts.on_click(&button.opts.ctx, button);
+            if (pos < self.menu.widgets.items.len) {
+                const button = self.menu.widgets.items[pos].widget.dynamic_cast(button_type) orelse return;
+                button.opts.on_click(&button.opts.ctx, button);
+            }
         }
     };
 }
