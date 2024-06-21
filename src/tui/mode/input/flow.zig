@@ -159,6 +159,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {
+            'P' => self.cmd("open_command_palette", .{}),
             'D' => self.cmd("dupe_up", .{}),
             // 'B' => self.cmd("select_word_left", .{}),
             // 'F' => self.cmd("select_word_right", .{}),
@@ -363,7 +364,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "move_up", "up" },
     .{ "move_word_left", "C-left, A-b" },
     .{ "move_word_right", "C-right, A-f" },
-    .{ "open_command_palette", "C-S-p" },
+    .{ "open_command_palette", "C-S-p, S-A-p" },
     .{ "open_recent", "C-e" },
     .{ "paste", "A-v" },
     .{ "pop_cursor", "C-u" },

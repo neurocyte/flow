@@ -75,6 +75,10 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             '/' => self.cmd("open_help", .{}),
             else => {},
         },
+        mod.ALT | mod.SHIFT => switch (keynormal) {
+            'P' => self.cmd("open_command_palette", .{}),
+            else => {},
+        },
         mod.ALT => switch (keynormal) {
             'L' => self.cmd("toggle_logview", .{}),
             'I' => self.cmd("toggle_inputview", .{}),
@@ -130,7 +134,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "enter_find_in_files_mode", "C-S-f" },
     .{ "enter_open_file_mode", "o, C-o" },
     .{ "open_recent", "e, C-e" },
-    .{ "open_command_palette", "p, C-S-p" },
+    .{ "open_command_palette", "p, C-S-p, S-A-p" },
     .{ "home_menu_activate", "enter" },
     .{ "home_menu_down", "down" },
     .{ "home_menu_up", "up" },

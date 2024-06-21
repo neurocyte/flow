@@ -166,6 +166,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {
+            'P' => self.cmd("open_command_palette", .{}),
             'D' => self.cmd("dupe_up", .{}),
             'F' => self.cmd("filter", command.fmt(.{ "zig", "fmt", "--stdin" })),
             'S' => self.cmd("filter", command.fmt(.{ "sort", "-u" })),
@@ -512,7 +513,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "move_word_left", "C-left, A-b, b" },
     .{ "move_word_right", "C-right, A-f, e" },
     .{ "move_word_right_vim", "w" },
-    .{ "open_command_palette", "C-S-p, :, S-;" },
+    .{ "open_command_palette", "C-S-p, :, S-;, S-A-p" },
     .{ "open_recent", "C-e" },
     .{ "paste", "A-v, p" },
     .{ "pop_cursor", "C-u" },

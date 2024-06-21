@@ -207,7 +207,12 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'I' => self.cmd_async("toggle_inputview"),
             else => {},
         },
+        mod.ALT | mod.SHIFT => switch (keynormal) {
+            'P' => self.cmd("command_palette_menu_down", .{}),
+            else => {},
+        },
         mod.ALT => switch (keynormal) {
+            'P' => self.cmd("command_palette_menu_up", .{}),
             'L' => self.cmd("toggle_logview", .{}),
             'I' => self.cmd("toggle_inputview", .{}),
             else => {},

@@ -161,6 +161,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {
+            'P' => self.cmd("open_command_palette", .{}),
             'D' => self.cmd("dupe_up", .{}),
             'F' => self.cmd("filter", command.fmt(.{ "zig", "fmt", "--stdin" })),
             'S' => self.cmd("filter", command.fmt(.{ "sort", "-u" })),
