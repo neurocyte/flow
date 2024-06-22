@@ -215,7 +215,7 @@ const Fire = struct {
 
     allocator: std.mem.Allocator,
     plane: Plane,
-    prng: std.rand.DefaultPrng,
+    prng: std.Random.DefaultPrng,
 
     //scope cache - spread fire
     spread_px: u8 = 0,
@@ -239,7 +239,7 @@ const Fire = struct {
         var self: Fire = .{
             .allocator = a,
             .plane = plane,
-            .prng = std.rand.DefaultPrng.init(blk: {
+            .prng = std.Random.DefaultPrng.init(blk: {
                 var seed: u64 = undefined;
                 try std.posix.getrandom(std.mem.asBytes(&seed));
                 break :blk seed;

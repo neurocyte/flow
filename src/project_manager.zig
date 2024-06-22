@@ -35,7 +35,7 @@ pub fn shutdown() void {
 }
 
 pub fn open_cwd() tp.result {
-    var cwd_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
     const cwd = std.fs.cwd().realpath(".", &cwd_buf) catch "(none)";
     return open(cwd);
 }
