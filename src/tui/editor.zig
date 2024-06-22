@@ -33,7 +33,6 @@ pub const Selection = Buffer.Selection;
 const Allocator = std.mem.Allocator;
 const copy = std.mem.copy;
 const fmt = std.fmt;
-const split = std.mem.split;
 const time = std.time;
 
 const scroll_step_small = 3;
