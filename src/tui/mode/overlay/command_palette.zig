@@ -28,7 +28,8 @@ menu: *Menu.State(*Self),
 inputbox: *InputBox.State(*Self),
 logger: log.Logger,
 longest: usize = 0,
-commands: Commands = undefined,
+palette_commands: command.Collection(cmds) = undefined,
+commands: std.ArrayList(Command) = undefined,
 hints: ?*const tui.KeybindHints = null,
 longest_hint: usize = 0,
 
@@ -37,7 +38,14 @@ view_rows: usize,
 view_pos: usize = 0,
 total_items: usize = 0,
 
+const Command = struct {
+    name: []const u8,
+    id: command.ID,
+    used_time: i64,
+};
+
 pub fn create(a: std.mem.Allocator) !tui.Mode {
+    if (mru_list == null) mru_list = std.ArrayList(i64).init(a);
     const mv = if (tui.current().mainview.dynamic_cast(mainview)) |mv_| mv_ else return error.NotFound;
     const self: *Self = try a.create(Self);
     self.* = .{
@@ -55,12 +63,21 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
         }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
         .hints = if (tui.current().input_mode) |m| m.keybind_hints else null,
         .view_rows = get_view_rows(tui.current().screen()),
+        .commands = std.ArrayList(Command).init(a),
     };
     if (self.hints) |hints| {
         for (hints.values()) |val|
             self.longest_hint = @max(self.longest_hint, val.len);
     }
-    try self.commands.init(self);
+    for (command.commands.items) |cmd_| if (cmd_) |p| {
+        (self.commands.addOne() catch @panic("oom")).* = .{
+            .name = p.name,
+            .id = p.id,
+            .used_time = get_used_time(p.id),
+        };
+    };
+    self.sort_by_used_time();
+    try self.palette_commands.init(self);
     try self.start_query();
     try mv.floating_views.add(self.menu.container_widget);
     return .{
@@ -71,6 +88,7 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
 }
 
 pub fn deinit(self: *Self) void {
+    self.palette_commands.deinit();
     self.commands.deinit();
     tui.current().message_filters.remove_ptr(self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv|
@@ -90,6 +108,9 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     var iter = button.opts.label; // label contains cbor, first the file name, then multiple match indexes
     if (!(cbor.matchString(&iter, &command_name) catch false))
         command_name = "#ERROR#";
+    var command_id: command.ID = undefined;
+    if (!(cbor.matchValue(&iter, cbor.extract(&command_id)) catch false))
+        command_id = 0;
     if (!(cbor.matchString(&iter, &keybind_hint) catch false))
         keybind_hint = "";
     const pointer = if (selected) "⏵" else " ";
@@ -137,8 +158,11 @@ fn get_view_rows(screen: Widget.Box) usize {
 
 fn menu_action_execute_command(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
     var command_name: []const u8 = undefined;
+    var command_id: command.ID = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &command_name) catch false)) return;
+    if (!(cbor.matchValue(&iter, cbor.extract(&command_id)) catch false)) return;
+    update_used_time(command_id);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
     tp.self_pid().send(.{ "cmd", command_name, .{} }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
 }
@@ -253,20 +277,19 @@ fn start_query(self: *Self) tp.result {
     self.items = 0;
     self.menu.reset_items();
     self.menu.selected = null;
-    for (command.commands.items) |cmd_| if (cmd_) |p| {
-        self.longest = @max(self.longest, p.name.len);
-    };
+    for (self.commands.items) |cmd_|
+        self.longest = @max(self.longest, cmd_.name.len);
 
     if (self.inputbox.text.items.len == 0) {
         self.total_items = 0;
         var pos: usize = 0;
-        for (command.commands.items) |cmd_| if (cmd_) |p| {
+        for (self.commands.items) |cmd_| {
             defer self.total_items += 1;
             defer pos += 1;
             if (pos < self.view_pos) continue;
             if (self.items < self.view_rows)
-                self.add_item(p.name, null) catch |e| return tp.exit_error(e);
-        };
+                self.add_item(cmd_.name, cmd_.id, null) catch |e| return tp.exit_error(e);
+        }
     } else {
         _ = self.query_commands(self.inputbox.text.items) catch |e| return tp.exit_error(e);
     }
@@ -285,21 +308,23 @@ fn query_commands(self: *Self, query: []const u8) error{OutOfMemory}!usize {
 
     const Match = struct {
         name: []const u8,
+        id: command.ID,
         score: i32,
         matches: []const usize,
     };
     var matches = std.ArrayList(Match).init(self.a);
 
-    for (command.commands.items) |cmd_| if (cmd_) |c| {
-        const match = searcher.scoreMatches(c.name, query);
+    for (self.commands.items) |cmd_| {
+        const match = searcher.scoreMatches(cmd_.name, query);
         if (match.score) |score| {
             (try matches.addOne()).* = .{
-                .name = c.name,
+                .name = cmd_.name,
+                .id = cmd_.id,
                 .score = score,
                 .matches = try self.a.dupe(usize, match.matches),
             };
         }
-    };
+    }
     if (matches.items.len == 0) return 0;
 
     const less_fn = struct {
@@ -316,17 +341,18 @@ fn query_commands(self: *Self, query: []const u8) error{OutOfMemory}!usize {
         defer pos += 1;
         if (pos < self.view_pos) continue;
         if (self.items < self.view_rows)
-            try self.add_item(match.name, match.matches);
+            try self.add_item(match.name, match.id, match.matches);
     }
     return matches.items.len;
 }
 
-fn add_item(self: *Self, command_name: []const u8, matches: ?[]const usize) !void {
+fn add_item(self: *Self, name: []const u8, id: command.ID, matches: ?[]const usize) !void {
     var label = std.ArrayList(u8).init(self.a);
     defer label.deinit();
     const writer = label.writer();
-    try cbor.writeValue(writer, command_name);
-    try cbor.writeValue(writer, if (self.hints) |hints| hints.get(command_name) orelse "" else "");
+    try cbor.writeValue(writer, name);
+    try cbor.writeValue(writer, id);
+    try cbor.writeValue(writer, if (self.hints) |hints| hints.get(name) orelse "" else "");
     if (matches) |matches_|
         try cbor.writeValue(writer, matches_);
     try self.menu.add_item_with_handler(label.items, menu_action_execute_command);
@@ -381,7 +407,29 @@ fn cmd_async(_: *Self, name_: []const u8) tp.result {
     return tp.self_pid().send(.{ "cmd", name_ });
 }
 
-const Commands = command.Collection(cmds);
+fn sort_by_used_time(self: *Self) void {
+    const less_fn = struct {
+        fn less_fn(_: void, lhs: Command, rhs: Command) bool {
+            return lhs.used_time > rhs.used_time;
+        }
+    }.less_fn;
+    std.mem.sort(Command, self.commands.items, {}, less_fn);
+}
+
+var mru_list: ?std.ArrayList(i64) = null;
+
+fn update_used_time(id: command.ID) void {
+    const list = if (mru_list) |*p| p else @panic("missing mru_list");
+    while (list.items.len < id + 1)
+        (list.addOne() catch @panic("oom")).* = 0;
+    list.items[id] = std.time.milliTimestamp();
+}
+
+fn get_used_time(id: command.ID) i64 {
+    const list = mru_list orelse @panic("missing mru_list");
+    return if (list.items.len < id + 1) 0 else list.items[id];
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
