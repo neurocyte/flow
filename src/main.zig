@@ -38,7 +38,7 @@ pub fn main() anyerror!void {
         \\--show-input             Open the input view on start.
         \\--show-log               Open the log view on start.
         \\-l, --language <lang>    Force the language of the file to be opened.
-        \\<file>...                File to open.
+        \\<file>...                File or directory to open.
         \\                         Add +<LINE> to the command line or append
         \\                         :LINE or :LINE:COL to the file name to jump
         \\                         to a location in the file.
@@ -195,8 +195,28 @@ pub fn main() anyerror!void {
         }
     }
 
+    var have_project = false;
+    var files = std.ArrayList(Dest).init(a);
+    defer files.deinit();
     for (dests.items) |dest| {
         if (dest.file.len == 0) continue;
+        if (try is_directory(dest.file)) {
+            if (have_project) {
+                std.debug.print("more than one directory is not allowed\n", .{});
+                exit(1);       
+            }
+            try tui_proc.send(.{ "cmd", "open_project_dir", .{dest.file} });
+            
+            have_project = true;
+        } else {
+            const curr = try files.addOne();
+            curr.* = dest;
+        }
+    }
+
+    for (files.items) |dest| {
+        if (dest.file.len == 0) continue;
+
         if (dest.line) |l| {
             if (dest.column) |col| {
                 try tui_proc.send(.{ "cmd", "navigate", .{ .file = dest.file, .line = l, .column = col } });
@@ -209,7 +229,8 @@ pub fn main() anyerror!void {
             try tui_proc.send(.{ "cmd", "navigate", .{ .file = dest.file } });
         }
     } else {
-        try tui_proc.send(.{ "cmd", "open_project_cwd" });
+        if (!have_project)
+            try tui_proc.send(.{ "cmd", "open_project_cwd" });
         try tui_proc.send(.{ "cmd", "show_home" });
     }
     ctx.run();
@@ -535,4 +556,15 @@ fn restart() noreturn {
     const ret = std.c.execve(std.os.argv[0], @ptrCast(&argv), @ptrCast(std.os.environ));
     std.io.getStdErr().writer().print("\nrestart failed: {d}", .{ret}) catch {};
     exit(234);
+}
+
+pub fn is_directory(rel_path: []const u8) !bool {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const abs_path = try std.fs.cwd().realpath(rel_path, &path_buf);
+    var dir = std.fs.openDirAbsolute(abs_path, .{}) catch |e| switch (e) {
+        error.NotDir => return false,
+        else => return e,
+    };
+    dir.close();
+    return true;
 }

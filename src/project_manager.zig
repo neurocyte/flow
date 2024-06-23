@@ -41,6 +41,9 @@ pub fn open_cwd() tp.result {
 pub fn open(rel_project_directory: []const u8) tp.result {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const project_directory = std.fs.cwd().realpath(rel_project_directory, &path_buf) catch "(none)";
+    var dir = std.fs.openDirAbsolute(project_directory, .{}) catch |e| return tp.exit_error(e);
+    dir.setAsCwd() catch |e| return tp.exit_error(e);
+    dir.close();
     tp.env.get().str_set("project", project_directory);
     return (try get()).pid.send(.{ "open", project_directory });
 }
