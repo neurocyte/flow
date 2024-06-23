@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
 const fuzzig = @import("fuzzig");
+const root = @import("root");
 
 const Plane = @import("renderer").Plane;
 const key = @import("renderer").input.key;
@@ -45,7 +46,6 @@ const Command = struct {
 };
 
 pub fn create(a: std.mem.Allocator) !tui.Mode {
-    if (mru_list == null) mru_list = std.ArrayList(i64).init(a);
     const mv = if (tui.current().mainview.dynamic_cast(mainview)) |mv_| mv_ else return error.NotFound;
     const self: *Self = try a.create(Self);
     self.* = .{
@@ -73,9 +73,10 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
         (self.commands.addOne() catch @panic("oom")).* = .{
             .name = p.name,
             .id = p.id,
-            .used_time = get_used_time(p.id),
+            .used_time = 0,
         };
     };
+    self.restore_state() catch {};
     self.sort_by_used_time();
     try self.palette_commands.init(self);
     try self.start_query();
@@ -162,7 +163,7 @@ fn menu_action_execute_command(menu: **Menu.State(*Self), button: *Button.State(
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &command_name) catch false)) return;
     if (!(cbor.matchValue(&iter, cbor.extract(&command_id)) catch false)) return;
-    update_used_time(command_id);
+    menu.*.opts.ctx.update_used_time(command_id);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
     tp.self_pid().send(.{ "cmd", command_name, .{} }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
 }
@@ -416,18 +417,60 @@ fn sort_by_used_time(self: *Self) void {
     std.mem.sort(Command, self.commands.items, {}, less_fn);
 }
 
-var mru_list: ?std.ArrayList(i64) = null;
-
-fn update_used_time(id: command.ID) void {
-    const list = if (mru_list) |*p| p else @panic("missing mru_list");
-    while (list.items.len < id + 1)
-        (list.addOne() catch @panic("oom")).* = 0;
-    list.items[id] = std.time.milliTimestamp();
+fn update_used_time(self: *Self, id: command.ID) void {
+    self.set_used_time(id, std.time.milliTimestamp());
+    self.write_state() catch {};
 }
 
-fn get_used_time(id: command.ID) i64 {
-    const list = mru_list orelse @panic("missing mru_list");
-    return if (list.items.len < id + 1) 0 else list.items[id];
+fn set_used_time(self: *Self, id: command.ID, used_time: i64) void {
+    self.commands.items[id].used_time = used_time;
+}
+
+fn write_state(self: *Self) !void {
+    var state_file_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const state_file = try std.fmt.bufPrint(&state_file_buffer, "{s}/{s}", .{ try root.get_state_dir(), "commands" });
+    var file = try std.fs.createFileAbsolute(state_file, .{ .truncate = true });
+    defer file.close();
+    var buffer = std.io.bufferedWriter(file.writer());
+    defer buffer.flush() catch {};
+    const writer = buffer.writer();
+
+    for (self.commands.items) |cmd_| {
+        if (cmd_.used_time == 0) continue;
+        try cbor.writeArrayHeader(writer, 2);
+        try cbor.writeValue(writer, cmd_.name);
+        try cbor.writeValue(writer, cmd_.used_time);
+    }
+}
+
+fn restore_state(self: *Self) !void {
+    var state_file_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const state_file = try std.fmt.bufPrint(&state_file_buffer, "{s}/{s}", .{ try root.get_state_dir(), "commands" });
+    const a = std.heap.c_allocator;
+    var file = std.fs.openFileAbsolute(state_file, .{ .mode = .read_only }) catch |e| switch (e) {
+        error.FileNotFound => return,
+        else => return e,
+    };
+    defer file.close();
+    const stat = try file.stat();
+    var buffer = try a.alloc(u8, stat.size);
+    defer a.free(buffer);
+    const size = try file.readAll(buffer);
+    const data = buffer[0..size];
+
+    var name: []const u8 = undefined;
+    var used_time: i64 = undefined;
+    var iter: []const u8 = data;
+    while (cbor.matchValue(&iter, .{
+        tp.extract(&name),
+        tp.extract(&used_time),
+    }) catch |e| switch (e) {
+        error.CborTooShort => return,
+        else => return e,
+    }) {
+        const id = command.getId(name) orelse continue;
+        self.set_used_time(id, used_time);
+    }
 }
 
 const cmds = struct {
