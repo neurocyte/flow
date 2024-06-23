@@ -344,7 +344,7 @@ const Process = struct {
 
     fn persist_project(self: *Process, project: *Project) !void {
         self.logger.print("saving: {s}", .{project.name});
-        const file_name = try get_project_cache_file_path(self.a, project);
+        const file_name = try get_project_state_file_path(self.a, project);
         defer self.a.free(file_name);
         var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
         defer file.close();
@@ -354,7 +354,7 @@ const Process = struct {
     }
 
     fn restore_project(self: *Process, project: *Project) !void {
-        const file_name = try get_project_cache_file_path(self.a, project);
+        const file_name = try get_project_state_file_path(self.a, project);
         defer self.a.free(file_name);
         var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {
             error.FileNotFound => return,
@@ -368,11 +368,11 @@ const Process = struct {
         try project.restore_state(buffer[0..size]);
     }
 
-    fn get_project_cache_file_path(a: std.mem.Allocator, project: *Project) ![]const u8 {
+    fn get_project_state_file_path(a: std.mem.Allocator, project: *Project) ![]const u8 {
         const path = project.name;
         var stream = std.ArrayList(u8).init(a);
         const writer = stream.writer();
-        _ = try writer.write(try root.get_cache_dir());
+        _ = try writer.write(try root.get_state_dir());
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write("projects");
         _ = try writer.writeByte(std.fs.path.sep);

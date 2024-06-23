@@ -274,7 +274,7 @@ fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.C) void {
         const a = std.heap.c_allocator;
         var path = std.ArrayList(u8).init(a);
         defer path.deinit();
-        path.writer().print("{s}/trace.log", .{get_cache_dir() catch return}) catch return;
+        path.writer().print("{s}/trace.log", .{get_state_dir() catch return}) catch return;
         const file = std.fs.createFileAbsolute(path.items, .{ .truncate = true }) catch return;
         State.state = .{
             .file = file,
@@ -443,6 +443,54 @@ fn get_app_cache_dir(appname: []const u8) ![]const u8 {
         else => return e,
     };
     return cache_dir;
+}
+
+pub fn get_state_dir() ![]const u8 {
+    return get_app_state_dir(application_name);
+}
+
+fn get_app_state_dir(appname: []const u8) ![]const u8 {
+    const a = std.heap.c_allocator;
+    const local = struct {
+        var state_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var state_dir: ?[]const u8 = null;
+    };
+    const state_dir = if (local.state_dir) |dir|
+        dir
+    else if (std.process.getEnvVarOwned(a, "XDG_STATE_HOME") catch null) |xdg| ret: {
+        defer a.free(xdg);
+        break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/{s}", .{ xdg, appname });
+    } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
+        defer a.free(home);
+        var dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/.local", .{home});
+        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => return e,
+        };
+        dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/.local/state", .{home});
+        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => return e,
+        };
+        break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/.local/state/{s}", .{ home, appname });
+    } else if (builtin.os.tag == .windows) ret: {
+        if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
+            defer a.free(appdata);
+            const dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/{s}", .{ appdata, appname });
+            std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+                error.PathAlreadyExists => {},
+                else => return e,
+            };
+            break :ret dir;
+        } else return error.AppCacheDirUnavailable;
+    } else return error.AppCacheDirUnavailable;
+
+    local.state_dir = state_dir;
+    std.fs.makeDirAbsolute(state_dir) catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => return e,
+    };
+    return state_dir;
 }
 
 fn get_app_config_file_name(appname: []const u8) ![]const u8 {
