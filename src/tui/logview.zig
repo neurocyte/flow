@@ -41,7 +41,7 @@ const Level = enum {
 
 pub fn create(a: Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
-    self.* = .{ .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent) };
+    self.* = .{ .plane = try Plane.init(&(Widget.Box{}).opts(name), parent) };
     return Widget.to(self);
 }
 
