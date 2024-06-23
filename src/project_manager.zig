@@ -35,12 +35,12 @@ pub fn shutdown() void {
 }
 
 pub fn open_cwd() tp.result {
-    var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const cwd = std.fs.cwd().realpath(".", &cwd_buf) catch "(none)";
-    return open(cwd);
+    return open(".");
 }
 
-pub fn open(project_directory: []const u8) tp.result {
+pub fn open(rel_project_directory: []const u8) tp.result {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const project_directory = std.fs.cwd().realpath(rel_project_directory, &path_buf) catch "(none)";
     tp.env.get().str_set("project", project_directory);
     return (try get()).pid.send(.{ "open", project_directory });
 }
@@ -234,8 +234,8 @@ const Process = struct {
     }
 
     fn open(self: *Process, project_directory: []const u8) error{ OutOfMemory, Exit }!void {
-        self.logger.print("opening: {s}", .{project_directory});
         if (self.projects.get(project_directory) == null) {
+            self.logger.print("opening: {s}", .{project_directory});
             const project = try self.a.create(Project);
             project.* = try Project.init(self.a, project_directory);
             try self.projects.put(try self.a.dupe(u8, project_directory), project);

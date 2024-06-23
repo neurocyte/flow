@@ -45,7 +45,6 @@ const NavState = struct {
 };
 
 pub fn create(a: std.mem.Allocator, n: Plane) !Widget {
-    try project_manager.open_cwd();
     const self = try a.create(Self);
     self.* = .{
         .a = a,
@@ -165,6 +164,19 @@ const cmds = struct {
         try tp.self_pid().send("quit");
     }
 
+    pub fn open_project_cwd(self: *Self, _: Ctx) tp.result {
+        try project_manager.open_cwd();
+        _ = try self.statusbar.msg(.{ "PRJ", "open" });
+    }
+
+    pub fn open_project_dir(self: *Self, ctx: Ctx) tp.result {
+        var project_dir: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&project_dir)}))
+            return;
+        try project_manager.open(project_dir);
+        _ = try self.statusbar.msg(.{ "PRJ", "open" });
+    }
+
     pub fn navigate(self: *Self, ctx: Ctx) tp.result {
         tui.reset_drag_context();
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });
@@ -201,6 +213,10 @@ const cmds = struct {
         } else |_| if (ctx.args.match(tp.extract(&file_name)) catch false) {
             file = file_name;
         } else return tp.exit_error(error.InvalidArgument);
+
+        if (tp.env.get().str("project").len == 0) {
+            try open_project_cwd(self, .{});
+        }
 
         const f = project_manager.normalize_file_path(file orelse return);
         const same_file = if (self.editor) |editor| if (editor.file_path) |fp|

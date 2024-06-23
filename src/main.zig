@@ -209,6 +209,7 @@ pub fn main() anyerror!void {
             try tui_proc.send(.{ "cmd", "navigate", .{ .file = dest.file } });
         }
     } else {
+        try tui_proc.send(.{ "cmd", "open_project_cwd" });
         try tui_proc.send(.{ "cmd", "show_home" });
     }
     ctx.run();

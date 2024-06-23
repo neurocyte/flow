@@ -29,7 +29,7 @@ column: usize,
 file_exists: bool,
 file_dirty: bool = false,
 detailed: bool = false,
-project: bool = false,
+file: bool = false,
 
 const project_icon = "";
 const Self = @This();
@@ -53,7 +53,6 @@ pub fn create(a: Allocator, parent: Plane) !Widget {
         .on_render = render,
         .on_receive = receive,
     });
-    btn.opts.ctx.show_project();
     return Widget.to(btn);
 }
 
@@ -131,7 +130,7 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void 
         self.render_file_icon(plane, theme);
         _ = plane.print(" ", .{}) catch {};
     }
-    if (self.project) {
+    if (!self.file) {
         const project_name = tp.env.get().str("project");
         _ = plane.print("{s} ({s})", .{ self.name, project_name }) catch {};
     } else {
@@ -184,14 +183,18 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.file_icon = self.file_icon_buf[0..file_icon.len :0];
         self.file_dirty = false;
         self.abbrv_home();
-        self.project = false;
+        self.file = true;
     } else if (try m.match(.{ "E", "close" })) {
         self.name = "";
         self.lines = 0;
         self.line = 0;
         self.column = 0;
         self.file_exists = true;
+        self.file = false;
         self.show_project();
+    } else if (try m.match(.{ "PRJ", "open" })) {
+        if (!self.file)
+            self.show_project();
     }
     return false;
 }
@@ -214,7 +217,6 @@ fn show_project(self: *Self) void {
     @memcpy(self.name_buf[0..project_name.len], project_name);
     self.name = self.name_buf[0..project_name.len];
     self.abbrv_home();
-    self.project = true;
 }
 
 fn abbrv_home(self: *Self) void {
