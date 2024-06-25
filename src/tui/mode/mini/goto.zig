@@ -67,6 +67,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, modifiers: u32) tp.result {
     switch (evtype) {
         event_type.PRESS => try self.mapPress(keypress, modifiers),
         event_type.REPEAT => try self.mapPress(keypress, modifiers),
+        event_type.RELEASE => try self.mapRelease(keypress, modifiers),
         else => {},
     }
 }
@@ -84,6 +85,8 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             else => {},
         },
         0 => switch (keypress) {
+            key.LCTRL, key.RCTRL => command.executeName("enable_fast_scroll", .{}),
+            key.LALT, key.RALT => command.executeName("enable_fast_scroll", .{}),
             key.ESC => self.cancel(),
             key.ENTER => command.executeName("exit_mini_mode", .{}),
             key.BACKSPACE => if (self.input) |linenum| {
@@ -102,6 +105,14 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             },
             else => {},
         },
+        else => {},
+    };
+}
+
+fn mapRelease(_: *Self, keypress: u32, _: u32) tp.result {
+    return switch (keypress) {
+        key.LCTRL, key.RCTRL => command.executeName("disable_fast_scroll", .{}),
+        key.LALT, key.RALT => command.executeName("disable_fast_scroll", .{}),
         else => {},
     };
 }
