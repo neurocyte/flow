@@ -223,7 +223,10 @@ const Process = struct {
     fn handle_output(self: *Process, bytes: []u8) !void {
         try self.recv_buf.appendSlice(bytes);
         self.write_log("### RECV:\n{s}\n###\n", .{bytes});
-        try self.frame_message_recv();
+        self.frame_message_recv() catch |e| {
+            self.write_log("### RECV error: {any}\n", .{e});
+            return e;
+        };
     }
 
     fn handle_terminated(self: *Process, err: []const u8, code: u32) tp.result {
