@@ -3391,6 +3391,12 @@ pub const Editor = struct {
         return project_manager.goto_definition(file_path, primary.cursor.row, primary.cursor.col);
     }
 
+    pub fn completion(self: *Self, _: command.Context) tp.result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        return project_manager.completion(file_path, primary.cursor.row, primary.cursor.col);
+    }
+
     pub fn clear_diagnostics(self: *Self, ctx: command.Context) tp.result {
         var file_path: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&file_path)})) return tp.exit_error(error.InvalidArgument);

@@ -98,6 +98,13 @@ pub fn goto_definition(file_path: []const u8, row: usize, col: usize) tp.result 
     return (try get()).pid.send(.{ "goto_definition", project, file_path, row, col });
 }
 
+pub fn completion(file_path: []const u8, row: usize, col: usize) tp.result {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "completion", project, file_path, row, col });
+}
+
 pub fn update_mru(file_path: []const u8, row: usize, col: usize) tp.result {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -220,6 +227,8 @@ const Process = struct {
             self.did_close(project_directory, path) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "goto_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.goto_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e);
+        } else if (try m.match(.{ "completion", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+            self.completion(from, project_directory, path, row, col) catch |e| return from.forward_error(e);
         } else if (try m.match(.{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
             self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e);
         } else if (try m.match(.{"shutdown"})) {
@@ -306,6 +315,13 @@ const Process = struct {
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.goto_definition(from, file_path, row, col) catch |e| tp.exit_error(e);
+    }
+
+    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".completion" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.completion(from, file_path, row, col) catch |e| tp.exit_error(e);
     }
 
     fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) tp.result {

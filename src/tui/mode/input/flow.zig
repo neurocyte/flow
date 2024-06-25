@@ -105,7 +105,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             'I' => self.insert_bytes("\t"),
             '/' => self.cmd("toggle_comment", .{}),
             key.ENTER => self.cmd("smart_insert_line_after", .{}),
-            key.SPACE => self.cmd("selections_reverse", .{}),
+            key.SPACE => self.cmd("completion", .{}),
             key.END => self.cmd("move_buffer_end", .{}),
             key.HOME => self.cmd("move_buffer_begin", .{}),
             key.UP => self.cmd("move_scroll_up", .{}),
@@ -137,6 +137,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
             key.DOWN => self.cmd("select_scroll_down", .{}),
             key.LEFT => self.cmd("select_word_left", .{}),
             key.RIGHT => self.cmd("select_word_right", .{}),
+            key.SPACE => self.cmd("selections_reverse", .{}),
             else => {},
         },
         mod.ALT => switch (keynormal) {

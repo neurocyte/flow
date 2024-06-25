@@ -452,6 +452,17 @@ fn navigate_to_location_link(_: *Self, from: tp.pid_ref, location_link: []const 
     }
 }
 
+pub fn completion(self: *Self, _: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
+    const lsp = try self.get_file_lsp(file_path);
+    const uri = self.make_URI(file_path) catch |e| return tp.exit_error(e);
+    defer self.a.free(uri);
+    const response = try lsp.send_request(self.a, "textDocument/completion", .{
+        .textDocument = .{ .uri = uri },
+        .position = .{ .line = row, .character = col },
+    });
+    defer self.a.free(response.buf);
+}
+
 pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) !void {
     var uri: ?[]const u8 = null;
     var diagnostics: []const u8 = &.{};
