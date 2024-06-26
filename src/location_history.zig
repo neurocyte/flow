@@ -3,7 +3,6 @@ const tp = @import("thespian");
 
 const Self = @This();
 const module_name = @typeName(Self);
-pub const Error = error{ OutOfMemory, Exit };
 
 pid: ?tp.pid,
 
@@ -17,7 +16,7 @@ pub const Selection = struct {
     end: Cursor = Cursor{},
 };
 
-pub fn create() Error!Self {
+pub fn create() !Self {
     return .{ .pid = try Process.create() };
 }
 
@@ -46,7 +45,7 @@ const Process = struct {
         selection: ?Selection = null,
     };
 
-    pub fn create() Error!tp.pid {
+    pub fn create() !tp.pid {
         const self = try outer_a.create(Process);
         self.* = .{
             .arena = std.heap.ArenaAllocator.init(outer_a),
@@ -55,7 +54,7 @@ const Process = struct {
             .forwards = std.ArrayList(Entry).init(self.a),
             .receiver = Receiver.init(Process.receive, self),
         };
-        return tp.spawn_link(self.a, self, Process.start, module_name) catch |e| tp.exit_error(e);
+        return tp.spawn_link(self.a, self, Process.start, module_name);
     }
 
     fn start(self: *Process) tp.result {
@@ -87,6 +86,10 @@ const Process = struct {
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
+        self.receive_safe(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) !void {
         errdefer self.deinit();
 
         var c: Cursor = .{};
@@ -106,9 +109,9 @@ const Process = struct {
             tp.exit_normal();
     }
 
-    fn update(self: *Process, entry_: Entry) tp.result {
+    fn update(self: *Process, entry_: Entry) !void {
         const entry: Entry = .{
-            .file_path = self.a.dupe(u8, entry_.file_path) catch |e| return tp.exit_error(e),
+            .file_path = try self.a.dupe(u8, entry_.file_path),
             .cursor = entry_.cursor,
             .selection = entry_.selection,
         };
@@ -129,7 +132,7 @@ const Process = struct {
             self.a.free(top.file_path);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "forward", entry.file_path, entry.cursor.row, entry.cursor.col, self.backwards.items.len, self.forwards.items.len }));
         } else if (self.current) |current| {
-            self.backwards.append(current) catch |e| return tp.exit_error(e);
+            try self.backwards.append(current);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "new", current.file_path, current.cursor.row, current.cursor.col, self.backwards.items.len, self.forwards.items.len }));
             self.clear_forwards();
         }

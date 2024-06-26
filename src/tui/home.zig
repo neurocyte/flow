@@ -189,24 +189,25 @@ const Commands = command.Collection(cmds);
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Result = command.Result;
 
-    pub fn home_menu_down(self: *Self, _: Ctx) tp.result {
+    pub fn home_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
 
-    pub fn home_menu_up(self: *Self, _: Ctx) tp.result {
+    pub fn home_menu_up(self: *Self, _: Ctx) Result {
         self.menu.select_up();
     }
 
-    pub fn home_menu_activate(self: *Self, _: Ctx) tp.result {
+    pub fn home_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
     }
 
-    pub fn home_sheeran(self: *Self, _: Ctx) tp.result {
+    pub fn home_sheeran(self: *Self, _: Ctx) Result {
         self.fire = if (self.fire) |*fire| ret: {
             fire.deinit();
             break :ret null;
-        } else Fire.init(self.a, self.plane) catch |e| return tp.exit_error(e);
+        } else try Fire.init(self.a, self.plane);
     }
 };
 

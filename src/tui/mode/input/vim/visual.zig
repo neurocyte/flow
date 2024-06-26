@@ -55,20 +55,20 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var text: []const u8 = undefined;
 
     if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-        try self.mapEvent(evtype, keypress, egc, modifiers);
+        self.mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{"F"})) {
-        try self.flush_input();
+        self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-        try self.flush_input();
-        try self.insert_bytes(text);
-        try self.flush_input();
+        self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return false;
 }
 
 pub fn add_keybind() void {}
 
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
     return switch (evtype) {
         event_type.PRESS => self.mapPress(keypress, egc, modifiers),
         event_type.REPEAT => self.mapPress(keypress, egc, modifiers),
@@ -77,7 +77,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) t
     };
 }
 
-fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     if (self.count > 0 and modifiers == 0 and '0' <= keypress and keypress <= '9') return self.add_count(keypress - '0');
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     if (self.leader) |_| return self.mapFollower(keynormal, egc, modifiers);
@@ -288,7 +288,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     };
 }
 
-fn mapFollower(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapFollower(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     if (keypress == key.LCTRL or
         keypress == key.RCTRL or
         keypress == key.LALT or
@@ -363,7 +363,7 @@ fn mapFollower(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     };
 }
 
-fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) tp.result {
+fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) !void {
     return switch (keypress) {
         key.LCTRL, key.RCTRL => self.cmd("disable_fast_scroll", .{}),
         key.LALT, key.RALT => self.cmd("disable_jump_mode", .{}),
@@ -376,27 +376,27 @@ fn add_count(self: *Self, value: usize) void {
     self.count += value;
 }
 
-fn insert_code_point(self: *Self, c: u32) tp.result {
+fn insert_code_point(self: *Self, c: u32) !void {
     if (self.input.items.len + 4 > input_buffer_size)
         try self.flush_input();
     var buf: [6]u8 = undefined;
-    const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
-    self.input.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
+    const bytes = try ucs32_to_utf8(&[_]u32{c}, &buf);
+    try self.input.appendSlice(buf[0..bytes]);
 }
 
-fn insert_bytes(self: *Self, bytes: []const u8) tp.result {
+fn insert_bytes(self: *Self, bytes: []const u8) !void {
     if (self.input.items.len + 4 > input_buffer_size)
         try self.flush_input();
-    self.input.appendSlice(bytes) catch |e| return tp.exit_error(e);
+    try self.input.appendSlice(bytes);
 }
 
 var insert_chars_id: ?command.ID = null;
 
-fn flush_input(self: *Self) tp.result {
+fn flush_input(self: *Self) !void {
     if (self.input.items.len > 0) {
         defer self.input.clearRetainingCapacity();
         const id = insert_chars_id orelse command.get_id_cache("insert_chars", &insert_chars_id) orelse {
-            return tp.exit_error(error.InputTargetNotFound);
+            return tp.exit_error(error.InputTargetNotFound, null);
         };
         try command.execute(id, command.fmt(.{self.input.items}));
         self.last_cmd = "insert_chars";
@@ -570,25 +570,26 @@ const Commands = command.Collection(cmds_);
 const cmds_ = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Result = command.Result;
 
-    pub fn @"w"(self: *Self, _: Ctx) tp.result {
+    pub fn @"w"(self: *Self, _: Ctx) Result {
         try self.cmd("save_file", .{});
     }
 
-    pub fn @"q"(self: *Self, _: Ctx) tp.result {
+    pub fn @"q"(self: *Self, _: Ctx) Result {
         try self.cmd("quit", .{});
     }
 
-    pub fn @"q!"(self: *Self, _: Ctx) tp.result {
+    pub fn @"q!"(self: *Self, _: Ctx) Result {
         try self.cmd("quit_without_saving", .{});
     }
 
-    pub fn @"wq"(self: *Self, _: Ctx) tp.result {
+    pub fn @"wq"(self: *Self, _: Ctx) Result {
         try self.cmd("save_file", .{});
         try self.cmd("quit", .{});
     }
 
-    pub fn @"wq!"(self: *Self, _: Ctx) tp.result {
+    pub fn @"wq!"(self: *Self, _: Ctx) Result {
         self.cmd("save_file", .{}) catch {};
         try self.cmd("quit_without_saving", .{});
     }

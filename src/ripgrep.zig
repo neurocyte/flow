@@ -11,9 +11,9 @@ stdin_behavior: std.process.Child.StdIo,
 const Self = @This();
 const module_name = @typeName(Self);
 pub const max_chunk_size = tp.subprocess.max_chunk_size;
-pub const Writer = std.io.Writer(*Self, error{Exit}, write);
+pub const Writer = std.io.Writer(*Self, Error, write);
 pub const BufferedWriter = std.io.BufferedWriter(max_chunk_size, Writer);
-pub const Error = error{ OutOfMemory, Exit };
+pub const Error = error{ OutOfMemory, Exit, ThespianSpawnFailed, Closed };
 
 pub const FindF = fn (a: std.mem.Allocator, query: []const u8, tag: [:0]const u8) Error!Self;
 
@@ -21,11 +21,11 @@ pub fn find_in_stdin(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8)
     return create(a, query, tag, .Pipe);
 }
 
-pub fn find_in_files(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8) Error!Self {
+pub fn find_in_files(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8) !Self {
     return create(a, query, tag, .Close);
 }
 
-fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) Error!Self {
+fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !Self {
     return .{ .pid = try Process.create(a, query, tag, stdin_behavior), .stdin_behavior = stdin_behavior };
 }
 
@@ -38,13 +38,13 @@ pub fn deinit(self: *Self) void {
     }
 }
 
-pub fn write(self: *Self, bytes: []const u8) error{Exit}!usize {
+pub fn write(self: *Self, bytes: []const u8) !usize {
     try self.input(bytes);
     return bytes.len;
 }
 
-pub fn input(self: *const Self, bytes: []const u8) tp.result {
-    const pid = if (self.pid) |pid| pid else return tp.exit_error(error.Closed);
+pub fn input(self: *const Self, bytes: []const u8) !void {
+    const pid = if (self.pid) |pid| pid else return error.Closed;
     var remaining = bytes;
     while (remaining.len > 0)
         remaining = loop: {
@@ -83,7 +83,7 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) Error!tp.pid {
+    pub fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !tp.pid {
         const self = try a.create(Process);
         self.* = .{
             .a = a,
@@ -95,7 +95,7 @@ const Process = struct {
             .logger = log.logger(@typeName(Self)),
             .stdin_behavior = stdin_behavior,
         };
-        return tp.spawn_link(self.a, self, Process.start, tag) catch |e| tp.exit_error(e);
+        return tp.spawn_link(self.a, self, Process.start, tag);
     }
 
     fn deinit(self: *Process) void {
@@ -121,7 +121,7 @@ const Process = struct {
             "--json",
             self.query,
         });
-        self.sp = tp.subprocess.init(self.a, args, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e);
+        self.sp = tp.subprocess.init(self.a, args, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
     }
 
@@ -130,14 +130,14 @@ const Process = struct {
         var bytes: []u8 = "";
 
         if (try m.match(.{ "input", tp.extract(&bytes) })) {
-            const sp = if (self.sp) |sp| sp else return tp.exit_error(error.Closed);
+            const sp = if (self.sp) |sp| sp else return tp.exit_error(error.Closed, null);
             try sp.send(bytes);
         } else if (try m.match(.{"close"})) {
             try self.close();
         } else if (try m.match(.{ module_name, "stdout", tp.extract(&bytes) })) {
-            self.handle_output(bytes) catch |e| return tp.exit_error(e);
+            self.handle_output(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ module_name, "term", tp.more })) {
-            self.handle_terminated() catch |e| return tp.exit_error(e);
+            self.handle_terminated() catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ module_name, "stderr", tp.extract(&bytes) })) {
             self.logger.print("ERR: {s}", .{bytes});
         } else if (try m.match(.{ "exit", "normal" })) {

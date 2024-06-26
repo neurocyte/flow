@@ -65,12 +65,12 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     }
 
     if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-        try self.mapEvent(evtype, keypress, egc, modifiers);
+        self.mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return false;
 }
 
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
     switch (evtype) {
         event_type.PRESS => try self.mapPress(keypress, egc, modifiers),
         event_type.REPEAT => try self.mapPress(keypress, egc, modifiers),
@@ -79,7 +79,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) t
     }
 }
 
-fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
@@ -121,16 +121,16 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     };
 }
 
-fn mapRelease(_: *Self, _: u32, _: u32, _: u32) tp.result {}
+fn mapRelease(_: *Self, _: u32, _: u32, _: u32) !void {}
 
-fn insert_code_point(self: *Self, c: u32) tp.result {
+fn insert_code_point(self: *Self, c: u32) !void {
     var buf: [32]u8 = undefined;
-    const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
-    self.file_path.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
+    const bytes = try ucs32_to_utf8(&[_]u32{c}, &buf);
+    try self.file_path.appendSlice(buf[0..bytes]);
 }
 
-fn insert_bytes(self: *Self, bytes: []const u8) tp.result {
-    self.file_path.appendSlice(bytes) catch |e| return tp.exit_error(e);
+fn insert_bytes(self: *Self, bytes: []const u8) !void {
+    try self.file_path.appendSlice(bytes);
 }
 
 fn cmd(_: *Self, name_: []const u8, ctx: command.Context) tp.result {

@@ -7,6 +7,7 @@ const tui = @import("tui.zig");
 pub const ID = usize;
 pub const ID_unknown = std.math.maxInt(ID);
 
+pub const Result = anyerror!void;
 pub const Context = struct {
     args: tp.message = .{},
 
@@ -29,7 +30,7 @@ pub fn Closure(comptime T: type) type {
         f: FunT,
         data: T,
 
-        const FunT: type = *const fn (T, ctx: Context) tp.result;
+        const FunT: type = *const fn (T, ctx: Context) Result;
         const Self = @This();
 
         pub fn init(f: FunT, data: T, name: []const u8) Self {
@@ -61,7 +62,7 @@ pub fn Closure(comptime T: type) type {
 
         fn run(vtbl: *Vtable, ctx: Context) tp.result {
             const self: *Self = fromVtable(vtbl);
-            return self.f(self.data, ctx);
+            return self.f(self.data, ctx) catch |e| tp.exit_error(e, @errorReturnTrace());
         }
 
         fn fromVtable(vtbl: *Vtable) *Self {
@@ -96,7 +97,7 @@ pub fn execute(id: ID, ctx: Context) tp.result {
     const cmd = commands.items[id];
     if (cmd) |p| {
         // var buf: [tp.max_message_size]u8 = undefined;
-        // log.print("cmd", "execute({s}) {s}", .{ p.name, ctx.args.to_json(&buf) catch "" }) catch |e| return tp.exit_error(e);
+        // log.print("cmd", "execute({s}) {s}", .{ p.name, ctx.args.to_json(&buf) catch "" }) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return p.run(p, ctx);
     } else {
         return tp.exit_fmt("CommandNotAvailable: {d}", .{id});
@@ -129,7 +130,7 @@ pub fn executeName(name: []const u8, ctx: Context) tp.result {
 
 fn CmdDef(comptime T: type) type {
     return struct {
-        const Fn = fn (T, Context) tp.result;
+        const Fn = fn (T, Context) anyerror!void;
         name: [:0]const u8,
         f: *const Fn,
     };

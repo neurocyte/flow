@@ -72,7 +72,7 @@ pub fn spawn(a: Allocator, ctx: *tp.context, eh: anytype, env: ?*const tp.env) !
 
 fn start(args: StartArgs) tp.result {
     _ = tp.set_trap(true);
-    var self = init(args.a) catch |e| return tp.exit_error(e);
+    var self = init(args.a) catch |e| return tp.exit_error(e, @errorReturnTrace());
     errdefer self.deinit();
     tp.receive(&self.receiver);
 }
@@ -144,7 +144,7 @@ fn init(a: Allocator) !*Self {
     return self;
 }
 
-fn init_delayed(self: *Self) tp.result {
+fn init_delayed(self: *Self) !void {
     if (self.input_mode) |_| {} else return cmds.enter_mode(self, command.Context.fmt(.{self.config.input_mode}));
 }
 
@@ -171,7 +171,7 @@ fn deinit(self: *Self) void {
 
 fn listen_sigwinch(self: *Self) tp.result {
     if (self.sigwinch_signal) |old| old.deinit();
-    self.sigwinch_signal = tp.signal.init(std.posix.SIG.WINCH, tp.message.fmt(.{"sigwinch"})) catch |e| return tp.exit_error(e);
+    self.sigwinch_signal = tp.signal.init(std.posix.SIG.WINCH, tp.message.fmt(.{"sigwinch"})) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
@@ -183,18 +183,18 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 
     self.receive_safe(from, m) catch |e| {
         if (std.mem.eql(u8, "normal", tp.error_text()))
-            return e;
+            return error.Exit;
         if (std.mem.eql(u8, "restart", tp.error_text()))
-            return e;
-        self.logger.err("UI", e);
+            return error.Exit;
+        self.logger.err("UI", tp.exit_error(e, @errorReturnTrace()));
     };
 }
 
-fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
+fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     var input: []const u8 = undefined;
     var text: []const u8 = undefined;
     if (try m.match(.{ "VXS", tp.extract(&input), tp.extract(&text) })) {
-        self.rdr.process_input_event(input, if (text.len > 0) text else null) catch |e| return tp.exit_error(e);
+        try self.rdr.process_input_event(input, if (text.len > 0) text else null);
         try self.dispatch_flush_input_event();
         if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
             need_render();
@@ -355,10 +355,10 @@ fn render(self: *Self) void {
     }
 }
 
-fn dispatch_flush_input_event(self: *Self) tp.result {
+fn dispatch_flush_input_event(self: *Self) !void {
     var buf: [32]u8 = undefined;
     if (self.input_mode) |mode|
-        try mode.handler.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{"F"}) catch |e| return tp.exit_error(e));
+        try mode.handler.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
 }
 
 fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
@@ -383,10 +383,8 @@ fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) voi
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
-    if (self.drag_source) |_|
-        self.send_mouse_drag(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e)
-    else
-        self.send_mouse(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
+    const send_func = if (self.drag_source) |_| &send_mouse_drag else &send_mouse;
+    send_func(self, y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
     self.drag_source = null;
 }
 
@@ -462,16 +460,16 @@ fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) 
             var buf: [256]u8 = undefined;
             if (self.hover_focus) |h| {
                 if (self.is_live_widget_ptr(h))
-                    _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e));
+                    _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
             }
             self.hover_focus = w;
-            _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e));
+            _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
         }
         _ = try w.send(from, m);
     } else {
         if (self.hover_focus) |h| {
             var buf: [256]u8 = undefined;
-            _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e));
+            _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
         }
         self.hover_focus = null;
     }
@@ -488,15 +486,15 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
             var buf: [256]u8 = undefined;
             if (self.hover_focus) |h| {
                 if (self.is_live_widget_ptr(h))
-                    _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e));
+                    _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
             }
             self.hover_focus = w;
-            _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e));
+            _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
         }
     } else {
         if (self.hover_focus) |h| {
             var buf: [256]u8 = undefined;
-            _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e));
+            _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
         }
         self.hover_focus = null;
     }
@@ -510,83 +508,84 @@ pub fn save_config(self: *const Self) !void {
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Result = command.Result;
 
-    pub fn restart(_: *Self, _: Ctx) tp.result {
+    pub fn restart(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("restart");
     }
 
-    pub fn theme_next(self: *Self, _: Ctx) tp.result {
+    pub fn theme_next(self: *Self, _: Ctx) Result {
         self.theme = get_next_theme_by_name(self.theme.name);
         self.config.theme = self.theme.name;
         self.logger.print("theme: {s}", .{self.theme.description});
-        self.save_config() catch |e| return tp.exit_error(e);
+        try self.save_config();
     }
 
-    pub fn theme_prev(self: *Self, _: Ctx) tp.result {
+    pub fn theme_prev(self: *Self, _: Ctx) Result {
         self.theme = get_prev_theme_by_name(self.theme.name);
         self.config.theme = self.theme.name;
         self.logger.print("theme: {s}", .{self.theme.description});
-        self.save_config() catch |e| return tp.exit_error(e);
+        try self.save_config();
     }
 
-    pub fn toggle_whitespace(self: *Self, _: Ctx) tp.result {
+    pub fn toggle_whitespace(self: *Self, _: Ctx) Result {
         self.config.show_whitespace = !self.config.show_whitespace;
         self.logger.print("show_whitspace {s}", .{if (self.config.show_whitespace) "enabled" else "disabled"});
-        self.save_config() catch |e| return tp.exit_error(e);
+        try self.save_config();
         var buf: [32]u8 = undefined;
-        const m = tp.message.fmtbuf(&buf, .{ "show_whitespace", self.config.show_whitespace }) catch |e| return tp.exit_error(e);
+        const m = try tp.message.fmtbuf(&buf, .{ "show_whitespace", self.config.show_whitespace });
         _ = try self.send_widgets(tp.self_pid(), m);
     }
 
-    pub fn toggle_input_mode(self: *Self, _: Ctx) tp.result {
+    pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
         self.config.input_mode = if (std.mem.eql(u8, self.config.input_mode, "flow")) "vim/normal" else "flow";
-        self.save_config() catch |e| return tp.exit_error(e);
+        try self.save_config();
         return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
     }
 
-    pub fn enter_mode(self: *Self, ctx: Ctx) tp.result {
+    pub fn enter_mode(self: *Self, ctx: Ctx) Result {
         var mode: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&mode)}))
-            return tp.exit_error(error.InvalidArgument);
+            return tp.exit_error(error.InvalidArgument, null);
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode) |*m| m.deinit();
         self.input_mode = if (std.mem.eql(u8, mode, "vim/normal"))
-            @import("mode/input/vim/normal.zig").create(self.a) catch |e| return tp.exit_error(e)
+            try @import("mode/input/vim/normal.zig").create(self.a)
         else if (std.mem.eql(u8, mode, "vim/insert"))
-            @import("mode/input/vim/insert.zig").create(self.a) catch |e| return tp.exit_error(e)
+            try @import("mode/input/vim/insert.zig").create(self.a)
         else if (std.mem.eql(u8, mode, "vim/visual"))
-            @import("mode/input/vim/visual.zig").create(self.a) catch |e| return tp.exit_error(e)
+            try @import("mode/input/vim/visual.zig").create(self.a)
         else if (std.mem.eql(u8, mode, "flow"))
-            @import("mode/input/flow.zig").create(self.a) catch |e| return tp.exit_error(e)
+            try @import("mode/input/flow.zig").create(self.a)
         else if (std.mem.eql(u8, mode, "home"))
-            @import("mode/input/home.zig").create(self.a) catch |e| return tp.exit_error(e)
+            try @import("mode/input/home.zig").create(self.a)
         else ret: {
             self.logger.print("unknown mode {s}", .{mode});
-            break :ret @import("mode/input/flow.zig").create(self.a) catch |e| return tp.exit_error(e);
+            break :ret try @import("mode/input/flow.zig").create(self.a);
         };
         // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
 
-    pub fn enter_mode_default(self: *Self, _: Ctx) tp.result {
+    pub fn enter_mode_default(self: *Self, _: Ctx) Result {
         return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
     }
 
-    pub fn open_command_palette(self: *Self, _: Ctx) tp.result {
+    pub fn open_command_palette(self: *Self, _: Ctx) Result {
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         self.input_mode_outer = self.input_mode;
-        self.input_mode = @import("mode/overlay/command_palette.zig").create(self.a) catch |e| return tp.exit_error(e);
+        self.input_mode = try @import("mode/overlay/command_palette.zig").create(self.a);
     }
 
-    pub fn open_recent(self: *Self, _: Ctx) tp.result {
+    pub fn open_recent(self: *Self, _: Ctx) Result {
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         self.input_mode_outer = self.input_mode;
-        self.input_mode = @import("mode/overlay/open_recent.zig").create(self.a) catch |e| return tp.exit_error(e);
+        self.input_mode = try @import("mode/overlay/open_recent.zig").create(self.a);
     }
 
-    pub fn exit_overlay_mode(self: *Self, _: Ctx) tp.result {
+    pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
         if (self.input_mode_outer == null) return;
         defer {
             self.input_mode = self.input_mode_outer;
@@ -595,29 +594,29 @@ const cmds = struct {
         if (self.input_mode) |*mode| mode.deinit();
     }
 
-    pub fn enter_find_mode(self: *Self, ctx: Ctx) tp.result {
+    pub fn enter_find_mode(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/find.zig"), ctx);
     }
 
-    pub fn enter_find_in_files_mode(self: *Self, ctx: Ctx) tp.result {
+    pub fn enter_find_in_files_mode(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/find_in_files.zig"), ctx);
     }
 
-    pub fn enter_goto_mode(self: *Self, ctx: Ctx) tp.result {
+    pub fn enter_goto_mode(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/goto.zig"), ctx);
     }
 
-    pub fn enter_move_to_char_mode(self: *Self, ctx: Ctx) tp.result {
+    pub fn enter_move_to_char_mode(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/move_to_char.zig"), ctx);
     }
 
-    pub fn enter_open_file_mode(self: *Self, ctx: Ctx) tp.result {
+    pub fn enter_open_file_mode(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
     }
 
     const MiniModeFactory = fn (Allocator, Ctx) error{ NotFound, OutOfMemory }!EventHandler;
 
-    fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) tp.result {
+    fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) Result {
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         self.input_mode_outer = self.input_mode;
@@ -626,7 +625,7 @@ const cmds = struct {
             self.input_mode_outer = null;
             self.mini_mode = null;
         }
-        const mode_instance = mode.create(self.a, ctx) catch |e| return tp.exit_error(e);
+        const mode_instance = try mode.create(self.a, ctx);
         self.input_mode = .{
             .handler = mode_instance.handler(),
             .name = mode_instance.name(),
@@ -635,7 +634,7 @@ const cmds = struct {
         self.mini_mode = .{};
     }
 
-    pub fn exit_mini_mode(self: *Self, _: Ctx) tp.result {
+    pub fn exit_mini_mode(self: *Self, _: Ctx) Result {
         if (self.mini_mode) |_| {} else return;
         defer {
             self.input_mode = self.input_mode_outer;

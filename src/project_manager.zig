@@ -13,13 +13,13 @@ pid: tp.pid_ref,
 const Self = @This();
 const module_name = @typeName(Self);
 
-pub fn get() error{Exit}!Self {
+pub fn get() !Self {
     const pid = tp.env.get().proc(module_name);
     return if (pid.expired()) create() else .{ .pid = pid };
 }
 
-fn create() error{Exit}!Self {
-    const pid = Process.create() catch |e| return tp.exit_error(e);
+fn create() !Self {
+    const pid = try Process.create();
     defer pid.deinit();
     tp.env.get().proc_set(module_name, pid.ref());
     return .{ .pid = tp.env.get().proc(module_name) };
@@ -34,35 +34,35 @@ pub fn shutdown() void {
     pid.send(.{"shutdown"}) catch {};
 }
 
-pub fn open_cwd() tp.result {
+pub fn open_cwd() !void {
     return open(".");
 }
 
-pub fn open(rel_project_directory: []const u8) tp.result {
+pub fn open(rel_project_directory: []const u8) !void {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const project_directory = std.fs.cwd().realpath(rel_project_directory, &path_buf) catch "(none)";
-    var dir = std.fs.openDirAbsolute(project_directory, .{}) catch |e| return tp.exit_error(e);
-    dir.setAsCwd() catch |e| return tp.exit_error(e);
+    var dir = try std.fs.openDirAbsolute(project_directory, .{});
+    try dir.setAsCwd();
     dir.close();
     tp.env.get().str_set("project", project_directory);
     return (try get()).pid.send(.{ "open", project_directory });
 }
 
-pub fn request_recent_files(max: usize) tp.result {
+pub fn request_recent_files(max: usize) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
     return (try get()).pid.send(.{ "request_recent_files", project, max });
 }
 
-pub fn query_recent_files(max: usize, query: []const u8) tp.result {
+pub fn query_recent_files(max: usize, query: []const u8) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
     return (try get()).pid.send(.{ "query_recent_files", project, max, query });
 }
 
-pub fn did_open(file_path: []const u8, file_type: *const FileType, version: usize, text: []const u8) tp.result {
+pub fn did_open(file_path: []const u8, file_type: *const FileType, version: usize, text: []const u8) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
@@ -70,49 +70,49 @@ pub fn did_open(file_path: []const u8, file_type: *const FileType, version: usiz
     return (try get()).pid.send(.{ "did_open", project, file_path, file_type.name, file_type.language_server, version, text_ptr, text.len });
 }
 
-pub fn did_change(file_path: []const u8, version: usize, root_dst: usize, root_src: usize) tp.result {
+pub fn did_change(file_path: []const u8, version: usize, root_dst: usize, root_src: usize) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
     return (try get()).pid.send(.{ "did_change", project, file_path, version, root_dst, root_src });
 }
 
-pub fn did_save(file_path: []const u8) tp.result {
+pub fn did_save(file_path: []const u8) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
     return (try get()).pid.send(.{ "did_save", project, file_path });
 }
 
-pub fn did_close(file_path: []const u8) tp.result {
+pub fn did_close(file_path: []const u8) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
     return (try get()).pid.send(.{ "did_close", project, file_path });
 }
 
-pub fn goto_definition(file_path: []const u8, row: usize, col: usize) tp.result {
+pub fn goto_definition(file_path: []const u8, row: usize, col: usize) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
     return (try get()).pid.send(.{ "goto_definition", project, file_path, row, col });
 }
 
-pub fn completion(file_path: []const u8, row: usize, col: usize) tp.result {
+pub fn completion(file_path: []const u8, row: usize, col: usize) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
     return (try get()).pid.send(.{ "completion", project, file_path, row, col });
 }
 
-pub fn update_mru(file_path: []const u8, row: usize, col: usize) tp.result {
+pub fn update_mru(file_path: []const u8, row: usize, col: usize) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
     return (try get()).pid.send(.{ "update_mru", project, file_path, row, col });
 }
 
-pub fn get_mru_position(file_path: []const u8) tp.result {
+pub fn get_mru_position(file_path: []const u8) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
@@ -140,7 +140,7 @@ const Process = struct {
             .receiver = Receiver.init(Process.receive, self),
             .projects = ProjectsMap.init(a),
         };
-        return tp.spawn_link(self.a, self, Process.start, module_name) catch |e| tp.exit_error(e);
+        return tp.spawn_link(self.a, self, Process.start, module_name);
     }
 
     fn deinit(self: *Process) void {
@@ -166,11 +166,11 @@ const Process = struct {
         self.receive_safe(from, m) catch |e| {
             if (std.mem.eql(u8, "normal", tp.error_text()))
                 return e;
-            self.logger.err("receive", e);
+            self.logger.err("receive", tp.exit_error(e, @errorReturnTrace()));
         };
     }
 
-    fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
+    fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) !void {
         var project_directory: []const u8 = undefined;
         var path: []const u8 = undefined;
         var query: []const u8 = undefined;
@@ -201,9 +201,9 @@ const Process = struct {
         } else if (try m.match(.{ "walk_tree_done", tp.extract(&project_directory) })) {
             if (self.walker) |pid| pid.deinit();
             self.walker = null;
-            self.loaded(project_directory) catch |e| return from.forward_error(e);
+            self.loaded(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "update_mru", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e);
+            self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
             self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract(&id), tp.extract_cbor(&params_cb) })) {
@@ -211,26 +211,26 @@ const Process = struct {
         } else if (try m.match(.{ "child", tp.extract(&path), "done" })) {
             self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
-            self.open(project_directory) catch |e| return from.forward_error(e);
+            self.open(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
-            self.request_recent_files(from, project_directory, max) catch |e| return from.forward_error(e);
+            self.request_recent_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "query_recent_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
-            self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e);
+            self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
             const text = if (text_len > 0) @as([*]const u8, @ptrFromInt(text_ptr))[0..text_len] else "";
-            self.did_open(project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e);
+            self.did_open(project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&root_dst), tp.extract(&root_src) })) {
-            self.did_change(project_directory, path, version, root_dst, root_src) catch |e| return from.forward_error(e);
+            self.did_change(project_directory, path, version, root_dst, root_src) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "did_save", tp.extract(&project_directory), tp.extract(&path) })) {
-            self.did_save(project_directory, path) catch |e| return from.forward_error(e);
+            self.did_save(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "did_close", tp.extract(&project_directory), tp.extract(&path) })) {
-            self.did_close(project_directory, path) catch |e| return from.forward_error(e);
+            self.did_close(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "goto_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.goto_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e);
+            self.goto_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "completion", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.completion(from, project_directory, path, row, col) catch |e| return from.forward_error(e);
+            self.completion(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
-            self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e);
+            self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{"shutdown"})) {
             if (self.walker) |pid| pid.send(.{"stop"}) catch {};
             self.persist_projects();
@@ -245,7 +245,7 @@ const Process = struct {
         }
     }
 
-    fn open(self: *Process, project_directory: []const u8) error{ OutOfMemory, Exit }!void {
+    fn open(self: *Process, project_directory: []const u8) !void {
         if (self.projects.get(project_directory) == null) {
             self.logger.print("opening: {s}", .{project_directory});
             const project = try self.a.create(Project);
@@ -282,72 +282,72 @@ const Process = struct {
             self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
     }
 
-    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
+    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_open" });
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.did_open(file_path, file_type, language_server, version, text);
     }
 
-    fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, root_dst: usize, root_src: usize) tp.result {
+    fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, root_dst: usize, root_src: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_change" });
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        return project.did_change(file_path, version, root_dst, root_src) catch |e| tp.exit_error(e);
+        return project.did_change(file_path, version, root_dst, root_src);
     }
 
-    fn did_save(self: *Process, project_directory: []const u8, file_path: []const u8) tp.result {
+    fn did_save(self: *Process, project_directory: []const u8, file_path: []const u8) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_save" });
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.did_save(file_path);
     }
 
-    fn did_close(self: *Process, project_directory: []const u8, file_path: []const u8) tp.result {
+    fn did_close(self: *Process, project_directory: []const u8, file_path: []const u8) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_close" });
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.did_close(file_path);
     }
 
-    fn goto_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {
+    fn goto_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_definition" });
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        return project.goto_definition(from, file_path, row, col) catch |e| tp.exit_error(e);
+        return project.goto_definition(from, file_path, row, col);
     }
 
-    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {
+    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".completion" });
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        return project.completion(from, file_path, row, col) catch |e| tp.exit_error(e);
+        return project.completion(from, file_path, row, col);
     }
 
-    fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) tp.result {
+    fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".get_mru_position" });
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        return project.get_mru_position(from, file_path) catch |e| tp.exit_error(e);
+        return project.get_mru_position(from, file_path);
     }
 
-    fn update_mru(self: *Process, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) tp.result {
+    fn update_mru(self: *Process, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
-        return project.update_mru(file_path, row, col) catch |e| tp.exit_error(e);
+        return project.update_mru(file_path, row, col);
     }
 
-    fn dispatch_notify(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, params_cb: []const u8) tp.result {
+    fn dispatch_notify(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, params_cb: []const u8) !void {
         _ = language_server;
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return if (std.mem.eql(u8, method, "textDocument/publishDiagnostics"))
-            project.publish_diagnostics(self.parent.ref(), params_cb) catch |e| tp.exit_error(e)
+            project.publish_diagnostics(self.parent.ref(), params_cb)
         else if (std.mem.eql(u8, method, "window/showMessage"))
-            project.show_message(self.parent.ref(), params_cb) catch |e| tp.exit_error(e)
+            project.show_message(self.parent.ref(), params_cb)
         else
             tp.exit_fmt("unsupported LSP notification: {s}", .{method});
     }
 
-    fn dispatch_request(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, id: i32, params_cb: []const u8) tp.result {
+    fn dispatch_request(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, id: i32, params_cb: []const u8) !void {
         _ = self;
         _ = project_directory;
         _ = language_server;
@@ -410,7 +410,7 @@ const Process = struct {
     }
 };
 
-fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) error{Exit}!tp.pid {
+fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) !tp.pid {
     return struct {
         a: std.mem.Allocator,
         root_path: []const u8,
@@ -422,17 +422,17 @@ fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) error{Exit}!tp
         const tree_walker = @This();
         const Receiver = tp.Receiver(*tree_walker);
 
-        fn spawn_link(a: std.mem.Allocator, root_path: []const u8) error{Exit}!tp.pid {
-            const self = a.create(tree_walker) catch |e| return tp.exit_error(e);
+        fn spawn_link(a: std.mem.Allocator, root_path: []const u8) !tp.pid {
+            const self = try a.create(tree_walker);
             self.* = .{
                 .a = a,
-                .root_path = a.dupe(u8, root_path) catch |e| return tp.exit_error(e),
+                .root_path = try a.dupe(u8, root_path),
                 .parent = tp.self_pid().clone(),
                 .receiver = Receiver.init(tree_walker.receive, self),
-                .dir = std.fs.cwd().openDir(self.root_path, .{ .iterate = true }) catch |e| return tp.exit_error(e),
-                .walker = walk_filtered(self.dir, self.a) catch |e| return tp.exit_error(e),
+                .dir = try std.fs.cwd().openDir(self.root_path, .{ .iterate = true }),
+                .walker = try walk_filtered(self.dir, self.a),
             };
-            return tp.spawn_link(a, self, tree_walker.start, module_name ++ ".tree_walker") catch |e| return tp.exit_error(e);
+            return tp.spawn_link(a, self, tree_walker.start, module_name ++ ".tree_walker");
         }
 
         fn start(self: *tree_walker) tp.result {
@@ -440,7 +440,7 @@ fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) error{Exit}!tp
             const frame = tracy.initZone(@src(), .{ .name = "project scan" });
             defer frame.deinit();
             tp.receive(&self.receiver);
-            self.next() catch |e| return tp.exit_error(e);
+            self.next() catch |e| return tp.exit_error(e, @errorReturnTrace());
         }
 
         fn deinit(self: *tree_walker) void {
@@ -456,7 +456,7 @@ fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) error{Exit}!tp
             defer frame.deinit();
 
             if (try m.match(.{"next"})) {
-                self.next() catch |e| return tp.exit_error(e);
+                self.next() catch |e| return tp.exit_error(e, @errorReturnTrace());
             } else if (try m.match(.{"stop"})) {
                 return tp.exit_normal();
             } else {

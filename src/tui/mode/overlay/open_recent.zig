@@ -150,20 +150,20 @@ fn add_item(self: *Self, file_name: []const u8, matches: ?[]const u8) !void {
 
 fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "PRJ", tp.more })) {
-        try self.process_project_manager(m);
+        self.process_project_manager(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     }
     return false;
 }
 
-fn process_project_manager(self: *Self, m: tp.message) tp.result {
+fn process_project_manager(self: *Self, m: tp.message) !void {
     var file_name: []const u8 = undefined;
     var matches: []const u8 = undefined;
     var query: []const u8 = undefined;
     if (try m.match(.{ "PRJ", "recent", tp.extract(&file_name), tp.extract_cbor(&matches) })) {
         if (self.need_reset) self.reset_results();
         self.longest = @max(self.longest, file_name.len);
-        self.add_item(file_name, matches) catch |e| return tp.exit_error(e);
+        try self.add_item(file_name, matches);
         self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
         if (self.need_select_first) {
             self.menu.select_down();
@@ -173,7 +173,7 @@ fn process_project_manager(self: *Self, m: tp.message) tp.result {
     } else if (try m.match(.{ "PRJ", "recent", tp.extract(&file_name) })) {
         if (self.need_reset) self.reset_results();
         self.longest = @max(self.longest, file_name.len);
-        self.add_item(file_name, null) catch |e| return tp.exit_error(e);
+        try self.add_item(file_name, null);
         self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
         if (self.need_select_first) {
             self.menu.select_down();
@@ -198,14 +198,14 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var text: []const u8 = undefined;
 
     if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-        try self.mapEvent(evtype, keypress, egc, modifiers);
+        self.mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-        try self.insert_bytes(text);
+        self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return false;
 }
 
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
     return switch (evtype) {
         event_type.PRESS => self.mapPress(keypress, egc, modifiers),
         event_type.REPEAT => self.mapPress(keypress, egc, modifiers),
@@ -214,7 +214,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) t
     };
 }
 
-fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
@@ -271,7 +271,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     };
 }
 
-fn mapRelease(self: *Self, keypress: u32, _: u32) tp.result {
+fn mapRelease(self: *Self, keypress: u32, _: u32) !void {
     return switch (keypress) {
         key.LCTRL, key.RCTRL => if (self.menu.selected orelse 0 > 0) return self.cmd("open_recent_menu_activate", .{}),
         else => {},
@@ -285,13 +285,13 @@ fn reset_results(self: *Self) void {
     self.need_select_first = true;
 }
 
-fn start_query(self: *Self) tp.result {
+fn start_query(self: *Self) !void {
     if (self.query_pending) return;
     self.query_pending = true;
     try project_manager.query_recent_files(max_recent_files, self.inputbox.text.items);
 }
 
-fn delete_word(self: *Self) tp.result {
+fn delete_word(self: *Self) !void {
     if (std.mem.lastIndexOfAny(u8, self.inputbox.text.items, "/\\. -_")) |pos| {
         self.inputbox.text.shrinkRetainingCapacity(pos);
     } else {
@@ -301,7 +301,7 @@ fn delete_word(self: *Self) tp.result {
     return self.start_query();
 }
 
-fn delete_code_point(self: *Self) tp.result {
+fn delete_code_point(self: *Self) !void {
     if (self.inputbox.text.items.len > 0) {
         self.inputbox.text.shrinkRetainingCapacity(self.inputbox.text.items.len - 1);
         self.inputbox.cursor = self.inputbox.text.items.len;
@@ -309,16 +309,16 @@ fn delete_code_point(self: *Self) tp.result {
     return self.start_query();
 }
 
-fn insert_code_point(self: *Self, c: u32) tp.result {
+fn insert_code_point(self: *Self, c: u32) !void {
     var buf: [6]u8 = undefined;
-    const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
-    self.inputbox.text.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
+    const bytes = try ucs32_to_utf8(&[_]u32{c}, &buf);
+    try self.inputbox.text.appendSlice(buf[0..bytes]);
     self.inputbox.cursor = self.inputbox.text.items.len;
     return self.start_query();
 }
 
-fn insert_bytes(self: *Self, bytes: []const u8) tp.result {
-    self.inputbox.text.appendSlice(bytes) catch |e| return tp.exit_error(e);
+fn insert_bytes(self: *Self, bytes: []const u8) !void {
+    try self.inputbox.text.appendSlice(bytes);
     self.inputbox.cursor = self.inputbox.text.items.len;
     return self.start_query();
 }
@@ -339,16 +339,17 @@ const Commands = command.Collection(cmds);
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Result = command.Result;
 
-    pub fn open_recent_menu_down(self: *Self, _: Ctx) tp.result {
+    pub fn open_recent_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
 
-    pub fn open_recent_menu_up(self: *Self, _: Ctx) tp.result {
+    pub fn open_recent_menu_up(self: *Self, _: Ctx) Result {
         self.menu.select_up();
     }
 
-    pub fn open_recent_menu_activate(self: *Self, _: Ctx) tp.result {
+    pub fn open_recent_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
     }
 };

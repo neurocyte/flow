@@ -103,8 +103,8 @@ fn append(self: *Self, json: []const u8) !void {
 pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "M", tp.more })) return;
     var buf: [4096]u8 = undefined;
-    const json = m.to_json(&buf) catch |e| return tp.exit_error(e);
-    self.append(json) catch |e| return tp.exit_error(e);
+    const json = m.to_json(&buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    self.append(json) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 
 pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {

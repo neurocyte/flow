@@ -108,7 +108,7 @@ pub fn box(self: *const Self) Box {
     return Box.from(self.plane);
 }
 
-fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) error{Exit}!bool {
+fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !bool {
     var enabled = true;
     if (self.panels) |panels| {
         if (panels.get(@typeName(view))) |w| {
@@ -121,12 +121,12 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) error{Exit}!
                 enabled = false;
             }
         } else {
-            panels.add(view.create(self.a, self.widgets.plane) catch |e| return tp.exit_error(e)) catch |e| return tp.exit_error(e);
+            try panels.add(try view.create(self.a, self.widgets.plane));
         }
     } else {
-        const panels = WidgetList.createH(self.a, self.widgets.widget(), "panel", .{ .static = self.box().h / 5 }) catch |e| return tp.exit_error(e);
-        self.widgets.add(panels.widget()) catch |e| return tp.exit_error(e);
-        panels.add(view.create(self.a, self.widgets.plane) catch |e| return tp.exit_error(e)) catch |e| return tp.exit_error(e);
+        const panels = try WidgetList.createH(self.a, self.widgets.widget(), "panel", .{ .static = self.box().h / 5 });
+        try self.widgets.add(panels.widget());
+        try panels.add(try view.create(self.a, self.widgets.plane));
         self.panels = panels;
     }
     tui.current().resize();
@@ -141,11 +141,11 @@ fn close_all_panel_views(self: *Self) void {
     tui.current().resize();
 }
 
-fn toggle_view(self: *Self, view: anytype) tp.result {
+fn toggle_view(self: *Self, view: anytype) !void {
     if (self.widgets.get(@typeName(view))) |w| {
         self.widgets.remove(w.*);
     } else {
-        self.widgets.add(view.create(self.a, self.plane) catch |e| return tp.exit_error(e)) catch |e| return tp.exit_error(e);
+        try self.widgets.add(try view.create(self.a, self.plane));
     }
     tui.current().resize();
 }
@@ -153,23 +153,24 @@ fn toggle_view(self: *Self, view: anytype) tp.result {
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Result = command.Result;
 
-    pub fn quit(self: *Self, _: Ctx) tp.result {
+    pub fn quit(self: *Self, _: Ctx) Result {
         if (self.editor) |editor| if (editor.is_dirty())
             return tp.exit("unsaved changes");
         try tp.self_pid().send("quit");
     }
 
-    pub fn quit_without_saving(_: *Self, _: Ctx) tp.result {
+    pub fn quit_without_saving(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("quit");
     }
 
-    pub fn open_project_cwd(self: *Self, _: Ctx) tp.result {
+    pub fn open_project_cwd(self: *Self, _: Ctx) Result {
         try project_manager.open_cwd();
         _ = try self.statusbar.msg(.{ "PRJ", "open" });
     }
 
-    pub fn open_project_dir(self: *Self, ctx: Ctx) tp.result {
+    pub fn open_project_dir(self: *Self, ctx: Ctx) Result {
         var project_dir: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
@@ -177,7 +178,7 @@ const cmds = struct {
         _ = try self.statusbar.msg(.{ "PRJ", "open" });
     }
 
-    pub fn navigate(self: *Self, ctx: Ctx) tp.result {
+    pub fn navigate(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });
         defer frame.deinit();
@@ -192,27 +193,27 @@ const cmds = struct {
             var len = len_;
             while (len > 0) : (len -= 1) {
                 var field_name: []const u8 = undefined;
-                if (!(cbor.matchString(&iter, &field_name) catch |e| return tp.exit_error(e)))
-                    return tp.exit_error(error.InvalidArgument);
+                if (!try cbor.matchString(&iter, &field_name))
+                    return error.InvalidArgument;
                 if (std.mem.eql(u8, field_name, "line")) {
-                    if (!(cbor.matchValue(&iter, cbor.extract(&line)) catch |e| return tp.exit_error(e)))
-                        return tp.exit_error(error.InvalidArgument);
+                    if (!try cbor.matchValue(&iter, cbor.extract(&line)))
+                        return error.InvalidArgument;
                 } else if (std.mem.eql(u8, field_name, "column")) {
-                    if (!(cbor.matchValue(&iter, cbor.extract(&column)) catch |e| return tp.exit_error(e)))
-                        return tp.exit_error(error.InvalidArgument);
+                    if (!try cbor.matchValue(&iter, cbor.extract(&column)))
+                        return error.InvalidArgument;
                 } else if (std.mem.eql(u8, field_name, "file")) {
-                    if (!(cbor.matchValue(&iter, cbor.extract(&file)) catch |e| return tp.exit_error(e)))
-                        return tp.exit_error(error.InvalidArgument);
+                    if (!try cbor.matchValue(&iter, cbor.extract(&file)))
+                        return error.InvalidArgument;
                 } else if (std.mem.eql(u8, field_name, "goto")) {
-                    if (!(cbor.matchValue(&iter, cbor.extract_cbor(&goto_args)) catch |e| return tp.exit_error(e)))
-                        return tp.exit_error(error.InvalidArgument);
+                    if (!try cbor.matchValue(&iter, cbor.extract_cbor(&goto_args)))
+                        return error.InvalidArgument;
                 } else {
-                    cbor.skipValue(&iter) catch |e| return tp.exit_error(e);
+                    try cbor.skipValue(&iter);
                 }
             }
         } else |_| if (ctx.args.match(tp.extract(&file_name)) catch false) {
             file = file_name;
-        } else return tp.exit_error(error.InvalidArgument);
+        } else return error.InvalidArgument;
 
         if (tp.env.get().str("project").len == 0) {
             try open_project_cwd(self, .{});
@@ -247,57 +248,57 @@ const cmds = struct {
         tui.need_render();
     }
 
-    pub fn open_help(self: *Self, _: Ctx) tp.result {
+    pub fn open_help(self: *Self, _: Ctx) Result {
         tui.reset_drag_context();
         try self.create_editor();
         try command.executeName("open_scratch_buffer", command.fmt(.{ "help.md", @embedFile("help.md") }));
         tui.need_render();
     }
 
-    pub fn open_config(_: *Self, _: Ctx) tp.result {
-        const file_name = root.get_config_file_name() catch |e| return tp.exit_error(e);
+    pub fn open_config(_: *Self, _: Ctx) Result {
+        const file_name = try root.get_config_file_name();
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
     }
 
-    pub fn restore_session(self: *Self, _: Ctx) tp.result {
+    pub fn restore_session(self: *Self, _: Ctx) Result {
         try self.create_editor();
-        self.read_restore_info() catch |e| return tp.exit_error(e);
+        try self.read_restore_info();
         tui.need_render();
     }
 
-    pub fn toggle_logview(self: *Self, _: Ctx) tp.result {
+    pub fn toggle_logview(self: *Self, _: Ctx) Result {
         self.logview_enabled = try self.toggle_panel_view(@import("logview.zig"), false);
     }
 
-    pub fn show_logview(self: *Self, _: Ctx) tp.result {
+    pub fn show_logview(self: *Self, _: Ctx) Result {
         self.logview_enabled = try self.toggle_panel_view(@import("logview.zig"), true);
     }
 
-    pub fn toggle_inputview(self: *Self, _: Ctx) tp.result {
+    pub fn toggle_inputview(self: *Self, _: Ctx) Result {
         _ = try self.toggle_panel_view(@import("inputview.zig"), false);
     }
 
-    pub fn toggle_inspector_view(self: *Self, _: Ctx) tp.result {
+    pub fn toggle_inspector_view(self: *Self, _: Ctx) Result {
         _ = try self.toggle_panel_view(@import("inspector_view.zig"), false);
     }
 
-    pub fn show_inspector_view(self: *Self, _: Ctx) tp.result {
+    pub fn show_inspector_view(self: *Self, _: Ctx) Result {
         _ = try self.toggle_panel_view(@import("inspector_view.zig"), true);
     }
 
-    pub fn jump_back(self: *Self, _: Ctx) tp.result {
+    pub fn jump_back(self: *Self, _: Ctx) Result {
         try self.location_history.back(location_jump);
     }
 
-    pub fn jump_forward(self: *Self, _: Ctx) tp.result {
+    pub fn jump_forward(self: *Self, _: Ctx) Result {
         try self.location_history.forward(location_jump);
     }
 
-    pub fn show_home(self: *Self, _: Ctx) tp.result {
+    pub fn show_home(self: *Self, _: Ctx) Result {
         return self.create_home();
     }
 
-    pub fn gutter_mode_next(self: *Self, _: Ctx) tp.result {
+    pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
         const tui_ = tui.current();
         var ln = tui_.config.gutter_line_numbers;
         var lnr = tui_.config.gutter_line_numbers_relative;
@@ -313,7 +314,7 @@ const cmds = struct {
         }
         tui_.config.gutter_line_numbers = ln;
         tui_.config.gutter_line_numbers_relative = lnr;
-        tui_.save_config() catch |e| return tp.exit_error(e);
+        try tui_.save_config();
         if (self.widgets.get("editor_gutter")) |gutter_widget| {
             const gutter = if (gutter_widget.dynamic_cast(@import("editor_gutter.zig"))) |p| p else return;
             gutter.linenum = ln;
@@ -387,8 +388,8 @@ fn location_jump(from: tp.pid_ref, file_path: []const u8, cursor: location_histo
         } }) catch return;
 }
 
-fn clear_auto_find(self: *Self, editor: *ed.Editor) !void {
-    try editor.clear_matches();
+fn clear_auto_find(self: *Self, editor: *ed.Editor) void {
+    editor.clear_matches();
     self.store_last_match_text(null);
 }
 
@@ -412,11 +413,11 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
     return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f, &self.widgets_widget) or f(ctx, w);
 }
 
-fn create_editor(self: *Self) tp.result {
+fn create_editor(self: *Self) !void {
     if (self.editor) |editor| if (editor.file_path) |file_path| self.push_file_stack(file_path) catch {};
-    self.widgets.replace(0, Widget.empty(self.a, self.plane, .dynamic) catch |e| return tp.exit_error(e));
+    self.widgets.replace(0, try Widget.empty(self.a, self.plane, .dynamic));
     command.executeName("enter_mode_default", .{}) catch {};
-    var editor_widget = ed.create(self.a, Widget.to(self)) catch |e| return tp.exit_error(e);
+    var editor_widget = try ed.create(self.a, Widget.to(self));
     errdefer editor_widget.deinit(self.a);
     if (editor_widget.get("editor")) |editor| {
         editor.subscribe(EventHandler.to_unowned(self.statusbar)) catch @panic("subscribe unsupported");
@@ -443,10 +444,10 @@ fn show_home_async(_: *Self) void {
     tp.self_pid().send(.{ "cmd", "show_home" }) catch return;
 }
 
-fn create_home(self: *Self) tp.result {
+fn create_home(self: *Self) !void {
     tui.reset_drag_context();
     if (self.editor) |_| return;
-    var home_widget = home.create(self.a, Widget.to(self)) catch |e| return tp.exit_error(e);
+    var home_widget = try home.create(self.a, Widget.to(self));
     errdefer home_widget.deinit(self.a);
     self.widgets.replace(0, home_widget);
     tui.current().resize();

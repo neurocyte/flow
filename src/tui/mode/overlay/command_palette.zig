@@ -170,7 +170,7 @@ fn menu_action_execute_command(menu: **Menu.State(*Self), button: *Button.State(
 
 fn on_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
     if (try m.match(.{ "scroll_to", tp.extract(&self.view_pos) })) {
-        try self.start_query();
+        self.start_query() catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 }
 
@@ -186,14 +186,14 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var text: []const u8 = undefined;
 
     if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-        try self.mapEvent(evtype, keypress, egc, modifiers);
+        self.mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-        try self.insert_bytes(text);
+        self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return false;
 }
 
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
     return switch (evtype) {
         event_type.PRESS => self.mapPress(keypress, egc, modifiers),
         event_type.REPEAT => self.mapPress(keypress, egc, modifiers),
@@ -202,7 +202,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) t
     };
 }
 
-fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
@@ -267,14 +267,14 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     };
 }
 
-fn mapRelease(self: *Self, keypress: u32, _: u32) tp.result {
+fn mapRelease(self: *Self, keypress: u32, _: u32) !void {
     return switch (keypress) {
         key.LCTRL, key.RCTRL => if (self.menu.selected orelse 0 > 0) return self.cmd("command_palette_menu_activate", .{}),
         else => {},
     };
 }
 
-fn start_query(self: *Self) tp.result {
+fn start_query(self: *Self) !void {
     self.items = 0;
     self.menu.reset_items();
     self.menu.selected = null;
@@ -289,10 +289,10 @@ fn start_query(self: *Self) tp.result {
             defer pos += 1;
             if (pos < self.view_pos) continue;
             if (self.items < self.view_rows)
-                self.add_item(cmd_.name, cmd_.id, null) catch |e| return tp.exit_error(e);
+                try self.add_item(cmd_.name, cmd_.id, null);
         }
     } else {
-        _ = self.query_commands(self.inputbox.text.items) catch |e| return tp.exit_error(e);
+        _ = try self.query_commands(self.inputbox.text.items);
     }
     self.menu.select_down();
     self.do_resize();
@@ -360,7 +360,7 @@ fn add_item(self: *Self, name: []const u8, id: command.ID, matches: ?[]const usi
     self.items += 1;
 }
 
-fn delete_word(self: *Self) tp.result {
+fn delete_word(self: *Self) !void {
     if (std.mem.lastIndexOfAny(u8, self.inputbox.text.items, "/\\. -_")) |pos| {
         self.inputbox.text.shrinkRetainingCapacity(pos);
     } else {
@@ -371,7 +371,7 @@ fn delete_word(self: *Self) tp.result {
     return self.start_query();
 }
 
-fn delete_code_point(self: *Self) tp.result {
+fn delete_code_point(self: *Self) !void {
     if (self.inputbox.text.items.len > 0) {
         self.inputbox.text.shrinkRetainingCapacity(self.inputbox.text.items.len - 1);
         self.inputbox.cursor = self.inputbox.text.items.len;
@@ -380,17 +380,17 @@ fn delete_code_point(self: *Self) tp.result {
     return self.start_query();
 }
 
-fn insert_code_point(self: *Self, c: u32) tp.result {
+fn insert_code_point(self: *Self, c: u32) !void {
     var buf: [6]u8 = undefined;
-    const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e);
-    self.inputbox.text.appendSlice(buf[0..bytes]) catch |e| return tp.exit_error(e);
+    const bytes = try ucs32_to_utf8(&[_]u32{c}, &buf);
+    try self.inputbox.text.appendSlice(buf[0..bytes]);
     self.inputbox.cursor = self.inputbox.text.items.len;
     self.view_pos = 0;
     return self.start_query();
 }
 
-fn insert_bytes(self: *Self, bytes: []const u8) tp.result {
-    self.inputbox.text.appendSlice(bytes) catch |e| return tp.exit_error(e);
+fn insert_bytes(self: *Self, bytes: []const u8) !void {
+    try self.inputbox.text.appendSlice(bytes);
     self.inputbox.cursor = self.inputbox.text.items.len;
     self.view_pos = 0;
     return self.start_query();
@@ -476,8 +476,9 @@ fn restore_state(self: *Self) !void {
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Result = command.Result;
 
-    pub fn command_palette_menu_down(self: *Self, _: Ctx) tp.result {
+    pub fn command_palette_menu_down(self: *Self, _: Ctx) Result {
         if (self.menu.selected) |selected| {
             if (selected == self.view_rows - 1) {
                 self.view_pos += 1;
@@ -489,7 +490,7 @@ const cmds = struct {
         self.menu.select_down();
     }
 
-    pub fn command_palette_menu_up(self: *Self, _: Ctx) tp.result {
+    pub fn command_palette_menu_up(self: *Self, _: Ctx) Result {
         if (self.menu.selected) |selected| {
             if (selected == 0 and self.view_pos > 0) {
                 self.view_pos -= 1;
@@ -501,7 +502,7 @@ const cmds = struct {
         self.menu.select_up();
     }
 
-    pub fn command_palette_menu_pagedown(self: *Self, _: Ctx) tp.result {
+    pub fn command_palette_menu_pagedown(self: *Self, _: Ctx) Result {
         if (self.total_items > self.view_rows) {
             self.view_pos += self.view_rows;
             if (self.view_pos > self.total_items - self.view_rows)
@@ -511,14 +512,14 @@ const cmds = struct {
         self.menu.select_last();
     }
 
-    pub fn command_palette_menu_pageup(self: *Self, _: Ctx) tp.result {
+    pub fn command_palette_menu_pageup(self: *Self, _: Ctx) Result {
         if (self.view_pos > self.view_rows)
             self.view_pos -= self.view_rows;
         try self.start_query();
         self.menu.select_first();
     }
 
-    pub fn command_palette_menu_activate(self: *Self, _: Ctx) tp.result {
+    pub fn command_palette_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
     }
 };

@@ -260,6 +260,9 @@ pub const Editor = struct {
 
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
+    const Context = command.Context;
+    const Result = command.Result;
+
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
         try cbor.writeArrayHeader(writer, 6);
         try cbor.writeValue(writer, self.file_path orelse "");
@@ -454,7 +457,7 @@ pub const Editor = struct {
         (try self.cursels.addOne()).* = primary;
     }
 
-    pub fn pop_cursor(self: *Self, _: command.Context) tp.result {
+    pub fn pop_cursor(self: *Self, _: Context) Result {
         if (self.cursels.items.len > 1)
             _ = self.cursels.popOrNull();
         self.clamp();
@@ -572,7 +575,7 @@ pub const Editor = struct {
         root: Buffer.Root,
         sel: Selection,
         writer: anytype,
-        map_error: fn (e: anyerror) @TypeOf(writer).Error,
+        map_error: fn (e: anyerror, stack_trace: ?*std.builtin.StackTrace) @TypeOf(writer).Error,
         wcwidth_: ?*usize,
         plane_: Plane,
     ) @TypeOf(writer).Error!void {
@@ -610,7 +613,7 @@ pub const Editor = struct {
         ctx.sel.normalize();
         if (sel.begin.eql(sel.end))
             return;
-        root.walk_egc_forward(sel.begin.row, Ctx.walker, &ctx, plane_) catch |e| return map_error(e);
+        root.walk_egc_forward(sel.begin.row, Ctx.walker, &ctx, plane_) catch |e| return map_error(e, @errorReturnTrace());
         if (wcwidth_) |p| p.* = ctx.wcwidth;
     }
 
@@ -1267,13 +1270,13 @@ pub const Editor = struct {
         self.matches.clearAndFree();
     }
 
-    pub fn clear_matches(self: *Self) tp.result {
+    pub fn clear_matches(self: *Self) void {
         self.cancel_all_matches();
         self.match_token += 1;
         self.match_done_token = self.match_token;
     }
 
-    fn init_matches_update(self: *Self) tp.result {
+    fn init_matches_update(self: *Self) void {
         self.cancel_all_matches();
         self.match_token += 1;
     }
@@ -1290,11 +1293,11 @@ pub const Editor = struct {
         self.collapse_cursors();
     }
 
-    fn with_cursor_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: command.Context, plane: Plane) error{Stop}!void {
+    fn with_cursor_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, plane: Plane) error{Stop}!void {
         try move(root, &cursel.cursor, ctx, plane);
     }
 
-    fn with_cursors_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: command.Context) error{Stop}!void {
+    fn with_cursors_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             cursel.selection = null;
             try with_cursor_const_arg(root, move, cursel, ctx, self.plane);
@@ -1347,14 +1350,14 @@ pub const Editor = struct {
         return if (someone_stopped) error.Stop else {};
     }
 
-    fn with_selection_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: command.Context, plane: Plane) error{Stop}!void {
+    fn with_selection_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, plane: Plane) error{Stop}!void {
         const sel = cursel.enable_selection();
         try move(root, &sel.end, ctx, plane);
         cursel.cursor = sel.end;
         cursel.check_selection();
     }
 
-    fn with_selections_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: command.Context) error{Stop}!void {
+    fn with_selections_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             with_selection_const_arg(root, move, cursel, ctx, self.plane) catch {
@@ -1491,7 +1494,7 @@ pub const Editor = struct {
 
     const cursor_predicate = *const fn (root: Buffer.Root, cursor: *Cursor, plane: Plane) bool;
     const cursor_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void;
-    const cursor_operator_const_arg = *const fn (root: Buffer.Root, cursor: *Cursor, ctx: command.Context, plane: Plane) error{Stop}!void;
+    const cursor_operator_const_arg = *const fn (root: Buffer.Root, cursor: *Cursor, ctx: Context, plane: Plane) error{Stop}!void;
     const cursor_view_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, view: *const View, plane: Plane) error{Stop}!void;
     const cursel_operator_const = *const fn (root: Buffer.Root, cursel: *CurSel) error{Stop}!void;
     const cursor_operator = *const fn (root: Buffer.Root, cursor: *Cursor, a: Allocator) error{Stop}!Buffer.Root;
@@ -1674,9 +1677,9 @@ pub const Editor = struct {
         cursor.move_page_down(root, view, plane);
     }
 
-    pub fn primary_click(self: *Self, y: c_int, x: c_int) tp.result {
+    pub fn primary_click(self: *Self, y: c_int, x: c_int) !void {
         if (self.fast_scroll)
-            self.push_cursor() catch |e| return tp.exit_error(e)
+            try self.push_cursor()
         else
             self.cancel_all_selections();
         const primary = self.get_primary();
@@ -1690,27 +1693,27 @@ pub const Editor = struct {
         if (self.jump_mode) try self.goto_definition(.{});
     }
 
-    pub fn primary_double_click(self: *Self, y: c_int, x: c_int) tp.result {
+    pub fn primary_double_click(self: *Self, y: c_int, x: c_int) !void {
         const primary = self.get_primary();
         primary.selection = null;
         self.selection_mode = .word;
         const root = self.buf_root() catch return;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.plane) catch return;
-        _ = self.select_word_at_cursor(primary) catch |e| return tp.exit_error(e);
+        _ = try self.select_word_at_cursor(primary);
         self.clamp_mouse();
     }
 
-    pub fn primary_triple_click(self: *Self, y: c_int, x: c_int) tp.result {
+    pub fn primary_triple_click(self: *Self, y: c_int, x: c_int) !void {
         const primary = self.get_primary();
         primary.selection = null;
         self.selection_mode = .line;
         const root = self.buf_root() catch return;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.plane) catch return;
-        self.select_line_at_cursor(primary) catch |e| return tp.exit_error(e);
+        try self.select_line_at_cursor(primary);
         self.clamp_mouse();
     }
 
-    pub fn primary_drag(self: *Self, y: c_int, x: c_int) tp.result {
+    pub fn primary_drag(self: *Self, y: c_int, x: c_int) void {
         const y_ = if (y < 0) 0 else y;
         const x_ = if (x < 0) 0 else x;
         const primary = self.get_primary();
@@ -1735,19 +1738,19 @@ pub const Editor = struct {
         self.clamp_mouse();
     }
 
-    pub fn drag_to(self: *Self, ctx: command.Context) tp.result {
+    pub fn drag_to(self: *Self, ctx: Context) !void {
         var y: i32 = 0;
         var x: i32 = 0;
         if (!try ctx.args.match(.{ tp.extract(&y), tp.extract(&x) }))
-            return tp.exit_error(error.InvalidArgument);
+            return error.InvalidArgument;
         return self.primary_drag(y, x);
     }
 
-    pub fn secondary_click(self: *Self, y: c_int, x: c_int) tp.result {
+    pub fn secondary_click(self: *Self, y: c_int, x: c_int) !void {
         return self.primary_drag(y, x);
     }
 
-    pub fn secondary_drag(self: *Self, y: c_int, x: c_int) tp.result {
+    pub fn secondary_drag(self: *Self, y: c_int, x: c_int) !void {
         return self.primary_drag(y, x);
     }
 
@@ -1829,14 +1832,14 @@ pub const Editor = struct {
         self.update_scroll_dest_abs(dest.row);
     }
 
-    pub fn scroll_up_pageup(self: *Self, _: command.Context) tp.result {
+    pub fn scroll_up_pageup(self: *Self, _: Context) Result {
         if (self.fast_scroll)
             self.scroll_pageup()
         else
             self.scroll_up();
     }
 
-    pub fn scroll_down_pagedown(self: *Self, _: command.Context) tp.result {
+    pub fn scroll_down_pagedown(self: *Self, _: Context) Result {
         if (self.fast_scroll)
             self.scroll_pagedown()
         else
@@ -1847,21 +1850,21 @@ pub const Editor = struct {
         self.update_scroll_dest_abs(row);
     }
 
-    fn scroll_view_offset(self: *Self, offset: usize) tp.result {
+    fn scroll_view_offset(self: *Self, offset: usize) void {
         const primary = self.get_primary();
         const row = if (primary.cursor.row > offset) primary.cursor.row - offset else 0;
         self.update_scroll_dest_abs(row);
     }
 
-    pub fn scroll_view_center(self: *Self, _: command.Context) tp.result {
+    pub fn scroll_view_center(self: *Self, _: Context) Result {
         return self.scroll_view_offset(self.view.rows / 2);
     }
 
-    pub fn scroll_view_top(self: *Self, _: command.Context) tp.result {
+    pub fn scroll_view_top(self: *Self, _: Context) Result {
         return self.scroll_view_offset(scroll_cursor_min_border_distance);
     }
 
-    pub fn scroll_view_bottom(self: *Self, _: command.Context) tp.result {
+    pub fn scroll_view_bottom(self: *Self, _: Context) Result {
         return self.scroll_view_offset(if (self.view.rows > scroll_cursor_min_border_distance) self.view.rows - scroll_cursor_min_border_distance else 0);
     }
 
@@ -1884,10 +1887,10 @@ pub const Editor = struct {
     }
 
     fn copy_word_at_cursor(self: *Self, text_a: Allocator) ![]const u8 {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
         const primary = self.get_primary();
-        const sel = if (primary.selection) |*sel| sel else self.select_word_at_cursor(primary) catch |e| return tp.exit_error(e);
-        return copy_selection(root, sel.*, text_a, self.plane) catch |e| return tp.exit_error(e);
+        const sel = if (primary.selection) |*sel| sel else try self.select_word_at_cursor(primary);
+        return try copy_selection(root, sel.*, text_a, self.plane);
     }
 
     pub fn cut_selection(self: *Self, root: Buffer.Root, cursel: *CurSel) !struct { []const u8, Buffer.Root } {
@@ -1919,46 +1922,46 @@ pub const Editor = struct {
         return root_;
     }
 
-    pub fn cut(self: *Self, _: command.Context) tp.result {
+    pub fn cut(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         const b = self.buf_for_update() catch return;
         var root = b.root;
         if (self.cursels.items.len == 1)
             if (primary.selection) |_| {} else {
                 const sel = primary.enable_selection();
-                move_cursor_begin(root, &sel.begin, self.plane) catch |e| return tp.exit_error(e);
-                move_cursor_end(root, &sel.end, self.plane) catch |e| return tp.exit_error(e);
-                move_cursor_right(root, &sel.end, self.plane) catch |e| return tp.exit_error(e);
+                try move_cursor_begin(root, &sel.begin, self.plane);
+                try move_cursor_end(root, &sel.end, self.plane);
+                try move_cursor_right(root, &sel.end, self.plane);
             };
         var first = true;
         var text = std.ArrayList(u8).init(self.a);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const cut_text, root = self.cut_selection(root, cursel) catch |e| return tp.exit_error(e);
+            const cut_text, root = try self.cut_selection(root, cursel);
             if (first) {
                 first = false;
             } else {
-                text.appendSlice("\n") catch |e| return tp.exit_error(e);
+                try text.appendSlice("\n");
             }
-            text.appendSlice(cut_text) catch |e| return tp.exit_error(e);
+            try text.appendSlice(cut_text);
         };
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        try self.update_buf(root);
         self.set_clipboard(text.items);
         self.clamp();
     }
 
-    pub fn copy(self: *Self, _: command.Context) tp.result {
+    pub fn copy(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         var first = true;
         var text = std.ArrayList(u8).init(self.a);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |sel| {
-                const copy_text = copy_selection(root, sel, self.a, self.plane) catch |e| return tp.exit_error(e);
+                const copy_text = try copy_selection(root, sel, self.a, self.plane);
                 if (first) {
                     first = false;
                 } else {
-                    text.appendSlice("\n") catch |e| return tp.exit_error(e);
+                    try text.appendSlice("\n");
                 }
-                text.appendSlice(copy_text) catch |e| return tp.exit_error(e);
+                try text.appendSlice(copy_text);
             }
         };
         if (text.items.len > 0) {
@@ -1971,102 +1974,102 @@ pub const Editor = struct {
         }
     }
 
-    pub fn paste(self: *Self, ctx: command.Context) tp.result {
+    pub fn paste(self: *Self, ctx: Context) Result {
         var text: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&text)})) {
             if (self.clipboard) |text_| text = text_ else return;
         }
         self.logger.print("paste: {d} bytes", .{text.len});
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+        const b = try self.buf_for_update();
         var root = b.root;
         if (self.cursels.items.len == 1) {
             const primary = self.get_primary();
-            root = self.insert(root, primary, text, b.a) catch |e| return tp.exit_error(e);
+            root = try self.insert(root, primary, text, b.a);
         } else {
             if (std.mem.indexOfScalar(u8, text, '\n')) |_| {
                 var pos: usize = 0;
                 for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
                     if (std.mem.indexOfScalarPos(u8, text, pos, '\n')) |next| {
-                        root = self.insert(root, cursel, text[pos..next], b.a) catch |e| return tp.exit_error(e);
+                        root = try self.insert(root, cursel, text[pos..next], b.a);
                         pos = next + 1;
                     } else {
-                        root = self.insert(root, cursel, text[pos..], b.a) catch |e| return tp.exit_error(e);
+                        root = try self.insert(root, cursel, text[pos..], b.a);
                         pos = 0;
                     }
                 };
             } else {
                 for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-                    root = self.insert(root, cursel, text, b.a) catch |e| return tp.exit_error(e);
+                    root = try self.insert(root, cursel, text, b.a);
                 };
             }
         }
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        try self.update_buf(root);
         self.clamp();
         self.need_render();
     }
 
-    pub fn system_paste(_: *Self, _: command.Context) tp.result {
+    pub fn system_paste(_: *Self, _: Context) Result {
         tui.current().rdr.request_system_clipboard();
     }
 
-    pub fn delete_forward(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.delete_to(move_cursor_right, b.root, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn delete_forward(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.delete_to(move_cursor_right, b.root, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn delete_backward(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.delete_to(move_cursor_left, b.root, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn delete_backward(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.delete_to(move_cursor_left, b.root, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn delete_word_left(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.delete_to(move_cursor_word_left_space, b.root, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn delete_word_left(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.delete_to(move_cursor_word_left_space, b.root, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn delete_word_right(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.delete_to(move_cursor_word_right_space, b.root, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn delete_word_right(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.delete_to(move_cursor_word_right_space, b.root, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn delete_to_begin(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.delete_to(move_cursor_begin, b.root, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn delete_to_begin(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.delete_to(move_cursor_begin, b.root, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn delete_to_end(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.delete_to(move_cursor_end, b.root, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn delete_to_end(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.delete_to(move_cursor_end, b.root, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn join_next_line(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        self.with_cursors_const(b.root, move_cursor_end) catch |e| return tp.exit_error(e);
-        const root = self.delete_to(move_cursor_right, b.root, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn join_next_line(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        try self.with_cursors_const(b.root, move_cursor_end);
+        const root = try self.delete_to(move_cursor_right, b.root, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn move_left(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_left(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_left) catch {};
         self.clamp();
     }
 
-    pub fn move_right(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_right(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_right) catch {};
         self.clamp();
     }
@@ -2079,14 +2082,14 @@ pub const Editor = struct {
         move_cursor_right_unless(root, cursor, is_eol_right_vim, plane);
     }
 
-    pub fn move_left_vim(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_left_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_left_vim) catch {};
         self.clamp();
     }
 
-    pub fn move_right_vim(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_right_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_right_vim) catch {};
         self.clamp();
     }
@@ -2150,25 +2153,25 @@ pub const Editor = struct {
         try move_cursor_right(root, cursor, plane);
     }
 
-    pub fn move_word_left(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_word_left(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_word_left) catch {};
         self.clamp();
     }
 
-    pub fn move_word_right(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_word_right(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_word_right) catch {};
         self.clamp();
     }
 
-    pub fn move_word_right_vim(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_word_right_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_word_right_vim) catch {};
         self.clamp();
     }
 
-    fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: command.Context, plane: Plane) error{Stop}!void {
+    fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, plane: Plane) error{Stop}!void {
         var egc: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
             return error.Stop;
@@ -2183,7 +2186,7 @@ pub const Editor = struct {
         }
     }
 
-    pub fn move_cursor_to_char_right(root: Buffer.Root, cursor: *Cursor, ctx: command.Context, plane: Plane) error{Stop}!void {
+    pub fn move_cursor_to_char_right(root: Buffer.Root, cursor: *Cursor, ctx: Context, plane: Plane) error{Stop}!void {
         var egc: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
             return error.Stop;
@@ -2198,54 +2201,54 @@ pub const Editor = struct {
         }
     }
 
-    pub fn move_to_char_left(self: *Self, ctx: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_to_char_left(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const_arg(root, move_cursor_to_char_left, ctx) catch {};
         self.clamp();
     }
 
-    pub fn move_to_char_right(self: *Self, ctx: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_to_char_right(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const_arg(root, move_cursor_to_char_right, ctx) catch {};
         self.clamp();
     }
 
-    pub fn move_up(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_up(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_up) catch {};
         self.clamp();
     }
 
-    pub fn add_cursor_up(self: *Self, _: command.Context) tp.result {
-        self.push_cursor() catch |e| return tp.exit_error(e);
+    pub fn add_cursor_up(self: *Self, _: Context) Result {
+        try self.push_cursor();
         const primary = self.get_primary();
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
         move_cursor_up(root, &primary.cursor, self.plane) catch {};
         self.clamp();
     }
 
-    pub fn move_down(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_down(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_down) catch {};
         self.clamp();
     }
 
-    pub fn add_cursor_down(self: *Self, _: command.Context) tp.result {
-        self.push_cursor() catch |e| return tp.exit_error(e);
+    pub fn add_cursor_down(self: *Self, _: Context) Result {
+        try self.push_cursor();
         const primary = self.get_primary();
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
         move_cursor_down(root, &primary.cursor, self.plane) catch {};
         self.clamp();
     }
 
-    pub fn add_cursor_next_match(self: *Self, _: command.Context) tp.result {
+    pub fn add_cursor_next_match(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
         if (self.matches.items.len == 0) {
             const root = self.buf_root() catch return;
             self.with_cursors_const(root, move_cursor_word_begin) catch {};
-            self.with_selections_const(root, move_cursor_word_end) catch |e| return tp.exit_error(e);
+            try self.with_selections_const(root, move_cursor_word_end);
         } else if (self.get_next_match(self.get_primary().cursor)) |match| {
-            self.push_cursor() catch |e| return tp.exit_error(e);
+            try self.push_cursor();
             const primary = self.get_primary();
             const root = self.buf_root() catch return;
             primary.selection = match.to_selection();
@@ -2256,11 +2259,11 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
 
-    pub fn add_cursor_all_matches(self: *Self, _: command.Context) tp.result {
+    pub fn add_cursor_all_matches(self: *Self, _: Context) Result {
         if (self.matches.items.len == 0) return;
         try self.send_editor_jump_source();
         while (self.get_next_match(self.get_primary().cursor)) |match| {
-            self.push_cursor() catch |e| return tp.exit_error(e);
+            try self.push_cursor();
             const primary = self.get_primary();
             const root = self.buf_root() catch return;
             primary.selection = match.to_selection();
@@ -2288,12 +2291,12 @@ pub const Editor = struct {
         }
     }
 
-    pub fn add_cursors_to_line_ends(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        const cursels = self.cursels.toOwnedSlice() catch |e| return tp.exit_error(e);
+    pub fn add_cursors_to_line_ends(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        const cursels = try self.cursels.toOwnedSlice();
         defer self.cursels.allocator.free(cursels);
         for (cursels) |*cursel_| if (cursel_.*) |*cursel|
-            self.add_cursors_to_cursel_line_ends(root, cursel) catch |e| return tp.exit_error(e);
+            try self.add_cursors_to_cursel_line_ends(root, cursel);
         self.collapse_cursors();
         self.clamp();
     }
@@ -2317,10 +2320,10 @@ pub const Editor = struct {
         return root;
     }
 
-    pub fn pull_up(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.with_cursels_mut(b.root, pull_cursel_up, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn pull_up(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, pull_cursel_up, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
@@ -2343,10 +2346,10 @@ pub const Editor = struct {
         return root;
     }
 
-    pub fn pull_down(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.with_cursels_mut(b.root, pull_cursel_down, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn pull_down(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, pull_cursel_down, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
@@ -2364,10 +2367,10 @@ pub const Editor = struct {
         return root;
     }
 
-    pub fn dupe_up(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.with_cursels_mut(b.root, dupe_cursel_up, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn dupe_up(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, dupe_cursel_up, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
@@ -2384,10 +2387,10 @@ pub const Editor = struct {
         return root;
     }
 
-    pub fn dupe_down(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.with_cursels_mut(b.root, dupe_cursel_down, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn dupe_down(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, dupe_cursel_down, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
@@ -2406,18 +2409,18 @@ pub const Editor = struct {
         return root;
     }
 
-    pub fn toggle_prefix(self: *Self, ctx: command.Context) tp.result {
+    pub fn toggle_prefix(self: *Self, ctx: Context) Result {
         var prefix: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&prefix)}))
             return;
         @memcpy(self.prefix_buf[0..prefix.len], prefix);
         self.prefix = self.prefix_buf[0..prefix.len];
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.with_cursels_mut(b.root, toggle_cursel_prefix, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, toggle_cursel_prefix, b.a);
+        try self.update_buf(root);
     }
 
-    pub fn toggle_comment(self: *Self, _: command.Context) tp.result {
+    pub fn toggle_comment(self: *Self, _: Context) Result {
         const comment = if (self.syntax) |syn| syn.file_type.comment else "//";
         return self.toggle_prefix(command.fmt(.{comment}));
     }
@@ -2444,11 +2447,11 @@ pub const Editor = struct {
         } else return try self.indent_cursor(root_, cursel.cursor, a);
     }
 
-    pub fn indent(self: *Self, _: command.Context) tp.result {
+    pub fn indent(self: *Self, _: Context) Result {
         defer self.reset_syntax();
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.with_cursels_mut(b.root, indent_cursel, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, indent_cursel, b.a);
+        try self.update_buf(root);
     }
 
     fn unindent_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, cursor: Cursor, a: Allocator) error{Stop}!Buffer.Root {
@@ -2485,38 +2488,38 @@ pub const Editor = struct {
         } else return self.unindent_cursor(root_, cursel, cursel.cursor, a);
     }
 
-    pub fn unindent(self: *Self, _: command.Context) tp.result {
+    pub fn unindent(self: *Self, _: Context) Result {
         defer self.reset_syntax();
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.with_cursels_mut(b.root, unindent_cursel, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, unindent_cursel, b.a);
+        try self.update_buf(root);
     }
 
-    pub fn move_scroll_up(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_scroll_up(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_up) catch {};
         self.view.move_up() catch {};
         self.clamp();
     }
 
-    pub fn move_scroll_down(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn move_scroll_down(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_down) catch {};
         self.view.move_down(root) catch {};
         self.clamp();
     }
 
-    pub fn move_scroll_left(self: *Self, _: command.Context) tp.result {
+    pub fn move_scroll_left(self: *Self, _: Context) Result {
         self.view.move_left() catch {};
     }
 
-    pub fn move_scroll_right(self: *Self, _: command.Context) tp.result {
+    pub fn move_scroll_right(self: *Self, _: Context) Result {
         self.view.move_right() catch {};
     }
 
-    pub fn move_scroll_page_up(self: *Self, _: command.Context) tp.result {
+    pub fn move_scroll_page_up(self: *Self, _: Context) Result {
         if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
-            const root = self.buf_root() catch |e| return tp.exit_error(e);
+            const root = try self.buf_root();
             self.with_cursors_and_view_const(root, move_cursor_page_up, &self.view) catch {};
             const new_cursor_row = self.get_primary().cursor.row;
             self.update_scroll_dest_abs(if (cursor.row > new_cursor_row) 0 else new_cursor_row - cursor.row);
@@ -2525,9 +2528,9 @@ pub const Editor = struct {
         }
     }
 
-    pub fn move_scroll_page_down(self: *Self, _: command.Context) tp.result {
+    pub fn move_scroll_page_down(self: *Self, _: Context) Result {
         if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
-            const root = self.buf_root() catch |e| return tp.exit_error(e);
+            const root = try self.buf_root();
             self.with_cursors_and_view_const(root, move_cursor_page_down, &self.view) catch {};
             const new_cursor_row = self.get_primary().cursor.row;
             self.update_scroll_dest_abs(if (cursor.row > new_cursor_row) 0 else new_cursor_row - cursor.row);
@@ -2536,40 +2539,40 @@ pub const Editor = struct {
         }
     }
 
-    pub fn smart_move_begin(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_cursors_const(root, smart_move_cursor_begin) catch |e| return tp.exit_error(e);
+    pub fn smart_move_begin(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_cursors_const(root, smart_move_cursor_begin);
         self.clamp();
     }
 
-    pub fn move_begin(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_cursors_const(root, move_cursor_begin) catch |e| return tp.exit_error(e);
+    pub fn move_begin(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_cursors_const(root, move_cursor_begin);
         self.clamp();
     }
 
-    pub fn move_end(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_cursors_const(root, move_cursor_end) catch |e| return tp.exit_error(e);
+    pub fn move_end(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_cursors_const(root, move_cursor_end);
         self.clamp();
     }
 
-    pub fn move_page_up(self: *Self, _: command.Context) tp.result {
+    pub fn move_page_up(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_cursors_and_view_const(root, move_cursor_page_up, &self.view) catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
+        try self.with_cursors_and_view_const(root, move_cursor_page_up, &self.view);
         self.clamp();
     }
 
-    pub fn move_page_down(self: *Self, _: command.Context) tp.result {
+    pub fn move_page_down(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_cursors_and_view_const(root, move_cursor_page_down, &self.view) catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
+        try self.with_cursors_and_view_const(root, move_cursor_page_down, &self.view);
         self.clamp();
         try self.send_editor_jump_destination();
     }
 
-    pub fn move_buffer_begin(self: *Self, _: command.Context) tp.result {
+    pub fn move_buffer_begin(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
         self.cancel_all_selections();
         self.get_primary().cursor.move_buffer_begin();
@@ -2577,7 +2580,7 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
 
-    pub fn move_buffer_end(self: *Self, _: command.Context) tp.result {
+    pub fn move_buffer_end(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
         self.cancel_all_selections();
         const root = self.buf_root() catch return;
@@ -2586,142 +2589,142 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
 
-    pub fn cancel(self: *Self, _: command.Context) tp.result {
+    pub fn cancel(self: *Self, _: Context) Result {
         self.cancel_all_selections();
         self.cancel_all_matches();
     }
 
-    pub fn select_up(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_up) catch |e| return tp.exit_error(e);
+    pub fn select_up(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_up);
         self.clamp();
     }
 
-    pub fn select_down(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_down) catch |e| return tp.exit_error(e);
+    pub fn select_down(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_down);
         self.clamp();
     }
 
-    pub fn select_scroll_up(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_up) catch |e| return tp.exit_error(e);
+    pub fn select_scroll_up(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_up);
         self.view.move_up() catch {};
         self.clamp();
     }
 
-    pub fn select_scroll_down(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_down) catch |e| return tp.exit_error(e);
+    pub fn select_scroll_down(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_down);
         self.view.move_down(root) catch {};
         self.clamp();
     }
 
-    pub fn select_left(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_left) catch |e| return tp.exit_error(e);
+    pub fn select_left(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_left);
         self.clamp();
     }
 
-    pub fn select_right(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_right) catch |e| return tp.exit_error(e);
+    pub fn select_right(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_right);
         self.clamp();
     }
 
-    pub fn select_word_left(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_word_left) catch |e| return tp.exit_error(e);
+    pub fn select_word_left(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_word_left);
         self.clamp();
     }
 
-    pub fn select_word_right(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_word_right) catch |e| return tp.exit_error(e);
+    pub fn select_word_right(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_word_right);
         self.clamp();
     }
 
-    pub fn select_word_begin(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_word_begin) catch |e| return tp.exit_error(e);
+    pub fn select_word_begin(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_word_begin);
         self.clamp();
     }
 
-    pub fn select_word_end(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_word_end) catch |e| return tp.exit_error(e);
+    pub fn select_word_end(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_word_end);
         self.clamp();
     }
 
-    pub fn select_to_char_left(self: *Self, ctx: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn select_to_char_left(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
         self.with_selections_const_arg(root, move_cursor_to_char_left, ctx) catch {};
         self.clamp();
     }
 
-    pub fn select_to_char_right(self: *Self, ctx: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    pub fn select_to_char_right(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
         self.with_selections_const_arg(root, move_cursor_to_char_right, ctx) catch {};
         self.clamp();
     }
 
-    pub fn select_begin(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_begin) catch |e| return tp.exit_error(e);
+    pub fn select_begin(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_begin);
         self.clamp();
     }
 
-    pub fn smart_select_begin(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, smart_move_cursor_begin) catch |e| return tp.exit_error(e);
+    pub fn smart_select_begin(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, smart_move_cursor_begin);
         self.clamp();
     }
 
-    pub fn select_end(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_end) catch |e| return tp.exit_error(e);
+    pub fn select_end(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_end);
         self.clamp();
     }
 
-    pub fn select_buffer_begin(self: *Self, _: command.Context) tp.result {
+    pub fn select_buffer_begin(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_buffer_begin) catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_buffer_begin);
         self.clamp();
         try self.send_editor_jump_destination();
     }
 
-    pub fn select_buffer_end(self: *Self, _: command.Context) tp.result {
+    pub fn select_buffer_end(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_const(root, move_cursor_buffer_end) catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_buffer_end);
         self.clamp();
         try self.send_editor_jump_destination();
     }
 
-    pub fn select_page_up(self: *Self, _: command.Context) tp.result {
+    pub fn select_page_up(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_and_view_const(root, move_cursor_page_up, &self.view) catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
+        try self.with_selections_and_view_const(root, move_cursor_page_up, &self.view);
         self.clamp();
         try self.send_editor_jump_destination();
     }
 
-    pub fn select_page_down(self: *Self, _: command.Context) tp.result {
+    pub fn select_page_down(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_selections_and_view_const(root, move_cursor_page_down, &self.view) catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
+        try self.with_selections_and_view_const(root, move_cursor_page_down, &self.view);
         self.clamp();
         try self.send_editor_jump_destination();
     }
 
-    pub fn select_all(self: *Self, _: command.Context) tp.result {
+    pub fn select_all(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
         self.cancel_all_selections();
         const primary = self.get_primary();
         const sel = primary.enable_selection();
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        expand_selection_to_all(root, sel, self.plane) catch |e| tp.exit_error(e);
+        const root = try self.buf_root();
+        try expand_selection_to_all(root, sel, self.plane);
         primary.cursor = sel.end;
         self.clamp();
         try self.send_editor_jump_destination();
@@ -2739,7 +2742,7 @@ pub const Editor = struct {
     }
 
     fn select_line_at_cursor(self: *Self, cursel: *CurSel) !void {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
         const sel = cursel.enable_selection();
         sel.normalize();
         try move_cursor_begin(root, &sel.begin, self.plane);
@@ -2754,37 +2757,37 @@ pub const Editor = struct {
         }
     }
 
-    pub fn selections_reverse(self: *Self, _: command.Context) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
-        self.with_cursels_const(root, selection_reverse) catch |e| return tp.exit_error(e);
+    pub fn selections_reverse(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_cursels_const(root, selection_reverse);
         self.clamp();
     }
 
-    pub fn insert_chars(self: *Self, ctx: command.Context) tp.result {
+    pub fn insert_chars(self: *Self, ctx: Context) Result {
         var chars: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&chars)}))
-            return tp.exit_error(error.InvalidArgument);
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+            return error.InvalidArgument;
+        const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            root = self.insert(root, cursel, chars, b.a) catch |e| return tp.exit_error(e);
+            root = try self.insert(root, cursel, chars, b.a);
         };
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn insert_line(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+    pub fn insert_line(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            root = self.insert(root, cursel, "\n", b.a) catch |e| return tp.exit_error(e);
+            root = try self.insert(root, cursel, "\n", b.a);
         };
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn smart_insert_line(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+    pub fn smart_insert_line(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.plane), cursel.cursor.col);
@@ -2793,95 +2796,95 @@ pub const Editor = struct {
             var stream = std.ArrayList(u8).init(a);
             defer stream.deinit();
             var writer = stream.writer();
-            _ = writer.write("\n") catch |e| return tp.exit_error(e);
+            _ = try writer.write("\n");
             while (leading_ws > 0) : (leading_ws -= 1)
-                _ = writer.write(" ") catch |e| return tp.exit_error(e);
-            root = self.insert(root, cursel, stream.items, b.a) catch |e| return tp.exit_error(e);
+                _ = try writer.write(" ");
+            root = try self.insert(root, cursel, stream.items, b.a);
         };
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn insert_line_before(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+    pub fn insert_line_before(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            move_cursor_begin(root, &cursel.cursor, self.plane) catch |e| return tp.exit_error(e);
-            root = self.insert(root, cursel, "\n", b.a) catch |e| return tp.exit_error(e);
-            move_cursor_left(root, &cursel.cursor, self.plane) catch |e| return tp.exit_error(e);
+            try move_cursor_begin(root, &cursel.cursor, self.plane);
+            root = try self.insert(root, cursel, "\n", b.a);
+            try move_cursor_left(root, &cursel.cursor, self.plane);
         };
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn smart_insert_line_before(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+    pub fn smart_insert_line_before(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.plane), cursel.cursor.col);
-            move_cursor_begin(root, &cursel.cursor, self.plane) catch |e| return tp.exit_error(e);
-            root = self.insert(root, cursel, "\n", b.a) catch |e| return tp.exit_error(e);
-            move_cursor_left(root, &cursel.cursor, self.plane) catch |e| return tp.exit_error(e);
+            try move_cursor_begin(root, &cursel.cursor, self.plane);
+            root = try self.insert(root, cursel, "\n", b.a);
+            try move_cursor_left(root, &cursel.cursor, self.plane);
             var sfa = std.heap.stackFallback(512, self.a);
             const a = sfa.get();
             var stream = std.ArrayList(u8).init(a);
             defer stream.deinit();
             var writer = stream.writer();
             while (leading_ws > 0) : (leading_ws -= 1)
-                _ = writer.write(" ") catch |e| return tp.exit_error(e);
+                _ = try writer.write(" ");
             if (stream.items.len > 0)
-                root = self.insert(root, cursel, stream.items, b.a) catch |e| return tp.exit_error(e);
+                root = try self.insert(root, cursel, stream.items, b.a);
         };
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn insert_line_after(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+    pub fn insert_line_after(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            move_cursor_end(root, &cursel.cursor, self.plane) catch |e| return tp.exit_error(e);
-            root = self.insert(root, cursel, "\n", b.a) catch |e| return tp.exit_error(e);
+            try move_cursor_end(root, &cursel.cursor, self.plane);
+            root = try self.insert(root, cursel, "\n", b.a);
         };
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn smart_insert_line_after(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+    pub fn smart_insert_line_after(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.plane), cursel.cursor.col);
-            move_cursor_end(root, &cursel.cursor, self.plane) catch |e| return tp.exit_error(e);
+            try move_cursor_end(root, &cursel.cursor, self.plane);
             var sfa = std.heap.stackFallback(512, self.a);
             const a = sfa.get();
             var stream = std.ArrayList(u8).init(a);
             defer stream.deinit();
             var writer = stream.writer();
-            _ = writer.write("\n") catch |e| return tp.exit_error(e);
+            _ = try writer.write("\n");
             while (leading_ws > 0) : (leading_ws -= 1)
-                _ = writer.write(" ") catch |e| return tp.exit_error(e);
+                _ = try writer.write(" ");
             if (stream.items.len > 0)
-                root = self.insert(root, cursel, stream.items, b.a) catch |e| return tp.exit_error(e);
+                root = try self.insert(root, cursel, stream.items, b.a);
         };
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+        try self.update_buf(root);
         self.clamp();
     }
 
-    pub fn enable_fast_scroll(self: *Self, _: command.Context) tp.result {
+    pub fn enable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = true;
     }
 
-    pub fn disable_fast_scroll(self: *Self, _: command.Context) tp.result {
+    pub fn disable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = false;
     }
 
-    pub fn enable_jump_mode(self: *Self, _: command.Context) tp.result {
+    pub fn enable_jump_mode(self: *Self, _: Context) Result {
         self.jump_mode = true;
         tui.current().rdr.request_mouse_cursor_pointer(true);
     }
 
-    pub fn disable_jump_mode(self: *Self, _: command.Context) tp.result {
+    pub fn disable_jump_mode(self: *Self, _: Context) Result {
         self.jump_mode = false;
         tui.current().rdr.request_mouse_cursor_text(true);
     }
@@ -2915,7 +2918,7 @@ pub const Editor = struct {
         if (self.syntax) |_| self.syntax_refresh_full = true;
     }
 
-    pub fn dump_current_line(self: *Self, _: command.Context) tp.result {
+    pub fn dump_current_line(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
         var tree = std.ArrayList(u8).init(self.a);
@@ -2925,7 +2928,7 @@ pub const Editor = struct {
         self.logger.print("line {d}:{s}", .{ primary.cursor.row, std.fmt.fmtSliceEscapeLower(tree.items) });
     }
 
-    pub fn dump_current_line_tree(self: *Self, _: command.Context) tp.result {
+    pub fn dump_current_line_tree(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
         var tree = std.ArrayList(u8).init(self.a);
@@ -2935,66 +2938,66 @@ pub const Editor = struct {
         self.logger.print("line {d} ast:{s}", .{ primary.cursor.row, std.fmt.fmtSliceEscapeLower(tree.items) });
     }
 
-    pub fn undo(self: *Self, _: command.Context) tp.result {
-        self.restore_undo() catch |e| return tp.exit_error(e);
+    pub fn undo(self: *Self, _: Context) Result {
+        try self.restore_undo();
         self.clamp();
     }
 
-    pub fn redo(self: *Self, _: command.Context) tp.result {
-        self.restore_redo() catch |e| return tp.exit_error(e);
+    pub fn redo(self: *Self, _: Context) Result {
+        try self.restore_redo();
         self.clamp();
     }
 
-    pub fn open_file(self: *Self, ctx: command.Context) tp.result {
+    pub fn open_file(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
         if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
-            self.open(file_path) catch |e| return tp.exit_error(e);
+            try self.open(file_path);
             self.clamp();
-        } else return tp.exit_error(error.InvalidArgument);
+        } else return error.InvalidArgument;
     }
 
-    pub fn open_scratch_buffer(self: *Self, ctx: command.Context) tp.result {
+    pub fn open_scratch_buffer(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
         var content: []const u8 = undefined;
         if (ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content) }) catch false) {
-            self.open_scratch(file_path, content) catch |e| return tp.exit_error(e);
+            try self.open_scratch(file_path, content);
             self.clamp();
-        } else return tp.exit_error(error.InvalidArgument);
+        } else return error.InvalidArgument;
     }
 
-    pub fn save_file(self: *Self, _: command.Context) tp.result {
-        self.save() catch |e| return tp.exit_error(e);
+    pub fn save_file(self: *Self, _: Context) Result {
+        try self.save();
     }
 
-    pub fn close_file(self: *Self, _: command.Context) tp.result {
+    pub fn close_file(self: *Self, _: Context) Result {
         self.cancel_all_selections();
-        self.close() catch |e| return tp.exit_error(e);
+        try self.close();
     }
 
-    pub fn close_file_without_saving(self: *Self, _: command.Context) tp.result {
+    pub fn close_file_without_saving(self: *Self, _: Context) Result {
         self.cancel_all_selections();
-        self.close_dirty() catch |e| return tp.exit_error(e);
+        try self.close_dirty();
     }
 
-    pub fn find(self: *Self, ctx: command.Context) tp.result {
+    pub fn find(self: *Self, ctx: Context) Result {
         var query: []const u8 = undefined;
         if (ctx.args.match(.{tp.extract(&query)}) catch false) {
             try self.find_in_buffer(query);
             self.clamp();
-        } else return tp.exit_error(error.InvalidArgument);
+        } else return error.InvalidArgument;
     }
 
-    fn find_in(self: *Self, query: []const u8, comptime find_f: ripgrep.FindF, write_buffer: bool) tp.result {
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+    fn find_in(self: *Self, query: []const u8, comptime find_f: ripgrep.FindF, write_buffer: bool) !void {
+        const root = try self.buf_root();
         self.cancel_all_matches();
         if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
         self.logger.print("find:{s}", .{std.fmt.fmtSliceEscapeLower(query)});
-        var rg = find_f(self.a, query, "A") catch |e| return tp.exit_error(e);
+        var rg = try find_f(self.a, query, "A");
         defer rg.deinit();
         if (write_buffer) {
             var rg_buffer = rg.bufferedWriter();
-            root.store(rg_buffer.writer()) catch |e| return tp.exit_error(e);
-            rg_buffer.flush() catch |e| return tp.exit_error(e);
+            try root.store(rg_buffer.writer());
+            try rg_buffer.flush();
         }
     }
 
@@ -3020,12 +3023,12 @@ pub const Editor = struct {
         } else self.last_find_query = self.a.dupe(u8, query) catch return;
     }
 
-    pub fn find_in_buffer(self: *Self, query: []const u8) tp.result {
+    pub fn find_in_buffer(self: *Self, query: []const u8) !void {
         self.set_last_find_query(query);
         return self.find_in_buffer_async(query);
     }
 
-    fn find_in_buffer_sync(self: *Self, query: []const u8) tp.result {
+    fn find_in_buffer_sync(self: *Self, query: []const u8) !void {
         const Ctx = struct {
             matches: usize = 0,
             self: *Self,
@@ -3037,14 +3040,14 @@ pub const Editor = struct {
                     return error.Stop;
             }
         };
-        const root = self.buf_root() catch |e| return tp.exit_error(e);
+        const root = try self.buf_root();
         defer tp.self_pid().send(.{ "A", "done", self.match_token }) catch {};
         var ctx: Ctx = .{ .self = self };
         self.init_matches_update() catch {};
-        root.find_all_ranges(query, &ctx, Ctx.cb, self.a) catch |e| return tp.exit_error(e);
+        try root.find_all_ranges(query, &ctx, Ctx.cb, self.a);
     }
 
-    fn find_in_buffer_async(self: *Self, query: []const u8) tp.result {
+    fn find_in_buffer_async(self: *Self, query: []const u8) !void {
         const finder = struct {
             a: Allocator,
             query: []const u8,
@@ -3060,7 +3063,7 @@ pub const Editor = struct {
                 return tp.exit_normal();
             }
 
-            fn find(fdr: *finder) tp.result {
+            fn find(fdr: *finder) !void {
                 const Ctx = struct {
                     matches: usize = 0,
                     fdr: *finder,
@@ -3079,8 +3082,8 @@ pub const Editor = struct {
                 defer fdr.parent.send(.{ "A", "done", fdr.token }) catch {};
                 defer fdr.a.free(fdr.query);
                 var ctx: Ctx = .{ .fdr = fdr };
-                fdr.root.find_all_ranges(fdr.query, &ctx, Ctx.cb, fdr.a) catch |e| return tp.exit_error(e);
-                fdr.send_batch() catch |e| return tp.exit_error(e);
+                try fdr.root.find_all_ranges(fdr.query, &ctx, Ctx.cb, fdr.a);
+                try fdr.send_batch();
             }
 
             fn send_batch(fdr: *finder) !void {
@@ -3101,29 +3104,29 @@ pub const Editor = struct {
                 fdr.matches.clearRetainingCapacity();
             }
         };
-        self.init_matches_update() catch {};
-        const fdr = self.a.create(finder) catch |e| return tp.exit_error(e);
+        self.init_matches_update();
+        const fdr = try self.a.create(finder);
         fdr.* = .{
             .a = self.a,
-            .query = self.a.dupe(u8, query) catch |e| return tp.exit_error(e),
+            .query = try self.a.dupe(u8, query),
             .parent = tp.self_pid(),
-            .root = self.buf_root() catch |e| return tp.exit_error(e),
+            .root = try self.buf_root(),
             .token = self.match_token,
             .matches = Match.List.init(self.a),
         };
-        const pid = tp.spawn_link(self.a, fdr, finder.start, "editor.find") catch |e| return tp.exit_error(e);
+        const pid = try tp.spawn_link(self.a, fdr, finder.start, "editor.find");
         pid.deinit();
     }
 
-    pub fn find_in_buffer_ext(self: *Self, query: []const u8) tp.result {
+    pub fn find_in_buffer_ext(self: *Self, query: []const u8) !void {
         return self.find_in(query, ripgrep.find_in_stdin, true);
     }
 
-    pub fn find_in_files(self: *Self, query: []const u8) tp.result {
+    pub fn find_in_files(self: *Self, query: []const u8) !void {
         return self.find_in(query, ripgrep.find_in_files, false);
     }
 
-    pub fn add_match(self: *Self, m: tp.message) tp.result {
+    pub fn add_match(self: *Self, m: tp.message) !void {
         var path: []const u8 = undefined;
         var begin_line: usize = undefined;
         var begin_pos: usize = undefined;
@@ -3134,7 +3137,7 @@ pub const Editor = struct {
         if (try m.match(.{ "A", "done", self.match_token })) {
             self.add_match_done();
         } else if (try m.match(.{ tp.any, "batch", self.match_token, tp.extract_cbor(&batch_cbor) })) {
-            self.add_match_batch(batch_cbor) catch |e| return tp.exit_error(e);
+            try self.add_match_batch(batch_cbor);
         } else if (try m.match(.{ tp.any, self.match_token, tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
             self.add_match_internal(begin_line, begin_pos, end_line, end_pos);
         } else if (try m.match(.{ tp.any, tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
@@ -3229,7 +3232,7 @@ pub const Editor = struct {
         return self.scan_prev_match(cursor_);
     }
 
-    pub fn move_cursor_next_match(self: *Self, _: command.Context) tp.result {
+    pub fn move_cursor_next_match(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         if (self.get_next_match(primary.cursor)) |match| {
             const root = self.buf_root() catch return;
@@ -3239,7 +3242,7 @@ pub const Editor = struct {
         }
     }
 
-    pub fn goto_next_match(self: *Self, ctx: command.Context) tp.result {
+    pub fn goto_next_match(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         self.cancel_all_selections();
         if (self.matches.items.len == 0) {
@@ -3252,7 +3255,7 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
 
-    pub fn move_cursor_prev_match(self: *Self, _: command.Context) tp.result {
+    pub fn move_cursor_prev_match(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         if (self.get_prev_match(primary.cursor)) |match| {
             const root = self.buf_root() catch return;
@@ -3263,7 +3266,7 @@ pub const Editor = struct {
         }
     }
 
-    pub fn goto_prev_match(self: *Self, ctx: command.Context) tp.result {
+    pub fn goto_prev_match(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         self.cancel_all_selections();
         if (self.matches.items.len == 0) {
@@ -3276,7 +3279,7 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
 
-    pub fn goto_next_diagnostic(self: *Self, _: command.Context) tp.result {
+    pub fn goto_next_diagnostic(self: *Self, _: Context) Result {
         if (self.diagnostics.items.len == 0) return;
         self.sort_diagnostics();
         const primary = self.get_primary();
@@ -3287,7 +3290,7 @@ pub const Editor = struct {
         return self.goto_diagnostic(&self.diagnostics.items[0]);
     }
 
-    pub fn goto_prev_diagnostic(self: *Self, _: command.Context) tp.result {
+    pub fn goto_prev_diagnostic(self: *Self, _: Context) Result {
         if (self.diagnostics.items.len == 0) return;
         self.sort_diagnostics();
         const primary = self.get_primary();
@@ -3300,12 +3303,12 @@ pub const Editor = struct {
         }
     }
 
-    fn goto_diagnostic(self: *Self, diag: *const Diagnostic) tp.result {
+    fn goto_diagnostic(self: *Self, diag: *const Diagnostic) !void {
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
         try self.send_editor_jump_source();
         self.cancel_all_selections();
-        primary.cursor.move_to(root, diag.sel.begin.row, diag.sel.begin.col, self.plane) catch |e| return tp.exit_error(e);
+        try primary.cursor.move_to(root, diag.sel.begin.row, diag.sel.begin.col, self.plane);
         self.clamp();
         try self.send_editor_jump_destination();
     }
@@ -3322,30 +3325,30 @@ pub const Editor = struct {
         std.mem.sort(Diagnostic, self.diagnostics.items, {}, less_fn);
     }
 
-    pub fn goto_line(self: *Self, ctx: command.Context) tp.result {
+    pub fn goto_line(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         var line: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&line)}))
-            return tp.exit_error(error.InvalidArgument);
+            return error.InvalidArgument;
         const root = self.buf_root() catch return;
         self.cancel_all_selections();
         const primary = self.get_primary();
-        primary.cursor.move_to(root, @intCast(if (line < 1) 0 else line - 1), primary.cursor.col, self.plane) catch |e| return tp.exit_error(e);
+        try primary.cursor.move_to(root, @intCast(if (line < 1) 0 else line - 1), primary.cursor.col, self.plane);
         self.clamp();
         try self.send_editor_jump_destination();
     }
 
-    pub fn goto_column(self: *Self, ctx: command.Context) tp.result {
+    pub fn goto_column(self: *Self, ctx: Context) Result {
         var column: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&column)}))
-            return tp.exit_error(error.InvalidArgument);
+            return error.InvalidArgument;
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        primary.cursor.move_to(root, primary.cursor.row, @intCast(if (column < 1) 0 else column - 1), self.plane) catch |e| return tp.exit_error(e);
+        try primary.cursor.move_to(root, primary.cursor.row, @intCast(if (column < 1) 0 else column - 1), self.plane);
         self.clamp();
     }
 
-    pub fn goto(self: *Self, ctx: command.Context) tp.result {
+    pub fn goto(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         var line: usize = 0;
         var column: usize = 0;
@@ -3366,16 +3369,16 @@ pub const Editor = struct {
         })) {
             // self.logger.print("goto: l:{d} c:{d} {any}", .{ line, column, sel });
             have_sel = true;
-        } else return tp.exit_error(error.InvalidArgument);
+        } else return error.InvalidArgument;
         self.cancel_all_selections();
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        primary.cursor.move_to(
+        try primary.cursor.move_to(
             root,
             @intCast(if (line < 1) 0 else line - 1),
             @intCast(if (column < 1) 0 else column - 1),
             self.plane,
-        ) catch |e| return tp.exit_error(e);
+        );
         if (have_sel) primary.selection = sel;
         if (self.view.is_visible(&primary.cursor))
             self.clamp()
@@ -3385,21 +3388,21 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    pub fn goto_definition(self: *Self, _: command.Context) tp.result {
+    pub fn goto_definition(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         return project_manager.goto_definition(file_path, primary.cursor.row, primary.cursor.col);
     }
 
-    pub fn completion(self: *Self, _: command.Context) tp.result {
+    pub fn completion(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         return project_manager.completion(file_path, primary.cursor.row, primary.cursor.col);
     }
 
-    pub fn clear_diagnostics(self: *Self, ctx: command.Context) tp.result {
+    pub fn clear_diagnostics(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&file_path)})) return tp.exit_error(error.InvalidArgument);
+        if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidArgument;
         file_path = project_manager.normalize_file_path(file_path);
         if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
         for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
@@ -3412,7 +3415,7 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    pub fn add_diagnostic(self: *Self, ctx: command.Context) tp.result {
+    pub fn add_diagnostic(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
         var source: []const u8 = undefined;
         var code: []const u8 = undefined;
@@ -3429,14 +3432,14 @@ pub const Editor = struct {
             tp.extract(&sel.begin.col),
             tp.extract(&sel.end.row),
             tp.extract(&sel.end.col),
-        })) return tp.exit_error(error.InvalidArgument);
+        })) return error.InvalidArgument;
         file_path = project_manager.normalize_file_path(file_path);
         if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
 
-        (self.diagnostics.addOne() catch |e| return tp.exit_error(e)).* = .{
-            .source = self.diagnostics.allocator.dupe(u8, source) catch |e| return tp.exit_error(e),
-            .code = self.diagnostics.allocator.dupe(u8, code) catch |e| return tp.exit_error(e),
-            .message = self.diagnostics.allocator.dupe(u8, message) catch |e| return tp.exit_error(e),
+        (try self.diagnostics.addOne()).* = .{
+            .source = try self.diagnostics.allocator.dupe(u8, source),
+            .code = try self.diagnostics.allocator.dupe(u8, code),
+            .message = try self.diagnostics.allocator.dupe(u8, message),
             .severity = severity,
             .sel = sel,
         };
@@ -3452,14 +3455,14 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    pub fn select(self: *Self, ctx: command.Context) tp.result {
+    pub fn select(self: *Self, ctx: Context) Result {
         var sel: Selection = .{};
         if (!try ctx.args.match(.{ tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) }))
-            return tp.exit_error(error.InvalidArgument);
+            return error.InvalidArgument;
         self.get_primary().selection = sel;
     }
 
-    pub fn format(self: *Self, ctx: command.Context) tp.result {
+    pub fn format(self: *Self, ctx: Context) Result {
         if (ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more })) {
             try self.filter_cmd(ctx.args);
             return;
@@ -3467,28 +3470,28 @@ pub const Editor = struct {
         if (self.syntax) |syn| if (syn.file_type.formatter) |fmtr| if (fmtr.len > 0) {
             var args = std.ArrayList(u8).init(self.a);
             const writer = args.writer();
-            cbor.writeArrayHeader(writer, fmtr.len) catch |e| return tp.exit_error(e);
-            for (fmtr) |arg| cbor.writeValue(writer, arg) catch |e| return tp.exit_error(e);
+            try cbor.writeArrayHeader(writer, fmtr.len);
+            for (fmtr) |arg| try cbor.writeValue(writer, arg);
             try self.filter_cmd(.{ .buf = args.items });
             return;
         };
         return tp.exit("no formatter");
     }
 
-    pub fn filter(self: *Self, ctx: command.Context) tp.result {
+    pub fn filter(self: *Self, ctx: Context) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
-            return tp.exit_error(error.InvalidArgument);
+            return error.InvalidArgument;
         try self.filter_cmd(ctx.args);
     }
 
-    fn filter_cmd(self: *Self, cmd: tp.message) tp.result {
-        if (self.filter) |_| return tp.exit_error(error.Stop);
+    fn filter_cmd(self: *Self, cmd: tp.message) !void {
+        if (self.filter) |_| return error.Stop;
         const root = self.buf_root() catch return;
-        const buf_a_ = self.buf_a() catch |e| return tp.exit_error(e);
+        const buf_a_ = try self.buf_a();
         const primary = self.get_primary();
         var sel: Selection = if (primary.selection) |sel_| sel_ else val: {
             var sel_: Selection = .{};
-            expand_selection_to_all(root, &sel_, self.plane) catch |e| tp.exit_error(e);
+            try expand_selection_to_all(root, &sel_, self.plane);
             break :val sel_;
         };
         const reversed = sel.begin.right_of(sel.end);
@@ -3505,9 +3508,9 @@ pub const Editor = struct {
         errdefer self.filter_deinit();
         const state = &self.filter.?;
         var buf: [1024]u8 = undefined;
-        const json = cmd.to_json(&buf) catch |e| return tp.exit_error(e);
+        const json = try cmd.to_json(&buf);
         self.logger.print("filter: start {s}", .{json});
-        var sp = tp.subprocess.init(self.a, cmd, "filter", .Pipe) catch |e| return tp.exit_error(e);
+        var sp = try tp.subprocess.init(self.a, cmd, "filter", .Pipe);
         defer {
             sp.close() catch {};
             sp.deinit();
@@ -3516,39 +3519,39 @@ pub const Editor = struct {
         try self.write_range(state.before_root, sel, buffer.writer(), tp.exit_error, null, self.plane);
         try buffer.flush();
         self.logger.print("filter: sent", .{});
-        state.work_root = state.work_root.delete_range(sel, buf_a_, null, self.plane) catch |e| return tp.exit_error(e);
+        state.work_root = try state.work_root.delete_range(sel, buf_a_, null, self.plane);
     }
 
-    fn filter_stdout(self: *Self, bytes: []const u8) tp.result {
-        const state = if (self.filter) |*s| s else return tp.exit_error(error.Stop);
+    fn filter_stdout(self: *Self, bytes: []const u8) !void {
+        const state = if (self.filter) |*s| s else return error.Stop;
         errdefer self.filter_deinit();
-        const buf_a_ = self.buf_a() catch |e| return tp.exit_error(e);
+        const buf_a_ = try self.buf_a();
         if (state.whole_file) |*buf| {
-            buf.appendSlice(bytes) catch |e| return tp.exit_error(e);
+            try buf.appendSlice(bytes);
         } else {
             const cursor = &state.pos.cursor;
-            cursor.row, cursor.col, state.work_root = state.work_root.insert_chars(cursor.row, cursor.col, bytes, buf_a_, self.plane) catch |e| return tp.exit_error(e);
+            cursor.row, cursor.col, state.work_root = try state.work_root.insert_chars(cursor.row, cursor.col, bytes, buf_a_, self.plane);
             state.bytes += bytes.len;
             state.chunks += 1;
         }
     }
 
-    fn filter_error(self: *Self, bytes: []const u8) tp.result {
+    fn filter_error(self: *Self, bytes: []const u8) void {
         defer self.filter_deinit();
         self.logger.print("filter: ERR: {s}", .{bytes});
     }
 
-    fn filter_done(self: *Self) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
+    fn filter_done(self: *Self) !void {
+        const b = try self.buf_for_update();
         const root = self.buf_root() catch return;
-        const state = if (self.filter) |*s| s else return tp.exit_error(error.Stop);
-        if (state.before_root != root) return tp.exit_error(error.Stop);
+        const state = if (self.filter) |*s| s else return error.Stop;
+        if (state.before_root != root) return error.Stop;
         defer self.filter_deinit();
         const primary = self.get_primary();
         self.cancel_all_selections();
         self.cancel_all_matches();
         if (state.whole_file) |buf| {
-            state.work_root = b.load_from_string(buf.items) catch |e| return tp.exit_error(e);
+            state.work_root = try b.load_from_string(buf.items);
             state.bytes = buf.items.len;
             state.chunks = 1;
             primary.cursor = state.old_primary.cursor;
@@ -3559,7 +3562,7 @@ pub const Editor = struct {
             if (state.old_primary_reversed) sel.reverse();
             primary.cursor = sel.end;
         }
-        self.update_buf(state.work_root) catch |e| return tp.exit_error(e);
+        try self.update_buf(state.work_root);
         primary.cursor.clamp_to_buffer(state.work_root, self.plane);
         self.logger.print("filter: done (bytes:{d} chunks:{d})", .{ state.bytes, state.chunks });
         self.reset_syntax();
@@ -3595,10 +3598,10 @@ pub const Editor = struct {
         return root;
     }
 
-    pub fn to_upper(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.with_cursels_mut(b.root, to_upper_cursel, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn to_upper(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, to_upper_cursel, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 
@@ -3624,10 +3627,10 @@ pub const Editor = struct {
         return root;
     }
 
-    pub fn to_lower(self: *Self, _: command.Context) tp.result {
-        const b = self.buf_for_update() catch |e| return tp.exit_error(e);
-        const root = self.with_cursels_mut(b.root, to_lower_cursel, b.a) catch |e| return tp.exit_error(e);
-        self.update_buf(root) catch |e| return tp.exit_error(e);
+    pub fn to_lower(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, to_lower_cursel, b.a);
+        try self.update_buf(root);
         self.clamp();
     }
 };
@@ -3694,6 +3697,10 @@ pub const EditorWidget = struct {
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+        return self.receive_safe(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn receive_safe(self: *Self, m: tp.message) !bool {
         var evtype: c_int = undefined;
         var btn: c_int = undefined;
         var x: c_int = undefined;
@@ -3712,7 +3719,7 @@ pub const EditorWidget = struct {
         } else if (try m.match(.{ "filter", "stdout", tp.extract(&bytes) })) {
             self.editor.filter_stdout(bytes) catch {};
         } else if (try m.match(.{ "filter", "stderr", tp.extract(&bytes) })) {
-            self.editor.filter_error(bytes) catch {};
+            self.editor.filter_error(bytes);
         } else if (try m.match(.{ "filter", "term", tp.more })) {
             self.editor.filter_done() catch {};
         } else if (try m.match(.{ "A", tp.more })) {
@@ -3730,7 +3737,9 @@ pub const EditorWidget = struct {
         return true;
     }
 
-    fn mouse_click_event(self: *Self, evtype: c_int, btn: c_int, y: c_int, x: c_int, ypx: c_int, xpx: c_int) tp.result {
+    const Result = command.Result;
+
+    fn mouse_click_event(self: *Self, evtype: c_int, btn: c_int, y: c_int, x: c_int, ypx: c_int, xpx: c_int) Result {
         if (evtype != event_type.PRESS) return;
         const ret = (switch (btn) {
             key.BUTTON1 => &mouse_click_button1,
@@ -3747,7 +3756,7 @@ pub const EditorWidget = struct {
         return ret;
     }
 
-    fn mouse_drag_event(self: *Self, evtype: c_int, btn: c_int, y: c_int, x: c_int, ypx: c_int, xpx: c_int) tp.result {
+    fn mouse_drag_event(self: *Self, evtype: c_int, btn: c_int, y: c_int, x: c_int, ypx: c_int, xpx: c_int) Result {
         if (evtype != event_type.PRESS) return;
         return (switch (btn) {
             key.BUTTON1 => &mouse_drag_button1,
@@ -3757,7 +3766,7 @@ pub const EditorWidget = struct {
         })(self, y, x, ypx, xpx);
     }
 
-    fn mouse_click_button1(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) tp.result {
+    fn mouse_click_button1(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) Result {
         const y_, const x_ = self.editor.plane.abs_yx_to_rel(y, x);
         if (self.last_btn == key.BUTTON1) {
             const click_time_ms = time.milliTimestamp() - self.last_btn_time_ms;
@@ -3777,38 +3786,38 @@ pub const EditorWidget = struct {
         return;
     }
 
-    fn mouse_drag_button1(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) tp.result {
+    fn mouse_drag_button1(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) Result {
         const y_, const x_ = self.editor.plane.abs_yx_to_rel(y, x);
-        try self.editor.primary_drag(y_, x_);
+        self.editor.primary_drag(y_, x_);
     }
 
-    fn mouse_click_button2(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) tp.result {}
+    fn mouse_click_button2(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {}
 
-    fn mouse_drag_button2(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) tp.result {}
+    fn mouse_drag_button2(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {}
 
-    fn mouse_click_button3(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) tp.result {
+    fn mouse_click_button3(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) Result {
         const y_, const x_ = self.editor.plane.abs_yx_to_rel(y, x);
         try self.editor.secondary_click(y_, x_);
     }
 
-    fn mouse_drag_button3(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) tp.result {
+    fn mouse_drag_button3(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) Result {
         const y_, const x_ = self.editor.plane.abs_yx_to_rel(y, x);
         try self.editor.secondary_drag(y_, x_);
     }
 
-    fn mouse_click_button4(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) tp.result {
+    fn mouse_click_button4(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
         try self.editor.scroll_up_pageup(.{});
     }
 
-    fn mouse_click_button5(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) tp.result {
+    fn mouse_click_button5(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
         try self.editor.scroll_down_pagedown(.{});
     }
 
-    fn mouse_click_button8(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) tp.result {
+    fn mouse_click_button8(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
         try command.executeName("jump_back", .{});
     }
 
-    fn mouse_click_button9(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) tp.result {
+    fn mouse_click_button9(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
         try command.executeName("jump_forward", .{});
     }
 

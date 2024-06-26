@@ -73,16 +73,16 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     }
 
     if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-        try self.mapEvent(evtype, keypress, egc, modifiers);
+        self.mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{"F"})) {
-        self.flush_input() catch |e| return e;
+        self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-        try self.insert_bytes(text);
+        self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return false;
 }
 
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
     switch (evtype) {
         event_type.PRESS => try self.mapPress(keypress, egc, modifiers),
         event_type.REPEAT => try self.mapPress(keypress, egc, modifiers),
@@ -91,7 +91,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) t
     }
 }
 
-fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
+fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
@@ -147,7 +147,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
     };
 }
 
-fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) tp.result {
+fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) !void {
     return switch (keypress) {
         key.LCTRL, key.RCTRL => self.cmd("disable_fast_scroll", .{}),
         key.LALT, key.RALT => self.cmd("disable_fast_scroll", .{}),
@@ -155,14 +155,14 @@ fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) tp.result {
     };
 }
 
-fn insert_code_point(self: *Self, c: u32) tp.result {
+fn insert_code_point(self: *Self, c: u32) !void {
     if (self.input.len + 16 > self.buf.len)
         try self.flush_input();
-    const bytes = ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]) catch |e| return tp.exit_error(e);
+    const bytes = try ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]);
     self.input = self.buf[0 .. self.input.len + bytes];
 }
 
-fn insert_bytes(self: *Self, bytes: []const u8) tp.result {
+fn insert_bytes(self: *Self, bytes: []const u8) !void {
     if (self.input.len + 16 > self.buf.len)
         try self.flush_input();
     const newlen = self.input.len + bytes.len;
@@ -172,7 +172,7 @@ fn insert_bytes(self: *Self, bytes: []const u8) tp.result {
 
 var find_cmd_id: ?command.ID = null;
 
-fn flush_input(self: *Self) tp.result {
+fn flush_input(self: *Self) !void {
     if (self.input.len > 0) {
         if (eql(u8, self.input, self.last_input))
             return;

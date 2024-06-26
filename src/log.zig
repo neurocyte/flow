@@ -28,7 +28,7 @@ pub fn spawn(ctx: *tp.context, a: std.mem.Allocator, env: ?*const tp.env) !tp.pi
 
 fn start(args: StartArgs) tp.result {
     _ = tp.set_trap(true);
-    var this = Self.init(args) catch |e| return tp.exit_error(e);
+    var this = Self.init(args) catch |e| return tp.exit_error(e, @errorReturnTrace());
     errdefer this.deinit();
     tp.receive(&this.receiver);
 }
@@ -135,15 +135,27 @@ pub const Logger = struct {
             error.Exit => {
                 const msg_: tp.message = .{ .buf = tp.error_message() };
                 var msg__: []const u8 = undefined;
-                if (!(msg_.match(.{ "exit", tp.extract(&msg__) }) catch false))
+                var trace__: []const u8 = "";
+                if (msg_.match(.{ "exit", tp.extract(&msg__) }) catch false) {
+                    //
+                } else if (msg_.match(.{ "exit", tp.extract(&msg__), tp.extract(&trace__) }) catch false) {
+                    //
+                } else {
                     msg__ = msg_.buf;
+                }
                 if (msg__.len > buf.len) {
                     self.proc.send(.{ "log", "error", self.tag, context, "->", "MESSAGE TOO LARGE" }) catch {};
                     return;
                 }
                 const msg___ = buf[0..msg__.len];
                 @memcpy(msg___, msg__);
-                msg = msg___;
+                if (buf.len - msg___.len > trace__.len) {
+                    const msg____ = buf[0 .. msg__.len + trace__.len];
+                    @memcpy(msg____[msg__.len..], trace__);
+                    msg = msg____;
+                } else {
+                    msg = msg___;
+                }
             },
             else => {
                 msg = @errorName(e);

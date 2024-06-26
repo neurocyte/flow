@@ -71,8 +71,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var clear_msg_num: usize = 0;
     if (try m.match(.{ "log", tp.more })) {
-        logview.process_log(m) catch |e| return tp.exit_error(e);
-        self.process_log(m) catch |e| return tp.exit_error(e);
+        logview.process_log(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.process_log(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     } else if (try m.match(.{ "MINILOG", tp.extract(&clear_msg_num) })) {
         if (clear_msg_num == self.msg_counter)

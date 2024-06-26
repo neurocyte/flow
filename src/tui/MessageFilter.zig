@@ -123,7 +123,7 @@ pub const List = struct {
     pub fn filter(self: *const List, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         var sfa = std.heap.stackFallback(4096, self.a);
         const a = sfa.get();
-        const buf = a.alloc(u8, m.buf.len) catch |e| return tp.exit_error(e);
+        const buf = a.alloc(u8, m.buf.len) catch |e| return tp.exit_error(e, @errorReturnTrace());
         defer a.free(buf);
         @memcpy(buf[0..m.buf.len], m.buf);
         const m_: tp.message = .{ .buf = buf[0..m.buf.len] };

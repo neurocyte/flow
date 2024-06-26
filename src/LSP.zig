@@ -11,9 +11,8 @@ const Self = @This();
 const module_name = @typeName(Self);
 const sp_tag = "child";
 const debug_lsp = true;
-pub const Error = error{ OutOfMemory, Exit };
 
-pub fn open(a: std.mem.Allocator, project: []const u8, cmd: tp.message) Error!Self {
+pub fn open(a: std.mem.Allocator, project: []const u8, cmd: tp.message) !Self {
     return .{ .a = a, .pid = try Process.create(a, project, cmd) };
 }
 
@@ -27,23 +26,23 @@ pub fn term(self: *Self) void {
     self.pid.deinit();
 }
 
-pub fn send_request(self: Self, a: std.mem.Allocator, method: []const u8, m: anytype) error{Exit}!tp.message {
+pub fn send_request(self: Self, a: std.mem.Allocator, method: []const u8, m: anytype) !tp.message {
     // const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".send_request" });
     // defer frame.deinit();
     var cb = std.ArrayList(u8).init(self.a);
     defer cb.deinit();
-    cbor.writeValue(cb.writer(), m) catch |e| return tp.exit_error(e);
-    return self.pid.call(a, std.time.ns_per_s / 2, .{ "REQ", method, cb.items }) catch |e| return tp.exit_error(e);
+    try cbor.writeValue(cb.writer(), m);
+    return self.pid.call(a, std.time.ns_per_s / 2, .{ "REQ", method, cb.items });
 }
 
-pub fn send_notification(self: Self, method: []const u8, m: anytype) tp.result {
+pub fn send_notification(self: Self, method: []const u8, m: anytype) !void {
     var cb = std.ArrayList(u8).init(self.a);
     defer cb.deinit();
-    cbor.writeValue(cb.writer(), m) catch |e| return tp.exit_error(e);
+    try cbor.writeValue(cb.writer(), m);
     return self.send_notification_raw(method, cb.items);
 }
 
-pub fn send_notification_raw(self: Self, method: []const u8, cb: []const u8) tp.result {
+pub fn send_notification_raw(self: Self, method: []const u8, cb: []const u8) !void {
     return self.pid.send(.{ "NTFY", method, cb });
 }
 
@@ -67,7 +66,7 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(a: std.mem.Allocator, project: []const u8, cmd: tp.message) Error!tp.pid {
+    pub fn create(a: std.mem.Allocator, project: []const u8, cmd: tp.message) !tp.pid {
         var tag: []const u8 = undefined;
         if (try cmd.match(.{tp.extract(&tag)})) {
             //
@@ -92,7 +91,7 @@ const Process = struct {
             .requests = std.AutoHashMap(i32, tp.pid).init(a),
             .sp_tag = try sp_tag_.toOwnedSliceSentinel(0),
         };
-        return tp.spawn_link(self.a, self, Process.start, self.tag) catch |e| tp.exit_error(e);
+        return tp.spawn_link(self.a, self, Process.start, self.tag);
     }
 
     fn deinit(self: *Process) void {
@@ -126,17 +125,21 @@ const Process = struct {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ " start" });
         defer frame.deinit();
         _ = tp.set_trap(true);
-        self.sp = tp.subprocess.init(self.a, self.cmd, self.sp_tag, .Pipe) catch |e| return tp.exit_error(e);
+        self.sp = tp.subprocess.init(self.a, self.cmd, self.sp_tag, .Pipe) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
 
         var log_file_path = std.ArrayList(u8).init(self.a);
         defer log_file_path.deinit();
-        const state_dir = root.get_state_dir() catch |e| return tp.exit_error(e);
-        log_file_path.writer().print("{s}/lsp-{s}.log", .{ state_dir, self.tag }) catch |e| return tp.exit_error(e);
-        self.log_file = std.fs.createFileAbsolute(log_file_path.items, .{ .truncate = true }) catch |e| return tp.exit_error(e);
+        const state_dir = root.get_state_dir() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        log_file_path.writer().print("{s}/lsp-{s}.log", .{ state_dir, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.log_file = std.fs.createFileAbsolute(log_file_path.items, .{ .truncate = true }) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
+        return self.receive_safe(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name });
         defer frame.deinit();
         errdefer self.deinit();
@@ -146,9 +149,9 @@ const Process = struct {
         var code: u32 = 0;
 
         if (try m.match(.{ "REQ", tp.extract(&method), tp.extract(&bytes) })) {
-            self.send_request(from, method, bytes) catch |e| return tp.exit_error(e);
+            try self.send_request(from, method, bytes);
         } else if (try m.match(.{ "NTFY", tp.extract(&method), tp.extract(&bytes) })) {
-            self.send_notification(method, bytes) catch |e| return tp.exit_error(e);
+            try self.send_notification(method, bytes);
         } else if (try m.match(.{"close"})) {
             self.write_log("### LSP close ###\n", .{});
             try self.close();
@@ -156,9 +159,9 @@ const Process = struct {
             self.write_log("### LSP terminated ###\n", .{});
             try self.term();
         } else if (try m.match(.{ self.sp_tag, "stdout", tp.extract(&bytes) })) {
-            self.handle_output(bytes) catch |e| return tp.exit_error(e);
+            try self.handle_output(bytes);
         } else if (try m.match(.{ self.sp_tag, "term", tp.extract(&err), tp.extract(&code) })) {
-            self.handle_terminated(err, code) catch |e| return tp.exit_error(e);
+            try self.handle_terminated(err, code);
         } else if (try m.match(.{ self.sp_tag, "stderr", tp.extract(&bytes) })) {
             self.write_log("{s}\n", .{bytes});
         } else if (try m.match(.{ "exit", "normal" })) {

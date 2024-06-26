@@ -7,7 +7,6 @@ const cbor = @import("cbor");
 
 const Self = @This();
 const module_name = @typeName(Self);
-pub const Error = error{ OutOfMemory, Exit };
 
 pub const Kind = enum { insert, delete };
 pub const Edit = struct {
@@ -19,7 +18,7 @@ pub const Edit = struct {
 
 pid: ?tp.pid,
 
-pub fn create() Error!Self {
+pub fn create() !Self {
     return .{ .pid = try Process.create() };
 }
 
@@ -39,14 +38,14 @@ const Process = struct {
     const Receiver = tp.Receiver(*Process);
     const outer_a = std.heap.page_allocator;
 
-    pub fn create() Error!tp.pid {
+    pub fn create() !tp.pid {
         const self = try outer_a.create(Process);
         self.* = .{
             .arena = std.heap.ArenaAllocator.init(outer_a),
             .a = self.arena.allocator(),
             .receiver = Receiver.init(Process.receive, self),
         };
-        return tp.spawn_link(self.a, self, Process.start, module_name) catch |e| tp.exit_error(e);
+        return tp.spawn_link(self.a, self, Process.start, module_name);
     }
 
     fn start(self: *Process) tp.result {
@@ -67,7 +66,7 @@ const Process = struct {
         var root_src: usize = 0;
 
         return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&root_dst), tp.extract(&root_src) }))
-            self.diff(from, cb, root_dst, root_src) catch |e| tp.exit_error(e)
+            self.diff(from, cb, root_dst, root_src) catch |e| tp.exit_error(e, @errorReturnTrace())
         else if (try m.match(.{"shutdown"}))
             tp.exit_normal();
     }

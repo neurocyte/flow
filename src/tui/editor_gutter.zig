@@ -76,7 +76,7 @@ fn diff_symbols_clear(self: *Self) void {
 
 pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "E", "update", tp.more }))
-        return self.diff_update() catch |e| return tp.exit_error(e);
+        return self.diff_update() catch |e| return tp.exit_error(e, @errorReturnTrace());
     if (try m.match(.{ "E", "view", tp.extract(&self.lines), tp.extract(&self.rows), tp.extract(&self.row) }))
         return self.update_width();
     if (try m.match(.{ "E", "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.more }))
@@ -382,7 +382,7 @@ fn process_edit(self: *Self, kind: Kind, line: usize, offset: usize, bytes: []co
 pub fn filter_receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var cb: []const u8 = undefined;
     if (try m.match(.{ "DIFF", tp.extract_cbor(&cb) })) {
-        self.process_diff(cb) catch |e| return tp.exit_error(e);
+        self.process_diff(cb) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     }
     return false;

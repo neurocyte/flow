@@ -132,7 +132,7 @@ pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) error{ Ou
     }
 }
 
-fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{ OutOfMemory, Exit }!usize {
+fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{Exit}!usize {
     var i: usize = 0;
     defer from.send(.{ "PRJ", "recent_done", query }) catch {};
     for (self.files.items) |file| {
@@ -155,12 +155,15 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
         return self.simple_query_recent_files(from, max, query);
     defer from.send(.{ "PRJ", "recent_done", query }) catch {};
 
-    var searcher = try fuzzig.Ascii.init(
+    var searcher = fuzzig.Ascii.init(
         self.a,
         std.fs.max_path_bytes, // haystack max size
         std.fs.max_path_bytes, // needle max size
         .{ .case_sensitive = false },
-    );
+    ) catch |e| switch (e) {
+        error.OutOfMemory => @panic("OOM in fussiz.Ascii.init"),
+        else => |e_| return e_,
+    };
     defer searcher.deinit();
 
     const Match = struct {
@@ -251,14 +254,14 @@ pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) !v
     }
 }
 
-pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) tp.result {
+pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) !void {
     self.update_mru(file_path, 0, 0) catch {};
-    const lsp = self.get_lsp(language_server) catch |e| return tp.exit_error(e);
+    const lsp = try self.get_lsp(language_server);
     if (!self.file_language_server.contains(file_path)) {
-        const key = self.a.dupe(u8, file_path) catch |e| return tp.exit_error(e);
-        self.file_language_server.put(key, lsp) catch |e| return tp.exit_error(e);
+        const key = try self.a.dupe(u8, file_path);
+        try self.file_language_server.put(key, lsp);
     }
-    const uri = self.make_URI(file_path) catch |e| return tp.exit_error(e);
+    const uri = try self.make_URI(file_path);
     defer self.a.free(uri);
     try lsp.send_notification("textDocument/didOpen", .{
         .textDocument = .{ .uri = uri, .languageId = file_type, .version = version, .text = text },
@@ -267,7 +270,7 @@ pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, langu
 
 pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_addr: usize, root_src_addr: usize) !void {
     const lsp = try self.get_file_lsp(file_path);
-    const uri = self.make_URI(file_path) catch |e| return tp.exit_error(e);
+    const uri = try self.make_URI(file_path);
     defer self.a.free(uri);
 
     const root_dst: Buffer.Root = if (root_dst_addr == 0) return else @ptrFromInt(root_dst_addr);
@@ -359,18 +362,18 @@ fn scan_char(chars: []const u8, lines: *usize, char: u8, last_offset: ?*usize) v
     }
 }
 
-pub fn did_save(self: *Self, file_path: []const u8) tp.result {
+pub fn did_save(self: *Self, file_path: []const u8) !void {
     const lsp = try self.get_file_lsp(file_path);
-    const uri = self.make_URI(file_path) catch |e| return tp.exit_error(e);
+    const uri = try self.make_URI(file_path);
     defer self.a.free(uri);
     try lsp.send_notification("textDocument/didSave", .{
         .textDocument = .{ .uri = uri },
     });
 }
 
-pub fn did_close(self: *Self, file_path: []const u8) tp.result {
+pub fn did_close(self: *Self, file_path: []const u8) !void {
     const lsp = try self.get_file_lsp(file_path);
-    const uri = self.make_URI(file_path) catch |e| return tp.exit_error(e);
+    const uri = try self.make_URI(file_path);
     defer self.a.free(uri);
     try lsp.send_notification("textDocument/didClose", .{
         .textDocument = .{ .uri = uri },
@@ -379,7 +382,7 @@ pub fn did_close(self: *Self, file_path: []const u8) tp.result {
 
 pub fn goto_definition(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
     const lsp = try self.get_file_lsp(file_path);
-    const uri = self.make_URI(file_path) catch |e| return tp.exit_error(e);
+    const uri = try self.make_URI(file_path);
     defer self.a.free(uri);
     const response = try lsp.send_request(self.a, "textDocument/definition", .{
         .textDocument = .{ .uri = uri },
@@ -454,7 +457,7 @@ fn navigate_to_location_link(_: *Self, from: tp.pid_ref, location_link: []const 
 
 pub fn completion(self: *Self, _: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
     const lsp = try self.get_file_lsp(file_path);
-    const uri = self.make_URI(file_path) catch |e| return tp.exit_error(e);
+    const uri = try self.make_URI(file_path);
     defer self.a.free(uri);
     const response = try lsp.send_request(self.a, "textDocument/completion", .{
         .textDocument = .{ .uri = uri },
@@ -613,7 +616,7 @@ pub fn show_message(_: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
         logger.print("{s}", .{msg});
 }
 
-fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) error{Exit}!tp.message {
+fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) !tp.message {
     return lsp.send_request(self.a, "initialize", .{
         .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
         .rootPath = project_path,
