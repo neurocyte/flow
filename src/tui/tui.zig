@@ -52,7 +52,9 @@ sigwinch_signal: ?tp.signal = null,
 no_sleep: bool = false,
 final_exit: []const u8 = "normal",
 render_pending: bool = false,
+keepalive_timer: ?tp.Cancellable = null,
 
+const keepalive = std.time.us_per_s * 60 * 60 * 24 * 356; // one year
 const idle_frames = 0;
 
 const init_delay = 1; // ms
@@ -122,8 +124,14 @@ fn init(a: Allocator) !*Self {
     try frame_clock.start();
     try self.commands.init(self);
     errdefer self.deinit();
-    if (builtin.os.tag != .windows)
-        try self.listen_sigwinch();
+    switch (builtin.os.tag) {
+        .windows => {
+            self.keepalive_timer = try tp.self_pid().delay_send_cancellable(a, keepalive, .{"keepalive"});
+        },
+        else => {
+            try self.listen_sigwinch();
+        },
+    }
     self.mainview = try mainview.create(a, n);
     self.resize();
     try self.rdr.render();
@@ -141,6 +149,11 @@ fn init_delayed(self: *Self) tp.result {
 }
 
 fn deinit(self: *Self) void {
+    if (self.keepalive_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.keepalive_timer = null;
+    }
     if (self.input_mode) |*m| m.deinit();
     self.commands.deinit();
     self.mainview.deinit(self.a);

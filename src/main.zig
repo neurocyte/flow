@@ -140,7 +140,7 @@ pub fn main() anyerror!void {
     env.set("no-alternate", (res.args.@"no-alternate" != 0));
     env.set("show-input", (res.args.@"show-input" != 0));
     env.set("show-log", (res.args.@"show-log" != 0));
-    env.set("no-sleep", (builtin.os.tag == .windows or res.args.@"no-sleep" != 0));
+    env.set("no-sleep", (res.args.@"no-sleep" != 0));
     env.set("dump-stack-trace", (res.args.@"debug-dump-on-error" != 0));
     if (res.args.@"frame-rate") |s| env.num_set("frame-rate", @intCast(s));
     env.proc_set("log", log_proc.ref());
@@ -203,10 +203,10 @@ pub fn main() anyerror!void {
         if (try is_directory(dest.file)) {
             if (have_project) {
                 std.debug.print("more than one directory is not allowed\n", .{});
-                exit(1);       
+                exit(1);
             }
             try tui_proc.send(.{ "cmd", "open_project_dir", .{dest.file} });
-            
+
             have_project = true;
         } else {
             const curr = try files.addOne();
