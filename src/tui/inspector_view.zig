@@ -21,10 +21,7 @@ pub const name = @typeName(Self);
 
 plane: Plane,
 editor: *ed.Editor,
-need_render: bool = true,
-need_clear: bool = false,
 theme: ?*const Widget.Theme = null,
-theme_name: []const u8 = "",
 pos_cache: ed.PosToWidthCache,
 last_node: usize = 0,
 
@@ -55,33 +52,19 @@ pub fn deinit(self: *Self, a: Allocator) void {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.reset_style();
     self.theme = theme;
-    if (self.theme_name.ptr != theme.name.ptr) {
-        self.theme_name = theme.name;
-        self.need_render = true;
-    }
-    if (self.need_render) {
-        self.need_render = false;
-        const cursor = self.editor.get_primary().cursor;
-        self.inspect_location(cursor.row, cursor.col);
-    }
+    self.plane.erase();
+    self.plane.home();
+    const cursor = self.editor.get_primary().cursor;
+    self.inspect_location(cursor.row, cursor.col);
     return false;
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
-    self.need_render = true;
 }
 
 fn ed_receive(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    var row: usize = 0;
-    var col: usize = 0;
-    if (try m.match(.{ "E", "pos", tp.any, tp.extract(&row), tp.extract(&col) }))
-        return self.inspect_location(row, col);
-    if (try m.match(.{ "E", "location", "modified", tp.extract(&row), tp.extract(&col), tp.more })) {
-        self.need_render = true;
-        return;
-    }
     if (try m.match(.{ "E", "close" }))
         return self.clear();
 }
@@ -92,7 +75,6 @@ fn clear(self: *Self) void {
 }
 
 fn inspect_location(self: *Self, row: usize, col: usize) void {
-    self.need_clear = true;
     const syn = if (self.editor.syntax) |p| p else return;
     syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col) });
 }
@@ -104,10 +86,6 @@ fn get_buffer_text(self: *Self, buf: []u8, sel: Buffer.Selection) ?[]const u8 {
 
 fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, ast_node: *const syntax.Node) error{Stop}!void {
     const sel = self.pos_cache.range_to_selection(range, self.editor.get_current_root() orelse return, self.plane) orelse return;
-    if (self.need_clear) {
-        self.need_clear = false;
-        self.clear();
-    }
 
     var update_match: enum { no, add, set } = .no;
     var match = ed.Match.from_selection(sel);
