@@ -155,15 +155,12 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
         return self.simple_query_recent_files(from, max, query);
     defer from.send(.{ "PRJ", "recent_done", query }) catch {};
 
-    var searcher = fuzzig.Ascii.init(
+    var searcher = try fuzzig.Ascii.init(
         self.a,
-        std.fs.max_path_bytes, // haystack max size
-        std.fs.max_path_bytes, // needle max size
+        4096, // haystack max size
+        4096, // needle max size
         .{ .case_sensitive = false },
-    ) catch |e| switch (e) {
-        error.OutOfMemory => @panic("OOM in fussiz.Ascii.init"),
-        else => |e_| return e_,
-    };
+    );
     defer searcher.deinit();
 
     const Match = struct {
