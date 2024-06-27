@@ -132,17 +132,17 @@ pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) error{ Ou
     }
 }
 
-fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{Exit}!usize {
+fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{ OutOfMemory, Exit}!usize {
     var i: usize = 0;
     defer from.send(.{ "PRJ", "recent_done", query }) catch {};
     for (self.files.items) |file| {
         if (file.path.len < query.len) continue;
         if (std.mem.indexOf(u8, file.path, query)) |idx| {
-            switch (query.len) {
-                1 => try from.send(.{ "PRJ", "recent", file.path, .{idx} }),
-                2 => try from.send(.{ "PRJ", "recent", file.path, .{ idx, idx + 1 } }),
-                else => try from.send(.{ "PRJ", "recent", file.path }),
-            }
+            var matches = try self.a.alloc(usize, query.len);
+            defer self.a.free(matches);
+            var n: usize = 0;
+            while (n < query.len) : (n += 1) matches[n] = idx + n;
+            try from.send(.{ "PRJ", "recent", file.path, matches });
             i += 1;
             if (i >= max) return i;
         }
