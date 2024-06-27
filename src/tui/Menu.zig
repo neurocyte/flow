@@ -167,7 +167,10 @@ pub fn State(ctx_type: type) type {
                     self.selected = 0;
                 return;
             };
-            self.selected = @min(current + 1, self.count() - self.header_count - 1);
+            self.selected = if (self.count() < self.header_count + 1)
+                null
+            else
+                @min(current + 1, self.count() - self.header_count - 1);
         }
 
         pub fn select_up(self: *Self) void {
