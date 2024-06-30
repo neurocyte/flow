@@ -458,8 +458,12 @@ pub const Editor = struct {
     }
 
     pub fn pop_cursor(self: *Self, _: Context) Result {
-        if (self.cursels.items.len > 1)
-            _ = self.cursels.popOrNull();
+        if (self.cursels.items.len > 1) {
+            const cursel = self.cursels.popOrNull() orelse return orelse return;
+            if (cursel.selection) |sel| if (self.find_selection_match(sel)) |match| {
+                match.has_selection = false;
+            };
+        }
         self.clamp();
     }
 
@@ -3187,6 +3191,14 @@ pub const Editor = struct {
         (self.matches.addOne() catch return).* = match;
     }
 
+    fn find_selection_match(self: *const Self, sel: Selection) ?*Match {
+        for (self.matches.items) |*match_| if (match_.*) |*match| {
+            if (match.to_selection().eql(sel))
+                return match;
+        };
+        return null;
+    }
+
     fn scan_first_match(self: *const Self) ?*Match {
         for (self.matches.items) |*match_| if (match_.*) |*match| {
             if (match.has_selection) continue;
@@ -3236,6 +3248,9 @@ pub const Editor = struct {
         const primary = self.get_primary();
         if (self.get_next_match(primary.cursor)) |match| {
             const root = self.buf_root() catch return;
+            if (primary.selection) |sel| if (self.find_selection_match(sel)) |match_| {
+                match_.has_selection = false;
+            };
             primary.selection = match.to_selection();
             primary.cursor.move_to(root, match.end.row, match.end.col, self.plane) catch return;
             self.clamp();
@@ -3259,6 +3274,9 @@ pub const Editor = struct {
         const primary = self.get_primary();
         if (self.get_prev_match(primary.cursor)) |match| {
             const root = self.buf_root() catch return;
+            if (primary.selection) |sel| if (self.find_selection_match(sel)) |match_| {
+                match_.has_selection = false;
+            };
             primary.selection = match.to_selection();
             primary.selection.?.reverse();
             primary.cursor.move_to(root, match.begin.row, match.begin.col, self.plane) catch return;
