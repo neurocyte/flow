@@ -32,8 +32,8 @@
             .hash = "122019f077d09686b1ec47928ca2b4bf264422f3a27afc5b49dafb0129a4ceca0d01",
         },
         .vaxis = .{
-            .url = "https://github.com/neurocyte/libvaxis/archive/c2ada067a8b601ce9028d4facfef178511d0e76a.tar.gz",
-            .hash = "122098872bcf60f9faa5f55e461207137f075306801e3cb235876691177c12189b76",
+            .url = "https://github.com/neurocyte/libvaxis/archive/168ac86215ee91b51f99026a32602e88f0ed53d8.tar.gz",
+            .hash = "1220e0d1a1816c4b0d1f312f3dabed16560e0946e6fd92b73ffa21aa1202e82843fc",
         },
         .zg = .{
             .url = "git+https://codeberg.org/dude_the_builder/zg#6d2ba3ff8f3cb7c86cef2b2176fb5b4a72c104dc",
