@@ -77,14 +77,9 @@ pub fn main() anyerror!void {
         if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();
 
     if (res.args.@"debug-wait" != 0) {
-        if (builtin.os.tag == .windows) {
-            std.debug.print("--debug-wait is not implemented on windows", .{});
-            return error.DebugWaitFailed;
-        } else {
-            std.debug.print("press return to start", .{});
-            var buf: [10]u8 = undefined;
-            _ = std.c.read(0, &buf, @sizeOf(@TypeOf(buf)));
-        }
+        std.debug.print("press return to start", .{});
+        var buf: [1]u8 = undefined;
+        _ = try std.io.getStdIn().read(&buf);
     }
 
     if (c.setlocale(c.LC_ALL, "") == null) {
