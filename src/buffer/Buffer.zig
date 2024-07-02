@@ -517,16 +517,16 @@ const Node = union(enum) {
         return pred(ecg);
     }
 
-    pub fn get_line_width_map(self: *const Node, line: usize, map: *ArrayList(u16), plane: Plane) error{ Stop, NoSpaceLeft }!void {
+    pub fn get_line_width_map(self: *const Node, line: usize, map: *ArrayList(usize), plane: Plane) error{ Stop, NoSpaceLeft }!void {
         const Ctx = struct {
-            map: *ArrayList(u16),
+            map: *ArrayList(usize),
             wcwidth: usize = 0,
             fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Plane) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 var n = egc.len;
                 while (n > 0) : (n -= 1) {
                     const p = ctx.map.addOne() catch |e| return .{ .err = e };
-                    p.* = @intCast(ctx.wcwidth);
+                    p.* = ctx.wcwidth;
                 }
                 ctx.wcwidth += wcwidth;
                 return if (egc[0] == '\n') Walker.stop else Walker.keep_walking;

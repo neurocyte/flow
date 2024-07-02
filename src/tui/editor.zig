@@ -3856,7 +3856,7 @@ pub const EditorWidget = struct {
 };
 
 pub const PosToWidthCache = struct {
-    cache: std.ArrayList(u16),
+    cache: std.ArrayList(usize),
     cached_line: usize = std.math.maxInt(usize),
     cached_root: ?Buffer.Root = null,
 
@@ -3864,7 +3864,7 @@ pub const PosToWidthCache = struct {
 
     pub fn init(a: Allocator) !Self {
         return .{
-            .cache = try std.ArrayList(u16).initCapacity(a, 2048),
+            .cache = try std.ArrayList(usize).initCapacity(a, 2048),
         };
     }
 
