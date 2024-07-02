@@ -46,6 +46,16 @@ pub fn build(b: *std.Build) void {
         else => std.debug.panic("makeDir(\".cache/cdb\") failed: {any}", .{e}),
     };
 
+    var version_info = std.ArrayList(u8).init(b.allocator);
+    defer version_info.deinit();
+    gen_version_info(b, version_info.writer()) catch {
+        version_info.clearAndFree();
+        version_info.appendSlice("unknown") catch {};
+    };
+
+    const wf = b.addWriteFiles();
+    const version_info_file = wf.add("version", version_info.items);
+
     const vaxis_dep = b.dependency("vaxis", .{
         .target = target,
         .optimize = dependency_optimize,
@@ -228,6 +238,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("log", log_mod);
     exe.root_module.addImport("tracy", tracy_mod);
     exe.root_module.addImport("renderer", renderer_mod);
+    exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -286,4 +297,33 @@ pub fn build(b: *std.Build) void {
 
     lints_step.dependOn(&lints.step);
     // b.default_step.dependOn(lints_step);
+}
+
+fn gen_version_info(b: *std.Build, writer: anytype) !void {
+    var code: u8 = 0;
+
+    const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always" }, &code, .Ignore);
+    const branch_ = try b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", "HEAD" }, &code, .Ignore);
+    const remote_ = try b.runAllowFail(&[_][]const u8{ "git", "config", "remote.origin.url" }, &code, .Ignore);
+    const log_ = try b.runAllowFail(&[_][]const u8{ "git", "log", "--pretty=oneline", "@{u}..." }, &code, .Ignore);
+    const diff_ = try b.runAllowFail(&[_][]const u8{ "git", "diff", "--stat", "--patch", "HEAD" }, &code, .Ignore);
+    const version = std.mem.trimRight(u8, describe, "\r\n ");
+    const branch = std.mem.trimRight(u8, branch_, "\r\n ");
+    const remote = std.mem.trimRight(u8, remote_, "\r\n ");
+    const log = std.mem.trimRight(u8, log_, "\r\n ");
+    const diff = std.mem.trimRight(u8, diff_, "\r\n ");
+
+    try writer.print("Flow Control: a programmer's text editor\n\nversion: {s}{s}\n", .{
+        version,
+        if (diff.len > 0) "-dirty" else "",
+    });
+
+    if (branch.len > 0)
+        try writer.print("branch: {s} at {s}\n", .{ branch, remote });
+
+    if (log.len > 0)
+        try writer.print("\nwith the following diverging commits:\n{s}\n", .{log});
+
+    if (diff.len > 0)
+        try writer.print("\nwith the following uncommited changes:\n\n{s}\n", .{diff});
 }

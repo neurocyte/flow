@@ -38,6 +38,7 @@ pub fn main() anyerror!void {
         \\--show-input             Open the input view on start.
         \\--show-log               Open the log view on start.
         \\-l, --language <lang>    Force the language of the file to be opened.
+        \\-v, --version            Show build version and exit.
         \\<file>...                File or directory to open.
         \\                         Add +<LINE> to the command line or append
         \\                         :LINE or :LINE:COL to the file name to jump
@@ -72,6 +73,9 @@ pub fn main() anyerror!void {
 
     if (res.args.help != 0)
         return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+
+    if (res.args.version != 0)
+        return std.io.getStdOut().writeAll(@embedFile("version_info"));
 
     if (builtin.os.tag != .windows)
         if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();
@@ -555,7 +559,7 @@ fn restart() noreturn {
 
 pub fn is_directory(rel_path: []const u8) !bool {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch |e| switch(e) {
+    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch |e| switch (e) {
         error.FileNotFound => return false,
         else => return e,
     };
