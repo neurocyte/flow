@@ -514,6 +514,12 @@ const cmds = struct {
         try tp.self_pid().send("restart");
     }
 
+    pub fn force_terminate(self: *Self, _: Ctx) Result {
+        self.deinit();
+        root.print_exit_status({}, "FORCE TERMINATE");
+        root.exit(99);
+    }
+
     pub fn theme_next(self: *Self, _: Ctx) Result {
         self.theme = get_next_theme_by_name(self.theme.name);
         self.config.theme = self.theme.name;

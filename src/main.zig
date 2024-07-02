@@ -237,7 +237,7 @@ pub fn main() anyerror!void {
 var final_exit_status: u8 = 0;
 var want_restart: bool = false;
 
-fn print_exit_status(_: void, msg: []const u8) void {
+pub fn print_exit_status(_: void, msg: []const u8) void {
     if (std.mem.eql(u8, msg, "normal")) {
         return;
     } else if (std.mem.eql(u8, msg, "restart")) {
@@ -314,7 +314,7 @@ fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.C) void {
     buffer.flush() catch {};
 }
 
-fn exit(status: u8) noreturn {
+pub fn exit(status: u8) noreturn {
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't leave junk at the next prompt
         _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
