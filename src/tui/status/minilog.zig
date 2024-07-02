@@ -89,7 +89,10 @@ fn process_log(self: *Self, m: tp.message) !void {
     if (try m.match(.{ "log", tp.extract(&src), tp.extract(&msg) })) {
         try self.set(msg, .info);
     } else if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
-        if (std.mem.eql(u8, msg, "error.Stop"))
+        const err_stop = "error.Stop";
+        if (std.mem.eql(u8, msg, err_stop))
+            return;
+        if (msg.len >= err_stop.len + 1 and std.mem.eql(u8, msg[0..err_stop.len + 1], err_stop ++ "\n"))
             return;
         try self.set(msg, .err);
     } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {

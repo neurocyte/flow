@@ -149,9 +149,10 @@ pub const Logger = struct {
                 }
                 const msg___ = buf[0..msg__.len];
                 @memcpy(msg___, msg__);
-                if (buf.len - msg___.len > trace__.len) {
-                    const msg____ = buf[0 .. msg__.len + trace__.len];
-                    @memcpy(msg____[msg__.len..], trace__);
+                if (trace__.len > 0 and buf.len - msg___.len > trace__.len + 1) {
+                    const msg____ = buf[0 .. msg__.len + trace__.len + 1];
+                    @memcpy(msg____[msg__.len .. msg__.len + 1], "\n");
+                    @memcpy(msg____[msg__.len + 1 ..], trace__);
                     msg = msg____;
                 } else {
                     msg = msg___;

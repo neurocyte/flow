@@ -94,6 +94,11 @@ pub fn process_log(m: tp.message) !void {
     if (try m.match(.{ "log", tp.extract(&src), tp.extract(&msg) })) {
         try append(buffer, src, msg, .info);
     } else if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
+        const err_stop = "error.Stop";
+        if (eql(u8, msg, err_stop))
+            return;
+        if (msg.len >= err_stop.len + 1 and eql(u8, msg[0..err_stop.len + 1], err_stop ++ "\n"))
+            return;
         try append_error(buffer, src, context, msg);
     } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
         try append_json(buffer, src, m);
