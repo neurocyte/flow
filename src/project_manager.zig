@@ -343,6 +343,8 @@ const Process = struct {
             project.publish_diagnostics(self.parent.ref(), params_cb)
         else if (std.mem.eql(u8, method, "window/showMessage"))
             project.show_message(self.parent.ref(), params_cb)
+        else if (std.mem.eql(u8, method, "window/logMessage"))
+            project.show_message(self.parent.ref(), params_cb)
         else
             tp.exit_fmt("unsupported LSP notification: {s}", .{method});
     }
