@@ -302,7 +302,7 @@ pub fn build(b: *std.Build) void {
 fn gen_version_info(b: *std.Build, writer: anytype) !void {
     var code: u8 = 0;
 
-    const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always" }, &code, .Ignore);
+    const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags" }, &code, .Ignore);
     const branch_ = try b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", "HEAD" }, &code, .Ignore);
     const remote_ = try b.runAllowFail(&[_][]const u8{ "git", "config", "remote.origin.url" }, &code, .Ignore);
     const log_ = try b.runAllowFail(&[_][]const u8{ "git", "log", "--pretty=oneline", "@{u}..." }, &code, .Ignore);
