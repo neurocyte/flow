@@ -555,7 +555,10 @@ fn restart() noreturn {
 
 pub fn is_directory(rel_path: []const u8) !bool {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const abs_path = try std.fs.cwd().realpath(rel_path, &path_buf);
+    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch |e| switch(e) {
+        error.FileNotFound => return false,
+        else => return e,
+    };
     var dir = std.fs.openDirAbsolute(abs_path, .{}) catch |e| switch (e) {
         error.NotDir => return false,
         else => return e,
