@@ -4,7 +4,7 @@ const vaxis = @import("../../main.zig");
 
 const ansi = @import("ansi.zig");
 
-const log = std.log.scoped(.terminal);
+const log = std.log.scoped(.vaxis_terminal);
 
 const Screen = @This();
 
