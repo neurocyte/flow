@@ -1742,7 +1742,7 @@ pub const Editor = struct {
         self.clamp_mouse();
     }
 
-    pub fn drag_to(self: *Self, ctx: Context) !void {
+    pub fn drag_to(self: *Self, ctx: Context) Result {
         var y: i32 = 0;
         var x: i32 = 0;
         if (!try ctx.args.match(.{ tp.extract(&y), tp.extract(&x) }))
