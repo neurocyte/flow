@@ -268,6 +268,7 @@ pub fn build(b: *std.Build) void {
     check_exe.root_module.addImport("log", log_mod);
     check_exe.root_module.addImport("tracy", tracy_mod);
     check_exe.root_module.addImport("renderer", renderer_mod);
+    check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     const check = b.step("check", "Check the app");
     check.dependOn(&check_exe.step);
 
