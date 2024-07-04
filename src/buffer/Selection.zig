@@ -16,12 +16,12 @@ pub fn from_cursor(cursor: *const Cursor) Self {
     return .{ .begin = cursor.*, .end = cursor.* };
 }
 
-pub fn line_from_cursor(cursor: Cursor, root: Buffer.Root, plane: Plane) Self {
+pub fn line_from_cursor(cursor: Cursor, root: Buffer.Root, mtrx: Buffer.Metrix) Self {
     var begin = cursor;
     var end = cursor;
     begin.move_begin();
-    end.move_end(root, plane);
-    end.move_right(root, plane) catch {};
+    end.move_end(root, mtrx);
+    end.move_right(root, mtrx) catch {};
     return .{ .begin = begin, .end = end };
 }
 

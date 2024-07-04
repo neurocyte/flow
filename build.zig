@@ -128,6 +128,13 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/color.zig"),
     });
 
+    const Buffer_mod = b.createModule(.{
+        .root_source_file = b.path("src/buffer/Buffer.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+        },
+    });
+
     const renderer_mod = b.createModule(.{
         .root_source_file = b.path("src/renderer/vaxis/renderer.zig"),
         .imports = &.{
@@ -136,14 +143,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "thespian", .module = thespian_mod },
-        },
-    });
-
-    const Buffer_mod = b.createModule(.{
-        .root_source_file = b.path("src/buffer/Buffer.zig"),
-        .imports = &.{
-            .{ .name = "renderer", .module = renderer_mod },
-            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "Buffer", .module = Buffer_mod },
         },
     });
 

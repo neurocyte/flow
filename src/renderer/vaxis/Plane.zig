@@ -4,6 +4,7 @@ const FontStyle = @import("theme").FontStyle;
 const StyleBits = @import("style.zig").StyleBits;
 const Cell = @import("Cell.zig");
 const vaxis = @import("vaxis");
+const Buffer = @import("Buffer");
 
 const Plane = @This();
 
@@ -362,6 +363,24 @@ pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize) 
         chunk = chunk[bytes..];
     }
     return colcount;
+}
+
+pub fn metrix(self: *const Plane) Buffer.Metrix {
+    return .{
+        .ctx = self,
+        .egc_length = struct {
+            fn f(ctx: *const anyopaque, egcs: []const u8, colcount: *c_int, abs_col: usize) usize {
+                const self_: *const Plane = @ptrCast(@alignCast(ctx));
+                return self_.egc_length(egcs, colcount, abs_col);
+            }
+        }.f,
+        .egc_chunk_width = struct {
+            fn f(ctx: *const anyopaque, chunk_: []const u8, abs_col_: usize) usize {
+                const self_: *const Plane = @ptrCast(@alignCast(ctx));
+                return self_.egc_chunk_width(chunk_, abs_col_);
+            }
+        }.f,
+    };
 }
 
 const GraphemeCache = struct {
