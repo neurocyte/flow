@@ -90,6 +90,9 @@ pub fn main() anyerror!void {
         return error.SetLocaleFailed;
     }
 
+    if (res.args.@"debug-dump-on-error" != 0)
+        thespian.stack_trace_on_errors = true;
+
     var ctx = try thespian.context.init(a);
     defer ctx.deinit();
 
