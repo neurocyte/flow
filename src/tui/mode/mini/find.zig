@@ -14,14 +14,13 @@ const ed = @import("../../editor.zig");
 const Allocator = @import("std").mem.Allocator;
 const json = @import("std").json;
 const eql = @import("std").mem.eql;
+const ArrayList = @import("std").ArrayList;
 
 const Self = @This();
 
 a: Allocator,
-buf: [1024]u8 = undefined,
-input: []u8 = "",
-last_buf: [1024]u8 = undefined,
-last_input: []u8 = "",
+input: ArrayList(u8),
+last_input: ArrayList(u8),
 start_view: ed.View,
 start_cursor: ed.Cursor,
 editor: *ed.Editor,
@@ -32,6 +31,8 @@ pub fn create(a: Allocator, _: command.Context) !*Self {
         const self: *Self = try a.create(Self);
         self.* = .{
             .a = a,
+            .input = ArrayList(u8).init(a),
+            .last_input = ArrayList(u8).init(a),
             .start_view = editor.view,
             .start_cursor = editor.get_primary().cursor,
             .editor = editor,
@@ -39,8 +40,7 @@ pub fn create(a: Allocator, _: command.Context) !*Self {
         if (editor.get_primary().selection) |sel| ret: {
             const text = editor.get_selection(sel, self.a) catch break :ret;
             defer self.a.free(text);
-            @memcpy(self.buf[0..text.len], text);
-            self.input = self.buf[0..text.len];
+            try self.input.appendSlice(text);
         }
         return self;
     };
@@ -48,6 +48,8 @@ pub fn create(a: Allocator, _: command.Context) !*Self {
 }
 
 pub fn deinit(self: *Self) void {
+    self.input.deinit();
+    self.last_input.deinit();
     self.a.destroy(self);
 }
 
@@ -68,8 +70,8 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
     defer {
         if (tui.current().mini_mode) |*mini_mode| {
-            mini_mode.text = self.input;
-            mini_mode.cursor = self.input.len;
+            mini_mode.text = self.input.items;
+            mini_mode.cursor = self.input.items.len;
         }
     }
 
@@ -98,7 +100,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         mod.CTRL => switch (keynormal) {
             'Q' => self.cmd("quit", .{}),
             'V' => self.cmd("system_paste", .{}),
-            'U' => self.input = "",
+            'U' => self.input.clearRetainingCapacity(),
             'G' => self.cancel(),
             'C' => self.cancel(),
             'L' => self.cmd("scroll_view_center", .{}),
@@ -108,7 +110,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'I' => self.insert_bytes("\t"),
             key.SPACE => self.cancel(),
             key.ENTER => self.insert_bytes("\n"),
-            key.BACKSPACE => self.input = "",
+            key.BACKSPACE => self.input.clearRetainingCapacity(),
             else => {},
         },
         mod.ALT => switch (keynormal) {
@@ -137,9 +139,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.F10 => self.cmd("theme_next", .{}),
             key.ESC => self.cancel(),
             key.ENTER => self.confirm(),
-            key.BACKSPACE => if (self.input.len > 0) {
-                self.input = self.input[0 .. self.input.len - 1];
-            },
+            key.BACKSPACE => _ = self.input.popOrNull(),
             key.LCTRL, key.RCTRL => self.cmd("enable_fast_scroll", .{}),
             key.LALT, key.RALT => self.cmd("enable_fast_scroll", .{}),
             else => if (!key.synthesized_p(keypress))
@@ -159,31 +159,31 @@ fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) !void {
 }
 
 fn insert_code_point(self: *Self, c: u32) !void {
-    if (self.input.len + 16 > self.buf.len)
-        try self.flush_input();
-    const bytes = ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    self.input = self.buf[0 .. self.input.len + bytes];
+    var buf: [16]u8 = undefined;
+    const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    try self.input.appendSlice(buf[0 .. bytes]);
 }
 
 fn insert_bytes(self: *Self, bytes: []const u8) !void {
-    if (self.input.len + 16 > self.buf.len)
-        try self.flush_input();
-    const newlen = self.input.len + bytes.len;
-    @memcpy(self.buf[self.input.len..newlen], bytes);
-    self.input = self.buf[0..newlen];
+    try self.input.appendSlice(bytes);
 }
 
 var find_cmd_id: ?command.ID = null;
 
 fn flush_input(self: *Self) !void {
-    if (self.input.len > 0) {
-        if (eql(u8, self.input, self.last_input))
+    if (self.input.items.len > 0) {
+        if (eql(u8, self.input.items, self.last_input.items))
             return;
-        @memcpy(self.last_buf[0..self.input.len], self.input);
-        self.last_input = self.last_buf[0..self.input.len];
+        self.last_input.clearRetainingCapacity();
+        try self.last_input.appendSlice(self.input.items);
         self.editor.find_operation = .goto_next_match;
-        self.editor.get_primary().cursor = self.start_cursor;
-        try self.editor.find_in_buffer(self.input);
+        const primary = self.editor.get_primary();
+        primary.selection = null;
+        primary.cursor = self.start_cursor;
+        try self.editor.find_in_buffer(self.input.items);
+    } else {
+        self.editor.get_primary().selection = null;
+        self.editor.init_matches_update();
     }
 }
 
@@ -193,7 +193,7 @@ fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
 }
 
 fn confirm(self: *Self) void {
-    self.editor.push_find_history(self.input);
+    self.editor.push_find_history(self.input.items);
     self.cmd("exit_mini_mode", .{}) catch {};
 }
 
@@ -209,9 +209,9 @@ fn find_history_prev(self: *Self) void {
             if (pos > 0) self.history_pos = pos - 1;
         } else {
             self.history_pos = history.items.len - 1;
-            if (self.input.len > 0)
-                self.editor.push_find_history(self.editor.a.dupe(u8, self.input) catch return);
-            if (eql(u8, history.items[self.history_pos.?], self.input) and self.history_pos.? > 0)
+            if (self.input.items.len > 0)
+                self.editor.push_find_history(self.editor.a.dupe(u8, self.input.items) catch return);
+            if (eql(u8, history.items[self.history_pos.?], self.input.items) and self.history_pos.? > 0)
                 self.history_pos = self.history_pos.? - 1;
         }
         self.load_history(self.history_pos.?);
@@ -229,8 +229,7 @@ fn find_history_next(self: *Self) void {
 
 fn load_history(self: *Self, pos: usize) void {
     if (self.editor.find_history) |*history| {
-        const new = history.items[pos];
-        @memcpy(self.buf[0..new.len], new);
-        self.input = self.buf[0..new.len];
+        self.input.clearRetainingCapacity();
+        self.input.appendSlice(history.items[pos]) catch {};
     }
 }

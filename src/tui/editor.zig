@@ -1280,7 +1280,7 @@ pub const Editor = struct {
         self.match_done_token = self.match_token;
     }
 
-    fn init_matches_update(self: *Self) void {
+    pub fn init_matches_update(self: *Self) void {
         self.cancel_all_matches();
         self.match_token += 1;
     }
@@ -3046,9 +3046,9 @@ pub const Editor = struct {
             }
         };
         const root = try self.buf_root();
-        defer tp.self_pid().send(.{ "A", "done", self.match_token }) catch {};
+        defer self.add_match_done();
         var ctx: Ctx = .{ .self = self };
-        self.init_matches_update() catch {};
+        self.init_matches_update();
         try root.find_all_ranges(query, &ctx, Ctx.cb, self.a);
     }
 
