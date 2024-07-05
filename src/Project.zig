@@ -498,10 +498,10 @@ pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) !
 }
 
 fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: []const u8) !void {
-    var source: ?[]const u8 = null;
-    var code: ?[]const u8 = null;
-    var message: ?[]const u8 = null;
-    var severity: ?i64 = null;
+    var source: []const u8 = "unknown";
+    var code: []const u8 = "none";
+    var message: []const u8 = "empty";
+    var severity: i64 = 1;
     var range: ?Range = null;
     var iter = diagnostic;
     var len = try cbor.decodeMapHeader(&iter);
