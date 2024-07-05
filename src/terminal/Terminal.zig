@@ -94,6 +94,10 @@ pub fn init(
     unicode: *const vaxis.Unicode,
     opts: Options,
 ) !Terminal {
+    // Verify we have an absolute path
+    if (opts.initial_working_directory) |pwd| {
+        if (!std.fs.path.isAbsolute(pwd)) return error.InvalidWorkingDirectory;
+    }
     const pty = try Pty.init();
     try pty.setSize(opts.winsize);
     const cmd: Command = .{
@@ -159,6 +163,16 @@ pub fn spawn(self: *Terminal) !void {
     self.back_screen = &self.back_screen_pri;
 
     try self.cmd.spawn(self.allocator);
+
+    self.working_directory.clearRetainingCapacity();
+    if (self.cmd.working_directory) |pwd| {
+        try self.working_directory.appendSlice(pwd);
+    } else {
+        const pwd = std.fs.cwd();
+        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const out_path = try std.os.getFdPath(pwd.fd, &buffer);
+        try self.working_directory.appendSlice(out_path);
+    }
 
     {
         // add to our global list
