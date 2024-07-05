@@ -695,17 +695,17 @@ const Node = union(enum) {
         return Node.new(a, try merge_in_place(leaves[0..mid], a), try merge_in_place(leaves[mid..], a));
     }
 
-    pub fn get_line(self: *const Node, line: usize, result: *ArrayList(u8)) !void {
+    pub fn get_line(self: *const Node, line: usize, result: *ArrayList(u8), mtrx: Metrix) !void {
         const Ctx = struct {
             line: *ArrayList(u8),
-            fn walker(ctx_: *anyopaque, leaf: *const Leaf) Walker {
+            fn walker(ctx_: *anyopaque, leaf: *const Leaf, _: Metrix) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 ctx.line.appendSlice(leaf.buf) catch |e| return .{ .err = e };
                 return if (!leaf.eol) Walker.keep_walking else Walker.stop;
             }
         };
         var ctx: Ctx = .{ .line = result };
-        const found = self.walk_from_line_begin_const(line, Ctx.walker, &ctx) catch false;
+        const found = self.walk_from_line_begin_const(line, Ctx.walker, &ctx, mtrx) catch false;
         return if (!found) error.NotFound;
     }
 

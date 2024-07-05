@@ -4,6 +4,23 @@ const Buffer = @import("Buffer");
 const ArrayList = std.ArrayList;
 const a = std.testing.allocator;
 
+fn metrics() Buffer.Metrix {
+    return .{
+        .ctx = undefined,
+        .egc_length = struct {
+            fn f(_: *const anyopaque, _: []const u8, colcount: *c_int, _: usize) usize {
+                colcount.* = 1;
+                return 1;
+            }
+        }.f,
+        .egc_chunk_width = struct {
+            fn f(_: *const anyopaque, chunk_: []const u8, _: usize) usize {
+                return chunk_.len;
+            }
+        }.f,
+    };
+}
+
 fn get_big_doc() !*Buffer {
     const BigDocGen = struct {
         line_num: usize = 0,
@@ -83,7 +100,7 @@ test "buffer" {
 
 fn get_line(buf: *const Buffer, line: usize) ![]const u8 {
     var result = ArrayList(u8).init(a);
-    try buf.root.get_line(line, &result);
+    try buf.root.get_line(line, &result, metrics());
     return result.toOwnedSlice();
 }
 
@@ -130,8 +147,8 @@ test "line_len" {
     defer buffer.deinit();
     buffer.update(try buffer.load_from_string(doc));
 
-    try std.testing.expectEqual(try buffer.root.line_width(0), 8);
-    try std.testing.expectEqual(try buffer.root.line_width(1), 5);
+    try std.testing.expectEqual(try buffer.root.line_width(0, metrics()), 8);
+    try std.testing.expectEqual(try buffer.root.line_width(1, metrics()), 5);
 }
 
 test "del_chars" {
@@ -153,12 +170,12 @@ test "del_chars" {
     defer buffer.deinit();
     buffer.update(try buffer.load_from_string(doc));
 
-    buffer.update(try buffer.root.del_chars(3, try buffer.root.line_width(3) - 1, 1, buffer.a));
+    buffer.update(try buffer.root.del_chars(3, try buffer.root.line_width(3, metrics()) - 1, 1, buffer.a, metrics()));
     const line3 = try get_line(buffer, 3);
     defer a.free(line3);
     try std.testing.expect(std.mem.eql(u8, line3, "us"));
 
-    buffer.update(try buffer.root.del_chars(3, 0, 7, buffer.a));
+    buffer.update(try buffer.root.del_chars(3, 0, 7, buffer.a, metrics()));
     const line3_1 = try get_line(buffer, 3);
     defer a.free(line3_1);
     try std.testing.expect(std.mem.eql(u8, line3_1, "your"));
@@ -166,7 +183,7 @@ test "del_chars" {
     // try buffer.rebalance();
     // try std.testing.expect(buffer.is_balanced());
 
-    buffer.update(try buffer.root.del_chars(0, try buffer.root.line_width(0) - 1, 2, buffer.a));
+    buffer.update(try buffer.root.del_chars(0, try buffer.root.line_width(0, metrics()) - 1, 2, buffer.a, metrics()));
     const line0 = try get_line(buffer, 0);
     defer a.free(line0);
     try std.testing.expect(std.mem.eql(u8, line0, "All youropes"));
@@ -197,7 +214,7 @@ test "del_chars2" {
     defer buffer.deinit();
     buffer.update(try buffer.load_from_string(doc));
 
-    buffer.update(try buffer.root.del_chars(2, try buffer.root.line_width(2) - 3, 6, buffer.a));
+    buffer.update(try buffer.root.del_chars(2, try buffer.root.line_width(2, metrics()) - 3, 6, buffer.a, metrics()));
 
     try check_line(buffer, 2, "are belong!");
     try check_line(buffer, 3, "All your");
@@ -216,56 +233,56 @@ test "insert_chars" {
     defer a.free(line0);
     try std.testing.expect(std.mem.eql(u8, line0, "B"));
 
-    _, _, const root = try buffer.root.insert_chars(0, 0, "1", buffer.a);
+    _, _, var root = try buffer.root.insert_chars(0, 0, "1", buffer.a, metrics());
     buffer.update(root);
 
     const line1 = try get_line(buffer, 0);
     defer a.free(line1);
     try std.testing.expect(std.mem.eql(u8, line1, "1B"));
 
-    _, _, root = try root.insert_chars(0, 1, "2", buffer.a);
+    _, _, root = try root.insert_chars(0, 1, "2", buffer.a, metrics());
     buffer.update(root);
 
     const line2 = try get_line(buffer, 0);
     defer a.free(line2);
     try std.testing.expect(std.mem.eql(u8, line2, "12B"));
 
-    _, _, root = try root.insert_chars(0, 2, "3", buffer.a);
+    _, _, root = try root.insert_chars(0, 2, "3", buffer.a, metrics());
     buffer.update(root);
 
     const line3 = try get_line(buffer, 0);
     defer a.free(line3);
     try std.testing.expect(std.mem.eql(u8, line3, "123B"));
 
-    _, _, root = try root.insert_chars(0, 3, "4", buffer.a);
+    _, _, root = try root.insert_chars(0, 3, "4", buffer.a, metrics());
     buffer.update(root);
 
     const line4 = try get_line(buffer, 0);
     defer a.free(line4);
     try std.testing.expect(std.mem.eql(u8, line4, "1234B"));
 
-    _, _, root = try root.insert_chars(0, 4, "5", buffer.a);
+    _, _, root = try root.insert_chars(0, 4, "5", buffer.a, metrics());
     buffer.update(root);
 
     const line5 = try get_line(buffer, 0);
     defer a.free(line5);
     try std.testing.expect(std.mem.eql(u8, line5, "12345B"));
 
-    _, _, root = try root.insert_chars(0, 5, "6", buffer.a);
+    _, _, root = try root.insert_chars(0, 5, "6", buffer.a, metrics());
     buffer.update(root);
 
     const line6 = try get_line(buffer, 0);
     defer a.free(line6);
     try std.testing.expect(std.mem.eql(u8, line6, "123456B"));
 
-    _, _, root = try root.insert_chars(0, 6, "7", buffer.a);
+    _, _, root = try root.insert_chars(0, 6, "7", buffer.a, metrics());
     buffer.update(root);
 
     const line7 = try get_line(buffer, 0);
     defer a.free(line7);
     try std.testing.expect(std.mem.eql(u8, line7, "1234567B"));
 
-    const line, const col, root = try buffer.root.insert_chars(0, 7, "8\n9", buffer.a);
+    const line, const col, root = try buffer.root.insert_chars(0, 7, "8\n9", buffer.a, metrics());
     buffer.update(root);
 
     const line8 = try get_line(buffer, 0);
