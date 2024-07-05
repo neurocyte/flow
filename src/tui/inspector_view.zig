@@ -81,7 +81,7 @@ fn inspect_location(self: *Self, row: usize, col: usize) void {
 
 fn get_buffer_text(self: *Self, buf: []u8, sel: Buffer.Selection) ?[]const u8 {
     const root = self.editor.get_current_root() orelse return null;
-    return root.get_range(sel, buf, null, null, self.plane.metrix()) catch return null;
+    return root.get_range(sel, buf, null, null, self.plane.metrics()) catch return null;
 }
 
 fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, ast_node: *const syntax.Node) error{Stop}!void {

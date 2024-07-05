@@ -4,7 +4,7 @@ const Buffer = @import("Buffer");
 const ArrayList = std.ArrayList;
 const a = std.testing.allocator;
 
-fn metrics() Buffer.Metrix {
+fn metrics() Buffer.Metrics {
     return .{
         .ctx = undefined,
         .egc_length = struct {

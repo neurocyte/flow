@@ -365,7 +365,7 @@ pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize) 
     return colcount;
 }
 
-pub fn metrix(self: *const Plane) Buffer.Metrix {
+pub fn metrics(self: *const Plane) Buffer.Metrics {
     return .{
         .ctx = self,
         .egc_length = struct {

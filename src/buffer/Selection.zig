@@ -16,7 +16,7 @@ pub fn from_cursor(cursor: *const Cursor) Self {
     return .{ .begin = cursor.*, .end = cursor.* };
 }
 
-pub fn line_from_cursor(cursor: Cursor, root: Buffer.Root, mtrx: Buffer.Metrix) Self {
+pub fn line_from_cursor(cursor: Cursor, root: Buffer.Root, mtrx: Buffer.Metrics) Self {
     var begin = cursor;
     var end = cursor;
     begin.move_begin();
