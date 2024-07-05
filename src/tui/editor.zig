@@ -3030,7 +3030,7 @@ pub const Editor = struct {
 
     pub fn find_in_buffer(self: *Self, query: []const u8) !void {
         self.set_last_find_query(query);
-        return self.find_in_buffer_async(query);
+        return self.find_in_buffer_sync(query);
     }
 
     fn find_in_buffer_sync(self: *Self, query: []const u8) !void {
