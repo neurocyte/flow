@@ -180,8 +180,9 @@ test "del_chars" {
     defer a.free(line3_1);
     try std.testing.expect(std.mem.eql(u8, line3_1, "your"));
 
-    // try buffer.rebalance();
-    // try std.testing.expect(buffer.is_balanced());
+    try std.testing.expect(buffer.root.is_balanced());
+    buffer.update(try buffer.root.rebalance(buffer.a, buffer.a));
+    try std.testing.expect(buffer.root.is_balanced());
 
     buffer.update(try buffer.root.del_chars(0, try buffer.root.line_width(0, metrics()) - 1, 2, buffer.a, metrics()));
     const line0 = try get_line(buffer, 0);
