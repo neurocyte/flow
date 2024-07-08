@@ -108,10 +108,13 @@ fn get_file_lsp(self: *Self, file_path: []const u8) !LSP {
 
 fn make_URI(self: *Self, file_path: ?[]const u8) ![]const u8 {
     var buf = std.ArrayList(u8).init(self.a);
-    if (file_path) |path|
-        try buf.writer().print("file://{s}/{s}", .{ self.name, path })
-    else
-        try buf.writer().print("file://{s}", .{self.name});
+    if (file_path) |path| {
+        if (path.len > 0 and path[0] == std.fs.path.sep) {
+            try buf.writer().print("file://{s}", .{path});
+        } else {
+            try buf.writer().print("file://{s}/{s}", .{ self.name, path });
+        }
+    } else try buf.writer().print("file://{s}", .{self.name});
     return buf.toOwnedSlice();
 }
 
@@ -132,7 +135,7 @@ pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) error{ Ou
     }
 }
 
-fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{ OutOfMemory, Exit}!usize {
+fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{ OutOfMemory, Exit }!usize {
     var i: usize = 0;
     defer from.send(.{ "PRJ", "recent_done", query }) catch {};
     for (self.files.items) |file| {
