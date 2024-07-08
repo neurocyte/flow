@@ -88,6 +88,8 @@ pub fn restore_state(self: *Self, data: []const u8) !void {
 
 fn get_lsp(self: *Self, language_server: []const u8) !LSP {
     if (self.language_servers.get(language_server)) |lsp| return lsp;
+    const logger = log.logger("lsp");
+    errdefer |e| logger.print_err("get_lsp", "failed to initialize LSP: {s} -> {any}", .{ fmt_lsp_name_func(language_server), e });
     const lsp = try LSP.open(self.a, self.name, .{ .buf = language_server });
     try self.language_servers.put(try self.a.dupe(u8, language_server), lsp);
     const uri = try self.make_URI(null);
@@ -97,10 +99,13 @@ fn get_lsp(self: *Self, language_server: []const u8) !LSP {
     const response = try self.send_lsp_init_request(lsp, self.name, basename, uri);
     defer self.a.free(response.buf);
     try lsp.send_notification("initialized", .{});
+    logger.print("initialized LSP: {s}", .{fmt_lsp_name_func(language_server)});
     return lsp;
 }
 
 fn get_file_lsp(self: *Self, file_path: []const u8) !LSP {
+    const logger = log.logger("lsp");
+    errdefer logger.print_err("get_file_lsp", "no LSP found for file: {s}", .{std.fmt.fmtSliceEscapeLower(file_path)});
     const lsp = self.file_language_server.get(file_path) orelse return tp.exit("no language server");
     if (lsp.pid.expired()) return tp.exit("no language server");
     return lsp;
@@ -914,4 +919,28 @@ fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, projec
             },
         },
     });
+}
+
+fn fmt_lsp_name_func(bytes: []const u8) std.fmt.Formatter(format_lsp_name_func) {
+    return .{ .data = bytes };
+}
+
+fn format_lsp_name_func(
+    bytes: []const u8,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = fmt;
+    _ = options;
+    var iter: []const u8 = bytes;
+    var len = cbor.decodeArrayHeader(&iter) catch return;
+    var first: bool = true;
+    while (len > 0) : (len -= 1) {
+        var value: []const u8 = undefined;
+        if (!(cbor.matchValue(&iter, cbor.extract(&value)) catch return))
+            return;
+        if (first) first = false else try writer.writeAll(" ");
+        try writer.writeAll(value);
+    }
 }

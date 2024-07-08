@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const root = @import("root");
 const tracy = @import("tracy");
+const log = @import("log");
 
 a: std.mem.Allocator,
 pid: tp.pid,
@@ -233,6 +234,8 @@ const Process = struct {
     }
 
     fn handle_terminated(self: *Process, err: []const u8, code: u32) tp.result {
+        const logger = log.logger("LSP");
+        logger.print("terminated: {s} {d}", .{ err, code });
         self.write_log("### subprocess terminated {s} {d} ###\n", .{ err, code });
         try self.parent.send(.{ sp_tag, self.tag, "done" });
         return tp.exit_normal();
