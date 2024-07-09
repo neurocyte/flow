@@ -114,7 +114,7 @@ fn get_file_lsp(self: *Self, file_path: []const u8) !LSP {
 fn make_URI(self: *Self, file_path: ?[]const u8) ![]const u8 {
     var buf = std.ArrayList(u8).init(self.a);
     if (file_path) |path| {
-        if (path.len > 0 and path[0] == std.fs.path.sep) {
+        if (std.fs.path.isAbsolute(path)) {
             try buf.writer().print("file://{s}", .{path});
         } else {
             try buf.writer().print("file://{s}/{s}", .{ self.name, path });
