@@ -30,6 +30,10 @@ pub inline fn set_style(self: *Cell, style_: Style) void {
     }
 }
 
+pub inline fn set_under_color(self: *Cell, arg_rgb: c_uint) void {
+    self.cell.style.ul = vaxis.Cell.Color.rgbFromUint(@intCast(arg_rgb));
+}
+
 pub inline fn set_style_fg(self: *Cell, style_: Style) void {
     if (style_.fg) |fg| self.cell.style.fg = vaxis.Cell.Color.rgbFromUint(fg);
 }

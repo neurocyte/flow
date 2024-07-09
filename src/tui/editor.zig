@@ -878,9 +878,10 @@ pub const Editor = struct {
         _ = self.plane.print_aligned_right(@intCast(y), "{s}", .{message[0..@min(max_space, message.len)]}) catch {};
     }
 
-    inline fn render_diagnostic_cell(self: *Self, _: Widget.Theme.Style) void {
+    inline fn render_diagnostic_cell(self: *Self, style: Widget.Theme.Style) void {
         var cell = self.plane.cell_init();
         _ = self.plane.at_cursor_cell(&cell) catch return;
+        if (style.fg) |ul_col| cell.set_under_color(ul_col);
         cell.set_style(.{ .fs = .undercurl });
         _ = self.plane.putc(&cell) catch {};
     }
