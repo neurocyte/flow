@@ -12,6 +12,7 @@ const Self = @This();
 const module_name = @typeName(Self);
 const sp_tag = "child";
 const debug_lsp = true;
+const lsp_request_timeout = std.time.ns_per_s * 30;
 
 pub fn open(a: std.mem.Allocator, project: []const u8, cmd: tp.message) !Self {
     return .{ .a = a, .pid = try Process.create(a, project, cmd) };
@@ -33,7 +34,7 @@ pub fn send_request(self: Self, a: std.mem.Allocator, method: []const u8, m: any
     var cb = std.ArrayList(u8).init(self.a);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
-    return self.pid.call(a, std.time.ns_per_s / 2, .{ "REQ", method, cb.items });
+    return self.pid.call(a, lsp_request_timeout, .{ "REQ", method, cb.items });
 }
 
 pub fn send_notification(self: Self, method: []const u8, m: anytype) !void {
