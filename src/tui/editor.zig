@@ -881,8 +881,8 @@ pub const Editor = struct {
     inline fn render_diagnostic_cell(self: *Self, style: Widget.Theme.Style) void {
         var cell = self.plane.cell_init();
         _ = self.plane.at_cursor_cell(&cell) catch return;
-        if (style.fg) |ul_col| cell.set_under_color(ul_col);
         cell.set_style(.{ .fs = .undercurl });
+        if (style.fg) |ul_col| cell.set_under_color(ul_col);
         _ = self.plane.putc(&cell) catch {};
     }
 
