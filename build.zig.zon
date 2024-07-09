@@ -24,8 +24,8 @@
             .hash = "1220906d82deb37573207c5d365edb6b58a0b1b3e4ef68902019a23a0eb5e5a34298",
         },
         .syntax = .{
-            .url = "https://github.com/neurocyte/flow-syntax/archive/7db0a869b078bd4d5ea2b9b32fe10cc1685e316a.tar.gz",
-            .hash = "1220fcaaddfbf139d9774386a5bccd5524aba0ba6e058ed76cff565aeeeddbceb383",
+            .url = "https://github.com/neurocyte/flow-syntax/archive/c9a3933b7fabe9ed10f2ff9c8026d5ac5656d322.tar.gz",
+            .hash = "12205394153b31ce033c2b40b9590e85197648cdb3f4c9ba84c0287152b1afb94bfe",
         },
         .fuzzig = .{
             .url = "https://github.com/fjebaker/fuzzig/archive/0fd156d5097365151e85a85eef9d8cf0eebe7b00.tar.gz",
