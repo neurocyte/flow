@@ -256,6 +256,11 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    if (try m.match(.{ "GUI", tp.more })) {
+        try self.rdr.process_gui_event(m);
+        return;
+    }
+
     if (self.message_filters.filter(from, m) catch |e| return self.logger.err("filter", e))
         return;
 
