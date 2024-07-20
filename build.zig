@@ -135,7 +135,12 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const renderer_mod = b.createModule(.{
+    const zigwin32_dep = b.dependency("zigwin32", .{});
+    const zigwin32_mod = zigwin32_dep.module("zigwin32");
+
+    const gui_enabled = b.option(bool, "win32", "Enable the Win32 gui renderer") orelse false;
+
+    const tui_renderer_mod = b.createModule(.{
         .root_source_file = b.path("src/renderer/vaxis/renderer.zig"),
         .imports = &.{
             .{ .name = "vaxis", .module = vaxis_mod },
@@ -146,6 +151,18 @@ pub fn build(b: *std.Build) void {
             .{ .name = "Buffer", .module = Buffer_mod },
         },
     });
+
+    const renderer_mod = if (gui_enabled) b.createModule(.{
+        .root_source_file = b.path("src/renderer/win32/renderer.zig"),
+        .imports = &.{
+            .{ .name = "theme", .module = themes_dep.module("theme") },
+            .{ .name = "Buffer", .module = Buffer_mod },
+            .{ .name = "win32", .module = zigwin32_mod },
+            // TODO: we should be able to work without these modules
+            .{ .name = "tuirenderer", .module = tui_renderer_mod },
+            .{ .name = "vaxis", .module = vaxis_mod },
+        },
+    }) else tui_renderer_mod;
 
     const ripgrep_mod = b.createModule(.{
         .root_source_file = b.path("src/ripgrep.zig"),
