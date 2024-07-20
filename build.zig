@@ -1,19 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const cppflags = [_][]const u8{
-    "-fcolor-diagnostics",
-    "-std=c++20",
-    "-Wall",
-    "-Wextra",
-    "-Werror",
-    "-Wno-unqualified-std-cast-call",
-    "-Wno-bitwise-instead-of-logical", //for notcurses
-    "-fno-sanitize=undefined",
-    "-gen-cdb-fragment-path",
-    ".cache/cdb",
-};
-
 pub fn build(b: *std.Build) void {
     const enable_tracy_option = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)");
     const optimize_deps_option = b.option(bool, "optimize_deps", "Enable optimization for dependecies (default: yes)");
