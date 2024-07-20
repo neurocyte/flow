@@ -266,7 +266,7 @@ pub fn build_exe(
         },
     });
 
-    const renderer_mod = b.createModule(.{
+    const tui_renderer_mod = b.createModule(.{
         .root_source_file = b.path("src/renderer/vaxis/renderer.zig"),
         .imports = &.{
             .{ .name = "vaxis", .module = vaxis_mod },
@@ -279,6 +279,38 @@ pub fn build_exe(
             .{ .name = "color", .module = color_mod },
         },
     });
+
+    const gui_enabled = b.option(bool, "gui", "Standalone GUI mode") orelse false;
+
+    const renderer_mod = blk: {
+        if (gui_enabled) switch (target.result.os.tag) {
+            .windows => {
+                const direct2d_dep = b.lazyDependency("direct2d", .{}) orelse break :blk tui_renderer_mod;
+
+                const win32_dep = direct2d_dep.builder.dependency("win32", .{});
+                const win32_mod = win32_dep.module("zigwin32");
+                break :blk b.createModule(.{
+                    .root_source_file = b.path("src/renderer/win32/renderer.zig"),
+                    .imports = &.{
+                        .{ .name = "theme", .module = themes_dep.module("theme") },
+                        .{ .name = "Buffer", .module = Buffer_mod },
+                        .{ .name = "win32", .module = win32_mod },
+                        .{ .name = "ddui", .module = direct2d_dep.module("ddui") },
+                        .{ .name = "cbor", .module = cbor_mod },
+                        .{ .name = "thespian", .module = thespian_mod },
+                        .{ .name = "input", .module = input_mod },
+                        // TODO: we should be able to work without these modules
+                        .{ .name = "tuirenderer", .module = tui_renderer_mod },
+                        .{ .name = "vaxis", .module = vaxis_mod },
+                    },
+                });
+            },
+            else => |tag| {
+                std.debug.panic("platform '{s}' does not support -Dgui mode", .{@tagName(tag)});
+            },
+        };
+        break :blk tui_renderer_mod;
+    };
 
     const keybind_mod = b.createModule(.{
         .root_source_file = b.path("src/keybind/keybind.zig"),
@@ -392,6 +424,7 @@ pub fn build_exe(
         .target = target,
         .optimize = optimize,
         .strip = strip,
+        .win32_manifest = b.path("src/win32/flow.manifest"),
     });
 
     if (use_llvm) |value| {
