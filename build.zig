@@ -8,6 +8,7 @@ pub fn build(b: *std.Build) void {
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
     const use_llvm = b.option(bool, "use_llvm", "Enable llvm backend (default: none)");
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
+    const gui = b.option(bool, "gui", "Standalone GUI mode") orelse false;
 
     const run_step = b.step("run", "Run the app");
     const check_step = b.step("check", "Check the app");
@@ -25,6 +26,7 @@ pub fn build(b: *std.Build) void {
         strip,
         use_llvm,
         pie,
+        gui,
     );
 }
 
@@ -39,6 +41,7 @@ fn build_development(
     strip: ?bool,
     use_llvm: ?bool,
     pie: ?bool,
+    gui: bool,
 ) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
     const optimize = b.standardOptimizeOption(.{});
@@ -57,6 +60,7 @@ fn build_development(
         strip orelse false,
         use_llvm,
         pie,
+        gui,
     );
 }
 
@@ -71,6 +75,7 @@ fn build_release(
     strip: ?bool,
     use_llvm: ?bool,
     pie: ?bool,
+    gui: bool,
 ) void {
     const targets: []const std.Target.Query = &.{
         .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
@@ -112,6 +117,7 @@ fn build_release(
             strip orelse true,
             use_llvm,
             pie,
+            gui,
         );
     }
 }
@@ -130,11 +136,13 @@ pub fn build_exe(
     strip: bool,
     use_llvm: ?bool,
     pie: ?bool,
+    gui: bool,
 ) void {
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
     options.addOption(bool, "strip", strip);
+    options.addOption(bool, "gui", gui);
 
     const options_mod = options.createModule();
 
@@ -266,7 +274,7 @@ pub fn build_exe(
         },
     });
 
-    const renderer_mod = b.createModule(.{
+    const tui_renderer_mod = b.createModule(.{
         .root_source_file = b.path("src/renderer/vaxis/renderer.zig"),
         .imports = &.{
             .{ .name = "vaxis", .module = vaxis_mod },
@@ -279,6 +287,51 @@ pub fn build_exe(
             .{ .name = "color", .module = color_mod },
         },
     });
+
+    const renderer_mod = blk: {
+        if (gui) switch (target.result.os.tag) {
+            .windows => {
+                const direct2d_dep = b.lazyDependency("direct2d", .{}) orelse break :blk tui_renderer_mod;
+
+                const win32_dep = direct2d_dep.builder.dependency("win32", .{});
+                const win32_mod = win32_dep.module("zigwin32");
+                const gui_mod = b.createModule(.{
+                    .root_source_file = b.path("src/win32/gui.zig"),
+                    .imports = &.{
+                        .{ .name = "win32", .module = win32_mod },
+                        .{ .name = "ddui", .module = direct2d_dep.module("ddui") },
+                        .{ .name = "cbor", .module = cbor_mod },
+                        .{ .name = "thespian", .module = thespian_mod },
+                        .{ .name = "input", .module = input_mod },
+                        // TODO: we should be able to work without these modules
+                        .{ .name = "vaxis", .module = vaxis_mod },
+                    },
+                });
+                gui_mod.addIncludePath(b.path("src/win32"));
+
+                const mod = b.createModule(.{
+                    .root_source_file = b.path("src/renderer/win32/renderer.zig"),
+                    .imports = &.{
+                        .{ .name = "theme", .module = themes_dep.module("theme") },
+                        .{ .name = "win32", .module = win32_mod },
+                        .{ .name = "cbor", .module = cbor_mod },
+                        .{ .name = "thespian", .module = thespian_mod },
+                        .{ .name = "input", .module = input_mod },
+                        .{ .name = "gui", .module = gui_mod },
+                        // TODO: we should be able to work without these modules
+                        .{ .name = "tuirenderer", .module = tui_renderer_mod },
+                        .{ .name = "vaxis", .module = vaxis_mod },
+                    },
+                });
+                break :blk mod;
+            },
+            else => |tag| {
+                std.log.err("OS '{s}' does not support -Dgui mode", .{@tagName(tag)});
+                std.process.exit(0xff);
+            },
+        };
+        break :blk tui_renderer_mod;
+    };
 
     const keybind_mod = b.createModule(.{
         .root_source_file = b.path("src/keybind/keybind.zig"),
@@ -392,6 +445,7 @@ pub fn build_exe(
         .target = target,
         .optimize = optimize,
         .strip = strip,
+        .win32_manifest = b.path("src/win32/flow.manifest"),
     });
 
     if (use_llvm) |value| {
@@ -411,6 +465,16 @@ pub fn build_exe(
     exe.root_module.addImport("input", input_mod);
     exe.root_module.addImport("syntax", syntax_mod);
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
+
+    if (target.result.os.tag == .windows) {
+        exe.addWin32ResourceFile(.{
+            .file = b.path("src/win32/flow.rc"),
+        });
+        if (gui) {
+            exe.subsystem = .Windows;
+        }
+    }
+
     const exe_install = b.addInstallArtifact(exe, exe_install_options);
     b.getInstallStep().dependOn(&exe_install.step);
 

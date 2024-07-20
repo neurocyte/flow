@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
@@ -254,6 +255,13 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
             need_render();
         return;
+    }
+
+    if (build_options.gui) {
+        if (try m.match(.{ "GUI", tp.more })) {
+            try self.rdr.process_gui_event(m);
+            return;
+        }
     }
 
     if (self.message_filters.filter(from, m) catch |e| return self.logger.err("filter", e))
