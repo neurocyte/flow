@@ -35,10 +35,6 @@
             .url = "https://github.com/rockorager/libvaxis/archive/40e51ad0542ea964190db411292660c274e2a984.tar.gz",
             .hash = "12200ade9c84de359ac4a83645bda328342df7d2e288f2e2d966895b9b9f50da6b01",
         },
-        .zg = .{
-            .url = "git+https://codeberg.org/dude_the_builder/zg#6d2ba3ff8f3cb7c86cef2b2176fb5b4a72c104dc",
-            .hash = "1220da2679c872f73b60b8071d96b9b0e7790ac1a1597e02bf91807d6089f3c89005",
-        },
     },
     .paths = .{
         "include",

@@ -72,7 +72,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/tracy_noop.zig"),
     });
 
-    const zg_dep = b.dependency("zg", .{
+    const zg_dep = vaxis_dep.builder.dependency("zg", .{
         .target = target,
         .optimize = dependency_optimize,
     });
