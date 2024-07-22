@@ -23,7 +23,6 @@ const project_manager = @import("project_manager");
 
 const Self = @This();
 const max_recent_files: usize = 25;
-const max_menu_width = 80;
 
 a: std.mem.Allocator,
 f: usize = 0,
@@ -56,7 +55,7 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_project_manager));
     self.query_pending = true;
     try project_manager.request_recent_files(max_recent_files);
-    self.menu.resize(.{ .y = 0, .x = 25, .w = 32 });
+    self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = max_menu_width() + 2 });
     try mv.floating_views.add(self.menu.container_widget);
     return .{
         .handler = EventHandler.to_owned(self),
@@ -74,7 +73,22 @@ pub fn deinit(self: *Self) void {
     self.a.destroy(self);
 }
 
-fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+inline fn menu_width(self: *Self) usize {
+    return @min(self.longest, max_menu_width()) + 2;
+}
+
+inline fn menu_pos_x(self: *Self) usize {
+    const screen_width = tui.current().screen().w;
+    const width = self.menu_width();
+    return if (screen_width <= width) 0 else (screen_width - width) / 2;
+}
+
+inline fn max_menu_width() usize {
+    const width = tui.current().screen().w;
+    return @max(15, width - (width / 5));
+}
+
+fn on_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
     button.plane.set_base_style(" ", style_base);
     button.plane.erase();
@@ -84,16 +98,18 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     if (!(cbor.matchString(&iter, &file_path) catch false))
         file_path = "#ERROR#";
     const pointer = if (selected) "⏵" else " ";
-    var buf: [max_menu_width]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var removed_prefix: usize = 0;
     _ = button.plane.print("{s}{s} ", .{
         pointer,
-        if (file_path.len > max_menu_width - 2) shorten_path(&buf, file_path) else file_path,
+        if (file_path.len > max_menu_width() - 2) self.shorten_path(&buf, file_path, &removed_prefix) else file_path,
     }) catch {};
     var index: usize = 0;
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            render_cell(&button.plane, 0, index + 1, theme.editor_match) catch break;
+            const cell_idx = if (index < removed_prefix) 1 else index + 1 - removed_prefix;
+            render_cell(&button.plane, 0, cell_idx, theme.editor_match) catch break;
         } else break;
     }
     return false;
@@ -108,7 +124,7 @@ fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !vo
 }
 
 fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
-    self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
+    self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
 }
 
 fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
@@ -119,24 +135,16 @@ fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.
     tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
 }
 
-fn shorten_path(buf: []u8, path: []const u8) []const u8 {
-    const max_len = max_menu_width - 2;
-    if (path.len < max_len) return path;
-    const basename_pos = std.mem.lastIndexOfScalar(u8, path, std.fs.path.sep) orelse return path;
-    if (path.len - basename_pos > max_len) return path;
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
-    // try writer.print("this is line {d}\n", .{self.line_num});
-    var pos: usize = 0;
-    while (std.mem.indexOfScalarPos(u8, path, pos, std.fs.path.sep)) |next| {
-        if (next == basename_pos or stream.getWritten().len + path[next..].len < max_len) {
-            _ = writer.write(path[next..]) catch return path;
-            return stream.getWritten();
-        }
-        writer.print("{c}{c}", .{ std.fs.path.sep, path[next + 1] }) catch return path;
-        pos = next + 1;
-    }
-    return stream.getWritten();
+fn shorten_path(_: *Self, buf: []u8, path: []const u8, removed_prefix: *usize) []const u8 {
+    const max_len = max_menu_width() - 2;
+    removed_prefix.* = 0;
+    if (path.len <= max_len) return path;
+    const ellipsis = "…";
+    const prefix = path.len - max_len;
+    defer removed_prefix.* = prefix - 1;
+    @memcpy(buf[0..ellipsis.len], ellipsis);
+    @memcpy(buf[ellipsis.len .. max_len + ellipsis.len], path[prefix..]);
+    return buf[0 .. max_len + ellipsis.len];
 }
 
 fn add_item(self: *Self, file_name: []const u8, matches: ?[]const u8) !void {
@@ -164,7 +172,7 @@ fn process_project_manager(self: *Self, m: tp.message) !void {
         if (self.need_reset) self.reset_results();
         self.longest = @max(self.longest, file_name.len);
         try self.add_item(file_name, matches);
-        self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
+        self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
         if (self.need_select_first) {
             self.menu.select_down();
             self.need_select_first = false;
@@ -174,7 +182,7 @@ fn process_project_manager(self: *Self, m: tp.message) !void {
         if (self.need_reset) self.reset_results();
         self.longest = @max(self.longest, file_name.len);
         try self.add_item(file_name, null);
-        self.menu.resize(.{ .y = 0, .x = 25, .w = @min(self.longest, max_menu_width) + 2 });
+        self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
         if (self.need_select_first) {
             self.menu.select_down();
             self.need_select_first = false;
