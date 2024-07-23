@@ -2910,6 +2910,7 @@ pub const Editor = struct {
                 syn.refresh_full(content.items)
             else
                 syn.refresh(content.items);
+                // syn.refresh_from_buffer(root, self.plane.metrics()); // TODO: partial refresh from buffer when treez PR is merged and flow-syntax is updated
             self.syntax_refresh_full = false;
             self.syntax_token = token;
         } else {

@@ -595,6 +595,16 @@ const Node = union(enum) {
         return if (copy_buf) |buf_| buf_[0..ctx.bytes] else null;
     }
 
+    pub fn get_from_pos(self: *const Node, start: Cursor, result_buf: []u8, metrics: Metrics) []const u8 {
+        var end: Cursor = .{};
+        end.move_buffer_end(self, metrics);
+        const result = self.get_range(.{ .begin = start, .end = end }, result_buf, null, null, metrics) catch |e| switch (e) {
+            error.NoSpaceLeft => result_buf[0..],
+            else => @panic("buffer overflow in get_from_start_pos"),
+        };
+        return result orelse "";
+    }
+
     pub fn delete_range(self: *const Node, sel: Selection, a: Allocator, size: ?*usize, metrics: Metrics) error{Stop}!Root {
         var wcwidth: usize = 0;
         _ = self.get_range(sel, null, size, &wcwidth, metrics) catch return error.Stop;
