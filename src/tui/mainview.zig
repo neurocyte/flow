@@ -285,6 +285,10 @@ const cmds = struct {
         _ = try self.toggle_panel_view(@import("inspector_view.zig"), true);
     }
 
+    pub fn toggle_filelist_view(self: *Self, _: Ctx) Result {
+        _ = try self.toggle_panel_view(@import("filelist_view.zig"), false);
+    }
+
     pub fn jump_back(self: *Self, _: Ctx) Result {
         try self.location_history.back(location_jump);
     }
