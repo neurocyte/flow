@@ -114,8 +114,11 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
         command_id = 0;
     if (!(cbor.matchString(&iter, &keybind_hint) catch false))
         keybind_hint = "";
+    button.plane.set_style(style_keybind);
     const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s}{s} ", .{ pointer, command_name }) catch {};
+    _ = button.plane.print("{s}", .{ pointer }) catch {};
+    button.plane.set_style(style_base);
+    _ = button.plane.print("{s} ", .{ command_name }) catch {};
     button.plane.set_style(style_keybind);
     _ = button.plane.print_aligned_right(0, "{s} ", .{keybind_hint}) catch {};
     var index: usize = 0;
