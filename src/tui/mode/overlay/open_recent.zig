@@ -90,6 +90,7 @@ inline fn max_menu_width() usize {
 
 fn on_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
+    const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
     button.plane.set_base_style(" ", style_base);
     button.plane.erase();
     button.plane.home();
@@ -97,11 +98,13 @@ fn on_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme:
     var iter = button.opts.label; // label contains cbor, first the file name, then multiple match indexes
     if (!(cbor.matchString(&iter, &file_path) catch false))
         file_path = "#ERROR#";
+    button.plane.set_style(style_keybind);
     const pointer = if (selected) "⏵" else " ";
+    _ = button.plane.print("{s}", .{ pointer }) catch {};
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var removed_prefix: usize = 0;
-    _ = button.plane.print("{s}{s} ", .{
-        pointer,
+    button.plane.set_style(style_base);
+    _ = button.plane.print("{s} ", .{
         if (file_path.len > max_menu_width() - 2) self.shorten_path(&buf, file_path, &removed_prefix) else file_path,
     }) catch {};
     var index: usize = 0;
@@ -287,6 +290,7 @@ fn mapRelease(self: *Self, keypress: u32, _: u32) !void {
 }
 
 fn reset_results(self: *Self) void {
+    self.longest = 0;
     self.need_reset = false;
     self.menu.reset_items();
     self.menu.selected = null;
