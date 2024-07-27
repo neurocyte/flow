@@ -423,7 +423,10 @@ fn update_used_time(self: *Self, id: command.ID) void {
 }
 
 fn set_used_time(self: *Self, id: command.ID, used_time: i64) void {
-    self.commands.items[id].used_time = used_time;
+    for (self.commands.items) |*cmd_| if (cmd_.id == id) {
+        cmd_.used_time = used_time;
+        return;
+    };
 }
 
 fn write_state(self: *Self) !void {
