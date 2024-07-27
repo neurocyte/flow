@@ -31,7 +31,6 @@ statusbar: *Widget,
 editor: ?*ed.Editor = null,
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
-logview_enabled: bool = false,
 location_history: location_history,
 file_stack: std.ArrayList([]const u8),
 
@@ -267,11 +266,11 @@ const cmds = struct {
     }
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
-        self.logview_enabled = try self.toggle_panel_view(@import("logview.zig"), false);
+        _ = try self.toggle_panel_view(@import("logview.zig"), false);
     }
 
     pub fn show_logview(self: *Self, _: Ctx) Result {
-        self.logview_enabled = try self.toggle_panel_view(@import("logview.zig"), true);
+        _ = try self.toggle_panel_view(@import("logview.zig"), true);
     }
 
     pub fn toggle_inputview(self: *Self, _: Ctx) Result {
