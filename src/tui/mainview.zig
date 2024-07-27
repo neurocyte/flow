@@ -110,7 +110,6 @@ fn add_find_in_files_result(self: *Self, path: []const u8, begin_line: usize, be
         self.find_in_files_done = false;
         fl.reset();
     }
-    @import("log").logger("mainview").print("match: {s}:{d}:{d}:{d}:{d} {s}", .{ path, begin_line, begin_pos + 1, end_line, end_pos + 1, std.fmt.fmtSliceEscapeLower(lines) });
     fl.add_item(.{
         .path = path,
         .begin_line = begin_line - 1,

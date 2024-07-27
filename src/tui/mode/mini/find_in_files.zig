@@ -169,7 +169,7 @@ fn insert_bytes(self: *Self, bytes: []const u8) !void {
 var find_cmd_id: ?command.ID = null;
 
 fn flush_input(self: *Self) !void {
-    if (self.input.len > 0) {
+    if (self.input.len > 2) {
         if (eql(u8, self.input, self.last_input))
             return;
         @memcpy(self.last_buf[0..self.input.len], self.input);
