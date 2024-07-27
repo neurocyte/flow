@@ -3129,17 +3129,11 @@ pub const Editor = struct {
         return self.find_in(query, ripgrep.find_in_stdin, true);
     }
 
-    pub fn find_in_files(self: *Self, query: []const u8) !void {
-        return self.find_in(query, ripgrep.find_in_files, false);
-    }
-
     pub fn add_match(self: *Self, m: tp.message) !void {
-        var path: []const u8 = undefined;
         var begin_line: usize = undefined;
         var begin_pos: usize = undefined;
         var end_line: usize = undefined;
         var end_pos: usize = undefined;
-        var lines: []const u8 = undefined;
         var batch_cbor: []const u8 = undefined;
         if (try m.match(.{ "A", "done", self.match_token })) {
             self.add_match_done();
@@ -3149,8 +3143,6 @@ pub const Editor = struct {
             self.add_match_internal(begin_line, begin_pos, end_line, end_pos);
         } else if (try m.match(.{ tp.any, tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
             self.add_match_internal(begin_line, begin_pos, end_line, end_pos);
-        } else if (try m.match(.{ tp.any, tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
-            self.logger.print("match: {s}:{d}:{d}:{d}:{d} {s}", .{ path, begin_line, begin_pos + 1, end_line, end_pos + 1, std.fmt.fmtSliceEscapeLower(lines) });
         }
     }
 

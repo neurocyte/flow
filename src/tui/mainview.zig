@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const tracy = @import("tracy");
+const ripgrep = @import("ripgrep");
 const root = @import("root");
 const location_history = @import("location_history");
 const project_manager = @import("project_manager");
@@ -33,6 +34,7 @@ panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history: location_history,
 file_stack: std.ArrayList([]const u8),
+find_in_files_done: bool = false,
 
 const NavState = struct {
     time: i64 = 0,
@@ -80,11 +82,43 @@ pub fn deinit(self: *Self, a: std.mem.Allocator) void {
 }
 
 pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{"write_restore_info"})) {
+    var path: []const u8 = undefined;
+    var begin_line: usize = undefined;
+    var begin_pos: usize = undefined;
+    var end_line: usize = undefined;
+    var end_pos: usize = undefined;
+    var lines: []const u8 = undefined;
+    if (try m.match(.{ "FIF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
+        try self.add_find_in_files_result(path, begin_line, begin_pos, end_line, end_pos, lines);
+        return true;
+    } else if (try m.match(.{ "FIF", "done" })) {
+        self.find_in_files_done = true;
+        return true;
+    } else if (try m.match(.{"write_restore_info"})) {
         self.write_restore_info();
         return true;
     }
     return if (try self.floating_views.send(from_, m)) true else self.widgets.send(from_, m);
+}
+
+fn add_find_in_files_result(self: *Self, path: []const u8, begin_line: usize, begin_pos: usize, end_line: usize, end_pos: usize, lines: []const u8) tp.result {
+    const filelist_view = @import("filelist_view.zig");
+    if (!self.is_panel_view_showing(filelist_view))
+        _ = self.toggle_panel_view(filelist_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
+    if (self.find_in_files_done) {
+        self.find_in_files_done = false;
+        fl.reset();
+    }
+    @import("log").logger("mainview").print("match: {s}:{d}:{d}:{d}:{d} {s}", .{ path, begin_line, begin_pos + 1, end_line, end_pos + 1, std.fmt.fmtSliceEscapeLower(lines) });
+    fl.add_item(.{
+        .path = path,
+        .begin_line = begin_line - 1,
+        .begin_pos = begin_pos - 1,
+        .end_line = end_line - 1,
+        .end_pos = end_pos - 1,
+        .lines = lines
+    }) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 
 pub fn update(self: *Self) void {
@@ -130,6 +164,14 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !bool {
     }
     tui.current().resize();
     return enabled;
+}
+
+fn get_panel_view(self: *Self, comptime view: type) ?*view {
+    return if (self.panels) |panels| if (panels.get(@typeName(view))) |w| w.dynamic_cast(view) else null else null;
+}
+
+fn is_panel_view_showing(self: *Self, comptime view: type) bool {
+    return self.get_panel_view(view) != null;
 }
 
 fn close_all_panel_views(self: *Self) void {
@@ -265,6 +307,13 @@ const cmds = struct {
         tui.need_render();
     }
 
+    pub fn toggle_panel(self: *Self, _: Ctx) Result {
+        if (self.is_panel_view_showing(@import("filelist_view.zig")))
+            _ = try self.toggle_panel_view(@import("filelist_view.zig"), false)
+        else
+            _ = try self.toggle_panel_view(@import("logview.zig"), false);
+    }
+
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
         _ = try self.toggle_panel_view(@import("logview.zig"), false);
     }
@@ -287,6 +336,10 @@ const cmds = struct {
 
     pub fn toggle_filelist_view(self: *Self, _: Ctx) Result {
         _ = try self.toggle_panel_view(@import("filelist_view.zig"), false);
+    }
+
+    pub fn show_filelist_view(self: *Self, _: Ctx) Result {
+        _ = try self.toggle_panel_view(@import("filelist_view.zig"), true);
     }
 
     pub fn jump_back(self: *Self, _: Ctx) Result {
@@ -358,6 +411,13 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         }
         return;
     }
+}
+
+pub fn find_in_files(self: *Self, query: []const u8) !void {
+    const find_f = ripgrep.find_in_files;
+    if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
+    var rg = try find_f(self.a, query, "FIF");
+    defer rg.deinit();
 }
 
 pub fn location_update(self: *Self, m: tp.message) tp.result {

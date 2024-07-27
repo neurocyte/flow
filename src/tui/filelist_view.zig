@@ -57,12 +57,6 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
             .on_scroll = EventHandler.bind(self, Self.handle_scroll),
         }),
     };
-    (try self.entries.addOne()).* = .{ .path = "file_path_1.zig", .begin_line = 1, .begin_pos = 1, .end_line = 1, .end_pos = 10, .lines = "matching text" };
-    (try self.entries.addOne()).* = .{ .path = "file_path_2.zig", .begin_line = 1, .begin_pos = 1, .end_line = 1, .end_pos = 10, .lines = "matching text" };
-    (try self.entries.addOne()).* = .{ .path = "file_path_3.zig", .begin_line = 1, .begin_pos = 1, .end_line = 1, .end_pos = 10, .lines = "matching text" };
-    try self.add_item(0);
-    try self.add_item(1);
-    try self.add_item(2);
     return Widget.to(self);
 }
 
@@ -72,23 +66,47 @@ pub fn deinit(self: *Self, a: Allocator) void {
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
+    self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
+    self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.menu.resize(pos);
 }
 
-fn add_item(self: *Self, idx: usize) !void {
+pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
+    return self.menu.walk(walk_ctx, f) or f(walk_ctx, w);
+}
+
+pub fn add_item(self: *Self, entry_: Entry) !void {
+    const idx = self.entries.items.len;
+    const entry = (try self.entries.addOne());
+    entry.* = entry_;
+    entry.path = try self.allocator.dupe(u8, entry_.path);
+    entry.lines = try self.allocator.dupe(u8, entry_.lines);
     var label = std.ArrayList(u8).init(self.allocator);
     defer label.deinit();
     const writer = label.writer();
-    try cbor.writeValue(writer, idx);
-    try self.menu.add_item_with_handler(label.items, handle_menu_action);
+    cbor.writeValue(writer, idx) catch return;
+    self.menu.add_item_with_handler(label.items, handle_menu_action) catch return;
+    self.menu.resize(Widget.Box.from(self.plane));
+}
+
+pub fn reset(self: *Self) void {
+    for (self.entries.items) |entry| {
+        self.allocator.free(entry.path);
+        self.allocator.free(entry.lines);
+    }
+    self.entries.clearRetainingCapacity();
+    self.menu.reset_items();
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    self.plane.set_base_style(" ", theme.panel);
+    self.plane.erase();
+    self.plane.home();
     return self.menu.render(theme);
 }
 
 fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
-    const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
+    const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.panel;
     // const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
     button.plane.set_base_style(" ", style_base);
     button.plane.erase();
@@ -102,14 +120,13 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
         return false;
     }
     if (idx >= self.entries.items.len) {
-        self.logger.print_err(name, "table entry index out of range: {d}/{d}", .{ idx, self.entries.items.len });
         return false;
     }
     const entry = &self.entries.items[idx];
     const pointer = if (selected) "⏵" else " ";
     _ = button.plane.print("{s} ", .{pointer}) catch {};
     button.plane.set_style(style_base);
-    _ = button.plane.print("{s} ", .{entry.path}) catch {};
+    _ = button.plane.print("{s}:{d}    {s}", .{entry.path, entry.begin_line + 1, entry.lines}) catch {};
     return false;
 }
 
@@ -143,12 +160,12 @@ fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.Sta
     tp.self_pid().send(.{ "cmd", "navigate", .{
         .file = entry.path,
         .goto = .{
+            entry.end_line + 1,
+            entry.end_pos + 2,
             entry.begin_line,
-            entry.begin_pos,
-            entry.begin_line,
-            entry.begin_pos,
+            entry.begin_pos + 1,
             entry.end_line,
-            entry.end_pos,
+            entry.end_pos + 1,
         },
     } }) catch |e| self.logger.err("navigate", e);
 }

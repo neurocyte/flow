@@ -81,7 +81,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
             'E' => self.cmd("open_recent", .{}),
-            'J' => self.cmd("toggle_logview", .{}),
+            'J' => self.cmd("toggle_panel", .{}),
             'Z' => self.cmd("undo", .{}),
             'Y' => self.cmd("redo", .{}),
             'Q' => self.cmd("quit", .{}),
@@ -199,7 +199,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.F07 => self.cmd("dump_current_line", .{}),
             key.F09 => self.cmd("theme_prev", .{}),
             key.F10 => self.cmd("theme_next", .{}),
-            key.F11 => self.cmd("toggle_logview", .{}),
+            key.F11 => self.cmd("toggle_panel", .{}),
             key.F12 => self.cmd("goto_definition", .{}),
             key.F34 => self.cmd("toggle_whitespace", .{}), // C-F10
             key.F58 => self.cmd("gutter_mode_next", .{}), // A-F10

@@ -22,27 +22,23 @@ buf: [1024]u8 = undefined,
 input: []u8 = "",
 last_buf: [1024]u8 = undefined,
 last_input: []u8 = "",
-start_view: ed.View,
-start_cursor: ed.Cursor,
-editor: *ed.Editor,
+mainview: *mainview,
 
 pub fn create(a: Allocator, _: command.Context) !*Self {
     const self: *Self = try a.create(Self);
-    if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
+    if (tui.current().mainview.dynamic_cast(mainview)) |mv| {
         self.* = .{
             .a = a,
-            .start_view = editor.view,
-            .start_cursor = editor.get_primary().cursor,
-            .editor = editor,
+            .mainview = mv,
         };
-        if (editor.get_primary().selection) |sel| ret: {
+        if (mv.get_editor()) |editor| if (editor.get_primary().selection) |sel| ret: {
             const text = editor.get_selection(sel, self.a) catch break :ret;
             defer self.a.free(text);
             @memcpy(self.buf[0..text.len], text);
             self.input = self.buf[0..text.len];
-        }
+        };
         return self;
-    };
+    }
     return error.NotFound;
 }
 
@@ -178,8 +174,7 @@ fn flush_input(self: *Self) !void {
             return;
         @memcpy(self.last_buf[0..self.input.len], self.input);
         self.last_input = self.last_buf[0..self.input.len];
-        command.executeName("show_logview", .{}) catch {};
-        try self.editor.find_in_files(self.input);
+        try self.mainview.find_in_files(self.input);
     }
 }
 
@@ -188,8 +183,6 @@ fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
     return command.executeName(name_, ctx);
 }
 
-fn cancel(self: *Self) void {
-    self.editor.get_primary().cursor = self.start_cursor;
-    self.editor.scroll_to(self.start_view.row);
+fn cancel(_: *Self) void {
     command.executeName("exit_mini_mode", .{}) catch {};
 }

@@ -155,7 +155,7 @@ pub fn need_reflow() void {
     tp.self_pid().send(.{"reflow"}) catch {};
 }
 
-pub fn name(self: Self, buf: []u8) []u8 {
+pub fn name(self: Self, buf: []u8) []const u8 {
     return self.plane.name(buf);
 }
 
