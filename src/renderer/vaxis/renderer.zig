@@ -74,7 +74,7 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
 }
 
 pub fn deinit(self: *Self) void {
-    panic_cleanup_tty = null;
+    panic_cleanup = null;
     self.loop.stop();
     self.vx.deinit(self.a, self.tty.anyWriter());
     self.tty.deinit();
@@ -83,18 +83,25 @@ pub fn deinit(self: *Self) void {
     self.event_buffer.deinit();
 }
 
-var panic_cleanup_tty: ?*vaxis.Tty = null;
+var panic_cleanup: ?struct {
+    a: std.mem.Allocator,
+    tty: *vaxis.Tty,
+    vx: *vaxis.Vaxis,
+} = null;
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    const cleanup_tty = panic_cleanup_tty;
-    panic_cleanup_tty = null;
-    if (cleanup_tty) |tty| tty.deinit();
+    const cleanup = panic_cleanup;
+    panic_cleanup = null;
+    if (cleanup) |self| {
+        self.vx.deinit(self.a, self.tty.anyWriter());
+        self.tty.deinit();
+    }
     return std.builtin.default_panic(msg, error_return_trace, ret_addr);
 }
 
 pub fn run(self: *Self) !void {
     self.vx.sgr = .legacy;
 
-    panic_cleanup_tty = &self.tty;
+    panic_cleanup = .{ .a = self.a, .tty = &self.tty, .vx = &self.vx };
     if (!self.no_alternate) try self.vx.enterAltScreen(self.tty.anyWriter());
     try self.resize(.{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
     try self.query_resize();
