@@ -34,7 +34,7 @@ commands: Commands = undefined,
 
 items: usize = 0,
 view_pos: usize = 0,
-total_items: usize = 0,
+view_rows: usize = 0,
 entries: std.ArrayList(Entry) = undefined,
 
 const Entry = struct {
@@ -73,6 +73,8 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.menu.resize(pos);
+    self.view_rows = pos.h;
+    self.update_scrollbar();
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
@@ -91,6 +93,7 @@ pub fn add_item(self: *Self, entry_: Entry) !void {
     cbor.writeValue(writer, idx) catch return;
     self.menu.add_item_with_handler(label.items, handle_menu_action) catch return;
     self.menu.resize(Widget.Box.from(self.plane));
+    self.update_scrollbar();
 }
 
 pub fn reset(self: *Self) void {
@@ -144,6 +147,10 @@ fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !vo
 
 fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
     _ = try m.match(.{ "scroll_to", tp.extract(&self.view_pos) });
+}
+
+fn update_scrollbar(self: *Self) void {
+    self.menu.scrollbar.?.set(@intCast(self.entries.items.len), @intCast(self.view_rows), @intCast(self.view_pos));
 }
 
 fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
