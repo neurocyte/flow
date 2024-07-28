@@ -108,8 +108,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         },
         mod.ALT => switch (keynormal) {
             'V' => self.cmd("system_paste", .{}),
-            'N' => self.cmd("goto_next_match", .{}),
-            'P' => self.cmd("goto_prev_match", .{}),
+            'N' => self.cmd("goto_next_file", .{}),
+            'P' => self.cmd("goto_prev_file", .{}),
             else => {},
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {

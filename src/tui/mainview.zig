@@ -110,14 +110,7 @@ fn add_find_in_files_result(self: *Self, path: []const u8, begin_line: usize, be
         self.find_in_files_done = false;
         fl.reset();
     }
-    fl.add_item(.{
-        .path = path,
-        .begin_line = begin_line - 1,
-        .begin_pos = begin_pos - 1,
-        .end_line = end_line - 1,
-        .end_pos = end_pos - 1,
-        .lines = lines
-    }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    fl.add_item(.{ .path = path, .begin_line = begin_line - 1, .begin_pos = begin_pos - 1, .end_line = end_line - 1, .end_pos = end_pos - 1, .lines = lines }) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 
 pub fn update(self: *Self) void {
@@ -374,6 +367,24 @@ const cmds = struct {
             const gutter = if (gutter_widget.dynamic_cast(@import("editor_gutter.zig"))) |p| p else return;
             gutter.linenum = ln;
             gutter.relative = lnr;
+        }
+    }
+
+    pub fn goto_next_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
+        const filelist_view = @import("filelist_view.zig");
+        if (self.is_panel_view_showing(filelist_view)) {
+            try command.executeName("goto_next_file", ctx);
+        } else {
+            try command.executeName("goto_next_diagnostic", ctx);
+        }
+    }
+
+    pub fn goto_prev_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
+        const filelist_view = @import("filelist_view.zig");
+        if (self.is_panel_view_showing(filelist_view)) {
+            try command.executeName("goto_prev_file", ctx);
+        } else {
+            try command.executeName("goto_prev_diagnostic", ctx);
         }
     }
 };

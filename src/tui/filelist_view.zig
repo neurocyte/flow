@@ -6,11 +6,12 @@ const cbor = @import("cbor");
 const Allocator = @import("std").mem.Allocator;
 const Mutex = @import("std").Thread.Mutex;
 const ArrayList = @import("std").ArrayList;
-const Plane = @import("renderer").Plane;
 
+const Plane = @import("renderer").Plane;
 const tp = @import("thespian");
 const log = @import("log");
 
+const command = @import("command.zig");
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
@@ -23,11 +24,13 @@ const escape = fmt.fmtSliceEscapeLower;
 pub const name = @typeName(Self);
 
 const Self = @This();
+const Commands = command.Collection(cmds);
 
 allocator: std.mem.Allocator,
 plane: Plane,
 menu: *Menu.State(*Self),
 logger: log.Logger,
+commands: Commands = undefined,
 
 items: usize = 0,
 view_pos: usize = 0,
@@ -53,15 +56,16 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
         .menu = try Menu.create(*Self, allocator, tui.current().mainview, .{
             .ctx = self,
             .on_render = handle_render_menu,
-            // .on_resize = on_resize_menu,
             .on_scroll = EventHandler.bind(self, Self.handle_scroll),
         }),
     };
+    try self.commands.init(self);
     return Widget.to(self);
 }
 
 pub fn deinit(self: *Self, a: Allocator) void {
     self.plane.deinit();
+    self.commands.deinit();
     a.destroy(self);
 }
 
@@ -126,7 +130,7 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
     const pointer = if (selected) "⏵" else " ";
     _ = button.plane.print("{s} ", .{pointer}) catch {};
     button.plane.set_style(style_base);
-    _ = button.plane.print("{s}:{d}    {s}", .{entry.path, entry.begin_line + 1, entry.lines}) catch {};
+    _ = button.plane.print("{s}:{d}    {s}", .{ entry.path, entry.begin_line + 1, entry.lines }) catch {};
     return false;
 }
 
@@ -169,3 +173,19 @@ fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.Sta
         },
     } }) catch |e| self.logger.err("navigate", e);
 }
+
+const cmds = struct {
+    pub const Target = Self;
+    const Ctx = command.Context;
+    const Result = command.Result;
+
+    pub fn goto_prev_file(self: *Self, _: Ctx) Result {
+        self.menu.select_up();
+        self.menu.activate_selected();
+    }
+
+    pub fn goto_next_file(self: *Self, _: Ctx) Result {
+        self.menu.select_down();
+        self.menu.activate_selected();
+    }
+};
