@@ -151,6 +151,33 @@ test "line_len" {
     try std.testing.expectEqual(try buffer.root.line_width(1, metrics()), 5);
 }
 
+test "get_byte_pos" {
+    const doc: []const u8 =
+        \\All your
+        \\ropes
+        \\are belong to
+        \\us!
+        \\All your
+        \\ropes
+        \\are belong to
+        \\us!
+        \\All your
+        \\ropes
+        \\are belong to
+        \\us!
+    ;
+    const buffer = try Buffer.create(a);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string(doc));
+
+    try std.testing.expectEqual(0, try buffer.root.get_byte_pos(.{ .row = 0, .col = 0 }, metrics()));
+    try std.testing.expectEqual(9, try buffer.root.get_byte_pos(.{ .row = 1, .col = 0 }, metrics()));
+    try std.testing.expectEqual(11, try buffer.root.get_byte_pos(.{ .row = 1, .col = 2 }, metrics()));
+    try std.testing.expectEqual(33, try buffer.root.get_byte_pos(.{ .row = 4, .col = 0 }, metrics()));
+    try std.testing.expectEqual(66, try buffer.root.get_byte_pos(.{ .row = 8, .col = 0 }, metrics()));
+    try std.testing.expectEqual(97, try buffer.root.get_byte_pos(.{ .row = 11, .col = 2 }, metrics()));
+}
+
 test "del_chars" {
     const doc: []const u8 =
         \\All your

@@ -585,9 +585,10 @@ const Node = union(enum) {
         var ctx: Ctx = .{ .sel = sel, .out = copy_buf };
         ctx.sel.normalize();
         if (ctx.sel.begin.eql(ctx.sel.end))
-            return error.Stop;
+            return if (copy_buf) |_| "" else null;
         self.walk_egc_forward(ctx.sel.begin.row, Ctx.walker, &ctx, metrics_) catch |e| return switch (e) {
             error.NoSpaceLeft => error.NoSpaceLeft,
+            error.Stop => if (copy_buf) |buf_| buf_[0..ctx.bytes] else null,
             else => error.Stop,
         };
         if (size) |p| p.* = ctx.bytes;
@@ -599,7 +600,7 @@ const Node = union(enum) {
         var end: Cursor = .{};
         end.move_buffer_end(self, metrics);
         const result = self.get_range(.{ .begin = start, .end = end }, result_buf, null, null, metrics) catch |e| switch (e) {
-            error.NoSpaceLeft => result_buf[0..],
+            error.NoSpaceLeft => result_buf,
             else => @panic("buffer overflow in get_from_start_pos"),
         };
         return result orelse "";
@@ -933,6 +934,55 @@ const Node = union(enum) {
         };
         defer a.free(ctx.buf);
         return self.store(ctx.writer());
+    }
+
+    pub fn get_byte_pos(self: *const Node, pos_: Cursor, metrics_: Metrics) !usize {
+        const Ctx = struct {
+            line: usize = 0,
+            abs_col: usize = 0,
+            pos: Cursor,
+            byte_pos: usize = 0,
+            metrics: Metrics,
+            const Ctx = @This();
+            const Writer = std.io.Writer(*Ctx, error{Stop}, write);
+            fn write(ctx: *Ctx, bytes: []const u8) error{Stop}!usize {
+                if (ctx.line >= ctx.pos.row) {
+                    return ctx.get_col_bytes(bytes, bytes.len);
+                } else for (bytes, 1..) |char, i| {
+                    ctx.byte_pos += 1;
+                    if (char == '\n') {
+                        ctx.line += 1;
+                        if (ctx.line >= ctx.pos.row)
+                            return ctx.get_col_bytes(bytes[i..], bytes.len);
+                    }
+                }
+                return bytes.len;
+            }
+            fn get_col_bytes(ctx: *Ctx, bytes: []const u8, result: usize) error{Stop}!usize {
+                var buf: []const u8 = bytes;
+                while (buf.len > 0) {
+                    if (ctx.abs_col >= ctx.pos.col) return error.Stop;
+                    if (buf[0] == '\n') return error.Stop;
+                    var cols: c_int = undefined;
+                    const egc_bytes = ctx.metrics.egc_length(ctx.metrics.ctx, buf, &cols, ctx.abs_col);
+                    ctx.abs_col += @intCast(cols);
+                    ctx.byte_pos += egc_bytes;
+                    buf = buf[egc_bytes..];
+                }
+                return result;
+            }
+            fn writer(ctx: *Ctx) Writer {
+                return .{ .context = ctx };
+            }
+        };
+        var ctx: Ctx = .{
+            .pos = pos_,
+            .metrics = metrics_,
+        };
+        self.store(ctx.writer()) catch |e| switch (e) {
+            error.Stop => return ctx.byte_pos,
+        };
+        return error.NotFound;
     }
 
     pub fn debug_render_chunks(self: *const Node, line: usize, output: *ArrayList(u8), metrics_: Metrics) !void {

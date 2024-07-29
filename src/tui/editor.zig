@@ -1440,8 +1440,7 @@ pub const Editor = struct {
             match.nudge_insert(nudge);
         if (self.syntax) |syn| {
             const root = self.buf_root() catch return;
-            var start_byte: usize = 0;
-            _ = root.get_range(.{ .begin = .{}, .end = nudge.begin }, null, &start_byte, null, self.plane.metrics()) catch return;
+            const start_byte = root.get_byte_pos(nudge.begin, self.plane.metrics()) catch return;
             syn.edit(.{
                 .start_byte = @intCast(start_byte),
                 .old_end_byte = @intCast(start_byte),
@@ -1454,7 +1453,6 @@ pub const Editor = struct {
     }
 
     fn nudge_delete(self: *Self, nudge: Selection, exclude: *const CurSel, size: usize) void {
-        _ = size;
         for (self.cursels.items, 0..) |*cursel_, i| if (cursel_.*) |*cursel|
             if (cursel != exclude)
                 if (!cursel.nudge_delete(nudge)) {
@@ -1464,7 +1462,18 @@ pub const Editor = struct {
             if (!match.nudge_delete(nudge)) {
                 self.matches.items[i] = null;
             };
-        self.reset_syntax();
+        if (self.syntax) |syn| {
+            const root = self.buf_root() catch return;
+            const start_byte = root.get_byte_pos(nudge.begin, self.plane.metrics()) catch return;
+            syn.edit(.{
+                .start_byte = @intCast(start_byte),
+                .old_end_byte = @intCast(start_byte + size),
+                .new_end_byte = @intCast(start_byte),
+                .start_point = .{ .row = @intCast(nudge.begin.row), .column = @intCast(nudge.begin.col) },
+                .old_end_point = .{ .row = @intCast(nudge.end.row), .column = @intCast(nudge.end.col) },
+                .new_end_point = .{ .row = @intCast(nudge.begin.row), .column = @intCast(nudge.begin.col) },
+            });
+        }
     }
 
     fn delete_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
@@ -2454,7 +2463,6 @@ pub const Editor = struct {
     }
 
     pub fn indent(self: *Self, _: Context) Result {
-        defer self.reset_syntax();
         const b = try self.buf_for_update();
         const root = try self.with_cursels_mut(b.root, indent_cursel, b.a);
         try self.update_buf(root);
@@ -2495,7 +2503,6 @@ pub const Editor = struct {
     }
 
     pub fn unindent(self: *Self, _: Context) Result {
-        defer self.reset_syntax();
         const b = try self.buf_for_update();
         const root = try self.with_cursels_mut(b.root, unindent_cursel, b.a);
         try self.update_buf(root);
@@ -2902,18 +2909,21 @@ pub const Editor = struct {
         const token = @intFromPtr(root);
         if (self.syntax_token == token)
             return;
-        var content = std.ArrayList(u8).init(self.a);
-        defer content.deinit();
-        try root.store(content.writer());
         if (self.syntax) |syn| {
-            try if (self.syntax_refresh_full)
-                syn.refresh_full(content.items)
-            else
-                syn.refresh(content.items);
-                // syn.refresh_from_buffer(root, self.plane.metrics()); // TODO: partial refresh from buffer when treez PR is merged and flow-syntax is updated
-            self.syntax_refresh_full = false;
+            if (self.syntax_refresh_full) {
+                var content = std.ArrayList(u8).init(self.a);
+                defer content.deinit();
+                try root.store(content.writer());
+                try syn.refresh_full(content.items);
+                self.syntax_refresh_full = false;
+            } else {
+                try syn.refresh_from_buffer(root, self.plane.metrics());
+            }
             self.syntax_token = token;
         } else {
+            var content = std.ArrayList(u8).init(self.a);
+            defer content.deinit();
+            try root.store(content.writer());
             self.syntax = syntax.create_guess_file_type(self.a, content.items, self.file_path) catch |e| switch (e) {
                 error.NotFound => null,
                 else => return e,
