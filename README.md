@@ -118,7 +118,7 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 - tree sitter based syntax highlighting
 - linting (diagnostics) and code navigation (goto definition) via language server
 - multi cursor editing support
-- first class mouse support (yes, even with a scrollbar that actually works properly!) (no mouse support on Windows yet)
+- first class mouse support (yes, even with a scrollbar that actually works properly!) (Windows included)
 - vscode compatible keybindings (thanks to kitty keyboard protocol)
 - vim compatible keybindings (the standard vimtutor bindings, more on request)
 - excellent unicode support including 2027 mode
