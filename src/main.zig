@@ -41,6 +41,7 @@ pub fn main() anyerror!void {
         \\--show-log               Open the log view on start.
         \\-l, --language <lang>    Force the language of the file to be opened.
         \\--list-languages         Show available languages.
+        \\-e, --exec <command>...  Execute a command on startup.
         \\-v, --version            Show build version and exit.
         \\<file>...                File or directory to open.
         \\                         Add +<LINE> to the command line or append
@@ -60,6 +61,7 @@ pub fn main() anyerror!void {
         .num = clap.parsers.int(usize, 10),
         .lang = clap.parsers.string,
         .file = clap.parsers.string,
+        .command = clap.parsers.string,
     };
 
     var diag = clap.Diagnostic{};
@@ -241,6 +243,9 @@ pub fn main() anyerror!void {
             try tui_proc.send(.{ "cmd", "open_project_cwd" });
         try tui_proc.send(.{ "cmd", "show_home" });
     }
+
+    for (res.args.exec) |cmd| try tui_proc.send(.{ "cmd", cmd, .{} });
+
     ctx.run();
 
     if (want_restart) restart();
