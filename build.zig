@@ -83,6 +83,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = dependency_optimize,
     });
+    const syntax_mod = syntax_dep.module("syntax");
 
     const thespian_dep = b.dependency("thespian", .{
         .target = target,
@@ -158,7 +159,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "tracy", .module = tracy_mod },
-            .{ .name = "syntax", .module = syntax_dep.module("syntax") },
+            .{ .name = "syntax", .module = syntax_mod },
             .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
             .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
         },
@@ -191,7 +192,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "log", .module = log_mod },
             .{ .name = "location_history", .module = location_history_mod },
             .{ .name = "project_manager", .module = project_manager_mod },
-            .{ .name = "syntax", .module = syntax_dep.module("syntax") },
+            .{ .name = "syntax", .module = syntax_mod },
             .{ .name = "text_manip", .module = text_manip_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "ripgrep", .module = ripgrep_mod },
@@ -225,6 +226,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("log", log_mod);
     exe.root_module.addImport("tracy", tracy_mod);
     exe.root_module.addImport("renderer", renderer_mod);
+    exe.root_module.addImport("syntax", syntax_mod);
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     b.installArtifact(exe);
 
@@ -255,6 +257,7 @@ pub fn build(b: *std.Build) void {
     check_exe.root_module.addImport("log", log_mod);
     check_exe.root_module.addImport("tracy", tracy_mod);
     check_exe.root_module.addImport("renderer", renderer_mod);
+    check_exe.root_module.addImport("syntax", syntax_mod);
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     const check = b.step("check", "Check the app");
     check.dependOn(&check_exe.step);

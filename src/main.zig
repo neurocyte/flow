@@ -4,6 +4,8 @@ const thespian = @import("thespian");
 const clap = @import("clap");
 const builtin = @import("builtin");
 
+const list_languages = @import("list_languages.zig");
+
 const c = @cImport({
     @cInclude("locale.h");
 });
@@ -38,6 +40,7 @@ pub fn main() anyerror!void {
         \\--show-input             Open the input view on start.
         \\--show-log               Open the log view on start.
         \\-l, --language <lang>    Force the language of the file to be opened.
+        \\--list-languages         Show available languages.
         \\-v, --version            Show build version and exit.
         \\<file>...                File or directory to open.
         \\                         Add +<LINE> to the command line or append
@@ -76,6 +79,9 @@ pub fn main() anyerror!void {
 
     if (res.args.version != 0)
         return std.io.getStdOut().writeAll(@embedFile("version_info"));
+
+    if (res.args.@"list-languages" != 0)
+        return list_languages.list(std.io.getStdOut().writer());
 
     if (builtin.os.tag != .windows)
         if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();
