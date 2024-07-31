@@ -3,6 +3,7 @@
     .version = "0.1.0",
 
     .dependencies = .{
+        .syntax = .{ .path = "src/syntax" },
         .clap = .{
             .url = "https://github.com/Hejsil/zig-clap/archive/c0193e9247335a6c1688b946325060289405de2a.tar.gz",
             .hash = "12207ee987ce045596cb992cfb15b0d6d9456e50d4721c3061c69dabc2962053644d",
@@ -22,10 +23,6 @@
         .themes = .{
             .url = "https://github.com/neurocyte/flow-themes/releases/download/master-15e8cad1619429bf2547a6819b5b999510d5c1e5/flow-themes.tar.gz",
             .hash = "1220906d82deb37573207c5d365edb6b58a0b1b3e4ef68902019a23a0eb5e5a34298",
-        },
-        .syntax = .{
-            .url = "https://github.com/neurocyte/flow-syntax/archive/3619572ed88841cd2106c141c0baacfcb8496023.tar.gz",
-            .hash = "12206cb26ee5b770ed71ffc230be94bb229de4ed23ca35497ea94770d9bb793f77c6",
         },
         .fuzzig = .{
             .url = "https://github.com/fjebaker/fuzzig/archive/0fd156d5097365151e85a85eef9d8cf0eebe7b00.tar.gz",
