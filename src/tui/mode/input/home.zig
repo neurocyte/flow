@@ -56,7 +56,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
             'F' => self.sheeran(),
-            'J' => self.cmd("toggle_logview", .{}),
+            'J' => self.cmd("toggle_panel", .{}),
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("quit", .{}),
             'O' => self.cmd("enter_open_file_mode", .{}),
@@ -70,7 +70,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'Q' => self.cmd("quit_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
             'F' => self.cmd("enter_find_in_files_mode", .{}),
-            'L' => self.cmd_async("toggle_logview"),
+            'L' => self.cmd_async("toggle_panel"),
             'I' => self.cmd_async("toggle_inputview"),
             '/' => self.cmd("open_help", .{}),
             else => {},
@@ -80,7 +80,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.ALT => switch (keynormal) {
-            'L' => self.cmd("toggle_logview", .{}),
+            'L' => self.cmd("toggle_panel", .{}),
             'I' => self.cmd("toggle_inputview", .{}),
             key.LEFT => self.cmd("jump_back", .{}),
             key.RIGHT => self.cmd("jump_forward", .{}),
@@ -99,7 +99,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             key.F06 => self.cmd("open_config", .{}),
             key.F09 => self.cmd("theme_prev", .{}),
             key.F10 => self.cmd("theme_next", .{}),
-            key.F11 => self.cmd("toggle_logview", .{}),
+            key.F11 => self.cmd("toggle_panel", .{}),
             key.F12 => self.cmd("toggle_inputview", .{}),
             key.UP => self.cmd("home_menu_up", .{}),
             key.DOWN => self.cmd("home_menu_down", .{}),
@@ -148,5 +148,5 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "theme_next", "F10" },
     .{ "theme_prev", "F9" },
     .{ "toggle_inputview", "F12, A-i, C-S-i" },
-    .{ "toggle_logview", "F11, C-j, A-l, C-S-l" },
+    .{ "toggle_panel", "F11, C-j, A-l, C-S-l" },
 });

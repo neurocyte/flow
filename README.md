@@ -6,36 +6,22 @@ and is my daily driver for most things coding related.
 https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f2d4c6
 
 # Requirements
-- A modern terminal with 24bit color and kitty keyboard protocol support. Kitty, Foot
-    and Ghostty are the only recommended terminals at this time. Most other terminals
+- A modern terminal with 24bit color and, ideally, kitty keyboard protocol support. Kitty,
+    Foot and Ghostty are the only recommended terminals at this time. Most other terminals
     will work, but with reduced functionality.
-- NerdFonts support
-- Linux, MacOS, (somewhat experimental) Windows, Android (Termux) or FreeBSD. Other BSDs
-    probably work too, but nobody has tried it yet.
-- A UTF-8 locale (very important!)
+- NerdFont support. Either via terminal font fallback or a patched font.
+- Linux, MacOS, Windows, Android (Termux) or FreeBSD.
+- A UTF-8 locale
 
 # Building
 
 Make sure your system meets the requirements listed above.
 
-Flow tracks zig master most of the time. Build with:
+Flow builds with zig 0.13 at this time. Build with:
 
 ```shell
 zig build -Doptimize=ReleaseFast
 ```
-
-Sometimes zig master may introduce breaking changes and Flow may take a few days to
-catch up. In that case there is a simple zig wrapper script provided that will download
-and build with the last known compatible version of zig. The version is stored in
-`build.zig.version`.
-
-Build with the zig wrapper:
-```shell
-./zig build -Doptimize=ReleaseFast
-```
-
-The zig wrapper places the downloaded zig compiler in the `.cache` directory and does
-not touch your system. It requires `bash`, `curl` and `jq` to run.
 
 Thanks to Zig you may also cross-compile from any host to pretty much any
 target. For example:
@@ -48,7 +34,7 @@ zig build -Doptimize=ReleaseFast -Dtarget=aarch64-linux-musl --prefix zig-out/aa
 
 # Running Flow Control
 
-The output binary is:
+The binary is:
 
 ```shell
 zig-out/bin/flow
@@ -60,7 +46,13 @@ Place it in your path for convenient access:
 sudo cp zig-out/bin/flow /usr/local/bin
 ```
 
-Flow Control is a single statically linked binary. No further runtime is required.
+Or if you prefer, let zig install it in your home directory:
+
+```shell
+zig build -Doptimize=ReleaseFast --prefix ~/.local
+```
+
+Flow Control is a single statically linked binary. No further runtime files are required.
 You may install it on another system by simply copying the binary.
 
 ```shell
@@ -68,17 +60,21 @@ scp zig-out/bin/flow root@otherhost:/usr/local/bin
 ```
 
 Configuration is mostly dynamically maintained with various commands in the UI.
-It stored under the standard user configuration path. Usually `~/.config/flow`.
-(%APPDATA%\Roaming\flow on Windows)
+It is stored under the standard user configuration path. Usually `~/.config/flow`
+on Linux. %APPDATA%\Roaming\flow on Windows. Somewhere magical on MacOS
 
 Logs, traces and per-project most recently used file lists are stored in the
-standard user runtime cache directory. Usually `~/.cache/flow`.
+standard user application state directory. Usually `~/.local/state/flow` on
+Linux and %APPDATA%\Roaming\flow on Windows.
 
 Files to load may be specifed on the command line:
 
 ```shell
 flow fileA.zig fileB.zig
 ```
+
+The last file will be opened and the previous files will be placed in reverse
+order at the top of the recent files list. Switch to recent files with Ctrl-e.
 
 Common target line specifiers are supported too:
 
@@ -97,6 +93,8 @@ Use the --language option to force the file type of a file:
 ```shell
 flow --language bash ~/.bash_profile
 ```
+
+Show supported language names with `--list-languages`.
 
 See `flow --help` for the full list of command line options.
 
@@ -126,11 +124,11 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 - theme support (compatible with vscode themes via the flow-themes project)
 - infinite undo/redo (at least until you run out of ram)
 - stuff I've forgotten to mention...
+- find in files
+- command palette
 
 # Features in progress (aka, the road to 1.0)
 - completion UI/LSP support for completion
-- find in files
-- command palette
 - persistent undo/redo
 - file watcher for auto reload
 

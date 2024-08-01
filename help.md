@@ -30,8 +30,7 @@ settings) is persisted in the configuration file automatically.
 
 - F2 => Cycle major input modes (flow, vim, ...)
 
-The current input mode Input mode is displayed in the `modestatus`
-widget at the left side of the statusbar.
+The current input mode is displayed in the at the left side of the statusbar.
 
 ## Flow mode
 
@@ -70,15 +69,15 @@ cycle style of editing.
 - Ctrl-t, Ctrl-b =>
         Enter move to next/previous character mode
 
-- Ctrl-n, Ctrl-p, F3, Shift-F3, Alt-n, Alt-p =>
+- Ctrl-n, Ctrl-p, F3, Shift-F3 =>
         Goto next/previous match
 
 - Ctrl-l =>
-        Scroll cursor to center of screen, cycle cursor to
-        top/bottom of screen
+        Scroll cursor to center of screen. Press again to cycle the cursor to
+        the top/bottom/center of the screen
 
 - MouseLeft =>
-        Clear all cursors and selections and place cursor at mouse pointer
+        Clear all cursors and selections and the place cursor at the mouse pointer
 
 - MouseWheel =>
         Scroll
@@ -116,7 +115,7 @@ cycle style of editing.
         Select word under cursor, or add cursor at next match
         (see Multi Cursor Commands)
 
-- Ctrl-Space =>
+- Ctrl-Shift-Space =>
         Reverse selection direction
 
 - Double-MouseLeft =>
@@ -204,6 +203,9 @@ cycle style of editing.
 - Alt-Shift-f =>
         Reformat file or selection
 
+- Alt-u, Alt-l =>
+        Convert the selection or word at cursor to upper/lower case
+
 ### File Commands
 
 - Ctrl-s =>
@@ -213,13 +215,7 @@ cycle style of editing.
         Open file
 
 - Ctrl-e =>
-        Open recent file, repeat for quick select
-
-- Ctrl-q =>
-        Exit
-
-- Ctrl-q =>
-        Exit
+        Open recent file. Repeat for quick select
 
 - Ctrl-q =>
         Exit
@@ -247,7 +243,8 @@ cycle style of editing.
 ### Language Server Commands
 
 - Alt-n, Alt-p
-        Goto next/previous diagnostic
+        Goto the next/previous diagnostic, or if the matching files list is open,
+        goto the next/previous matching file position.
 
 - F12 =>
         Goto definition of symbol at cursor
@@ -266,8 +263,8 @@ cycle style of editing.
 - F7 =>
         Dump current line to log view
 
-- F11, Ctrl-J, Alt-l =>
-        Toggle log view
+- F11, Ctrl-J =>
+        Toggle panel view (defaults to log view)
 
 - Ctrl-Shift-/ =>
         Dump current widget tree to log view

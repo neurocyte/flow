@@ -95,7 +95,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'O' => self.cmd("jump_back", .{}),
             'I' => self.cmd("jump_forward", .{}),
 
-            'J' => self.cmd("toggle_logview", .{}),
+            'J' => self.cmd("toggle_panel", .{}),
             'Z' => self.cmd("undo", .{}),
             'Y' => self.cmd("redo", .{}),
             'Q' => self.cmd("quit", .{}),
@@ -219,7 +219,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.F07 => self.cmd("dump_current_line", .{}),
             key.F09 => self.cmd("theme_prev", .{}),
             key.F10 => self.cmd("theme_next", .{}),
-            key.F11 => self.cmd("toggle_logview", .{}),
+            key.F11 => self.cmd("toggle_panel", .{}),
             key.F12 => self.cmd("goto_definition", .{}),
             key.F34 => self.cmd("toggle_whitespace", .{}), // C-F10
             key.F58 => self.cmd("gutter_mode_next", .{}), // A-F10
@@ -555,7 +555,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "toggle_input_mode", "F2" },
     .{ "toggle_inputview", "A-i" },
     .{ "toggle_inspector_view", "F5, C-F5, C-S-i" },
-    .{ "toggle_logview", "C-j, F11" },
+    .{ "toggle_panel", "C-j, F11" },
     .{ "toggle_whitespace", "C-F10" },
     .{ "to_lower", "A-l" },
     .{ "to_upper", "A-u" },

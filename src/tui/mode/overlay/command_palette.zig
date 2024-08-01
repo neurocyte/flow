@@ -209,7 +209,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
-            'J' => self.cmd("toggle_logview", .{}),
+            'J' => self.cmd("toggle_panel", .{}),
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("close_file", .{}),
             'P' => self.cmd("command_palette_menu_up", .{}),
@@ -231,7 +231,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'Q' => self.cmd("quit_without_saving", .{}),
             'W' => self.cmd("close_file_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
-            'L' => self.cmd_async("toggle_logview"),
+            'L' => self.cmd_async("toggle_panel"),
             'I' => self.cmd_async("toggle_inputview"),
             else => {},
         },
@@ -241,7 +241,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         },
         mod.ALT => switch (keynormal) {
             'P' => self.cmd("command_palette_menu_up", .{}),
-            'L' => self.cmd("toggle_logview", .{}),
+            'L' => self.cmd("toggle_panel", .{}),
             'I' => self.cmd("toggle_inputview", .{}),
             else => {},
         },
@@ -253,7 +253,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         0 => switch (keypress) {
             key.F09 => self.cmd("theme_prev", .{}),
             key.F10 => self.cmd("theme_next", .{}),
-            key.F11 => self.cmd("toggle_logview", .{}),
+            key.F11 => self.cmd("toggle_panel", .{}),
             key.F12 => self.cmd("toggle_inputview", .{}),
             key.ESC => self.cmd("exit_overlay_mode", .{}),
             key.UP => self.cmd("command_palette_menu_up", .{}),
