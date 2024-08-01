@@ -123,9 +123,9 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 - hybrid rope/piece-table buffer for fast loading, saving and editing with hundreds of cursors
 - theme support (compatible with vscode themes via the flow-themes project)
 - infinite undo/redo (at least until you run out of ram)
-- stuff I've forgotten to mention...
 - find in files
 - command palette
+- stuff I've forgotten to mention...
 
 # Features in progress (aka, the road to 1.0)
 - completion UI/LSP support for completion
@@ -134,8 +134,8 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 
 # Features planned for the future
 - multi tty support (shared editor sessions across multiple ttys)
-- multi host editing
 - multi user editing
+- multi host editing
 
 # Community
 
