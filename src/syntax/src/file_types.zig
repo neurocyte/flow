@@ -310,7 +310,7 @@ pub const @"ssh-config" = .{
 };
 
 pub const toml = .{
-    .extensions = .{"toml"},
+    .extensions = .{"toml","ini"},
     .comment = "#",
     .highlights = "tree-sitter-toml/queries/highlights.scm",
     .parser = @import("file_type.zig").Parser("toml"),
