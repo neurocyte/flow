@@ -13,6 +13,9 @@ const c = @cImport({
 const build_options = @import("build_options");
 const log = @import("log");
 
+pub var max_diff_lines: usize = 50000;
+pub var max_syntax_lines: usize = 50000;
+
 pub const application_name = "flow";
 pub const application_logo = "󱞏 ";
 

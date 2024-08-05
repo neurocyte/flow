@@ -10,6 +10,7 @@ const text_manip = @import("text_manip");
 const syntax = @import("syntax");
 const project_manager = @import("project_manager");
 const CaseData = @import("CaseData");
+const root_mod = @import("root");
 
 const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;
@@ -403,17 +404,21 @@ pub const Editor = struct {
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
 
-        var content = std.ArrayList(u8).init(self.a);
-        defer content.deinit();
-        try new_buf.root.store(content.writer());
         self.syntax = syntax: {
+            if (new_buf.root.lines() > root_mod.max_syntax_lines)
+                break :syntax null;
             const lang_override = tp.env.get().str("language");
-            if (lang_override.len > 0)
-                break :syntax syntax.create_file_type(self.a, content.items, lang_override) catch null;
-            break :syntax syntax.create_guess_file_type(self.a, content.items, self.file_path) catch null;
+            var content = std.ArrayList(u8).init(self.a);
+            defer content.deinit();
+            try new_buf.root.store(content.writer());
+            const syn = if (lang_override.len > 0)
+                syntax.create_file_type(self.a, content.items, lang_override) catch null
+            else
+                syntax.create_guess_file_type(self.a, content.items, self.file_path) catch null;
+            if (syn) |syn_|
+                project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch {};
+            break :syntax syn;
         };
-        if (self.syntax) |syn|
-            project_manager.did_open(file_path, syn.file_type, self.lsp_version, try content.toOwnedSlice()) catch {};
 
         const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
         const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";
@@ -2907,6 +2912,8 @@ pub const Editor = struct {
         defer frame.deinit();
         const root = try self.buf_root();
         const token = @intFromPtr(root);
+        if (root.lines() > root_mod.max_syntax_lines)
+            return;
         if (self.syntax_token == token)
             return;
         if (self.syntax) |syn| {

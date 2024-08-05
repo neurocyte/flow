@@ -28,6 +28,8 @@ arena: std.heap.ArenaAllocator,
 a: Allocator,
 external_a: Allocator,
 root: Root,
+leaves_buf: ?[]Node = null,
+file_buf: ?[]const u8 = null,
 file_path: []const u8 = "",
 last_save: ?Root = null,
 file_exists: bool = true,
@@ -1023,6 +1025,8 @@ pub fn create(a: Allocator) !*Self {
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.file_buf) |buf| self.external_a.free(buf);
+    if (self.leaves_buf) |buf| self.external_a.free(buf);
     self.arena.deinit();
     self.external_a.destroy(self);
 }
@@ -1034,8 +1038,10 @@ fn new_file(self: *const Self, file_exists: *bool) !Root {
 
 pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
     const eol = '\n';
-    var buf = try self.a.alloc(u8, size);
-    const read_size = try reader.read(buf);
+    var buf = try self.external_a.alloc(u8, size);
+    const self_ = @constCast(self);
+    self_.file_buf = buf;
+    const read_size = try reader.readAll(buf);
     if (read_size != size)
         return error.BufferUnderrun;
     const final_read = try reader.read(buf);
@@ -1047,7 +1053,8 @@ pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
         if (buf[i] == eol) leaf_count += 1;
     }
 
-    var leaves = try self.a.alloc(Node, leaf_count);
+    var leaves = try self.external_a.alloc(Node, leaf_count);
+    self_.leaves_buf = leaves;
     var cur_leaf: usize = 0;
     var b: usize = 0;
     for (0..buf.len) |i| {
