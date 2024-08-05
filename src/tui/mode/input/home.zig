@@ -80,6 +80,8 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             else => {},
         },
         mod.ALT => switch (keynormal) {
+            'N' => self.cmd("goto_next_file_or_diagnostic", .{}),
+            'P' => self.cmd("goto_prev_file_or_diagnostic", .{}),
             'L' => self.cmd("toggle_panel", .{}),
             'I' => self.cmd("toggle_inputview", .{}),
             key.LEFT => self.cmd("jump_back", .{}),
@@ -149,4 +151,6 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "theme_prev", "F9" },
     .{ "toggle_inputview", "F12, A-i, C-S-i" },
     .{ "toggle_panel", "F11, C-j, A-l, C-S-l" },
+    .{ "goto_next_file_or_diagnostic", "A-n" },
+    .{ "goto_prev_file_or_diagnostic", "A-p" },
 });
