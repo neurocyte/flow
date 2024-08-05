@@ -300,7 +300,7 @@ fn mouse_click_button5(_: *Self) error{Exit}!bool {
 }
 
 fn diff_update(self: *Self) !void {
-    if (self.lines > root.max_diff_lines) {
+    if (self.lines == 0 or self.lines > root.max_diff_lines) {
         self.diff_symbols_clear();
         return;
     }
