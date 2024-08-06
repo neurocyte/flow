@@ -257,6 +257,7 @@ pub const openscad = .{
     .extensions = .{"scad"},
     .comment = "//",
     .injections = "tree-sitter-openscad/queries/injections.scm",
+    .language_server = .{"openscad-lsp"},
 };
 
 pub const org = .{
