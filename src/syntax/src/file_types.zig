@@ -237,6 +237,8 @@ pub const ocaml = .{
     .icon = "",
     .extensions = .{ "ml", "mli" },
     .comment = "(*",
+    .formatter = .{ "ocamlformat", "--profile=ocamlformat", "-" },
+    .language_server = .{ "ocamllsp", "--fallback-read-dot-merlin" },
 };
 
 pub const openscad = .{
