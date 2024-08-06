@@ -74,6 +74,16 @@ pub const dtd = .{
     .highlights = "tree-sitter-xml/queries/dtd/highlights.scm",
 };
 
+pub const elixir = .{
+    .color = 0x4e2a8e,
+    .icon = "",
+    .extensions = .{ "ex", "exs" },
+    .comment = "#",
+    .injections = "tree-sitter-elixir/queries/injections.scm",
+    .formatter = .{ "mix", "format", "-" },
+    .language_server = .{"elixir-ls"},
+};
+
 pub const fish = .{
     .extensions = .{"fish"},
     .comment = "#",

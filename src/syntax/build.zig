@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) void {
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-css/queries/highlights.scm"),
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-diff/queries/highlights.scm"),
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-dockerfile/queries/highlights.scm"),
+            ts_queryfile(b, tree_sitter_dep, "tree-sitter-elixir/queries/highlights.scm"),
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-git-rebase/queries/highlights.scm"),
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-gitcommit/queries/highlights.scm"),
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-go/queries/highlights.scm"),
@@ -63,6 +64,7 @@ pub fn build(b: *std.Build) void {
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-ziggy/tree-sitter-ziggy-schema/queries/highlights.scm"),
 
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-cpp/queries/injections.scm"),
+            ts_queryfile(b, tree_sitter_dep, "tree-sitter-elixir/queries/injections.scm"),
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-gitcommit/queries/injections.scm"),
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-html/queries/injections.scm"),
             ts_queryfile(b, tree_sitter_dep, "tree-sitter-javascript/queries/injections.scm"),
