@@ -119,7 +119,7 @@ pub const haskell = .{
     .icon = "󰲒",
     .extensions = .{"hs"},
     .comment = "--",
-    .language_server = .{"haskell-language-server-wrapper", "lsp"},
+    .language_server = .{ "haskell-language-server-wrapper", "lsp" },
 };
 
 pub const html = .{
@@ -322,7 +322,7 @@ pub const @"ssh-config" = .{
 };
 
 pub const toml = .{
-    .extensions = .{"toml","ini"},
+    .extensions = .{ "toml", "ini" },
     .comment = "#",
     .highlights = "tree-sitter-toml/queries/highlights.scm",
     .parser = @import("file_type.zig").Parser("toml"),
@@ -347,7 +347,7 @@ pub const xml = .{
 pub const yaml = .{
     .color = 0x000000,
     .icon = "",
-    .extensions = .{"yaml", "yml"},
+    .extensions = .{ "yaml", "yml" },
     .comment = "#",
 };
 
