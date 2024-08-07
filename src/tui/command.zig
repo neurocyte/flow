@@ -124,8 +124,17 @@ pub fn get_id_cache(name: []const u8, id: *?ID) ?ID {
     return null;
 }
 
+const suppressed_errors = .{
+    "enable_fast_scroll",
+    "disable_fast_scroll",
+    "clear_diagnostics",
+};
+
 pub fn executeName(name: []const u8, ctx: Context) tp.result {
-    return execute(getId(name) orelse return tp.exit_fmt("CommandNotFound: {s}", .{name}), ctx);
+    const id = getId(name);
+    if (id) |id_| return execute(id_, ctx);
+    inline for (suppressed_errors) |err| if (std.mem.eql(u8, err, name)) return;
+    return tp.exit_fmt("CommandNotFound: {s}", .{name});
 }
 
 fn CmdDef(comptime T: type) type {
