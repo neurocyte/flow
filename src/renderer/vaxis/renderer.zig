@@ -103,8 +103,11 @@ pub fn run(self: *Self) !void {
 
     panic_cleanup = .{ .a = self.a, .tty = &self.tty, .vx = &self.vx };
     if (!self.no_alternate) try self.vx.enterAltScreen(self.tty.anyWriter());
-    try self.resize(.{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
-    try self.query_resize();
+    if (builtin.os.tag == .windows) {
+        try self.resize(.{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
+    } else {
+        try self.sigwinch();
+    }
     try self.vx.setBracketedPaste(self.tty.anyWriter(), true);
     try self.vx.queryTerminalSend(self.tty.anyWriter());
 
@@ -118,9 +121,9 @@ pub fn render(self: *Self) !void {
     try bufferedWriter.flush();
 }
 
-pub fn query_resize(self: *Self) !void {
-    if (builtin.os.tag != .windows)
-        try self.resize(try vaxis.Tty.getWinsize(self.input_fd_blocking()));
+pub fn sigwinch(self: *Self) !void {
+    if (builtin.os.tag == .windows or self.vx.state.in_band_resize) return;
+    try self.resize(try vaxis.Tty.getWinsize(self.input_fd_blocking()));
 }
 
 fn resize(self: *Self, ws: vaxis.Winsize) !void {
@@ -244,7 +247,13 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
         },
         .color_report => {},
         .color_scheme => {},
-        .winsize => |ws| try self.resize(ws),
+        .winsize => |ws| {
+            if (!self.vx.state.in_band_resize) {
+                self.vx.state.in_band_resize = true;
+                self.logger.print("in band resize capability detected", .{});
+            }
+            try self.resize(ws);
+        },
 
         .cap_unicode => {
             self.logger.print("unicode capability detected", .{});
@@ -463,11 +472,6 @@ const Loop = struct {
                 }
             },
             else => {
-                const winsize = try vaxis.Tty.getWinsize(self.tty.fd);
-                if (@hasField(Event, "winsize")) {
-                    self.postEvent(.{ .winsize = winsize });
-                }
-
                 var parser: vaxis.Parser = .{
                     .grapheme_data = &self.vaxis.unicode.grapheme_data,
                 };
@@ -497,8 +501,6 @@ const Loop = struct {
                         continue;
                     }
                     if (result.event) |event| {
-                        if (event == .winsize)
-                            self.vaxis.state.in_band_resize = true;
                         self.postEvent(event);
                     }
                     if (result.n < n) {

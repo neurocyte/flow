@@ -54,7 +54,7 @@ final_exit: []const u8 = "normal",
 render_pending: bool = false,
 keepalive_timer: ?tp.Cancellable = null,
 
-const keepalive = std.time.us_per_s * 60 * 60 * 24 * 356; // one year
+const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
 
 const init_delay = 1; // ms
@@ -233,7 +233,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (builtin.os.tag != .windows)
         if (try m.match(.{"sigwinch"})) {
             try self.listen_sigwinch();
-            self.rdr.query_resize() catch |e| return self.logger.err("query_resize", e);
+            self.rdr.sigwinch() catch |e| return self.logger.err("query_resize", e);
             return;
         };
 
