@@ -496,7 +496,11 @@ const Loop = struct {
                         need_read = true;
                         continue;
                     }
-                    if (result.event) |event| self.postEvent(event);
+                    if (result.event) |event| {
+                        if (event == .winsize)
+                            self.vaxis.state.in_band_resize = true;
+                        self.postEvent(event);
+                    }
                     if (result.n < n) {
                         const buf_move = try a.alloc(u8, buf.len);
                         @memcpy(buf_move[0 .. n - result.n], buf[result.n..n]);
