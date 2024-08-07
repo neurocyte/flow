@@ -110,7 +110,7 @@ fn add_find_in_files_result(self: *Self, path: []const u8, begin_line: usize, be
         self.find_in_files_done = false;
         fl.reset();
     }
-    fl.add_item(.{ .path = path, .begin_line = begin_line - 1, .begin_pos = begin_pos - 1, .end_line = end_line - 1, .end_pos = end_pos - 1, .lines = lines }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    fl.add_item(.{ .path = path, .begin_line = @max(1, begin_line) - 1, .begin_pos = @max(1, begin_pos) - 1, .end_line = @max(1, end_line) - 1, .end_pos = @max(1, end_pos) - 1, .lines = lines }) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 
 pub fn update(self: *Self) void {

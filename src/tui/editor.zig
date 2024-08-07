@@ -1026,9 +1026,9 @@ pub const Editor = struct {
                 for (sel.begin.row..sel.end.row + 1) |row| {
                     const begin_col = if (row == sel.begin.row) sel.begin.col else 0;
                     const end_col = if (row == sel.end.row) sel.end.col else ctx.self.view.col + ctx.self.view.cols;
-                    const y = row - ctx.self.view.row;
-                    const x = begin_col - ctx.self.view.col;
-                    const end_x = end_col - ctx.self.view.col;
+                    const y = @max(ctx.self.view.row, row) - ctx.self.view.row;
+                    const x = @max(ctx.self.view.col, begin_col) - ctx.self.view.col;
+                    const end_x = @max(ctx.self.view.col, end_col) - ctx.self.view.col;
                     if (x >= end_x) return;
                     for (x..end_x) |x_|
                         try ctx.render_cell(y, x_, style);

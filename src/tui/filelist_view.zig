@@ -174,7 +174,7 @@ fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.Sta
             entry.end_line + 1,
             entry.end_pos + 2,
             entry.begin_line,
-            entry.begin_pos + 1,
+            if (entry.begin_pos == 0) 0 else entry.begin_pos + 1,
             entry.end_line,
             entry.end_pos + 1,
         },
