@@ -2028,7 +2028,8 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    pub fn system_paste(_: *Self, _: Context) Result {
+    pub fn system_paste(self: *Self, _: Context) Result {
+        if (builtin.os.tag == .windows) return self.paste(.{});
         tui.current().rdr.request_system_clipboard();
     }
 
