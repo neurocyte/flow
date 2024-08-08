@@ -439,7 +439,8 @@ fn navigate_to_location_link(_: *Self, from: tp.pid_ref, location_link: []const 
     if (targetUri == null or targetRange == null) return error.InvalidMessageField;
     if (!std.mem.eql(u8, targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
     var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const file_path = std.Uri.percentDecodeBackwards(&file_path_buf, targetUri.?[7..]);
+    var file_path = std.Uri.percentDecodeBackwards(&file_path_buf, targetUri.?[7..]);
+    if (builtin.os.tag == .windows and file_path[0] == '/') file_path = file_path[1..];
     if (targetSelectionRange) |sel| {
         try from.send(.{ "cmd", "navigate", .{
             .file = file_path,
