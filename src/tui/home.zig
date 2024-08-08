@@ -157,6 +157,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(7, 6) catch return false;
         _ = self.plane.print(subtext, .{}) catch {};
+        self.plane.set_style(theme.editor);
 
         self.menu.resize(.{ .y = 9, .x = 8, .w = 32 });
     } else {
@@ -167,6 +168,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(3, 6) catch return false;
         _ = self.plane.print(subtext, .{}) catch {};
+        self.plane.set_style(theme.editor);
 
         const x = @min(self.plane.dim_x() -| 32, 8);
         self.menu.resize(.{ .y = 5, .x = x, .w = 32 });
