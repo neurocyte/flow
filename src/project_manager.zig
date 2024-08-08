@@ -401,13 +401,14 @@ const Process = struct {
             error.PathAlreadyExists => {},
             else => return e,
         };
-        var pos: usize = 0;
-        while (std.mem.indexOfScalarPos(u8, path, pos, std.fs.path.sep)) |next| {
-            _ = try writer.write(path[pos..next]);
-            _ = try writer.write("__");
-            pos = next + 1;
+        for (path) |c| {
+            _ = if (std.fs.path.isSep(c))
+                try writer.write("__")
+            else if (c == ':')
+                try writer.write("___")
+            else
+                try writer.writeByte(c);
         }
-        _ = try writer.write(path[pos..]);
         return stream.toOwnedSlice();
     }
 };
