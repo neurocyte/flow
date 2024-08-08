@@ -119,7 +119,7 @@ fn make_URI(self: *Self, file_path: ?[]const u8) ![]const u8 {
         if (std.fs.path.isAbsolute(path)) {
             try buf.writer().print("file://{s}", .{path});
         } else {
-            try buf.writer().print("file://{s}/{s}", .{ self.name, path });
+            try buf.writer().print("file://{s}{c}{s}", .{ self.name, std.fs.path.sep, path });
         }
     } else try buf.writer().print("file://{s}", .{self.name});
     return buf.toOwnedSlice();
