@@ -1996,7 +1996,7 @@ pub const Editor = struct {
 
     pub fn paste(self: *Self, ctx: Context) Result {
         var text: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&text)})) {
+        if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
             if (self.clipboard) |text_| text = text_ else return;
         }
         self.logger.print("paste: {d} bytes", .{text.len});
