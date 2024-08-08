@@ -171,9 +171,8 @@ fn process_project_manager(self: *Self, m: tp.message) !void {
     var file_name: []const u8 = undefined;
     var matches: []const u8 = undefined;
     var query: []const u8 = undefined;
-    if (try m.match(.{ "PRJ", "recent", tp.extract(&file_name), tp.extract_cbor(&matches) })) {
+    if (try m.match(.{ "PRJ", "recent", tp.extract(&self.longest), tp.extract(&file_name), tp.extract_cbor(&matches) })) {
         if (self.need_reset) self.reset_results();
-        self.longest = @max(self.longest, file_name.len);
         try self.add_item(file_name, matches);
         self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
         if (self.need_select_first) {
@@ -181,9 +180,8 @@ fn process_project_manager(self: *Self, m: tp.message) !void {
             self.need_select_first = false;
         }
         tui.need_render();
-    } else if (try m.match(.{ "PRJ", "recent", tp.extract(&file_name) })) {
+    } else if (try m.match(.{ "PRJ", "recent", tp.extract(&self.longest), tp.extract(&file_name) })) {
         if (self.need_reset) self.reset_results();
-        self.longest = @max(self.longest, file_name.len);
         try self.add_item(file_name, null);
         self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
         if (self.need_select_first) {
@@ -191,7 +189,7 @@ fn process_project_manager(self: *Self, m: tp.message) !void {
             self.need_select_first = false;
         }
         tui.need_render();
-    } else if (try m.match(.{ "PRJ", "recent_done", tp.extract(&query) })) {
+    } else if (try m.match(.{ "PRJ", "recent_done", tp.extract(&self.longest), tp.extract(&query) })) {
         self.query_pending = false;
         self.need_reset = true;
         if (!std.mem.eql(u8, self.inputbox.text.items, query))
@@ -290,7 +288,6 @@ fn mapRelease(self: *Self, keypress: u32, _: u32) !void {
 }
 
 fn reset_results(self: *Self) void {
-    self.longest = 0;
     self.need_reset = false;
     self.menu.reset_items();
     self.menu.selected = null;

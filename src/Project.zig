@@ -14,6 +14,7 @@ a: std.mem.Allocator,
 name: []const u8,
 files: std.ArrayList(File),
 pending: std.ArrayList(File),
+longest_file_path: usize = 0,
 open_time: i64,
 language_servers: std.StringHashMap(LSP),
 file_language_server: std.StringHashMap(LSP),
@@ -82,6 +83,7 @@ pub fn restore_state(self: *Self, data: []const u8) !void {
         error.CborTooShort => return,
         else => return e,
     }) {
+        self.longest_file_path = @max(self.longest_file_path, path.len);
         try self.update_mru_internal(path, mtime, row, col);
     }
 }
@@ -133,16 +135,16 @@ pub fn sort_files_by_mtime(self: *Self) void {
 }
 
 pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) error{ OutOfMemory, Exit }!void {
-    defer from.send(.{ "PRJ", "recent_done", "" }) catch {};
+    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, "" }) catch {};
     for (self.files.items, 0..) |file, i| {
-        try from.send(.{ "PRJ", "recent", file.path });
+        try from.send(.{ "PRJ", "recent", self.longest_file_path, file.path });
         if (i >= max) return;
     }
 }
 
 fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{ OutOfMemory, Exit }!usize {
     var i: usize = 0;
-    defer from.send(.{ "PRJ", "recent_done", query }) catch {};
+    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query }) catch {};
     for (self.files.items) |file| {
         if (file.path.len < query.len) continue;
         if (std.mem.indexOf(u8, file.path, query)) |idx| {
@@ -150,7 +152,7 @@ fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: [
             defer self.a.free(matches);
             var n: usize = 0;
             while (n < query.len) : (n += 1) matches[n] = idx + n;
-            try from.send(.{ "PRJ", "recent", file.path, matches });
+            try from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, matches });
             i += 1;
             if (i >= max) return i;
         }
@@ -161,7 +163,7 @@ fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: [
 pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) error{ OutOfMemory, Exit }!usize {
     if (query.len < 3)
         return self.simple_query_recent_files(from, max, query);
-    defer from.send(.{ "PRJ", "recent_done", query }) catch {};
+    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query }) catch {};
 
     var searcher = try fuzzig.Ascii.init(
         self.a,
@@ -198,11 +200,12 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
     std.mem.sort(Match, matches.items, {}, less_fn);
 
     for (matches.items[0..@min(max, matches.items.len)]) |match|
-        try from.send(.{ "PRJ", "recent", match.path, match.matches });
+        try from.send(.{ "PRJ", "recent", self.longest_file_path, match.path, match.matches });
     return @min(max, matches.items.len);
 }
 
 pub fn add_pending_file(self: *Self, file_path: []const u8, mtime: i128) error{OutOfMemory}!void {
+    self.longest_file_path = @max(self.longest_file_path, file_path.len);
     (try self.pending.addOne()).* = .{ .path = try self.a.dupe(u8, file_path), .mtime = mtime };
 }
 
