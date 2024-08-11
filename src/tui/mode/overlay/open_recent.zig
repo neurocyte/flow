@@ -10,6 +10,7 @@ const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
+const project_manager = @import("project_manager");
 
 const tui = @import("../../tui.zig");
 const command = @import("../../command.zig");
@@ -20,7 +21,6 @@ const InputBox = @import("../../InputBox.zig");
 const Menu = @import("../../Menu.zig");
 const Widget = @import("../../Widget.zig");
 const mainview = @import("../../mainview.zig");
-const project_manager = @import("project_manager");
 
 const Self = @This();
 const max_recent_files: usize = 25;
@@ -101,7 +101,7 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
         file_path = "#ERROR#";
     button.plane.set_style(style_keybind);
     const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s}", .{ pointer }) catch {};
+    _ = button.plane.print("{s}", .{pointer}) catch {};
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var removed_prefix: usize = 0;
     const max_len = max_menu_width() - 2;
