@@ -18,6 +18,8 @@ pub fn Options(context: type) type {
         on_click: *const fn (ctx: *context, button: *State(Context)) void = do_nothing,
         on_click2: *const fn (ctx: *context, button: *State(Context)) void = do_nothing,
         on_click3: *const fn (ctx: *context, button: *State(Context)) void = do_nothing,
+        on_click4: *const fn (ctx: *context, button: *State(Context)) void = do_nothing,
+        on_click5: *const fn (ctx: *context, button: *State(Context)) void = do_nothing,
         on_render: *const fn (ctx: *context, button: *State(Context), theme: *const Widget.Theme) bool = on_render_default,
         on_layout: *const fn (ctx: *context, button: *State(Context)) Widget.Layout = on_layout_default,
         on_receive: *const fn (ctx: *context, button: *State(Context), from: tp.pid_ref, m: tp.message) error{Exit}!bool = on_receive_default,
@@ -90,15 +92,24 @@ pub fn State(ctx_type: type) type {
 
         pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             var btn: u32 = 0;
-            if (try m.match(.{ "B", event_type.PRESS, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
-                if (btn == key.BUTTON1) self.active = true;
-                tui.need_render();
+            if (try m.match(.{ "B", event_type.PRESS, tp.extract(&btn), tp.more })) {
+                switch (btn) {
+                    key.BUTTON1 => {
+                        self.active = true;
+                        tui.need_render();
+                    },
+                    key.BUTTON4, key.BUTTON5 => {
+                        self.call_click_handler(btn);
+                        return true;
+                    },
+                    else => {},
+                }
                 return true;
-            } else if (try m.match(.{ "B", event_type.RELEASE, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            } else if (try m.match(.{ "B", event_type.RELEASE, tp.extract(&btn), tp.more })) {
                 self.call_click_handler(btn);
                 tui.need_render();
                 return true;
-            } else if (try m.match(.{ "D", event_type.RELEASE, tp.extract(&btn), tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            } else if (try m.match(.{ "D", event_type.RELEASE, tp.extract(&btn), tp.more })) {
                 self.call_click_handler(btn);
                 tui.need_render();
                 return true;
@@ -117,6 +128,8 @@ pub fn State(ctx_type: type) type {
                 key.BUTTON1 => self.opts.on_click(&self.opts.ctx, self),
                 key.BUTTON2 => self.opts.on_click2(&self.opts.ctx, self),
                 key.BUTTON3 => self.opts.on_click3(&self.opts.ctx, self),
+                key.BUTTON4 => self.opts.on_click4(&self.opts.ctx, self),
+                key.BUTTON5 => self.opts.on_click5(&self.opts.ctx, self),
                 else => {},
             }
         }
