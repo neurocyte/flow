@@ -20,6 +20,7 @@ const InputBox = @import("../../InputBox.zig");
 const Menu = @import("../../Menu.zig");
 const Widget = @import("../../Widget.zig");
 const mainview = @import("../../mainview.zig");
+const scrollbar_v = @import("../../scrollbar_v.zig");
 
 const Self = @This();
 const max_menu_width = 80;
@@ -65,6 +66,7 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
         .view_rows = get_view_rows(tui.current().screen()),
         .commands = std.ArrayList(Command).init(a),
     };
+    self.menu.scrollbar.?.style_factory = scrollbar_style;
     if (self.hints) |hints| {
         for (hints.values()) |val|
             self.longest_hint = @max(self.longest_hint, val.len);
@@ -98,6 +100,15 @@ pub fn deinit(self: *Self) void {
     self.a.destroy(self);
 }
 
+fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
+    return if (sb.active)
+        .{ .fg = theme.scrollbar_active.fg, .bg = theme.editor_widget.bg }
+    else if (sb.hover)
+        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.editor_widget.bg }
+    else
+        .{ .fg = theme.scrollbar.fg, .bg = theme.editor_widget.bg };
+}
+
 fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
@@ -116,9 +127,9 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
         keybind_hint = "";
     button.plane.set_style(style_keybind);
     const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s}", .{ pointer }) catch {};
+    _ = button.plane.print("{s}", .{pointer}) catch {};
     button.plane.set_style(style_base);
-    _ = button.plane.print("{s} ", .{ command_name }) catch {};
+    _ = button.plane.print("{s} ", .{command_name}) catch {};
     button.plane.set_style(style_keybind);
     _ = button.plane.print_aligned_right(0, "{s} ", .{keybind_hint}) catch {};
     var index: usize = 0;
@@ -149,7 +160,7 @@ fn do_resize(self: *Self) void {
     const w = @min(self.longest, max_menu_width) + 2 + 1 + self.longest_hint;
     const x = if (screen.w > w) (screen.w - w) / 2 else 0;
     self.view_rows = get_view_rows(screen);
-    const h = @min(self.items, self.view_rows);
+    const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);
     self.menu.container.resize(.{ .y = 0, .x = x, .w = w, .h = h });
     self.update_scrollbar();
 }
