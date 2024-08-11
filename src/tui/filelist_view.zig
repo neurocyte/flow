@@ -21,6 +21,7 @@ const MessageFilter = @import("MessageFilter.zig");
 const Menu = @import("Menu.zig");
 const EventHandler = @import("EventHandler.zig");
 const Button = @import("Button.zig");
+const scrollbar_v = @import("scrollbar_v.zig");
 
 const escape = fmt.fmtSliceEscapeLower;
 
@@ -68,6 +69,7 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
             .on_click5 = mouse_click_button5,
         }),
     };
+    self.menu.scrollbar.?.style_factory = scrollbar_style;
     try self.commands.init(self);
     return Widget.to(self);
 }
@@ -76,6 +78,15 @@ pub fn deinit(self: *Self, a: Allocator) void {
     self.plane.deinit();
     self.commands.deinit();
     a.destroy(self);
+}
+
+fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
+    return if (sb.active)
+        .{ .fg = theme.scrollbar_active.fg, .bg = theme.panel.bg }
+    else if (sb.hover)
+        .{ .fg = theme.scrollbar_hover.fg, .bg = theme.panel.bg }
+    else
+        .{ .fg = theme.scrollbar.fg, .bg = theme.panel.bg };
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
@@ -195,6 +206,7 @@ fn mouse_click_button5(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*
     if (self.view_pos < @max(self.entries.items.len, self.view_rows) - self.view_rows)
         self.view_pos += Menu.scroll_lines;
     self.update_selected();
+    self.update_scrollbar();
 }
 
 fn update_selected(self: *Self) void {
