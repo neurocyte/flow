@@ -24,6 +24,7 @@ max_ypx: i32 = 8,
 event_sink: EventHandler,
 hover: bool = false,
 active: bool = false,
+style_factory: ?*const fn (self: *Self, theme: *const Widget.Theme) Widget.Theme.Style = null,
 
 const Self = @This();
 
@@ -117,9 +118,17 @@ fn pos_scrn_to_virt(self: Self, pos_scrn_: u32) u32 {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    const style = if (self.style_factory) |f|
+        f(self, theme)
+    else if (self.active)
+        theme.scrollbar_active
+    else if (self.hover)
+        theme.scrollbar_hover
+    else
+        theme.scrollbar;
     const frame = tracy.initZone(@src(), .{ .name = "scrollbar_v render" });
     defer frame.deinit();
-    self.plane.set_base_style(" ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
+    self.plane.set_base_style(" ", style);
     self.plane.erase();
     smooth_bar_at(&self.plane, @intCast(self.pos_scrn), @intCast(self.view_scrn)) catch {};
     return false;
