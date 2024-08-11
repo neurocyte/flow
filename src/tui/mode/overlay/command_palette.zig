@@ -531,7 +531,9 @@ const cmds = struct {
 
     pub fn command_palette_menu_pageup(self: *Self, _: Ctx) Result {
         if (self.view_pos > self.view_rows)
-            self.view_pos -= self.view_rows;
+            self.view_pos -= self.view_rows
+        else
+            self.view_pos = 0;
         try self.start_query();
         self.menu.select_first();
     }
