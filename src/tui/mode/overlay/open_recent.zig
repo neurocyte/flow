@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
+const root = @import("root");
 
 const Plane = @import("renderer").Plane;
 const planeutils = @import("renderer").planeutils;
@@ -88,7 +89,7 @@ inline fn max_menu_width() usize {
     return @max(15, width - (width / 5));
 }
 
-fn on_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
     button.plane.set_base_style(" ", style_base);
@@ -103,9 +104,10 @@ fn on_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme:
     _ = button.plane.print("{s}", .{ pointer }) catch {};
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var removed_prefix: usize = 0;
+    const max_len = max_menu_width() - 2;
     button.plane.set_style(style_base);
     _ = button.plane.print("{s} ", .{
-        if (file_path.len > max_menu_width() - 2) self.shorten_path(&buf, file_path, &removed_prefix) else file_path,
+        if (file_path.len > max_len) root.shorten_path(&buf, file_path, &removed_prefix, max_len) else file_path,
     }) catch {};
     var index: usize = 0;
     var len = cbor.decodeArrayHeader(&iter) catch return false;
@@ -136,18 +138,6 @@ fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
     tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
-}
-
-fn shorten_path(_: *Self, buf: []u8, path: []const u8, removed_prefix: *usize) []const u8 {
-    const max_len = max_menu_width() - 2;
-    removed_prefix.* = 0;
-    if (path.len <= max_len) return path;
-    const ellipsis = "…";
-    const prefix = path.len - max_len;
-    defer removed_prefix.* = prefix - 1;
-    @memcpy(buf[0..ellipsis.len], ellipsis);
-    @memcpy(buf[ellipsis.len .. max_len + ellipsis.len], path[prefix..]);
-    return buf[0 .. max_len + ellipsis.len];
 }
 
 fn add_item(self: *Self, file_name: []const u8, matches: ?[]const u8) !void {

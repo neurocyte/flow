@@ -12,6 +12,7 @@ const tp = @import("thespian");
 const log = @import("log");
 const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
+const root = @import("root");
 
 const command = @import("command.zig");
 const tui = @import("tui.zig");
@@ -37,8 +38,11 @@ commands: Commands = undefined,
 items: usize = 0,
 view_pos: usize = 0,
 view_rows: usize = 0,
+view_cols: usize = 0,
 entries: std.ArrayList(Entry) = undefined,
 selected: ?usize = null,
+
+const path_column_ratio = 4;
 
 const Entry = struct {
     path: []const u8,
@@ -79,6 +83,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.menu.container_widget.resize(pos);
     self.view_rows = pos.h;
+    self.view_cols = pos.w;
     self.update_scrollbar();
 }
 
@@ -121,7 +126,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.panel;
-    // const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
+    const style_info: Widget.Theme.Style = .{ .fg = theme.editor_information.fg, .fs = theme.editor_information.fs, .bg = style_base.bg };
+    const style_separator: Widget.Theme.Style = .{ .fg = theme.editor_selection.bg, .bg = style_base.bg };
+    // const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs, .bg = style_base.bg };
     button.plane.set_base_style(" ", style_base);
     button.plane.erase();
     button.plane.home();
@@ -140,8 +147,16 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
     const entry = &self.entries.items[idx];
     const pointer = if (selected) "⏵" else " ";
     _ = button.plane.print("{s} ", .{pointer}) catch {};
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var removed_prefix: usize = 0;
+    const max_len = self.view_cols / path_column_ratio;
     button.plane.set_style(style_base);
-    _ = button.plane.print("{s}:{d}    {s}", .{ entry.path, entry.begin_line + 1, entry.lines }) catch {};
+    _ = button.plane.print("{s}:{d}", .{ root.shorten_path(&buf, entry.path, &removed_prefix, max_len - 6), entry.begin_line + 1 }) catch {};
+    button.plane.cursor_move_yx(0, @intCast(max_len)) catch return false;
+    button.plane.set_style(style_separator);
+    _ = button.plane.print(" ▏", .{}) catch {};
+    button.plane.set_style(style_info);
+    _ = button.plane.print("{s}", .{entry.lines}) catch {};
     return false;
 }
 

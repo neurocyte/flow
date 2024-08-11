@@ -587,3 +587,14 @@ pub fn is_directory(rel_path: []const u8) !bool {
     dir.close();
     return true;
 }
+
+pub fn shorten_path(buf: []u8, path: []const u8, removed_prefix: *usize, max_len: usize) []const u8 {
+    removed_prefix.* = 0;
+    if (path.len <= max_len) return path;
+    const ellipsis = "…";
+    const prefix = path.len - max_len;
+    defer removed_prefix.* = prefix - 1;
+    @memcpy(buf[0..ellipsis.len], ellipsis);
+    @memcpy(buf[ellipsis.len .. max_len + ellipsis.len], path[prefix..]);
+    return buf[0 .. max_len + ellipsis.len];
+}
