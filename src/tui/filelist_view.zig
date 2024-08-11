@@ -260,6 +260,7 @@ fn move_next(self: *Self, dir: enum { up, down }) void {
     if (sel < self.view_pos) self.view_pos = sel;
     if (sel > self.view_pos + self.view_rows - 1) self.view_pos = sel - @min(sel, self.view_rows - 1);
     self.update_selected();
+    self.update_scrollbar();
     self.menu.activate_selected();
 }
 
