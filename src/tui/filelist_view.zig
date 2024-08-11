@@ -10,6 +10,8 @@ const ArrayList = @import("std").ArrayList;
 const Plane = @import("renderer").Plane;
 const tp = @import("thespian");
 const log = @import("log");
+const key = @import("renderer").input.key;
+const event_type = @import("renderer").input.event_type;
 
 const command = @import("command.zig");
 const tui = @import("tui.zig");
@@ -36,6 +38,7 @@ items: usize = 0,
 view_pos: usize = 0,
 view_rows: usize = 0,
 entries: std.ArrayList(Entry) = undefined,
+selected: ?usize = null,
 
 const Entry = struct {
     path: []const u8,
@@ -57,6 +60,8 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
             .ctx = self,
             .on_render = handle_render_menu,
             .on_scroll = EventHandler.bind(self, Self.handle_scroll),
+            .on_click4 = mouse_click_button4,
+            .on_click5 = mouse_click_button5,
         }),
     };
     try self.commands.init(self);
@@ -72,13 +77,13 @@ pub fn deinit(self: *Self, a: Allocator) void {
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
-    self.menu.resize(pos);
+    self.menu.container_widget.resize(pos);
     self.view_rows = pos.h;
     self.update_scrollbar();
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
-    return self.menu.walk(walk_ctx, f) or f(walk_ctx, w);
+    return self.menu.container_widget.walk(walk_ctx, f) or f(walk_ctx, w);
 }
 
 pub fn add_item(self: *Self, entry_: Entry) !void {
@@ -92,7 +97,7 @@ pub fn add_item(self: *Self, entry_: Entry) !void {
     const writer = label.writer();
     cbor.writeValue(writer, idx) catch return;
     self.menu.add_item_with_handler(label.items, handle_menu_action) catch return;
-    self.menu.resize(Widget.Box.from(self.plane));
+    self.menu.container_widget.resize(Widget.Box.from(self.plane));
     self.update_scrollbar();
 }
 
@@ -103,13 +108,15 @@ pub fn reset(self: *Self) void {
     }
     self.entries.clearRetainingCapacity();
     self.menu.reset_items();
+    self.selected = null;
+    self.menu.selected = null;
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(" ", theme.panel);
     self.plane.erase();
     self.plane.home();
-    return self.menu.render(theme);
+    return self.menu.container_widget.render(theme);
 }
 
 fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
@@ -126,6 +133,7 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
         self.logger.print_err(name, "invalid table entry: {s}", .{json});
         return false;
     }
+    idx += self.view_pos;
     if (idx >= self.entries.items.len) {
         return false;
     }
@@ -147,10 +155,41 @@ fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !vo
 
 fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
     _ = try m.match(.{ "scroll_to", tp.extract(&self.view_pos) });
+    self.update_selected();
 }
 
 fn update_scrollbar(self: *Self) void {
     self.menu.scrollbar.?.set(@intCast(self.entries.items.len), @intCast(self.view_rows), @intCast(self.view_pos));
+}
+
+fn mouse_click_button4(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+    const self = &menu.*.opts.ctx.*;
+    self.selected = if (self.menu.selected) |sel_| sel_ + self.view_pos else self.selected;
+    if (self.view_pos < Menu.scroll_lines) {
+        self.view_pos = 0;
+    } else {
+        self.view_pos -= Menu.scroll_lines;
+    }
+    self.update_selected();
+    self.update_scrollbar();
+}
+
+fn mouse_click_button5(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+    const self = &menu.*.opts.ctx.*;
+    self.selected = if (self.menu.selected) |sel_| sel_ + self.view_pos else self.selected;
+    if (self.view_pos < @max(self.entries.items.len, self.view_rows) - self.view_rows)
+        self.view_pos += Menu.scroll_lines;
+    self.update_selected();
+}
+
+fn update_selected(self: *Self) void {
+    if (self.selected) |sel| {
+        if (sel >= self.view_pos and sel < self.view_pos + self.view_rows) {
+            self.menu.selected = sel - self.view_pos;
+        } else {
+            self.menu.selected = null;
+        }
+    }
 }
 
 fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
@@ -162,10 +201,13 @@ fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.Sta
         self.logger.print_err(name, "invalid table entry: {s}", .{json});
         return;
     }
+    idx += self.view_pos;
     if (idx >= self.entries.items.len) {
         self.logger.print_err(name, "table entry index out of range: {d}/{d}", .{ idx, self.entries.items.len });
         return;
     }
+    self.selected = idx;
+    self.update_selected();
     const entry = &self.entries.items[idx];
 
     tp.self_pid().send(.{ "cmd", "navigate", .{
@@ -181,18 +223,29 @@ fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.Sta
     } }) catch |e| self.logger.err("navigate", e);
 }
 
+fn move_next(self: *Self, dir: enum { up, down }) void {
+    self.selected = if (self.menu.selected) |sel_| sel_ + self.view_pos else self.selected;
+    const sel = switch (dir) {
+        .up => if (self.selected) |sel_| if (sel_ > 0) sel_ - 1 else self.entries.items.len - 1 else self.entries.items.len - 1,
+        .down => if (self.selected) |sel_| if (sel_ < self.entries.items.len - 1) sel_ + 1 else 0 else 0,
+    };
+    self.selected = sel;
+    if (sel < self.view_pos) self.view_pos = sel;
+    if (sel > self.view_pos + self.view_rows - 1) self.view_pos = sel - @min(sel, self.view_rows - 1);
+    self.update_selected();
+    self.menu.activate_selected();
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
     const Result = command.Result;
 
     pub fn goto_prev_file(self: *Self, _: Ctx) Result {
-        self.menu.select_up();
-        self.menu.activate_selected();
+        self.move_next(.up);
     }
 
     pub fn goto_next_file(self: *Self, _: Ctx) Result {
-        self.menu.select_down();
-        self.menu.activate_selected();
+        self.move_next(.down);
     }
 };
