@@ -11,12 +11,15 @@ const tui = @import("tui.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 
 pub const Container = WidgetList;
+pub const scroll_lines = 3;
 
 pub fn Options(context: type) type {
     return struct {
         ctx: Context,
 
         on_click: *const fn (ctx: context, button: *Button.State(*State(Context))) void = do_nothing,
+        on_click4: *const fn (menu: **State(Context), button: *Button.State(*State(Context))) void = do_nothing_click,
+        on_click5: *const fn (menu: **State(Context), button: *Button.State(*State(Context))) void = do_nothing_click,
         on_render: *const fn (ctx: context, button: *Button.State(*State(Context)), theme: *const Widget.Theme, selected: bool) bool = on_render_default,
         on_layout: *const fn (ctx: context, button: *Button.State(*State(Context))) Widget.Layout = on_layout_default,
         on_resize: *const fn (ctx: context, menu: *State(Context), box: Widget.Box) void = on_resize_default,
@@ -24,6 +27,7 @@ pub fn Options(context: type) type {
 
         pub const Context = context;
         pub fn do_nothing(_: context, _: *Button.State(*State(Context))) void {}
+        pub fn do_nothing_click(_: **State(Context), _: *Button.State(*State(Context))) void {}
 
         pub fn on_render_default(_: context, button: *Button.State(*State(Context)), theme: *const Widget.Theme, selected: bool) bool {
             const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor;
@@ -100,6 +104,8 @@ pub fn State(ctx_type: type) type {
                 .on_layout = self.opts.on_layout,
                 .label = label,
                 .on_click = self.opts.on_click,
+                .on_click4 = self.opts.on_click4,
+                .on_click5 = self.opts.on_click5,
                 .on_render = self.opts.on_render,
             }));
         }
@@ -110,6 +116,8 @@ pub fn State(ctx_type: type) type {
                 .on_layout = on_layout,
                 .label = label,
                 .on_click = on_click,
+                .on_click4 = self.opts.on_click4,
+                .on_click5 = self.opts.on_click5,
                 .on_render = on_render,
             }));
         }
