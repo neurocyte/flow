@@ -250,7 +250,7 @@ fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.Sta
     } }) catch |e| self.logger.err("navigate", e);
 }
 
-fn move_next(self: *Self, dir: enum { up, down }) void {
+fn select_next(self: *Self, dir: enum { up, down }) void {
     self.selected = if (self.menu.selected) |sel_| sel_ + self.view_pos else self.selected;
     const sel = switch (dir) {
         .up => if (self.selected) |sel_| if (sel_ > 0) sel_ - 1 else self.entries.items.len - 1 else self.entries.items.len - 1,
@@ -261,7 +261,6 @@ fn move_next(self: *Self, dir: enum { up, down }) void {
     if (sel > self.view_pos + self.view_rows - 1) self.view_pos = sel - @min(sel, self.view_rows - 1);
     self.update_selected();
     self.update_scrollbar();
-    self.menu.activate_selected();
 }
 
 const cmds = struct {
@@ -270,10 +269,25 @@ const cmds = struct {
     const Result = command.Result;
 
     pub fn goto_prev_file(self: *Self, _: Ctx) Result {
-        self.move_next(.up);
+        self.select_next(.up);
+        self.menu.activate_selected();
     }
 
     pub fn goto_next_file(self: *Self, _: Ctx) Result {
-        self.move_next(.down);
+        self.select_next(.down);
+        self.menu.activate_selected();
+    }
+
+    pub fn select_prev_file(self: *Self, _: Ctx) Result {
+        self.select_next(.up);
+    }
+
+    pub fn select_next_file(self: *Self, _: Ctx) Result {
+        self.select_next(.down);
+    }
+
+    pub fn goto_selected_file(self: *Self, _: Ctx) Result {
+        if (self.menu.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
+        self.menu.activate_selected();
     }
 };

@@ -124,12 +124,14 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             else {},
         },
         0 => switch (keypress) {
+            key.UP => self.cmd("select_prev_file", .{}),
+            key.DOWN => self.cmd("select_next_file", .{}),
             key.F03 => self.cmd("goto_next_match", .{}),
             key.F15 => self.cmd("goto_prev_match", .{}),
             key.F09 => self.cmd("theme_prev", .{}),
             key.F10 => self.cmd("theme_next", .{}),
             key.ESC => self.cancel(),
-            key.ENTER => self.cmd("exit_mini_mode", .{}),
+            key.ENTER => self.cmd("goto_selected_file", .{}) catch self.cmd("exit_mini_mode", .{}),
             key.BACKSPACE => if (self.input.len > 0) {
                 self.input = self.input[0 .. self.input.len - 1];
             },
