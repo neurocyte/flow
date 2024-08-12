@@ -134,6 +134,7 @@ fn init(a: Allocator) !*Self {
     }
     self.mainview = try mainview.create(a, n);
     self.resize();
+    self.rdr.set_terminal_style(self.theme.editor);
     try self.rdr.render();
     try self.save_config();
     if (tp.env.get().is("restore-session")) {
@@ -523,6 +524,7 @@ const cmds = struct {
     pub fn theme_next(self: *Self, _: Ctx) Result {
         self.theme = get_next_theme_by_name(self.theme.name);
         self.config.theme = self.theme.name;
+        self.rdr.set_terminal_style(self.theme.editor);
         self.logger.print("theme: {s}", .{self.theme.description});
         try self.save_config();
     }
@@ -530,6 +532,7 @@ const cmds = struct {
     pub fn theme_prev(self: *Self, _: Ctx) Result {
         self.theme = get_prev_theme_by_name(self.theme.name);
         self.config.theme = self.theme.name;
+        self.rdr.set_terminal_style(self.theme.editor);
         self.logger.print("theme: {s}", .{self.theme.description});
         try self.save_config();
     }

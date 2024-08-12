@@ -322,6 +322,17 @@ pub fn set_terminal_title(self: *Self, text: []const u8) void {
     self.vx.setTitle(self.tty.anyWriter(), text) catch {};
 }
 
+pub fn set_terminal_style(self: *Self, style_: Style) void {
+    if (style_.fg) |color|
+        self.vx.setTerminalForegroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color)).rgb) catch {};
+    if (style_.bg) |color|
+        self.vx.setTerminalBackgroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color)).rgb) catch {};
+    const bg = vaxis.Cell.Color.rgbFromUint(@intCast(style_.bg.?)).rgb;
+    self.logger.print(vaxis.ctlseqs.osc11_set, .{ bg[0], bg[0], bg[1], bg[1], bg[2], bg[2] });
+    self.logger.print("bg: {any}", .{style_.bg.?});
+    self.vx.state.changed_default_bg = false;
+}
+
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
     var bufferedWriter = self.tty.bufferedWriter();
     self.vx.copyToSystemClipboard(bufferedWriter.writer().any(), text, self.a) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
