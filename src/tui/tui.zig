@@ -53,9 +53,11 @@ no_sleep: bool = false,
 final_exit: []const u8 = "normal",
 render_pending: bool = false,
 keepalive_timer: ?tp.Cancellable = null,
+mouse_idle_timer: ?tp.Cancellable = null,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
+const mouse_idle_time_milliseconds = 3000;
 
 const init_delay = 1; // ms
 
@@ -149,6 +151,11 @@ fn init_delayed(self: *Self) !void {
 }
 
 fn deinit(self: *Self) void {
+    if (self.mouse_idle_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.mouse_idle_timer = null;
+    }
     if (self.keepalive_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -172,6 +179,16 @@ fn deinit(self: *Self) void {
 fn listen_sigwinch(self: *Self) tp.result {
     if (self.sigwinch_signal) |old| old.deinit();
     self.sigwinch_signal = tp.signal.init(std.posix.SIG.WINCH, tp.message.fmt(.{"sigwinch"})) catch |e| return tp.exit_error(e, @errorReturnTrace());
+}
+
+fn update_mouse_idle_timer(self: *Self) void {
+    const delay = std.time.us_per_ms * @as(u64, mouse_idle_time_milliseconds);
+    if (self.mouse_idle_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.mouse_idle_timer = null;
+    }
+    self.mouse_idle_timer = tp.self_pid().delay_send_cancellable(self.a, delay, .{"MOUSE_IDLE"}) catch return;
 }
 
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
@@ -300,6 +317,11 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "PRJ", tp.more })) // drop late project manager query responses
         return;
 
+    if (try m.match(.{"MOUSE_IDLE"})) {
+        try self.clear_hover_focus();
+        return;
+    }
+
     return tp.unexpected(m);
 }
 
@@ -380,6 +402,7 @@ fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
 
 fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
+    self.update_mouse_idle_timer();
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
@@ -390,6 +413,7 @@ fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) voi
 
 fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
+    self.update_mouse_idle_timer();
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
@@ -492,13 +516,17 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
             _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
         }
     } else {
-        if (self.hover_focus) |h| {
-            var buf: [256]u8 = undefined;
-            _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
-        }
-        self.hover_focus = null;
+        try self.clear_hover_focus();
     }
     if (self.drag_source) |w| _ = try w.send(from, m);
+}
+
+fn clear_hover_focus(self: *Self) tp.result {
+    if (self.hover_focus) |h| {
+        var buf: [256]u8 = undefined;
+        _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
+    }
+    self.hover_focus = null;
 }
 
 pub fn save_config(self: *const Self) !void {
