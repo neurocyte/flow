@@ -318,6 +318,8 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
 
     if (try m.match(.{"MOUSE_IDLE"})) {
+        if (self.mouse_idle_timer) |*t| t.deinit();
+        self.mouse_idle_timer = null;
         try self.clear_hover_focus();
         return;
     }
