@@ -493,7 +493,8 @@ fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) 
     } else {
         if (self.hover_focus) |h| {
             var buf: [256]u8 = undefined;
-            _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
+            if (self.is_live_widget_ptr(h))
+                _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
         }
         self.hover_focus = null;
     }
@@ -524,7 +525,8 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
 fn clear_hover_focus(self: *Self) tp.result {
     if (self.hover_focus) |h| {
         var buf: [256]u8 = undefined;
-        _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
+        if (self.is_live_widget_ptr(h))
+            _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
     }
     self.hover_focus = null;
 }
