@@ -15,7 +15,6 @@ const EventHandler = @import("../EventHandler.zig");
 
 const history = 8;
 
-parent: Plane,
 plane: Plane,
 frame: u64 = 0,
 idle_frame: u64 = 0,
@@ -33,23 +32,15 @@ const idle_msg = "🐶";
 pub const width = idle_msg.len + 20;
 
 pub fn create(a: Allocator, parent: Plane) !Widget {
-    const self: *Self = try a.create(Self);
-    self.* = try init(parent);
-    try tui.current().input_listeners.add(EventHandler.bind(self, listen));
-    return self.widget();
-}
-
-fn init(parent: Plane) !Self {
-    var n = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent);
-    errdefer n.deinit();
     var frame_rate = tp.env.get().num("frame-rate");
     if (frame_rate == 0) frame_rate = 60;
-
-    return .{
-        .parent = parent,
-        .plane = n,
+    const self: *Self = try a.create(Self);
+    self.* = .{
+        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .wipe_after_frames = @divTrunc(frame_rate, 2),
     };
+    try tui.current().input_listeners.add(EventHandler.bind(self, listen));
+    return self.widget();
 }
 
 pub fn widget(self: *Self) Widget {

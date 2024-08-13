@@ -18,7 +18,7 @@ rendered: [:0]const u8 = "",
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) !Widget {
     return Button.create_widget(Self, a, parent, .{
         .ctx = .{},
         .label = "",
@@ -26,6 +26,7 @@ pub fn create(a: Allocator, parent: Plane) !Widget {
         .on_layout = layout,
         .on_render = render,
         .on_receive = receive,
+        .on_event = event_handler,
     });
 }
 

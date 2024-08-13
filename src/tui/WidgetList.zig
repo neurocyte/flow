@@ -28,6 +28,7 @@ direction: Direction,
 box: ?Widget.Box = null,
 ctx: ?*anyopaque = null,
 on_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
+after_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
 on_resize: *const fn (ctx: ?*anyopaque, self: *Self, pos_: Widget.Box) void = on_resize_default,
 
 pub fn createH(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
@@ -135,6 +136,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         if (w.widget.render(theme)) {
             more = true;
         };
+
+    self.after_render(self.ctx, theme);
     return more;
 }
 
@@ -190,6 +193,8 @@ fn on_resize_default(_: ?*anyopaque, self: *Self, pos: Widget.Box) void {
 pub fn resize(self: *Self, pos_: Widget.Box) void {
     self.box = pos_;
     var pos = pos_;
+    self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
+    self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     const total = self.get_size_a(&pos).*;
     var avail = total;
     var statics: usize = 0;
@@ -242,4 +247,9 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, self_w: *Widget) boo
     for (self.widgets.items) |*w|
         if (w.widget.walk(ctx, f)) return true;
     return f(ctx, self_w);
+}
+
+pub fn hover(self: *Self) bool {
+    for (self.widgets.items) |*w| if (w.widget.hover()) return true;
+    return false;
 }

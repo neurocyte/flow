@@ -34,7 +34,7 @@ file: bool = false,
 const project_icon = "";
 const Self = @This();
 
-pub fn create(a: Allocator, parent: Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) !Widget {
     const btn = try Button.create(Self, a, parent, .{
         .ctx = .{
             .a = a,
@@ -52,6 +52,7 @@ pub fn create(a: Allocator, parent: Plane) !Widget {
         .on_layout = layout,
         .on_render = render,
         .on_receive = receive,
+        .on_event = event_handler,
     });
     return Widget.to(btn);
 }

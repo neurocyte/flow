@@ -8,6 +8,8 @@ const location_history = @import("location_history");
 const project_manager = @import("project_manager");
 
 const Plane = @import("renderer").Plane;
+const key = @import("renderer").input.key;
+const event_type = @import("renderer").input.event_type;
 
 const tui = @import("tui.zig");
 const command = @import("command.zig");
@@ -35,6 +37,7 @@ last_match_text: ?[]const u8 = null,
 location_history: location_history,
 file_stack: std.ArrayList([]const u8),
 find_in_files_done: bool = false,
+panel_height: ?usize = null,
 
 const NavState = struct {
     time: i64 = 0,
@@ -45,11 +48,11 @@ const NavState = struct {
     matches: usize = 0,
 };
 
-pub fn create(a: std.mem.Allocator, n: Plane) !Widget {
+pub fn create(a: std.mem.Allocator) !Widget {
     const self = try a.create(Self);
     self.* = .{
         .a = a,
-        .plane = n,
+        .plane = tui.current().stdplane(),
         .widgets = undefined,
         .widgets_widget = undefined,
         .floating_views = WidgetStack.init(a),
@@ -62,8 +65,8 @@ pub fn create(a: std.mem.Allocator, n: Plane) !Widget {
     const widgets = try WidgetList.createV(a, w, @typeName(Self), .dynamic);
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
-    try widgets.add(try Widget.empty(a, n, .dynamic));
-    self.statusbar = try widgets.addP(try @import("status/statusbar.zig").create(a, w));
+    try widgets.add(try Widget.empty(a, self.widgets_widget.plane.*, .dynamic));
+    self.statusbar = try widgets.addP(try @import("status/statusbar.zig").create(a, w, EventHandler.bind(self, handle_statusbar_event)));
     if (tp.env.get().is("show-input"))
         self.toggle_inputview_async();
     if (tp.env.get().is("show-log"))
@@ -125,12 +128,32 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 }
 
 pub fn handle_resize(self: *Self, pos: Box) void {
+    self.plane = tui.current().stdplane();
+    if (self.panel_height) |h| if (h >= self.box().h) {
+        self.panel_height = null;
+    };
     self.widgets.handle_resize(pos);
     self.floating_views.resize(pos);
 }
 
 pub fn box(self: *const Self) Box {
     return Box.from(self.plane);
+}
+
+pub fn handle_statusbar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+    var y: usize = undefined;
+    if (try m.match(.{ "D", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.any }))
+        return self.statusbar_primary_drag(y);
+}
+
+fn statusbar_primary_drag(self: *Self, y: usize) tp.result {
+    const panels = self.panels orelse blk: {
+        cmds.toggle_panel(self, .{}) catch return;
+        break :blk self.panels.?;
+    };
+    const h = self.plane.dim_y();
+    self.panel_height = @max(2, h - @min(h, y + 1));
+    panels.layout = .{ .static = self.panel_height.? };
 }
 
 fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !bool {
@@ -149,7 +172,7 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !bool {
             try panels.add(try view.create(self.a, self.widgets.plane));
         }
     } else {
-        const panels = try WidgetList.createH(self.a, self.widgets.widget(), "panel", .{ .static = self.box().h / 5 });
+        const panels = try WidgetList.createH(self.a, self.widgets.widget(), "panel", .{ .static = self.panel_height orelse self.box().h / 5 });
         try self.widgets.add(panels.widget());
         try panels.add(try view.create(self.a, self.widgets.plane));
         self.panels = panels;

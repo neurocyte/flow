@@ -49,6 +49,7 @@ pub const VTable = struct {
     unsubscribe: *const fn (ctx: *anyopaque, h: EventHandler) error{NotSupported}!void,
     get: *const fn (ctx: *anyopaque, name_: []const u8) ?*Self,
     walk: *const fn (ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn, self_widget: *Self) bool,
+    hover: *const fn (ctx: *anyopaque) bool,
     type_name: []const u8,
 };
 
@@ -136,6 +137,11 @@ pub fn to(pimpl: anytype) Self {
                     return if (comptime @hasDecl(child, "walk")) child.walk(@as(*child, @ptrCast(@alignCast(ctx))), walk_ctx, f, self) else false;
                 }
             }.walk,
+            .hover = struct {
+                pub fn hover(ctx: *anyopaque) bool {
+                    return if (comptime @hasField(child, "hover")) @as(*child, @ptrCast(@alignCast(ctx))).hover else false;
+                }
+            }.hover,
         },
     };
 }
@@ -211,6 +217,10 @@ pub fn walk(self: *Self, walk_ctx: *anyopaque, f: WalkFn) bool {
     return if (self.vtable.walk(self.ptr, walk_ctx, f, self)) true else f(walk_ctx, self);
 }
 
+pub fn hover(self: *Self) bool {
+    return self.vtable.hover(self.ptr);
+}
+
 pub fn empty(a: Allocator, parent: Plane, layout_: Layout) !Self {
     const child: type = struct { plane: Plane, layout: Layout };
     const widget = try a.create(child);
@@ -270,6 +280,11 @@ pub fn empty(a: Allocator, parent: Plane, layout_: Layout) !Self {
                     return false;
                 }
             }.walk,
+            .hover = struct {
+                pub fn hover(_: *anyopaque) bool {
+                    return false;
+                }
+            }.hover,
         },
     };
 }

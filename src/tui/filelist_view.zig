@@ -140,9 +140,6 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
     const style_info: Widget.Theme.Style = .{ .fg = theme.editor_information.fg, .fs = theme.editor_information.fs, .bg = style_base.bg };
     const style_separator: Widget.Theme.Style = .{ .fg = theme.editor_selection.bg, .bg = style_base.bg };
     // const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs, .bg = style_base.bg };
-    button.plane.set_base_style(" ", style_base);
-    button.plane.erase();
-    button.plane.home();
     var idx: usize = undefined;
     var iter = button.opts.label; // label contains cbor, just the index
     if (!(cbor.matchValue(&iter, cbor.extract(&idx)) catch false)) {
@@ -155,6 +152,9 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
     if (idx >= self.entries.items.len) {
         return false;
     }
+    button.plane.set_base_style(" ", style_base);
+    button.plane.erase();
+    button.plane.home();
     const entry = &self.entries.items[idx];
     const pointer = if (selected) "⏵" else " ";
     _ = button.plane.print("{s} ", .{pointer}) catch {};
@@ -229,10 +229,7 @@ fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.Sta
         return;
     }
     idx += self.view_pos;
-    if (idx >= self.entries.items.len) {
-        self.logger.print_err(name, "table entry index out of range: {d}/{d}", .{ idx, self.entries.items.len });
-        return;
-    }
+    if (idx >= self.entries.items.len) return;
     self.selected = idx;
     self.update_selected();
     const entry = &self.entries.items[idx];

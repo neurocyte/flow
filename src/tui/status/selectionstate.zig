@@ -15,22 +15,17 @@ cursels: usize = 0,
 selection: ?ed.Selection = null,
 buf: [256]u8 = undefined,
 rendered: [:0]const u8 = "",
+on_event: ?Widget.EventHandler,
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) !Widget {
     const self: *Self = try a.create(Self);
-    self.* = try init(parent);
-    return Widget.to(self);
-}
-
-fn init(parent: Plane) !Self {
-    var n = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent);
-    errdefer n.deinit();
-
-    return .{
-        .plane = n,
+    self.* = .{
+        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
+        .on_event = event_handler,
     };
+    return Widget.to(self);
 }
 
 pub fn deinit(self: *Self, a: Allocator) void {
@@ -81,7 +76,12 @@ fn format(self: *Self) void {
     self.buf[self.rendered.len] = 0;
 }
 
-pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    var btn: u32 = 0;
+    if (try m.match(.{ "D", tp.any, tp.extract(&btn), tp.more })) {
+        if (self.on_event) |h| h.send(from, m) catch {};
+        return true;
+    }
     if (try m.match(.{ "E", "match", tp.extract(&self.matches) }))
         self.format();
     if (try m.match(.{ "E", "cursels", tp.extract(&self.cursels) }))

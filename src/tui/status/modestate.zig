@@ -14,13 +14,14 @@ const command = @import("../command.zig");
 const ed = @import("../editor.zig");
 const tui = @import("../tui.zig");
 
-pub fn create(a: Allocator, parent: Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) !Widget {
     return Button.create_widget(void, a, parent, .{
         .ctx = {},
         .label = tui.get_mode(),
         .on_click = on_click,
         .on_layout = layout,
         .on_render = render,
+        .on_event = event_handler,
     });
 }
 

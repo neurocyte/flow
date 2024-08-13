@@ -25,17 +25,11 @@ pub const width = 5;
 
 pub fn create(a: Allocator, parent: Plane) !Widget {
     const self: *Self = try a.create(Self);
-    self.* = try init(parent);
+    self.* = .{
+        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
+    };
     try tui.current().input_listeners.add(EventHandler.bind(self, listen));
     return self.widget();
-}
-
-fn init(parent: Plane) !Self {
-    var n = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent);
-    errdefer n.deinit();
-    return .{
-        .plane = n,
-    };
 }
 
 pub fn widget(self: *Self) Widget {

@@ -23,6 +23,7 @@ pub fn Options(context: type) type {
         on_render: *const fn (ctx: *context, button: *State(Context), theme: *const Widget.Theme) bool = on_render_default,
         on_layout: *const fn (ctx: *context, button: *State(Context)) Widget.Layout = on_layout_default,
         on_receive: *const fn (ctx: *context, button: *State(Context), from: tp.pid_ref, m: tp.message) error{Exit}!bool = on_receive_default,
+        on_event: ?Widget.EventHandler = null,
 
         pub const Context = context;
         pub fn do_nothing(_: *context, _: *State(Context)) void {}
@@ -109,7 +110,17 @@ pub fn State(ctx_type: type) type {
                 self.call_click_handler(btn);
                 tui.need_render();
                 return true;
+            } else if (try m.match(.{ "D", event_type.PRESS, tp.extract(&btn), tp.more })) {
+                if (self.opts.on_event) |h| {
+                    self.active = false;
+                    h.send(from, m) catch {};
+                }
+                return true;
             } else if (try m.match(.{ "D", event_type.RELEASE, tp.extract(&btn), tp.more })) {
+                if (self.opts.on_event) |h| {
+                    self.active = false;
+                    h.send(from, m) catch {};
+                }
                 self.call_click_handler(btn);
                 tui.need_render();
                 return true;
@@ -122,7 +133,10 @@ pub fn State(ctx_type: type) type {
         }
 
         fn call_click_handler(self: *Self, btn: u32) void {
-            if (btn == key.BUTTON1) self.active = false;
+            if (btn == key.BUTTON1) {
+                if (!self.active) return;
+                self.active = false;
+            }
             if (!self.hover) return;
             switch (btn) {
                 key.BUTTON1 => self.opts.on_click(&self.opts.ctx, self),

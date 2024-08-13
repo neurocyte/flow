@@ -119,7 +119,6 @@ fn init(a: Allocator) !*Self {
     self.rdr.dispatch_mouse_drag = dispatch_mouse_drag;
     self.rdr.dispatch_event = dispatch_event;
     try self.rdr.run();
-    const n = self.rdr.stdplane();
 
     try frame_clock.start();
     try self.commands.init(self);
@@ -132,7 +131,7 @@ fn init(a: Allocator) !*Self {
             try self.listen_sigwinch();
         },
     }
-    self.mainview = try mainview.create(a, n);
+    self.mainview = try mainview.create(a);
     self.resize();
     self.rdr.set_terminal_style(self.theme.editor);
     try self.rdr.render();
@@ -699,6 +698,10 @@ pub fn need_render() void {
 pub fn resize(self: *Self) void {
     self.mainview.resize(self.screen());
     need_render();
+}
+
+pub fn stdplane(self: *Self) renderer.Plane {
+    return self.rdr.stdplane();
 }
 
 pub fn screen(self: *Self) Widget.Box {

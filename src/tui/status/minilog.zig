@@ -10,12 +10,12 @@ const tui = @import("../tui.zig");
 const mainview = @import("../mainview.zig");
 const logview = @import("../logview.zig");
 
-parent: Plane,
 plane: Plane,
 msg: std.ArrayList(u8),
 msg_counter: usize = 0,
 clear_timer: ?tp.Cancellable = null,
 level: Level = .info,
+on_event: ?Widget.EventHandler,
 
 const message_display_time_seconds = 2;
 const error_display_time_seconds = 4;
@@ -26,12 +26,12 @@ const Level = enum {
     err,
 };
 
-pub fn create(a: std.mem.Allocator, parent: Plane) !Widget {
+pub fn create(a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) !Widget {
     const self: *Self = try a.create(Self);
     self.* = .{
-        .parent = parent,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .msg = std.ArrayList(u8).init(a),
+        .on_event = event_handler,
     };
     logview.init(a);
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_log));
@@ -50,6 +50,15 @@ pub fn deinit(self: *Self, a: std.mem.Allocator) void {
     tui.current().message_filters.remove_ptr(self);
     self.plane.deinit();
     a.destroy(self);
+}
+
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    var btn: u32 = 0;
+    if (try m.match(.{ "D", tp.any, tp.extract(&btn), tp.more })) {
+        if (self.on_event) |h| h.send(from, m) catch {};
+        return true;
+    }
+    return false;
 }
 
 pub fn layout(self: *Self) Widget.Layout {
@@ -92,7 +101,7 @@ fn process_log(self: *Self, m: tp.message) !void {
         const err_stop = "error.Stop";
         if (std.mem.eql(u8, msg, err_stop))
             return;
-        if (msg.len >= err_stop.len + 1 and std.mem.eql(u8, msg[0..err_stop.len + 1], err_stop ++ "\n"))
+        if (msg.len >= err_stop.len + 1 and std.mem.eql(u8, msg[0 .. err_stop.len + 1], err_stop ++ "\n"))
             return;
         try self.set(msg, .err);
     } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
