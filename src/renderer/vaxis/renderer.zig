@@ -327,9 +327,6 @@ pub fn set_terminal_style(self: *Self, style_: Style) void {
         self.vx.setTerminalForegroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color)).rgb) catch {};
     if (style_.bg) |color|
         self.vx.setTerminalBackgroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color)).rgb) catch {};
-    const bg = vaxis.Cell.Color.rgbFromUint(@intCast(style_.bg.?)).rgb;
-    self.logger.print(vaxis.ctlseqs.osc11_set, .{ bg[0], bg[0], bg[1], bg[1], bg[2], bg[2] });
-    self.logger.print("bg: {any}", .{style_.bg.?});
     self.vx.state.changed_default_bg = false;
 }
 
