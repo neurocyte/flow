@@ -1,6 +1,7 @@
 .{
     .name = "flow",
     .version = "0.1.0",
+    .minimum_zig_version = "0.13.0",
 
     .dependencies = .{
         .syntax = .{ .path = "src/syntax" },
