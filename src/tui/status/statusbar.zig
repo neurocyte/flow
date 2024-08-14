@@ -24,10 +24,16 @@ pub fn create(a: std.mem.Allocator, parent: Widget, event_handler: ?Widget.Event
 fn render_grip(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
     const w: *WidgetList = @ptrCast(@alignCast(ctx.?));
     if (w.hover()) {
-        w.plane.set_style(theme.statusbar_hover);
-        const width = w.plane.dim_x();
-        const grip_pos = width / 2;
-        w.plane.cursor_move_yx(0, @intCast(grip_pos)) catch {};
+        const w0 = &w.widgets.items[0].widget;
+        const style = if (tui.current().config.modestate_show)
+            if (w0.hover())
+                theme.editor_selection
+            else
+                theme.statusbar_hover
+        else
+            theme.statusbar_hover;
+        w.plane.set_style(style);
+        w.plane.cursor_move_yx(0, 0) catch {};
         _ = w.plane.putstr("  ") catch {};
     }
 }
