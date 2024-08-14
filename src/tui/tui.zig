@@ -41,6 +41,8 @@ input_listeners: EventHandler.List,
 keyboard_focus: ?Widget = null,
 mini_mode: ?MiniModeState = null,
 hover_focus: ?*Widget = null,
+last_hover_x: c_int = 0,
+last_hover_y: c_int = 0,
 commands: Commands = undefined,
 logger: log.Logger,
 drag_source: ?*Widget = null,
@@ -481,25 +483,10 @@ fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) 
     _ = self.input_listeners.send(from, m) catch {};
     if (self.keyboard_focus) |w| {
         _ = try w.send(from, m);
-    } else if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
-        if (if (self.hover_focus) |h| h != w else true) {
-            var buf: [256]u8 = undefined;
-            if (self.hover_focus) |h| {
-                if (self.is_live_widget_ptr(h))
-                    _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
-            }
-            self.hover_focus = w;
-            _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
-        }
-        _ = try w.send(from, m);
-    } else {
-        if (self.hover_focus) |h| {
-            var buf: [256]u8 = undefined;
-            if (self.is_live_widget_ptr(h))
-                _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
-        }
-        self.hover_focus = null;
+        return;
     }
+    if (try self.update_hover(y, x)) |w|
+        _ = try w.send(from, m);
 }
 
 fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) tp.result {
@@ -508,7 +495,15 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
     if (self.keyboard_focus) |w| {
         _ = try w.send(from, m);
         return;
-    } else if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
+    }
+    _ = try self.update_hover(y, x);
+    if (self.drag_source) |w| _ = try w.send(from, m);
+}
+
+fn update_hover(self: *Self, y: c_int, x: c_int) !?*Widget {
+    self.last_hover_y = y;
+    self.last_hover_x = x;
+    if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
         if (if (self.hover_focus) |h| h != w else true) {
             var buf: [256]u8 = undefined;
             if (self.hover_focus) |h| {
@@ -518,10 +513,11 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
             self.hover_focus = w;
             _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
         }
+        return w;
     } else {
         try self.clear_hover_focus();
+        return null;
     }
-    if (self.drag_source) |w| _ = try w.send(from, m);
 }
 
 fn clear_hover_focus(self: *Self) tp.result {
@@ -533,8 +529,20 @@ fn clear_hover_focus(self: *Self) tp.result {
     self.hover_focus = null;
 }
 
+pub fn refresh_hover(self: *Self) void {
+    self.clear_hover_focus() catch return;
+    _ = self.update_hover(self.last_hover_y, self.last_hover_x) catch {};
+}
+
 pub fn save_config(self: *const Self) !void {
     try root.write_config(self.config, self.a);
+}
+
+fn enter_overlay_mode(self: *Self, mode: type) command.Result {
+    if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
+    if (self.input_mode_outer) |_| try cmds.exit_overlay_mode(self, .{});
+    self.input_mode_outer = self.input_mode;
+    self.input_mode = try mode.create(self.a);
 }
 
 const cmds = struct {
@@ -550,6 +558,20 @@ const cmds = struct {
         self.deinit();
         root.print_exit_status({}, "FORCE TERMINATE");
         root.exit(99);
+    }
+
+    pub fn set_theme(self: *Self, ctx: Ctx) Result {
+        var name: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&name)}))
+            return tp.exit_error(error.InvalidArgument, null);
+        self.theme = get_theme_by_name(name) orelse {
+            self.logger.print("theme not found: {s}", .{name});
+            return;
+        };
+        self.config.theme = self.theme.name;
+        self.rdr.set_terminal_style(self.theme.editor);
+        self.logger.print("theme: {s}", .{self.theme.description});
+        try self.save_config();
     }
 
     pub fn theme_next(self: *Self, _: Ctx) Result {
@@ -612,17 +634,15 @@ const cmds = struct {
     }
 
     pub fn open_command_palette(self: *Self, _: Ctx) Result {
-        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
-        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
-        self.input_mode_outer = self.input_mode;
-        self.input_mode = try @import("mode/overlay/command_palette.zig").create(self.a);
+        return self.enter_overlay_mode(@import("mode/overlay/command_palette.zig").Type);
     }
 
     pub fn open_recent(self: *Self, _: Ctx) Result {
-        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
-        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
-        self.input_mode_outer = self.input_mode;
-        self.input_mode = try @import("mode/overlay/open_recent.zig").create(self.a);
+        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
+    }
+
+    pub fn change_theme(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/theme_palette.zig").Type);
     }
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
@@ -729,6 +749,7 @@ pub fn need_render() void {
 
 pub fn resize(self: *Self) void {
     self.mainview.resize(self.screen());
+    self.refresh_hover();
     need_render();
 }
 

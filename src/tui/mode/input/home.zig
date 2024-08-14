@@ -14,6 +14,7 @@ const Self = @This();
 
 a: std.mem.Allocator,
 f: usize = 0,
+leader: ?struct { keypress: u32, modifiers: u32 } = null,
 
 pub fn create(a: std.mem.Allocator) !tui.Mode {
     const self: *Self = try a.create(Self);
@@ -53,6 +54,7 @@ fn mapEvent(self: *Self, evtype: u32, keypress: u32, modifiers: u32) tp.result {
 
 fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
+    if (self.leader) |_| return self.mapFollower(keynormal, modifiers);
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
             'F' => self.sheeran(),
@@ -63,6 +65,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'E' => self.cmd("open_recent", .{}),
             'P' => self.cmd("open_command_palette", .{}),
             '/' => self.cmd("open_help", .{}),
+            'K' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
@@ -94,6 +97,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'r' => self.msg("open recent project not implemented"),
             'p' => self.cmd("open_command_palette", .{}),
             'c' => self.cmd("open_config", .{}),
+            't' => self.cmd("change_theme", .{}),
             'q' => self.cmd("quit", .{}),
 
             key.F01 => self.cmd("open_help", .{}),
@@ -105,6 +109,24 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             key.UP => self.cmd("home_menu_up", .{}),
             key.DOWN => self.cmd("home_menu_down", .{}),
             key.ENTER => self.cmd("home_menu_activate", .{}),
+            else => {},
+        },
+        else => {},
+    };
+}
+
+fn mapFollower(self: *Self, keypress: u32, modifiers: u32) !void {
+    defer self.leader = null;
+    const ldr = if (self.leader) |leader| leader else return;
+    return switch (ldr.modifiers) {
+        mod.CTRL => switch (ldr.keypress) {
+            'K' => switch (modifiers) {
+                mod.CTRL => switch (keypress) {
+                    'T' => self.cmd("change_theme", .{}),
+                    else => {},
+                },
+                else => {},
+            },
             else => {},
         },
         else => {},
@@ -146,6 +168,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "quit", "q, C-q, C-w" },
     .{ "quit_without_saving", "C-S-q" },
     .{ "restart", "C-S-r" },
+    .{ "change_theme", "t, C-k C-t" },
     .{ "theme_next", "F10" },
     .{ "theme_prev", "F9" },
     .{ "toggle_inputview", "F12, A-i" },

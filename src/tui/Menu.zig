@@ -196,13 +196,18 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn activate_selected(self: *Self) void {
-            const selected = self.selected orelse return;
+            const button = self.get_selected() orelse return;
+            button.opts.on_click(&button.opts.ctx, button);
+        }
+
+        pub fn get_selected(self: *Self) ?*button_type {
+            const selected = self.selected orelse return null;
             self.selected_active = true;
             const pos = selected + self.header_count;
-            if (pos < self.menu.widgets.items.len) {
-                const button = self.menu.widgets.items[pos].widget.dynamic_cast(button_type) orelse return;
-                button.opts.on_click(&button.opts.ctx, button);
-            }
+            return if (pos < self.menu.widgets.items.len)
+                self.menu.widgets.items[pos].widget.dynamic_cast(button_type)
+            else
+                null;
         }
     };
 }
