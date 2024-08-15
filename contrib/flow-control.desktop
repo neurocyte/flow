@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Flow Control
+Comment=A programmer's text editor.
+GenericName=Text Editor
+Type=Application
+Keywords=editor;flow
+Exec=flow %F
+Icon=flow-control
+Type=Application
+Categories=TextEditor;Development;IDE;
+StartupNotify=false
+Terminal=true
