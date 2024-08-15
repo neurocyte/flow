@@ -469,6 +469,81 @@ fn navigate_to_location_link(_: *Self, from: tp.pid_ref, location_link: []const 
     }
 }
 
+pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
+    const lsp = try self.get_file_lsp(file_path);
+    const uri = try self.make_URI(file_path);
+    defer self.a.free(uri);
+    const response = try lsp.send_request(self.a, "textDocument/references", .{
+        .textDocument = .{ .uri = uri },
+        .position = .{ .line = row, .character = col },
+        .context = .{ .includeDeclaration = true },
+    });
+    defer self.a.free(response.buf);
+    var locations: []const u8 = undefined;
+    if (try response.match(.{ "child", tp.string, "result", tp.null_ })) {
+        return;
+    } else if (try response.match(.{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
+        try self.send_location_list(from, locations);
+    }
+}
+
+fn send_location_list(self: *Self, to: tp.pid_ref, locations: []const u8) !void {
+    var iter = locations;
+    var len = try cbor.decodeArrayHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var location: []const u8 = undefined;
+        if (try cbor.matchValue(&iter, cbor.extract_cbor(&location))) {
+            try self.send_location(to, location);
+        } else return error.InvalidMessageField;
+    }
+}
+
+fn send_location(_: *Self, to: tp.pid_ref, location: []const u8) !void {
+    var iter = location;
+    var targetUri: ?[]const u8 = null;
+    var targetRange: ?Range = null;
+    var targetSelectionRange: ?Range = null;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "targetUri") or std.mem.eql(u8, field_name, "uri")) {
+            var value: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidMessageField;
+            targetUri = value;
+        } else if (std.mem.eql(u8, field_name, "targetRange") or std.mem.eql(u8, field_name, "range")) {
+            var range: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
+            targetRange = try read_range(range);
+        } else if (std.mem.eql(u8, field_name, "targetSelectionRange")) {
+            var range: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
+            targetSelectionRange = try read_range(range);
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    if (targetUri == null or targetRange == null) return error.InvalidMessageField;
+    if (!std.mem.eql(u8, targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
+    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var file_path = std.Uri.percentDecodeBackwards(&file_path_buf, targetUri.?[7..]);
+    if (builtin.os.tag == .windows) {
+        if (file_path[0] == '/') file_path = file_path[1..];
+        for (file_path, 0..) |c, i| if (c == '/') {
+            file_path[i] = '\\';
+        };
+    }
+    try to.send(.{
+        "FIF",
+        file_path,
+        targetRange.?.start.line + 1,
+        targetRange.?.start.character + 1,
+        targetRange.?.start.line + 1,
+        targetRange.?.start.character + 1,
+        "",
+    });
+}
+
 pub fn completion(self: *Self, _: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);

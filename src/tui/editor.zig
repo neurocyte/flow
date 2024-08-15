@@ -3425,6 +3425,12 @@ pub const Editor = struct {
         return project_manager.goto_definition(file_path, primary.cursor.row, primary.cursor.col);
     }
 
+    pub fn references(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        return project_manager.references(file_path, primary.cursor.row, primary.cursor.col);
+    }
+
     pub fn completion(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();

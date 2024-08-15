@@ -175,6 +175,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         },
         mod.SHIFT => switch (keypress) {
             key.F03 => self.cmd("goto_prev_match", .{}),
+            key.F12 => self.cmd("references", .{}),
             key.LEFT => self.cmd("select_left", .{}),
             key.RIGHT => self.cmd("select_right", .{}),
             key.UP => self.cmd("select_up", .{}),
@@ -374,6 +375,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "quit", "C-q" },
     .{ "quit_without_saving", "C-S-q" },
     .{ "redo", "C-S-z, C-y" },
+    .{ "references", "S-F12" },
     .{ "save_file", "C-s" },
     .{ "scroll_view_bottom", "C-l" },
     .{ "scroll_view_center", "C-l" },
