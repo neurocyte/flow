@@ -44,6 +44,7 @@ pub fn main() anyerror!void {
         \\--show-log               Open the log view on start.
         \\-l, --language <lang>    Force the language of the file to be opened.
         \\--list-languages         Show available languages.
+        \\--no-syntax              Disable syntax highlighting.
         \\-e, --exec <command>...  Execute a command on startup.
         \\-v, --version            Show build version and exit.
         \\<file>...                File or directory to open.
@@ -154,6 +155,7 @@ pub fn main() anyerror!void {
     env.set("show-input", (res.args.@"show-input" != 0));
     env.set("show-log", (res.args.@"show-log" != 0));
     env.set("no-sleep", (res.args.@"no-sleep" != 0));
+    env.set("no-syntax", (res.args.@"no-syntax" != 0));
     env.set("dump-stack-trace", (res.args.@"debug-dump-on-error" != 0));
     if (res.args.@"frame-rate") |s| env.num_set("frame-rate", @intCast(s));
     env.proc_set("log", log_proc.ref());

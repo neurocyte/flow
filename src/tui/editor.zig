@@ -404,7 +404,7 @@ pub const Editor = struct {
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
 
-        self.syntax = syntax: {
+        self.syntax = if (tp.env.get().is("no-syntax")) null else syntax: {
             if (new_buf.root.lines() > root_mod.max_syntax_lines)
                 break :syntax null;
             const lang_override = tp.env.get().str("language");
@@ -2932,10 +2932,13 @@ pub const Editor = struct {
             var content = std.ArrayList(u8).init(self.a);
             defer content.deinit();
             try root.store(content.writer());
-            self.syntax = syntax.create_guess_file_type(self.a, content.items, self.file_path) catch |e| switch (e) {
-                error.NotFound => null,
-                else => return e,
-            };
+            self.syntax = if (tp.env.get().is("no-syntax"))
+                null
+            else
+                syntax.create_guess_file_type(self.a, content.items, self.file_path) catch |e| switch (e) {
+                    error.NotFound => null,
+                    else => return e,
+                };
         }
     }
 
