@@ -1,5 +1,11 @@
 const std = @import("std");
-const treez = @import("treez");
+const build_options = @import("build_options");
+
+const treez = if (build_options.use_tree_sitter)
+    @import("treez")
+else
+    @import("treez_dummy.zig");
+
 pub const FileType = @This();
 
 color: u24,
@@ -63,8 +69,12 @@ pub fn Parser(comptime lang: []const u8) LangFn {
 }
 
 fn get_parser(comptime lang: []const u8) LangFn {
-    const language_name = ft_func_name(lang);
-    return @extern(?LangFn, .{ .name = "tree_sitter_" ++ language_name }) orelse @compileError(std.fmt.comptimePrint("Cannot find extern tree_sitter_{s}", .{language_name}));
+    if (build_options.use_tree_sitter) {
+        const language_name = ft_func_name(lang);
+        return @extern(?LangFn, .{ .name = "tree_sitter_" ++ language_name }) orelse @compileError(std.fmt.comptimePrint("Cannot find extern tree_sitter_{s}", .{language_name}));
+    } else {
+        return treez.Language.LangFn;
+    }
 }
 
 fn ft_func_name(comptime lang: []const u8) []const u8 {
@@ -112,8 +122,20 @@ fn load_file_types(comptime Namespace: type) []const FileType {
                     .lang_fn = if (@hasField(@TypeOf(args), "parser")) args.parser else get_parser(lang),
                     .extensions = vec(args.extensions),
                     .comment = args.comment,
-                    .highlights = if (@hasField(@TypeOf(args), "highlights")) @embedFile(args.highlights) else @embedFile("tree-sitter-" ++ lang ++ "/queries/highlights.scm"),
-                    .injections = if (@hasField(@TypeOf(args), "injections")) @embedFile(args.injections) else null,
+                    .highlights = if (build_options.use_tree_sitter)
+                        if (@hasField(@TypeOf(args), "highlights"))
+                            @embedFile(args.highlights)
+                        else
+                            @embedFile("tree-sitter-" ++ lang ++ "/queries/highlights.scm")
+                    else
+                        "",
+                    .injections = if (build_options.use_tree_sitter)
+                        if (@hasField(@TypeOf(args), "injections"))
+                            @embedFile(args.injections)
+                        else
+                            null
+                    else
+                        null,
                     .first_line_matches = if (@hasField(@TypeOf(args), "first_line_matches")) args.first_line_matches else null,
                     .formatter = if (@hasField(@TypeOf(args), "formatter")) vec(args.formatter) else null,
                     .language_server = if (@hasField(@TypeOf(args), "language_server")) vec(args.language_server) else null,

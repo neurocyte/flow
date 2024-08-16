@@ -2,19 +2,18 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
-    const enable_tracy_option = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)");
-    const optimize_deps_option = b.option(bool, "optimize_deps", "Enable optimization for dependecies (default: yes)");
+    const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
+    const optimize_deps = b.option(bool, "optimize_deps", "Enable optimization for dependecies (default: yes)") orelse true;
     const use_llvm_option = b.option(bool, "use_llvm", "Enable llvm backend (default: yes)");
     const use_lld_option = b.option(bool, "use_lld", "Enable lld backend (default: yes)");
-
-    const tracy_enabled = if (enable_tracy_option) |enabled| enabled else false;
-    const optimize_deps_enabled = if (optimize_deps_option) |enabled| enabled else true;
+    const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
 
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
-    options.addOption(bool, "optimize_deps", optimize_deps_enabled);
-    options.addOption(bool, "use_llvm", use_llvm_option orelse false);
-    options.addOption(bool, "use_lld", use_lld_option orelse false);
+    options.addOption(bool, "optimize_deps", optimize_deps);
+    options.addOption(bool, "use_tree_sitter", use_tree_sitter);
+    options.addOption(bool, "use_llvm", use_llvm_option orelse true);
+    options.addOption(bool, "use_lld", use_lld_option orelse true);
 
     const options_mod = options.createModule();
 
@@ -22,7 +21,7 @@ pub fn build(b: *std.Build) void {
     // std.debug.print("target abi: {s}\n", .{@tagName(target.result.abi)});
     const optimize = b.standardOptimizeOption(.{});
 
-    const dependency_optimize = if (optimize_deps_enabled) .ReleaseFast else optimize;
+    const dependency_optimize = if (optimize_deps) .ReleaseFast else optimize;
 
     std.fs.cwd().makeDir(".cache") catch |e| switch (e) {
         error.PathAlreadyExists => {},
@@ -82,6 +81,7 @@ pub fn build(b: *std.Build) void {
     const syntax_dep = b.dependency("syntax", .{
         .target = target,
         .optimize = dependency_optimize,
+        .use_tree_sitter = use_tree_sitter,
     });
     const syntax_mod = syntax_dep.module("syntax");
 

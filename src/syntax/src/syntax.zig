@@ -1,5 +1,10 @@
 const std = @import("std");
-const treez = @import("treez");
+const build_options = @import("build_options");
+
+const treez = if (build_options.use_tree_sitter)
+    @import("treez")
+else
+    @import("treez_dummy.zig");
 
 const Self = @This();
 
@@ -7,10 +12,10 @@ pub const Edit = treez.InputEdit;
 pub const FileType = @import("file_type.zig");
 pub const Range = treez.Range;
 pub const Point = treez.Point;
+const Input = treez.Input;
 const Language = treez.Language;
 const Parser = treez.Parser;
 const Query = treez.Query;
-const Tree = treez.Tree;
 pub const Node = treez.Node;
 
 a: std.mem.Allocator,
@@ -19,13 +24,13 @@ file_type: *const FileType,
 parser: *Parser,
 query: *Query,
 injections: *Query,
-tree: ?*Tree = null,
+tree: ?*treez.Tree = null,
 
 pub fn create(file_type: *const FileType, a: std.mem.Allocator, content: []const u8) !*Self {
     const self = try a.create(Self);
     self.* = .{
         .a = a,
-        .lang = file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {d}", .{file_type.name}),
+        .lang = file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{file_type.name}),
         .file_type = file_type,
         .parser = try Parser.create(),
         .query = try Query.create(self.lang, file_type.highlights),
@@ -85,7 +90,7 @@ pub fn refresh_from_buffer(self: *Self, buffer: anytype, metrics: anytype) !void
         .syntax = self,
     };
 
-    const input: treez.Input = .{
+    const input: Input = .{
         .payload = &state,
         .read = struct {
             fn read(payload: ?*anyopaque, _: u32, position: treez.Point, bytes_read: *u32) callconv(.C) [*:0]const u8 {
