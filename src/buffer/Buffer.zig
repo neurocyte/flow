@@ -1093,7 +1093,7 @@ pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bo
     file_exists.* = true;
     defer file.close();
     const stat = try file.stat();
-    return self.load(file.reader(), stat.size);
+    return self.load(file.reader(), @intCast(stat.size));
 }
 
 pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {

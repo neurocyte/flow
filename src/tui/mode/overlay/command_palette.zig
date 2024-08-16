@@ -97,7 +97,7 @@ pub fn restore_state(palette: *Type) !void {
     };
     defer file.close();
     const stat = try file.stat();
-    var buffer = try a.alloc(u8, stat.size);
+    var buffer = try a.alloc(u8, @intCast(stat.size));
     defer a.free(buffer);
     const size = try file.readAll(buffer);
     const data = buffer[0..size];

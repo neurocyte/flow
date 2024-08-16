@@ -187,7 +187,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
     var diff_symbols = self.diff_symbols.items;
     var buf: [31:0]u8 = undefined;
     while (rows > 0) : (rows -= 1) {
-        if (pos > self.lines - row) return;
+        if (pos > self.lines - @as(u32, @intCast(row))) return;
         self.plane.set_base_style(" ", if (linenum == 0) theme.editor_gutter_active else theme.editor_gutter);
         const val = @abs(if (linenum == 0) line else linenum);
         const fmt = std.fmt.bufPrintZ(&buf, "{d} ", .{val}) catch return;

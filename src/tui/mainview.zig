@@ -568,7 +568,7 @@ fn read_restore_info(self: *Self) !void {
         const file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
         defer file.close();
         const stat = try file.stat();
-        var buf = try self.a.alloc(u8, stat.size);
+        var buf = try self.a.alloc(u8, @intCast(stat.size));
         defer self.a.free(buf);
         const size = try file.readAll(buf);
         try editor.extract_state(buf[0..size]);

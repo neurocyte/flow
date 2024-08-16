@@ -86,7 +86,7 @@ fn render_idle(self: *Self) bool {
         return self.animate();
     } else {
         const i = @mod(self.idle_frame / 8, idle_spinner.len);
-        _ = self.plane.print_aligned_center(0, "{s} {s} {s}", .{ idle_spinner[i], idle_msg, idle_spinner[i] }) catch {};
+        _ = self.plane.print_aligned_center(0, "{s} {s} {s}", .{ idle_spinner[@intCast(i)], idle_msg, idle_spinner[@intCast(i)] }) catch {};
     }
     return true;
 }
@@ -196,7 +196,7 @@ const eighths_r = [_][]const u8{ " ", "▕", "🮇", "🮈", "▐", "🮉", "�
 const eighths_c = eighths_l.len;
 
 fn smooth_block_at(plane: *Plane, pos: u64) void {
-    const blk = @mod(pos, eighths_c) + 1;
+    const blk: u32 = @intCast(@mod(pos, eighths_c) + 1);
     const l = eighths_l[eighths_c - blk];
     const r = eighths_r[eighths_c - blk];
     plane.erase();

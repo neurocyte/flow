@@ -399,7 +399,7 @@ const Process = struct {
         };
         defer file.close();
         const stat = try file.stat();
-        var buffer = try self.a.alloc(u8, stat.size);
+        var buffer = try self.a.alloc(u8, @intCast(stat.size));
         defer self.a.free(buffer);
         const size = try file.readAll(buffer);
         try project.restore_state(buffer[0..size]);
