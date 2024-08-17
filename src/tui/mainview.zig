@@ -6,6 +6,7 @@ const ripgrep = @import("ripgrep");
 const root = @import("root");
 const location_history = @import("location_history");
 const project_manager = @import("project_manager");
+const log = @import("log");
 
 const Plane = @import("renderer").Plane;
 const key = @import("renderer").input.key;
@@ -36,6 +37,7 @@ panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history: location_history,
 file_stack: std.ArrayList([]const u8),
+find_in_files_count: usize = 0,
 find_in_files_done: bool = false,
 panel_height: ?usize = null,
 
@@ -92,9 +94,12 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var end_pos: usize = undefined;
     var lines: []const u8 = undefined;
     if (try m.match(.{ "FIF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
+        self.find_in_files_count += 1;
         try self.add_find_in_files_result(path, begin_line, begin_pos, end_line, end_pos, lines);
         return true;
     } else if (try m.match(.{ "FIF", "done" })) {
+        log.logger("find").print("found {d} matches", .{self.find_in_files_count});
+        self.find_in_files_count = 0;
         self.find_in_files_done = true;
         return true;
     } else if (try m.match(.{"write_restore_info"})) {
@@ -447,6 +452,7 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
 }
 
 pub fn find_in_files(self: *Self, query: []const u8) !void {
+    log.logger("find").print("finding files...", .{});
     const find_f = ripgrep.find_in_files;
     if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
     var rg = try find_f(self.a, query, "FIF");
