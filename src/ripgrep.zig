@@ -80,6 +80,7 @@ const Process = struct {
     tag: [:0]const u8,
     logger: log.Logger,
     stdin_behavior: std.process.Child.StdIo,
+    match_count: usize = 0,
 
     const Receiver = tp.Receiver(*Process);
 
@@ -150,7 +151,6 @@ const Process = struct {
 
     fn handle_output(self: *Process, bytes: []u8) !void {
         try self.output.appendSlice(bytes);
-        // self.logger.print("{s}", .{bytes}) catch {};
     }
 
     fn handle_terminated(self: *Process) !void {
@@ -161,11 +161,9 @@ const Process = struct {
             var msg_buf: [tp.max_message_size]u8 = undefined;
             const msg: tp.message = .{ .buf = try cbor.fromJson(json, &msg_buf) };
             try self.dispatch(msg);
-            // var buf: [tp.max_message_size]u8 = undefined;
-            // self.logger.print("json: {s}", .{try msg.to_json(&buf)}) catch {};
         }
-        // self.logger.print("done", .{}) catch {};
         try self.parent.send(.{ self.tag, "done" });
+        self.logger.print("found {d} matches", .{self.match_count});
     }
 
     fn dispatch(self: *Process, m: tp.message) !void {
@@ -232,5 +230,6 @@ const Process = struct {
         } else {
             try self.parent.send(.{ self.tag, line, begin, line, end });
         }
+        self.match_count += 1;
     }
 };
