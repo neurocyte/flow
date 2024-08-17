@@ -473,6 +473,8 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
     defer self.a.free(uri);
+    log.logger("lsp").print("finding references...", .{});
+
     const response = try lsp.send_request(self.a, "textDocument/references", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
@@ -488,17 +490,20 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
 }
 
 fn send_location_list(self: *Self, to: tp.pid_ref, locations: []const u8) !void {
+    defer to.send(.{ "FIF", "done" }) catch {};
     var iter = locations;
     var len = try cbor.decodeArrayHeader(&iter);
+    const count = len;
     while (len > 0) : (len -= 1) {
         var location: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract_cbor(&location))) {
             try self.send_location(to, location);
         } else return error.InvalidMessageField;
     }
+    log.logger("lsp").print("found {d} references", .{count});
 }
 
-fn send_location(_: *Self, to: tp.pid_ref, location: []const u8) !void {
+fn send_location(self: *Self, to: tp.pid_ref, location: []const u8) !void {
     var iter = location;
     var targetUri: ?[]const u8 = null;
     var targetRange: ?Range = null;
@@ -533,14 +538,20 @@ fn send_location(_: *Self, to: tp.pid_ref, location: []const u8) !void {
             file_path[i] = '\\';
         };
     }
+    const line = try self.get_line_of_file(self.a, file_path, targetRange.?.start.line);
+    defer self.a.free(line);
+    const file_path_ = if (file_path.len > self.name.len and std.mem.eql(u8, self.name, file_path[0..self.name.len]))
+        file_path[self.name.len + 1 ..]
+    else
+        file_path;
     try to.send(.{
         "FIF",
-        file_path,
+        file_path_,
         targetRange.?.start.line + 1,
-        targetRange.?.start.character + 1,
-        targetRange.?.start.line + 1,
-        targetRange.?.start.character + 1,
-        "",
+        targetRange.?.start.character,
+        targetRange.?.end.line + 1,
+        targetRange.?.end.character,
+        line,
     });
 }
 
@@ -1027,4 +1038,33 @@ fn format_lsp_name_func(
         if (first) first = false else try writer.writeAll(" ");
         try writer.writeAll(value);
     }
+}
+
+const eol = '\n';
+
+fn get_line_of_file(self: *Self, a: std.mem.Allocator, file_path: []const u8, line_: usize) ![]const u8 {
+    const line = line_ + 1;
+    const file = try std.fs.cwd().openFile(file_path, .{ .mode = .read_only });
+    defer file.close();
+    const stat = try file.stat();
+    var buf = try a.alloc(u8, @intCast(stat.size));
+    defer a.free(buf);
+    const read_size = try file.reader().readAll(buf);
+    if (read_size != @as(@TypeOf(read_size), @intCast(stat.size)))
+        @panic("get_line_of_file: buffer underrun");
+
+    var line_count: usize = 1;
+    for (0..buf.len) |i| {
+        if (line_count == line)
+            return self.get_line(a, buf[i..]);
+        if (buf[i] == eol) line_count += 1;
+    }
+    return a.dupe(u8, "");
+}
+
+pub fn get_line(_: *Self, a: std.mem.Allocator, buf: []const u8) ![]const u8 {
+    for (0..buf.len) |i| {
+        if (buf[i] == eol) return a.dupe(u8, buf[0..i]);
+    }
+    return a.dupe(u8, buf);
 }
