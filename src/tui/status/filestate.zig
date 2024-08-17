@@ -173,7 +173,7 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.name = self.name_buf[0..file_path.len];
         self.file_exists = true;
         self.file_dirty = false;
-        self.abbrv_home();
+        self.name = root.abbreviate_home(&self.name_buf, self.name);
     } else if (try m.match(.{ "E", "open", tp.extract(&file_path), tp.extract(&self.file_exists), tp.extract(&file_type), tp.extract(&file_icon), tp.extract(&self.file_color) })) {
         @memcpy(self.name_buf[0..file_path.len], file_path);
         self.name = self.name_buf[0..file_path.len];
@@ -183,7 +183,7 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.file_icon_buf[file_icon.len] = 0;
         self.file_icon = self.file_icon_buf[0..file_icon.len :0];
         self.file_dirty = false;
-        self.abbrv_home();
+        self.name = root.abbreviate_home(&self.name_buf, self.name);
         self.file = true;
     } else if (try m.match(.{ "E", "close" })) {
         self.name = "";
@@ -217,22 +217,5 @@ fn show_project(self: *Self) void {
     const project_name = tp.env.get().str("project");
     @memcpy(self.name_buf[0..project_name.len], project_name);
     self.name = self.name_buf[0..project_name.len];
-    self.abbrv_home();
-}
-
-fn abbrv_home(self: *Self) void {
-    if (builtin.os.tag == .windows) return;
-    if (!std.fs.path.isAbsolute(self.name)) return;
-    const homedir = std.posix.getenv("HOME") orelse return;
-    const homerelpath = std.fs.path.relative(self.a, homedir, self.name) catch return;
-    if (homerelpath.len == 0) {
-        self.name = "~";
-    } else if (homerelpath.len > 3 and std.mem.eql(u8, homerelpath[0..3], "../")) {
-        return;
-    } else {
-        self.name_buf[0] = '~';
-        self.name_buf[1] = '/';
-        @memcpy(self.name_buf[2 .. homerelpath.len + 2], homerelpath);
-        self.name = self.name_buf[0 .. homerelpath.len + 2];
-    }
+    self.name = root.abbreviate_home(&self.name_buf, self.name);
 }

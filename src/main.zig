@@ -600,3 +600,22 @@ pub fn shorten_path(buf: []u8, path: []const u8, removed_prefix: *usize, max_len
     @memcpy(buf[ellipsis.len .. max_len + ellipsis.len], path[prefix..]);
     return buf[0 .. max_len + ellipsis.len];
 }
+
+pub fn abbreviate_home(buf: []u8, path: []const u8) []const u8 {
+    const a = std.heap.c_allocator;
+    if (builtin.os.tag == .windows) return path;
+    if (!std.fs.path.isAbsolute(path)) return path;
+    const homedir = std.posix.getenv("HOME") orelse return path;
+    const homerelpath = std.fs.path.relative(a, homedir, path) catch return path;
+    defer a.free(homerelpath);
+    if (homerelpath.len == 0) {
+        return "~";
+    } else if (homerelpath.len > 3 and std.mem.eql(u8, homerelpath[0..3], "../")) {
+        return path;
+    } else {
+        buf[0] = '~';
+        buf[1] = '/';
+        @memcpy(buf[2 .. homerelpath.len + 2], homerelpath);
+        return buf[0 .. homerelpath.len + 2];
+    }
+}
