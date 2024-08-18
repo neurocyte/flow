@@ -105,18 +105,6 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return if (try self.floating_views.send(from_, m)) true else self.widgets.send(from_, m);
 }
 
-fn add_find_in_files_result(self: *Self, path: []const u8, begin_line: usize, begin_pos: usize, end_line: usize, end_pos: usize, lines: []const u8) tp.result {
-    const filelist_view = @import("filelist_view.zig");
-    if (!self.is_panel_view_showing(filelist_view))
-        _ = self.toggle_panel_view(filelist_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
-    if (self.find_in_files_done) {
-        self.find_in_files_done = false;
-        fl.reset();
-    }
-    fl.add_item(.{ .path = path, .begin_line = @max(1, begin_line) - 1, .begin_pos = @max(1, begin_pos) - 1, .end_line = @max(1, end_line) - 1, .end_pos = @max(1, end_pos) - 1, .lines = lines }) catch |e| return tp.exit_error(e, @errorReturnTrace());
-}
-
 pub fn update(self: *Self) void {
     self.widgets.update();
     self.floating_views.update();
@@ -405,6 +393,29 @@ const cmds = struct {
             try command.executeName("goto_prev_diagnostic", ctx);
         }
     }
+
+    pub fn add_diagnostic(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var source: []const u8 = undefined;
+        var code: []const u8 = undefined;
+        var message: []const u8 = undefined;
+        var severity: i32 = 0;
+        var sel: ed.Selection = .{};
+        if (!try ctx.args.match(.{
+            tp.extract(&file_path),
+            tp.extract(&source),
+            tp.extract(&code),
+            tp.extract(&message),
+            tp.extract(&severity),
+            tp.extract(&sel.begin.row),
+            tp.extract(&sel.begin.col),
+            tp.extract(&sel.end.row),
+            tp.extract(&sel.end.col),
+        })) return error.InvalidArgument;
+        file_path = project_manager.normalize_file_path(file_path);
+        if (self.editor) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+            try editor.add_diagnostic(file_path, source, code, message, severity, sel);
+    }
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
@@ -584,4 +595,16 @@ fn pop_file_stack(self: *Self, closed: ?[]const u8) ?[]const u8 {
             if (std.mem.eql(u8, file_path, file_path_))
                 self.a.free(self.file_stack.orderedRemove(i));
     return self.file_stack.popOrNull();
+}
+
+fn add_find_in_files_result(self: *Self, path: []const u8, begin_line: usize, begin_pos: usize, end_line: usize, end_pos: usize, lines: []const u8) tp.result {
+    const filelist_view = @import("filelist_view.zig");
+    if (!self.is_panel_view_showing(filelist_view))
+        _ = self.toggle_panel_view(filelist_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
+    if (self.find_in_files_done) {
+        self.find_in_files_done = false;
+        fl.reset();
+    }
+    fl.add_item(.{ .path = path, .begin_line = @max(1, begin_line) - 1, .begin_pos = @max(1, begin_pos) - 1, .end_line = @max(1, end_line) - 1, .end_pos = @max(1, end_pos) - 1, .lines = lines }) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }

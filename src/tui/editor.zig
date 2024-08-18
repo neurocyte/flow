@@ -3455,25 +3455,15 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    pub fn add_diagnostic(self: *Self, ctx: Context) Result {
-        var file_path: []const u8 = undefined;
-        var source: []const u8 = undefined;
-        var code: []const u8 = undefined;
-        var message: []const u8 = undefined;
-        var severity: i32 = 0;
-        var sel: Selection = .{};
-        if (!try ctx.args.match(.{
-            tp.extract(&file_path),
-            tp.extract(&source),
-            tp.extract(&code),
-            tp.extract(&message),
-            tp.extract(&severity),
-            tp.extract(&sel.begin.row),
-            tp.extract(&sel.begin.col),
-            tp.extract(&sel.end.row),
-            tp.extract(&sel.end.col),
-        })) return error.InvalidArgument;
-        file_path = project_manager.normalize_file_path(file_path);
+    pub fn add_diagnostic(
+        self: *Self,
+        file_path: []const u8,
+        source: []const u8,
+        code: []const u8,
+        message: []const u8,
+        severity: i32,
+        sel: Selection,
+    ) Result {
         if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
 
         (try self.diagnostics.addOne()).* = .{
@@ -3491,7 +3481,6 @@ pub const Editor = struct {
             .Hint => self.diag_hints += 1,
         }
         self.send_editor_diagnostics() catch {};
-        // self.logger.print("diag: {d} {d} {d}:{d} {s}", .{ self.diagnostics.items.len, severity, sel.begin.row, sel.begin.col, message });
         self.need_render();
     }
 
