@@ -108,7 +108,7 @@ fn menu_action_help(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))
 }
 
 fn menu_action_open_file(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("enter_open_file_mode", .{}) catch {};
+    command.executeName("open_file", .{}) catch {};
 }
 
 fn menu_action_open_recent_file(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {

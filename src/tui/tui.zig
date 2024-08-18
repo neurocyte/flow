@@ -654,23 +654,23 @@ const cmds = struct {
         if (self.input_mode) |*mode| mode.deinit();
     }
 
-    pub fn enter_find_mode(self: *Self, ctx: Ctx) Result {
+    pub fn find(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/find.zig"), ctx);
     }
 
-    pub fn enter_find_in_files_mode(self: *Self, ctx: Ctx) Result {
+    pub fn find_in_files(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/find_in_files.zig"), ctx);
     }
 
-    pub fn enter_goto_mode(self: *Self, ctx: Ctx) Result {
+    pub fn goto(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/goto.zig"), ctx);
     }
 
-    pub fn enter_move_to_char_mode(self: *Self, ctx: Ctx) Result {
+    pub fn move_to_char(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/move_to_char.zig"), ctx);
     }
 
-    pub fn enter_open_file_mode(self: *Self, ctx: Ctx) Result {
+    pub fn open_file(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
     }
 

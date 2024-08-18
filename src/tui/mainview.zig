@@ -289,10 +289,10 @@ const cmds = struct {
                 editor.send_editor_jump_source() catch {};
             }
             try self.create_editor();
-            try command.executeName("open_file", command.fmt(.{f}));
+            try command.executeName("open_buffer_from_file", command.fmt(.{f}));
         }
         if (goto_args.len != 0) {
-            try command.executeName("goto", .{ .args = .{ .buf = goto_args } });
+            try command.executeName("goto_line_and_column", .{ .args = .{ .buf = goto_args } });
         } else if (line) |l| {
             try command.executeName("goto_line", command.fmt(.{l}));
             if (!same_file)

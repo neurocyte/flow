@@ -61,7 +61,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'J' => self.cmd("toggle_panel", .{}),
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("quit", .{}),
-            'O' => self.cmd("enter_open_file_mode", .{}),
+            'O' => self.cmd("open_file", .{}),
             'E' => self.cmd("open_recent", .{}),
             'P' => self.cmd("open_command_palette", .{}),
             '/' => self.cmd("open_help", .{}),
@@ -72,7 +72,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'P' => self.cmd("open_command_palette", .{}),
             'Q' => self.cmd("quit_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
-            'F' => self.cmd("enter_find_in_files_mode", .{}),
+            'F' => self.cmd("find_in_files", .{}),
             'L' => self.cmd_async("toggle_panel"),
             '/' => self.cmd("open_help", .{}),
             else => {},
@@ -92,7 +92,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
         },
         0 => switch (keypress) {
             'h' => self.cmd("open_help", .{}),
-            'o' => self.cmd("enter_open_file_mode", .{}),
+            'o' => self.cmd("open_file", .{}),
             'e' => self.cmd("open_recent", .{}),
             'r' => self.msg("open recent project not implemented"),
             'p' => self.cmd("open_command_palette", .{}),
@@ -154,8 +154,8 @@ fn sheeran(self: *Self) void {
 }
 
 const hints = tui.KeybindHints.initComptime(.{
-    .{ "enter_find_in_files_mode", "C-S-f" },
-    .{ "enter_open_file_mode", "o, C-o" },
+    .{ "find_in_files", "C-S-f" },
+    .{ "open_file", "o, C-o" },
     .{ "open_recent", "e, C-e" },
     .{ "open_command_palette", "p, C-S-p, S-A-p" },
     .{ "home_menu_activate", "enter" },

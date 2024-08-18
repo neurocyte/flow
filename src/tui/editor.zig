@@ -2976,7 +2976,7 @@ pub const Editor = struct {
         self.clamp();
     }
 
-    pub fn open_file(self: *Self, ctx: Context) Result {
+    pub fn open_buffer_from_file(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
         if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
             try self.open(file_path);
@@ -3382,7 +3382,7 @@ pub const Editor = struct {
         self.clamp();
     }
 
-    pub fn goto(self: *Self, ctx: Context) Result {
+    pub fn goto_line_and_column(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         var line: usize = 0;
         var column: usize = 0;

@@ -31,7 +31,7 @@ pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) 
 }
 
 fn on_click(_: *Self, _: *Button.State(Self)) void {
-    command.executeName("enter_goto_mode", .{}) catch {};
+    command.executeName("goto", .{}) catch {};
 }
 
 pub fn layout(self: *Self, _: *Button.State(Self)) Widget.Layout {
