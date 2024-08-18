@@ -32,7 +32,7 @@ pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) 
 }
 
 fn on_click(_: *Self, _: *Button.State(Self)) void {
-    command.executeName("goto_next_diagnostic", .{}) catch {};
+    command.executeName("show_diagnostics", .{}) catch {};
 }
 
 pub fn layout(self: *Self, _: *Button.State(Self)) Widget.Layout {

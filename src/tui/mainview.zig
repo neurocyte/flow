@@ -456,6 +456,22 @@ const cmds = struct {
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false);
     }
+
+    pub fn show_diagnostics(self: *Self, _: Ctx) Result {
+        const editor = self.editor orelse return;
+        for (editor.diagnostics.items) |diagnostic| {
+            try self.add_find_in_files_result(
+                .diagnostics,
+                editor.file_path orelse "",
+                diagnostic.sel.begin.row + 1,
+                diagnostic.sel.begin.col,
+                diagnostic.sel.end.row + 1,
+                diagnostic.sel.end.col,
+                diagnostic.message,
+                ed.Diagnostic.to_severity(diagnostic.severity),
+            );
+        }
+    }
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
