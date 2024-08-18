@@ -433,7 +433,16 @@ const cmds = struct {
         if (self.editor) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
             try editor.add_diagnostic(file_path, source, code, message, severity, sel)
         else
-            try self.add_find_in_files_result(.diagnostics, file_path, sel.begin.row, sel.begin.col, sel.end.row, sel.end.col, message, ed.Diagnostic.to_severity(severity));
+            try self.add_find_in_files_result(
+                .diagnostics,
+                file_path,
+                sel.begin.row + 1,
+                sel.begin.col,
+                sel.end.row + 1,
+                sel.end.col,
+                message,
+                ed.Diagnostic.to_severity(severity),
+            );
     }
 
     pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
