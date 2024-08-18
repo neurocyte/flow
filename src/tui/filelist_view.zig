@@ -22,6 +22,7 @@ const Menu = @import("Menu.zig");
 const EventHandler = @import("EventHandler.zig");
 const Button = @import("Button.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
+const editor = @import("editor.zig");
 
 const escape = fmt.fmtSliceEscapeLower;
 
@@ -52,6 +53,7 @@ const Entry = struct {
     end_line: usize,
     end_pos: usize,
     lines: []const u8,
+    severity: editor.Diagnostic.Severity = .Information,
 };
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
@@ -137,7 +139,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.panel;
-    const style_info: Widget.Theme.Style = .{ .fg = theme.editor_information.fg, .fs = theme.editor_information.fs, .bg = style_base.bg };
+    const style_hint: Widget.Theme.Style = .{ .fg = theme.editor_hint.fg, .fs = theme.editor_hint.fs, .bg = style_base.bg };
+    const style_information: Widget.Theme.Style = .{ .fg = theme.editor_information.fg, .fs = theme.editor_information.fs, .bg = style_base.bg };
+    const style_warning: Widget.Theme.Style = .{ .fg = theme.editor_warning.fg, .fs = theme.editor_warning.fs, .bg = style_base.bg };
+    const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs, .bg = style_base.bg };
     const style_separator: Widget.Theme.Style = .{ .fg = theme.editor_selection.bg, .bg = style_base.bg };
     // const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs, .bg = style_base.bg };
     var idx: usize = undefined;
@@ -166,7 +171,12 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
     button.plane.cursor_move_yx(0, @intCast(max_len)) catch return false;
     button.plane.set_style(style_separator);
     _ = button.plane.print(" ▏", .{}) catch {};
-    button.plane.set_style(style_info);
+    switch (entry.severity) {
+        .Hint => button.plane.set_style(style_hint),
+        .Information => button.plane.set_style(style_information),
+        .Warning => button.plane.set_style(style_warning),
+        .Error => button.plane.set_style(style_error),
+    }
     _ = button.plane.print("{s}", .{entry.lines}) catch {};
     return false;
 }

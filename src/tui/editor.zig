@@ -164,7 +164,7 @@ pub const Diagnostic = struct {
         a.free(self.message);
     }
 
-    const Severity = enum { Error, Warning, Information, Hint };
+    pub const Severity = enum { Error, Warning, Information, Hint };
     pub fn get_severity(self: Diagnostic) Severity {
         return to_severity(self.severity);
     }
@@ -3314,7 +3314,7 @@ pub const Editor = struct {
     }
 
     pub fn goto_next_diagnostic(self: *Self, _: Context) Result {
-        if (self.diagnostics.items.len == 0) return;
+        if (self.diagnostics.items.len == 0) return command.executeName("goto_next_file", .{});
         self.sort_diagnostics();
         const primary = self.get_primary();
         for (self.diagnostics.items) |*diag| {
@@ -3325,7 +3325,7 @@ pub const Editor = struct {
     }
 
     pub fn goto_prev_diagnostic(self: *Self, _: Context) Result {
-        if (self.diagnostics.items.len == 0) return;
+        if (self.diagnostics.items.len == 0) return command.executeName("goto_prev_file", .{});
         self.sort_diagnostics();
         const primary = self.get_primary();
         var i = self.diagnostics.items.len - 1;
@@ -3440,21 +3440,6 @@ pub const Editor = struct {
         return project_manager.completion(file_path, primary.cursor.row, primary.cursor.col);
     }
 
-    pub fn clear_diagnostics(self: *Self, ctx: Context) Result {
-        var file_path: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidArgument;
-        file_path = project_manager.normalize_file_path(file_path);
-        if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
-        for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
-        self.diagnostics.clearRetainingCapacity();
-        self.diag_errors = 0;
-        self.diag_warnings = 0;
-        self.diag_info = 0;
-        self.diag_hints = 0;
-        self.send_editor_diagnostics() catch {};
-        self.need_render();
-    }
-
     pub fn add_diagnostic(
         self: *Self,
         file_path: []const u8,
@@ -3480,6 +3465,16 @@ pub const Editor = struct {
             .Information => self.diag_info += 1,
             .Hint => self.diag_hints += 1,
         }
+        self.send_editor_diagnostics() catch {};
+        self.need_render();
+    }
+
+    pub fn clear_diagnostics(self: *Self) void {
+        self.diagnostics.clearRetainingCapacity();
+        self.diag_errors = 0;
+        self.diag_warnings = 0;
+        self.diag_info = 0;
+        self.diag_hints = 0;
         self.send_editor_diagnostics() catch {};
         self.need_render();
     }

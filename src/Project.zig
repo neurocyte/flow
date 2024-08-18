@@ -485,25 +485,25 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     if (try response.match(.{ "child", tp.string, "result", tp.null_ })) {
         return;
     } else if (try response.match(.{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
-        try self.send_location_list(from, locations);
+        try self.send_reference_list(from, locations);
     }
 }
 
-fn send_location_list(self: *Self, to: tp.pid_ref, locations: []const u8) !void {
-    defer to.send(.{ "FIF", "done" }) catch {};
+fn send_reference_list(self: *Self, to: tp.pid_ref, locations: []const u8) !void {
+    defer to.send(.{ "REF", "done" }) catch {};
     var iter = locations;
     var len = try cbor.decodeArrayHeader(&iter);
     const count = len;
     while (len > 0) : (len -= 1) {
         var location: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract_cbor(&location))) {
-            try self.send_location(to, location);
+            try self.send_reference(to, location);
         } else return error.InvalidMessageField;
     }
     log.logger("lsp").print("found {d} references", .{count});
 }
 
-fn send_location(self: *Self, to: tp.pid_ref, location: []const u8) !void {
+fn send_reference(self: *Self, to: tp.pid_ref, location: []const u8) !void {
     var iter = location;
     var targetUri: ?[]const u8 = null;
     var targetRange: ?Range = null;
@@ -545,7 +545,7 @@ fn send_location(self: *Self, to: tp.pid_ref, location: []const u8) !void {
     else
         file_path;
     try to.send(.{
-        "FIF",
+        "REF",
         file_path_,
         targetRange.?.start.line + 1,
         targetRange.?.start.character,

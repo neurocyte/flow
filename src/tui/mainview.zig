@@ -22,6 +22,9 @@ const WidgetStack = @import("WidgetStack.zig");
 const ed = @import("editor.zig");
 const home = @import("home.zig");
 
+const logview = @import("logview.zig");
+const filelist_view = @import("filelist_view.zig");
+
 const Self = @This();
 const Commands = command.Collection(cmds);
 
@@ -38,6 +41,7 @@ last_match_text: ?[]const u8 = null,
 location_history: location_history,
 file_stack: std.ArrayList([]const u8),
 find_in_files_done: bool = false,
+file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
 
 const NavState = struct {
@@ -47,6 +51,12 @@ const NavState = struct {
     row: usize = 0,
     col: usize = 0,
     matches: usize = 0,
+};
+
+const FileListType = enum {
+    diagnostics,
+    references,
+    find_in_files,
 };
 
 pub fn create(a: std.mem.Allocator) !Widget {
@@ -92,8 +102,14 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var end_line: usize = undefined;
     var end_pos: usize = undefined;
     var lines: []const u8 = undefined;
-    if (try m.match(.{ "FIF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
-        try self.add_find_in_files_result(path, begin_line, begin_pos, end_line, end_pos, lines);
+    if (try m.match(.{ "REF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
+        try self.add_find_in_files_result(.references, path, begin_line, begin_pos, end_line, end_pos, lines, .Information);
+        return true;
+    } else if (try m.match(.{ "FIF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
+        try self.add_find_in_files_result(.find_in_files, path, begin_line, begin_pos, end_line, end_pos, lines, .Information);
+        return true;
+    } else if (try m.match(.{ "REF", "done" })) {
+        self.find_in_files_done = true;
         return true;
     } else if (try m.match(.{ "FIF", "done" })) {
         self.find_in_files_done = true;
@@ -145,8 +161,7 @@ fn statusbar_primary_drag(self: *Self, y: usize) tp.result {
     panels.layout = .{ .static = self.panel_height.? };
 }
 
-fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !bool {
-    var enabled = true;
+fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !void {
     if (self.panels) |panels| {
         if (panels.get(@typeName(view))) |w| {
             if (!enable_only) {
@@ -155,7 +170,6 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !bool {
                     self.widgets.remove(panels.widget());
                     self.panels = null;
                 }
-                enabled = false;
             }
         } else {
             try panels.add(try view.create(self.a, self.widgets.plane));
@@ -167,7 +181,6 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !bool {
         self.panels = panels;
     }
     tui.current().resize();
-    return enabled;
 }
 
 fn get_panel_view(self: *Self, comptime view: type) ?*view {
@@ -312,32 +325,32 @@ const cmds = struct {
     }
 
     pub fn toggle_panel(self: *Self, _: Ctx) Result {
-        if (self.is_panel_view_showing(@import("logview.zig")))
-            _ = try self.toggle_panel_view(@import("logview.zig"), false)
-        else if (self.is_panel_view_showing(@import("filelist_view.zig")))
-            _ = try self.toggle_panel_view(@import("filelist_view.zig"), false)
+        if (self.is_panel_view_showing(logview))
+            try self.toggle_panel_view(logview, false)
+        else if (self.is_panel_view_showing(filelist_view))
+            try self.toggle_panel_view(filelist_view, false)
         else
-            _ = try self.toggle_panel_view(@import("logview.zig"), false);
+            try self.toggle_panel_view(logview, false);
     }
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
-        _ = try self.toggle_panel_view(@import("logview.zig"), false);
+        try self.toggle_panel_view(logview, false);
     }
 
     pub fn show_logview(self: *Self, _: Ctx) Result {
-        _ = try self.toggle_panel_view(@import("logview.zig"), true);
+        try self.toggle_panel_view(logview, true);
     }
 
     pub fn toggle_inputview(self: *Self, _: Ctx) Result {
-        _ = try self.toggle_panel_view(@import("inputview.zig"), false);
+        try self.toggle_panel_view(@import("inputview.zig"), false);
     }
 
     pub fn toggle_inspector_view(self: *Self, _: Ctx) Result {
-        _ = try self.toggle_panel_view(@import("inspector_view.zig"), false);
+        try self.toggle_panel_view(@import("inspector_view.zig"), false);
     }
 
     pub fn show_inspector_view(self: *Self, _: Ctx) Result {
-        _ = try self.toggle_panel_view(@import("inspector_view.zig"), true);
+        try self.toggle_panel_view(@import("inspector_view.zig"), true);
     }
 
     pub fn jump_back(self: *Self, _: Ctx) Result {
@@ -377,18 +390,22 @@ const cmds = struct {
     }
 
     pub fn goto_next_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
-        const filelist_view = @import("filelist_view.zig");
         if (self.is_panel_view_showing(filelist_view)) {
-            try command.executeName("goto_next_file", ctx);
+            switch (self.file_list_type) {
+                .diagnostics => try command.executeName("goto_next_diagnostic", ctx),
+                else => try command.executeName("goto_next_file", ctx),
+            }
         } else {
             try command.executeName("goto_next_diagnostic", ctx);
         }
     }
 
     pub fn goto_prev_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
-        const filelist_view = @import("filelist_view.zig");
         if (self.is_panel_view_showing(filelist_view)) {
-            try command.executeName("goto_prev_file", ctx);
+            switch (self.file_list_type) {
+                .diagnostics => try command.executeName("goto_prev_diagnostic", ctx),
+                else => try command.executeName("goto_prev_file", ctx),
+            }
         } else {
             try command.executeName("goto_prev_diagnostic", ctx);
         }
@@ -414,7 +431,21 @@ const cmds = struct {
         })) return error.InvalidArgument;
         file_path = project_manager.normalize_file_path(file_path);
         if (self.editor) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
-            try editor.add_diagnostic(file_path, source, code, message, severity, sel);
+            try editor.add_diagnostic(file_path, source, code, message, severity, sel)
+        else
+            try self.add_find_in_files_result(.diagnostics, file_path, sel.begin.row, sel.begin.col, sel.end.row, sel.end.col, message, ed.Diagnostic.to_severity(severity));
+    }
+
+    pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidArgument;
+        file_path = project_manager.normalize_file_path(file_path);
+        if (self.editor) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+            editor.clear_diagnostics();
+
+        self.clear_find_in_files_results(.diagnostics);
+        if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
+            try self.toggle_panel_view(filelist_view, false);
     }
 };
 
@@ -597,14 +628,40 @@ fn pop_file_stack(self: *Self, closed: ?[]const u8) ?[]const u8 {
     return self.file_stack.popOrNull();
 }
 
-fn add_find_in_files_result(self: *Self, path: []const u8, begin_line: usize, begin_pos: usize, end_line: usize, end_pos: usize, lines: []const u8) tp.result {
-    const filelist_view = @import("filelist_view.zig");
+fn add_find_in_files_result(
+    self: *Self,
+    file_list_type: FileListType,
+    path: []const u8,
+    begin_line: usize,
+    begin_pos: usize,
+    end_line: usize,
+    end_pos: usize,
+    lines: []const u8,
+    severity: ed.Diagnostic.Severity,
+) tp.result {
     if (!self.is_panel_view_showing(filelist_view))
         _ = self.toggle_panel_view(filelist_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
-    if (self.find_in_files_done) {
-        self.find_in_files_done = false;
-        fl.reset();
+    if (self.find_in_files_done or self.file_list_type != file_list_type) {
+        self.clear_find_in_files_results(self.file_list_type);
+        self.file_list_type = file_list_type;
     }
-    fl.add_item(.{ .path = path, .begin_line = @max(1, begin_line) - 1, .begin_pos = @max(1, begin_pos) - 1, .end_line = @max(1, end_line) - 1, .end_pos = @max(1, end_pos) - 1, .lines = lines }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    fl.add_item(.{
+        .path = path,
+        .begin_line = @max(1, begin_line) - 1,
+        .begin_pos = @max(1, begin_pos) - 1,
+        .end_line = @max(1, end_line) - 1,
+        .end_pos = @max(1, end_pos) - 1,
+        .lines = lines,
+        .severity = severity,
+    }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+}
+
+fn clear_find_in_files_results(self: *Self, file_list_type: FileListType) void {
+    if (self.file_list_type != file_list_type) return;
+    if (!self.is_panel_view_showing(filelist_view)) return;
+    const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
+    self.find_in_files_done = false;
+    self.file_list_type = file_list_type;
+    fl.reset();
 }
