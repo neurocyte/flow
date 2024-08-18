@@ -501,7 +501,7 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
             if (text.len == 0)
                 return self.clear_auto_find(editor);
             if (!self.is_last_match_text(text)) {
-                tp.self_pid().send(.{ "cmd", "find", .{text} }) catch return;
+                tp.self_pid().send(.{ "cmd", "find_query", .{text} }) catch return;
             }
         }
         return;

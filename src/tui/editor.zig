@@ -3007,7 +3007,7 @@ pub const Editor = struct {
         try self.close_dirty();
     }
 
-    pub fn find(self: *Self, ctx: Context) Result {
+    pub fn find_query(self: *Self, ctx: Context) Result {
         var query: []const u8 = undefined;
         if (ctx.args.match(.{tp.extract(&query)}) catch false) {
             try self.find_in_buffer(query);
