@@ -324,7 +324,9 @@ const cmds = struct {
     }
 
     pub fn toggle_panel(self: *Self, _: Ctx) Result {
-        if (self.is_panel_view_showing(@import("filelist_view.zig")))
+        if (self.is_panel_view_showing(@import("logview.zig")))
+            _ = try self.toggle_panel_view(@import("logview.zig"), false)
+        else if (self.is_panel_view_showing(@import("filelist_view.zig")))
             _ = try self.toggle_panel_view(@import("filelist_view.zig"), false)
         else
             _ = try self.toggle_panel_view(@import("logview.zig"), false);
@@ -348,14 +350,6 @@ const cmds = struct {
 
     pub fn show_inspector_view(self: *Self, _: Ctx) Result {
         _ = try self.toggle_panel_view(@import("inspector_view.zig"), true);
-    }
-
-    pub fn toggle_filelist_view(self: *Self, _: Ctx) Result {
-        _ = try self.toggle_panel_view(@import("filelist_view.zig"), false);
-    }
-
-    pub fn show_filelist_view(self: *Self, _: Ctx) Result {
-        _ = try self.toggle_panel_view(@import("filelist_view.zig"), true);
     }
 
     pub fn jump_back(self: *Self, _: Ctx) Result {
