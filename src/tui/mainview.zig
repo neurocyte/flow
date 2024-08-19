@@ -87,7 +87,7 @@ pub fn create(a: std.mem.Allocator) !Widget {
 
 pub fn deinit(self: *Self, a: std.mem.Allocator) void {
     self.close_all_panel_views();
-    for (self.file_stack.items) |file_path| self.a.free(file_path);
+    self.clear_file_stack();
     self.file_stack.deinit();
     self.commands.deinit();
     self.widgets.deinit(a);
@@ -224,7 +224,7 @@ const cmds = struct {
     }
 
     pub fn open_project_cwd(self: *Self, _: Ctx) Result {
-        try project_manager.open_cwd();
+        try project_manager.open(".");
         _ = try self.statusbar.msg(.{ "PRJ", "open" });
     }
 
@@ -234,6 +234,23 @@ const cmds = struct {
             return;
         try project_manager.open(project_dir);
         _ = try self.statusbar.msg(.{ "PRJ", "open" });
+    }
+
+    pub fn change_project(self: *Self, ctx: Ctx) Result {
+        var project_dir: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&project_dir)}))
+            return;
+        if (self.editor) |editor| {
+            if (editor.is_dirty())
+                return tp.exit("unsaved changes");
+            self.clear_file_stack();
+            try editor.close_file(.{});
+        } else {
+            self.clear_file_stack();
+        }
+        try project_manager.open(project_dir);
+        _ = try self.statusbar.msg(.{ "PRJ", "open" });
+        log.logger("project").print("switched to project {s}", .{project_dir});
     }
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {
@@ -651,6 +668,11 @@ fn pop_file_stack(self: *Self, closed: ?[]const u8) ?[]const u8 {
             if (std.mem.eql(u8, file_path, file_path_))
                 self.a.free(self.file_stack.orderedRemove(i));
     return self.file_stack.popOrNull();
+}
+
+fn clear_file_stack(self: *Self) void {
+    for (self.file_stack.items) |file_path| self.a.free(file_path);
+    self.file_stack.clearRetainingCapacity();
 }
 
 fn add_find_in_files_result(

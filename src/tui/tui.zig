@@ -641,6 +641,10 @@ const cmds = struct {
         return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
     }
 
+    pub fn open_recent_project(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/open_recent_project.zig").Type);
+    }
+
     pub fn change_theme(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/theme_palette.zig").Type);
     }

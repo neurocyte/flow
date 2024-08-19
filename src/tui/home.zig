@@ -39,7 +39,7 @@ pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
     try self.menu.add_item_with_handler("Help ······················· :h", menu_action_help);
     try self.menu.add_item_with_handler("Open file ·················· :o", menu_action_open_file);
     try self.menu.add_item_with_handler("Open recent file ··········· :e", menu_action_open_recent_file);
-    try self.menu.add_item_with_handler("Open recent project ·(wip)·· :r", menu_action_open_recent_project);
+    try self.menu.add_item_with_handler("Open recent project ········ :r", menu_action_open_recent_project);
     try self.menu.add_item_with_handler("Show/Run commands ·········· :p", menu_action_show_commands);
     try self.menu.add_item_with_handler("Open config file ··········· :c", menu_action_open_config);
     try self.menu.add_item_with_handler("Change theme ··············· :t", menu_action_change_theme);
@@ -116,7 +116,7 @@ fn menu_action_open_recent_file(_: **Menu.State(*Self), _: *Button.State(*Menu.S
 }
 
 fn menu_action_open_recent_project(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    tp.self_pid().send(.{ "log", "home", "open recent project not implemented" }) catch {};
+    command.executeName("open_recent_project", .{}) catch {};
 }
 
 fn menu_action_show_commands(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {

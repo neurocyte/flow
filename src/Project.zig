@@ -57,6 +57,7 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn write_state(self: *Self, writer: anytype) !void {
+    try cbor.writeValue(writer, self.name);
     for (self.files.items) |file| {
         if (!file.visited) continue;
         try cbor.writeArrayHeader(writer, 4);
@@ -69,11 +70,13 @@ pub fn write_state(self: *Self, writer: anytype) !void {
 
 pub fn restore_state(self: *Self, data: []const u8) !void {
     defer self.sort_files_by_mtime();
+    var name: []const u8 = undefined;
     var path: []const u8 = undefined;
     var mtime: i128 = undefined;
     var row: usize = undefined;
     var col: usize = undefined;
     var iter: []const u8 = data;
+    _ = cbor.matchValue(&iter, tp.extract(&name)) catch {};
     while (cbor.matchValue(&iter, .{
         tp.extract(&path),
         tp.extract(&mtime),
@@ -107,7 +110,10 @@ fn get_lsp(self: *Self, language_server: []const u8) !LSP {
 
 fn get_file_lsp(self: *Self, file_path: []const u8) !LSP {
     const logger = log.logger("lsp");
-    errdefer logger.print_err("get_file_lsp", "no LSP found for file: {s}", .{std.fmt.fmtSliceEscapeLower(file_path)});
+    errdefer logger.print_err("get_file_lsp", "no LSP found for file: {s} ({s})", .{
+        std.fmt.fmtSliceEscapeLower(file_path),
+        self.name,
+    });
     const lsp = self.file_language_server.get(file_path) orelse return tp.exit("no language server");
     if (lsp.pid.expired()) return tp.exit("no language server");
     return lsp;

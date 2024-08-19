@@ -12,6 +12,7 @@ pid: tp.pid_ref,
 
 const Self = @This();
 const module_name = @typeName(Self);
+const request_timeout = std.time.ns_per_s * 5;
 
 pub fn get() !Self {
     const pid = tp.env.get().proc(module_name);
@@ -34,10 +35,6 @@ pub fn shutdown() void {
     pid.send(.{"shutdown"}) catch {};
 }
 
-pub fn open_cwd() !void {
-    return open(".");
-}
-
 pub fn open(rel_project_directory: []const u8) !void {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const project_directory = std.fs.cwd().realpath(rel_project_directory, &path_buf) catch "(none)";
@@ -53,6 +50,11 @@ pub fn request_recent_files(max: usize) !void {
     if (project.len == 0)
         return tp.exit("No project");
     return (try get()).pid.send(.{ "request_recent_files", project, max });
+}
+
+pub fn request_recent_projects(a: std.mem.Allocator) !tp.message {
+    const project = tp.env.get().str("project");
+    return (try get()).pid.call(a, request_timeout, .{ "request_recent_projects", project });
 }
 
 pub fn query_recent_files(max: usize, query: []const u8) !void {
@@ -136,6 +138,10 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
     const ProjectsMap = std.StringHashMap(*Project);
+    const RecentProject = struct {
+        name: []const u8,
+        last_used: i128,
+    };
 
     fn create() !tp.pid {
         const a = std.heap.c_allocator;
@@ -221,6 +227,8 @@ const Process = struct {
             self.open(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
             self.request_recent_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{ "request_recent_projects", tp.extract(&project_directory) })) {
+            self.request_recent_projects(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "query_recent_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
             self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
@@ -280,6 +288,19 @@ const Process = struct {
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         project.sort_files_by_mtime();
         return project.request_recent_files(from, max);
+    }
+
+    fn request_recent_projects(self: *Process, from: tp.pid_ref, project_directory: []const u8) error{ OutOfMemory, Exit }!void {
+        var recent_projects = std.ArrayList(RecentProject).init(self.a);
+        defer recent_projects.deinit();
+        self.load_recent_projects(&recent_projects, project_directory) catch {};
+        self.sort_projects_by_last_used(&recent_projects);
+        var message = std.ArrayList(u8).init(self.a);
+        const writer = message.writer();
+        try cbor.writeArrayHeader(writer, recent_projects.items.len);
+        for (recent_projects.items) |project|
+            try cbor.writeValue(writer, project.name);
+        try from.send_raw(.{ .buf = message.items });
     }
 
     fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) error{ OutOfMemory, Exit }!void {
@@ -426,6 +447,61 @@ const Process = struct {
                 try writer.writeByte(c);
         }
         return stream.toOwnedSlice();
+    }
+
+    fn load_recent_projects(self: *Process, recent_projects: *std.ArrayList(RecentProject), project_directory: []const u8) !void {
+        var path = std.ArrayList(u8).init(self.a);
+        defer path.deinit();
+        const writer = path.writer();
+        _ = try writer.write(try root.get_state_dir());
+        _ = try writer.writeByte(std.fs.path.sep);
+        _ = try writer.write("projects");
+
+        var dir = try std.fs.cwd().openDir(path.items, .{ .iterate = true });
+        defer dir.close();
+        var iter = dir.iterate();
+        while (try iter.next()) |entry| {
+            if (entry.kind != .file) continue;
+            try self.read_project_name(path.items, entry.name, recent_projects, project_directory);
+        }
+    }
+
+    fn read_project_name(
+        self: *Process,
+        state_dir: []const u8,
+        file_path: []const u8,
+        recent_projects: *std.ArrayList(RecentProject),
+        project_directory: []const u8,
+    ) !void {
+        var path = std.ArrayList(u8).init(self.a);
+        defer path.deinit();
+        const writer = path.writer();
+        _ = try writer.write(state_dir);
+        _ = try writer.writeByte(std.fs.path.sep);
+        _ = try writer.write(file_path);
+
+        var file = try std.fs.openFileAbsolute(path.items, .{ .mode = .read_only });
+        defer file.close();
+        const stat = try file.stat();
+        const buffer = try self.a.alloc(u8, @intCast(stat.size));
+        defer self.a.free(buffer);
+        _ = try file.readAll(buffer);
+
+        var iter: []const u8 = buffer;
+        var name: []const u8 = undefined;
+        if (cbor.matchValue(&iter, tp.extract(&name)) catch return) {
+            const last_used = if (std.mem.eql(u8, project_directory, name)) std.math.maxInt(@TypeOf(stat.mtime)) else stat.mtime;
+            (try recent_projects.addOne()).* = .{ .name = try self.a.dupe(u8, name), .last_used = last_used };
+        }
+    }
+
+    fn sort_projects_by_last_used(_: *Process, recent_projects: *std.ArrayList(RecentProject)) void {
+        const less_fn = struct {
+            fn less_fn(_: void, lhs: RecentProject, rhs: RecentProject) bool {
+                return lhs.last_used > rhs.last_used;
+            }
+        }.less_fn;
+        std.mem.sort(RecentProject, recent_projects.items, {}, less_fn);
     }
 };
 

@@ -81,6 +81,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
             'E' => self.cmd("open_recent", .{}),
+            'R' => self.cmd("open_recent_project", .{}),
             'J' => self.cmd("toggle_panel", .{}),
             'Z' => self.cmd("undo", .{}),
             'Y' => self.cmd("redo", .{}),
@@ -369,6 +370,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "move_word_right", "C-right, A-f" },
     .{ "open_command_palette", "C-S-p, S-A-p" },
     .{ "open_recent", "C-e" },
+    .{ "open_recent_project", "C-r" },
     .{ "paste", "A-v" },
     .{ "pop_cursor", "C-u" },
     .{ "pull_down", "A-down" },
