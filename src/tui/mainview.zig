@@ -244,13 +244,16 @@ const cmds = struct {
             if (editor.is_dirty())
                 return tp.exit("unsaved changes");
             self.clear_file_stack();
+            editor.clear_diagnostics();
             try editor.close_file(.{});
         } else {
             self.clear_file_stack();
         }
+        self.clear_find_in_files_results(.diagnostics);
+        if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
+            try self.toggle_panel_view(filelist_view, false);
         try project_manager.open(project_dir);
         _ = try self.statusbar.msg(.{ "PRJ", "open" });
-        log.logger("project").print("switched to project {s}", .{project_dir});
     }
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {
