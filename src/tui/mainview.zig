@@ -233,6 +233,8 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
         try project_manager.open(project_dir);
+        const project = tp.env.get().str("project");
+        tui.current().rdr.set_terminal_working_directory(project);
         _ = try self.statusbar.msg(.{ "PRJ", "open" });
     }
 
@@ -253,6 +255,8 @@ const cmds = struct {
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false);
         try project_manager.open(project_dir);
+        const project = tp.env.get().str("project");
+        tui.current().rdr.set_terminal_working_directory(project);
         _ = try self.statusbar.msg(.{ "PRJ", "open" });
     }
 

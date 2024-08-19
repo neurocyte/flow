@@ -330,6 +330,10 @@ pub fn set_terminal_style(self: *Self, style_: Style) void {
     self.vx.state.changed_default_bg = false;
 }
 
+pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
+    self.vx.setTerminalWorkingDirectory(self.tty.anyWriter(), absolute_path) catch {};
+}
+
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
     var bufferedWriter = self.tty.bufferedWriter();
     self.vx.copyToSystemClipboard(bufferedWriter.writer().any(), text, self.a) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
