@@ -20,16 +20,20 @@ pub const Match = struct {
     matches: []const usize,
 };
 
+pub fn deinit(palette: *Type) void {
+    for (palette.entries.items) |entry|
+        palette.a.free(entry.name);
+}
+
 pub fn load_entries(palette: *Type) !void {
     const rsp = try project_manager.request_recent_projects(palette.a);
+    defer palette.a.free(rsp.buf);
     var iter: []const u8 = rsp.buf;
     var len = try cbor.decodeArrayHeader(&iter);
     while (len > 0) : (len -= 1) {
         var name: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract(&name))) {
-            (palette.entries.addOne() catch @panic("oom")).* = .{
-                .name = name,
-            };
+            (try palette.entries.addOne()).* = .{ .name = try palette.a.dupe(u8, name) };
         } else return error.InvalidMessageField;
     }
 }

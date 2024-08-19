@@ -89,6 +89,8 @@ pub fn Create(options: type) type {
 
         pub fn deinit(self: *Self) void {
             self.commands.deinit();
+            if (@hasDecl(options, "deinit"))
+                options.deinit(self);
             self.entries.deinit();
             tui.current().message_filters.remove_ptr(self);
             if (tui.current().mainview.dynamic_cast(mainview)) |mv|
