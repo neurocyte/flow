@@ -258,6 +258,10 @@ const cmds = struct {
         const project = tp.env.get().str("project");
         tui.current().rdr.set_terminal_working_directory(project);
         _ = try self.statusbar.msg(.{ "PRJ", "open" });
+        if (try project_manager.request_most_recent_file(self.a)) |file_path| {
+            defer self.a.free(file_path);
+            try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
+        }
     }
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {

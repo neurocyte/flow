@@ -140,6 +140,11 @@ pub fn sort_files_by_mtime(self: *Self) void {
     std.mem.sort(File, self.files.items, {}, less_fn);
 }
 
+pub fn request_most_recent_file(self: *Self, from: tp.pid_ref) error{ OutOfMemory, Exit }!void {
+    const file_path = if (self.files.items.len > 0) self.files.items[0].path else null;
+    try from.send(.{file_path});
+}
+
 pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) error{ OutOfMemory, Exit }!void {
     defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, "" }) catch {};
     for (self.files.items, 0..) |file, i| {
