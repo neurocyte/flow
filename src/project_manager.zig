@@ -271,6 +271,8 @@ const Process = struct {
             self.walker = try walk_tree_async(self.a, project_directory);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.sort_files_by_mtime();
+        } else {
+            self.logger.print("switched to: {s}", .{project_directory});
         }
     }
 
