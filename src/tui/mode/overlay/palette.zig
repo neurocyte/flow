@@ -230,6 +230,8 @@ pub fn Create(options: type) type {
                     'W' => self.cmd("close_file", .{}),
                     'P' => self.cmd("palette_menu_up", .{}),
                     'N' => self.cmd("palette_menu_down", .{}),
+                    'T' => self.cmd("palette_menu_down", .{}), // select theme repeat key
+                    'R' => self.cmd("palette_menu_down", .{}), // open recent project repeat key
                     'V' => self.cmd("system_paste", .{}),
                     'C' => self.cmd("palette_menu_cancel", .{}),
                     'G' => self.cmd("palette_menu_cancel", .{}),
@@ -243,7 +245,7 @@ pub fn Create(options: type) type {
                     else => {},
                 },
                 mod.CTRL | mod.SHIFT => switch (keynormal) {
-                    'P' => self.cmd("palette_menu_down", .{}),
+                    'P' => self.cmd("palette_menu_down", .{}), // command palette repeat key
                     'Q' => self.cmd("quit_without_saving", .{}),
                     'W' => self.cmd("close_file_without_saving", .{}),
                     'R' => self.cmd("restart", .{}),
