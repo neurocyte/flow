@@ -17,11 +17,7 @@ pub const Entry = struct {
 
 pub fn load_entries(palette: *Type) !void {
     for (command.commands.items) |cmd_| if (cmd_) |p| {
-        (palette.entries.addOne() catch @panic("oom")).* = .{
-            .name = p.name,
-            .id = p.id,
-            .used_time = 0,
-        };
+        (try palette.entries.addOne()).* = .{ .name = p.name, .id = p.id, .used_time = 0 };
     };
 }
 

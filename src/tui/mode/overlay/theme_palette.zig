@@ -22,11 +22,8 @@ pub const Match = struct {
 var previous_theme: ?[]const u8 = null;
 pub fn load_entries(palette: *Type) !void {
     previous_theme = tui.current().theme.name;
-    for (Widget.themes) |theme| {
-        (palette.entries.addOne() catch @panic("oom")).* = .{
-            .name = theme.name,
-        };
-    }
+    for (Widget.themes) |theme|
+        (try palette.entries.addOne()).* = .{ .name = theme.name };
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
