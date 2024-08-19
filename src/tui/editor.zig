@@ -1226,7 +1226,7 @@ pub const Editor = struct {
 
     fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root) !void {
         _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root) });
-        if (self.syntax) |_| if (self.file_path) |file_path|
+        if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
             project_manager.did_change(file_path, self.lsp_version, token_from(new_root), token_from(old_root)) catch {};
     }
 
