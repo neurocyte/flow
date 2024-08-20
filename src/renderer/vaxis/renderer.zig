@@ -327,7 +327,6 @@ pub fn set_terminal_style(self: *Self, style_: Style) void {
         self.vx.setTerminalForegroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color)).rgb) catch {};
     if (style_.bg) |color|
         self.vx.setTerminalBackgroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color)).rgb) catch {};
-    self.vx.state.changed_default_bg = false;
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
