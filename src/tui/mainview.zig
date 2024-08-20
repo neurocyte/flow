@@ -487,6 +487,7 @@ const cmds = struct {
 
     pub fn show_diagnostics(self: *Self, _: Ctx) Result {
         const editor = self.editor orelse return;
+        self.clear_find_in_files_results(.diagnostics);
         for (editor.diagnostics.items) |diagnostic| {
             try self.add_find_in_files_result(
                 .diagnostics,
