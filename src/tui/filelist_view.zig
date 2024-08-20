@@ -128,6 +128,7 @@ pub fn reset(self: *Self) void {
     self.menu.reset_items();
     self.selected = null;
     self.menu.selected = null;
+    self.view_pos = 0;
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
