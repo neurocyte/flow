@@ -137,7 +137,7 @@ fn init(a: Allocator) !*Self {
     }
     self.mainview = try mainview.create(a);
     self.resize();
-    self.rdr.set_terminal_style(self.theme.editor);
+    self.set_terminal_style();
     try self.rdr.render();
     try self.save_config();
     if (tp.env.get().is("restore-session")) {
@@ -569,7 +569,7 @@ const cmds = struct {
             return;
         };
         self.config.theme = self.theme.name;
-        self.rdr.set_terminal_style(self.theme.editor);
+        self.set_terminal_style();
         self.logger.print("theme: {s}", .{self.theme.description});
         try self.save_config();
     }
@@ -577,7 +577,7 @@ const cmds = struct {
     pub fn theme_next(self: *Self, _: Ctx) Result {
         self.theme = get_next_theme_by_name(self.theme.name);
         self.config.theme = self.theme.name;
-        self.rdr.set_terminal_style(self.theme.editor);
+        self.set_terminal_style();
         self.logger.print("theme: {s}", .{self.theme.description});
         try self.save_config();
     }
@@ -585,7 +585,7 @@ const cmds = struct {
     pub fn theme_prev(self: *Self, _: Ctx) Result {
         self.theme = get_prev_theme_by_name(self.theme.name);
         self.config.theme = self.theme.name;
-        self.rdr.set_terminal_style(self.theme.editor);
+        self.set_terminal_style();
         self.logger.print("theme: {s}", .{self.theme.description});
         try self.save_config();
     }
@@ -859,3 +859,8 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "repeat", .tm = "keyword.control.flow" },
     .{ .ts = "field", .tm = "variable" },
 };
+
+fn set_terminal_style(self: *Self) void {
+    if (self.config.enable_terminal_color_scheme)
+        self.rdr.set_terminal_style(self.theme.editor);
+}
