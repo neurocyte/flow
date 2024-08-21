@@ -31,7 +31,7 @@ pub fn create(a: Allocator) !tui.Mode {
     };
     return .{
         .handler = EventHandler.to_owned(self),
-        .name = root.application_logo ++ root.application_name,
+        .name = root.application_name,
         .description = "default",
         .keybind_hints = &hints,
     };

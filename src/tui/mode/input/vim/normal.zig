@@ -1,5 +1,4 @@
 const tp = @import("thespian");
-const root = @import("root");
 
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
@@ -34,7 +33,7 @@ pub fn create(a: Allocator) !tui.Mode {
     try self.commands.init(self);
     return .{
         .handler = EventHandler.to_owned(self),
-        .name = root.application_logo ++ "NORMAL",
+        .name = "NORMAL",
         .description = "vim",
         .line_numbers = if (tui.current().config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
         .keybind_hints = &hints,

@@ -23,7 +23,7 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
     };
     return .{
         .handler = EventHandler.to_owned(self),
-        .name = root.application_logo ++ root.application_name,
+        .name = root.application_name,
         .description = "home",
         .keybind_hints = &hints,
     };

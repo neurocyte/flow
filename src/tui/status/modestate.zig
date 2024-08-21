@@ -28,8 +28,10 @@ pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) 
 pub fn layout(_: *void, btn: *Button.State(void)) Widget.Layout {
     const name = tui.get_mode();
     const width = btn.plane.egc_chunk_width(name, 0);
-    const padding: usize = if (is_mini_mode()) 3 else 2;
-    return .{ .static = width + padding };
+    const logo = btn.plane.egc_chunk_width(left ++ symbol ++ right, 0);
+    const padding: usize = 2;
+    const minimode_sep: usize = if (is_mini_mode()) 1 else 0;
+    return .{ .static = logo + width + padding + minimode_sep };
 }
 
 fn is_mini_mode() bool {
@@ -41,12 +43,16 @@ fn is_overlay_mode() bool {
 }
 
 pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) bool {
-    self.plane.set_base_style(" ", if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover);
+    const base_style = if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover;
+    self.plane.set_base_style(" ", base_style);
     self.plane.on_styles(style.bold);
     self.plane.erase();
     self.plane.home();
     var buf: [31:0]u8 = undefined;
-    _ = self.plane.putstr(std.fmt.bufPrintZ(&buf, " {s} ", .{tui.get_mode()}) catch return false) catch {};
+    render_logo(self, theme, base_style);
+    self.plane.set_base_style(" ", base_style);
+    self.plane.on_styles(style.bold);
+    _ = self.plane.putstr(std.fmt.bufPrintZ(&buf, "{s} ", .{tui.get_mode()}) catch return false) catch {};
     if (is_mini_mode())
         render_separator(self, theme);
     return false;
@@ -56,6 +62,26 @@ fn render_separator(self: *Button.State(void), theme: *const Widget.Theme) void 
     if (theme.statusbar_hover.bg) |bg| self.plane.set_fg_rgb(bg) catch {};
     if (theme.statusbar.bg) |bg| self.plane.set_bg_rgb(bg) catch {};
     _ = self.plane.putstr("") catch {};
+}
+
+const left = " ";
+const symbol = "󱞏";
+const right = " ";
+
+fn render_logo(self: *Button.State(void), theme: *const Widget.Theme, base_style: Widget.Theme.Style) void {
+    // const style_symbol: Widget.Theme.Style = if (tui.find_scope_style(theme, "number")) |sty| .{ .fg = sty.style.fg, .bg = base_style.bg, .fs = base_style.fs } else base_style;
+    const style_symbol = if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover;
+    const style_braces: Widget.Theme.Style = if (tui.find_scope_style(theme, "punctuation")) |sty| .{ .fg = sty.style.fg, .bg = base_style.bg, .fs = base_style.fs } else base_style;
+    if (left.len > 0) {
+        self.plane.set_style(style_braces);
+        _ = self.plane.putstr(" " ++ left) catch {};
+    }
+    self.plane.set_style(style_symbol);
+    _ = self.plane.putstr(symbol) catch {};
+    if (right.len > 0) {
+        self.plane.set_style(style_braces);
+        _ = self.plane.putstr(right) catch {};
+    }
 }
 
 fn on_click(_: *void, _: *Button.State(void)) void {

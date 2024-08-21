@@ -17,7 +17,6 @@ pub var max_diff_lines: usize = 50000;
 pub var max_syntax_lines: usize = 50000;
 
 pub const application_name = "flow";
-pub const application_logo = "󱞏 ";
 
 pub const std_options = .{
     // .log_level = if (builtin.mode == .Debug) .debug else .warn,
