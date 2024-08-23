@@ -16,8 +16,8 @@ const tui = @import("../tui.zig");
 a: Allocator,
 name: []const u8,
 name_buf: [512]u8 = undefined,
-title: []const u8 = "",
-title_buf: [512]u8 = undefined,
+previous_title: []const u8 = "",
+previous_title_buf: [512]u8 = undefined,
 file_type: []const u8,
 file_type_buf: [64]u8 = undefined,
 file_icon: [:0]const u8 = "",
@@ -145,18 +145,24 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void 
 }
 
 fn render_terminal_title(self: *Self) void {
-    const file_name = if (std.mem.lastIndexOfScalar(u8, self.name, '/')) |pos|
-        self.name[pos + 1 ..]
-    else if (self.name.len == 0)
-        root.application_name
-    else
-        self.name;
+    var project_name_buf: [512]u8 = undefined;
     var new_title_buf: [512]u8 = undefined;
-    const new_title = std.fmt.bufPrint(&new_title_buf, "{s}{s}", .{ if (!self.file_exists) "◌ " else if (self.file_dirty) " " else "", file_name }) catch return;
-    if (std.mem.eql(u8, self.title, new_title)) return;
-    @memcpy(self.title_buf[0..new_title.len], new_title);
-    self.title = self.title_buf[0..new_title.len];
-    tui.current().rdr.set_terminal_title(self.title);
+
+    const project_path = tp.env.get().str("project");
+    const project_name = root.abbreviate_home(&project_name_buf, project_path);
+
+    const file_name = if (std.mem.lastIndexOfScalar(u8, self.name, '/')) |pos| self.name[pos + 1 ..] else self.name;
+    const edit_state = if (!self.file_exists) "◌ " else if (self.file_dirty) " " else "";
+
+    const new_title = if (self.file)
+        std.fmt.bufPrint(&new_title_buf, "{s}{s} {s} {s}", .{ edit_state, file_name, project_name, root.application_name }) catch &new_title_buf
+    else
+        std.fmt.bufPrint(&new_title_buf, "{s} {s}", .{ project_name, root.application_name }) catch &new_title_buf;
+
+    if (std.mem.eql(u8, self.previous_title, new_title)) return;
+    @memcpy(self.previous_title_buf[0..new_title.len], new_title);
+    self.previous_title = self.previous_title_buf[0..new_title.len];
+    tui.current().rdr.set_terminal_title(new_title);
 }
 
 pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
