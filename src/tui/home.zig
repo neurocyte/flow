@@ -5,6 +5,7 @@ const Plane = @import("renderer").Plane;
 const planeutils = @import("renderer").planeutils;
 const channels_ = @import("renderer").channels;
 const style_ = @import("renderer").style;
+const root = @import("root");
 
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
@@ -144,35 +145,32 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const style_title = if (tui.find_scope_style(theme, "function")) |sty| sty.style else theme.editor;
     const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
 
-    const title = "Flow Control";
-    const subtext = "a programmer's text editor";
-
     if (self.plane.dim_x() > 120 and self.plane.dim_y() > 22) {
         self.plane.cursor_move_yx(2, 4) catch return false;
-        fonts.print_string_large(&self.plane, title, style_title) catch return false;
+        fonts.print_string_large(&self.plane, root.application_title, style_title) catch return false;
 
         self.plane.cursor_move_yx(10, 8) catch return false;
-        fonts.print_string_medium(&self.plane, subtext, style_subtext) catch return false;
+        fonts.print_string_medium(&self.plane, root.application_subtext, style_subtext) catch return false;
 
         self.menu.resize(.{ .y = 15, .x = 10, .w = 32 });
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
         self.plane.cursor_move_yx(2, 4) catch return false;
-        fonts.print_string_medium(&self.plane, title, style_title) catch return false;
+        fonts.print_string_medium(&self.plane, root.application_title, style_title) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(7, 6) catch return false;
-        _ = self.plane.print(subtext, .{}) catch {};
+        _ = self.plane.print(root.application_subtext, .{}) catch {};
         self.plane.set_style(theme.editor);
 
         self.menu.resize(.{ .y = 9, .x = 8, .w = 32 });
     } else {
         self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(1, 4) catch return false;
-        _ = self.plane.print(title, .{}) catch return false;
+        _ = self.plane.print(root.application_title, .{}) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
         self.plane.cursor_move_yx(3, 6) catch return false;
-        _ = self.plane.print(subtext, .{}) catch {};
+        _ = self.plane.print(root.application_subtext, .{}) catch {};
         self.plane.set_style(theme.editor);
 
         const x = @min(self.plane.dim_x() -| 32, 8);

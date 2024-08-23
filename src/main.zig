@@ -17,6 +17,9 @@ pub var max_diff_lines: usize = 50000;
 pub var max_syntax_lines: usize = 50000;
 
 pub const application_name = "flow";
+pub const application_title = "Flow Control";
+pub const application_subtext = "a programmer's text editor";
+pub const application_description = application_title ++ ": " ++ application_subtext;
 
 pub const std_options = .{
     // .log_level = if (builtin.mode == .Debug) .debug else .warn,
