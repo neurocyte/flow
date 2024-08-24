@@ -196,6 +196,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             ';' => self.cmd("open_command_palette", .{}),
             'n' => self.cmd("goto_prev_match", .{}),
             'a' => self.seq(.{ "move_end", "enter_mode" }, command.fmt(.{"vim/insert"})),
+            'i' => self.seq(.{ "smart_move_begin", "enter_mode" }, command.fmt(.{"vim/insert"})),
             '4' => self.cmd("move_end", .{}),
             'g' => if (self.count == 0)
                 self.cmd("move_buffer_end", .{})
