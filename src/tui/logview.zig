@@ -97,7 +97,7 @@ pub fn process_log(m: tp.message) !void {
         const err_stop = "error.Stop";
         if (eql(u8, msg, err_stop))
             return;
-        if (msg.len >= err_stop.len + 1 and eql(u8, msg[0..err_stop.len + 1], err_stop ++ "\n"))
+        if (msg.len >= err_stop.len + 1 and eql(u8, msg[0 .. err_stop.len + 1], err_stop ++ "\n"))
             return;
         try append_error(buffer, src, context, msg);
     } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
@@ -141,6 +141,6 @@ fn get_buffer() *Buffer {
 }
 
 pub fn init(a: Allocator) void {
-    if (persistent_buffer) |_| @panic("logview.init unexpected call");
+    if (persistent_buffer) |_| return;
     persistent_buffer = Buffer.init(a);
 }
