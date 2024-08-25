@@ -90,6 +90,8 @@ fn init(a: Allocator) !*Self {
     const theme = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return tp.exit("unknown theme");
     conf.theme = theme.name;
     conf.input_mode = try a.dupe(u8, conf.input_mode);
+    conf.top_bar = try a.dupe(u8, conf.top_bar);
+    conf.bottom_bar = try a.dupe(u8, conf.bottom_bar);
 
     const frame_rate: usize = @intCast(tp.env.get().num("frame-rate"));
     if (frame_rate != 0)
