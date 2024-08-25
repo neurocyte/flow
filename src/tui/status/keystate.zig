@@ -31,7 +31,7 @@ const Self = @This();
 const idle_msg = "🐶";
 pub const width = idle_msg.len + 20;
 
-pub fn create(a: Allocator, parent: Plane) !Widget {
+pub fn create(a: Allocator, parent: Plane, _: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
     var frame_rate = tp.env.get().num("frame-rate");
     if (frame_rate == 0) frame_rate = 60;
     const self: *Self = try a.create(Self);

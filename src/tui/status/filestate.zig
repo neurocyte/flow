@@ -34,7 +34,7 @@ file: bool = false,
 const project_icon = "";
 const Self = @This();
 
-pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) !Widget {
+pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
     const btn = try Button.create(Self, a, parent, .{
         .ctx = .{
             .a = a,

@@ -34,8 +34,10 @@ widgets: *WidgetList,
 widgets_widget: Widget,
 floating_views: WidgetStack,
 commands: Commands = undefined,
-statusbar: *Widget,
+top_bar: ?*Widget = null,
+bottom_bar: ?*Widget = null,
 editor: ?*ed.Editor = null,
+view_widget_idx: usize,
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history: location_history,
@@ -67,17 +69,23 @@ pub fn create(a: std.mem.Allocator) !Widget {
         .widgets = undefined,
         .widgets_widget = undefined,
         .floating_views = WidgetStack.init(a),
-        .statusbar = undefined,
         .location_history = try location_history.create(),
         .file_stack = std.ArrayList([]const u8).init(a),
+        .view_widget_idx = 0,
     };
     try self.commands.init(self);
     const w = Widget.to(self);
     const widgets = try WidgetList.createV(a, w, @typeName(Self), .dynamic);
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
+    if (tui.current().config.top_bar.len > 0) {
+        self.top_bar = try widgets.addP(try @import("status/bar.zig").create(a, w, tui.current().config.top_bar, .none, null));
+        self.view_widget_idx += 1;
+    }
     try widgets.add(try Widget.empty(a, self.widgets_widget.plane.*, .dynamic));
-    self.statusbar = try widgets.addP(try @import("status/statusbar.zig").create(a, w, EventHandler.bind(self, handle_statusbar_event)));
+    if (tui.current().config.bottom_bar.len > 0) {
+        self.bottom_bar = try widgets.addP(try @import("status/bar.zig").create(a, w, tui.current().config.bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)));
+    }
     if (tp.env.get().is("show-input"))
         self.toggle_inputview_async();
     if (tp.env.get().is("show-log"))
@@ -145,13 +153,13 @@ pub fn box(self: *const Self) Box {
     return Box.from(self.plane);
 }
 
-pub fn handle_statusbar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var y: usize = undefined;
     if (try m.match(.{ "D", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.any }))
-        return self.statusbar_primary_drag(y);
+        return self.bottom_bar_primary_drag(y);
 }
 
-fn statusbar_primary_drag(self: *Self, y: usize) tp.result {
+fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
     const panels = self.panels orelse blk: {
         cmds.toggle_panel(self, .{}) catch return;
         break :blk self.panels.?;
@@ -225,7 +233,8 @@ const cmds = struct {
 
     pub fn open_project_cwd(self: *Self, _: Ctx) Result {
         try project_manager.open(".");
-        _ = try self.statusbar.msg(.{ "PRJ", "open" });
+        if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
+        if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
 
     pub fn open_project_dir(self: *Self, ctx: Ctx) Result {
@@ -235,7 +244,8 @@ const cmds = struct {
         try project_manager.open(project_dir);
         const project = tp.env.get().str("project");
         tui.current().rdr.set_terminal_working_directory(project);
-        _ = try self.statusbar.msg(.{ "PRJ", "open" });
+        if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
+        if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
 
     pub fn change_project(self: *Self, ctx: Ctx) Result {
@@ -257,7 +267,8 @@ const cmds = struct {
         try project_manager.open(project_dir);
         const project = tp.env.get().str("project");
         tui.current().rdr.set_terminal_working_directory(project);
-        _ = try self.statusbar.msg(.{ "PRJ", "open" });
+        if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
+        if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (try project_manager.request_most_recent_file(self.a)) |file_path| {
             defer self.a.free(file_path);
             try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
@@ -603,16 +614,17 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
 
 fn create_editor(self: *Self) !void {
     if (self.editor) |editor| if (editor.file_path) |file_path| self.push_file_stack(file_path) catch {};
-    self.widgets.replace(0, try Widget.empty(self.a, self.plane, .dynamic));
+    self.widgets.replace(self.view_widget_idx, try Widget.empty(self.a, self.plane, .dynamic));
     command.executeName("enter_mode_default", .{}) catch {};
     var editor_widget = try ed.create(self.a, Widget.to(self));
     errdefer editor_widget.deinit(self.a);
     if (editor_widget.get("editor")) |editor| {
-        editor.subscribe(EventHandler.to_unowned(self.statusbar)) catch @panic("subscribe unsupported");
+        if (self.top_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
+        if (self.bottom_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
         editor.subscribe(EventHandler.bind(self, handle_editor_event)) catch @panic("subscribe unsupported");
         self.editor = if (editor.dynamic_cast(ed.EditorWidget)) |p| &p.editor else null;
     } else @panic("mainview editor not found");
-    self.widgets.replace(0, editor_widget);
+    self.widgets.replace(self.view_widget_idx, editor_widget);
     tui.current().resize();
 }
 
@@ -637,7 +649,7 @@ fn create_home(self: *Self) !void {
     if (self.editor) |_| return;
     var home_widget = try home.create(self.a, Widget.to(self));
     errdefer home_widget.deinit(self.a);
-    self.widgets.replace(0, home_widget);
+    self.widgets.replace(self.view_widget_idx, home_widget);
     tui.current().resize();
 }
 

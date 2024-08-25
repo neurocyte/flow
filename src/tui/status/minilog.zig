@@ -26,7 +26,7 @@ const Level = enum {
     err,
 };
 
-pub fn create(a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) !Widget {
+pub fn create(a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
     const self: *Self = try a.create(Self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
