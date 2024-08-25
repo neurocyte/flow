@@ -373,6 +373,13 @@ fn mapFollower(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'G' => switch (modifiers) {
                 0 => switch (keypress) {
                     'G' => self.cmd("move_buffer_begin", .{}),
+                    'D' => self.cmd("goto_definition", .{}),
+                    'I' => self.cmd("goto_implementation", .{}),
+                    'Y' => self.cmd("goto_type_definition", .{}),
+                    else => {},
+                },
+                mod.SHIFT => switch (keypress) {
+                    'D' => self.cmd("goto_declaration", .{}),
                     else => {},
                 },
                 else => {},
@@ -523,7 +530,10 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "filter", "A-s" }, // self.cmd("filter", command.fmt(.{"sort"})),
     // .{ "filter", "S-A-s" }, // self.cmd("filter", command.fmt(.{ "sort", "-u" })),
     .{ "format", "S-A-f" },
-    .{ "goto_definition", "F12" },
+    .{ "goto_definition", "F12, g d" },
+    .{ "goto_declaration", "g D" },
+    .{ "goto_implementation", "g i" },
+    .{ "goto_type_definition", "g y" },
     .{ "goto_next_file_or_diagnostic", "A-n" },
     .{ "goto_next_match", "C-n, F3, n" },
     .{ "goto_prev_file_or_diagnostic", "A-p" },

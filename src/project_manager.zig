@@ -110,6 +110,27 @@ pub fn goto_definition(file_path: []const u8, row: usize, col: usize) !void {
     return (try get()).pid.send(.{ "goto_definition", project, file_path, row, col });
 }
 
+pub fn goto_declaration(file_path: []const u8, row: usize, col: usize) !void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "goto_declaration", project, file_path, row, col });
+}
+
+pub fn goto_implementation(file_path: []const u8, row: usize, col: usize) !void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "goto_implementation", project, file_path, row, col });
+}
+
+pub fn goto_type_definition(file_path: []const u8, row: usize, col: usize) !void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "goto_type_definition", project, file_path, row, col });
+}
+
 pub fn references(file_path: []const u8, row: usize, col: usize) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -254,6 +275,12 @@ const Process = struct {
             self.did_close(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "goto_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.goto_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{ "goto_declaration", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+            self.goto_declaration(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{ "goto_implementation", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+            self.goto_implementation(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{ "goto_type_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+            self.goto_type_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "references", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.references(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "completion", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
@@ -365,6 +392,27 @@ const Process = struct {
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.goto_definition(from, file_path, row, col);
+    }
+
+    fn goto_declaration(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_declaration" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.goto_declaration(from, file_path, row, col);
+    }
+
+    fn goto_implementation(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_implementation" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.goto_implementation(from, file_path, row, col);
+    }
+
+    fn goto_type_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_type_definition" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.goto_type_definition(from, file_path, row, col);
     }
 
     fn references(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
