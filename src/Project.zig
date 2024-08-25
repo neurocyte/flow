@@ -400,89 +400,37 @@ pub fn did_close(self: *Self, file_path: []const u8) !void {
 }
 
 pub fn goto_definition(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
-    const lsp = try self.get_file_lsp(file_path);
-    const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
-    const response = try lsp.send_request(self.a, "textDocument/definition", .{
-        .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
-    });
-    defer self.a.free(response.buf);
-    var link: []const u8 = undefined;
-    if (try response.match(.{ "child", tp.string, "result", tp.array })) {
-        if (try response.match(.{ tp.any, tp.any, tp.any, .{ tp.extract_cbor(&link), tp.more } })) {
-            try self.navigate_to_location_link(from, link);
-        } else if (try response.match(.{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
-            try self.navigate_to_location_link(from, link);
-        }
-    } else if (try response.match(.{ "child", tp.string, "result", tp.null_ })) {
-        return;
-    } else if (try response.match(.{ "child", tp.string, "result", tp.extract_cbor(&link) })) {
-        try self.navigate_to_location_link(from, link);
-    }
+    return self.send_goto_request(from, file_path, row, col, "textDocument/definition");
 }
 
 pub fn goto_declaration(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
-    const lsp = try self.get_file_lsp(file_path);
-    const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
-    const response = try lsp.send_request(self.a, "textDocument/declaration", .{
-        .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
-    });
-    defer self.a.free(response.buf);
-    var link: []const u8 = undefined;
-    if (try response.match(.{ "child", tp.string, "result", tp.array })) {
-        if (try response.match(.{ tp.any, tp.any, tp.any, .{ tp.extract_cbor(&link), tp.more } })) {
-            try self.navigate_to_location_link(from, link);
-        } else if (try response.match(.{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
-            try self.navigate_to_location_link(from, link);
-        }
-    } else if (try response.match(.{ "child", tp.string, "result", tp.null_ })) {
-        return;
-    } else if (try response.match(.{ "child", tp.string, "result", tp.extract_cbor(&link) })) {
-        try self.navigate_to_location_link(from, link);
-    }
+    return self.send_goto_request(from, file_path, row, col, "textDocument/declaration");
 }
 
 pub fn goto_implementation(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
-    const lsp = try self.get_file_lsp(file_path);
-    const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
-    const response = try lsp.send_request(self.a, "textDocument/implementation", .{
-        .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
-    });
-    defer self.a.free(response.buf);
-    var link: []const u8 = undefined;
-    if (try response.match(.{ "child", tp.string, "result", tp.array })) {
-        if (try response.match(.{ tp.any, tp.any, tp.any, .{ tp.extract_cbor(&link), tp.more } })) {
-            try self.navigate_to_location_link(from, link);
-        } else if (try response.match(.{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
-            try self.navigate_to_location_link(from, link);
-        }
-    } else if (try response.match(.{ "child", tp.string, "result", tp.null_ })) {
-        return;
-    } else if (try response.match(.{ "child", tp.string, "result", tp.extract_cbor(&link) })) {
-        try self.navigate_to_location_link(from, link);
-    }
+    return self.send_goto_request(from, file_path, row, col, "textDocument/implementation");
 }
 
 pub fn goto_type_definition(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
+    return self.send_goto_request(from, file_path, row, col, "textDocument/typeDefinition");
+}
+
+fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize, method: []const u8) !void {
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
     defer self.a.free(uri);
-    const response = try lsp.send_request(self.a, "textDocument/typeDefinition", .{
+    const response = try lsp.send_request(self.a, method, .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
     });
     defer self.a.free(response.buf);
     var link: []const u8 = undefined;
+    var locations: []const u8 = undefined;
     if (try response.match(.{ "child", tp.string, "result", tp.array })) {
-        if (try response.match(.{ tp.any, tp.any, tp.any, .{ tp.extract_cbor(&link), tp.more } })) {
+        if (try response.match(.{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
             try self.navigate_to_location_link(from, link);
-        } else if (try response.match(.{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
-            try self.navigate_to_location_link(from, link);
+        } else if (try response.match(.{ tp.any, tp.any, tp.any, tp.extract_cbor(&locations) })) {
+            try self.send_reference_list(from, locations);
         }
     } else if (try response.match(.{ "child", tp.string, "result", tp.null_ })) {
         return;
