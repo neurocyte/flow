@@ -119,6 +119,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.DEL => self.cmd("delete_word_right", .{}),
             key.F05 => self.cmd("toggle_inspector_view", .{}),
             key.F10 => self.cmd("toggle_whitespace", .{}), // aka F34
+            key.F12 => self.cmd("goto_implementation", .{}),
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
@@ -158,6 +159,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.DOWN => self.cmd("pull_down", .{}),
             key.ENTER => self.cmd("insert_line", .{}),
             key.F10 => self.cmd("gutter_mode_next", .{}), // aka F58
+            key.F12 => self.cmd("goto_declaration", .{}),
             else => {},
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {
@@ -173,6 +175,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.RIGHT => self.cmd("move_scroll_right", .{}),
             key.UP => self.cmd("add_cursor_up", .{}),
             key.DOWN => self.cmd("add_cursor_down", .{}),
+            key.F12 => self.cmd("goto_type_definition", .{}),
             else => {},
         },
         mod.SHIFT => switch (keypress) {
@@ -340,6 +343,9 @@ const hints = tui.KeybindHints.initComptime(.{
     // .{ "filter", "S-A-s" }, // self.cmd("filter", command.fmt(.{ "sort", "-u" })),
     .{ "format", "S-A-f" },
     .{ "goto_definition", "F12" },
+    .{ "goto_implementation", "C-F12" },
+    .{ "goto_declaration", "A-F12" },
+    .{ "goto_type_definition", "A-S-F12" },
     .{ "goto_next_file_or_diagnostic", "A-n" },
     .{ "goto_next_match", "C-n, F3" },
     .{ "goto_prev_file_or_diagnostic", "A-p" },

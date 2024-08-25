@@ -339,37 +339,13 @@ const Process = struct {
             tp.extract(&col),
         })) {
             self.goto_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{
-            "goto_declaration",
-            tp.extract(&project_directory),
-            tp.extract(&path),
-            tp.extract(&row),
-            tp.extract(&col),
-        })) {
+        } else if (try m.match(.{ "goto_declaration", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.goto_declaration(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{
-            "goto_implementation",
-            tp.extract(&project_directory),
-            tp.extract(&path),
-            tp.extract(&row),
-            tp.extract(&col),
-        })) {
+        } else if (try m.match(.{ "goto_implementation", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.goto_implementation(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{
-            "goto_type_definition",
-            tp.extract(&project_directory),
-            tp.extract(&path),
-            tp.extract(&row),
-            tp.extract(&col),
-        })) {
+        } else if (try m.match(.{ "goto_type_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.goto_type_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{
-            "references",
-            tp.extract(&project_directory),
-            tp.extract(&path),
-            tp.extract(&row),
-            tp.extract(&col),
-        })) {
+        } else if (try m.match(.{ "references", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.references(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{
             "completion",
