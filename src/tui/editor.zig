@@ -3428,6 +3428,24 @@ pub const Editor = struct {
         return project_manager.goto_definition(file_path, primary.cursor.row, primary.cursor.col);
     }
 
+    pub fn goto_declaration(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        return project_manager.goto_declaration(file_path, primary.cursor.row, primary.cursor.col);
+    }
+
+    pub fn goto_implementation(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        return project_manager.goto_implementation(file_path, primary.cursor.row, primary.cursor.col);
+    }
+
+    pub fn goto_type_definition(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        return project_manager.goto_type_definition(file_path, primary.cursor.row, primary.cursor.col);
+    }
+
     pub fn references(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();

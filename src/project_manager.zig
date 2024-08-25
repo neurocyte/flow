@@ -110,6 +110,27 @@ pub fn goto_definition(file_path: []const u8, row: usize, col: usize) !void {
     return (try get()).pid.send(.{ "goto_definition", project, file_path, row, col });
 }
 
+pub fn goto_declaration(file_path: []const u8, row: usize, col: usize) !void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "goto_declaration", project, file_path, row, col });
+}
+
+pub fn goto_implementation(file_path: []const u8, row: usize, col: usize) !void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "goto_implementation", project, file_path, row, col });
+}
+
+pub fn goto_type_definition(file_path: []const u8, row: usize, col: usize) !void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "goto_type_definition", project, file_path, row, col });
+}
+
 pub fn references(file_path: []const u8, row: usize, col: usize) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -214,7 +235,13 @@ const Process = struct {
         var root_dst: usize = 0;
         var root_src: usize = 0;
 
-        if (try m.match(.{ "walk_tree_entry", tp.extract(&project_directory), tp.extract(&path), tp.extract(&high), tp.extract(&low) })) {
+        if (try m.match(.{
+            "walk_tree_entry",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&high),
+            tp.extract(&low),
+        })) {
             const mtime = (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low));
             if (self.projects.get(project_directory)) |project|
                 project.add_pending_file(
@@ -225,11 +252,32 @@ const Process = struct {
             if (self.walker) |pid| pid.deinit();
             self.walker = null;
             self.loaded(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "update_mru", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+        } else if (try m.match(.{
+            "update_mru",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&row),
+            tp.extract(&col),
+        })) {
             self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
+        } else if (try m.match(.{
+            "child",
+            tp.extract(&project_directory),
+            tp.extract(&language_server),
+            "notify",
+            tp.extract(&method),
+            tp.extract_cbor(&params_cb),
+        })) {
             self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("lsp-handling", e);
-        } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract(&id), tp.extract_cbor(&params_cb) })) {
+        } else if (try m.match(.{
+            "child",
+            tp.extract(&project_directory),
+            tp.extract(&language_server),
+            "request",
+            tp.extract(&method),
+            tp.extract(&id),
+            tp.extract_cbor(&params_cb),
+        })) {
             self.dispatch_request(project_directory, language_server, method, id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try m.match(.{ "child", tp.extract(&path), "done" })) {
             self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
@@ -239,24 +287,97 @@ const Process = struct {
             self.request_most_recent_file(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
             self.request_recent_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "request_recent_projects", tp.extract(&project_directory) })) {
+        } else if (try m.match(.{
+            "request_recent_projects",
+            tp.extract(&project_directory),
+        })) {
             self.request_recent_projects(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "query_recent_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
+        } else if (try m.match(.{
+            "query_recent_files",
+            tp.extract(&project_directory),
+            tp.extract(&max),
+            tp.extract(&query),
+        })) {
             self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
+        } else if (try m.match(.{
+            "did_open",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&file_type),
+            tp.extract_cbor(&language_server),
+            tp.extract(&version),
+            tp.extract(&text_ptr),
+            tp.extract(&text_len),
+        })) {
             const text = if (text_len > 0) @as([*]const u8, @ptrFromInt(text_ptr))[0..text_len] else "";
-            self.did_open(project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&root_dst), tp.extract(&root_src) })) {
+            self.did_open(
+                project_directory,
+                path,
+                file_type,
+                language_server,
+                version,
+                text,
+            ) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{
+            "did_change",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&version),
+            tp.extract(&root_dst),
+            tp.extract(&root_src),
+        })) {
             self.did_change(project_directory, path, version, root_dst, root_src) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "did_save", tp.extract(&project_directory), tp.extract(&path) })) {
             self.did_save(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "did_close", tp.extract(&project_directory), tp.extract(&path) })) {
             self.did_close(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "goto_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+        } else if (try m.match(.{
+            "goto_definition",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&row),
+            tp.extract(&col),
+        })) {
             self.goto_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "references", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+        } else if (try m.match(.{
+            "goto_declaration",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&row),
+            tp.extract(&col),
+        })) {
+            self.goto_declaration(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{
+            "goto_implementation",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&row),
+            tp.extract(&col),
+        })) {
+            self.goto_implementation(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{
+            "goto_type_definition",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&row),
+            tp.extract(&col),
+        })) {
+            self.goto_type_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{
+            "references",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&row),
+            tp.extract(&col),
+        })) {
             self.references(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "completion", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+        } else if (try m.match(.{
+            "completion",
+            tp.extract(&project_directory),
+            tp.extract(&path),
+            tp.extract(&row),
+            tp.extract(&col),
+        })) {
             self.completion(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
             self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace());
@@ -365,6 +486,27 @@ const Process = struct {
         defer frame.deinit();
         const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
         return project.goto_definition(from, file_path, row, col);
+    }
+
+    fn goto_declaration(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_declaration" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.goto_declaration(from, file_path, row, col);
+    }
+
+    fn goto_implementation(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_implementation" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.goto_implementation(from, file_path, row, col);
+    }
+
+    fn goto_type_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_type_definition" });
+        defer frame.deinit();
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return project.goto_type_definition(from, file_path, row, col);
     }
 
     fn references(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
