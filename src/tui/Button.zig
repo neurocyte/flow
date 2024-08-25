@@ -46,7 +46,7 @@ pub fn Options(context: type) type {
     };
 }
 
-pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !*State(ctx_type) {
+pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) error{OutOfMemory}!*State(ctx_type) {
     const Self = State(ctx_type);
     const self = try a.create(Self);
     var n = try Plane.init(&opts.pos.opts(@typeName(Self)), parent);
@@ -61,7 +61,7 @@ pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options
     return self;
 }
 
-pub fn create_widget(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !Widget {
+pub fn create_widget(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) error{OutOfMemory}!Widget {
     return Widget.to(try create(ctx_type, a, parent, opts));
 }
 
