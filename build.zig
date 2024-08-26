@@ -76,6 +76,12 @@ pub fn build(b: *std.Build) void {
         .optimize = dependency_optimize,
     });
 
+    const zeit_dep = b.dependency("zeit", .{
+        .target = target,
+        .optimize = dependency_optimize,
+    });
+    const zeit_mod = zeit_dep.module("zeit");
+
     const themes_dep = b.dependency("themes", .{});
 
     const syntax_dep = b.dependency("syntax", .{
@@ -205,6 +211,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "help.md", .module = help_mod },
             .{ .name = "CaseData", .module = zg_dep.module("CaseData") },
             .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
+            .{ .name = "zeit", .module = zeit_mod },
         },
     });
 

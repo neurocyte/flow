@@ -33,6 +33,10 @@
             .url = "https://github.com/neurocyte/libvaxis/archive/9d3e60d1cda43055d8f58cca1bc1679fb958da4b.tar.gz",
             .hash = "12202e2c797387877717a140839a4d583d1258fcdcd1030c8a1e520b6add4ab9e2b0",
         },
+        .zeit = .{
+            .url = "https://github.com/rockorager/zeit/archive/9cca8ec620a54c3b07cd249f25e5bcb3153d03d7.tar.gz",
+            .hash = "1220755ea2a5aa6bb3713437aaafefd44812169fe43f1da755c3ee6101b85940f441",
+        },
     },
     .paths = .{
         "include",
