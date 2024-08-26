@@ -765,7 +765,11 @@ pub const Editor = struct {
     fn render_terminal_cursor(self: *const Self, cursor_: *const Cursor) !void {
         if (self.screen_cursor(cursor_)) |cursor| {
             const y, const x = self.plane.rel_yx_to_abs(@intCast(cursor.row), @intCast(cursor.col));
-            tui.current().rdr.cursor_enable(y, x) catch {};
+            const shape = if (tui.current().input_mode) |mode|
+                mode.cursor_shape
+            else
+                .block;
+            tui.current().rdr.cursor_enable(y, x, shape) catch {};
         } else {
             tui.current().rdr.cursor_disable();
         }
@@ -774,6 +778,8 @@ pub const Editor = struct {
     fn render_cursors(self: *Self, theme: *const Widget.Theme) !void {
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
+        if (self.cursels.items.len == 1 and self.enable_terminal_cursor)
+            return self.render_terminal_cursor(&self.get_primary().cursor);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             try self.render_cursor(&cursel.cursor, theme);
         if (self.enable_terminal_cursor)

@@ -37,6 +37,7 @@ pub fn create(a: Allocator) !tui.Mode {
         .description = "vim",
         .line_numbers = if (tui.current().config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
         .keybind_hints = &hints,
+        .cursor_shape = .block,
     };
 }
 
