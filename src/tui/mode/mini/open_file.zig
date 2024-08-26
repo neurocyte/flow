@@ -101,7 +101,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'L' => self.cmd("scroll_view_center", .{}),
             'I' => self.insert_bytes("\t"),
             key.SPACE => self.cancel(),
-            key.BACKSPACE => self.file_path.clearRetainingCapacity(),
+            key.BACKSPACE => self.delete_to_previous_path_segment(),
             else => {},
         },
         mod.ALT => switch (keynormal) {
@@ -204,5 +204,19 @@ fn process_project_manager(self: *Self, m: tp.message) !void {
             try self.try_complete_file();
     } else {
         log.logger("open_recent").err("receive", tp.unexpected(m));
+    }
+}
+
+fn delete_to_previous_path_segment(self: *Self) void {
+    self.complete_trigger_count = 0;
+    if (self.file_path.items.len == 0) return;
+    const path = if (self.file_path.items[self.file_path.items.len - 1] == std.fs.path.sep)
+        self.file_path.items[0 .. self.file_path.items.len - 2]
+    else
+        self.file_path.items;
+    if (std.mem.lastIndexOfScalar(u8, path, std.fs.path.sep)) |pos| {
+        self.file_path.items.len = pos + 1;
+    } else {
+        self.file_path.clearRetainingCapacity();
     }
 }
