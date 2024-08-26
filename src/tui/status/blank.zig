@@ -5,17 +5,23 @@ const Plane = @import("renderer").Plane;
 const Widget = @import("../Widget.zig");
 
 plane: Plane,
+layout: Widget.Layout,
 on_event: ?Widget.EventHandler,
 
 const Self = @This();
 
-pub fn create(a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
-    const self: *Self = try a.create(Self);
-    self.* = .{
-        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-        .on_event = event_handler,
-    };
-    return Widget.to(self);
+pub fn Create(comptime layout_: Widget.Layout) @import("widget.zig").CreateFunction {
+    return struct {
+        fn create(a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+            const self: *Self = try a.create(Self);
+            self.* = .{
+                .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
+                .layout = layout_,
+                .on_event = event_handler,
+            };
+            return Widget.to(self);
+        }
+    }.create;
 }
 
 pub fn deinit(self: *Self, a: std.mem.Allocator) void {
@@ -23,8 +29,8 @@ pub fn deinit(self: *Self, a: std.mem.Allocator) void {
     a.destroy(self);
 }
 
-pub fn layout(_: *Self) Widget.Layout {
-    return .{ .static = 1 };
+pub fn layout(self: *Self) Widget.Layout {
+    return self.layout;
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
