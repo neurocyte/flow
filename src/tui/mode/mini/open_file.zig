@@ -113,6 +113,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             else => {},
         },
         mod.SHIFT => switch (keypress) {
+            key.TAB => self.reverse_complete_file(),
             else => if (!key.synthesized_p(keypress))
                 self.insert_code_point(egc)
             else {},
@@ -168,6 +169,23 @@ fn try_complete_file(self: *Self) !void {
         self.query.clearRetainingCapacity();
         try self.query.appendSlice(self.file_path.items);
     }
+    if (self.query_pending) return;
+    self.query_pending = true;
+    try project_manager.query_recent_files(self.complete_trigger_count, self.query.items);
+}
+
+fn reverse_complete_file(self: *Self) !void {
+    if (self.complete_trigger_count < 2) {
+        self.complete_trigger_count = 0;
+        self.file_path.clearRetainingCapacity();
+        try self.file_path.appendSlice(self.query.items);
+        if (tui.current().mini_mode) |*mini_mode| {
+            mini_mode.text = self.file_path.items;
+            mini_mode.cursor = self.file_path.items.len;
+        }
+        return;
+    }
+    self.complete_trigger_count -= 1;
     if (self.query_pending) return;
     self.query_pending = true;
     try project_manager.query_recent_files(self.complete_trigger_count, self.query.items);
