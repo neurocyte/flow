@@ -36,6 +36,7 @@ pub fn create(a: Allocator) !tui.Mode {
         .name = root.application_logo ++ "INSERT",
         .description = "vim",
         .line_numbers = if (tui.current().config.vim_insert_gutter_line_numbers_relative) .relative else .absolute,
+        .cursor_shape = .beam,
     };
 }
 

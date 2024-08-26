@@ -9,6 +9,7 @@ pub const input = @import("input.zig");
 
 pub const Plane = @import("Plane.zig");
 pub const Cell = @import("Cell.zig");
+pub const CursorShape = vaxis.Cell.CursorShape;
 
 pub const style = @import("style.zig").StyleBits;
 
@@ -352,10 +353,11 @@ pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
     if (push_or_pop) self.vx.setMouseShape(.default) else self.vx.setMouseShape(.default);
 }
 
-pub fn cursor_enable(self: *Self, y: c_int, x: c_int) !void {
+pub fn cursor_enable(self: *Self, y: c_int, x: c_int, shape: CursorShape) !void {
     self.vx.screen.cursor_vis = true;
     self.vx.screen.cursor_row = @intCast(y);
     self.vx.screen.cursor_col = @intCast(x);
+    self.vx.screen.cursor_shape = shape;
 }
 
 pub fn cursor_disable(self: *Self) void {
