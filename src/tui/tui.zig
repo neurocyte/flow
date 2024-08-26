@@ -602,8 +602,15 @@ const cmds = struct {
     }
 
     pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
-        self.config.input_mode = if (std.mem.eql(u8, self.config.input_mode, "flow")) "vim/normal" else "flow";
+        self.config.input_mode = if (std.mem.eql(u8, self.config.input_mode, "flow"))
+            "vim/normal"
+        else if (std.mem.eql(u8, self.config.input_mode, "vim/normal"))
+            "helix/normal"
+        else
+            "flow";
         try self.save_config();
+        var it = std.mem.splitScalar(u8, self.config.input_mode, '/');
+        self.logger.print("input mode {s}", .{it.first()});
         return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
     }
 
@@ -620,6 +627,12 @@ const cmds = struct {
             try @import("mode/input/vim/insert.zig").create(self.a)
         else if (std.mem.eql(u8, mode, "vim/visual"))
             try @import("mode/input/vim/visual.zig").create(self.a)
+        else if (std.mem.eql(u8, mode, "helix/normal"))
+            try @import("mode/input/helix/normal.zig").create(self.a)
+        else if (std.mem.eql(u8, mode, "helix/insert"))
+            try @import("mode/input/helix/insert.zig").create(self.a)
+        else if (std.mem.eql(u8, mode, "helix/select"))
+            try @import("mode/input/helix/select.zig").create(self.a)
         else if (std.mem.eql(u8, mode, "flow"))
             try @import("mode/input/flow.zig").create(self.a)
         else if (std.mem.eql(u8, mode, "home"))
