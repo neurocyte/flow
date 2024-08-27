@@ -3608,9 +3608,10 @@ pub const Editor = struct {
         }
     }
 
-    fn filter_error(self: *Self, bytes: []const u8) void {
+    fn filter_error(self: *Self, bytes: []const u8) !void {
         defer self.filter_deinit();
         self.logger.print("filter: ERR: {s}", .{bytes});
+        if (self.need_save_after_filter) try self.save();
     }
 
     fn filter_done(self: *Self) !void {
@@ -3792,9 +3793,9 @@ pub const EditorWidget = struct {
         } else if (try m.match(.{ "filter", "stdout", tp.extract(&bytes) })) {
             self.editor.filter_stdout(bytes) catch {};
         } else if (try m.match(.{ "filter", "stderr", tp.extract(&bytes) })) {
-            self.editor.filter_error(bytes);
+            try self.editor.filter_error(bytes);
         } else if (try m.match(.{ "filter", "term", tp.more })) {
-            self.editor.filter_done() catch {};
+            try self.editor.filter_done();
         } else if (try m.match(.{ "A", tp.more })) {
             self.editor.add_match(m) catch {};
         } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
