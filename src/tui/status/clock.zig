@@ -71,9 +71,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
     self.plane.home();
 
-    const now = zeit.instant(.{}) catch return false;
-    const now_local = now.in(&self.tz);
-    const dt = now_local.time();
+    const now = zeit.instant(.{ .timezone = &self.tz }) catch return false;
+    const dt = now.time();
     _ = self.plane.print("{d:0>2}:{d:0>2}", .{ dt.hour, dt.minute }) catch {};
     return false;
 }
