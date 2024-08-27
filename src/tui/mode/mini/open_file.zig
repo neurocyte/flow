@@ -228,6 +228,10 @@ fn process_project_manager(self: *Self, m: tp.message) !void {
 fn delete_to_previous_path_segment(self: *Self) void {
     self.complete_trigger_count = 0;
     if (self.file_path.items.len == 0) return;
+    if (self.file_path.items.len == 1) {
+        self.file_path.clearRetainingCapacity();
+        return;
+    }
     const path = if (self.file_path.items[self.file_path.items.len - 1] == std.fs.path.sep)
         self.file_path.items[0 .. self.file_path.items.len - 2]
     else
