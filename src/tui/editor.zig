@@ -259,6 +259,8 @@ pub const Editor = struct {
     diag_info: usize = 0,
     diag_hints: usize = 0,
 
+    need_save_after_filter: bool = false,
+
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
     const Context = command.Context;
@@ -3000,6 +3002,15 @@ pub const Editor = struct {
     }
 
     pub fn save_file(self: *Self, _: Context) Result {
+        if (tui.current().config.enable_format_on_save) if (self.get_formatter()) |_| {
+            self.need_save_after_filter = true;
+            const primary = self.get_primary();
+            const sel = primary.selection;
+            primary.selection = null;
+            defer primary.selection = sel;
+            try self.format(.{});
+            return;
+        };
         try self.save();
     }
 
@@ -3518,19 +3529,24 @@ pub const Editor = struct {
         self.get_primary().selection = sel;
     }
 
+    fn get_formatter(self: *Self) ?[]const []const u8 {
+        if (self.syntax) |syn| if (syn.file_type.formatter) |fmtr| if (fmtr.len > 0) return fmtr;
+        return null;
+    }
+
     pub fn format(self: *Self, ctx: Context) Result {
         if (ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more })) {
             try self.filter_cmd(ctx.args);
             return;
         }
-        if (self.syntax) |syn| if (syn.file_type.formatter) |fmtr| if (fmtr.len > 0) {
+        if (self.get_formatter()) |fmtr| {
             var args = std.ArrayList(u8).init(self.a);
             const writer = args.writer();
             try cbor.writeArrayHeader(writer, fmtr.len);
             for (fmtr) |arg| try cbor.writeValue(writer, arg);
             try self.filter_cmd(.{ .buf = args.items });
             return;
-        };
+        }
         return tp.exit("no formatter");
     }
 
@@ -3624,6 +3640,7 @@ pub const Editor = struct {
         self.reset_syntax();
         self.clamp();
         self.need_render();
+        if (self.need_save_after_filter) try self.save();
     }
 
     fn filter_deinit(self: *Self) void {

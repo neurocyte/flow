@@ -15,6 +15,7 @@ highlight_current_line_gutter: bool = true,
 show_whitespace: bool = false,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 150, //milliseconds
+enable_format_on_save: bool = false,
 
 top_bar: []const u8 = "",
 bottom_bar: []const u8 = "mode file log selection diagnostics linenumber",
