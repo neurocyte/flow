@@ -792,7 +792,7 @@ fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, projec
                 .executeCommand = .{ .dynamicRegistration = true },
                 // .didChangeConfiguration = .{ .dynamicRegistration = true },
                 .workspaceFolders = true,
-                .semanticTokens = .{ .refreshSupport = true },
+                .semanticTokens = .{ .refreshSupport = false },
                 .fileOperations = .{
                     .dynamicRegistration = true,
                     .didCreate = true,
@@ -1013,7 +1013,7 @@ fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, projec
                     .messageActionItem = .{ .additionalPropertiesSupport = true },
                 },
                 .showDocument = .{ .support = true },
-                .workDoneProgress = true,
+                .workDoneProgress = false,
             },
             .general = .{
                 .staleRequestSupport = .{
