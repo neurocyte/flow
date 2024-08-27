@@ -98,6 +98,7 @@ pub fn restore_state(palette: *Type) !void {
     const size = try file.readAll(buffer);
     const data = buffer[0..size];
 
+    defer sort_by_used_time(palette);
     var name: []const u8 = undefined;
     var used_time: i64 = undefined;
     var iter: []const u8 = data;
@@ -111,5 +112,4 @@ pub fn restore_state(palette: *Type) !void {
         const id = command.getId(name) orelse continue;
         set_used_time(palette, id, used_time);
     }
-    sort_by_used_time(palette);
 }
