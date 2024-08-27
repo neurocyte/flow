@@ -451,7 +451,7 @@ pub const Editor = struct {
 
     fn save(self: *Self) !void {
         const b = if (self.buffer) |p| p else return error.Stop;
-        if (!b.is_dirty()) return tp.exit("no changes to save");
+        if (!b.is_dirty()) return self.logger.print("no changes to save", .{});
         if (self.file_path) |file_path| {
             if (self.buffer) |b_mut| try b_mut.store_to_file_and_clean(file_path);
         } else return error.SaveNoFileName;
