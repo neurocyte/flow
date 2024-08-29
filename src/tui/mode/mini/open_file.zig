@@ -212,7 +212,11 @@ fn reverse_complete_file(self: *Self) !void {
     if (self.complete_trigger_count < 2) {
         self.complete_trigger_count = 0;
         self.file_path.clearRetainingCapacity();
-        try self.file_path.appendSlice(self.query.items);
+        if (self.match.items.len > 0) {
+            try self.construct_path(self.query.items, .{ .name = self.match.items, .type = .file }, 0);
+        } else {
+            try self.file_path.appendSlice(self.query.items);
+        }
         if (tui.current().mini_mode) |*mini_mode| {
             mini_mode.text = self.file_path.items;
             mini_mode.cursor = self.file_path.items.len;
