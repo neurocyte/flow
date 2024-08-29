@@ -200,7 +200,12 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     defer frame.deinit();
     instance_ = self;
     defer instance_ = null;
-    errdefer self.deinit();
+    errdefer {
+        var err: tp.ScopedError = .{};
+        tp.store_error(&err);
+        defer tp.restore_error(&err);
+        self.deinit();
+    }
 
     self.receive_safe(from, m) catch |e| {
         if (std.mem.eql(u8, "normal", tp.error_text()))
