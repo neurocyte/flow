@@ -353,7 +353,10 @@ pub fn Create(options: type) type {
 
             const less_fn = struct {
                 fn less_fn(_: void, lhs: Match, rhs: Match) bool {
-                    return lhs.score > rhs.score;
+                    return if (lhs.score == rhs.score)
+                        lhs.entry.name.len < rhs.entry.name.len
+                    else
+                        lhs.score > rhs.score;
                 }
             }.less_fn;
             std.mem.sort(Match, matches.items, {}, less_fn);
