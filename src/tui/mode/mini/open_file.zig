@@ -193,8 +193,11 @@ fn try_complete_file(self: *Self) !void {
         self.clear_entries();
         if (try root.is_directory(self.file_path.items)) {
             try self.query.appendSlice(self.file_path.items);
-        } else if (self.file_path.items.len > 0) {
-            const basename_begin = std.mem.lastIndexOfScalar(u8, self.file_path.items, std.fs.path.sep) orelse 0;
+        } else if (self.file_path.items.len > 0) blk: {
+            const basename_begin = std.mem.lastIndexOfScalar(u8, self.file_path.items, std.fs.path.sep) orelse {
+                try self.match.appendSlice(self.file_path.items);
+                break :blk;
+            };
             try self.query.appendSlice(self.file_path.items[0 .. basename_begin + 1]);
             try self.match.appendSlice(self.file_path.items[basename_begin + 1 ..]);
         }
