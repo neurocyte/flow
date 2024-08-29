@@ -192,7 +192,7 @@ fn update_mouse_idle_timer(self: *Self) void {
         t.deinit();
         self.mouse_idle_timer = null;
     }
-    self.mouse_idle_timer = tp.self_pid().delay_send_cancellable(self.a, delay, .{"MOUSE_IDLE"}) catch return;
+    self.mouse_idle_timer = tp.self_pid().delay_send_cancellable(self.a, "tui.mouse_idle_timer", delay, .{"MOUSE_IDLE"}) catch return;
 }
 
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {

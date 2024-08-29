@@ -96,5 +96,5 @@ fn update_tick_timer(self: *Self) void {
         t.deinit();
         self.tick_timer = null;
     }
-    self.tick_timer = tp.self_pid().delay_send_cancellable(self.allocator, delay, .{"CLOCK"}) catch null;
+    self.tick_timer = tp.self_pid().delay_send_cancellable(self.allocator, "clock.tick_timer", delay, .{"CLOCK"}) catch null;
 }

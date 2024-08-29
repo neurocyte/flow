@@ -122,7 +122,7 @@ fn update_clear_timer(self: *Self) !void {
         t.deinit();
         self.clear_timer = null;
     }
-    self.clear_timer = try tp.self_pid().delay_send_cancellable(self.msg.allocator, delay, .{ "MINILOG", self.msg_counter });
+    self.clear_timer = try tp.self_pid().delay_send_cancellable(self.msg.allocator, "minilog.clear_timer", delay, .{ "MINILOG", self.msg_counter });
 }
 
 fn set(self: *Self, msg: []const u8, level: Level) !void {
