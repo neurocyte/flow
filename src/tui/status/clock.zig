@@ -37,7 +37,7 @@ pub fn create(a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventH
         .tz = zeit.local(a, &env) catch |e| return tp.exit_error(e, @errorReturnTrace()),
     };
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_tick));
-    self.update_tick_timer();
+    self.update_tick_timer(.init);
     return Widget.to(self);
 }
 
@@ -80,21 +80,25 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 fn receive_tick(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{"CLOCK"})) {
         tui.need_render();
-        self.update_tick_timer();
+        self.update_tick_timer(.ticked);
         return true;
     }
     return false;
 }
 
-fn update_tick_timer(self: *Self) void {
-    const current_time: usize = @intCast(std.time.milliTimestamp());
-    const ms_delay_until_tick = current_time % std.time.ms_per_s;
-    const s_delay_until_tick = current_time % std.time.ms_per_min;
-    const delay = s_delay_until_tick + ms_delay_until_tick;
+fn update_tick_timer(self: *Self, event: enum { init, ticked }) void {
     if (self.tick_timer) |*t| {
-        t.cancel() catch {};
+        if (event != .ticked) t.cancel() catch {};
         t.deinit();
         self.tick_timer = null;
     }
-    self.tick_timer = tp.self_pid().delay_send_cancellable(self.allocator, "clock.tick_timer", delay, .{"CLOCK"}) catch null;
+    const current = zeit.instant(.{ .timezone = &self.tz }) catch return;
+    var next = current.time();
+    next.minute += 1;
+    next.second = 0;
+    next.millisecond = 0;
+    next.microsecond = 0;
+    next.nanosecond = 0;
+    const delay_us: u64 = @intCast(@divTrunc(next.instant().timestamp - current.timestamp, std.time.ns_per_us));
+    self.tick_timer = tp.self_pid().delay_send_cancellable(self.allocator, "clock.tick_timer", delay_us, .{"CLOCK"}) catch null;
 }
