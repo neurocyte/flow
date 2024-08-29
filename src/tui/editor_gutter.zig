@@ -305,8 +305,8 @@ fn diff_update(self: *Self) !void {
         return;
     }
     const editor = self.editor;
-    const new = if (editor.get_current_root()) |new| new else return;
-    const old = if (editor.buffer) |buffer| if (buffer.last_save) |old| old else return else return;
+    const new = editor.get_current_root() orelse return;
+    const old = if (editor.buffer) |buffer| buffer.last_save orelse return else return;
     return self.diff.diff(diff_result, new, old);
 }
 

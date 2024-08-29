@@ -37,7 +37,7 @@ longest: usize = 0,
 commands: Commands = undefined,
 
 pub fn create(a: std.mem.Allocator) !tui.Mode {
-    const mv = if (tui.current().mainview.dynamic_cast(mainview)) |mv_| mv_ else return error.NotFound;
+    const mv = tui.current().mainview.dynamic_cast(mainview) orelse return error.NotFound;
     const self: *Self = try a.create(Self);
     self.* = .{
         .a = a,

@@ -747,7 +747,7 @@ pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
 threadlocal var instance_: ?*Self = null;
 
 pub fn current() *Self {
-    return if (instance_) |p| p else @panic("tui call out of context");
+    return instance_ orelse @panic("tui call out of context");
 }
 
 pub fn get_mode() []const u8 {

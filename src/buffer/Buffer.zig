@@ -115,8 +115,8 @@ pub const Branch = struct {
         var result = WalkerMut{};
         result.err = if (left.err) |_| left.err else right.err;
         if (left.replace != null or right.replace != null) {
-            const new_left = if (left.replace) |p| p else self.left;
-            const new_right = if (right.replace) |p| p else self.right;
+            const new_left = left.replace orelse self.left;
+            const new_right = right.replace orelse self.right;
             result.replace = if (new_left.is_empty())
                 new_right
             else if (new_right.is_empty())
@@ -693,7 +693,7 @@ const Node = union(enum) {
         };
         var ctx: Ctx = .{ .a = a, .col = col, .count = count };
         const found, const root = try self.walk_from_line_begin(a, line, Ctx.walker, &ctx, metrics_);
-        return if (found) (if (root) |r| r else error.Stop) else error.NotFound;
+        return if (found) (root orelse error.Stop) else error.NotFound;
     }
 
     fn merge_in_place(leaves: []const Node, a: Allocator) !Root {

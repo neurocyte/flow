@@ -32,7 +32,7 @@ pub fn shutdown(self: *Self) void {
 }
 
 // pub fn send(self: *Self, m: tp.message) tp.result {
-//     const pid = if (self.pid) |pid| pid else return tp.exit_error(error.Shutdown);
+//     const pid = self.pid orelse return tp.exit_error(error.Shutdown);
 //     try pid.send(m);
 // }
 

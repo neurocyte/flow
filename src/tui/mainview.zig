@@ -422,7 +422,7 @@ const cmds = struct {
         tui_.config.gutter_line_numbers_relative = lnr;
         try tui_.save_config();
         if (self.widgets.get("editor_gutter")) |gutter_widget| {
-            const gutter = if (gutter_widget.dynamic_cast(@import("editor_gutter.zig"))) |p| p else return;
+            const gutter = gutter_widget.dynamic_cast(@import("editor_gutter.zig")) orelse return;
             gutter.linenum = ln;
             gutter.relative = lnr;
         }

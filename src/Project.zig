@@ -735,7 +735,7 @@ pub fn show_message(_: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
             try cbor.skipValue(&iter);
         }
     }
-    const msg = if (message) |m| m else return;
+    const msg = message orelse return;
     const logger = log.logger("lsp");
     defer logger.deinit();
     if (type_ <= 2)

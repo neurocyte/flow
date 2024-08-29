@@ -136,6 +136,6 @@ pub const List = struct {
             if (consume)
                 return true;
         }
-        return if (e) |e_| e_ else false;
+        return e orelse false;
     }
 };

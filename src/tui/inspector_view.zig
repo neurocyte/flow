@@ -75,7 +75,7 @@ fn clear(self: *Self) void {
 }
 
 fn inspect_location(self: *Self, row: usize, col: usize) void {
-    const syn = if (self.editor.syntax) |p| p else return;
+    const syn = self.editor.syntax orelse return;
     syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col) });
 }
 

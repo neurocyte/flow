@@ -326,13 +326,13 @@ const Process = struct {
     }
 
     fn request_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8) error{ OutOfMemory, Exit }!void {
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         project.sort_files_by_mtime();
         return project.request_most_recent_file(from);
     }
 
     fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) error{ OutOfMemory, Exit }!void {
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         project.sort_files_by_mtime();
         return project.request_recent_files(from, max);
     }
@@ -351,7 +351,7 @@ const Process = struct {
     }
 
     fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) error{ OutOfMemory, Exit }!void {
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         const start_time = std.time.milliTimestamp();
         const matched = try project.query_recent_files(from, max, query);
         const query_time = std.time.milliTimestamp() - start_time;
@@ -362,88 +362,88 @@ const Process = struct {
     fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_open" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.did_open(file_path, file_type, language_server, version, text);
     }
 
     fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, root_dst: usize, root_src: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_change" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.did_change(file_path, version, root_dst, root_src);
     }
 
     fn did_save(self: *Process, project_directory: []const u8, file_path: []const u8) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_save" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.did_save(file_path);
     }
 
     fn did_close(self: *Process, project_directory: []const u8, file_path: []const u8) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_close" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.did_close(file_path);
     }
 
     fn goto_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_definition" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.goto_definition(from, file_path, row, col);
     }
 
     fn goto_declaration(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_declaration" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.goto_declaration(from, file_path, row, col);
     }
 
     fn goto_implementation(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_implementation" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.goto_implementation(from, file_path, row, col);
     }
 
     fn goto_type_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_type_definition" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.goto_type_definition(from, file_path, row, col);
     }
 
     fn references(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".references" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.references(from, file_path, row, col);
     }
 
     fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".completion" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.completion(from, file_path, row, col);
     }
 
     fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) !void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".get_mru_position" });
         defer frame.deinit();
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.get_mru_position(from, file_path);
     }
 
     fn update_mru(self: *Process, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.update_mru(file_path, row, col);
     }
 
     fn dispatch_notify(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, params_cb: []const u8) !void {
         _ = language_server;
-        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return if (std.mem.eql(u8, method, "textDocument/publishDiagnostics"))
             project.publish_diagnostics(self.parent.ref(), params_cb)
         else if (std.mem.eql(u8, method, "window/showMessage"))

@@ -48,7 +48,7 @@ pub fn Create(options: type) type {
         pub const ButtonState = Button.State(*Menu.State(*Self));
 
         pub fn create(a: std.mem.Allocator) !tui.Mode {
-            const mv = if (tui.current().mainview.dynamic_cast(mainview)) |mv_| mv_ else return error.NotFound;
+            const mv = tui.current().mainview.dynamic_cast(mainview) orelse return error.NotFound;
             const self: *Self = try a.create(Self);
             self.* = .{
                 .a = a,

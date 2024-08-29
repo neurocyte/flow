@@ -44,7 +44,7 @@ pub fn write(self: *Self, bytes: []const u8) !usize {
 }
 
 pub fn input(self: *const Self, bytes: []const u8) !void {
-    const pid = if (self.pid) |pid| pid else return error.Closed;
+    const pid = self.pid orelse return error.Closed;
     var remaining = bytes;
     while (remaining.len > 0)
         remaining = loop: {
@@ -131,7 +131,7 @@ const Process = struct {
         var bytes: []u8 = "";
 
         if (try m.match(.{ "input", tp.extract(&bytes) })) {
-            const sp = if (self.sp) |sp| sp else return tp.exit_error(error.Closed, null);
+            const sp = self.sp orelse return tp.exit_error(error.Closed, null);
             try sp.send(bytes);
         } else if (try m.match(.{"close"})) {
             try self.close();

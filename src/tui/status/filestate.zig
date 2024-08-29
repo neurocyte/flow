@@ -91,7 +91,7 @@ pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme)
 
 fn render_mini_mode(plane: *Plane, theme: *const Widget.Theme) void {
     plane.off_styles(style.italic);
-    const mini_mode = if (tui.current().mini_mode) |m| m else return;
+    const mini_mode = tui.current().mini_mode orelse return;
     _ = plane.print(" {s}", .{mini_mode.text}) catch {};
     if (mini_mode.cursor) |cursor| {
         const pos: c_int = @intCast(cursor);

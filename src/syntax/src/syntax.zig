@@ -112,7 +112,7 @@ fn CallBack(comptime T: type) type {
 pub fn render(self: *const Self, ctx: anytype, comptime cb: CallBack(@TypeOf(ctx)), range: ?Range) !void {
     const cursor = try Query.Cursor.create();
     defer cursor.destroy();
-    const tree = if (self.tree) |p| p else return;
+    const tree = self.tree orelse return;
     cursor.execute(self.query, tree.getRootNode());
     if (range) |r| cursor.setPointRange(r.start_point, r.end_point);
     while (cursor.nextMatch()) |match| {
@@ -127,7 +127,7 @@ pub fn render(self: *const Self, ctx: anytype, comptime cb: CallBack(@TypeOf(ctx
 pub fn highlights_at_point(self: *const Self, ctx: anytype, comptime cb: CallBack(@TypeOf(ctx)), point: Point) void {
     const cursor = Query.Cursor.create() catch return;
     defer cursor.destroy();
-    const tree = if (self.tree) |p| p else return;
+    const tree = self.tree orelse return;
     cursor.execute(self.query, tree.getRootNode());
     cursor.setPointRange(.{ .row = point.row, .column = 0 }, .{ .row = point.row + 1, .column = 0 });
     while (cursor.nextMatch()) |match| {

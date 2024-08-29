@@ -356,7 +356,7 @@ pub const Editor = struct {
     fn buf_for_update(self: *Self) !*const Buffer {
         self.cursels_saved.clearAndFree();
         self.cursels_saved = try self.cursels.clone();
-        return if (self.buffer) |p| p else error.Stop;
+        return self.buffer orelse error.Stop;
     }
 
     fn buf_root(self: *const Self) !Buffer.Root {
@@ -379,7 +379,7 @@ pub const Editor = struct {
     }
 
     pub fn is_dirty(self: *Self) bool {
-        const b = if (self.buffer) |p| p else return false;
+        const b = self.buffer orelse return false;
         return b.is_dirty();
     }
 
@@ -437,7 +437,7 @@ pub const Editor = struct {
     }
 
     fn close_internal(self: *Self, allow_dirty_close: bool) !void {
-        const b = if (self.buffer) |p| p else return error.Stop;
+        const b = self.buffer orelse return error.Stop;
         if (!allow_dirty_close and b.is_dirty()) return tp.exit("unsaved changes");
         if (self.buffer) |b_mut| b_mut.deinit();
         self.buffer = null;
@@ -450,7 +450,7 @@ pub const Editor = struct {
     }
 
     fn save(self: *Self) !void {
-        const b = if (self.buffer) |p| p else return error.Stop;
+        const b = self.buffer orelse return error.Stop;
         if (!b.is_dirty()) return self.logger.print("no changes to save", .{});
         if (self.file_path) |file_path| {
             if (self.buffer) |b_mut| try b_mut.store_to_file_and_clean(file_path);
@@ -460,7 +460,7 @@ pub const Editor = struct {
     }
 
     pub fn push_cursor(self: *Self) !void {
-        const primary = if (self.cursels.getLastOrNull()) |c| c orelse CurSel{} else CurSel{};
+        const primary = self.cursels.getLastOrNull() orelse CurSel{} orelse CurSel{};
         (try self.cursels.addOne()).* = primary;
     }
 
@@ -505,7 +505,7 @@ pub const Editor = struct {
     }
 
     fn update_buf(self: *Self, root: Buffer.Root) !void {
-        const b = if (self.buffer) |p| p else return error.Stop;
+        const b = self.buffer orelse return error.Stop;
         var sfa = std.heap.stackFallback(512, self.a);
         const a = sfa.get();
         const meta = try self.store_undo_meta(a);
@@ -999,7 +999,7 @@ pub const Editor = struct {
     fn render_syntax(self: *Self, theme: *const Widget.Theme, cache: *StyleCache, root: Buffer.Root) !void {
         const frame = tracy.initZone(@src(), .{ .name = "editor render syntax" });
         defer frame.deinit();
-        const syn = if (self.syntax) |syn| syn else return;
+        const syn = self.syntax orelse return;
         const Ctx = struct {
             self: *Self,
             theme: *const Widget.Theme,
@@ -1275,7 +1275,7 @@ pub const Editor = struct {
     }
 
     fn cancel_all_selections(self: *Self) void {
-        var primary = if (self.cursels.getLast()) |p| p else CurSel{};
+        var primary = self.cursels.getLast() orelse CurSel{};
         primary.selection = null;
         self.cursels.clearRetainingCapacity();
         self.cursels.addOneAssumeCapacity().* = primary;
@@ -1490,7 +1490,7 @@ pub const Editor = struct {
     }
 
     fn delete_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
-        var sel: Selection = if (cursel.selection) |sel| sel else return error.Stop;
+        var sel: Selection = cursel.selection orelse return error.Stop;
         sel.normalize();
         cursel.cursor = sel.begin;
         cursel.selection = null;
