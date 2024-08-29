@@ -74,6 +74,13 @@ pub fn query_recent_files(max: usize, query: []const u8) !void {
     return (try get()).pid.send(.{ "query_recent_files", project, max, query });
 }
 
+pub fn request_path_files(max: usize, path: []const u8) !void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "request_path_files", project, max, path });
+}
+
 pub fn did_open(file_path: []const u8, file_type: *const FileType, version: usize, text: []const u8) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -264,6 +271,8 @@ const Process = struct {
             self.request_recent_projects(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "query_recent_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
             self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{ "request_path_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&path) })) {
+            self.request_path_files(from, project_directory, max, path) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
             const text = if (text_len > 0) @as([*]const u8, @ptrFromInt(text_ptr))[0..text_len] else "";
             self.did_open(project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e, @errorReturnTrace());
@@ -357,6 +366,11 @@ const Process = struct {
         const query_time = std.time.milliTimestamp() - start_time;
         if (query_time > 250)
             self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
+    }
+
+    fn request_path_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, path: []const u8) error{ OutOfMemory, Exit }!void {
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
+        request_path_files_async(self.a, from, project, max, path) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
     fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) !void {
@@ -572,6 +586,70 @@ const Process = struct {
         std.mem.sort(RecentProject, recent_projects.items, {}, less_fn);
     }
 };
+
+fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_: *Project, max_: usize, path_: []const u8) !void {
+    return struct {
+        a: std.mem.Allocator,
+        project_name: []const u8,
+        path: []const u8,
+        parent: tp.pid,
+        max: usize,
+        dir: std.fs.Dir,
+
+        const path_files = @This();
+        const Receiver = tp.Receiver(*path_files);
+
+        fn spawn_link(a: std.mem.Allocator, parent: tp.pid_ref, project: *Project, max: usize, path: []const u8) !void {
+            const self = try a.create(path_files);
+            self.* = .{
+                .a = a,
+                .project_name = try a.dupe(u8, project.name),
+                .path = try if (std.fs.path.isAbsolute(path))
+                    a.dupe(u8, path)
+                else
+                    std.fs.path.join(a, &[_][]const u8{ project.name, path }),
+                .parent = parent.clone(),
+                .max = max,
+                .dir = try std.fs.cwd().openDir(self.path, .{ .iterate = true }),
+            };
+            const pid = try tp.spawn_link(a, self, path_files.start, module_name ++ ".path_files");
+            pid.deinit();
+        }
+
+        fn start(self: *path_files) tp.result {
+            errdefer self.deinit();
+            const frame = tracy.initZone(@src(), .{ .name = "path_files scan" });
+            defer frame.deinit();
+            try self.parent.link();
+            self.iterate() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            return tp.exit_normal();
+        }
+
+        fn deinit(self: *path_files) void {
+            self.dir.close();
+            self.a.free(self.path);
+            self.a.free(self.project_name);
+            self.parent.deinit();
+        }
+
+        fn iterate(self: *path_files) !void {
+            var count: usize = 0;
+            var iter = self.dir.iterateAssumeFirstIteration();
+            errdefer |e| self.parent.send(.{ "PRJ", "path_error", self.project_name, self.path, e }) catch {};
+            while (try iter.next()) |entry| {
+                switch (entry.kind) {
+                    .directory => try self.parent.send(.{ "PRJ", "path_entry", self.project_name, self.path, "DIR", entry.name }),
+                    .sym_link => try self.parent.send(.{ "PRJ", "path_entry", self.project_name, self.path, "LINK", entry.name }),
+                    .file => try self.parent.send(.{ "PRJ", "path_entry", self.project_name, self.path, "FILE", entry.name }),
+                    else => continue,
+                }
+                count += 1;
+                if (count >= self.max) break;
+            }
+            self.parent.send(.{ "PRJ", "path_done", self.project_name, self.path, count }) catch {};
+        }
+    }.spawn_link(a_, parent_, project_, max_, path_);
+}
 
 fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) !tp.pid {
     return struct {
