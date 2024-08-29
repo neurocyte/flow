@@ -294,7 +294,7 @@ const Process = struct {
             return tp.exit_normal();
         } else if (try m.match(.{ "exit", "normal" })) {
             return;
-        } else if (try m.match(.{ "exit", "DEADSEND", tp.any })) {
+        } else if (try m.match(.{ "exit", "DEADSEND", tp.more })) {
             return;
         } else {
             self.logger.err("receive", tp.unexpected(m));
