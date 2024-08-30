@@ -280,9 +280,6 @@ but more advanced vim functions (e.g. macros and registers) are
 not supported yet. Keybindings from flow mode that do not
 conflict with common vim keybindings also work in vim mode.
 
-The vim command prompt (:) is not available yet. To save/load/quit
-you will have to use the flow mode keybindings.
-
 (work in progress)
 
 ## Configuration
