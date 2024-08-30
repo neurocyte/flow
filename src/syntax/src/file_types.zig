@@ -338,7 +338,7 @@ pub const typescript = .{
 };
 
 pub const typst = .{
-    .color = 0x007acc,
+    .color = 0x23b6bc,
     .icon = "t",
     .extensions = .{ "typst", "typ" },
     .comment = "//",
