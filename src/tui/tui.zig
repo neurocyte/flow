@@ -698,6 +698,10 @@ const cmds = struct {
         return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
     }
 
+    pub fn save_as(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/save_as.zig"), ctx);
+    }
+
     const MiniModeFactory = fn (Allocator, Ctx) error{ NotFound, OutOfMemory }!EventHandler;
 
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) Result {
