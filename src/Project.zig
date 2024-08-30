@@ -87,6 +87,11 @@ pub fn restore_state(self: *Self, data: []const u8) !void {
         else => return e,
     }) {
         self.longest_file_path = @max(self.longest_file_path, path.len);
+        const stat = std.fs.cwd().statFile(path) catch return;
+        switch (stat.kind) {
+            .sym_link, .file => {},
+            else => return,
+        }
         try self.update_mru_internal(path, mtime, row, col);
     }
 }
