@@ -337,6 +337,16 @@ pub const typescript = .{
     .language_server = .{ "deno", "lsp" },
 };
 
+pub const typst = .{
+    .color = 0x007acc,
+    .icon = "t",
+    .extensions = .{ "typst", "typ" },
+    .comment = "//",
+    .language_server = .{"tinymist"},
+    .highlights = "tree-sitter-typst/queries/typst/highlights.scm",
+    .injections = "tree-sitter-typst/queries/typst/injections.scm",
+};
+
 pub const xml = .{
     .icon = "󰗀",
     .extensions = .{"xml"},
