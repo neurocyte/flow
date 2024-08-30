@@ -123,6 +123,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
+            'S' => self.cmd("save_as", .{}),
             'P' => self.cmd("open_command_palette", .{}),
             'D' => self.cmd("dupe_down", .{}),
             'Z' => self.cmd("redo", .{}),
@@ -385,6 +386,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "quit_without_saving", "C-S-q" },
     .{ "redo", "C-S-z, C-y" },
     .{ "references", "S-F12" },
+    .{ "save_as", "C-S-s" },
     .{ "save_file", "C-s" },
     .{ "scroll_view_bottom", "C-l" },
     .{ "scroll_view_center", "C-l" },
