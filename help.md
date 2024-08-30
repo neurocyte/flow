@@ -211,6 +211,9 @@ cycle style of editing.
 - Ctrl-s =>
         Save file
 
+- Ctrl-Shift-s =>
+        Save file as
+
 - Ctrl-o =>
         Open file
 
