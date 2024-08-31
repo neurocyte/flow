@@ -131,7 +131,7 @@ fn init(a: Allocator) !*Self {
     errdefer self.deinit();
     switch (builtin.os.tag) {
         .windows => {
-            self.keepalive_timer = try tp.self_pid().delay_send_cancellable(a, keepalive, .{"keepalive"});
+            self.keepalive_timer = try tp.self_pid().delay_send_cancellable(a, "tui.keepalive", keepalive, .{"keepalive"});
         },
         else => {
             try self.listen_sigwinch();
