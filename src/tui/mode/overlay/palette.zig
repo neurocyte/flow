@@ -82,8 +82,8 @@ pub fn Create(options: type) type {
             try mv.floating_views.add(self.menu.container_widget);
             return .{
                 .handler = EventHandler.to_owned(self),
-                .name = "󱊒 command",
-                .description = "command",
+                .name = options.name,
+                .description = options.description,
             };
         }
 

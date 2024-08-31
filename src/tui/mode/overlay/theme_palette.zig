@@ -8,6 +8,8 @@ const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
 
 pub const label = "Search themes";
+pub const name = " theme";
+pub const description = "theme";
 
 pub const Entry = struct {
     name: []const u8,
@@ -39,24 +41,24 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
 }
 
 fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
-    var name: []const u8 = undefined;
+    var name_: []const u8 = undefined;
     var iter = button.opts.label;
-    if (!(cbor.matchString(&iter, &name) catch false)) return;
+    if (!(cbor.matchString(&iter, &name_) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("theme_palette", e);
-    tp.self_pid().send(.{ "cmd", "set_theme", .{name} }) catch |e| menu.*.opts.ctx.logger.err("theme_palette", e);
+    tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| menu.*.opts.ctx.logger.err("theme_palette", e);
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonState) !void {
     const button = button_ orelse return cancel(palette);
-    var name: []const u8 = undefined;
+    var name_: []const u8 = undefined;
     var iter = button.opts.label;
-    if (!(cbor.matchString(&iter, &name) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "set_theme", .{name} }) catch |e| palette.logger.err("theme_palette upated", e);
+    if (!(cbor.matchString(&iter, &name_) catch false)) return;
+    tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| palette.logger.err("theme_palette upated", e);
 }
 
 pub fn cancel(palette: *Type) !void {
-    if (previous_theme) |name| if (!std.mem.eql(u8, name, tui.current().theme.name)) {
+    if (previous_theme) |name_| if (!std.mem.eql(u8, name_, tui.current().theme.name)) {
         previous_theme = null;
-        tp.self_pid().send(.{ "cmd", "set_theme", .{name} }) catch |e| palette.logger.err("theme_palette cancel", e);
+        tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| palette.logger.err("theme_palette cancel", e);
     };
 }

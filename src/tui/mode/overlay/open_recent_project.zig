@@ -9,6 +9,8 @@ const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
 
 pub const label = "Search projects";
+pub const name = " project";
+pub const description = "project";
 
 pub const Entry = struct {
     name: []const u8,
@@ -31,9 +33,9 @@ pub fn load_entries(palette: *Type) !void {
     var iter: []const u8 = rsp.buf;
     var len = try cbor.decodeArrayHeader(&iter);
     while (len > 0) : (len -= 1) {
-        var name: []const u8 = undefined;
-        if (try cbor.matchValue(&iter, cbor.extract(&name))) {
-            (try palette.entries.addOne()).* = .{ .name = try palette.a.dupe(u8, name) };
+        var name_: []const u8 = undefined;
+        if (try cbor.matchValue(&iter, cbor.extract(&name_))) {
+            (try palette.entries.addOne()).* = .{ .name = try palette.a.dupe(u8, name_) };
         } else return error.InvalidMessageField;
     }
 }
@@ -51,9 +53,9 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
 }
 
 fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
-    var name: []const u8 = undefined;
+    var name_: []const u8 = undefined;
     var iter = button.opts.label;
-    if (!(cbor.matchString(&iter, &name) catch false)) return;
+    if (!(cbor.matchString(&iter, &name_) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("open_recent_project", e);
-    tp.self_pid().send(.{ "cmd", "change_project", .{name} }) catch |e| menu.*.opts.ctx.logger.err("open_recent_project", e);
+    tp.self_pid().send(.{ "cmd", "change_project", .{name_} }) catch |e| menu.*.opts.ctx.logger.err("open_recent_project", e);
 }

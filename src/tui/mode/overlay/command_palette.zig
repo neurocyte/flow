@@ -8,6 +8,8 @@ const command = @import("../../command.zig");
 pub const Type = @import("palette.zig").Create(@This());
 
 pub const label = "Search commands";
+pub const name = "󱊒 command";
+pub const description = "command";
 
 pub const Entry = struct {
     name: []const u8,
@@ -99,17 +101,17 @@ pub fn restore_state(palette: *Type) !void {
     const data = buffer[0..size];
 
     defer sort_by_used_time(palette);
-    var name: []const u8 = undefined;
+    var name_: []const u8 = undefined;
     var used_time: i64 = undefined;
     var iter: []const u8 = data;
     while (cbor.matchValue(&iter, .{
-        tp.extract(&name),
+        tp.extract(&name_),
         tp.extract(&used_time),
     }) catch |e| switch (e) {
         error.CborTooShort => return,
         else => return e,
     }) {
-        const id = command.getId(name) orelse continue;
+        const id = command.getId(name_) orelse continue;
         set_used_time(palette, id, used_time);
     }
 }
