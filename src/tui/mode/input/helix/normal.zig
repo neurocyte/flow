@@ -88,62 +88,81 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     }
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
-            'E' => self.cmd("open_recent", .{}),
-            'U' => self.cmd("move_scroll_page_up", .{}),
-            'D' => self.cmd("move_scroll_page_down", .{}),
-            'O' => self.cmd("jump_back", .{}),
-            'I' => self.cmd("jump_forward", .{}),
+            'B' => self.cmd("move_scroll_page_up", .{}),
+            'F' => self.cmd("move_scroll_page_down", .{}),
+            'U' => self.cmd("page_cursor_half_up", .{}),
+            'D' => self.cmd("page_cursor_half_down", .{}),
 
-            'X' => self.cmd("cut", .{}),
-            'C' => self.cmd("copy", .{}),
-            'V' => self.cmd("system_paste", .{}),
-            'W' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
-            'c' => self.cmd("toggle_comment", .{}),
+            'C' => self.cmd("toggle_comment", .{}),
+
+            'I' => self.cmd("jump_forward", .{}),
+            'O' => self.cmd("jump_back", .{}),
+            'S' => self.cmd("save_selection", .{}),
+            'W' => self.leader = .{ .keypress = keynormal, .modifiers = 0 },
+
+            'A' => self.cmd("increment", .{}),
+            'X' => self.cmd("decrement", .{}),
             else => {},
         },
         mod.ALT => switch (keynormal) {
-            'N' => self.cmd("pull_back", .{}), // next sibling
-            '`' => self.cmd("to_upper", .{}),
-            'd' => self.cmd("delete_backward", .{}),
-            'c' => {
+            '.' => self.cmd("repeat_last_motion", .{}),
+
+            '`' => self.cmd("switch_to_uppercase", .{}),
+
+            'D' => self.cmd("delete_backward", .{}),
+            'C' => {
                 try self.cmd("delete_backward", .{});
                 try self.cmd("enter_mode", command.fmt(.{"helix/insert"}));
             },
-            's' => self.cmd("toggle_inputview", .{}),
-            '-' => self.cmd("move_word_left", .{}),
-            '_' => self.cmd("move_word_right", .{}),
-            ';' => self.cmd("filter", command.fmt(.{"sort"})),
-            'O' => self.cmd("pull_up", .{}),
-            key.UP => self.cmd("pull_up", .{}),
-            'P' => self.cmd("pull_left", .{}),
-            key.RIGHT => self.cmd("jump_forward", .{}),
-            'I' => self.cmd("jump_back", .{}),
-            key.DOWN => self.cmd("pull_down", .{}),
+
+            'S' => self.cmd("split_selection_on_newline", .{}),
+            '-' => self.cmd("merge_selections", .{}),
+            '_' => self.cmd("merge_consecutive_selections", .{}),
+
+            ';' => self.cmd("flip_selections", .{}),
+            'O', key.UP => self.cmd("expand_selection", .{}),
+            'I', key.DOWN => self.cmd("shrink_selection", .{}),
+            'P', key.LEFT => self.cmd("select_prev_sibling", .{}),
+            'N', key.RIGHT => self.cmd("select_next_sibling", .{}),
+
+            'E' => self.cmd("move_parent_node_end", .{}),
+            'B' => self.cmd("move_parent_node_start", .{}),
+            'A' => self.cmd("select_all_siblings", .{}),
+
+            'X' => self.cmd("shrink_to_line_bounds", .{}),
+
+            'U' => self.cmd("undo", .{}),
+
+            ',' => self.cmd("remove_primary_selection", .{}),
             else => {},
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {
-            'C' => self.cmd("select_up", .{}),
-            'I' => self.cmd("dupe_up", .{}), // select all children
-            key.DOWN => self.cmd("dupe_up", .{}), // select all children
+            'C' => self.cmd("copy_selection_on_next_line", .{}),
+
+            'I', key.DOWN => self.cmd("select_all_children", .{}),
+
+            'U' => self.cmd("redo", .{}),
+
+            'j' => self.cmd("join_selections_space", .{}),
+
+            '(' => self.cmd("rotate_selection_contents_backward", .{}),
+            ')' => self.cmd("rotate_selection_contents_forward", .{}),
+
+            '\\' => self.cmd("shell_pipe_to", .{}),
+            '1' => self.cmd("shell_append_output", .{}),
             else => {},
         },
         mod.SHIFT => switch (keypress) {
-            'r' => self.cmd("goto_prev_match", .{}), // replace with yanked
-            key.TAB => self.cmd("unindent", .{}),
+            '`' => self.cmd("switch_case", .{}),
 
-            ';' => self.cmd("open_command_palette", .{}),
-            'n' => self.cmd("goto_prev_match", .{}),
-            'a' => self.seq(.{ "move_end", "enter_mode" }, command.fmt(.{"helix/insert"})),
-            'i' => self.seq(.{ "smart_move_begin", "enter_mode" }, command.fmt(.{"helix/insert"})),
-            'w' => self.cmd("select_word_right", .{}), // move long word next
-            'b' => self.cmd("select_word_left", .{}), // move long word prev
-            'e' => self.cmd("select_word_end", .{}), // move long word end
-            'c' => self.cmd("select_down", .{}), // copy_selection_on_next_line
-            's' => self.cmd("select_down", .{}), // split_selection
-            '5' => self.cmd("select_all", .{}),
-            'x' => self.cmd("extend", .{}), // extend_to_line_bounds
-            'p' => self.cmd("paste", .{}), // paste_before
-            'u' => self.cmd("undo", .{}),
+            't' => self.cmd("till_prev_char", .{}),
+            'f' => self.cmd("find_prev_char", .{}),
+            'r' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
+
+            'w' => self.cmd_count("move_next_long_word_start", .{}),
+            'b' => self.cmd_count("move_prev_long_word_start", .{}),
+            'e' => self.cmd_count("move_next_long_word_end", .{}),
+
             'g' => if (self.count == 0)
                 self.cmd("move_buffer_end", .{})
             else {
@@ -154,40 +173,109 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
                     try self.cmd_count("move_down", .{});
             },
 
+            'i' => self.seq(.{ "smart_move_begin", "enter_mode" }, command.fmt(.{"helix/insert"})),
+            'a' => self.seq(.{ "move_end", "enter_mode" }, command.fmt(.{"helix/insert"})),
+
             'o' => self.seq(.{ "smart_insert_line_before", "enter_mode" }, command.fmt(.{"helix/insert"})),
 
+            'c' => self.cmd("copy_selection_on_next_line", .{}),
+
+            's' => self.cmd("split_selection", .{}),
+
+            'x' => self.cmd_count("extend_to_line_bounds", .{}),
+
+            '/' => self.cmd("rfind", .{}),
+
+            'n' => self.cmd("goto_prev_match", .{}),
+            '8' => self.cmd("search_selection", .{}),
+
+            'u' => self.cmd("redo", .{}),
+
+            'p' => self.cmd("paste", .{}),
+
+            'q' => self.cmd("replay_macro", .{}),
+
+            '.' => self.cmd("indent", .{}),
+            ',' => self.cmd("unindent", .{}),
+
+            'j' => self.cmd("join_selections", .{}),
+
+            ';' => self.cmd("open_command_palette", .{}),
+
+            '7' => self.cmd("align_selections", .{}),
+            '-' => self.cmd("trim_selections", .{}),
+
+            '9' => self.cmd("rotate_selections_backward", .{}),
+            '0' => self.cmd("rotate_selections_forward", .{}),
+
+            '\'' => self.cmd("select_register", .{}),
+            '\\' => self.cmd("shell_pipe", .{}),
+            '1' => self.cmd("shell_insert_output", .{}),
+            '4' => self.cmd("shell_keep_pipe", .{}),
             else => {},
         },
         0 => switch (keypress) {
-            key.ESC => self.cmd("cancel", .{}),
-            key.ENTER => self.cmd("smart_insert_line", .{}),
+            'h', key.LEFT => self.cmd_count("move_left", .{}),
+            'j', key.DOWN => self.cmd_count("move_down", .{}),
+            'k', key.UP => self.cmd_count("move_up", .{}),
+            'l', key.RIGHT => self.cmd_count("move_right", .{}),
 
-            ':' => self.cmd("open_command_palette", .{}),
-            '%' => self.cmd("select_all", .{}),
-            'i' => self.cmd("enter_mode", command.fmt(.{"helix/insert"})),
-            'a' => self.seq(.{ "move_right", "enter_mode" }, command.fmt(.{"helix/insert"})),
+            't' => self.cmd("find_till_char", .{}),
+            'f' => self.cmd("find_next_char", .{}),
+            'r' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
+
+            '`' => self.cmd("switch_to_lowercase", .{}),
+
+            key.HOME => self.cmd("move_begin", .{}),
+            key.END => self.cmd("move_end", .{}),
+
+            'w' => self.cmd_count("move_next_word_start", .{}),
+            'b' => self.cmd_count("move_prev_word_start", .{}),
+            'e' => self.cmd_count("move_next_word_end", .{}),
+
             'v' => self.cmd("enter_mode", command.fmt(.{"helix/select"})),
+            'g' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
 
-            '/' => self.cmd("find", .{}),
-            'n' => self.cmd("goto_next_match", .{}),
-
-            'h' => self.cmd_count("move_left", .{}),
-            'j' => self.cmd_count("move_down", .{}),
-            'k' => self.cmd_count("move_up", .{}),
-            'l' => self.cmd_count("move_right", .{}),
-
-            'b' => self.cmd_count("select_word_left", .{}),
-            'w' => self.cmd_count("select_word_right", .{}),
-            'e' => self.cmd_count("select_word_end", .{}),
+            'i' => self.cmd("enter_mode", command.fmt(.{"helix/insert"})),
+            'a' => self.seq(.{ "move_right", "enter_mode" }, command.fmt(.{"helix/insert"})), // TODO: keep selection
+            'o' => self.seq(.{ "smart_insert_line_after", "enter_mode" }, command.fmt(.{"helix/insert"})),
 
             'd' => self.cmd("cut", .{}),
             'c' => {
                 try self.cmd("cut", .{});
                 try self.cmd("enter_mode", command.fmt(.{"helix/insert"}));
             },
-            's' => self.cmd("select", .{}), // select regex
-            ';' => self.cmd("collapse_cursors", .{}),
-            '*' => self.cmd("find_selection_match", .{}),
+
+            's' => self.cmd("select_regex", .{}),
+            ';' => self.cmd("collapse_selections", .{}),
+
+            'x' => self.cmd_count("extend_line_below", .{}),
+
+            'm' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
+            '[' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
+            ']' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
+
+            '/' => self.cmd("find", .{}),
+            'n' => self.cmd("goto_next_match", .{}),
+            'u' => self.cmd("undo", .{}),
+
+            'y' => self.cmd("copy", .{}),
+            'p' => self.cmd("paste_after", .{}),
+
+            'q' => self.cmd("record_macro", .{}),
+
+            '=' => self.cmd("format_selections", .{}),
+
+            ',' => self.cmd("keep_primary_selection", .{}),
+
+            key.ESC => self.cmd("cancel", .{}),
+
+            key.PGUP => self.cmd("move_scroll_page_up", .{}),
+            key.PGDOWN => self.cmd("move_scroll_page_down", .{}),
+
+            ' ' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
+            'z' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
+
             '1' => self.add_count(1),
             '2' => self.add_count(2),
             '3' => self.add_count(3),
@@ -197,34 +285,6 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             '7' => self.add_count(7),
             '8' => self.add_count(8),
             '9' => self.add_count(9),
-
-            'x' => self.cmd_count("select_line_at_cursor", .{}),
-            'u' => self.cmd("undo", .{}),
-
-            'm' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
-            'r' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
-            '[' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
-            ']' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
-            'z' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
-            ' ' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
-            'g' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
-            '>' => self.cmd("indent", .{}),
-            '<' => self.cmd("unindent", .{}),
-            ',' => self.cmd("cancel", .{}),
-
-            'p' => self.cmd("paste", .{}),
-            'y' => self.cmd("yank", .{}),
-            'o' => self.seq(.{ "smart_insert_line_after", "enter_mode" }, command.fmt(.{"helix/insert"})),
-
-            key.LEFT => self.cmd("move_left", .{}),
-            key.RIGHT => self.cmd("move_right", .{}),
-            key.UP => self.cmd("move_up", .{}),
-            key.DOWN => self.cmd("move_down", .{}),
-            key.HOME => self.cmd("smart_move_begin", .{}),
-            key.END => self.cmd("move_end", .{}),
-            key.PGUP => self.cmd("move_page_up", .{}),
-            key.PGDOWN => self.cmd("move_page_down", .{}),
-            key.TAB => self.cmd("indent", .{}),
             else => {},
         },
         else => {},
@@ -245,49 +305,28 @@ fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
     const ldr = if (self.leader) |leader| leader else return;
     return switch (ldr.modifiers) {
         0 => switch (ldr.keypress) {
-            'm' => {
-                // apparently not a thing
-            },
-            '[' => {
-                try switch (modifiers) {
-                    0 => switch (keypress) {
-                        'd' => self.cmd("goto_next_diagnostic", .{}),
-                        'D' => self.cmd("goto_next_diagnostic", .{}), // goto last diagnostic
-                        else => {},
-                    },
-                    else => {},
-                };
-            },
-            ']' => {
-                try switch (modifiers) {
-                    0 => switch (keypress) {
-                        'd' => self.cmd("goto_prev_diagnostic", .{}),
-                        'D' => self.cmd("goto_prev_diagnostic", .{}), // goto first diagnostic
-                        else => {},
-                    },
-                    else => {},
-                };
-            },
-            ' ' => switch (modifiers) {
-                0 => switch (keypress) {
-                    'F' => self.cmd("open_file", .{}),
-                    'B' => self.cmd("open_buffer", .{}),
-                    'Y' => self.cmd("yank", .{}),
-                    'P' => self.cmd("paste", .{}),
-                    '/' => self.cmd("find", .{}),
-                    'K' => self.cmd("hover", .{}),
-                    'C' => self.cmd("toggle_comment", .{}),
-                    else => {},
-                },
-                else => {},
-            },
             'G' => switch (modifiers) {
                 0 => switch (keypress) {
                     'G' => self.cmd("move_buffer_begin", .{}),
                     'E' => self.cmd("move_buffer_end", .{}),
+                    'F' => self.cmd("goto_file", .{}),
+                    'H' => self.cmd("move_begin", .{}),
+                    'L' => self.cmd("move_end", .{}),
+                    'S' => self.cmd("smart_move_begin", .{}),
                     'D' => self.cmd("goto_definition", .{}),
-                    'I' => self.cmd("goto_implementation", .{}),
                     'Y' => self.cmd("goto_type_definition", .{}),
+                    'R' => self.cmd("goto_reference", .{}),
+                    'I' => self.cmd("goto_implementation", .{}),
+                    'T' => self.cmd("goto_window_top", .{}),
+                    'C' => self.cmd("goto_window_center", .{}),
+                    'B' => self.cmd("goto_window_bottom", .{}),
+                    'A' => self.cmd("goto_last_accessed_file", .{}),
+                    'M' => self.cmd("goto_last_modified_file", .{}),
+                    'N' => self.cmd("goto_next_buffer", .{}),
+                    'P' => self.cmd("goto_previous_buffer", .{}),
+                    'K' => self.cmd("goto_previous_buffer", .{}),
+                    '.' => self.cmd("goto_last_modification", .{}),
+                    'W' => self.cmd("goto_word", .{}),
                     else => {},
                 },
                 mod.SHIFT => switch (keypress) {
@@ -296,11 +335,102 @@ fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
                 },
                 else => {},
             },
-            'w' => switch (modifiers) {
+            'M' => {
+                try switch (modifiers) {
+                    0 => switch (keypress) {
+                        'M' => self.cmd("match_brackets", .{}),
+                        'S' => self.cmd("surround_add", .{}),
+                        'R' => self.cmd("surround_replace", .{}),
+                        'D' => self.cmd("surround_delete", .{}),
+                        'A' => self.cmd("select_textobject_around", .{}),
+                        'I' => self.cmd("select_textobject_inner", .{}),
+                        else => {},
+                    },
+                    else => {},
+                };
+            },
+            '[' => {
+                try switch (modifiers) {
+                    mod.SHIFT => switch (keypress) {
+                        'D' => self.cmd("goto_first_diag", .{}),
+                        'G' => self.cmd("goto_first_change", .{}),
+                        'T' => self.cmd("goto_prev_test", .{}),
+                        else => {},
+                    },
+                    0 => switch (keypress) {
+                        'D' => self.cmd("goto_prev_diagnostic", .{}),
+                        'G' => self.cmd("goto_prev_change", .{}),
+                        'F' => self.cmd("goto_prev_function", .{}),
+                        'T' => self.cmd("goto_prev_class", .{}),
+                        'A' => self.cmd("goto_prev_parameter", .{}),
+                        'C' => self.cmd("goto_prev_comment", .{}),
+                        'E' => self.cmd("goto_prev_entry", .{}),
+                        'P' => self.cmd("goto_prev_paragraph", .{}),
+                        ' ' => self.cmd("add_newline_above", .{}),
+                        else => {},
+                    },
+                    else => {},
+                };
+            },
+            ']' => {
+                try switch (modifiers) {
+                    mod.SHIFT => switch (keypress) {
+                        'D' => self.cmd("goto_last_diag", .{}),
+                        'G' => self.cmd("goto_last_change", .{}),
+                        'T' => self.cmd("goto_next_test", .{}),
+                        else => {},
+                    },
+                    0 => switch (keypress) {
+                        'D' => self.cmd("goto_next_diagnostic", .{}),
+                        'G' => self.cmd("goto_next_change", .{}),
+                        'F' => self.cmd("goto_next_function", .{}),
+                        'T' => self.cmd("goto_next_class", .{}),
+                        'A' => self.cmd("goto_next_parameter", .{}),
+                        'C' => self.cmd("goto_next_comment", .{}),
+                        'E' => self.cmd("goto_next_entry", .{}),
+                        'P' => self.cmd("goto_next_paragraph", .{}),
+                        ' ' => self.cmd("add_newline_below", .{}),
+                        else => {},
+                    },
+                    else => {},
+                };
+            },
+            'W' => switch (modifiers) {
+                // way too much stuff if someone wants they can implement it
                 mod.SHIFT => switch (keypress) {
                     else => {},
                 },
                 0 => switch (keypress) {
+                    else => {},
+                },
+                else => {},
+            },
+            ' ' => switch (modifiers) {
+                mod.SHIFT => switch (keypress) {
+                    'F' => self.cmd("file_picker_in_current_directory", .{}),
+                    'S' => self.cmd("workspace_symbol_picker", .{}),
+                    'D' => self.cmd("workspace_diagnostics_picker", .{}),
+                    'P' => self.cmd("system_paste", .{}),
+                    'R' => self.cmd("replace_selections_with_clipboard", .{}),
+                    '/' => self.cmd("open_command_palette", .{}),
+                    else => {},
+                },
+                0 => switch (keypress) {
+                    'F' => self.cmd("file_picker", .{}),
+                    'B' => self.cmd("buffer_picker", .{}),
+                    'J' => self.cmd("jumplist_picker", .{}),
+                    'S' => self.cmd("symbol_picker", .{}),
+                    'D' => self.cmd("diagnostics_picker", .{}),
+                    'A' => self.cmd("code_action", .{}),
+                    'W' => self.leader = .{ .keypress = keypress, .modifiers = modifiers },
+                    '\'' => self.cmd("last_picker", .{}),
+                    'Y' => self.cmd("copy", .{}),
+                    'P' => self.cmd("system_paste_after", .{}),
+                    '/' => self.cmd("find_in_file", .{}),
+                    'K' => self.cmd("hover", .{}),
+                    'R' => self.cmd("rename_symbol", .{}),
+                    'H' => self.cmd("select_references_to_symbol_under_cursor", .{}),
+                    'C' => self.cmd("toggle_comment", .{}),
                     else => {},
                 },
                 else => {},
