@@ -92,6 +92,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             else => {},
         },
         0 => switch (keypress) {
+            key.F02 => self.cmd("toggle_input_mode", .{}),
             'h' => self.cmd("open_help", .{}),
             'o' => self.cmd("open_file", .{}),
             'e' => self.cmd("open_recent", .{}),
@@ -173,6 +174,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "change_theme", "t, C-k C-t" },
     .{ "theme_next", "F10" },
     .{ "theme_prev", "F9" },
+    .{ "toggle_input_mode", "F2" },
     .{ "toggle_inputview", "F12, A-i" },
     .{ "toggle_panel", "F11, C-j, A-l, C-S-l" },
     .{ "goto_next_file_or_diagnostic", "A-n" },
