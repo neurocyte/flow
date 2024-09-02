@@ -1,5 +1,6 @@
 const std = @import("std");
 const syntax = @import("syntax");
+const builtin = @import("builtin");
 
 pub fn list(allocator: std.mem.Allocator, writer: anytype) !void {
     var max_language_len: usize = 0;
@@ -31,13 +32,15 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype) !void {
         try write_string(writer, file_type.name, max_language_len + 1);
         try write_segmented(writer, file_type.extensions, ",", max_extensions_len + 1);
 
-        if (file_type.language_server) |language_server|
-            try write_checkmark(writer, try can_execute(allocator, bin_paths, language_server[0]));
+        if (builtin.os.tag != .windows)
+            if (file_type.language_server) |language_server|
+                try write_checkmark(writer, try can_execute(allocator, bin_paths, language_server[0]));
 
         try write_segmented(writer, file_type.language_server, " ", max_langserver_len + 1);
 
-        if (file_type.formatter) |formatter|
-            try write_checkmark(writer, try can_execute(allocator, bin_paths, formatter[0]));
+        if (builtin.os.tag != .windows)
+            if (file_type.formatter) |formatter|
+                try write_checkmark(writer, try can_execute(allocator, bin_paths, formatter[0]));
 
         try write_segmented(writer, file_type.formatter, " ", max_formatter_len);
         try writer.writeAll("\n");
