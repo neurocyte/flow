@@ -104,6 +104,10 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'X' => self.cmd("decrement", .{}),
             else => {},
         },
+        mod.CTRL | mod.SHIFT => switch (keynormal) {
+            'P' => self.cmd("open_command_palette", .{}),
+            else => {},
+        },
         mod.ALT => switch (keynormal) {
             '.' => self.cmd("repeat_last_motion", .{}),
 
@@ -137,6 +141,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             else => {},
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {
+            'P' => self.cmd("open_command_palette", .{}),
+
             'C' => self.cmd("copy_selection_on_next_line", .{}),
 
             'I', key.DOWN => self.cmd("select_all_children", .{}),
@@ -215,6 +221,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             else => {},
         },
         0 => switch (keypress) {
+            key.F02 => self.cmd("toggle_input_mode", .{}),
             'h', key.LEFT => self.cmd_count("move_left", .{}),
             'j', key.DOWN => self.cmd_count("move_down", .{}),
             'k', key.UP => self.cmd_count("move_up", .{}),
@@ -597,7 +604,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "move_word_left", "C-left, A-b, b" },
     .{ "move_word_right", "C-right, A-f, e" },
     .{ "move_word_right_vim", "w" },
-    .{ "open_command_palette", "C-S-p, :, S-;, S-A-p" },
+    .{ "open_command_palette", "Space ?, C-S-p, :, S-;, S-A-p" },
     .{ "open_recent", "C-e" },
     .{ "paste", "A-v, p" },
     .{ "pop_cursor", "C-u" },
