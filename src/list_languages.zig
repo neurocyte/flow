@@ -1,6 +1,7 @@
+const std = @import("std");
 const syntax = @import("syntax");
 
-pub fn list(writer: anytype) !void {
+pub fn list(allocator: std.mem.Allocator, writer: anytype) !void {
     var max_language_len: usize = 0;
     var max_langserver_len: usize = 0;
     var max_formatter_len: usize = 0;
@@ -19,10 +20,25 @@ pub fn list(writer: anytype) !void {
     try write_string(writer, "Formatter", max_formatter_len);
     try writer.writeAll("\n");
 
+    const bin_paths = std.process.getEnvVarOwned(allocator, "PATH") catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.EnvironmentVariableNotFound, error.InvalidWtf8 => &.{},
+    };
+
+    defer allocator.free(bin_paths);
+
     for (syntax.FileType.file_types) |file_type| {
         try write_string(writer, file_type.name, max_language_len + 1);
         try write_segmented(writer, file_type.extensions, ",", max_extensions_len + 1);
+
+        if (file_type.language_server) |language_server|
+            try write_checkmark(writer, try can_execute(allocator, bin_paths, language_server[0]));
+
         try write_segmented(writer, file_type.language_server, " ", max_langserver_len + 1);
+
+        if (file_type.formatter) |formatter|
+            try write_checkmark(writer, try can_execute(allocator, bin_paths, formatter[0]));
+
         try write_segmented(writer, file_type.formatter, " ", max_formatter_len);
         try writer.writeAll("\n");
     }
@@ -44,6 +60,11 @@ fn write_string(writer: anytype, string: []const u8, pad: usize) !void {
     try write_padding(writer, string.len, pad);
 }
 
+fn write_checkmark(writer: anytype, value: bool) !void {
+    if (value) try writer.writeAll("✓") else try writer.writeAll("✘");
+    try writer.writeAll(" ");
+}
+
 fn write_segmented(writer: anytype, args_: ?[]const []const u8, sep: []const u8, pad: usize) !void {
     const args = args_ orelse return;
     var len: usize = 0;
@@ -63,3 +84,19 @@ fn write_padding(writer: anytype, len: usize, pad_len: usize) !void {
     for (0..pad_len - len) |_| try writer.writeAll(" ");
 }
 
+fn can_execute(allocator: std.mem.Allocator, bin_paths: []const u8, file_path: []const u8) std.mem.Allocator.Error!bool {
+    if (!std.process.can_spawn) return false;
+
+    var bin_path_iterator = std.mem.splitAny(u8, bin_paths, ":");
+
+    while (bin_path_iterator.next()) |bin_path| {
+        const resolved_file_path = try std.fs.path.resolve(allocator, &.{ bin_path, file_path });
+        defer allocator.free(resolved_file_path);
+
+        std.posix.access(resolved_file_path, std.posix.X_OK) catch continue;
+
+        return true;
+    }
+
+    return false;
+}
