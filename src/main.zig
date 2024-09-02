@@ -1,17 +1,25 @@
 const std = @import("std");
-const tui = @import("tui");
-const thespian = @import("thespian");
-const clap = @import("clap");
 const builtin = @import("builtin");
-
-const list_languages = @import("list_languages.zig");
+const build_options = @import("build_options");
+const clap = @import("clap");
+const log = @import("log");
+const thespian = @import("thespian");
+const tui = @import("tui");
+const renderer = @import("renderer");
 
 const c = @cImport({
     @cInclude("locale.h");
 });
 
-const build_options = @import("build_options");
-const log = @import("log");
+pub const std_options = .{
+    // .log_level = if (builtin.mode == .Debug) .debug else .warn,
+    .log_level = if (builtin.mode == .Debug) .info else .warn,
+    .logFn = log.std_log_function,
+};
+
+pub const panic = if (@hasDecl(renderer, "panic")) renderer.panic else std.builtin.default_panic;
+
+const list_languages = @import("list_languages.zig");
 
 pub var max_diff_lines: usize = 50000;
 pub var max_syntax_lines: usize = 50000;
@@ -21,17 +29,14 @@ pub const application_title = "Flow Control";
 pub const application_subtext = "a programmer's text editor";
 pub const application_description = application_title ++ ": " ++ application_subtext;
 
-pub const std_options = .{
-    // .log_level = if (builtin.mode == .Debug) .debug else .warn,
-    .log_level = if (builtin.mode == .Debug) .info else .warn,
-    .logFn = log.std_log_function,
-};
-
-const renderer = @import("renderer");
-
-pub const panic = if (@hasDecl(renderer, "panic")) renderer.panic else std.builtin.default_panic;
-
 pub fn main() anyerror!void {
+    if (builtin.os.tag == .linux) {
+        // drain stdin so we don't pickup junk from previous application/shell
+        _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
+    }
+
+    const a = std.heap.c_allocator;
+
     const params = comptime clap.parseParamsComptime(
         \\<file>...                File or directory to open.
         \\                         Add +<LINE> to the command line or append
@@ -42,26 +47,19 @@ pub fn main() anyerror!void {
         \\-v, --version            Show build version and exit.
         \\-e, --exec <command>...  Execute a command on startup.
         \\-f, --frame-rate <num>   Set target frame rate. (default: 60)
-        \\-t, --trace              Enable internal tracing. (repeat to increase detail)
-        \\--no-trace               Do not enable internal tracing.
-        \\--debug-wait             Wait for key press before starting UI.
-        \\--debug-dump-on-error    Dump stack traces on errors.
         \\-l, --language <lang>    Force the language of the file to be opened.
         \\--list-languages         Show available languages.
         \\--no-syntax              Disable syntax highlighting.
         \\--no-sleep               Do not sleep the main loop when idle.
         \\--no-alternate           Do not use the alternate terminal screen.
         \\--restore-session        Restore restart session.
+        \\-t, --trace              Enable internal tracing. (repeat to increase detail)
+        \\--no-trace               Do not enable internal tracing.
+        \\--debug-wait             Wait for key press before starting UI.
+        \\--debug-dump-on-error    Dump stack traces on errors.
         \\--show-input             Open the input view on start.
         \\--show-log               Open the log view on start.
     );
-
-    if (builtin.os.tag == .linux) {
-        // drain stdin so we don't pickup junk from previous application/shell
-        _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
-    }
-
-    const a = std.heap.c_allocator;
 
     const parsers = comptime .{
         .num = clap.parsers.int(usize, 10),
@@ -71,6 +69,7 @@ pub fn main() anyerror!void {
     };
 
     var diag = clap.Diagnostic{};
+
     var res = clap.parse(clap.Help, &params, parsers, .{
         .diagnostic = &diag,
         .allocator = a,

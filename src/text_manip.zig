@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const TextWriter = std.ArrayList(u8).Writer;
 
 pub fn find_first_non_ws(text: []const u8) ?usize {
