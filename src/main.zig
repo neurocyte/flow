@@ -88,8 +88,11 @@ pub fn main() anyerror!void {
     if (res.args.version != 0)
         return std.io.getStdOut().writeAll(@embedFile("version_info"));
 
-    if (res.args.@"list-languages" != 0)
-        return list_languages.list(a, std.io.getStdOut().writer());
+    if (res.args.@"list-languages" != 0) {
+        const stdout = std.io.getStdOut();
+        const tty_config = std.io.tty.detectConfig(stdout);
+        return list_languages.list(a, stdout.writer(), tty_config);
+    }
 
     if (builtin.os.tag != .windows)
         if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();

@@ -2,7 +2,7 @@ const std = @import("std");
 const syntax = @import("syntax");
 const builtin = @import("builtin");
 
-pub fn list(allocator: std.mem.Allocator, writer: anytype) !void {
+pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tty.Config) !void {
     var max_language_len: usize = 0;
     var max_langserver_len: usize = 0;
     var max_formatter_len: usize = 0;
@@ -32,19 +32,19 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype) !void {
 
     for (syntax.FileType.file_types) |file_type| {
         try write_string(writer, file_type.name, max_language_len + 1);
-        try write_segmented(writer, file_type.extensions, ",", max_extensions_len + 1);
+        try write_segmented(writer, file_type.extensions, ",", max_extensions_len + 1, tty_config);
 
         if (builtin.os.tag != .windows)
             if (file_type.language_server) |language_server|
-                try write_checkmark(writer, try can_execute(allocator, bin_paths, language_server[0]));
+                try write_checkmark(writer, try can_execute(allocator, bin_paths, language_server[0]), tty_config);
 
-        try write_segmented(writer, file_type.language_server, " ", max_langserver_len + 1);
+        try write_segmented(writer, file_type.language_server, " ", max_langserver_len + 1, tty_config);
 
         if (builtin.os.tag != .windows)
             if (file_type.formatter) |formatter|
-                try write_checkmark(writer, try can_execute(allocator, bin_paths, formatter[0]));
+                try write_checkmark(writer, try can_execute(allocator, bin_paths, formatter[0]), tty_config);
 
-        try write_segmented(writer, file_type.formatter, " ", max_formatter_len);
+        try write_segmented(writer, file_type.formatter, " ", max_formatter_len, tty_config);
         try writer.writeAll("\n");
     }
 }
@@ -65,12 +65,19 @@ fn write_string(writer: anytype, string: []const u8, pad: usize) !void {
     try write_padding(writer, string.len, pad);
 }
 
-fn write_checkmark(writer: anytype, value: bool) !void {
-    if (value) try writer.writeAll("✓") else try writer.writeAll("✘");
+fn write_checkmark(writer: anytype, success: bool, tty_config: std.io.tty.Config) !void {
+    try tty_config.setColor(writer, if (success) .green else .red);
+    if (success) try writer.writeAll("✓") else try writer.writeAll("✘");
     try writer.writeAll(" ");
 }
 
-fn write_segmented(writer: anytype, args_: ?[]const []const u8, sep: []const u8, pad: usize) !void {
+fn write_segmented(
+    writer: anytype,
+    args_: ?[]const []const u8,
+    sep: []const u8,
+    pad: usize,
+    tty_config: std.io.tty.Config,
+) !void {
     const args = args_ orelse return;
     var len: usize = 0;
     var first: bool = true;
@@ -82,6 +89,7 @@ fn write_segmented(writer: anytype, args_: ?[]const []const u8, sep: []const u8,
         len += arg.len;
         try writer.writeAll(arg);
     }
+    try tty_config.setColor(writer, .reset);
     try write_padding(writer, len, pad);
 }
 
