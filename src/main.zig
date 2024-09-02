@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
+const config = @import("config");
 const clap = @import("clap");
 const log = @import("log");
 const thespian = @import("thespian");
@@ -61,49 +62,45 @@ pub fn main() anyerror!void {
         \\--show-log               Open the log view on start.
     );
 
-    const parsers = comptime .{
+    const clap_parsers = comptime .{
         .num = clap.parsers.int(usize, 10),
         .lang = clap.parsers.string,
         .file = clap.parsers.string,
         .command = clap.parsers.string,
     };
 
-    var diag = clap.Diagnostic{};
+    var clap_diag = clap.Diagnostic{};
 
-    var res = clap.parse(clap.Help, &params, parsers, .{
-        .diagnostic = &diag,
-        .allocator = a,
-    }) catch |err| {
-        diag.report(std.io.getStdErr().writer(), err) catch {};
+    var cli = clap.parse(clap.Help, &params, clap_parsers, .{ .diagnostic = &clap_diag, .allocator = a }) catch |err| {
+        clap_diag.report(std.io.getStdErr().writer(), err) catch {};
         clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{}) catch {};
         exit(1);
         return err;
     };
-    defer res.deinit();
+    defer cli.deinit();
 
-    if (res.args.help != 0)
+    if (cli.args.help != 0)
         return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
 
-    if (res.args.version != 0)
+    if (cli.args.version != 0)
         return std.io.getStdOut().writeAll(@embedFile("version_info"));
 
-    if (res.args.@"list-languages" != 0)
+    if (cli.args.@"list-languages" != 0)
         return list_languages.list(std.io.getStdOut().writer());
 
     if (builtin.os.tag != .windows)
         if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();
 
-    if (res.args.@"debug-wait" != 0) {
+    if (cli.args.@"debug-wait" != 0) {
         std.debug.print("press return to start", .{});
         var buf: [1]u8 = undefined;
         _ = try std.io.getStdIn().read(&buf);
     }
 
-    if (c.setlocale(c.LC_ALL, "") == null) {
+    if (c.setlocale(c.LC_ALL, "") == null)
         return error.SetLocaleFailed;
-    }
 
-    if (res.args.@"debug-dump-on-error" != 0)
+    if (cli.args.@"debug-dump-on-error" != 0)
         thespian.stack_trace_on_errors = true;
 
     var ctx = try thespian.context.init(a);
@@ -112,33 +109,33 @@ pub fn main() anyerror!void {
     const env = thespian.env.init();
     defer env.deinit();
     if (build_options.enable_tracy) {
-        if (res.args.@"no-trace" == 0) {
+        if (cli.args.@"no-trace" == 0) {
             env.enable_all_channels();
             env.on_trace(trace);
         }
     } else {
-        if (res.args.trace != 0) {
+        if (cli.args.trace != 0) {
             env.enable_all_channels();
             var threshold: usize = 1;
-            if (res.args.trace < threshold) {
+            if (cli.args.trace < threshold) {
                 env.disable(thespian.channel.widget);
             }
             threshold += 1;
-            if (res.args.trace < threshold) {
+            if (cli.args.trace < threshold) {
                 env.disable(thespian.channel.receive);
             }
             threshold += 1;
-            if (res.args.trace < threshold) {
+            if (cli.args.trace < threshold) {
                 env.disable(thespian.channel.event);
             }
             threshold += 1;
-            if (res.args.trace < threshold) {
+            if (cli.args.trace < threshold) {
                 env.disable(thespian.channel.metronome);
                 env.disable(thespian.channel.execute);
                 env.disable(thespian.channel.link);
             }
             threshold += 1;
-            if (res.args.trace < threshold) {
+            if (cli.args.trace < threshold) {
                 env.disable(thespian.channel.input);
                 env.disable(thespian.channel.send);
             }
@@ -151,16 +148,16 @@ pub fn main() anyerror!void {
     log.set_std_log_pid(log_proc.ref());
     defer log.set_std_log_pid(null);
 
-    env.set("restore-session", (res.args.@"restore-session" != 0));
-    env.set("no-alternate", (res.args.@"no-alternate" != 0));
-    env.set("show-input", (res.args.@"show-input" != 0));
-    env.set("show-log", (res.args.@"show-log" != 0));
-    env.set("no-sleep", (res.args.@"no-sleep" != 0));
-    env.set("no-syntax", (res.args.@"no-syntax" != 0));
-    env.set("dump-stack-trace", (res.args.@"debug-dump-on-error" != 0));
-    if (res.args.@"frame-rate") |s| env.num_set("frame-rate", @intCast(s));
+    env.set("restore-session", (cli.args.@"restore-session" != 0));
+    env.set("no-alternate", (cli.args.@"no-alternate" != 0));
+    env.set("show-input", (cli.args.@"show-input" != 0));
+    env.set("show-log", (cli.args.@"show-log" != 0));
+    env.set("no-sleep", (cli.args.@"no-sleep" != 0));
+    env.set("no-syntax", (cli.args.@"no-syntax" != 0));
+    env.set("dump-stack-trace", (cli.args.@"debug-dump-on-error" != 0));
+    if (cli.args.@"frame-rate") |s| env.num_set("frame-rate", @intCast(s));
     env.proc_set("log", log_proc.ref());
-    if (res.args.language) |s| env.str_set("language", s);
+    if (cli.args.language) |s| env.str_set("language", s);
 
     var eh = thespian.make_exit_handler({}, print_exit_status);
     const tui_proc = try tui.spawn(a, &ctx, &eh, &env);
@@ -176,7 +173,7 @@ pub fn main() anyerror!void {
     defer dests.deinit();
     var prev: ?*Dest = null;
     var line_next: ?usize = null;
-    for (res.positionals) |arg| {
+    for (cli.positionals) |arg| {
         if (arg.len == 0) continue;
 
         if (arg[0] == '+') {
@@ -250,7 +247,7 @@ pub fn main() anyerror!void {
         try tui_proc.send(.{ "cmd", "show_home" });
     }
 
-    for (res.args.exec) |cmd| try tui_proc.send(.{ "cmd", cmd, .{} });
+    for (cli.args.exec) |cmd| try tui_proc.send(.{ "cmd", cmd, .{} });
 
     ctx.run();
 
@@ -345,8 +342,6 @@ pub fn exit(status: u8) noreturn {
     }
     std.posix.exit(status);
 }
-
-const config = @import("config");
 
 pub fn read_config(a: std.mem.Allocator, buf: *?[]const u8) config {
     const file_name = get_app_config_file_name(application_name) catch return .{};
