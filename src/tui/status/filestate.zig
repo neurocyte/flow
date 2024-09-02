@@ -13,7 +13,7 @@ const Button = @import("../Button.zig");
 const command = @import("../command.zig");
 const tui = @import("../tui.zig");
 
-a: Allocator,
+allocator: Allocator,
 name: []const u8,
 name_buf: [512]u8 = undefined,
 previous_title: []const u8 = "",
@@ -34,10 +34,10 @@ file: bool = false,
 const project_icon = "";
 const Self = @This();
 
-pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
-    const btn = try Button.create(Self, a, parent, .{
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+    const btn = try Button.create(Self, allocator, parent, .{
         .ctx = .{
-            .a = a,
+            .allocator = allocator,
             .name = "",
             .file_type = "",
             .lines = 0,

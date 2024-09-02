@@ -50,15 +50,15 @@ pub fn Options(context: type) type {
     };
 }
 
-pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Widget, opts: Options(ctx_type)) !*State(ctx_type) {
-    const self = try a.create(State(ctx_type));
-    const container = try WidgetList.createH(a, parent, @typeName(@This()), .dynamic);
+pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Widget, opts: Options(ctx_type)) !*State(ctx_type) {
+    const self = try allocator.create(State(ctx_type));
+    const container = try WidgetList.createH(allocator, parent, @typeName(@This()), .dynamic);
     self.* = .{
-        .a = a,
-        .menu = try WidgetList.createV(a, container.widget(), @typeName(@This()), .dynamic),
+        .allocator = allocator,
+        .menu = try WidgetList.createV(allocator, container.widget(), @typeName(@This()), .dynamic),
         .container = container,
         .container_widget = container.widget(),
-        .scrollbar = if (opts.on_scroll) |on_scroll| (try scrollbar_v.create(a, parent, null, on_scroll)).dynamic_cast(scrollbar_v).? else null,
+        .scrollbar = if (opts.on_scroll) |on_scroll| (try scrollbar_v.create(allocator, parent, null, on_scroll)).dynamic_cast(scrollbar_v).? else null,
         .opts = opts,
     };
     self.menu.ctx = self;
@@ -72,7 +72,7 @@ pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Widget, opts: Option
 
 pub fn State(ctx_type: type) type {
     return struct {
-        a: std.mem.Allocator,
+        allocator: std.mem.Allocator,
         menu: *WidgetList,
         container: *WidgetList,
         container_widget: Widget,
@@ -87,9 +87,9 @@ pub fn State(ctx_type: type) type {
         const options_type = Options(ctx_type);
         const button_type = Button.State(*Self);
 
-        pub fn deinit(self: *Self, a: std.mem.Allocator) void {
-            self.menu.deinit(a);
-            a.destroy(self);
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            self.menu.deinit(allocator);
+            allocator.destroy(self);
         }
 
         pub fn add_header(self: *Self, w_: Widget) !*Widget {
@@ -99,7 +99,7 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn add_item(self: *Self, label: []const u8) !void {
-            try self.menu.add(try Button.create(*Self, self.a, self.menu.parent, .{
+            try self.menu.add(try Button.create(*Self, self.allocator, self.menu.parent, .{
                 .ctx = self,
                 .on_layout = self.opts.on_layout,
                 .label = label,
@@ -111,7 +111,7 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn add_item_with_handler(self: *Self, label: []const u8, on_click: *const fn (_: **Self, _: *Button.State(*Self)) void) !void {
-            try self.menu.add(try Button.create_widget(*Self, self.a, self.menu.parent, .{
+            try self.menu.add(try Button.create_widget(*Self, self.allocator, self.menu.parent, .{
                 .ctx = self,
                 .on_layout = on_layout,
                 .label = label,
@@ -125,7 +125,7 @@ pub fn State(ctx_type: type) type {
         pub fn reset_items(self: *Self) void {
             for (self.menu.widgets.items, 0..) |*w, i|
                 if (i >= self.header_count)
-                    w.widget.deinit(self.a);
+                    w.widget.deinit(self.allocator);
             self.menu.widgets.shrinkRetainingCapacity(self.header_count);
         }
 

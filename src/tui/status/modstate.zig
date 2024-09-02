@@ -23,8 +23,8 @@ const Self = @This();
 
 pub const width = 5;
 
-pub fn create(a: Allocator, parent: Plane, _: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: Allocator, parent: Plane, _: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+    const self: *Self = try allocator.create(Self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
     };
@@ -36,10 +36,10 @@ pub fn widget(self: *Self) Widget {
     return Widget.to(self);
 }
 
-pub fn deinit(self: *Self, a: Allocator) void {
+pub fn deinit(self: *Self, allocator: Allocator) void {
     tui.current().input_listeners.remove_ptr(self);
     self.plane.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn layout(_: *Self) Widget.Layout {

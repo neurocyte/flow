@@ -31,10 +31,10 @@ const Self = @This();
 const idle_msg = "🐶";
 pub const width = idle_msg.len + 20;
 
-pub fn create(a: Allocator, parent: Plane, _: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, _: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
     var frame_rate = tp.env.get().num("frame-rate");
     if (frame_rate == 0) frame_rate = 60;
-    const self: *Self = try a.create(Self);
+    const self: *Self = try allocator.create(Self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .wipe_after_frames = @divTrunc(frame_rate, 2),
@@ -47,10 +47,10 @@ pub fn widget(self: *Self) Widget {
     return Widget.to(self);
 }
 
-pub fn deinit(self: *Self, a: Allocator) void {
+pub fn deinit(self: *Self, allocator: Allocator) void {
     tui.current().input_listeners.remove_ptr(self);
     self.plane.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn layout(_: *Self) Widget.Layout {

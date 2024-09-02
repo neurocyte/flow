@@ -15,8 +15,8 @@ const ed = @import("../editor.zig");
 const tui = @import("../tui.zig");
 const CreateError = @import("widget.zig").CreateError;
 
-pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) CreateError!Widget {
-    return Button.create_widget(void, a, parent, .{
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) CreateError!Widget {
+    return Button.create_widget(void, allocator, parent, .{
         .ctx = {},
         .label = tui.get_mode(),
         .on_click = on_click,

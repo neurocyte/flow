@@ -5,7 +5,7 @@ const root = @import("root");
 const tracy = @import("tracy");
 const log = @import("log");
 
-a: std.mem.Allocator,
+allocator: std.mem.Allocator,
 pid: tp.pid,
 
 const Self = @This();
@@ -14,8 +14,8 @@ const sp_tag = "child";
 const debug_lsp = true;
 const lsp_request_timeout = std.time.ns_per_s * 30;
 
-pub fn open(a: std.mem.Allocator, project: []const u8, cmd: tp.message) !Self {
-    return .{ .a = a, .pid = try Process.create(a, project, cmd) };
+pub fn open(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) !Self {
+    return .{ .allocator = allocator, .pid = try Process.create(allocator, project, cmd) };
 }
 
 pub fn deinit(self: *Self) void {
@@ -28,17 +28,17 @@ pub fn term(self: *Self) void {
     self.pid.deinit();
 }
 
-pub fn send_request(self: Self, a: std.mem.Allocator, method: []const u8, m: anytype) !tp.message {
+pub fn send_request(self: Self, allocator: std.mem.Allocator, method: []const u8, m: anytype) !tp.message {
     // const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".send_request" });
     // defer frame.deinit();
-    var cb = std.ArrayList(u8).init(self.a);
+    var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
-    return self.pid.call(a, lsp_request_timeout, .{ "REQ", method, cb.items });
+    return self.pid.call(allocator, lsp_request_timeout, .{ "REQ", method, cb.items });
 }
 
 pub fn send_notification(self: Self, method: []const u8, m: anytype) !void {
-    var cb = std.ArrayList(u8).init(self.a);
+    var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
     return self.send_notification_raw(method, cb.items);
@@ -53,7 +53,7 @@ pub fn close(self: *Self) void {
 }
 
 const Process = struct {
-    a: std.mem.Allocator,
+    allocator: std.mem.Allocator,
     cmd: tp.message,
     receiver: Receiver,
     sp: ?tp.subprocess = null,
@@ -68,7 +68,7 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(a: std.mem.Allocator, project: []const u8, cmd: tp.message) !tp.pid {
+    pub fn create(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) !tp.pid {
         var tag: []const u8 = undefined;
         if (try cmd.match(.{tp.extract(&tag)})) {
             //
@@ -77,31 +77,31 @@ const Process = struct {
         } else {
             return tp.exit("no LSP command");
         }
-        const self = try a.create(Process);
-        var sp_tag_ = std.ArrayList(u8).init(a);
+        const self = try allocator.create(Process);
+        var sp_tag_ = std.ArrayList(u8).init(allocator);
         defer sp_tag_.deinit();
         try sp_tag_.appendSlice(tag);
         try sp_tag_.appendSlice("-" ++ sp_tag);
         self.* = .{
-            .a = a,
-            .cmd = try cmd.clone(a),
+            .allocator = allocator,
+            .cmd = try cmd.clone(allocator),
             .receiver = Receiver.init(receive, self),
-            .recv_buf = std.ArrayList(u8).init(a),
+            .recv_buf = std.ArrayList(u8).init(allocator),
             .parent = tp.self_pid().clone(),
-            .tag = try a.dupeZ(u8, tag),
-            .project = try a.dupeZ(u8, project),
-            .requests = std.AutoHashMap(i32, tp.pid).init(a),
+            .tag = try allocator.dupeZ(u8, tag),
+            .project = try allocator.dupeZ(u8, project),
+            .requests = std.AutoHashMap(i32, tp.pid).init(allocator),
             .sp_tag = try sp_tag_.toOwnedSliceSentinel(0),
         };
-        return tp.spawn_link(self.a, self, Process.start, self.tag);
+        return tp.spawn_link(self.allocator, self, Process.start, self.tag);
     }
 
     fn deinit(self: *Process) void {
         var i = self.requests.iterator();
         while (i.next()) |req| req.value_ptr.deinit();
-        self.a.free(self.sp_tag);
+        self.allocator.free(self.sp_tag);
         self.recv_buf.deinit();
-        self.a.free(self.cmd.buf);
+        self.allocator.free(self.cmd.buf);
         self.close() catch {};
         self.write_log("### terminated LSP process ###\n", .{});
         if (self.log_file) |file| file.close();
@@ -127,10 +127,10 @@ const Process = struct {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ " start" });
         defer frame.deinit();
         _ = tp.set_trap(true);
-        self.sp = tp.subprocess.init(self.a, self.cmd, self.sp_tag, .Pipe) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.sp = tp.subprocess.init(self.allocator, self.cmd, self.sp_tag, .Pipe) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
 
-        var log_file_path = std.ArrayList(u8).init(self.a);
+        var log_file_path = std.ArrayList(u8).init(self.allocator);
         defer log_file_path.deinit();
         const state_dir = root.get_state_dir() catch |e| return tp.exit_error(e, @errorReturnTrace());
         log_file_path.writer().print("{s}/lsp-{s}.log", .{ state_dir, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -248,7 +248,7 @@ const Process = struct {
         const id = self.next_id;
         self.next_id += 1;
 
-        var msg = std.ArrayList(u8).init(self.a);
+        var msg = std.ArrayList(u8).init(self.allocator);
         defer msg.deinit();
         const msg_writer = msg.writer();
         try cbor.writeMapHeader(msg_writer, 4);
@@ -261,9 +261,9 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "params");
         _ = try msg_writer.write(params_cb);
 
-        const json = try cbor.toJsonAlloc(self.a, msg.items);
-        defer self.a.free(json);
-        var output = std.ArrayList(u8).init(self.a);
+        const json = try cbor.toJsonAlloc(self.allocator, msg.items);
+        defer self.allocator.free(json);
+        var output = std.ArrayList(u8).init(self.allocator);
         defer output.deinit();
         const writer = output.writer();
         const terminator = "\r\n";
@@ -282,7 +282,7 @@ const Process = struct {
 
         const have_params = !(cbor.match(params_cb, cbor.null_) catch false);
 
-        var msg = std.ArrayList(u8).init(self.a);
+        var msg = std.ArrayList(u8).init(self.allocator);
         defer msg.deinit();
         const msg_writer = msg.writer();
         try cbor.writeMapHeader(msg_writer, 3);
@@ -297,9 +297,9 @@ const Process = struct {
             try cbor.writeMapHeader(msg_writer, 0);
         }
 
-        const json = try cbor.toJsonAlloc(self.a, msg.items);
-        defer self.a.free(json);
-        var output = std.ArrayList(u8).init(self.a);
+        const json = try cbor.toJsonAlloc(self.allocator, msg.items);
+        defer self.allocator.free(json);
+        var output = std.ArrayList(u8).init(self.allocator);
         defer output.deinit();
         const writer = output.writer();
         const terminator = "\r\n";
@@ -321,20 +321,20 @@ const Process = struct {
         const buf = try self.recv_buf.toOwnedSlice();
         const data = buf[headers_end + sep.len .. headers_end + sep.len + headers.content_length];
         const rest = buf[headers_end + sep.len + headers.content_length ..];
-        defer self.a.free(buf);
+        defer self.allocator.free(buf);
         if (rest.len > 0) try self.recv_buf.appendSlice(rest);
         const message = .{ .body = data[0..headers.content_length] };
-        const cb = try cbor.fromJsonAlloc(self.a, message.body);
-        defer self.a.free(cb);
+        const cb = try cbor.fromJsonAlloc(self.allocator, message.body);
+        defer self.allocator.free(cb);
         try self.receive_lsp_message(cb);
         if (rest.len > 0) return self.frame_message_recv();
     }
 
     fn receive_lsp_request(self: *Process, id: i32, method: []const u8, params: ?[]const u8) !void {
-        const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.a, p) else null;
-        defer if (json) |p| self.a.free(p);
+        const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
+        defer if (json) |p| self.allocator.free(p);
         self.write_log("### RECV req: {d}\nmethod: {s}\n{s}\n###\n", .{ id, method, json orelse "no params" });
-        var msg = std.ArrayList(u8).init(self.a);
+        var msg = std.ArrayList(u8).init(self.allocator);
         defer msg.deinit();
         const writer = msg.writer();
         try cbor.writeArrayHeader(writer, 7);
@@ -349,13 +349,13 @@ const Process = struct {
     }
 
     fn receive_lsp_response(self: *Process, id: i32, result: ?[]const u8, err: ?[]const u8) !void {
-        const json = if (result) |p| try cbor.toJsonPrettyAlloc(self.a, p) else null;
-        defer if (json) |p| self.a.free(p);
-        const json_err = if (err) |p| try cbor.toJsonPrettyAlloc(self.a, p) else null;
-        defer if (json_err) |p| self.a.free(p);
+        const json = if (result) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
+        defer if (json) |p| self.allocator.free(p);
+        const json_err = if (err) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
+        defer if (json_err) |p| self.allocator.free(p);
         self.write_log("### RECV rsp: {d} {s}\n{s}\n###\n", .{ id, if (json_err) |_| "error" else "response", json_err orelse json orelse "no result" });
         const from = self.requests.get(id) orelse return;
-        var msg = std.ArrayList(u8).init(self.a);
+        var msg = std.ArrayList(u8).init(self.allocator);
         defer msg.deinit();
         const writer = msg.writer();
         try cbor.writeArrayHeader(writer, 4);
@@ -372,10 +372,10 @@ const Process = struct {
     }
 
     fn receive_lsp_notification(self: *Process, method: []const u8, params: ?[]const u8) !void {
-        const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.a, p) else null;
-        defer if (json) |p| self.a.free(p);
+        const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
+        defer if (json) |p| self.allocator.free(p);
         self.write_log("### RECV notify:\nmethod: {s}\n{s}\n###\n", .{ method, json orelse "no params" });
-        var msg = std.ArrayList(u8).init(self.a);
+        var msg = std.ArrayList(u8).init(self.allocator);
         defer msg.deinit();
         const writer = msg.writer();
         try cbor.writeArrayHeader(writer, 6);

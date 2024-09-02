@@ -15,18 +15,18 @@ pub const Writer = std.io.Writer(*Self, Error, write);
 pub const BufferedWriter = std.io.BufferedWriter(max_chunk_size, Writer);
 pub const Error = error{ OutOfMemory, Exit, ThespianSpawnFailed, Closed };
 
-pub const FindF = fn (a: std.mem.Allocator, query: []const u8, tag: [:0]const u8) Error!Self;
+pub const FindF = fn (allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8) Error!Self;
 
-pub fn find_in_stdin(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8) Error!Self {
-    return create(a, query, tag, .Pipe);
+pub fn find_in_stdin(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8) Error!Self {
+    return create(allocator, query, tag, .Pipe);
 }
 
-pub fn find_in_files(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8) !Self {
-    return create(a, query, tag, .Close);
+pub fn find_in_files(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8) !Self {
+    return create(allocator, query, tag, .Close);
 }
 
-fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !Self {
-    return .{ .pid = try Process.create(a, query, tag, stdin_behavior), .stdin_behavior = stdin_behavior };
+fn create(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !Self {
+    return .{ .pid = try Process.create(allocator, query, tag, stdin_behavior), .stdin_behavior = stdin_behavior };
 }
 
 pub fn deinit(self: *Self) void {
@@ -71,7 +71,7 @@ pub fn bufferedWriter(self: *Self) BufferedWriter {
 }
 
 const Process = struct {
-    a: std.mem.Allocator,
+    allocator: std.mem.Allocator,
     query: []const u8,
     receiver: Receiver,
     sp: ?tp.subprocess = null,
@@ -84,25 +84,25 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(a: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !tp.pid {
-        const self = try a.create(Process);
+    pub fn create(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !tp.pid {
+        const self = try allocator.create(Process);
         self.* = .{
-            .a = a,
-            .query = try a.dupe(u8, query),
+            .allocator = allocator,
+            .query = try allocator.dupe(u8, query),
             .receiver = Receiver.init(receive, self),
-            .output = std.ArrayList(u8).init(a),
+            .output = std.ArrayList(u8).init(allocator),
             .parent = tp.self_pid().clone(),
-            .tag = try a.dupeZ(u8, tag),
+            .tag = try allocator.dupeZ(u8, tag),
             .logger = log.logger(@typeName(Self)),
             .stdin_behavior = stdin_behavior,
         };
-        return tp.spawn_link(self.a, self, Process.start, tag);
+        return tp.spawn_link(self.allocator, self, Process.start, tag);
     }
 
     fn deinit(self: *Process) void {
         self.output.deinit();
         self.logger.deinit();
-        self.a.free(self.query);
+        self.allocator.free(self.query);
         self.close() catch {};
     }
 
@@ -122,7 +122,7 @@ const Process = struct {
             "--json",
             self.query,
         });
-        self.sp = tp.subprocess.init(self.a, args, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.sp = tp.subprocess.init(self.allocator, args, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
     }
 
@@ -167,7 +167,7 @@ const Process = struct {
     }
 
     fn dispatch(self: *Process, m: tp.message) !void {
-        var obj = std.json.ObjectMap.init(self.a);
+        var obj = std.json.ObjectMap.init(self.allocator);
         defer obj.deinit();
         if (try m.match(tp.extract(&obj))) {
             if (obj.get("type")) |*val| {

@@ -89,13 +89,13 @@ pub fn filter(self: Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
 }
 
 pub const List = struct {
-    a: Allocator,
+    allocator: Allocator,
     list: ArrayList(MessageFilter),
 
-    pub fn init(a: Allocator) List {
+    pub fn init(allocator: Allocator) List {
         return .{
-            .a = a,
-            .list = ArrayList(MessageFilter).init(a),
+            .allocator = allocator,
+            .list = ArrayList(MessageFilter).init(allocator),
         };
     }
 
@@ -121,7 +121,7 @@ pub const List = struct {
     }
 
     pub fn filter(self: *const List, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-        var sfa = std.heap.stackFallback(4096, self.a);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
         const a = sfa.get();
         const buf = a.alloc(u8, m.buf.len) catch |e| return tp.exit_error(e, @errorReturnTrace());
         defer a.free(buf);

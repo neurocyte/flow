@@ -48,17 +48,17 @@ pub fn Options(context: type) type {
     };
 }
 
-pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !Widget {
+pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !Widget {
     const Self = State(ctx_type);
-    const self = try a.create(Self);
+    const self = try allocator.create(Self);
     var n = try Plane.init(&opts.pos.opts(@typeName(Self)), parent);
     errdefer n.deinit();
     self.* = .{
         .parent = parent,
         .plane = n,
         .opts = opts,
-        .label = std.ArrayList(u8).init(a),
-        .text = std.ArrayList(u8).init(a),
+        .label = std.ArrayList(u8).init(allocator),
+        .text = std.ArrayList(u8).init(allocator),
     };
     try self.label.appendSlice(self.opts.label);
     self.opts.label = self.label.items;
@@ -79,11 +79,11 @@ pub fn State(ctx_type: type) type {
         const Self = @This();
         pub const Context = ctx_type;
 
-        pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.text.deinit();
             self.label.deinit();
             self.plane.deinit();
-            a.destroy(self);
+            allocator.destroy(self);
         }
 
         pub fn layout(self: *Self) Widget.Layout {

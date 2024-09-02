@@ -45,14 +45,14 @@ pub fn open(rel_project_directory: []const u8) !void {
     return (try get()).pid.send(.{ "open", project_directory });
 }
 
-pub fn request_most_recent_file(a: std.mem.Allocator) !?[]const u8 {
+pub fn request_most_recent_file(allocator: std.mem.Allocator) !?[]const u8 {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return tp.exit("No project");
-    const rsp = try (try get()).pid.call(a, request_timeout, .{ "request_most_recent_file", project });
-    defer a.free(rsp.buf);
+    const rsp = try (try get()).pid.call(allocator, request_timeout, .{ "request_most_recent_file", project });
+    defer allocator.free(rsp.buf);
     var file_path: []const u8 = undefined;
-    return if (try rsp.match(.{tp.extract(&file_path)})) try a.dupe(u8, file_path) else null;
+    return if (try rsp.match(.{tp.extract(&file_path)})) try allocator.dupe(u8, file_path) else null;
 }
 
 pub fn request_recent_files(max: usize) !void {
@@ -62,9 +62,9 @@ pub fn request_recent_files(max: usize) !void {
     return (try get()).pid.send(.{ "request_recent_files", project, max });
 }
 
-pub fn request_recent_projects(a: std.mem.Allocator) !tp.message {
+pub fn request_recent_projects(allocator: std.mem.Allocator) !tp.message {
     const project = tp.env.get().str("project");
-    return (try get()).pid.call(a, request_timeout, .{ "request_recent_projects", project });
+    return (try get()).pid.call(allocator, request_timeout, .{ "request_recent_projects", project });
 }
 
 pub fn query_recent_files(max: usize, query: []const u8) !void {
@@ -167,7 +167,7 @@ pub fn get_mru_position(file_path: []const u8) !void {
 }
 
 const Process = struct {
-    a: std.mem.Allocator,
+    allocator: std.mem.Allocator,
     parent: tp.pid,
     logger: log.Logger,
     receiver: Receiver,
@@ -182,29 +182,29 @@ const Process = struct {
     };
 
     fn create() !tp.pid {
-        const a = std.heap.c_allocator;
-        const self = try a.create(Process);
+        const allocator = std.heap.c_allocator;
+        const self = try allocator.create(Process);
         self.* = .{
-            .a = a,
+            .allocator = allocator,
             .parent = tp.self_pid().clone(),
             .logger = log.logger(module_name),
             .receiver = Receiver.init(Process.receive, self),
-            .projects = ProjectsMap.init(a),
+            .projects = ProjectsMap.init(allocator),
         };
-        return tp.spawn_link(self.a, self, Process.start, module_name);
+        return tp.spawn_link(self.allocator, self, Process.start, module_name);
     }
 
     fn deinit(self: *Process) void {
         var i = self.projects.iterator();
         while (i.next()) |p| {
-            self.a.free(p.key_ptr.*);
+            self.allocator.free(p.key_ptr.*);
             p.value_ptr.*.deinit();
-            self.a.destroy(p.value_ptr.*);
+            self.allocator.destroy(p.value_ptr.*);
         }
         self.projects.deinit();
         self.parent.deinit();
         self.logger.deinit();
-        self.a.destroy(self);
+        self.allocator.destroy(self);
     }
 
     fn start(self: *Process) tp.result {
@@ -313,10 +313,10 @@ const Process = struct {
     fn open(self: *Process, project_directory: []const u8) !void {
         if (self.projects.get(project_directory) == null) {
             self.logger.print("opening: {s}", .{project_directory});
-            const project = try self.a.create(Project);
-            project.* = try Project.init(self.a, project_directory);
-            try self.projects.put(try self.a.dupe(u8, project_directory), project);
-            self.walker = try walk_tree_async(self.a, project_directory);
+            const project = try self.allocator.create(Project);
+            project.* = try Project.init(self.allocator, project_directory);
+            try self.projects.put(try self.allocator.dupe(u8, project_directory), project);
+            self.walker = try walk_tree_async(self.allocator, project_directory);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.sort_files_by_mtime();
         } else {
@@ -347,11 +347,11 @@ const Process = struct {
     }
 
     fn request_recent_projects(self: *Process, from: tp.pid_ref, project_directory: []const u8) error{ OutOfMemory, Exit }!void {
-        var recent_projects = std.ArrayList(RecentProject).init(self.a);
+        var recent_projects = std.ArrayList(RecentProject).init(self.allocator);
         defer recent_projects.deinit();
         self.load_recent_projects(&recent_projects, project_directory) catch {};
         self.sort_projects_by_last_used(&recent_projects);
-        var message = std.ArrayList(u8).init(self.a);
+        var message = std.ArrayList(u8).init(self.allocator);
         const writer = message.writer();
         try cbor.writeArrayHeader(writer, recent_projects.items.len);
         for (recent_projects.items) |project|
@@ -370,7 +370,7 @@ const Process = struct {
 
     fn request_path_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, path: []const u8) error{ OutOfMemory, Exit }!void {
         const project = self.projects.get(project_directory) orelse return tp.exit("No project");
-        request_path_files_async(self.a, from, project, max, path) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        request_path_files_async(self.allocator, from, project, max, path) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
     fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) !void {
@@ -484,8 +484,8 @@ const Process = struct {
 
     fn persist_project(self: *Process, project: *Project) !void {
         self.logger.print("saving: {s}", .{project.name});
-        const file_name = try get_project_state_file_path(self.a, project);
-        defer self.a.free(file_name);
+        const file_name = try get_project_state_file_path(self.allocator, project);
+        defer self.allocator.free(file_name);
         var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
         defer file.close();
         var buffer = std.io.bufferedWriter(file.writer());
@@ -494,23 +494,23 @@ const Process = struct {
     }
 
     fn restore_project(self: *Process, project: *Project) !void {
-        const file_name = try get_project_state_file_path(self.a, project);
-        defer self.a.free(file_name);
+        const file_name = try get_project_state_file_path(self.allocator, project);
+        defer self.allocator.free(file_name);
         var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {
             error.FileNotFound => return,
             else => return e,
         };
         defer file.close();
         const stat = try file.stat();
-        var buffer = try self.a.alloc(u8, @intCast(stat.size));
-        defer self.a.free(buffer);
+        var buffer = try self.allocator.alloc(u8, @intCast(stat.size));
+        defer self.allocator.free(buffer);
         const size = try file.readAll(buffer);
         try project.restore_state(buffer[0..size]);
     }
 
-    fn get_project_state_file_path(a: std.mem.Allocator, project: *Project) ![]const u8 {
+    fn get_project_state_file_path(allocator: std.mem.Allocator, project: *Project) ![]const u8 {
         const path = project.name;
-        var stream = std.ArrayList(u8).init(a);
+        var stream = std.ArrayList(u8).init(allocator);
         const writer = stream.writer();
         _ = try writer.write(try root.get_state_dir());
         _ = try writer.writeByte(std.fs.path.sep);
@@ -532,7 +532,7 @@ const Process = struct {
     }
 
     fn load_recent_projects(self: *Process, recent_projects: *std.ArrayList(RecentProject), project_directory: []const u8) !void {
-        var path = std.ArrayList(u8).init(self.a);
+        var path = std.ArrayList(u8).init(self.allocator);
         defer path.deinit();
         const writer = path.writer();
         _ = try writer.write(try root.get_state_dir());
@@ -555,7 +555,7 @@ const Process = struct {
         recent_projects: *std.ArrayList(RecentProject),
         project_directory: []const u8,
     ) !void {
-        var path = std.ArrayList(u8).init(self.a);
+        var path = std.ArrayList(u8).init(self.allocator);
         defer path.deinit();
         const writer = path.writer();
         _ = try writer.write(state_dir);
@@ -565,15 +565,15 @@ const Process = struct {
         var file = try std.fs.openFileAbsolute(path.items, .{ .mode = .read_only });
         defer file.close();
         const stat = try file.stat();
-        const buffer = try self.a.alloc(u8, @intCast(stat.size));
-        defer self.a.free(buffer);
+        const buffer = try self.allocator.alloc(u8, @intCast(stat.size));
+        defer self.allocator.free(buffer);
         _ = try file.readAll(buffer);
 
         var iter: []const u8 = buffer;
         var name: []const u8 = undefined;
         if (cbor.matchValue(&iter, tp.extract(&name)) catch return) {
             const last_used = if (std.mem.eql(u8, project_directory, name)) std.math.maxInt(@TypeOf(stat.mtime)) else stat.mtime;
-            (try recent_projects.addOne()).* = .{ .name = try self.a.dupe(u8, name), .last_used = last_used };
+            (try recent_projects.addOne()).* = .{ .name = try self.allocator.dupe(u8, name), .last_used = last_used };
         }
     }
 
@@ -589,7 +589,7 @@ const Process = struct {
 
 fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_: *Project, max_: usize, path_: []const u8) !void {
     return struct {
-        a: std.mem.Allocator,
+        allocator: std.mem.Allocator,
         project_name: []const u8,
         path: []const u8,
         parent: tp.pid,
@@ -599,20 +599,20 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
         const path_files = @This();
         const Receiver = tp.Receiver(*path_files);
 
-        fn spawn_link(a: std.mem.Allocator, parent: tp.pid_ref, project: *Project, max: usize, path: []const u8) !void {
-            const self = try a.create(path_files);
+        fn spawn_link(allocator: std.mem.Allocator, parent: tp.pid_ref, project: *Project, max: usize, path: []const u8) !void {
+            const self = try allocator.create(path_files);
             self.* = .{
-                .a = a,
-                .project_name = try a.dupe(u8, project.name),
+                .allocator = allocator,
+                .project_name = try allocator.dupe(u8, project.name),
                 .path = try if (std.fs.path.isAbsolute(path))
-                    a.dupe(u8, path)
+                    allocator.dupe(u8, path)
                 else
-                    std.fs.path.join(a, &[_][]const u8{ project.name, path }),
+                    std.fs.path.join(allocator, &[_][]const u8{ project.name, path }),
                 .parent = parent.clone(),
                 .max = max,
                 .dir = try std.fs.cwd().openDir(self.path, .{ .iterate = true }),
             };
-            const pid = try tp.spawn_link(a, self, path_files.start, module_name ++ ".path_files");
+            const pid = try tp.spawn_link(allocator, self, path_files.start, module_name ++ ".path_files");
             pid.deinit();
         }
 
@@ -627,8 +627,8 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
 
         fn deinit(self: *path_files) void {
             self.dir.close();
-            self.a.free(self.path);
-            self.a.free(self.project_name);
+            self.allocator.free(self.path);
+            self.allocator.free(self.project_name);
             self.parent.deinit();
         }
 
@@ -653,7 +653,7 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
 
 fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) !tp.pid {
     return struct {
-        a: std.mem.Allocator,
+        allocator: std.mem.Allocator,
         root_path: []const u8,
         parent: tp.pid,
         receiver: Receiver,
@@ -663,17 +663,17 @@ fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) !tp.pid {
         const tree_walker = @This();
         const Receiver = tp.Receiver(*tree_walker);
 
-        fn spawn_link(a: std.mem.Allocator, root_path: []const u8) !tp.pid {
-            const self = try a.create(tree_walker);
+        fn spawn_link(allocator: std.mem.Allocator, root_path: []const u8) !tp.pid {
+            const self = try allocator.create(tree_walker);
             self.* = .{
-                .a = a,
-                .root_path = try a.dupe(u8, root_path),
+                .allocator = allocator,
+                .root_path = try allocator.dupe(u8, root_path),
                 .parent = tp.self_pid().clone(),
                 .receiver = Receiver.init(tree_walker.receive, self),
                 .dir = try std.fs.cwd().openDir(self.root_path, .{ .iterate = true }),
-                .walker = try walk_filtered(self.dir, self.a),
+                .walker = try walk_filtered(self.dir, self.allocator),
             };
-            return tp.spawn_link(a, self, tree_walker.start, module_name ++ ".tree_walker");
+            return tp.spawn_link(allocator, self, tree_walker.start, module_name ++ ".tree_walker");
         }
 
         fn start(self: *tree_walker) tp.result {
@@ -687,7 +687,7 @@ fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) !tp.pid {
         fn deinit(self: *tree_walker) void {
             self.walker.deinit();
             self.dir.close();
-            self.a.free(self.root_path);
+            self.allocator.free(self.root_path);
             self.parent.deinit();
         }
 

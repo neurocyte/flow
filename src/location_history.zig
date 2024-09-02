@@ -30,7 +30,7 @@ pub fn deinit(self: *Self) void {
 
 const Process = struct {
     arena: std.heap.ArenaAllocator,
-    a: std.mem.Allocator,
+    allocator: std.mem.Allocator,
     backwards: std.ArrayList(Entry),
     current: ?Entry = null,
     forwards: std.ArrayList(Entry),
@@ -49,12 +49,12 @@ const Process = struct {
         const self = try outer_a.create(Process);
         self.* = .{
             .arena = std.heap.ArenaAllocator.init(outer_a),
-            .a = self.arena.allocator(),
-            .backwards = std.ArrayList(Entry).init(self.a),
-            .forwards = std.ArrayList(Entry).init(self.a),
+            .allocator = self.arena.allocator(),
+            .backwards = std.ArrayList(Entry).init(self.allocator),
+            .forwards = std.ArrayList(Entry).init(self.allocator),
             .receiver = Receiver.init(Process.receive, self),
         };
-        return tp.spawn_link(self.a, self, Process.start, module_name);
+        return tp.spawn_link(self.allocator, self, Process.start, module_name);
     }
 
     fn start(self: *Process) tp.result {
@@ -67,7 +67,7 @@ const Process = struct {
         self.clear_forwards();
         self.backwards.deinit();
         self.forwards.deinit();
-        if (self.current) |entry| self.a.free(entry.file_path);
+        if (self.current) |entry| self.allocator.free(entry.file_path);
         self.arena.deinit();
         outer_a.destroy(self);
     }
@@ -81,7 +81,7 @@ const Process = struct {
     }
 
     fn clear_table(self: *Process, table: *std.ArrayList(Entry)) void {
-        for (table.items) |entry| self.a.free(entry.file_path);
+        for (table.items) |entry| self.allocator.free(entry.file_path);
         table.clearAndFree();
     }
 
@@ -111,25 +111,25 @@ const Process = struct {
 
     fn update(self: *Process, entry_: Entry) !void {
         const entry: Entry = .{
-            .file_path = try self.a.dupe(u8, entry_.file_path),
+            .file_path = try self.allocator.dupe(u8, entry_.file_path),
             .cursor = entry_.cursor,
             .selection = entry_.selection,
         };
-        errdefer self.a.free(entry.file_path);
+        errdefer self.allocator.free(entry.file_path);
         defer self.current = entry;
 
         if (isdupe(self.current, entry))
-            return self.a.free(self.current.?.file_path);
+            return self.allocator.free(self.current.?.file_path);
 
         if (isdupe(self.backwards.getLastOrNull(), entry)) {
             if (self.current) |current| self.forwards.append(current) catch {};
             const top = self.backwards.pop();
-            self.a.free(top.file_path);
+            self.allocator.free(top.file_path);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "back", entry.file_path, entry.cursor.row, entry.cursor.col, self.backwards.items.len, self.forwards.items.len }));
         } else if (isdupe(self.forwards.getLastOrNull(), entry)) {
             if (self.current) |current| self.backwards.append(current) catch {};
             const top = self.forwards.pop();
-            self.a.free(top.file_path);
+            self.allocator.free(top.file_path);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "forward", entry.file_path, entry.cursor.row, entry.cursor.col, self.backwards.items.len, self.forwards.items.len }));
         } else if (self.current) |current| {
             try self.backwards.append(current);

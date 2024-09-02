@@ -15,7 +15,7 @@ const tui = @import("tui.zig");
 const command = @import("command.zig");
 const fonts = @import("fonts.zig");
 
-a: std.mem.Allocator,
+allocator: std.mem.Allocator,
 plane: Plane,
 parent: Plane,
 fire: ?Fire = null,
@@ -24,17 +24,17 @@ menu: *Menu.State(*Self),
 
 const Self = @This();
 
-pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
+    const self: *Self = try allocator.create(Self);
     var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
     errdefer n.deinit();
 
     const w = Widget.to(self);
     self.* = .{
-        .a = a,
+        .allocator = allocator,
         .parent = parent.plane.*,
         .plane = n,
-        .menu = try Menu.create(*Self, a, w, .{ .ctx = self, .on_render = menu_on_render }),
+        .menu = try Menu.create(*Self, allocator, w, .{ .ctx = self, .on_render = menu_on_render }),
     };
     try self.commands.init(self);
     try self.menu.add_item_with_handler("Help ······················· :h", menu_action_help);
@@ -50,12 +50,12 @@ pub fn create(a: std.mem.Allocator, parent: Widget) !Widget {
     return w;
 }
 
-pub fn deinit(self: *Self, a: std.mem.Allocator) void {
-    self.menu.deinit(a);
+pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+    self.menu.deinit(allocator);
     self.commands.deinit();
     self.plane.deinit();
     if (self.fire) |*fire| fire.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn update(self: *Self) void {
@@ -186,7 +186,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     if (self.fire) |*fire| {
         fire.deinit();
-        self.fire = Fire.init(self.a, self.plane) catch return;
+        self.fire = Fire.init(self.allocator, self.plane) catch return;
     }
 }
 
@@ -213,7 +213,7 @@ const cmds = struct {
         self.fire = if (self.fire) |*fire| ret: {
             fire.deinit();
             break :ret null;
-        } else try Fire.init(self.a, self.plane);
+        } else try Fire.init(self.allocator, self.plane);
     }
 };
 
@@ -239,12 +239,12 @@ const Fire = struct {
     const MAX_COLOR = 256;
     const LAST_COLOR = MAX_COLOR - 1;
 
-    fn init(a: std.mem.Allocator, plane: Plane) !Fire {
+    fn init(allocator: std.mem.Allocator, plane: Plane) !Fire {
         const pos = Widget.Box.from(plane);
         const FIRE_H = @as(u16, @intCast(pos.h)) * 2;
         const FIRE_W = @as(u16, @intCast(pos.w));
         var self: Fire = .{
-            .allocator = a,
+            .allocator = allocator,
             .plane = plane,
             .prng = std.Random.DefaultPrng.init(blk: {
                 var seed: u64 = undefined;
@@ -255,7 +255,7 @@ const Fire = struct {
             .FIRE_W = FIRE_W,
             .FIRE_SZ = FIRE_H * FIRE_W,
             .FIRE_LAST_ROW = (FIRE_H - 1) * FIRE_W,
-            .screen_buf = try a.alloc(u8, FIRE_H * FIRE_W),
+            .screen_buf = try allocator.alloc(u8, FIRE_H * FIRE_W),
         };
 
         var buf_idx: u16 = 0;

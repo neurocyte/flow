@@ -26,7 +26,7 @@ const max_menu_width = 80;
 
 pub fn Create(options: type) type {
     return struct {
-        a: std.mem.Allocator,
+        allocator: std.mem.Allocator,
         menu: *Menu.State(*Self),
         inputbox: *InputBox.State(*Self),
         logger: log.Logger,
@@ -47,12 +47,12 @@ pub fn Create(options: type) type {
         pub const MenuState = Menu.State(*Self);
         pub const ButtonState = Button.State(*Menu.State(*Self));
 
-        pub fn create(a: std.mem.Allocator) !tui.Mode {
+        pub fn create(allocator: std.mem.Allocator) !tui.Mode {
             const mv = tui.current().mainview.dynamic_cast(mainview) orelse return error.NotFound;
-            const self: *Self = try a.create(Self);
+            const self: *Self = try allocator.create(Self);
             self.* = .{
-                .a = a,
-                .menu = try Menu.create(*Self, a, tui.current().mainview, .{
+                .allocator = allocator,
+                .menu = try Menu.create(*Self, allocator, tui.current().mainview, .{
                     .ctx = self,
                     .on_render = on_render_menu,
                     .on_resize = on_resize_menu,
@@ -61,13 +61,13 @@ pub fn Create(options: type) type {
                     .on_click5 = mouse_click_button5,
                 }),
                 .logger = log.logger(@typeName(Self)),
-                .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.a, self.menu.menu.parent, .{
+                .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
                     .ctx = self,
                     .label = options.label,
                 }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
                 .hints = if (tui.current().input_mode) |m| m.keybind_hints else null,
                 .view_rows = get_view_rows(tui.current().screen()),
-                .entries = std.ArrayList(Entry).init(a),
+                .entries = std.ArrayList(Entry).init(allocator),
             };
             self.menu.scrollbar.?.style_factory = scrollbar_style;
             if (self.hints) |hints| {
@@ -96,7 +96,7 @@ pub fn Create(options: type) type {
             if (tui.current().mainview.dynamic_cast(mainview)) |mv|
                 mv.floating_views.remove(self.menu.container_widget);
             self.logger.deinit();
-            self.a.destroy(self);
+            self.allocator.destroy(self);
         }
 
         fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {
@@ -325,7 +325,7 @@ pub fn Create(options: type) type {
 
         fn query_entries(self: *Self, query: []const u8) error{OutOfMemory}!usize {
             var searcher = try fuzzig.Ascii.init(
-                self.a,
+                self.allocator,
                 self.longest, // haystack max size
                 self.longest, // needle max size
                 .{ .case_sensitive = false },
@@ -338,7 +338,7 @@ pub fn Create(options: type) type {
                 matches: []const usize,
             };
 
-            var matches = std.ArrayList(Match).init(self.a);
+            var matches = std.ArrayList(Match).init(self.allocator);
 
             for (self.entries.items) |*entry| {
                 const match = searcher.scoreMatches(entry.name, query);
@@ -346,7 +346,7 @@ pub fn Create(options: type) type {
                     (try matches.addOne()).* = .{
                         .entry = entry,
                         .score = score,
-                        .matches = try self.a.dupe(usize, match.matches),
+                        .matches = try self.allocator.dupe(usize, match.matches),
                     };
             }
             if (matches.items.len == 0) return 0;

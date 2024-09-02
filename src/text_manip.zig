@@ -55,8 +55,8 @@ fn remove_prefix_in_line(prefix: []const u8, text: []const u8, writer: TextWrite
     }
 }
 
-pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, a: std.mem.Allocator) ![]const u8 {
-    var result = try std.ArrayList(u8).initCapacity(a, prefix.len + text.len);
+pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, allocator: std.mem.Allocator) ![]const u8 {
+    var result = try std.ArrayList(u8).initCapacity(allocator, prefix.len + text.len);
     const writer = result.writer();
     var pos: usize = 0;
     var prefix_pos: usize = std.math.maxInt(usize);

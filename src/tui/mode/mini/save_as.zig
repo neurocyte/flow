@@ -23,8 +23,8 @@ pub fn load_entries(self: *Type) !void {
     if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
         try self.file_path.appendSlice(editor.file_path orelse "");
         if (editor.get_primary().selection) |sel| ret: {
-            const text = editor.get_selection(sel, self.a) catch break :ret;
-            defer self.a.free(text);
+            const text = editor.get_selection(sel, self.allocator) catch break :ret;
+            defer self.allocator.free(text);
             if (!(text.len > 2 and std.mem.eql(u8, text[0..2], "..")))
                 self.file_path.clearRetainingCapacity();
             try self.file_path.appendSlice(text);

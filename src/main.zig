@@ -349,21 +349,21 @@ pub fn exit(status: u8) noreturn {
 
 const config = @import("config");
 
-pub fn read_config(a: std.mem.Allocator, buf: *?[]const u8) config {
+pub fn read_config(allocator: std.mem.Allocator, buf: *?[]const u8) config {
     const file_name = get_app_config_file_name(application_name) catch return .{};
-    return read_json_config_file(a, file_name, buf) catch .{};
+    return read_json_config_file(allocator, file_name, buf) catch .{};
 }
 
-fn read_json_config_file(a: std.mem.Allocator, file_name: []const u8, buf: *?[]const u8) !config {
+fn read_json_config_file(allocator: std.mem.Allocator, file_name: []const u8, buf: *?[]const u8) !config {
     const cbor = @import("cbor");
     var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return .{},
         else => return e,
     };
     defer file.close();
-    const json = try file.readToEndAlloc(a, 64 * 1024);
-    defer a.free(json);
-    const cbor_buf: []u8 = try a.alloc(u8, json.len);
+    const json = try file.readToEndAlloc(allocator, 64 * 1024);
+    defer allocator.free(json);
+    const cbor_buf: []u8 = try allocator.alloc(u8, json.len);
     buf.* = cbor_buf;
     const cb = try cbor.fromJson(json, cbor_buf);
     var iter = cb;
@@ -383,16 +383,16 @@ fn read_json_config_file(a: std.mem.Allocator, file_name: []const u8, buf: *?[]c
     return data;
 }
 
-pub fn write_config(conf: config, a: std.mem.Allocator) !void {
-    return write_json_file(config, conf, a, try get_app_config_file_name(application_name));
+pub fn write_config(conf: config, allocator: std.mem.Allocator) !void {
+    return write_json_file(config, conf, allocator, try get_app_config_file_name(application_name));
 }
 
-fn write_json_file(comptime T: type, data: T, a: std.mem.Allocator, file_name: []const u8) !void {
+fn write_json_file(comptime T: type, data: T, allocator: std.mem.Allocator, file_name: []const u8) !void {
     const cbor = @import("cbor");
     var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
     defer file.close();
 
-    var cb = std.ArrayList(u8).init(a);
+    var cb = std.ArrayList(u8).init(allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), data);
 

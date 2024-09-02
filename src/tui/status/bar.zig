@@ -9,13 +9,13 @@ const Self = @This();
 
 pub const Style = enum { none, grip };
 
-pub fn create(a: std.mem.Allocator, parent: Widget, config: []const u8, style: Style, event_handler: ?Widget.EventHandler) !Widget {
-    var w = try WidgetList.createH(a, parent, "statusbar", .{ .static = 1 });
+pub fn create(allocator: std.mem.Allocator, parent: Widget, config: []const u8, style: Style, event_handler: ?Widget.EventHandler) !Widget {
+    var w = try WidgetList.createH(allocator, parent, "statusbar", .{ .static = 1 });
     if (style == .grip) w.after_render = render_grip;
     w.ctx = w;
     var it = std.mem.splitScalar(u8, config, ' ');
     while (it.next()) |widget_name|
-        try w.add(try status_widget.create(widget_name, a, w.plane, event_handler) orelse continue);
+        try w.add(try status_widget.create(widget_name, allocator, w.plane, event_handler) orelse continue);
     return w.widget();
 }
 

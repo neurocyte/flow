@@ -19,8 +19,8 @@ rendered: [:0]const u8 = "",
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
-    return Button.create_widget(Self, a, parent, .{
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+    return Button.create_widget(Self, allocator, parent, .{
         .ctx = .{},
         .label = "",
         .on_click = on_click,

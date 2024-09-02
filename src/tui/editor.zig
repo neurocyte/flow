@@ -158,10 +158,10 @@ pub const Diagnostic = struct {
     severity: i32,
     sel: Selection,
 
-    fn deinit(self: *Diagnostic, a: std.mem.Allocator) void {
-        a.free(self.source);
-        a.free(self.code);
-        a.free(self.message);
+    fn deinit(self: *Diagnostic, allocator: std.mem.Allocator) void {
+        allocator.free(self.source);
+        allocator.free(self.code);
+        allocator.free(self.message);
     }
 
     pub const Severity = enum { Error, Warning, Information, Hint };
@@ -189,7 +189,7 @@ pub const Editor = struct {
     const Self = @This();
     pub const Target = Self;
 
-    a: Allocator,
+    allocator: Allocator,
     plane: Plane,
     logger: log.Logger,
 
@@ -299,8 +299,8 @@ pub const Editor = struct {
         }))
             return error.RestoreStateMatch;
         try self.open(file_path);
-        self.clipboard = if (clipboard.len > 0) try self.a.dupe(u8, clipboard) else null;
-        self.last_find_query = if (query.len > 0) try self.a.dupe(u8, clipboard) else null;
+        self.clipboard = if (clipboard.len > 0) try self.allocator.dupe(u8, clipboard) else null;
+        self.last_find_query = if (query.len > 0) try self.allocator.dupe(u8, clipboard) else null;
         if (!try self.view.extract(&view_cbor))
             return error.RestoreView;
         self.scroll_dest = self.view.row;
@@ -315,26 +315,26 @@ pub const Editor = struct {
         }
     }
 
-    fn init(self: *Self, a: Allocator, n: Plane) void {
+    fn init(self: *Self, allocator: Allocator, n: Plane) void {
         const logger = log.logger("editor");
         var frame_rate = tp.env.get().num("frame-rate");
         if (frame_rate == 0) frame_rate = 60;
         self.* = Self{
-            .a = a,
+            .allocator = allocator,
             .plane = n,
             .logger = logger,
             .file_path = null,
             .buffer = null,
-            .handlers = EventHandler.List.init(a),
+            .handlers = EventHandler.List.init(allocator),
             .animation_lag = get_animation_max_lag(),
             .animation_frame_rate = frame_rate,
             .animation_last_time = time.microTimestamp(),
-            .cursels = CurSel.List.init(a),
-            .cursels_saved = CurSel.List.init(a),
-            .matches = Match.List.init(a),
+            .cursels = CurSel.List.init(allocator),
+            .cursels_saved = CurSel.List.init(allocator),
+            .matches = Match.List.init(allocator),
             .enable_terminal_cursor = tui.current().config.enable_terminal_cursor,
             .show_whitespace = tui.current().config.show_whitespace,
-            .diagnostics = std.ArrayList(Diagnostic).init(a),
+            .diagnostics = std.ArrayList(Diagnostic).init(allocator),
         };
     }
 
@@ -364,7 +364,7 @@ pub const Editor = struct {
     }
 
     fn buf_a(self: *const Self) !Allocator {
-        return if (self.buffer) |p| p.a else error.Stop;
+        return if (self.buffer) |p| p.allocator else error.Stop;
     }
 
     pub fn get_current_root(self: *const Self) ?Buffer.Root {
@@ -384,14 +384,14 @@ pub const Editor = struct {
     }
 
     fn open(self: *Self, file_path: []const u8) !void {
-        var new_buf = try Buffer.create(self.a);
+        var new_buf = try Buffer.create(self.allocator);
         errdefer new_buf.deinit();
         try new_buf.load_from_file_and_update(file_path);
         return self.open_buffer(file_path, new_buf);
     }
 
     fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) !void {
-        var new_buf = try Buffer.create(self.a);
+        var new_buf = try Buffer.create(self.allocator);
         errdefer new_buf.deinit();
         try new_buf.load_from_string_and_update(file_path, content);
         new_buf.file_exists = true;
@@ -402,7 +402,7 @@ pub const Editor = struct {
         errdefer new_buf.deinit();
         self.cancel_all_selections();
         self.get_primary().reset();
-        self.file_path = try self.a.dupe(u8, file_path);
+        self.file_path = try self.allocator.dupe(u8, file_path);
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
 
@@ -410,13 +410,13 @@ pub const Editor = struct {
             if (new_buf.root.lines() > root_mod.max_syntax_lines)
                 break :syntax null;
             const lang_override = tp.env.get().str("language");
-            var content = std.ArrayList(u8).init(self.a);
+            var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
             try new_buf.root.store(content.writer());
             const syn = if (lang_override.len > 0)
-                syntax.create_file_type(self.a, content.items, lang_override) catch null
+                syntax.create_file_type(self.allocator, content.items, lang_override) catch null
             else
-                syntax.create_guess_file_type(self.a, content.items, self.file_path) catch null;
+                syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch null;
             if (syn) |syn_|
                 project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch {};
             break :syntax syn;
@@ -461,8 +461,8 @@ pub const Editor = struct {
 
     fn save_as(self: *Self, file_path: []const u8) !void {
         if (self.buffer) |b_mut| try b_mut.store_to_file_and_clean(file_path);
-        if (self.file_path) |old_file_path| self.a.free(old_file_path);
-        self.file_path = try self.a.dupe(u8, file_path);
+        if (self.file_path) |old_file_path| self.allocator.free(old_file_path);
+        self.file_path = try self.allocator.dupe(u8, file_path);
         try self.send_editor_save(self.file_path.?);
         self.last.dirty = false;
     }
@@ -496,16 +496,16 @@ pub const Editor = struct {
         return self.get_primary();
     }
 
-    fn store_undo_meta(self: *Self, a: Allocator) ![]u8 {
-        var meta = std.ArrayList(u8).init(a);
+    fn store_undo_meta(self: *Self, allocator: Allocator) ![]u8 {
+        var meta = std.ArrayList(u8).init(allocator);
         const writer = meta.writer();
         for (self.cursels_saved.items) |*cursel_| if (cursel_.*) |*cursel|
             try cursel.write(writer);
         return meta.toOwnedSlice();
     }
 
-    fn store_current_undo_meta(self: *Self, a: Allocator) ![]u8 {
-        var meta = std.ArrayList(u8).init(a);
+    fn store_current_undo_meta(self: *Self, allocator: Allocator) ![]u8 {
+        var meta = std.ArrayList(u8).init(allocator);
         const writer = meta.writer();
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             try cursel.write(writer);
@@ -514,10 +514,10 @@ pub const Editor = struct {
 
     fn update_buf(self: *Self, root: Buffer.Root) !void {
         const b = self.buffer orelse return error.Stop;
-        var sfa = std.heap.stackFallback(512, self.a);
-        const a = sfa.get();
-        const meta = try self.store_undo_meta(a);
-        defer a.free(meta);
+        var sfa = std.heap.stackFallback(512, self.allocator);
+        const allocator = sfa.get();
+        const meta = try self.store_undo_meta(allocator);
+        defer allocator.free(meta);
         try b.store_undo(meta);
         b.update(root);
         try self.send_editor_modified();
@@ -538,10 +538,10 @@ pub const Editor = struct {
         if (self.buffer) |b_mut| {
             try self.send_editor_jump_source();
             self.cancel_all_matches();
-            var sfa = std.heap.stackFallback(512, self.a);
-            const a = sfa.get();
-            const redo_meta = try self.store_current_undo_meta(a);
-            defer a.free(redo_meta);
+            var sfa = std.heap.stackFallback(512, self.allocator);
+            const allocator = sfa.get();
+            const redo_meta = try self.store_current_undo_meta(allocator);
+            defer allocator.free(redo_meta);
             const meta = b_mut.undo(redo_meta) catch |e| switch (e) {
                 error.Stop => {
                     self.logger.print("nothing to undo", .{});
@@ -651,11 +651,11 @@ pub const Editor = struct {
         if (self.style_cache) |*cache| {
             if (!std.mem.eql(u8, self.style_cache_theme, theme.name)) {
                 cache.deinit();
-                self.style_cache = StyleCache.init(self.a);
+                self.style_cache = StyleCache.init(self.allocator);
                 // self.logger.print("style_cache reset {s} -> {s}", .{ self.style_cache_theme, theme.name });
             }
         } else {
-            self.style_cache = StyleCache.init(self.a);
+            self.style_cache = StyleCache.init(self.allocator);
         }
         self.style_cache_theme = theme.name;
         const cache: *StyleCache = &self.style_cache.?;
@@ -686,11 +686,11 @@ pub const Editor = struct {
                 const len = leaf.buf.len;
                 var chunk_alloc: ?[:0]u8 = null;
                 var chunk: [:0]u8 = if (len > bufsize) ret: {
-                    const ptr = self_.a.allocSentinel(u8, len, 0) catch |e| return Buffer.Walker{ .err = e };
+                    const ptr = self_.allocator.allocSentinel(u8, len, 0) catch |e| return Buffer.Walker{ .err = e };
                     chunk_alloc = ptr;
                     break :ret ptr;
                 } else &bufstatic;
-                defer if (chunk_alloc) |p| self_.a.free(p);
+                defer if (chunk_alloc) |p| self_.allocator.free(p);
 
                 @memcpy(chunk[0..leaf.buf.len], leaf.buf);
                 chunk[leaf.buf.len] = 0;
@@ -1063,7 +1063,7 @@ pub const Editor = struct {
             .theme = theme,
             .cache = cache,
             .root = root,
-            .pos_cache = try PosToWidthCache.init(self.a),
+            .pos_cache = try PosToWidthCache.init(self.allocator),
         };
         defer ctx.pos_cache.deinit();
         const range: syntax.Range = .{
@@ -1270,7 +1270,7 @@ pub const Editor = struct {
         defer frame.deinit();
         var old = self.cursels;
         defer old.deinit();
-        self.cursels = CurSel.List.initCapacity(self.a, old.items.len) catch return;
+        self.cursels = CurSel.List.initCapacity(self.allocator, old.items.len) catch return;
         for (old.items[0 .. old.items.len - 1], 0..) |*a_, i| if (a_.*) |*a| {
             for (old.items[i + 1 ..], i + 1..) |*b_, j| if (b_.*) |*b| {
                 if (a.cursor.eql(b.cursor))
@@ -1345,15 +1345,15 @@ pub const Editor = struct {
         return if (someone_stopped) error.Stop else {};
     }
 
-    fn with_cursor(root: Buffer.Root, move: cursor_operator, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
-        return try move(root, &cursel.cursor, a);
+    fn with_cursor(root: Buffer.Root, move: cursor_operator, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        return try move(root, &cursel.cursor, allocator);
     }
 
-    fn with_cursors(self: *Self, root_: Buffer.Root, move: cursor_operator, a: Allocator) error{Stop}!Buffer.Root {
+    fn with_cursors(self: *Self, root_: Buffer.Root, move: cursor_operator, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         for (self.cursels.items) |*cursel| {
             cursel.selection = null;
-            root = try with_cursor(root, move, cursel, a);
+            root = try with_cursor(root, move, cursel, allocator);
         }
         self.collapse_cursors();
         return root;
@@ -1409,15 +1409,15 @@ pub const Editor = struct {
         return if (someone_stopped) error.Stop else {};
     }
 
-    fn with_cursel(root: Buffer.Root, op: cursel_operator, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
-        return op(root, cursel, a);
+    fn with_cursel(root: Buffer.Root, op: cursel_operator, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        return op(root, cursel, allocator);
     }
 
-    fn with_cursels(self: *Self, root_: Buffer.Root, move: cursel_operator, a: Allocator) error{Stop}!Buffer.Root {
+    fn with_cursels(self: *Self, root_: Buffer.Root, move: cursel_operator, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            root = with_cursel(root, move, cursel, a) catch ret: {
+            root = with_cursel(root, move, cursel, allocator) catch ret: {
                 someone_stopped = true;
                 break :ret root;
             };
@@ -1426,15 +1426,15 @@ pub const Editor = struct {
         return if (someone_stopped) error.Stop else root;
     }
 
-    fn with_cursel_mut(self: *Self, root: Buffer.Root, op: cursel_operator_mut, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
-        return op(self, root, cursel, a);
+    fn with_cursel_mut(self: *Self, root: Buffer.Root, op: cursel_operator_mut, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        return op(self, root, cursel, allocator);
     }
 
-    fn with_cursels_mut(self: *Self, root_: Buffer.Root, move: cursel_operator_mut, a: Allocator) error{Stop}!Buffer.Root {
+    fn with_cursels_mut(self: *Self, root_: Buffer.Root, move: cursel_operator_mut, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            root = self.with_cursel_mut(root, move, cursel, a) catch ret: {
+            root = self.with_cursel_mut(root, move, cursel, allocator) catch ret: {
                 someone_stopped = true;
                 break :ret root;
             };
@@ -1497,28 +1497,28 @@ pub const Editor = struct {
         }
     }
 
-    fn delete_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn delete_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var sel: Selection = cursel.selection orelse return error.Stop;
         sel.normalize();
         cursel.cursor = sel.begin;
         cursel.selection = null;
         var size: usize = 0;
-        const root_ = try root.delete_range(sel, a, &size, self.plane.metrics());
+        const root_ = try root.delete_range(sel, allocator, &size, self.plane.metrics());
         self.nudge_delete(sel, cursel, size);
         return root_;
     }
 
-    fn delete_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root, a: Allocator) error{Stop}!Buffer.Root {
+    fn delete_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root, allocator: Allocator) error{Stop}!Buffer.Root {
         var all_stop = true;
         var root = root_;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |_| {
-                root = self.delete_selection(root, cursel, a) catch continue;
+                root = self.delete_selection(root, cursel, allocator) catch continue;
                 all_stop = false;
                 continue;
             }
             with_selection_const(root, move, cursel, self.plane) catch continue;
-            root = self.delete_selection(root, cursel, a) catch continue;
+            root = self.delete_selection(root, cursel, allocator) catch continue;
             all_stop = false;
         };
 
@@ -1532,9 +1532,9 @@ pub const Editor = struct {
     const cursor_operator_const_arg = *const fn (root: Buffer.Root, cursor: *Cursor, ctx: Context, plane: Plane) error{Stop}!void;
     const cursor_view_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, view: *const View, plane: Plane) error{Stop}!void;
     const cursel_operator_const = *const fn (root: Buffer.Root, cursel: *CurSel) error{Stop}!void;
-    const cursor_operator = *const fn (root: Buffer.Root, cursor: *Cursor, a: Allocator) error{Stop}!Buffer.Root;
-    const cursel_operator = *const fn (root: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root;
-    const cursel_operator_mut = *const fn (self: *Self, root: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root;
+    const cursor_operator = *const fn (root: Buffer.Root, cursor: *Cursor, allocator: Allocator) error{Stop}!Buffer.Root;
+    const cursel_operator = *const fn (root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
+    const cursel_operator_mut = *const fn (self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
 
     fn is_not_word_char(c: []const u8) bool {
         if (c.len == 0) return true;
@@ -1906,34 +1906,34 @@ pub const Editor = struct {
 
     fn set_clipboard(self: *Self, text: []const u8) void {
         if (self.clipboard) |old|
-            self.a.free(old);
+            self.allocator.free(old);
         self.clipboard = text;
         tui.current().rdr.copy_to_system_clipboard(text);
     }
 
-    fn copy_selection(root: Buffer.Root, sel: Selection, text_a: Allocator, plane: Plane) ![]const u8 {
+    fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, plane: Plane) ![]const u8 {
         var size: usize = 0;
         _ = try root.get_range(sel, null, &size, null, plane.metrics());
-        const buf__ = try text_a.alloc(u8, size);
+        const buf__ = try text_allocator.alloc(u8, size);
         return (try root.get_range(sel, buf__, null, null, plane.metrics())).?;
     }
 
-    pub fn get_selection(self: *const Self, sel: Selection, text_a: Allocator) ![]const u8 {
-        return copy_selection(try self.buf_root(), sel, text_a, self.plane);
+    pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) ![]const u8 {
+        return copy_selection(try self.buf_root(), sel, text_allocator, self.plane);
     }
 
-    fn copy_word_at_cursor(self: *Self, text_a: Allocator) ![]const u8 {
+    fn copy_word_at_cursor(self: *Self, text_allocator: Allocator) ![]const u8 {
         const root = try self.buf_root();
         const primary = self.get_primary();
         const sel = if (primary.selection) |*sel| sel else try self.select_word_at_cursor(primary);
-        return try copy_selection(root, sel.*, text_a, self.plane);
+        return try copy_selection(root, sel.*, text_allocator, self.plane);
     }
 
     pub fn cut_selection(self: *Self, root: Buffer.Root, cursel: *CurSel) !struct { []const u8, Buffer.Root } {
         return if (cursel.selection) |sel| ret: {
             var old_selection: Selection = sel;
             old_selection.normalize();
-            const cut_text = try copy_selection(root, sel, self.a, self.plane);
+            const cut_text = try copy_selection(root, sel, self.allocator, self.plane);
             if (cut_text.len > 100) {
                 self.logger.print("cut:{s}...", .{std.fmt.fmtSliceEscapeLower(cut_text[0..100])});
             } else {
@@ -1948,11 +1948,11 @@ pub const Editor = struct {
         try move_cursor_buffer_end(root, &sel.end, plane);
     }
 
-    fn insert(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, a: Allocator) !Buffer.Root {
-        var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, a) else root;
+    fn insert(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+        var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, allocator) else root;
         const cursor = &cursel.cursor;
         const begin = cursel.cursor;
-        cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, a, self.plane.metrics());
+        cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.plane.metrics());
         cursor.target = cursor.col;
         self.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
         return root_;
@@ -1970,7 +1970,7 @@ pub const Editor = struct {
                 try move_cursor_right(root, &sel.end, self.plane);
             };
         var first = true;
-        var text = std.ArrayList(u8).init(self.a);
+        var text = std.ArrayList(u8).init(self.allocator);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             const cut_text, root = try self.cut_selection(root, cursel);
             if (first) {
@@ -1988,10 +1988,10 @@ pub const Editor = struct {
     pub fn copy(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         var first = true;
-        var text = std.ArrayList(u8).init(self.a);
+        var text = std.ArrayList(u8).init(self.allocator);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |sel| {
-                const copy_text = try copy_selection(root, sel, self.a, self.plane);
+                const copy_text = try copy_selection(root, sel, self.allocator, self.plane);
                 if (first) {
                     first = false;
                 } else {
@@ -2020,22 +2020,22 @@ pub const Editor = struct {
         var root = b.root;
         if (self.cursels.items.len == 1) {
             const primary = self.get_primary();
-            root = try self.insert(root, primary, text, b.a);
+            root = try self.insert(root, primary, text, b.allocator);
         } else {
             if (std.mem.indexOfScalar(u8, text, '\n')) |_| {
                 var pos: usize = 0;
                 for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
                     if (std.mem.indexOfScalarPos(u8, text, pos, '\n')) |next| {
-                        root = try self.insert(root, cursel, text[pos..next], b.a);
+                        root = try self.insert(root, cursel, text[pos..next], b.allocator);
                         pos = next + 1;
                     } else {
-                        root = try self.insert(root, cursel, text[pos..], b.a);
+                        root = try self.insert(root, cursel, text[pos..], b.allocator);
                         pos = 0;
                     }
                 };
             } else {
                 for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-                    root = try self.insert(root, cursel, text, b.a);
+                    root = try self.insert(root, cursel, text, b.allocator);
                 };
             }
         }
@@ -2051,42 +2051,42 @@ pub const Editor = struct {
 
     pub fn delete_forward(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.delete_to(move_cursor_right, b.root, b.a);
+        const root = try self.delete_to(move_cursor_right, b.root, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
     pub fn delete_backward(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.delete_to(move_cursor_left, b.root, b.a);
+        const root = try self.delete_to(move_cursor_left, b.root, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
     pub fn delete_word_left(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.delete_to(move_cursor_word_left_space, b.root, b.a);
+        const root = try self.delete_to(move_cursor_word_left_space, b.root, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
     pub fn delete_word_right(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.delete_to(move_cursor_word_right_space, b.root, b.a);
+        const root = try self.delete_to(move_cursor_word_right_space, b.root, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
     pub fn delete_to_begin(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.delete_to(move_cursor_begin, b.root, b.a);
+        const root = try self.delete_to(move_cursor_begin, b.root, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
     pub fn delete_to_end(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.delete_to(move_cursor_end, b.root, b.a);
+        const root = try self.delete_to(move_cursor_end, b.root, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
@@ -2094,7 +2094,7 @@ pub const Editor = struct {
     pub fn join_next_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         try self.with_cursors_const(b.root, move_cursor_end);
-        const root = try self.delete_to(move_cursor_right, b.root, b.a);
+        const root = try self.delete_to(move_cursor_right, b.root, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
@@ -2338,16 +2338,16 @@ pub const Editor = struct {
         self.clamp();
     }
 
-    fn pull_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn pull_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
         const sel = cursel.expand_selection_to_line(root, self.plane);
-        var sfa = std.heap.stackFallback(4096, self.a);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
-        defer a.free(cut_text);
-        root = try self.delete_selection(root, cursel, a);
+        defer allocator.free(cut_text);
+        root = try self.delete_selection(root, cursel, allocator);
         try cursel.cursor.move_up(root, self.plane.metrics());
-        root = self.insert(root, cursel, cut_text, a) catch return error.Stop;
+        root = self.insert(root, cursel, cut_text, allocator) catch return error.Stop;
         cursel.* = saved;
         try cursel.cursor.move_up(root, self.plane.metrics());
         if (cursel.selection) |*sel_| {
@@ -2359,21 +2359,21 @@ pub const Editor = struct {
 
     pub fn pull_up(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut(b.root, pull_cursel_up, b.a);
+        const root = try self.with_cursels_mut(b.root, pull_cursel_up, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
-    fn pull_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn pull_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
         const sel = cursel.expand_selection_to_line(root, self.plane);
-        var sfa = std.heap.stackFallback(4096, self.a);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
-        defer a.free(cut_text);
-        root = try self.delete_selection(root, cursel, a);
+        defer allocator.free(cut_text);
+        root = try self.delete_selection(root, cursel, allocator);
         try cursel.cursor.move_down(root, self.plane.metrics());
-        root = self.insert(root, cursel, cut_text, a) catch return error.Stop;
+        root = self.insert(root, cursel, cut_text, allocator) catch return error.Stop;
         cursel.* = saved;
         try cursel.cursor.move_down(root, self.plane.metrics());
         if (cursel.selection) |*sel_| {
@@ -2385,20 +2385,20 @@ pub const Editor = struct {
 
     pub fn pull_down(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut(b.root, pull_cursel_down, b.a);
+        const root = try self.with_cursels_mut(b.root, pull_cursel_down, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
-    fn dupe_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn dupe_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.plane.metrics());
         cursel.selection = null;
-        var sfa = std.heap.stackFallback(4096, self.a);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
         const text = copy_selection(root, sel, sfa.get(), self.plane) catch return error.Stop;
-        defer a.free(text);
+        defer allocator.free(text);
         cursel.cursor = sel.begin;
-        root = self.insert(root, cursel, text, a) catch return error.Stop;
+        root = self.insert(root, cursel, text, allocator) catch return error.Stop;
         cursel.selection = .{ .begin = sel.begin, .end = sel.end };
         cursel.cursor = sel.begin;
         return root;
@@ -2406,42 +2406,42 @@ pub const Editor = struct {
 
     pub fn dupe_up(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut(b.root, dupe_cursel_up, b.a);
+        const root = try self.with_cursels_mut(b.root, dupe_cursel_up, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
-    fn dupe_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn dupe_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.plane.metrics());
         cursel.selection = null;
-        var sfa = std.heap.stackFallback(4096, self.a);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
         const text = copy_selection(root, sel, sfa.get(), self.plane) catch return error.Stop;
-        defer a.free(text);
+        defer allocator.free(text);
         cursel.cursor = sel.end;
-        root = self.insert(root, cursel, text, a) catch return error.Stop;
+        root = self.insert(root, cursel, text, allocator) catch return error.Stop;
         cursel.selection = .{ .begin = sel.end, .end = cursel.cursor };
         return root;
     }
 
     pub fn dupe_down(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut(b.root, dupe_cursel_down, b.a);
+        const root = try self.with_cursels_mut(b.root, dupe_cursel_down, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
-    fn toggle_cursel_prefix(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn toggle_cursel_prefix(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
         const sel = cursel.expand_selection_to_line(root, self.plane);
-        var sfa = std.heap.stackFallback(4096, self.a);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
         const alloc = sfa.get();
         const text = copy_selection(root, sel.*, alloc, self.plane) catch return error.Stop;
-        defer a.free(text);
-        root = try self.delete_selection(root, cursel, a);
+        defer allocator.free(text);
+        root = try self.delete_selection(root, cursel, allocator);
         const new_text = text_manip.toggle_prefix_in_text(self.prefix, text, alloc) catch return error.Stop;
-        root = self.insert(root, cursel, new_text, a) catch return error.Stop;
+        root = self.insert(root, cursel, new_text, allocator) catch return error.Stop;
         cursel.* = saved;
         return root;
     }
@@ -2453,7 +2453,7 @@ pub const Editor = struct {
         @memcpy(self.prefix_buf[0..prefix.len], prefix);
         self.prefix = self.prefix_buf[0..prefix.len];
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut(b.root, toggle_cursel_prefix, b.a);
+        const root = try self.with_cursels_mut(b.root, toggle_cursel_prefix, b.allocator);
         try self.update_buf(root);
     }
 
@@ -2462,35 +2462,35 @@ pub const Editor = struct {
         return self.toggle_prefix(command.fmt(.{comment}));
     }
 
-    fn indent_cursor(self: *Self, root: Buffer.Root, cursor: Cursor, a: Allocator) error{Stop}!Buffer.Root {
+    fn indent_cursor(self: *Self, root: Buffer.Root, cursor: Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
         const space = "    ";
         var cursel: CurSel = .{};
         cursel.cursor = cursor;
         const cols = 4 - find_first_non_ws(root, cursel.cursor.row, self.plane) % 4;
         try smart_move_cursor_begin(root, &cursel.cursor, self.plane);
-        return self.insert(root, &cursel, space[0..cols], a) catch return error.Stop;
+        return self.insert(root, &cursel, space[0..cols], allocator) catch return error.Stop;
     }
 
-    fn indent_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn indent_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         if (cursel.selection) |sel_| {
             var root = root_;
             var sel = sel_;
             sel.normalize();
             while (sel.begin.row < sel.end.row) : (sel.begin.row += 1)
-                root = try self.indent_cursor(root, sel.begin, a);
+                root = try self.indent_cursor(root, sel.begin, allocator);
             if (sel.end.col > 0)
-                root = try self.indent_cursor(root, sel.end, a);
+                root = try self.indent_cursor(root, sel.end, allocator);
             return root;
-        } else return try self.indent_cursor(root_, cursel.cursor, a);
+        } else return try self.indent_cursor(root_, cursel.cursor, allocator);
     }
 
     pub fn indent(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut(b.root, indent_cursel, b.a);
+        const root = try self.with_cursels_mut(b.root, indent_cursel, b.allocator);
         try self.update_buf(root);
     }
 
-    fn unindent_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, cursor: Cursor, a: Allocator) error{Stop}!Buffer.Root {
+    fn unindent_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, cursor: Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
         const saved = cursel.*;
         var newroot = root;
         defer {
@@ -2507,26 +2507,26 @@ pub const Editor = struct {
         sel.begin.move_begin();
         try sel.end.move_to(root, sel.end.row, cols, self.plane.metrics());
         if (cursel.cursor.col < cols) try cursel.cursor.move_to(root, cursel.cursor.row, cols, self.plane.metrics());
-        newroot = try self.delete_selection(root, cursel, a);
+        newroot = try self.delete_selection(root, cursel, allocator);
         return newroot;
     }
 
-    fn unindent_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn unindent_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         if (cursel.selection) |sel_| {
             var root = root_;
             var sel = sel_;
             sel.normalize();
             while (sel.begin.row < sel.end.row) : (sel.begin.row += 1)
-                root = try self.unindent_cursor(root, cursel, sel.begin, a);
+                root = try self.unindent_cursor(root, cursel, sel.begin, allocator);
             if (sel.end.col > 0)
-                root = try self.unindent_cursor(root, cursel, sel.end, a);
+                root = try self.unindent_cursor(root, cursel, sel.end, allocator);
             return root;
-        } else return self.unindent_cursor(root_, cursel, cursel.cursor, a);
+        } else return self.unindent_cursor(root_, cursel, cursel.cursor, allocator);
     }
 
     pub fn unindent(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut(b.root, unindent_cursel, b.a);
+        const root = try self.with_cursels_mut(b.root, unindent_cursel, b.allocator);
         try self.update_buf(root);
     }
 
@@ -2805,7 +2805,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            root = try self.insert(root, cursel, chars, b.a);
+            root = try self.insert(root, cursel, chars, b.allocator);
         };
         try self.update_buf(root);
         self.clamp();
@@ -2815,7 +2815,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            root = try self.insert(root, cursel, "\n", b.a);
+            root = try self.insert(root, cursel, "\n", b.allocator);
         };
         try self.update_buf(root);
         self.clamp();
@@ -2826,15 +2826,15 @@ pub const Editor = struct {
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.plane), cursel.cursor.col);
-            var sfa = std.heap.stackFallback(512, self.a);
-            const a = sfa.get();
-            var stream = std.ArrayList(u8).init(a);
+            var sfa = std.heap.stackFallback(512, self.allocator);
+            const allocator = sfa.get();
+            var stream = std.ArrayList(u8).init(allocator);
             defer stream.deinit();
             var writer = stream.writer();
             _ = try writer.write("\n");
             while (leading_ws > 0) : (leading_ws -= 1)
                 _ = try writer.write(" ");
-            root = try self.insert(root, cursel, stream.items, b.a);
+            root = try self.insert(root, cursel, stream.items, b.allocator);
         };
         try self.update_buf(root);
         self.clamp();
@@ -2845,7 +2845,7 @@ pub const Editor = struct {
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             try move_cursor_begin(root, &cursel.cursor, self.plane);
-            root = try self.insert(root, cursel, "\n", b.a);
+            root = try self.insert(root, cursel, "\n", b.allocator);
             try move_cursor_left(root, &cursel.cursor, self.plane);
         };
         try self.update_buf(root);
@@ -2858,17 +2858,17 @@ pub const Editor = struct {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.plane), cursel.cursor.col);
             try move_cursor_begin(root, &cursel.cursor, self.plane);
-            root = try self.insert(root, cursel, "\n", b.a);
+            root = try self.insert(root, cursel, "\n", b.allocator);
             try move_cursor_left(root, &cursel.cursor, self.plane);
-            var sfa = std.heap.stackFallback(512, self.a);
-            const a = sfa.get();
-            var stream = std.ArrayList(u8).init(a);
+            var sfa = std.heap.stackFallback(512, self.allocator);
+            const allocator = sfa.get();
+            var stream = std.ArrayList(u8).init(allocator);
             defer stream.deinit();
             var writer = stream.writer();
             while (leading_ws > 0) : (leading_ws -= 1)
                 _ = try writer.write(" ");
             if (stream.items.len > 0)
-                root = try self.insert(root, cursel, stream.items, b.a);
+                root = try self.insert(root, cursel, stream.items, b.allocator);
         };
         try self.update_buf(root);
         self.clamp();
@@ -2879,7 +2879,7 @@ pub const Editor = struct {
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             try move_cursor_end(root, &cursel.cursor, self.plane);
-            root = try self.insert(root, cursel, "\n", b.a);
+            root = try self.insert(root, cursel, "\n", b.allocator);
         };
         try self.update_buf(root);
         self.clamp();
@@ -2891,16 +2891,16 @@ pub const Editor = struct {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.plane), cursel.cursor.col);
             try move_cursor_end(root, &cursel.cursor, self.plane);
-            var sfa = std.heap.stackFallback(512, self.a);
-            const a = sfa.get();
-            var stream = std.ArrayList(u8).init(a);
+            var sfa = std.heap.stackFallback(512, self.allocator);
+            const allocator = sfa.get();
+            var stream = std.ArrayList(u8).init(allocator);
             defer stream.deinit();
             var writer = stream.writer();
             _ = try writer.write("\n");
             while (leading_ws > 0) : (leading_ws -= 1)
                 _ = try writer.write(" ");
             if (stream.items.len > 0)
-                root = try self.insert(root, cursel, stream.items, b.a);
+                root = try self.insert(root, cursel, stream.items, b.allocator);
         };
         try self.update_buf(root);
         self.clamp();
@@ -2935,7 +2935,7 @@ pub const Editor = struct {
             return;
         if (self.syntax) |syn| {
             if (self.syntax_refresh_full) {
-                var content = std.ArrayList(u8).init(self.a);
+                var content = std.ArrayList(u8).init(self.allocator);
                 defer content.deinit();
                 try root.store(content.writer());
                 try syn.refresh_full(content.items);
@@ -2945,13 +2945,13 @@ pub const Editor = struct {
             }
             self.syntax_token = token;
         } else {
-            var content = std.ArrayList(u8).init(self.a);
+            var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
             try root.store(content.writer());
             self.syntax = if (tp.env.get().is("no-syntax"))
                 null
             else
-                syntax.create_guess_file_type(self.a, content.items, self.file_path) catch |e| switch (e) {
+                syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch |e| switch (e) {
                     error.NotFound => null,
                     else => return e,
                 };
@@ -2965,7 +2965,7 @@ pub const Editor = struct {
     pub fn dump_current_line(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        var tree = std.ArrayList(u8).init(self.a);
+        var tree = std.ArrayList(u8).init(self.allocator);
         defer tree.deinit();
         root.debug_render_chunks(primary.cursor.row, &tree, self.plane.metrics()) catch |e|
             return self.logger.print("line {d}: {any}", .{ primary.cursor.row, e });
@@ -2975,7 +2975,7 @@ pub const Editor = struct {
     pub fn dump_current_line_tree(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        var tree = std.ArrayList(u8).init(self.a);
+        var tree = std.ArrayList(u8).init(self.allocator);
         defer tree.deinit();
         root.debug_line_render_tree(primary.cursor.row, &tree) catch |e|
             return self.logger.print("line {d} ast: {any}", .{ primary.cursor.row, e });
@@ -3052,7 +3052,7 @@ pub const Editor = struct {
         self.cancel_all_matches();
         if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
         self.logger.print("find:{s}", .{std.fmt.fmtSliceEscapeLower(query)});
-        var rg = try find_f(self.a, query, "A");
+        var rg = try find_f(self.allocator, query, "A");
         defer rg.deinit();
         if (write_buffer) {
             var rg_buffer = rg.bufferedWriter();
@@ -3064,23 +3064,23 @@ pub const Editor = struct {
     pub fn push_find_history(self: *Self, query: []const u8) void {
         if (query.len == 0) return;
         const history = if (self.find_history) |*hist| hist else ret: {
-            self.find_history = std.ArrayList([]const u8).init(self.a);
+            self.find_history = std.ArrayList([]const u8).init(self.allocator);
             break :ret &self.find_history.?;
         };
         for (history.items, 0..) |entry, i|
             if (std.mem.eql(u8, entry, query))
-                self.a.free(history.orderedRemove(i));
-        const new = self.a.dupe(u8, query) catch return;
+                self.allocator.free(history.orderedRemove(i));
+        const new = self.allocator.dupe(u8, query) catch return;
         (history.addOne() catch return).* = new;
     }
 
     fn set_last_find_query(self: *Self, query: []const u8) void {
         if (self.last_find_query) |last| {
             if (query.ptr != last.ptr) {
-                self.a.free(last);
-                self.last_find_query = self.a.dupe(u8, query) catch return;
+                self.allocator.free(last);
+                self.last_find_query = self.allocator.dupe(u8, query) catch return;
             }
-        } else self.last_find_query = self.a.dupe(u8, query) catch return;
+        } else self.last_find_query = self.allocator.dupe(u8, query) catch return;
     }
 
     pub fn find_in_buffer(self: *Self, query: []const u8) !void {
@@ -3104,12 +3104,12 @@ pub const Editor = struct {
         defer self.add_match_done();
         var ctx: Ctx = .{ .self = self };
         self.init_matches_update();
-        try root.find_all_ranges(query, &ctx, Ctx.cb, self.a);
+        try root.find_all_ranges(query, &ctx, Ctx.cb, self.allocator);
     }
 
     fn find_in_buffer_async(self: *Self, query: []const u8) !void {
         const finder = struct {
-            a: Allocator,
+            allocator: Allocator,
             query: []const u8,
             parent: tp.pid_ref,
             root: Buffer.Root,
@@ -3140,7 +3140,7 @@ pub const Editor = struct {
                     }
                 };
                 defer fdr.parent.send(.{ "A", "done", fdr.token }) catch {};
-                defer fdr.a.free(fdr.query);
+                defer fdr.allocator.free(fdr.query);
                 var ctx: Ctx = .{ .fdr = fdr };
                 try fdr.root.find_all_ranges(fdr.query, &ctx, Ctx.cb, fdr.a);
                 try fdr.send_batch();
@@ -3165,16 +3165,16 @@ pub const Editor = struct {
             }
         };
         self.init_matches_update();
-        const fdr = try self.a.create(finder);
+        const fdr = try self.allocator.create(finder);
         fdr.* = .{
-            .a = self.a,
-            .query = try self.a.dupe(u8, query),
+            .a = self.allocator,
+            .query = try self.allocator.dupe(u8, query),
             .parent = tp.self_pid(),
             .root = try self.buf_root(),
             .token = self.match_token,
-            .matches = Match.List.init(self.a),
+            .matches = Match.List.init(self.allocator),
         };
-        const pid = try tp.spawn_link(self.a, fdr, finder.start, "editor.find");
+        const pid = try tp.spawn_link(self.allocator, fdr, finder.start, "editor.find");
         pid.deinit();
     }
 
@@ -3555,7 +3555,7 @@ pub const Editor = struct {
             return;
         }
         if (self.get_formatter()) |fmtr| {
-            var args = std.ArrayList(u8).init(self.a);
+            var args = std.ArrayList(u8).init(self.allocator);
             const writer = args.writer();
             try cbor.writeArrayHeader(writer, fmtr.len);
             for (fmtr) |arg| try cbor.writeValue(writer, arg);
@@ -3590,14 +3590,14 @@ pub const Editor = struct {
             .pos = .{ .cursor = sel.begin },
             .old_primary = primary.*,
             .old_primary_reversed = reversed,
-            .whole_file = if (primary.selection) |_| null else std.ArrayList(u8).init(self.a),
+            .whole_file = if (primary.selection) |_| null else std.ArrayList(u8).init(self.allocator),
         };
         errdefer self.filter_deinit();
         const state = &self.filter.?;
         var buf: [1024]u8 = undefined;
         const json = try cmd.to_json(&buf);
         self.logger.print("filter: start {s}", .{json});
-        var sp = try tp.subprocess.init(self.a, cmd, "filter", .Pipe);
+        var sp = try tp.subprocess.init(self.allocator, cmd, "filter", .Pipe);
         defer {
             sp.close() catch {};
             sp.deinit();
@@ -3665,7 +3665,7 @@ pub const Editor = struct {
         self.filter = null;
     }
 
-    fn to_upper_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn to_upper_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
         const sel = if (cursel.selection) |*sel| sel else ret: {
@@ -3674,27 +3674,27 @@ pub const Editor = struct {
             move_cursor_word_end(root, &sel.end, self.plane) catch return error.Stop;
             break :ret sel;
         };
-        var sfa = std.heap.stackFallback(4096, self.a);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
-        defer a.free(cut_text);
-        const cd = CaseData.init(a) catch return error.Stop;
+        defer allocator.free(cut_text);
+        const cd = CaseData.init(allocator) catch return error.Stop;
         defer cd.deinit();
-        const ucased = cd.toUpperStr(a, cut_text) catch return error.Stop;
-        defer a.free(ucased);
-        root = try self.delete_selection(root, cursel, a);
-        root = self.insert(root, cursel, ucased, a) catch return error.Stop;
+        const ucased = cd.toUpperStr(allocator, cut_text) catch return error.Stop;
+        defer allocator.free(ucased);
+        root = try self.delete_selection(root, cursel, allocator);
+        root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
         cursel.* = saved;
         return root;
     }
 
     pub fn to_upper(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut(b.root, to_upper_cursel, b.a);
+        const root = try self.with_cursels_mut(b.root, to_upper_cursel, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 
-    fn to_lower_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, a: Allocator) error{Stop}!Buffer.Root {
+    fn to_lower_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
         const sel = if (cursel.selection) |*sel| sel else ret: {
@@ -3703,29 +3703,29 @@ pub const Editor = struct {
             move_cursor_word_end(root, &sel.end, self.plane) catch return error.Stop;
             break :ret sel;
         };
-        var sfa = std.heap.stackFallback(4096, self.a);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
-        defer a.free(cut_text);
-        const cd = CaseData.init(a) catch return error.Stop;
+        defer allocator.free(cut_text);
+        const cd = CaseData.init(allocator) catch return error.Stop;
         defer cd.deinit();
-        const ucased = cd.toLowerStr(a, cut_text) catch return error.Stop;
-        defer a.free(ucased);
-        root = try self.delete_selection(root, cursel, a);
-        root = self.insert(root, cursel, ucased, a) catch return error.Stop;
+        const ucased = cd.toLowerStr(allocator, cut_text) catch return error.Stop;
+        defer allocator.free(ucased);
+        root = try self.delete_selection(root, cursel, allocator);
+        root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
         cursel.* = saved;
         return root;
     }
 
     pub fn to_lower(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut(b.root, to_lower_cursel, b.a);
+        const root = try self.with_cursels_mut(b.root, to_lower_cursel, b.allocator);
         try self.update_buf(root);
         self.clamp();
     }
 };
 
-pub fn create(a: Allocator, parent: Widget) !Widget {
-    return EditorWidget.create(a, parent);
+pub fn create(allocator: Allocator, parent: Widget) !Widget {
+    return EditorWidget.create(allocator, parent);
 }
 
 pub const EditorWidget = struct {
@@ -3744,19 +3744,19 @@ pub const EditorWidget = struct {
     const Self = @This();
     const Commands = command.Collection(Editor);
 
-    fn create(a: Allocator, parent: Widget) !Widget {
-        const container = try WidgetList.createH(a, parent, "editor.container", .dynamic);
-        const self: *Self = try a.create(Self);
-        try self.init(a, container.widget());
+    fn create(allocator: Allocator, parent: Widget) !Widget {
+        const container = try WidgetList.createH(allocator, parent, "editor.container", .dynamic);
+        const self: *Self = try allocator.create(Self);
+        try self.init(allocator, container.widget());
         try self.commands.init(&self.editor);
         const editorWidget = Widget.to(self);
-        try container.add(try editor_gutter.create(a, container.widget(), editorWidget, &self.editor));
+        try container.add(try editor_gutter.create(allocator, container.widget(), editorWidget, &self.editor));
         try container.add(editorWidget);
-        try container.add(try scrollbar_v.create(a, container.widget(), editorWidget, EventHandler.to_unowned(container)));
+        try container.add(try scrollbar_v.create(allocator, container.widget(), editorWidget, EventHandler.to_unowned(container)));
         return container.widget();
     }
 
-    fn init(self: *Self, a: Allocator, parent: Widget) !void {
+    fn init(self: *Self, allocator: Allocator, parent: Widget) !void {
         var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
         errdefer n.deinit();
 
@@ -3765,16 +3765,16 @@ pub const EditorWidget = struct {
             .plane = n,
             .editor = undefined,
         };
-        self.editor.init(a, n);
+        self.editor.init(allocator, n);
         errdefer self.editor.deinit();
         try self.editor.push_cursor();
     }
 
-    pub fn deinit(self: *Self, a: Allocator) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         self.commands.deinit();
         self.editor.deinit();
         self.plane.deinit();
-        a.destroy(self);
+        allocator.destroy(self);
     }
 
     pub fn update(self: *Self) void {
@@ -3932,9 +3932,9 @@ pub const PosToWidthCache = struct {
 
     const Self = @This();
 
-    pub fn init(a: Allocator) !Self {
+    pub fn init(allocator: Allocator) !Self {
         return .{
-            .cache = try std.ArrayList(usize).initCapacity(a, 2048),
+            .cache = try std.ArrayList(usize).initCapacity(allocator, 2048),
         };
     }
 

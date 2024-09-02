@@ -18,7 +18,7 @@ const Parser = treez.Parser;
 const Query = treez.Query;
 pub const Node = treez.Node;
 
-a: std.mem.Allocator,
+allocator: std.mem.Allocator,
 lang: *const Language,
 file_type: *const FileType,
 parser: *Parser,
@@ -26,10 +26,10 @@ query: *Query,
 injections: *Query,
 tree: ?*treez.Tree = null,
 
-pub fn create(file_type: *const FileType, a: std.mem.Allocator, content: []const u8) !*Self {
-    const self = try a.create(Self);
+pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, content: []const u8) !*Self {
+    const self = try allocator.create(Self);
     self.* = .{
-        .a = a,
+        .allocator = allocator,
         .lang = file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{file_type.name}),
         .file_type = file_type,
         .parser = try Parser.create(),
@@ -42,21 +42,21 @@ pub fn create(file_type: *const FileType, a: std.mem.Allocator, content: []const
     return self;
 }
 
-pub fn create_file_type(a: std.mem.Allocator, content: []const u8, lang_name: []const u8) !*Self {
+pub fn create_file_type(allocator: std.mem.Allocator, content: []const u8, lang_name: []const u8) !*Self {
     const file_type = FileType.get_by_name(lang_name) orelse return error.NotFound;
-    return create(file_type, a, content);
+    return create(file_type, allocator, content);
 }
 
-pub fn create_guess_file_type(a: std.mem.Allocator, content: []const u8, file_path: ?[]const u8) !*Self {
+pub fn create_guess_file_type(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8) !*Self {
     const file_type = FileType.guess(file_path, content) orelse return error.NotFound;
-    return create(file_type, a, content);
+    return create(file_type, allocator, content);
 }
 
 pub fn destroy(self: *Self) void {
     if (self.tree) |tree| tree.destroy();
     self.query.destroy();
     self.parser.destroy();
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 pub fn refresh_full(self: *Self, content: []const u8) !void {

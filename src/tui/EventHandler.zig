@@ -96,9 +96,9 @@ pub fn send(self: Self, from_: tp.pid_ref, m: tp.message) tp.result {
     return self.vtable.send(self.ptr, from_, m);
 }
 
-pub fn empty(a: Allocator) !Self {
+pub fn empty(allocator: Allocator) !Self {
     const child: type = struct {};
-    const widget = try a.create(child);
+    const widget = try allocator.create(child);
     widget.* = .{};
     return .{
         .ptr = widget,
@@ -106,8 +106,8 @@ pub fn empty(a: Allocator) !Self {
         .vtable = comptime &.{
             .type_name = @typeName(child),
             .deinit = struct {
-                pub fn deinit(ctx: *anyopaque, a_: Allocator) void {
-                    return a_.destroy(@as(*child, @ptrCast(@alignCast(ctx))));
+                pub fn deinit(ctx: *anyopaque, allocator_: Allocator) void {
+                    return allocator_.destroy(@as(*child, @ptrCast(@alignCast(ctx))));
                 }
             }.deinit,
             .send = struct {
@@ -120,14 +120,14 @@ pub fn empty(a: Allocator) !Self {
 }
 
 pub const List = struct {
-    a: Allocator,
+    allocator: Allocator,
     list: ArrayList(EventHandler),
     recursion_check: bool = false,
 
-    pub fn init(a: Allocator) List {
+    pub fn init(allocator: Allocator) List {
         return .{
-            .a = a,
-            .list = ArrayList(EventHandler).init(a),
+            .allocator = allocator,
+            .list = ArrayList(EventHandler).init(allocator),
         };
     }
 

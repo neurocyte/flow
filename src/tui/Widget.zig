@@ -39,7 +39,7 @@ pub const Layout = union(enum) {
 };
 
 pub const VTable = struct {
-    deinit: *const fn (ctx: *anyopaque, a: Allocator) void,
+    deinit: *const fn (ctx: *anyopaque, allocator: Allocator) void,
     send: *const fn (ctx: *anyopaque, from: tp.pid_ref, m: tp.message) error{Exit}!bool,
     update: *const fn (ctx: *anyopaque) void,
     render: *const fn (ctx: *anyopaque, theme: *const Theme) bool,
@@ -62,8 +62,8 @@ pub fn to(pimpl: anytype) Self {
         .vtable = comptime &.{
             .type_name = @typeName(child),
             .deinit = struct {
-                pub fn deinit(ctx: *anyopaque, a: Allocator) void {
-                    return child.deinit(@as(*child, @ptrCast(@alignCast(ctx))), a);
+                pub fn deinit(ctx: *anyopaque, allocator: Allocator) void {
+                    return child.deinit(@as(*child, @ptrCast(@alignCast(ctx))), allocator);
                 }
             }.deinit,
             .send = if (@hasDecl(child, "receive")) struct {
@@ -169,8 +169,8 @@ pub fn box(self: Self) Box {
     return Box.from(self.plane.*);
 }
 
-pub fn deinit(self: Self, a: Allocator) void {
-    return self.vtable.deinit(self.ptr, a);
+pub fn deinit(self: Self, allocator: Allocator) void {
+    return self.vtable.deinit(self.ptr, allocator);
 }
 
 pub fn msg(self: *const Self, m: anytype) error{Exit}!bool {
@@ -221,9 +221,9 @@ pub fn hover(self: *Self) bool {
     return self.vtable.hover(self.ptr);
 }
 
-pub fn empty(a: Allocator, parent: Plane, layout_: Layout) !Self {
+pub fn empty(allocator: Allocator, parent: Plane, layout_: Layout) !Self {
     const child: type = struct { plane: Plane, layout: Layout };
-    const widget = try a.create(child);
+    const widget = try allocator.create(child);
     const n = try Plane.init(&(Box{}).opts("empty"), parent);
     widget.* = .{ .plane = n, .layout = layout_ };
     return .{
@@ -232,10 +232,10 @@ pub fn empty(a: Allocator, parent: Plane, layout_: Layout) !Self {
         .vtable = comptime &.{
             .type_name = @typeName(child),
             .deinit = struct {
-                pub fn deinit(ctx: *anyopaque, a_: Allocator) void {
+                pub fn deinit(ctx: *anyopaque, allocator_: Allocator) void {
                     const self: *child = @ptrCast(@alignCast(ctx));
                     self.plane.deinit();
-                    a_.destroy(self);
+                    allocator_.destroy(self);
                 }
             }.deinit,
             .send = struct {

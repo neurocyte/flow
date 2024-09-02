@@ -24,24 +24,24 @@ pub const Match = struct {
 
 pub fn deinit(palette: *Type) void {
     for (palette.entries.items) |entry|
-        palette.a.free(entry.name);
+        palette.allocator.free(entry.name);
 }
 
 pub fn load_entries(palette: *Type) !void {
-    const rsp = try project_manager.request_recent_projects(palette.a);
-    defer palette.a.free(rsp.buf);
+    const rsp = try project_manager.request_recent_projects(palette.allocator);
+    defer palette.allocator.free(rsp.buf);
     var iter: []const u8 = rsp.buf;
     var len = try cbor.decodeArrayHeader(&iter);
     while (len > 0) : (len -= 1) {
         var name_: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract(&name_))) {
-            (try palette.entries.addOne()).* = .{ .name = try palette.a.dupe(u8, name_) };
+            (try palette.entries.addOne()).* = .{ .name = try palette.allocator.dupe(u8, name_) };
         } else return error.InvalidMessageField;
     }
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-    var value = std.ArrayList(u8).init(palette.a);
+    var value = std.ArrayList(u8).init(palette.allocator);
     defer value.deinit();
     const writer = value.writer();
     try cbor.writeValue(writer, entry.name);

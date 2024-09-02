@@ -19,7 +19,7 @@ const tui = @import("tui.zig");
 const command = @import("command.zig");
 const ed = @import("editor.zig");
 
-a: Allocator,
+allocator: Allocator,
 plane: Plane,
 parent: Widget,
 
@@ -40,10 +40,10 @@ const Self = @This();
 const Kind = enum { insert, modified, delete };
 const Symbol = struct { kind: Kind, line: usize };
 
-pub fn create(a: Allocator, parent: Widget, event_source: Widget, editor: *ed.Editor) !Widget {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor: *ed.Editor) !Widget {
+    const self: *Self = try allocator.create(Self);
     self.* = .{
-        .a = a,
+        .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
         .parent = parent,
         .linenum = tui.current().config.gutter_line_numbers,
@@ -51,7 +51,7 @@ pub fn create(a: Allocator, parent: Widget, event_source: Widget, editor: *ed.Ed
         .highlight = tui.current().config.highlight_current_line_gutter,
         .editor = editor,
         .diff = try diff.create(),
-        .diff_symbols = std.ArrayList(Symbol).init(a),
+        .diff_symbols = std.ArrayList(Symbol).init(allocator),
     };
     try tui.current().message_filters.add(MessageFilter.bind(self, filter_receive));
     try event_source.subscribe(EventHandler.bind(self, handle_event));
@@ -62,12 +62,12 @@ pub fn widget(self: *Self) Widget {
     return Widget.to(self);
 }
 
-pub fn deinit(self: *Self, a: Allocator) void {
+pub fn deinit(self: *Self, allocator: Allocator) void {
     self.diff_symbols_clear();
     self.diff_symbols.deinit();
     tui.current().message_filters.remove_ptr(self);
     self.plane.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 fn diff_symbols_clear(self: *Self) void {
