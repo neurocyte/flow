@@ -25,8 +25,8 @@ pub const Metrics = struct {
 };
 
 arena: std.heap.ArenaAllocator,
-a: Allocator,
-external_a: Allocator,
+allocator: Allocator,
+external_allocator: Allocator,
 root: Root,
 leaves_buf: ?[]Node = null,
 file_buf: ?[]const u8 = null,
@@ -111,7 +111,7 @@ pub const Branch = struct {
         return result;
     }
 
-    fn merge_results(self: *const Branch, a: Allocator, left: WalkerMut, right: WalkerMut) WalkerMut {
+    fn merge_results(self: *const Branch, allocator: Allocator, left: WalkerMut, right: WalkerMut) WalkerMut {
         var result = WalkerMut{};
         result.err = if (left.err) |_| left.err else right.err;
         if (left.replace != null or right.replace != null) {
@@ -122,7 +122,7 @@ pub const Branch = struct {
             else if (new_right.is_empty())
                 new_left
             else
-                Node.new(a, new_left, new_right) catch |e| return .{ .err = e };
+                Node.new(allocator, new_left, new_right) catch |e| return .{ .err = e };
         }
         result.keep_walking = left.keep_walking and right.keep_walking;
         result.found = left.found or right.found;
@@ -135,10 +135,10 @@ pub const Leaf = struct {
     bol: bool = true,
     eol: bool = true,
 
-    fn new(a: Allocator, piece: []const u8, bol: bool, eol: bool) !*const Node {
+    fn new(allocator: Allocator, piece: []const u8, bol: bool, eol: bool) !*const Node {
         if (piece.len == 0)
             return if (!bol and !eol) &empty_leaf else if (bol and !eol) &empty_bol_leaf else if (!bol and eol) &empty_eol_leaf else &empty_line_leaf;
-        const node = try a.create(Node);
+        const node = try allocator.create(Node);
         node.* = .{ .leaf = .{ .buf = piece, .bol = bol, .eol = eol } };
         return node;
     }
@@ -242,8 +242,8 @@ const Node = union(enum) {
 
     const walker = *const fn (ctx: *anyopaque, node: *const Node) WalkerMut;
 
-    fn new(a: Allocator, l: *const Node, r: *const Node) !*const Node {
-        const node = try a.create(Node);
+    fn new(allocator: Allocator, l: *const Node, r: *const Node) !*const Node {
+        const node = try allocator.create(Node);
         const l_weights_sum = l.weights_sum();
         var weights_sum_ = Weights{};
         weights_sum_.add(l_weights_sum);
@@ -279,24 +279,24 @@ const Node = union(enum) {
         };
     }
 
-    pub fn rebalance(self: *const Node, a: Allocator, tmp_a: Allocator) !Root {
+    pub fn rebalance(self: *const Node, allocator: Allocator, tmp_allocator: Allocator) !Root {
         return if (self.is_balanced()) self else bal: {
-            const leaves = try self.collect_leaves(tmp_a);
-            defer tmp_a.free(leaves);
-            break :bal self.merge(leaves, a);
+            const leaves = try self.collect_leaves(tmp_allocator);
+            defer tmp_allocator.free(leaves);
+            break :bal self.merge(leaves, allocator);
         };
     }
 
-    fn merge(self: *const Node, leaves: []*const Node, a: Allocator) !Root {
+    fn merge(self: *const Node, leaves: []*const Node, allocator: Allocator) !Root {
         const len = leaves.len;
         if (len == 1) {
             return leaves[0];
         }
         if (len == 2) {
-            return Node.new(a, leaves[0], leaves[1]);
+            return Node.new(allocator, leaves[0], leaves[1]);
         }
         const mid = len / 2;
-        return Node.new(a, try self.merge(leaves[0..mid], a), try self.merge(leaves[mid..], a));
+        return Node.new(allocator, try self.merge(leaves[0..mid], allocator), try self.merge(leaves[mid..], allocator));
     }
 
     fn is_empty(self: *const Node) bool {
@@ -316,8 +316,8 @@ const Node = union(enum) {
         }
     }
 
-    fn collect_leaves(self: *const Node, a: Allocator) ![]*const Node {
-        var leaves = ArrayList(*const Node).init(a);
+    fn collect_leaves(self: *const Node, allocator: Allocator) ![]*const Node {
+        var leaves = ArrayList(*const Node).init(allocator);
         try leaves.ensureTotalCapacity(self.lines());
         try self.collect(&leaves);
         return leaves.toOwnedSlice();
@@ -340,21 +340,21 @@ const Node = union(enum) {
         }
     }
 
-    fn walk(self: *const Node, a: Allocator, f: WalkerMut.F, ctx: *anyopaque, metrics: Metrics) WalkerMut {
+    fn walk(self: *const Node, allocator: Allocator, f: WalkerMut.F, ctx: *anyopaque, metrics: Metrics) WalkerMut {
         switch (self.*) {
             .node => |*node| {
-                const left = node.left.walk(a, f, ctx, metrics);
+                const left = node.left.walk(allocator, f, ctx, metrics);
                 if (!left.keep_walking) {
                     var result = WalkerMut{};
                     result.err = left.err;
                     result.found = left.found;
                     if (left.replace) |p| {
-                        result.replace = Node.new(a, p, node.right) catch |e| return .{ .err = e };
+                        result.replace = Node.new(allocator, p, node.right) catch |e| return .{ .err = e };
                     }
                     return result;
                 }
-                const right = node.right.walk(a, f, ctx, metrics);
-                return node.merge_results(a, left, right);
+                const right = node.right.walk(allocator, f, ctx, metrics);
+                return node.merge_results(allocator, left, right);
             },
             .leaf => |*l| return f(ctx, l, metrics),
         }
@@ -388,12 +388,12 @@ const Node = union(enum) {
         return result.found;
     }
 
-    fn walk_from_line_begin_internal(self: *const Node, a: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque, metrics: Metrics) WalkerMut {
+    fn walk_from_line_begin_internal(self: *const Node, allocator: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque, metrics: Metrics) WalkerMut {
         switch (self.*) {
             .node => |*node| {
                 const left_bols = node.weights.bols;
                 if (line >= left_bols) {
-                    const right_result = node.right.walk_from_line_begin_internal(a, line - left_bols, f, ctx, metrics);
+                    const right_result = node.right.walk_from_line_begin_internal(allocator, line - left_bols, f, ctx, metrics);
                     if (right_result.replace) |p| {
                         var result = WalkerMut{};
                         result.err = right_result.err;
@@ -402,15 +402,15 @@ const Node = union(enum) {
                         result.replace = if (p.is_empty())
                             node.left
                         else
-                            Node.new(a, node.left, p) catch |e| return .{ .err = e };
+                            Node.new(allocator, node.left, p) catch |e| return .{ .err = e };
                         return result;
                     } else {
                         return right_result;
                     }
                 }
-                const left_result = node.left.walk_from_line_begin_internal(a, line, f, ctx, metrics);
-                const right_result = if (left_result.found and left_result.keep_walking) node.right.walk(a, f, ctx, metrics) else WalkerMut{};
-                return node.merge_results(a, left_result, right_result);
+                const left_result = node.left.walk_from_line_begin_internal(allocator, line, f, ctx, metrics);
+                const right_result = if (left_result.found and left_result.keep_walking) node.right.walk(allocator, f, ctx, metrics) else WalkerMut{};
+                return node.merge_results(allocator, left_result, right_result);
             },
             .leaf => |*l| {
                 if (line == 0) {
@@ -427,8 +427,8 @@ const Node = union(enum) {
         }
     }
 
-    pub fn walk_from_line_begin(self: *const Node, a: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque, metrics: Metrics) !struct { bool, ?Root } {
-        const result = self.walk_from_line_begin_internal(a, line, f, ctx, metrics);
+    pub fn walk_from_line_begin(self: *const Node, allocator: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque, metrics: Metrics) !struct { bool, ?Root } {
+        const result = self.walk_from_line_begin_internal(allocator, line, f, ctx, metrics);
         if (result.err) |e| return e;
         return .{ result.found, result.replace };
     }
@@ -608,15 +608,15 @@ const Node = union(enum) {
         return result orelse "";
     }
 
-    pub fn delete_range(self: *const Node, sel: Selection, a: Allocator, size: ?*usize, metrics: Metrics) error{Stop}!Root {
+    pub fn delete_range(self: *const Node, sel: Selection, allocator: Allocator, size: ?*usize, metrics: Metrics) error{Stop}!Root {
         var wcwidth: usize = 0;
         _ = self.get_range(sel, null, size, &wcwidth, metrics) catch return error.Stop;
-        return self.del_chars(sel.begin.row, sel.begin.col, wcwidth, a, metrics) catch return error.Stop;
+        return self.del_chars(sel.begin.row, sel.begin.col, wcwidth, allocator, metrics) catch return error.Stop;
     }
 
-    pub fn del_chars(self: *const Node, line: usize, col: usize, count: usize, a: Allocator, metrics_: Metrics) !Root {
+    pub fn del_chars(self: *const Node, line: usize, col: usize, count: usize, allocator: Allocator, metrics_: Metrics) !Root {
         const Ctx = struct {
-            a: Allocator,
+            allocator: Allocator,
             col: usize,
             abs_col: usize = 0,
             count: usize,
@@ -625,7 +625,7 @@ const Node = union(enum) {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(Ctx)));
                 var result = WalkerMut.keep_walking;
                 if (ctx.delete_next_bol and ctx.count == 0) {
-                    result.replace = Leaf.new(ctx.a, leaf.buf, false, leaf.eol) catch |e| return .{ .err = e };
+                    result.replace = Leaf.new(ctx.allocator, leaf.buf, false, leaf.eol) catch |e| return .{ .err = e };
                     result.keep_walking = false;
                     ctx.delete_next_bol = false;
                     return result;
@@ -645,23 +645,23 @@ const Node = union(enum) {
                     if (ctx.col == 0) {
                         if (ctx.count > leaf_wcwidth) {
                             ctx.count -= leaf_wcwidth;
-                            result.replace = Leaf.new(ctx.a, "", leaf_bol, false) catch |e| return .{ .err = e };
+                            result.replace = Leaf.new(ctx.allocator, "", leaf_bol, false) catch |e| return .{ .err = e };
                             if (leaf.eol) {
                                 ctx.count -= 1;
                                 ctx.delete_next_bol = true;
                             }
                         } else if (ctx.count == leaf_wcwidth) {
-                            result.replace = Leaf.new(ctx.a, "", leaf_bol, leaf.eol) catch |e| return .{ .err = e };
+                            result.replace = Leaf.new(ctx.allocator, "", leaf_bol, leaf.eol) catch |e| return .{ .err = e };
                             ctx.count = 0;
                         } else {
                             const pos = leaf.width_to_pos(ctx.count, base_col, metrics) catch |e| return .{ .err = e };
-                            result.replace = Leaf.new(ctx.a, leaf.buf[pos..], leaf_bol, leaf.eol) catch |e| return .{ .err = e };
+                            result.replace = Leaf.new(ctx.allocator, leaf.buf[pos..], leaf_bol, leaf.eol) catch |e| return .{ .err = e };
                             ctx.count = 0;
                         }
                     } else if (ctx.col == leaf_wcwidth) {
                         if (leaf.eol) {
                             ctx.count -= 1;
-                            result.replace = Leaf.new(ctx.a, leaf.buf, leaf_bol, false) catch |e| return .{ .err = e };
+                            result.replace = Leaf.new(ctx.allocator, leaf.buf, leaf_bol, false) catch |e| return .{ .err = e };
                             ctx.delete_next_bol = true;
                         }
                         ctx.col -= leaf_wcwidth;
@@ -674,14 +674,14 @@ const Node = union(enum) {
                                 ctx.delete_next_bol = true;
                                 break :leaf_eol false;
                             } else leaf.eol;
-                            result.replace = Leaf.new(ctx.a, leaf.buf[0..pos], leaf_bol, leaf_eol) catch |e| return .{ .err = e };
+                            result.replace = Leaf.new(ctx.allocator, leaf.buf[0..pos], leaf_bol, leaf_eol) catch |e| return .{ .err = e };
                             ctx.col = 0;
                         } else {
                             const pos = leaf.width_to_pos(ctx.col, base_col, metrics) catch |e| return .{ .err = e };
                             const pos_end = leaf.width_to_pos(ctx.col + ctx.count, base_col, metrics) catch |e| return .{ .err = e };
-                            const left = Leaf.new(ctx.a, leaf.buf[0..pos], leaf_bol, false) catch |e| return .{ .err = e };
-                            const right = Leaf.new(ctx.a, leaf.buf[pos_end..], false, leaf.eol) catch |e| return .{ .err = e };
-                            result.replace = Node.new(ctx.a, left, right) catch |e| return .{ .err = e };
+                            const left = Leaf.new(ctx.allocator, leaf.buf[0..pos], leaf_bol, false) catch |e| return .{ .err = e };
+                            const right = Leaf.new(ctx.allocator, leaf.buf[pos_end..], false, leaf.eol) catch |e| return .{ .err = e };
+                            result.replace = Node.new(ctx.allocator, left, right) catch |e| return .{ .err = e };
                             ctx.count = 0;
                         }
                     }
@@ -691,21 +691,21 @@ const Node = union(enum) {
                 return result;
             }
         };
-        var ctx: Ctx = .{ .a = a, .col = col, .count = count };
-        const found, const root = try self.walk_from_line_begin(a, line, Ctx.walker, &ctx, metrics_);
+        var ctx: Ctx = .{ .allocator = allocator, .col = col, .count = count };
+        const found, const root = try self.walk_from_line_begin(allocator, line, Ctx.walker, &ctx, metrics_);
         return if (found) (root orelse error.Stop) else error.NotFound;
     }
 
-    fn merge_in_place(leaves: []const Node, a: Allocator) !Root {
+    fn merge_in_place(leaves: []const Node, allocator: Allocator) !Root {
         const len = leaves.len;
         if (len == 1) {
             return &leaves[0];
         }
         if (len == 2) {
-            return Node.new(a, &leaves[0], &leaves[1]);
+            return Node.new(allocator, &leaves[0], &leaves[1]);
         }
         const mid = len / 2;
-        return Node.new(a, try merge_in_place(leaves[0..mid], a), try merge_in_place(leaves[mid..], a));
+        return Node.new(allocator, try merge_in_place(leaves[0..mid], allocator), try merge_in_place(leaves[mid..], allocator));
     }
 
     pub fn get_line(self: *const Node, line: usize, result: *ArrayList(u8), metrics: Metrics) !void {
@@ -756,12 +756,12 @@ const Node = union(enum) {
         line_: usize,
         col_: usize,
         s: []const u8,
-        a: Allocator,
+        allocator: Allocator,
         metrics_: Metrics,
     ) !struct { usize, usize, Root } {
         var self = self_;
         const Ctx = struct {
-            a: Allocator,
+            allocator: Allocator,
             col: usize,
             abs_col: usize = 0,
             s: []const u8,
@@ -774,46 +774,46 @@ const Node = union(enum) {
                 Ctx.abs_col += leaf_wcwidth;
 
                 if (Ctx.col == 0) {
-                    const left = Leaf.new(Ctx.a, Ctx.s, leaf.bol, Ctx.eol) catch |e| return .{ .err = e };
-                    const right = Leaf.new(Ctx.a, leaf.buf, Ctx.eol, leaf.eol) catch |e| return .{ .err = e };
-                    return .{ .replace = Node.new(Ctx.a, left, right) catch |e| return .{ .err = e } };
+                    const left = Leaf.new(Ctx.allocator, Ctx.s, leaf.bol, Ctx.eol) catch |e| return .{ .err = e };
+                    const right = Leaf.new(Ctx.allocator, leaf.buf, Ctx.eol, leaf.eol) catch |e| return .{ .err = e };
+                    return .{ .replace = Node.new(Ctx.allocator, left, right) catch |e| return .{ .err = e } };
                 }
 
                 if (leaf_wcwidth == Ctx.col) {
                     if (leaf.eol and Ctx.eol and Ctx.s.len == 0) {
-                        const left = Leaf.new(Ctx.a, leaf.buf, leaf.bol, true) catch |e| return .{ .err = e };
-                        const right = Leaf.new(Ctx.a, Ctx.s, true, true) catch |e| return .{ .err = e };
-                        return .{ .replace = Node.new(Ctx.a, left, right) catch |e| return .{ .err = e } };
+                        const left = Leaf.new(Ctx.allocator, leaf.buf, leaf.bol, true) catch |e| return .{ .err = e };
+                        const right = Leaf.new(Ctx.allocator, Ctx.s, true, true) catch |e| return .{ .err = e };
+                        return .{ .replace = Node.new(Ctx.allocator, left, right) catch |e| return .{ .err = e } };
                     }
-                    const left = Leaf.new(Ctx.a, leaf.buf, leaf.bol, false) catch |e| return .{ .err = e };
+                    const left = Leaf.new(Ctx.allocator, leaf.buf, leaf.bol, false) catch |e| return .{ .err = e };
                     if (Ctx.eol) {
-                        const middle = Leaf.new(Ctx.a, Ctx.s, false, Ctx.eol) catch |e| return .{ .err = e };
-                        const right = Leaf.new(Ctx.a, "", Ctx.eol, leaf.eol) catch |e| return .{ .err = e };
+                        const middle = Leaf.new(Ctx.allocator, Ctx.s, false, Ctx.eol) catch |e| return .{ .err = e };
+                        const right = Leaf.new(Ctx.allocator, "", Ctx.eol, leaf.eol) catch |e| return .{ .err = e };
                         return .{ .replace = Node.new(
-                            Ctx.a,
+                            Ctx.allocator,
                             left,
-                            Node.new(Ctx.a, middle, right) catch |e| return .{ .err = e },
+                            Node.new(Ctx.allocator, middle, right) catch |e| return .{ .err = e },
                         ) catch |e| return .{ .err = e } };
                     } else {
-                        const right = Leaf.new(Ctx.a, Ctx.s, false, leaf.eol) catch |e| return .{ .err = e };
-                        return .{ .replace = Node.new(Ctx.a, left, right) catch |e| return .{ .err = e } };
+                        const right = Leaf.new(Ctx.allocator, Ctx.s, false, leaf.eol) catch |e| return .{ .err = e };
+                        return .{ .replace = Node.new(Ctx.allocator, left, right) catch |e| return .{ .err = e } };
                     }
                 }
 
                 if (leaf_wcwidth > Ctx.col) {
                     const pos = leaf.width_to_pos(Ctx.col, base_col, metrics) catch |e| return .{ .err = e };
                     if (Ctx.eol and Ctx.s.len == 0) {
-                        const left = Leaf.new(Ctx.a, leaf.buf[0..pos], leaf.bol, Ctx.eol) catch |e| return .{ .err = e };
-                        const right = Leaf.new(Ctx.a, leaf.buf[pos..], Ctx.eol, leaf.eol) catch |e| return .{ .err = e };
-                        return .{ .replace = Node.new(Ctx.a, left, right) catch |e| return .{ .err = e } };
+                        const left = Leaf.new(Ctx.allocator, leaf.buf[0..pos], leaf.bol, Ctx.eol) catch |e| return .{ .err = e };
+                        const right = Leaf.new(Ctx.allocator, leaf.buf[pos..], Ctx.eol, leaf.eol) catch |e| return .{ .err = e };
+                        return .{ .replace = Node.new(Ctx.allocator, left, right) catch |e| return .{ .err = e } };
                     }
-                    const left = Leaf.new(Ctx.a, leaf.buf[0..pos], leaf.bol, false) catch |e| return .{ .err = e };
-                    const middle = Leaf.new(Ctx.a, Ctx.s, false, Ctx.eol) catch |e| return .{ .err = e };
-                    const right = Leaf.new(Ctx.a, leaf.buf[pos..], Ctx.eol, leaf.eol) catch |e| return .{ .err = e };
+                    const left = Leaf.new(Ctx.allocator, leaf.buf[0..pos], leaf.bol, false) catch |e| return .{ .err = e };
+                    const middle = Leaf.new(Ctx.allocator, Ctx.s, false, Ctx.eol) catch |e| return .{ .err = e };
+                    const right = Leaf.new(Ctx.allocator, leaf.buf[pos..], Ctx.eol, leaf.eol) catch |e| return .{ .err = e };
                     return .{ .replace = Node.new(
-                        Ctx.a,
+                        Ctx.allocator,
                         left,
-                        Node.new(Ctx.a, middle, right) catch |e| return .{ .err = e },
+                        Node.new(Ctx.allocator, middle, right) catch |e| return .{ .err = e },
                     ) catch |e| return .{ .err = e } };
                 }
 
@@ -822,7 +822,7 @@ const Node = union(enum) {
             }
         };
         if (s.len == 0) return error.Stop;
-        var rest = try a.dupe(u8, s);
+        var rest = try allocator.dupe(u8, s);
         var chunk = rest;
         var line = line_;
         var col = col_;
@@ -837,8 +837,8 @@ const Node = union(enum) {
                 rest = &[_]u8{};
                 need_eol = false;
             }
-            var ctx: Ctx = .{ .a = a, .col = col, .s = chunk, .eol = need_eol };
-            const found, const replace = try self.walk_from_line_begin(a, line, Ctx.walker, &ctx, metrics_);
+            var ctx: Ctx = .{ .allocator = allocator, .col = col, .s = chunk, .eol = need_eol };
+            const found, const replace = try self.walk_from_line_begin(allocator, line, Ctx.walker, &ctx, metrics_);
             if (!found) return error.NotFound;
             if (replace) |root| self = root;
             if (need_eol) {
@@ -866,7 +866,7 @@ const Node = union(enum) {
     }
 
     pub const FindAllCallback = fn (data: *anyopaque, begin_row: usize, begin_col: usize, end_row: usize, end_col: usize) error{Stop}!void;
-    pub fn find_all_ranges(self: *const Node, pattern: []const u8, data: *anyopaque, callback: *const FindAllCallback, a: Allocator) !void {
+    pub fn find_all_ranges(self: *const Node, pattern: []const u8, data: *anyopaque, callback: *const FindAllCallback, allocator: Allocator) !void {
         const Ctx = struct {
             pattern: []const u8,
             data: *anyopaque,
@@ -932,9 +932,9 @@ const Node = union(enum) {
             .pattern = pattern,
             .data = data,
             .callback = callback,
-            .buf = try a.alloc(u8, pattern.len * 2),
+            .buf = try allocator.alloc(u8, pattern.len * 2),
         };
-        defer a.free(ctx.buf);
+        defer allocator.free(ctx.buf);
         return self.store(ctx.writer());
     }
 
@@ -1012,33 +1012,33 @@ const Node = union(enum) {
     }
 };
 
-pub fn create(a: Allocator) !*Self {
-    const self = try a.create(Self);
-    const arena_a = if (builtin.is_test) a else std.heap.page_allocator;
+pub fn create(allocator: Allocator) !*Self {
+    const self = try allocator.create(Self);
+    const arena_a = if (builtin.is_test) allocator else std.heap.page_allocator;
     self.* = .{
         .arena = std.heap.ArenaAllocator.init(arena_a),
-        .a = self.arena.allocator(),
-        .external_a = a,
-        .root = try Node.new(self.a, &empty_leaf, &empty_leaf),
+        .allocator = self.arena.allocator(),
+        .external_allocator = allocator,
+        .root = try Node.new(self.allocator, &empty_leaf, &empty_leaf),
     };
     return self;
 }
 
 pub fn deinit(self: *Self) void {
-    if (self.file_buf) |buf| self.external_a.free(buf);
-    if (self.leaves_buf) |buf| self.external_a.free(buf);
+    if (self.file_buf) |buf| self.external_allocator.free(buf);
+    if (self.leaves_buf) |buf| self.external_allocator.free(buf);
     self.arena.deinit();
-    self.external_a.destroy(self);
+    self.external_allocator.destroy(self);
 }
 
 fn new_file(self: *const Self, file_exists: *bool) !Root {
     file_exists.* = false;
-    return Leaf.new(self.a, "", true, false);
+    return Leaf.new(self.allocator, "", true, false);
 }
 
 pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
     const eol = '\n';
-    var buf = try self.external_a.alloc(u8, size);
+    var buf = try self.external_allocator.alloc(u8, size);
     const self_ = @constCast(self);
     self_.file_buf = buf;
     const read_size = try reader.readAll(buf);
@@ -1053,7 +1053,7 @@ pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
         if (buf[i] == eol) leaf_count += 1;
     }
 
-    var leaves = try self.external_a.alloc(Node, leaf_count);
+    var leaves = try self.external_allocator.alloc(Node, leaf_count);
     self_.leaves_buf = leaves;
     var cur_leaf: usize = 0;
     var b: usize = 0;
@@ -1069,7 +1069,7 @@ pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
     leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = false } };
     if (leaves.len != cur_leaf + 1)
         return error.Unexpected;
-    return Node.merge_in_place(leaves, self.a);
+    return Node.merge_in_place(leaves, self.allocator);
 }
 
 pub fn load_from_string(self: *const Self, s: []const u8) !Root {
@@ -1079,7 +1079,7 @@ pub fn load_from_string(self: *const Self, s: []const u8) !Root {
 
 pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) !void {
     self.root = try self.load_from_string(s);
-    self.file_path = try self.a.dupe(u8, file_path);
+    self.file_path = try self.allocator.dupe(u8, file_path);
     self.last_save = self.root;
     self.file_exists = false;
 }
@@ -1099,13 +1099,13 @@ pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bo
 pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {
     var file_exists: bool = false;
     self.root = try self.load_from_file(file_path, &file_exists);
-    self.file_path = try self.a.dupe(u8, file_path);
+    self.file_path = try self.allocator.dupe(u8, file_path);
     self.last_save = self.root;
     self.file_exists = file_exists;
 }
 
-pub fn store_to_string(self: *const Self, a: Allocator) ![]u8 {
-    var s = try ArrayList(u8).initCapacity(a, self.root.weights_sum().len);
+pub fn store_to_string(self: *const Self, allocator: Allocator) ![]u8 {
+    var s = try ArrayList(u8).initCapacity(allocator, self.root.weights_sum().len);
     try self.root.store(s.writer());
     return s.toOwnedSlice();
 }
@@ -1169,8 +1169,8 @@ pub fn store_undo(self: *Self, meta: []const u8) !void {
 }
 
 fn create_undo(self: *const Self, root: Root, meta_: []const u8) !*UndoNode {
-    const h = try self.a.create(UndoNode);
-    const meta = try self.a.dupe(u8, meta_);
+    const h = try self.allocator.create(UndoNode);
+    const meta = try self.allocator.dupe(u8, meta_);
     h.* = UndoNode{
         .root = root,
         .meta = meta,
@@ -1194,7 +1194,7 @@ fn push_redo_branch(self: *Self) !void {
     const r = self.redo_history orelse return;
     const u = self.undo_history orelse return;
     const next = u.branches;
-    const b = try self.a.create(UndoBranch);
+    const b = try self.allocator.create(UndoBranch);
     b.* = .{
         .redo = r,
         .next = next,

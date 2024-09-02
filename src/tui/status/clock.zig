@@ -26,22 +26,22 @@ const Level = enum {
     err,
 };
 
-pub fn create(a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
-    var env = std.process.getEnvMap(a) catch |e| return tp.exit_error(e, @errorReturnTrace());
+pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+    var env = std.process.getEnvMap(allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
     defer env.deinit();
-    const self: *Self = try a.create(Self);
+    const self: *Self = try allocator.create(Self);
     self.* = .{
-        .allocator = a,
+        .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .on_event = event_handler,
-        .tz = zeit.local(a, &env) catch |e| return tp.exit_error(e, @errorReturnTrace()),
+        .tz = zeit.local(allocator, &env) catch |e| return tp.exit_error(e, @errorReturnTrace()),
     };
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_tick));
     self.update_tick_timer(.init);
     return Widget.to(self);
 }
 
-pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     tui.current().message_filters.remove_ptr(self);
     if (self.tick_timer) |*t| {
         t.cancel() catch {};
@@ -50,7 +50,7 @@ pub fn deinit(self: *Self, a: std.mem.Allocator) void {
     }
     self.tz.deinit();
     self.plane.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {

@@ -76,10 +76,10 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
     return Widget.to(self);
 }
 
-pub fn deinit(self: *Self, a: Allocator) void {
+pub fn deinit(self: *Self, allocator: Allocator) void {
     self.plane.deinit();
     self.commands.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.Style {

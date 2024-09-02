@@ -46,28 +46,28 @@ pub fn Options(context: type) type {
     };
 }
 
-pub fn create(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) error{OutOfMemory}!*State(ctx_type) {
+pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) error{OutOfMemory}!*State(ctx_type) {
     const Self = State(ctx_type);
-    const self = try a.create(Self);
+    const self = try allocator.create(Self);
     var n = try Plane.init(&opts.pos.opts(@typeName(Self)), parent);
     errdefer n.deinit();
     self.* = .{
-        .a = a,
+        .allocator = allocator,
         .parent = parent,
         .plane = n,
         .opts = opts,
     };
-    self.opts.label = try self.a.dupe(u8, opts.label);
+    self.opts.label = try self.allocator.dupe(u8, opts.label);
     return self;
 }
 
-pub fn create_widget(ctx_type: type, a: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) error{OutOfMemory}!Widget {
-    return Widget.to(try create(ctx_type, a, parent, opts));
+pub fn create_widget(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) error{OutOfMemory}!Widget {
+    return Widget.to(try create(ctx_type, allocator, parent, opts));
 }
 
 pub fn State(ctx_type: type) type {
     return struct {
-        a: std.mem.Allocator,
+        allocator: std.mem.Allocator,
         parent: Plane,
         plane: Plane,
         active: bool = false,
@@ -77,10 +77,10 @@ pub fn State(ctx_type: type) type {
         const Self = @This();
         pub const Context = ctx_type;
 
-        pub fn deinit(self: *Self, a: std.mem.Allocator) void {
-            self.a.free(self.opts.label);
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            self.allocator.free(self.opts.label);
             self.plane.deinit();
-            a.destroy(self);
+            allocator.destroy(self);
         }
 
         pub fn layout(self: *Self) Widget.Layout {

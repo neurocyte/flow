@@ -17,23 +17,23 @@ const eql = @import("std").mem.eql;
 
 const Self = @This();
 
-a: Allocator,
+allocator: Allocator,
 buf: [1024]u8 = undefined,
 input: []u8 = "",
 last_buf: [1024]u8 = undefined,
 last_input: []u8 = "",
 mainview: *mainview,
 
-pub fn create(a: Allocator, _: command.Context) !*Self {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: Allocator, _: command.Context) !*Self {
+    const self: *Self = try allocator.create(Self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv| {
         self.* = .{
-            .a = a,
+            .allocator = allocator,
             .mainview = mv,
         };
         if (mv.get_editor()) |editor| if (editor.get_primary().selection) |sel| ret: {
-            const text = editor.get_selection(sel, self.a) catch break :ret;
-            defer self.a.free(text);
+            const text = editor.get_selection(sel, self.allocator) catch break :ret;
+            defer self.allocator.free(text);
             @memcpy(self.buf[0..text.len], text);
             self.input = self.buf[0..text.len];
         };
@@ -43,7 +43,7 @@ pub fn create(a: Allocator, _: command.Context) !*Self {
 }
 
 pub fn deinit(self: *Self) void {
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 pub fn handler(self: *Self) EventHandler {

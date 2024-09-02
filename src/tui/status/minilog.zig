@@ -26,20 +26,20 @@ const Level = enum {
     err,
 };
 
-pub fn create(a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+    const self: *Self = try allocator.create(Self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-        .msg = std.ArrayList(u8).init(a),
+        .msg = std.ArrayList(u8).init(allocator),
         .on_event = event_handler,
     };
-    logview.init(a);
+    logview.init(allocator);
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_log));
     try log.subscribe();
     return Widget.to(self);
 }
 
-pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     if (self.clear_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -49,7 +49,7 @@ pub fn deinit(self: *Self, a: std.mem.Allocator) void {
     log.unsubscribe() catch {};
     tui.current().message_filters.remove_ptr(self);
     self.plane.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {

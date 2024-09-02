@@ -25,7 +25,7 @@ const Timer = std.time.Timer;
 const Mutex = std.Thread.Mutex;
 const maxInt = std.math.maxInt;
 
-a: Allocator,
+allocator: Allocator,
 rdr: renderer,
 config: config,
 frame_time: usize, // in microseconds
@@ -68,30 +68,30 @@ const Self = @This();
 const Receiver = tp.Receiver(*Self);
 const Commands = command.Collection(cmds);
 
-const StartArgs = struct { a: Allocator };
+const StartArgs = struct { allocator: Allocator };
 
-pub fn spawn(a: Allocator, ctx: *tp.context, eh: anytype, env: ?*const tp.env) !tp.pid {
-    return try ctx.spawn_link(StartArgs{ .a = a }, start, "tui", eh, env);
+pub fn spawn(allocator: Allocator, ctx: *tp.context, eh: anytype, env: ?*const tp.env) !tp.pid {
+    return try ctx.spawn_link(StartArgs{ .allocator = allocator }, start, "tui", eh, env);
 }
 
 fn start(args: StartArgs) tp.result {
     _ = tp.set_trap(true);
-    var self = init(args.a) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    var self = init(args.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
     errdefer self.deinit();
     tp.receive(&self.receiver);
 }
 
-fn init(a: Allocator) !*Self {
-    var self = try a.create(Self);
+fn init(allocator: Allocator) !*Self {
+    var self = try allocator.create(Self);
     var conf_buf: ?[]const u8 = null;
-    var conf = root.read_config(a, &conf_buf);
-    defer if (conf_buf) |buf| a.free(buf);
+    var conf = root.read_config(allocator, &conf_buf);
+    defer if (conf_buf) |buf| allocator.free(buf);
 
     const theme = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return tp.exit("unknown theme");
     conf.theme = theme.name;
-    conf.input_mode = try a.dupe(u8, conf.input_mode);
-    conf.top_bar = try a.dupe(u8, conf.top_bar);
-    conf.bottom_bar = try a.dupe(u8, conf.bottom_bar);
+    conf.input_mode = try allocator.dupe(u8, conf.input_mode);
+    conf.top_bar = try allocator.dupe(u8, conf.top_bar);
+    conf.bottom_bar = try allocator.dupe(u8, conf.bottom_bar);
 
     const frame_rate: usize = @intCast(tp.env.get().num("frame-rate"));
     if (frame_rate != 0)
@@ -100,17 +100,17 @@ fn init(a: Allocator) !*Self {
     const frame_clock = try tp.metronome.init(frame_time);
 
     self.* = .{
-        .a = a,
+        .allocator = allocator,
         .config = conf,
-        .rdr = try renderer.init(a, self, tp.env.get().is("no-alternate")),
+        .rdr = try renderer.init(allocator, self, tp.env.get().is("no-alternate")),
         .frame_time = frame_time,
         .frame_clock = frame_clock,
         .frame_clock_running = true,
         .receiver = Receiver.init(receive, self),
         .mainview = undefined,
-        .message_filters = MessageFilter.List.init(a),
+        .message_filters = MessageFilter.List.init(allocator),
         .input_mode = null,
-        .input_listeners = EventHandler.List.init(a),
+        .input_listeners = EventHandler.List.init(allocator),
         .logger = log.logger("tui"),
         .init_timer = try tp.timeout.init_ms(init_delay, tp.message.fmt(.{"init"})),
         .theme = theme,
@@ -131,13 +131,13 @@ fn init(a: Allocator) !*Self {
     errdefer self.deinit();
     switch (builtin.os.tag) {
         .windows => {
-            self.keepalive_timer = try tp.self_pid().delay_send_cancellable(a, "tui.keepalive", keepalive, .{"keepalive"});
+            self.keepalive_timer = try tp.self_pid().delay_send_cancellable(allocator, "tui.keepalive", keepalive, .{"keepalive"});
         },
         else => {
             try self.listen_sigwinch();
         },
     }
-    self.mainview = try mainview.create(a);
+    self.mainview = try mainview.create(allocator);
     self.resize();
     self.set_terminal_style();
     try self.rdr.render();
@@ -167,7 +167,7 @@ fn deinit(self: *Self) void {
     }
     if (self.input_mode) |*m| m.deinit();
     self.commands.deinit();
-    self.mainview.deinit(self.a);
+    self.mainview.deinit(self.allocator);
     self.message_filters.deinit();
     self.input_listeners.deinit();
     if (self.frame_clock_running)
@@ -177,7 +177,7 @@ fn deinit(self: *Self) void {
     self.rdr.stop();
     self.rdr.deinit();
     self.logger.deinit();
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 fn listen_sigwinch(self: *Self) tp.result {
@@ -192,7 +192,7 @@ fn update_mouse_idle_timer(self: *Self) void {
         t.deinit();
         self.mouse_idle_timer = null;
     }
-    self.mouse_idle_timer = tp.self_pid().delay_send_cancellable(self.a, "tui.mouse_idle_timer", delay, .{"MOUSE_IDLE"}) catch return;
+    self.mouse_idle_timer = tp.self_pid().delay_send_cancellable(self.allocator, "tui.mouse_idle_timer", delay, .{"MOUSE_IDLE"}) catch return;
 }
 
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
@@ -542,14 +542,14 @@ pub fn refresh_hover(self: *Self) void {
 }
 
 pub fn save_config(self: *const Self) !void {
-    try root.write_config(self.config, self.a);
+    try root.write_config(self.config, self.allocator);
 }
 
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
     if (self.input_mode_outer) |_| try cmds.exit_overlay_mode(self, .{});
     self.input_mode_outer = self.input_mode;
-    self.input_mode = try mode.create(self.a);
+    self.input_mode = try mode.create(self.allocator);
 }
 
 const cmds = struct {
@@ -627,24 +627,24 @@ const cmds = struct {
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode) |*m| m.deinit();
         self.input_mode = if (std.mem.eql(u8, mode, "vim/normal"))
-            try @import("mode/input/vim/normal.zig").create(self.a)
+            try @import("mode/input/vim/normal.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "vim/insert"))
-            try @import("mode/input/vim/insert.zig").create(self.a)
+            try @import("mode/input/vim/insert.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "vim/visual"))
-            try @import("mode/input/vim/visual.zig").create(self.a)
+            try @import("mode/input/vim/visual.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "helix/normal"))
-            try @import("mode/input/helix/normal.zig").create(self.a)
+            try @import("mode/input/helix/normal.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "helix/insert"))
-            try @import("mode/input/helix/insert.zig").create(self.a)
+            try @import("mode/input/helix/insert.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "helix/select"))
-            try @import("mode/input/helix/select.zig").create(self.a)
+            try @import("mode/input/helix/select.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "flow"))
-            try @import("mode/input/flow.zig").create(self.a)
+            try @import("mode/input/flow.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "home"))
-            try @import("mode/input/home.zig").create(self.a)
+            try @import("mode/input/home.zig").create(self.allocator)
         else ret: {
             self.logger.print("unknown mode {s}", .{mode});
-            break :ret try @import("mode/input/flow.zig").create(self.a);
+            break :ret try @import("mode/input/flow.zig").create(self.allocator);
         };
         // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
@@ -713,7 +713,7 @@ const cmds = struct {
             self.input_mode_outer = null;
             self.mini_mode = null;
         }
-        const mode_instance = try mode.create(self.a, ctx);
+        const mode_instance = try mode.create(self.allocator, ctx);
         self.input_mode = .{
             .handler = mode_instance.handler(),
             .name = mode_instance.name(),

@@ -18,7 +18,7 @@ const ArrayList = @import("std").ArrayList;
 
 const Self = @This();
 
-a: Allocator,
+allocator: Allocator,
 input: ArrayList(u8),
 last_input: ArrayList(u8),
 start_view: ed.View,
@@ -26,20 +26,20 @@ start_cursor: ed.Cursor,
 editor: *ed.Editor,
 history_pos: ?usize = null,
 
-pub fn create(a: Allocator, _: command.Context) !*Self {
+pub fn create(allocator: Allocator, _: command.Context) !*Self {
     if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
-        const self: *Self = try a.create(Self);
+        const self: *Self = try allocator.create(Self);
         self.* = .{
-            .a = a,
-            .input = ArrayList(u8).init(a),
-            .last_input = ArrayList(u8).init(a),
+            .allocator = allocator,
+            .input = ArrayList(u8).init(allocator),
+            .last_input = ArrayList(u8).init(allocator),
             .start_view = editor.view,
             .start_cursor = editor.get_primary().cursor,
             .editor = editor,
         };
         if (editor.get_primary().selection) |sel| ret: {
-            const text = editor.get_selection(sel, self.a) catch break :ret;
-            defer self.a.free(text);
+            const text = editor.get_selection(sel, self.allocator) catch break :ret;
+            defer self.allocator.free(text);
             try self.input.appendSlice(text);
         }
         return self;
@@ -50,7 +50,7 @@ pub fn create(a: Allocator, _: command.Context) !*Self {
 pub fn deinit(self: *Self) void {
     self.input.deinit();
     self.last_input.deinit();
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 pub fn handler(self: *Self) EventHandler {
@@ -210,7 +210,7 @@ fn find_history_prev(self: *Self) void {
         } else {
             self.history_pos = history.items.len - 1;
             if (self.input.items.len > 0)
-                self.editor.push_find_history(self.editor.a.dupe(u8, self.input.items) catch return);
+                self.editor.push_find_history(self.editor.allocator.dupe(u8, self.input.items) catch return);
             if (eql(u8, history.items[self.history_pos.?], self.input.items) and self.history_pos.? > 0)
                 self.history_pos = self.history_pos.? - 1;
         }

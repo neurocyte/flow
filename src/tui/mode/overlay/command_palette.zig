@@ -24,7 +24,7 @@ pub fn load_entries(palette: *Type) !void {
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-    var value = std.ArrayList(u8).init(palette.a);
+    var value = std.ArrayList(u8).init(palette.allocator);
     defer value.deinit();
     const writer = value.writer();
     try cbor.writeValue(writer, entry.name);

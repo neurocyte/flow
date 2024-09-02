@@ -19,7 +19,7 @@ const max_complete_paths = 1024;
 
 pub fn Create(options: type) type {
     return struct {
-        a: std.mem.Allocator,
+        allocator: std.mem.Allocator,
         file_path: std.ArrayList(u8),
         query: std.ArrayList(u8),
         match: std.ArrayList(u8),
@@ -34,14 +34,14 @@ pub fn Create(options: type) type {
             type: enum { dir, file, link },
         };
 
-        pub fn create(a: std.mem.Allocator, _: command.Context) !*Self {
-            const self: *Self = try a.create(Self);
+        pub fn create(allocator: std.mem.Allocator, _: command.Context) !*Self {
+            const self: *Self = try allocator.create(Self);
             self.* = .{
-                .a = a,
-                .file_path = std.ArrayList(u8).init(a),
-                .query = std.ArrayList(u8).init(a),
-                .match = std.ArrayList(u8).init(a),
-                .entries = std.ArrayList(Entry).init(a),
+                .allocator = allocator,
+                .file_path = std.ArrayList(u8).init(allocator),
+                .query = std.ArrayList(u8).init(allocator),
+                .match = std.ArrayList(u8).init(allocator),
+                .entries = std.ArrayList(Entry).init(allocator),
             };
             try tui.current().message_filters.add(MessageFilter.bind(self, receive_path_entry));
             try options.load_entries(self);
@@ -57,7 +57,7 @@ pub fn Create(options: type) type {
             self.match.deinit();
             self.query.deinit();
             self.file_path.deinit();
-            self.a.destroy(self);
+            self.allocator.destroy(self);
         }
 
         pub fn handler(self: *Self) EventHandler {
@@ -171,7 +171,7 @@ pub fn Create(options: type) type {
         }
 
         fn clear_entries(self: *Self) void {
-            for (self.entries.items) |entry| self.a.free(entry.name);
+            for (self.entries.items) |entry| self.allocator.free(entry.name);
             self.entries.clearRetainingCapacity();
         }
 
@@ -246,11 +246,11 @@ pub fn Create(options: type) type {
             var path: []const u8 = undefined;
             var file_name: []const u8 = undefined;
             if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&path), "DIR", tp.extract(&file_name) })) {
-                (try self.entries.addOne()).* = .{ .name = try self.a.dupe(u8, file_name), .type = .dir };
+                (try self.entries.addOne()).* = .{ .name = try self.allocator.dupe(u8, file_name), .type = .dir };
             } else if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&path), "LINK", tp.extract(&file_name) })) {
-                (try self.entries.addOne()).* = .{ .name = try self.a.dupe(u8, file_name), .type = .link };
+                (try self.entries.addOne()).* = .{ .name = try self.allocator.dupe(u8, file_name), .type = .link };
             } else if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&path), "FILE", tp.extract(&file_name) })) {
-                (try self.entries.addOne()).* = .{ .name = try self.a.dupe(u8, file_name), .type = .file };
+                (try self.entries.addOne()).* = .{ .name = try self.allocator.dupe(u8, file_name), .type = .file };
             } else {
                 log.logger("file_browser").err("receive", tp.unexpected(m));
             }

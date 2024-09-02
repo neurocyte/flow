@@ -20,7 +20,7 @@ const event_type = input.event_type;
 const Self = @This();
 pub const log_name = "vaxis";
 
-a: std.mem.Allocator,
+allocator: std.mem.Allocator,
 
 tty: vaxis.Tty,
 vx: vaxis.Vaxis,
@@ -49,7 +49,7 @@ const Event = union(enum) {
     focus_in,
 };
 
-pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !Self {
+pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !Self {
     const opts: vaxis.Vaxis.Options = .{
         .kitty_keyboard_flags = .{
             .disambiguate = true,
@@ -58,16 +58,16 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
             .report_all_as_ctl_seqs = true,
             .report_text = true,
         },
-        .system_clipboard_allocator = a,
+        .system_clipboard_allocator = allocator,
     };
     return .{
-        .a = a,
+        .allocator = allocator,
         .tty = try vaxis.Tty.init(),
-        .vx = try vaxis.init(a, opts),
+        .vx = try vaxis.init(allocator, opts),
         .no_alternate = no_alternate,
-        .event_buffer = std.ArrayList(u8).init(a),
-        .input_buffer = std.ArrayList(u8).init(a),
-        .bracketed_paste_buffer = std.ArrayList(u8).init(a),
+        .event_buffer = std.ArrayList(u8).init(allocator),
+        .input_buffer = std.ArrayList(u8).init(allocator),
+        .bracketed_paste_buffer = std.ArrayList(u8).init(allocator),
         .handler_ctx = handler_ctx,
         .logger = log.logger(log_name),
         .loop = undefined,
@@ -77,7 +77,7 @@ pub fn init(a: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !
 pub fn deinit(self: *Self) void {
     panic_cleanup = null;
     self.loop.stop();
-    self.vx.deinit(self.a, self.tty.anyWriter());
+    self.vx.deinit(self.allocator, self.tty.anyWriter());
     self.tty.deinit();
     self.bracketed_paste_buffer.deinit();
     self.input_buffer.deinit();
@@ -85,7 +85,7 @@ pub fn deinit(self: *Self) void {
 }
 
 var panic_cleanup: ?struct {
-    a: std.mem.Allocator,
+    allocator: std.mem.Allocator,
     tty: *vaxis.Tty,
     vx: *vaxis.Vaxis,
 } = null;
@@ -93,7 +93,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
     const cleanup = panic_cleanup;
     panic_cleanup = null;
     if (cleanup) |self| {
-        self.vx.deinit(self.a, self.tty.anyWriter());
+        self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
     }
     return std.builtin.default_panic(msg, error_return_trace, ret_addr);
@@ -102,7 +102,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
 pub fn run(self: *Self) !void {
     self.vx.sgr = .legacy;
 
-    panic_cleanup = .{ .a = self.a, .tty = &self.tty, .vx = &self.vx };
+    panic_cleanup = .{ .allocator = self.allocator, .tty = &self.tty, .vx = &self.vx };
     if (!self.no_alternate) try self.vx.enterAltScreen(self.tty.anyWriter());
     if (builtin.os.tag == .windows) {
         try self.resize(.{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
@@ -128,7 +128,7 @@ pub fn sigwinch(self: *Self) !void {
 }
 
 fn resize(self: *Self, ws: vaxis.Winsize) !void {
-    try self.vx.resize(self.a, self.tty.anyWriter(), ws);
+    try self.vx.resize(self.allocator, self.tty.anyWriter(), ws);
     self.vx.queueRefresh();
     if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"resize"}));
 }
@@ -336,7 +336,7 @@ pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) vo
 
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
     var bufferedWriter = self.tty.bufferedWriter();
-    self.vx.copyToSystemClipboard(bufferedWriter.writer().any(), text, self.a) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
+    self.vx.copyToSystemClipboard(bufferedWriter.writer().any(), text, self.allocator) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
     bufferedWriter.flush() catch @panic("flush failed");
 }
 

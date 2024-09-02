@@ -25,7 +25,7 @@ const mainview = @import("../../mainview.zig");
 const Self = @This();
 const max_recent_files: usize = 25;
 
-a: std.mem.Allocator,
+allocator: std.mem.Allocator,
 f: usize = 0,
 menu: *Menu.State(*Self),
 inputbox: *InputBox.State(*Self),
@@ -36,18 +36,18 @@ need_select_first: bool = true,
 longest: usize = 0,
 commands: Commands = undefined,
 
-pub fn create(a: std.mem.Allocator) !tui.Mode {
+pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     const mv = tui.current().mainview.dynamic_cast(mainview) orelse return error.NotFound;
-    const self: *Self = try a.create(Self);
+    const self: *Self = try allocator.create(Self);
     self.* = .{
-        .a = a,
-        .menu = try Menu.create(*Self, a, tui.current().mainview, .{
+        .allocator = allocator,
+        .menu = try Menu.create(*Self, allocator, tui.current().mainview, .{
             .ctx = self,
             .on_render = on_render_menu,
             .on_resize = on_resize_menu,
         }),
         .logger = log.logger(@typeName(Self)),
-        .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.a, self.menu.menu.parent, .{
+        .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
             .ctx = self,
             .label = "Search files by name",
         }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
@@ -71,7 +71,7 @@ pub fn deinit(self: *Self) void {
     if (tui.current().mainview.dynamic_cast(mainview)) |mv|
         mv.floating_views.remove(self.menu.container_widget);
     self.logger.deinit();
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 inline fn menu_width(self: *Self) usize {
@@ -141,7 +141,7 @@ fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.
 }
 
 fn add_item(self: *Self, file_name: []const u8, matches: ?[]const u8) !void {
-    var label = std.ArrayList(u8).init(self.a);
+    var label = std.ArrayList(u8).init(self.allocator);
     defer label.deinit();
     const writer = label.writer();
     try cbor.writeValue(writer, file_name);

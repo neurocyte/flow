@@ -15,7 +15,7 @@ const EventHandler = @import("EventHandler.zig");
 
 pub const name = "inputview";
 
-a: Allocator,
+allocator: Allocator,
 parent: Plane,
 plane: Plane,
 last_count: u64 = 0,
@@ -30,27 +30,27 @@ const Entry = struct {
 };
 const Buffer = ArrayList(Entry);
 
-pub fn create(a: Allocator, parent: Plane) !Widget {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: Allocator, parent: Plane) !Widget {
+    const self: *Self = try allocator.create(Self);
     var n = try Plane.init(&(Widget.Box{}).opts_vscroll(@typeName(Self)), parent);
     errdefer n.deinit();
     self.* = .{
-        .a = a,
+        .allocator = allocator,
         .parent = parent,
         .plane = n,
-        .buffer = Buffer.init(a),
+        .buffer = Buffer.init(allocator),
     };
     try tui.current().input_listeners.add(EventHandler.bind(self, listen));
     return Widget.to(self);
 }
 
-pub fn deinit(self: *Self, a: Allocator) void {
+pub fn deinit(self: *Self, allocator: Allocator) void {
     tui.current().input_listeners.remove_ptr(self);
     for (self.buffer.items) |item|
         self.buffer.allocator.free(item.json);
     self.buffer.deinit();
     self.plane.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -96,7 +96,7 @@ fn append(self: *Self, json: []const u8) !void {
     (try self.buffer.addOne()).* = .{
         .time = ts,
         .tdiff = tdiff,
-        .json = try self.a.dupeZ(u8, json),
+        .json = try self.allocator.dupeZ(u8, json),
     };
 }
 

@@ -16,9 +16,9 @@ const widgets = std.static_string_map.StaticStringMap(CreateFunction).initCompti
     .{ "clock", @import("clock.zig").create },
 });
 pub const CreateError = error{ OutOfMemory, Exit };
-pub const CreateFunction = *const fn (a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) CreateError!Widget;
+pub const CreateFunction = *const fn (allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) CreateError!Widget;
 
-pub fn create(name: []const u8, a: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) CreateError!?Widget {
+pub fn create(name: []const u8, allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) CreateError!?Widget {
     const create_ = widgets.get(name) orelse return null;
-    return try create_(a, parent, event_handler);
+    return try create_(allocator, parent, event_handler);
 }

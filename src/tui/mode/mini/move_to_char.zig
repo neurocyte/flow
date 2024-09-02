@@ -17,7 +17,7 @@ const fmt = @import("std").fmt;
 
 const Self = @This();
 
-a: Allocator,
+allocator: Allocator,
 key: [6]u8 = undefined,
 direction: Direction,
 operation: Operation,
@@ -32,13 +32,13 @@ const Operation = enum {
     select,
 };
 
-pub fn create(a: Allocator, ctx: command.Context) !*Self {
+pub fn create(allocator: Allocator, ctx: command.Context) !*Self {
     var right: bool = true;
     const select = if (tui.current().mainview.dynamic_cast(mainview)) |mv| if (mv.get_editor()) |editor| if (editor.get_primary().selection) |_| true else false else false else false;
     _ = ctx.args.match(.{tp.extract(&right)}) catch return error.NotFound;
-    const self: *Self = try a.create(Self);
+    const self: *Self = try allocator.create(Self);
     self.* = .{
-        .a = a,
+        .allocator = allocator,
         .direction = if (right) .right else .left,
         .operation = if (select) .select else .move,
     };
@@ -46,7 +46,7 @@ pub fn create(a: Allocator, ctx: command.Context) !*Self {
 }
 
 pub fn deinit(self: *Self) void {
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 pub fn handler(self: *Self) EventHandler {

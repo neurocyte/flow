@@ -39,15 +39,15 @@ const Level = enum {
     err,
 };
 
-pub fn create(a: Allocator, parent: Plane) !Widget {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: Allocator, parent: Plane) !Widget {
+    const self: *Self = try allocator.create(Self);
     self.* = .{ .plane = try Plane.init(&(Widget.Box{}).opts(name), parent) };
     return Widget.to(self);
 }
 
-pub fn deinit(self: *Self, a: Allocator) void {
+pub fn deinit(self: *Self, allocator: Allocator) void {
     self.plane.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -140,7 +140,7 @@ fn get_buffer() *Buffer {
     return if (persistent_buffer) |*p| p else @panic("logview.get_buffer called before init");
 }
 
-pub fn init(a: Allocator) void {
+pub fn init(allocator: Allocator) void {
     if (persistent_buffer) |_| return;
-    persistent_buffer = Buffer.init(a);
+    persistent_buffer = Buffer.init(allocator);
 }

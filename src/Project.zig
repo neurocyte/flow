@@ -10,7 +10,7 @@ const builtin = @import("builtin");
 
 const LSP = @import("LSP.zig");
 
-a: std.mem.Allocator,
+allocator: std.mem.Allocator,
 name: []const u8,
 files: std.ArrayList(File),
 pending: std.ArrayList(File),
@@ -29,31 +29,31 @@ const File = struct {
     visited: bool = false,
 };
 
-pub fn init(a: std.mem.Allocator, name: []const u8) error{OutOfMemory}!Self {
+pub fn init(allocator: std.mem.Allocator, name: []const u8) error{OutOfMemory}!Self {
     return .{
-        .a = a,
-        .name = try a.dupe(u8, name),
-        .files = std.ArrayList(File).init(a),
-        .pending = std.ArrayList(File).init(a),
+        .allocator = allocator,
+        .name = try allocator.dupe(u8, name),
+        .files = std.ArrayList(File).init(allocator),
+        .pending = std.ArrayList(File).init(allocator),
         .open_time = std.time.milliTimestamp(),
-        .language_servers = std.StringHashMap(LSP).init(a),
-        .file_language_server = std.StringHashMap(LSP).init(a),
+        .language_servers = std.StringHashMap(LSP).init(allocator),
+        .file_language_server = std.StringHashMap(LSP).init(allocator),
     };
 }
 
 pub fn deinit(self: *Self) void {
     var i_ = self.file_language_server.iterator();
     while (i_.next()) |p| {
-        self.a.free(p.key_ptr.*);
+        self.allocator.free(p.key_ptr.*);
     }
     var i = self.language_servers.iterator();
     while (i.next()) |p| {
-        self.a.free(p.key_ptr.*);
+        self.allocator.free(p.key_ptr.*);
         p.value_ptr.*.term();
     }
-    for (self.files.items) |file| self.a.free(file.path);
+    for (self.files.items) |file| self.allocator.free(file.path);
     self.files.deinit();
-    self.a.free(self.name);
+    self.allocator.free(self.name);
 }
 
 pub fn write_state(self: *Self, writer: anytype) !void {
@@ -100,14 +100,14 @@ fn get_lsp(self: *Self, language_server: []const u8) !LSP {
     if (self.language_servers.get(language_server)) |lsp| return lsp;
     const logger = log.logger("lsp");
     errdefer |e| logger.print_err("get_lsp", "failed to initialize LSP: {s} -> {any}", .{ fmt_lsp_name_func(language_server), e });
-    const lsp = try LSP.open(self.a, self.name, .{ .buf = language_server });
-    try self.language_servers.put(try self.a.dupe(u8, language_server), lsp);
+    const lsp = try LSP.open(self.allocator, self.name, .{ .buf = language_server });
+    try self.language_servers.put(try self.allocator.dupe(u8, language_server), lsp);
     const uri = try self.make_URI(null);
-    defer self.a.free(uri);
+    defer self.allocator.free(uri);
     const basename_begin = std.mem.lastIndexOfScalar(u8, self.name, std.fs.path.sep);
     const basename = if (basename_begin) |begin| self.name[begin + 1 ..] else self.name;
     const response = try self.send_lsp_init_request(lsp, self.name, basename, uri);
-    defer self.a.free(response.buf);
+    defer self.allocator.free(response.buf);
     try lsp.send_notification("initialized", .{});
     logger.print("initialized LSP: {s}", .{fmt_lsp_name_func(language_server)});
     return lsp;
@@ -125,7 +125,7 @@ fn get_file_lsp(self: *Self, file_path: []const u8) !LSP {
 }
 
 fn make_URI(self: *Self, file_path: ?[]const u8) ![]const u8 {
-    var buf = std.ArrayList(u8).init(self.a);
+    var buf = std.ArrayList(u8).init(self.allocator);
     if (file_path) |path| {
         if (std.fs.path.isAbsolute(path)) {
             try buf.writer().print("file://{s}", .{path});
@@ -164,8 +164,8 @@ fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: [
     for (self.files.items) |file| {
         if (file.path.len < query.len) continue;
         if (std.mem.indexOf(u8, file.path, query)) |idx| {
-            var matches = try self.a.alloc(usize, query.len);
-            defer self.a.free(matches);
+            var matches = try self.allocator.alloc(usize, query.len);
+            defer self.allocator.free(matches);
             var n: usize = 0;
             while (n < query.len) : (n += 1) matches[n] = idx + n;
             try from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, matches });
@@ -182,7 +182,7 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
     defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query }) catch {};
 
     var searcher = try fuzzig.Ascii.init(
-        self.a,
+        self.allocator,
         4096, // haystack max size
         4096, // needle max size
         .{ .case_sensitive = false },
@@ -194,7 +194,7 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
         score: i32,
         matches: []const usize,
     };
-    var matches = std.ArrayList(Match).init(self.a);
+    var matches = std.ArrayList(Match).init(self.allocator);
 
     for (self.files.items) |file| {
         const match = searcher.scoreMatches(file.path, query);
@@ -202,7 +202,7 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
             (try matches.addOne()).* = .{
                 .path = file.path,
                 .score = score,
-                .matches = try self.a.dupe(usize, match.matches),
+                .matches = try self.allocator.dupe(usize, match.matches),
             };
         }
     }
@@ -222,19 +222,19 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
 
 pub fn add_pending_file(self: *Self, file_path: []const u8, mtime: i128) error{OutOfMemory}!void {
     self.longest_file_path = @max(self.longest_file_path, file_path.len);
-    (try self.pending.addOne()).* = .{ .path = try self.a.dupe(u8, file_path), .mtime = mtime };
+    (try self.pending.addOne()).* = .{ .path = try self.allocator.dupe(u8, file_path), .mtime = mtime };
 }
 
 pub fn merge_pending_files(self: *Self) error{OutOfMemory}!void {
     defer self.sort_files_by_mtime();
     const existing = try self.files.toOwnedSlice();
     self.files = self.pending;
-    self.pending = std.ArrayList(File).init(self.a);
+    self.pending = std.ArrayList(File).init(self.allocator);
     for (existing) |*file| {
         self.update_mru_internal(file.path, file.mtime, file.row, file.col) catch {};
-        self.a.free(file.path);
+        self.allocator.free(file.path);
     }
-    self.a.free(existing);
+    self.allocator.free(existing);
 }
 
 pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) !void {
@@ -255,7 +255,7 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
     }
     if (row != 0) {
         (try self.files.addOne()).* = .{
-            .path = try self.a.dupe(u8, file_path),
+            .path = try self.allocator.dupe(u8, file_path),
             .mtime = mtime,
             .row = row,
             .col = col,
@@ -263,7 +263,7 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
         };
     } else {
         (try self.files.addOne()).* = .{
-            .path = try self.a.dupe(u8, file_path),
+            .path = try self.allocator.dupe(u8, file_path),
             .mtime = mtime,
         };
     }
@@ -282,11 +282,11 @@ pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, langu
     self.update_mru(file_path, 0, 0) catch {};
     const lsp = try self.get_lsp(language_server);
     if (!self.file_language_server.contains(file_path)) {
-        const key = try self.a.dupe(u8, file_path);
+        const key = try self.allocator.dupe(u8, file_path);
         try self.file_language_server.put(key, lsp);
     }
     const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
+    defer self.allocator.free(uri);
     try lsp.send_notification("textDocument/didOpen", .{
         .textDocument = .{ .uri = uri, .languageId = file_type, .version = version, .text = text },
     });
@@ -295,34 +295,34 @@ pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, langu
 pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_addr: usize, root_src_addr: usize) !void {
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
+    defer self.allocator.free(uri);
 
     const root_dst: Buffer.Root = if (root_dst_addr == 0) return else @ptrFromInt(root_dst_addr);
     const root_src: Buffer.Root = if (root_src_addr == 0) return else @ptrFromInt(root_src_addr);
 
     var dizzy_edits = std.ArrayListUnmanaged(dizzy.Edit){};
-    var dst = std.ArrayList(u8).init(self.a);
-    var src = std.ArrayList(u8).init(self.a);
+    var dst = std.ArrayList(u8).init(self.allocator);
+    var src = std.ArrayList(u8).init(self.allocator);
     var scratch = std.ArrayListUnmanaged(u32){};
-    var edits_cb = std.ArrayList(u8).init(self.a);
+    var edits_cb = std.ArrayList(u8).init(self.allocator);
     const writer = edits_cb.writer();
 
     defer {
         edits_cb.deinit();
         dst.deinit();
         src.deinit();
-        scratch.deinit(self.a);
-        dizzy_edits.deinit(self.a);
+        scratch.deinit(self.allocator);
+        dizzy_edits.deinit(self.allocator);
     }
 
     try root_dst.store(dst.writer());
     try root_src.store(src.writer());
 
     const scratch_len = 4 * (dst.items.len + src.items.len) + 2;
-    try scratch.ensureTotalCapacity(self.a, scratch_len);
+    try scratch.ensureTotalCapacity(self.allocator, scratch_len);
     scratch.items.len = scratch_len;
 
-    try dizzy.PrimitiveSliceDiffer(u8).diff(self.a, &dizzy_edits, src.items, dst.items, scratch.items);
+    try dizzy.PrimitiveSliceDiffer(u8).diff(self.allocator, &dizzy_edits, src.items, dst.items, scratch.items);
 
     var lines_dst: usize = 0;
     var last_offset: usize = 0;
@@ -361,7 +361,7 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
         }
     }
 
-    var msg = std.ArrayList(u8).init(self.a);
+    var msg = std.ArrayList(u8).init(self.allocator);
     defer msg.deinit();
     const msg_writer = msg.writer();
     try cbor.writeMapHeader(msg_writer, 2);
@@ -389,7 +389,7 @@ fn scan_char(chars: []const u8, lines: *usize, char: u8, last_offset: ?*usize) v
 pub fn did_save(self: *Self, file_path: []const u8) !void {
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
+    defer self.allocator.free(uri);
     try lsp.send_notification("textDocument/didSave", .{
         .textDocument = .{ .uri = uri },
     });
@@ -398,7 +398,7 @@ pub fn did_save(self: *Self, file_path: []const u8) !void {
 pub fn did_close(self: *Self, file_path: []const u8) !void {
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
+    defer self.allocator.free(uri);
     try lsp.send_notification("textDocument/didClose", .{
         .textDocument = .{ .uri = uri },
     });
@@ -423,12 +423,12 @@ pub fn goto_type_definition(self: *Self, from: tp.pid_ref, file_path: []const u8
 fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize, method: []const u8) !void {
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
-    const response = try lsp.send_request(self.a, method, .{
+    defer self.allocator.free(uri);
+    const response = try lsp.send_request(self.allocator, method, .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
     });
-    defer self.a.free(response.buf);
+    defer self.allocator.free(response.buf);
     var link: []const u8 = undefined;
     var locations: []const u8 = undefined;
     if (try response.match(.{ "child", tp.string, "result", tp.array })) {
@@ -505,15 +505,15 @@ fn navigate_to_location_link(_: *Self, from: tp.pid_ref, location_link: []const 
 pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
+    defer self.allocator.free(uri);
     log.logger("lsp").print("finding references...", .{});
 
-    const response = try lsp.send_request(self.a, "textDocument/references", .{
+    const response = try lsp.send_request(self.allocator, "textDocument/references", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
         .context = .{ .includeDeclaration = true },
     });
-    defer self.a.free(response.buf);
+    defer self.allocator.free(response.buf);
     var locations: []const u8 = undefined;
     if (try response.match(.{ "child", tp.string, "result", tp.null_ })) {
         return;
@@ -571,8 +571,8 @@ fn send_reference(self: *Self, to: tp.pid_ref, location: []const u8) !void {
             file_path[i] = '\\';
         };
     }
-    const line = try self.get_line_of_file(self.a, file_path, targetRange.?.start.line);
-    defer self.a.free(line);
+    const line = try self.get_line_of_file(self.allocator, file_path, targetRange.?.start.line);
+    defer self.allocator.free(line);
     const file_path_ = if (file_path.len > self.name.len and std.mem.eql(u8, self.name, file_path[0..self.name.len]))
         file_path[self.name.len + 1 ..]
     else
@@ -591,12 +591,12 @@ fn send_reference(self: *Self, to: tp.pid_ref, location: []const u8) !void {
 pub fn completion(self: *Self, _: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
-    defer self.a.free(uri);
-    const response = try lsp.send_request(self.a, "textDocument/completion", .{
+    defer self.allocator.free(uri);
+    const response = try lsp.send_request(self.allocator, "textDocument/completion", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
     });
-    defer self.a.free(response.buf);
+    defer self.allocator.free(response.buf);
 }
 
 pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) !void {
@@ -750,7 +750,7 @@ pub fn show_message(_: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
 }
 
 fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) !tp.message {
-    return lsp.send_request(self.a, "initialize", .{
+    return lsp.send_request(self.allocator, "initialize", .{
         .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
         .rootPath = project_path,
         .rootUri = project_uri,
@@ -1075,13 +1075,13 @@ fn format_lsp_name_func(
 
 const eol = '\n';
 
-fn get_line_of_file(self: *Self, a: std.mem.Allocator, file_path: []const u8, line_: usize) ![]const u8 {
+fn get_line_of_file(self: *Self, allocator: std.mem.Allocator, file_path: []const u8, line_: usize) ![]const u8 {
     const line = line_ + 1;
     const file = try std.fs.cwd().openFile(file_path, .{ .mode = .read_only });
     defer file.close();
     const stat = try file.stat();
-    var buf = try a.alloc(u8, @intCast(stat.size));
-    defer a.free(buf);
+    var buf = try allocator.alloc(u8, @intCast(stat.size));
+    defer allocator.free(buf);
     const read_size = try file.reader().readAll(buf);
     if (read_size != @as(@TypeOf(read_size), @intCast(stat.size)))
         @panic("get_line_of_file: buffer underrun");
@@ -1089,15 +1089,15 @@ fn get_line_of_file(self: *Self, a: std.mem.Allocator, file_path: []const u8, li
     var line_count: usize = 1;
     for (0..buf.len) |i| {
         if (line_count == line)
-            return self.get_line(a, buf[i..]);
+            return self.get_line(allocator, buf[i..]);
         if (buf[i] == eol) line_count += 1;
     }
-    return a.dupe(u8, "");
+    return allocator.dupe(u8, "");
 }
 
-pub fn get_line(_: *Self, a: std.mem.Allocator, buf: []const u8) ![]const u8 {
+pub fn get_line(_: *Self, allocator: std.mem.Allocator, buf: []const u8) ![]const u8 {
     for (0..buf.len) |i| {
-        if (buf[i] == eol) return a.dupe(u8, buf[0..i]);
+        if (buf[i] == eol) return allocator.dupe(u8, buf[0..i]);
     }
-    return a.dupe(u8, buf);
+    return allocator.dupe(u8, buf);
 }

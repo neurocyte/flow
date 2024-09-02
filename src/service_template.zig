@@ -9,8 +9,8 @@ const Self = @This();
 const module_name = @typeName(Self);
 pub const Error = error{ OutOfMemory, Exit };
 
-pub fn create(a: std.mem.Allocator) Error!Self {
-    return .{ .pid = try Process.create(a) };
+pub fn create(allocator: std.mem.Allocator) Error!Self {
+    return .{ .pid = try Process.create(allocator) };
 }
 
 pub fn from_pid(pid: tp.pid_ref) Error!Self {
@@ -37,17 +37,17 @@ pub fn shutdown(self: *Self) void {
 // }
 
 const Process = struct {
-    a: std.mem.Allocator,
+    allocator: std.mem.Allocator,
     parent: tp.pid,
     logger: log.Logger,
     receiver: Receiver,
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(a: std.mem.Allocator) Error!tp.pid {
-        const self = try a.create(Process);
+    pub fn create(allocator: std.mem.Allocator) Error!tp.pid {
+        const self = try allocator.create(Process);
         self.* = .{
-            .a = a,
+            .allocator = allocator,
             .parent = tp.self_pid().clone(),
             .logger = log.logger(module_name),
             .receiver = Receiver.init(Process.receive, self),

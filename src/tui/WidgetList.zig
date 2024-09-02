@@ -21,7 +21,7 @@ const WidgetState = struct {
 
 plane: Plane,
 parent: Plane,
-a: Allocator,
+allocator: Allocator,
 widgets: ArrayList(WidgetState),
 layout: Layout,
 direction: Direction,
@@ -31,33 +31,33 @@ on_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_re
 after_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
 on_resize: *const fn (ctx: ?*anyopaque, self: *Self, pos_: Widget.Box) void = on_resize_default,
 
-pub fn createH(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
-    const self: *Self = try a.create(Self);
-    self.* = try init(a, parent, name, .horizontal, layout_, Box{});
+pub fn createH(allocator: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
+    const self: *Self = try allocator.create(Self);
+    self.* = try init(allocator, parent, name, .horizontal, layout_, Box{});
     self.plane.hide();
     return self;
 }
 
-pub fn createV(a: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
-    const self: *Self = try a.create(Self);
-    self.* = try init(a, parent, name, .vertical, layout_, Box{});
+pub fn createV(allocator: Allocator, parent: Widget, name: [:0]const u8, layout_: Layout) !*Self {
+    const self: *Self = try allocator.create(Self);
+    self.* = try init(allocator, parent, name, .vertical, layout_, Box{});
     self.plane.hide();
     return self;
 }
 
-pub fn createBox(a: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !*Self {
-    const self: *Self = try a.create(Self);
-    self.* = try init(a, parent, name, dir, layout_, box);
+pub fn createBox(allocator: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !*Self {
+    const self: *Self = try allocator.create(Self);
+    self.* = try init(allocator, parent, name, dir, layout_, box);
     self.plane.hide();
     return self;
 }
 
-fn init(a: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !Self {
+fn init(allocator: Allocator, parent: Widget, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !Self {
     return .{
         .plane = try Plane.init(&box.opts(name), parent.plane.*),
         .parent = parent.plane.*,
-        .a = a,
-        .widgets = ArrayList(WidgetState).init(a),
+        .allocator = allocator,
+        .widgets = ArrayList(WidgetState).init(allocator),
         .layout = layout_,
         .direction = dir,
     };
@@ -71,12 +71,12 @@ pub fn layout(self: *Self) Widget.Layout {
     return self.layout;
 }
 
-pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     for (self.widgets.items) |*w|
-        w.widget.deinit(self.a);
+        w.widget.deinit(self.allocator);
     self.widgets.deinit();
     self.plane.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn add(self: *Self, w_: Widget) !void {
@@ -92,7 +92,7 @@ pub fn addP(self: *Self, w_: Widget) !*Widget {
 
 pub fn remove(self: *Self, w: Widget) void {
     for (self.widgets.items, 0..) |p, i| if (p.widget.ptr == w.ptr)
-        self.widgets.orderedRemove(i).widget.deinit(self.a);
+        self.widgets.orderedRemove(i).widget.deinit(self.allocator);
 }
 
 pub fn empty(self: *const Self) bool {
@@ -108,7 +108,7 @@ pub fn swap(self: *Self, n: usize, w: Widget) Widget {
 
 pub fn replace(self: *Self, n: usize, w: Widget) void {
     const old = self.swap(n, w);
-    old.deinit(self.a);
+    old.deinit(self.allocator);
 }
 
 pub fn send(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {

@@ -28,7 +28,7 @@ const filelist_view = @import("filelist_view.zig");
 const Self = @This();
 const Commands = command.Collection(cmds);
 
-a: std.mem.Allocator,
+allocator: std.mem.Allocator,
 plane: Plane,
 widgets: *WidgetList,
 widgets_widget: Widget,
@@ -61,30 +61,30 @@ const FileListType = enum {
     find_in_files,
 };
 
-pub fn create(a: std.mem.Allocator) !Widget {
-    const self = try a.create(Self);
+pub fn create(allocator: std.mem.Allocator) !Widget {
+    const self = try allocator.create(Self);
     self.* = .{
-        .a = a,
+        .allocator = allocator,
         .plane = tui.current().stdplane(),
         .widgets = undefined,
         .widgets_widget = undefined,
-        .floating_views = WidgetStack.init(a),
+        .floating_views = WidgetStack.init(allocator),
         .location_history = try location_history.create(),
-        .file_stack = std.ArrayList([]const u8).init(a),
+        .file_stack = std.ArrayList([]const u8).init(allocator),
         .view_widget_idx = 0,
     };
     try self.commands.init(self);
     const w = Widget.to(self);
-    const widgets = try WidgetList.createV(a, w, @typeName(Self), .dynamic);
+    const widgets = try WidgetList.createV(allocator, w, @typeName(Self), .dynamic);
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
     if (tui.current().config.top_bar.len > 0) {
-        self.top_bar = try widgets.addP(try @import("status/bar.zig").create(a, w, tui.current().config.top_bar, .none, null));
+        self.top_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, w, tui.current().config.top_bar, .none, null));
         self.view_widget_idx += 1;
     }
-    try widgets.add(try Widget.empty(a, self.widgets_widget.plane.*, .dynamic));
+    try widgets.add(try Widget.empty(allocator, self.widgets_widget.plane.*, .dynamic));
     if (tui.current().config.bottom_bar.len > 0) {
-        self.bottom_bar = try widgets.addP(try @import("status/bar.zig").create(a, w, tui.current().config.bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)));
+        self.bottom_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, w, tui.current().config.bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)));
     }
     if (tp.env.get().is("show-input"))
         self.toggle_inputview_async();
@@ -93,14 +93,14 @@ pub fn create(a: std.mem.Allocator) !Widget {
     return w;
 }
 
-pub fn deinit(self: *Self, a: std.mem.Allocator) void {
+pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.close_all_panel_views();
     self.clear_file_stack();
     self.file_stack.deinit();
     self.commands.deinit();
-    self.widgets.deinit(a);
+    self.widgets.deinit(allocator);
     self.floating_views.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -180,12 +180,12 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !void {
                 }
             }
         } else {
-            try panels.add(try view.create(self.a, self.widgets.plane));
+            try panels.add(try view.create(self.allocator, self.widgets.plane));
         }
     } else {
-        const panels = try WidgetList.createH(self.a, self.widgets.widget(), "panel", .{ .static = self.panel_height orelse self.box().h / 5 });
+        const panels = try WidgetList.createH(self.allocator, self.widgets.widget(), "panel", .{ .static = self.panel_height orelse self.box().h / 5 });
         try self.widgets.add(panels.widget());
-        try panels.add(try view.create(self.a, self.widgets.plane));
+        try panels.add(try view.create(self.allocator, self.widgets.plane));
         self.panels = panels;
     }
     tui.current().resize();
@@ -211,7 +211,7 @@ fn toggle_view(self: *Self, view: anytype) !void {
     if (self.widgets.get(@typeName(view))) |w| {
         self.widgets.remove(w.*);
     } else {
-        try self.widgets.add(try view.create(self.a, self.plane));
+        try self.widgets.add(try view.create(self.allocator, self.plane));
     }
     tui.current().resize();
 }
@@ -269,8 +269,8 @@ const cmds = struct {
         tui.current().rdr.set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
-        if (try project_manager.request_most_recent_file(self.a)) |file_path| {
-            defer self.a.free(file_path);
+        if (try project_manager.request_most_recent_file(self.allocator)) |file_path| {
+            defer self.allocator.free(file_path);
             try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
         }
     }
@@ -523,7 +523,7 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
 
     if (try m.match(.{ "E", "close" })) {
         if (self.pop_file_stack(editor.file_path)) |file_path| {
-            defer self.a.free(file_path);
+            defer self.allocator.free(file_path);
             self.show_previous_async(file_path);
         } else self.show_home_async();
         self.editor = null;
@@ -537,7 +537,7 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
             sel.normalize();
             if (sel.end.row - sel.begin.row > ed.max_match_lines)
                 return self.clear_auto_find(editor);
-            const text = editor.get_selection(sel, self.a) catch return self.clear_auto_find(editor);
+            const text = editor.get_selection(sel, self.allocator) catch return self.clear_auto_find(editor);
             if (text.len == 0)
                 return self.clear_auto_find(editor);
             if (!self.is_last_match_text(text)) {
@@ -552,7 +552,7 @@ pub fn find_in_files(self: *Self, query: []const u8) !void {
     log.logger("find").print("finding files...", .{});
     const find_f = ripgrep.find_in_files;
     if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
-    var rg = try find_f(self.a, query, "FIF");
+    var rg = try find_f(self.allocator, query, "FIF");
     defer rg.deinit();
 }
 
@@ -600,7 +600,7 @@ fn is_last_match_text(self: *Self, text: []const u8) bool {
 
 fn store_last_match_text(self: *Self, text: ?[]const u8) void {
     if (self.last_match_text) |old|
-        self.a.free(old);
+        self.allocator.free(old);
     self.last_match_text = text;
 }
 
@@ -614,10 +614,10 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
 
 fn create_editor(self: *Self) !void {
     if (self.editor) |editor| if (editor.file_path) |file_path| self.push_file_stack(file_path) catch {};
-    self.widgets.replace(self.view_widget_idx, try Widget.empty(self.a, self.plane, .dynamic));
+    self.widgets.replace(self.view_widget_idx, try Widget.empty(self.allocator, self.plane, .dynamic));
     command.executeName("enter_mode_default", .{}) catch {};
-    var editor_widget = try ed.create(self.a, Widget.to(self));
-    errdefer editor_widget.deinit(self.a);
+    var editor_widget = try ed.create(self.allocator, Widget.to(self));
+    errdefer editor_widget.deinit(self.allocator);
     if (editor_widget.get("editor")) |editor| {
         if (self.top_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
         if (self.bottom_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
@@ -647,15 +647,15 @@ fn show_home_async(_: *Self) void {
 fn create_home(self: *Self) !void {
     tui.reset_drag_context();
     if (self.editor) |_| return;
-    var home_widget = try home.create(self.a, Widget.to(self));
-    errdefer home_widget.deinit(self.a);
+    var home_widget = try home.create(self.allocator, Widget.to(self));
+    errdefer home_widget.deinit(self.allocator);
     self.widgets.replace(self.view_widget_idx, home_widget);
     tui.current().resize();
 }
 
 fn write_restore_info(self: *Self) void {
     if (self.editor) |editor| {
-        var sfa = std.heap.stackFallback(512, self.a);
+        var sfa = std.heap.stackFallback(512, self.allocator);
         const a = sfa.get();
         var meta = std.ArrayList(u8).init(a);
         editor.write_state(meta.writer()) catch return;
@@ -672,8 +672,8 @@ fn read_restore_info(self: *Self) !void {
         const file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
         defer file.close();
         const stat = try file.stat();
-        var buf = try self.a.alloc(u8, @intCast(stat.size));
-        defer self.a.free(buf);
+        var buf = try self.allocator.alloc(u8, @intCast(stat.size));
+        defer self.allocator.free(buf);
         const size = try file.readAll(buf);
         try editor.extract_state(buf[0..size]);
     }
@@ -682,20 +682,20 @@ fn read_restore_info(self: *Self) !void {
 fn push_file_stack(self: *Self, file_path: []const u8) !void {
     for (self.file_stack.items, 0..) |file_path_, i|
         if (std.mem.eql(u8, file_path, file_path_))
-            self.a.free(self.file_stack.orderedRemove(i));
-    (try self.file_stack.addOne()).* = try self.a.dupe(u8, file_path);
+            self.allocator.free(self.file_stack.orderedRemove(i));
+    (try self.file_stack.addOne()).* = try self.allocator.dupe(u8, file_path);
 }
 
 fn pop_file_stack(self: *Self, closed: ?[]const u8) ?[]const u8 {
     if (closed) |file_path|
         for (self.file_stack.items, 0..) |file_path_, i|
             if (std.mem.eql(u8, file_path, file_path_))
-                self.a.free(self.file_stack.orderedRemove(i));
+                self.allocator.free(self.file_stack.orderedRemove(i));
     return self.file_stack.popOrNull();
 }
 
 fn clear_file_stack(self: *Self) void {
-    for (self.file_stack.items) |file_path| self.a.free(file_path);
+    for (self.file_stack.items) |file_path| self.allocator.free(file_path);
     self.file_stack.clearRetainingCapacity();
 }
 

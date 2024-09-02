@@ -27,13 +27,13 @@ last_node: usize = 0,
 
 const Self = @This();
 
-pub fn create(a: Allocator, parent: Plane) !Widget {
+pub fn create(allocator: Allocator, parent: Plane) !Widget {
     if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
-        const self: *Self = try a.create(Self);
+        const self: *Self = try allocator.create(Self);
         self.* = .{
             .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
             .editor = editor,
-            .pos_cache = try ed.PosToWidthCache.init(a),
+            .pos_cache = try ed.PosToWidthCache.init(allocator),
         };
 
         try editor.handlers.add(EventHandler.bind(self, ed_receive));
@@ -42,11 +42,11 @@ pub fn create(a: Allocator, parent: Plane) !Widget {
     return error.NotFound;
 }
 
-pub fn deinit(self: *Self, a: Allocator) void {
+pub fn deinit(self: *Self, allocator: Allocator) void {
     self.editor.handlers.remove_ptr(self);
     tui.current().message_filters.remove_ptr(self);
     self.plane.deinit();
-    a.destroy(self);
+    allocator.destroy(self);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

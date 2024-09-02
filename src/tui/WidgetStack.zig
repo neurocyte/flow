@@ -8,19 +8,19 @@ const Widget = @import("Widget.zig");
 
 const Self = @This();
 
-a: Allocator,
+allocator: Allocator,
 widgets: ArrayList(Widget),
 
-pub fn init(a_: Allocator) Self {
+pub fn init(allocator: Allocator) Self {
     return .{
-        .a = a_,
-        .widgets = ArrayList(Widget).init(a_),
+        .allocator = allocator,
+        .widgets = ArrayList(Widget).init(allocator),
     };
 }
 
 pub fn deinit(self: *Self) void {
     for (self.widgets.items) |*widget|
-        widget.deinit(self.a);
+        widget.deinit(self.allocator);
     self.widgets.deinit();
 }
 
@@ -41,7 +41,7 @@ pub fn replace(self: *Self, n: usize, widget: Widget) void {
 
 pub fn remove(self: *Self, w: Widget) void {
     for (self.widgets.items, 0..) |p, i| if (p.ptr == w.ptr)
-        self.widgets.orderedRemove(i).deinit(self.a);
+        self.widgets.orderedRemove(i).deinit(self.allocator);
 }
 
 pub fn delete(self: *Self, name: []const u8) bool {

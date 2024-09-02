@@ -16,16 +16,16 @@ const fmt = @import("std").fmt;
 
 const Self = @This();
 
-a: Allocator,
+allocator: Allocator,
 buf: [30]u8 = undefined,
 input: ?usize = null,
 start: usize,
 
-pub fn create(a: Allocator, _: command.Context) !*Self {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: Allocator, _: command.Context) !*Self {
+    const self: *Self = try allocator.create(Self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
         self.* = .{
-            .a = a,
+            .allocator = allocator,
             .start = editor.get_primary().cursor.row + 1,
         };
         return self;
@@ -34,7 +34,7 @@ pub fn create(a: Allocator, _: command.Context) !*Self {
 }
 
 pub fn deinit(self: *Self) void {
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 pub fn handler(self: *Self) EventHandler {

@@ -8,7 +8,7 @@ const Self = @This();
 
 pub const max_log_message = tp.max_message_size - 128;
 
-a: std.mem.Allocator,
+allocator: std.mem.Allocator,
 receiver: Receiver,
 subscriber: ?tp.pid,
 heap: [32 + 1024]u8,
@@ -19,11 +19,11 @@ const MsgStoreT = std.DoublyLinkedList([]u8);
 const Receiver = tp.Receiver(*Self);
 
 const StartArgs = struct {
-    a: std.mem.Allocator,
+    allocator: std.mem.Allocator,
 };
 
-pub fn spawn(ctx: *tp.context, a: std.mem.Allocator, env: ?*const tp.env) !tp.pid {
-    return try ctx.spawn_link(StartArgs{ .a = a }, Self.start, "log", null, env);
+pub fn spawn(ctx: *tp.context, allocator: std.mem.Allocator, env: ?*const tp.env) !tp.pid {
+    return try ctx.spawn_link(StartArgs{ .allocator = allocator }, Self.start, "log", null, env);
 }
 
 fn start(args: StartArgs) tp.result {
@@ -34,9 +34,9 @@ fn start(args: StartArgs) tp.result {
 }
 
 fn init(args: StartArgs) !*Self {
-    var p = try args.a.create(Self);
+    var p = try args.allocator.create(Self);
     p.* = .{
-        .a = args.a,
+        .allocator = args.allocator,
         .receiver = Receiver.init(Self.receive, p),
         .subscriber = null,
         .heap = undefined,
@@ -48,7 +48,7 @@ fn init(args: StartArgs) !*Self {
 
 fn deinit(self: *const Self) void {
     if (self.subscriber) |*s| s.deinit();
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 fn log(msg: []const u8) void {
@@ -56,9 +56,9 @@ fn log(msg: []const u8) void {
 }
 
 fn store(self: *Self, m: tp.message) void {
-    const a: std.mem.Allocator = self.fba.allocator();
-    const buf: []u8 = a.alloc(u8, m.len()) catch return;
-    var node: *MsgStoreT.Node = a.create(MsgStoreT.Node) catch return;
+    const allocator: std.mem.Allocator = self.fba.allocator();
+    const buf: []u8 = allocator.alloc(u8, m.len()) catch return;
+    var node: *MsgStoreT.Node = allocator.create(MsgStoreT.Node) catch return;
     node.data = buf;
     @memcpy(buf, m.buf);
     self.msg_store.append(node);

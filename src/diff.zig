@@ -32,7 +32,7 @@ pub fn deinit(self: *Self) void {
 
 const Process = struct {
     arena: std.heap.ArenaAllocator,
-    a: std.mem.Allocator,
+    allocator: std.mem.Allocator,
     receiver: Receiver,
 
     const Receiver = tp.Receiver(*Process);
@@ -42,10 +42,10 @@ const Process = struct {
         const self = try outer_a.create(Process);
         self.* = .{
             .arena = std.heap.ArenaAllocator.init(outer_a),
-            .a = self.arena.allocator(),
+            .allocator = self.arena.allocator(),
             .receiver = Receiver.init(Process.receive, self),
         };
-        return tp.spawn_link(self.a, self, Process.start, module_name);
+        return tp.spawn_link(self.allocator, self, Process.start, module_name);
     }
 
     fn start(self: *Process) tp.result {
@@ -79,26 +79,26 @@ const Process = struct {
         const root_src: Buffer.Root = if (root_old_addr == 0) return else @ptrFromInt(root_old_addr);
 
         var dizzy_edits = std.ArrayListUnmanaged(dizzy.Edit){};
-        var dst = std.ArrayList(u8).init(self.a);
-        var src = std.ArrayList(u8).init(self.a);
+        var dst = std.ArrayList(u8).init(self.allocator);
+        var src = std.ArrayList(u8).init(self.allocator);
         var scratch = std.ArrayListUnmanaged(u32){};
-        var edits = std.ArrayList(Edit).init(self.a);
+        var edits = std.ArrayList(Edit).init(self.allocator);
 
         defer {
             dst.deinit();
             src.deinit();
-            scratch.deinit(self.a);
-            dizzy_edits.deinit(self.a);
+            scratch.deinit(self.allocator);
+            dizzy_edits.deinit(self.allocator);
         }
 
         try root_dst.store(dst.writer());
         try root_src.store(src.writer());
 
         const scratch_len = 4 * (dst.items.len + src.items.len) + 2;
-        try scratch.ensureTotalCapacity(self.a, scratch_len);
+        try scratch.ensureTotalCapacity(self.allocator, scratch_len);
         scratch.items.len = scratch_len;
 
-        try dizzy.PrimitiveSliceDiffer(u8).diff(self.a, &dizzy_edits, src.items, dst.items, scratch.items);
+        try dizzy.PrimitiveSliceDiffer(u8).diff(self.allocator, &dizzy_edits, src.items, dst.items, scratch.items);
 
         if (dizzy_edits.items.len > 2)
             try edits.ensureTotalCapacity((dizzy_edits.items.len - 1) / 2);

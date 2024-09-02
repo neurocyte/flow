@@ -17,17 +17,17 @@ const eql = @import("std").mem.eql;
 const Self = @This();
 const input_buffer_size = 1024;
 
-a: Allocator,
+allocator: Allocator,
 input: ArrayList(u8),
 last_cmd: []const u8 = "",
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
 commands: Commands = undefined,
 
-pub fn create(a: Allocator) !tui.Mode {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: Allocator) !tui.Mode {
+    const self: *Self = try allocator.create(Self);
     self.* = .{
-        .a = a,
-        .input = try ArrayList(u8).initCapacity(a, input_buffer_size),
+        .allocator = allocator,
+        .input = try ArrayList(u8).initCapacity(allocator, input_buffer_size),
     };
     try self.commands.init(self);
     return .{
@@ -42,7 +42,7 @@ pub fn create(a: Allocator) !tui.Mode {
 pub fn deinit(self: *Self) void {
     self.commands.deinit();
     self.input.deinit();
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {

@@ -12,14 +12,14 @@ const EventHandler = @import("../../EventHandler.zig");
 
 const Self = @This();
 
-a: std.mem.Allocator,
+allocator: std.mem.Allocator,
 f: usize = 0,
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
 
-pub fn create(a: std.mem.Allocator) !tui.Mode {
-    const self: *Self = try a.create(Self);
+pub fn create(allocator: std.mem.Allocator) !tui.Mode {
+    const self: *Self = try allocator.create(Self);
     self.* = .{
-        .a = a,
+        .allocator = allocator,
     };
     return .{
         .handler = EventHandler.to_owned(self),
@@ -30,7 +30,7 @@ pub fn create(a: std.mem.Allocator) !tui.Mode {
 }
 
 pub fn deinit(self: *Self) void {
-    self.a.destroy(self);
+    self.allocator.destroy(self);
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
