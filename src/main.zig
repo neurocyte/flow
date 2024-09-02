@@ -89,7 +89,7 @@ pub fn main() anyerror!void {
         return std.io.getStdOut().writeAll(@embedFile("version_info"));
 
     if (res.args.@"list-languages" != 0)
-        return list_languages.list(std.io.getStdOut().writer());
+        return list_languages.list(a, std.io.getStdOut().writer());
 
     if (builtin.os.tag != .windows)
         if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();
