@@ -105,7 +105,7 @@ const can_execute = switch (builtin.os.tag) {
 fn can_execute_posix(allocator: std.mem.Allocator, bin_paths: []const u8, file_path: []const u8) std.mem.Allocator.Error!bool {
     if (!std.process.can_spawn) return false;
 
-    var bin_path_iterator = std.mem.splitAny(u8, bin_paths, &[_]u8{std.fs.path.delimiter});
+    var bin_path_iterator = std.mem.splitScalar(u8, bin_paths, std.fs.path.delimiter);
 
     while (bin_path_iterator.next()) |bin_path| {
         const resolved_file_path = try std.fs.path.resolve(allocator, &.{ bin_path, file_path });
@@ -126,7 +126,7 @@ fn can_execute_windows(allocator: std.mem.Allocator, bin_paths: []const u8, file
     const file_path = try path.toOwnedSlice();
     defer allocator.free(file_path);
 
-    var bin_path_iterator = std.mem.splitAny(u8, bin_paths, &[_]u8{std.fs.path.delimiter});
+    var bin_path_iterator = std.mem.splitScalar(u8, bin_paths, std.fs.path.delimiter);
 
     while (bin_path_iterator.next()) |bin_path| {
         if (!std.fs.path.isAbsolute(bin_path)) continue;
