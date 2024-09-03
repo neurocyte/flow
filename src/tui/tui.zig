@@ -3,7 +3,6 @@ const tp = @import("thespian");
 const log = @import("log");
 const config = @import("config");
 const project_manager = @import("project_manager");
-const build_options = @import("build_options");
 const root = @import("root");
 const tracy = @import("tracy");
 const builtin = @import("builtin");
@@ -11,19 +10,12 @@ const builtin = @import("builtin");
 pub const renderer = @import("renderer");
 
 const command = @import("command.zig");
-const WidgetStack = @import("WidgetStack.zig");
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const EventHandler = @import("EventHandler.zig");
 const mainview = @import("mainview.zig");
 
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
-const eql = std.mem.eql;
-const STDIN_FILENO = std.os.STDIN_FILENO;
-const Timer = std.time.Timer;
-const Mutex = std.Thread.Mutex;
-const maxInt = std.math.maxInt;
 
 allocator: Allocator,
 rdr: renderer,

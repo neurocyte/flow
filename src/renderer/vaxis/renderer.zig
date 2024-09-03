@@ -13,7 +13,6 @@ pub const CursorShape = vaxis.Cell.CursorShape;
 
 pub const style = @import("style.zig").StyleBits;
 
-const mod = input.modifier;
 const key = input.key;
 const event_type = input.event_type;
 
@@ -42,12 +41,6 @@ dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 logger: log.Logger,
 
 loop: Loop,
-
-const Event = union(enum) {
-    key_press: vaxis.Key,
-    winsize: vaxis.Winsize,
-    focus_in,
-};
 
 pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !Self {
     const opts: vaxis.Vaxis.Options = .{

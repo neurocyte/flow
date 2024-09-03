@@ -8,7 +8,6 @@ const event_type = @import("renderer").input.event_type;
 
 const Widget = @import("Widget.zig");
 const EventHandler = @import("EventHandler.zig");
-const tui = @import("tui.zig");
 
 plane: Plane,
 pos_scrn: u32 = 0,

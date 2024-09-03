@@ -1,6 +1,3 @@
-const eql = @import("std").mem.eql;
-const fmt = @import("std").fmt;
-const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
 
 const tp = @import("thespian");

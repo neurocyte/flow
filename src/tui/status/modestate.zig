@@ -1,17 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const tp = @import("thespian");
-const tracy = @import("tracy");
-const root = @import("root");
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
 
 const Widget = @import("../Widget.zig");
-const Menu = @import("../Menu.zig");
 const Button = @import("../Button.zig");
 const command = @import("../command.zig");
-const ed = @import("../editor.zig");
 const tui = @import("../tui.zig");
 const CreateError = @import("widget.zig").CreateError;
 

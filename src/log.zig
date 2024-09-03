@@ -1,7 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
 
-const deque = std.TailQueue;
 const fba = std.heap.FixedBufferAllocator;
 
 const Self = @This();

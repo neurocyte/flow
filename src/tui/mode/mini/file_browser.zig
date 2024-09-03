@@ -10,7 +10,6 @@ const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const project_manager = @import("project_manager");
 
 const tui = @import("../../tui.zig");
-const mainview = @import("../../mainview.zig");
 const command = @import("../../command.zig");
 const EventHandler = @import("../../EventHandler.zig");
 const MessageFilter = @import("../../MessageFilter.zig");

@@ -6,7 +6,6 @@ const cwd = std.fs.cwd;
 
 const Self = @This();
 
-const default_leaf_capacity = 64;
 const max_imbalance = 7;
 pub const Root = *const Node;
 pub const unicode = @import("unicode.zig");

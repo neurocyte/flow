@@ -12,7 +12,6 @@ const EventHandler = @import("../../EventHandler.zig");
 
 const Allocator = @import("std").mem.Allocator;
 const ArrayList = @import("std").ArrayList;
-const json = @import("std").json;
 const eql = @import("std").mem.eql;
 
 const Self = @This();

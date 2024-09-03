@@ -1,6 +1,5 @@
 const std = @import("std");
 const tp = @import("thespian");
-const cbor = @import("cbor");
 const log = @import("log");
 
 pid: ?tp.pid,

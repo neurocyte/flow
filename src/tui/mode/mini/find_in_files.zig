@@ -9,10 +9,8 @@ const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
 const command = @import("../../command.zig");
 const EventHandler = @import("../../EventHandler.zig");
-const ed = @import("../../editor.zig");
 
 const Allocator = @import("std").mem.Allocator;
-const json = @import("std").json;
 const eql = @import("std").mem.eql;
 
 const Self = @This();
@@ -167,8 +165,6 @@ fn insert_bytes(self: *Self, bytes: []const u8) !void {
     @memcpy(self.buf[self.input.len..newlen], bytes);
     self.input = self.buf[0..newlen];
 }
-
-var find_cmd_id: ?command.ID = null;
 
 fn flush_input(self: *Self) !void {
     if (self.input.len > 2) {

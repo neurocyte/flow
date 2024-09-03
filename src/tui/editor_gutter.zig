@@ -12,7 +12,6 @@ const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
 
 const Widget = @import("Widget.zig");
-const WidgetList = @import("WidgetList.zig");
 const EventHandler = @import("EventHandler.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");

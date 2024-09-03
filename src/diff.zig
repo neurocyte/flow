@@ -3,7 +3,6 @@ const tp = @import("thespian");
 const dizzy = @import("dizzy");
 const Buffer = @import("Buffer");
 const tracy = @import("tracy");
-const cbor = @import("cbor");
 
 const Self = @This();
 const module_name = @typeName(Self);

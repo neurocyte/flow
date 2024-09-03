@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const tracy = @import("tracy");
 const root = @import("root");
-const builtin = @import("builtin");
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;

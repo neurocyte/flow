@@ -1,6 +1,5 @@
 const std = @import("std");
 const tp = @import("thespian");
-const log = @import("log");
 const zeit = @import("zeit");
 
 const Plane = @import("renderer").Plane;
@@ -8,8 +7,6 @@ const Plane = @import("renderer").Plane;
 const Widget = @import("../Widget.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
-const mainview = @import("../mainview.zig");
-const logview = @import("../logview.zig");
 
 allocator: std.mem.Allocator,
 plane: Plane,
@@ -17,14 +14,7 @@ tick_timer: ?tp.Cancellable = null,
 on_event: ?Widget.EventHandler,
 tz: zeit.timezone.TimeZone,
 
-const message_display_time_seconds = 2;
-const error_display_time_seconds = 4;
 const Self = @This();
-
-const Level = enum {
-    info,
-    err,
-};
 
 pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
     var env = std.process.getEnvMap(allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());

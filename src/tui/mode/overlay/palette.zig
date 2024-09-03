@@ -13,7 +13,6 @@ const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const tui = @import("../../tui.zig");
 const command = @import("../../command.zig");
 const EventHandler = @import("../../EventHandler.zig");
-const WidgetList = @import("../../WidgetList.zig");
 const Button = @import("../../Button.zig");
 const InputBox = @import("../../InputBox.zig");
 const Widget = @import("../../Widget.zig");

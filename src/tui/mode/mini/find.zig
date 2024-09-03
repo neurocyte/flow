@@ -12,7 +12,6 @@ const EventHandler = @import("../../EventHandler.zig");
 const ed = @import("../../editor.zig");
 
 const Allocator = @import("std").mem.Allocator;
-const json = @import("std").json;
 const eql = @import("std").mem.eql;
 const ArrayList = @import("std").ArrayList;
 
@@ -167,8 +166,6 @@ fn insert_code_point(self: *Self, c: u32) !void {
 fn insert_bytes(self: *Self, bytes: []const u8) !void {
     try self.input.appendSlice(bytes);
 }
-
-var find_cmd_id: ?command.ID = null;
 
 fn flush_input(self: *Self) !void {
     if (self.input.items.len > 0) {

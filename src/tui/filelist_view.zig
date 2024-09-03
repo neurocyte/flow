@@ -1,30 +1,20 @@
 const std = @import("std");
-const eql = @import("std").mem.eql;
-const fmt = @import("std").fmt;
-const time = @import("std").time;
 const cbor = @import("cbor");
 const Allocator = @import("std").mem.Allocator;
-const Mutex = @import("std").Thread.Mutex;
-const ArrayList = @import("std").ArrayList;
 
 const Plane = @import("renderer").Plane;
 const tp = @import("thespian");
 const log = @import("log");
-const key = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
 const root = @import("root");
 
 const command = @import("command.zig");
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const MessageFilter = @import("MessageFilter.zig");
 const Menu = @import("Menu.zig");
 const EventHandler = @import("EventHandler.zig");
 const Button = @import("Button.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor = @import("editor.zig");
-
-const escape = fmt.fmtSliceEscapeLower;
 
 pub const name = @typeName(Self);
 

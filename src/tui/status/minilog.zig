@@ -7,7 +7,6 @@ const Plane = @import("renderer").Plane;
 const Widget = @import("../Widget.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
-const mainview = @import("../mainview.zig");
 const logview = @import("../logview.zig");
 
 plane: Plane,
