@@ -1012,18 +1012,10 @@ pub const Editor = struct {
             self: *Self,
             theme: *const Widget.Theme,
             cache: *StyleCache,
-            last_row: usize = std.math.maxInt(usize),
-            last_col: usize = std.math.maxInt(usize),
             root: Buffer.Root,
             pos_cache: PosToWidthCache,
             fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, _: usize, _: *const syntax.Node) error{Stop}!void {
                 const sel_ = ctx.pos_cache.range_to_selection(range, ctx.root, ctx.self.plane) orelse return;
-                defer {
-                    ctx.last_row = sel_.begin.row;
-                    ctx.last_col = sel_.begin.col;
-                }
-                if (ctx.last_row == sel_.begin.row and sel_.begin.col <= ctx.last_col)
-                    return;
 
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
