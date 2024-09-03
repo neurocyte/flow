@@ -104,7 +104,8 @@ pub fn main() anyerror!void {
     }
 
     if (c.setlocale(c.LC_ALL, "") == null) {
-        return error.SetLocaleFailed;
+        try std.io.getStdErr().writer().print("Failed to set locale. Is your locale valid?\n", .{});
+        exit(1);
     }
 
     if (res.args.@"debug-dump-on-error" != 0)
