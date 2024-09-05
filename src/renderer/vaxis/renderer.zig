@@ -298,8 +298,9 @@ fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
                 const bytes = try ucs32_to_utf8(&[_]u32{egc_}, &buf);
                 try self.bracketed_paste_buffer.appendSlice(buf[0..bytes]);
             } else {
-                try self.handle_bracketed_paste_end();
-                return false;
+                var buf: [6]u8 = undefined;
+                const bytes = try ucs32_to_utf8(&[_]u32{egc_}, &buf);
+                self.logger.print("unexpected codepoint in paste: {d} {s}", .{ keypress, buf[0..bytes] });
             },
         }
         return true;
