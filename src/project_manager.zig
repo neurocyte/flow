@@ -464,8 +464,11 @@ const Process = struct {
             project.show_message(self.parent.ref(), params_cb)
         else if (std.mem.eql(u8, method, "window/logMessage"))
             project.show_message(self.parent.ref(), params_cb)
-        else
-            tp.exit_fmt("unsupported LSP notification: {s}", .{method});
+        else {
+            const params = try cbor.toJsonAlloc(self.allocator, params_cb);
+            defer self.allocator.free(params);
+            self.logger.print("LSP notification: {s} -> {s}", .{ method, params });
+        };
     }
 
     fn dispatch_request(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8, method: []const u8, id: i32, params_cb: []const u8) !void {
