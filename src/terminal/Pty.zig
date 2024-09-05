@@ -48,7 +48,7 @@ fn openPtyLinux() !Pty {
     if (posix.system.ioctl(p, posix.T.IOCGPTN, @intFromPtr(&n)) != 0) return error.IoctlError;
     var buf: [16]u8 = undefined;
     const sname = try std.fmt.bufPrint(&buf, "/dev/pts/{d}", .{n});
-    std.log.err("pts: {s}", .{sname});
+    std.log.debug("pts: {s}", .{sname});
 
     const t = try posix.open(sname, .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
 
