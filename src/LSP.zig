@@ -29,12 +29,17 @@ pub fn term(self: *Self) void {
 }
 
 pub fn send_request(self: Self, allocator: std.mem.Allocator, method: []const u8, m: anytype) !tp.message {
-    // const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".send_request" });
-    // defer frame.deinit();
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
     return self.pid.call(allocator, lsp_request_timeout, .{ "REQ", method, cb.items });
+}
+
+pub fn send_response(self: Self, id: i32, m: anytype) !tp.message {
+    var cb = std.ArrayList(u8).init(self.allocator);
+    defer cb.deinit();
+    try cbor.writeValue(cb.writer(), m);
+    return self.pid.send(.{ "RSP", id, cb.items });
 }
 
 pub fn send_notification(self: Self, method: []const u8, m: anytype) !void {
@@ -149,9 +154,12 @@ const Process = struct {
         var bytes: []u8 = "";
         var err: []u8 = "";
         var code: u32 = 0;
+        var id: i32 = 0;
 
         if (try m.match(.{ "REQ", tp.extract(&method), tp.extract(&bytes) })) {
             try self.send_request(from, method, bytes);
+        } else if (try m.match(.{ "RSP", tp.extract(&id), tp.extract(&bytes) })) {
+            try self.send_response(id, bytes);
         } else if (try m.match(.{ "NTFY", tp.extract(&method), tp.extract(&bytes) })) {
             try self.send_notification(method, bytes);
         } else if (try m.match(.{"close"})) {
@@ -275,6 +283,35 @@ const Process = struct {
         try sp.send(output.items);
         self.write_log("### SEND request:\n{s}\n###\n", .{output.items});
         try self.requests.put(id, from.clone());
+    }
+
+    fn send_response(self: *Process, id: i32, result_cb: []const u8) !void {
+        const sp = if (self.sp) |*sp| sp else return error.Closed;
+
+        var msg = std.ArrayList(u8).init(self.allocator);
+        defer msg.deinit();
+        const msg_writer = msg.writer();
+        try cbor.writeMapHeader(msg_writer, 3);
+        try cbor.writeValue(msg_writer, "jsonrpc");
+        try cbor.writeValue(msg_writer, "2.0");
+        try cbor.writeValue(msg_writer, "id");
+        try cbor.writeValue(msg_writer, id);
+        try cbor.writeValue(msg_writer, "result");
+        _ = try msg_writer.write(result_cb);
+
+        const json = try cbor.toJsonAlloc(self.allocator, msg.items);
+        defer self.allocator.free(json);
+        var output = std.ArrayList(u8).init(self.allocator);
+        defer output.deinit();
+        const writer = output.writer();
+        const terminator = "\r\n";
+        const content_length = json.len + terminator.len;
+        try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
+        _ = try writer.write(json);
+        _ = try writer.write(terminator);
+
+        try sp.send(output.items);
+        self.write_log("### SEND response:\n{s}\n###\n", .{output.items});
     }
 
     fn send_notification(self: *Process, method: []const u8, params_cb: []const u8) !void {
