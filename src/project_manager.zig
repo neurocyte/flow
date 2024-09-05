@@ -258,7 +258,7 @@ const Process = struct {
         } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
             self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try m.match(.{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract(&id), tp.extract_cbor(&params_cb) })) {
-            self.dispatch_request(project_directory, language_server, method, id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
+            self.dispatch_request(from, project_directory, language_server, method, id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try m.match(.{ "child", tp.extract(&path), "done" })) {
             self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
         } else if (try m.match(.{ "open", tp.extract(&project_directory) })) {
@@ -468,13 +468,16 @@ const Process = struct {
             tp.exit_fmt("unsupported LSP notification: {s}", .{method});
     }
 
-    fn dispatch_request(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, id: i32, params_cb: []const u8) !void {
-        _ = self;
-        _ = project_directory;
+    fn dispatch_request(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8, method: []const u8, id: i32, params_cb: []const u8) !void {
         _ = language_server;
-        _ = id;
-        _ = params_cb;
-        return tp.exit_fmt("unsupported LSP request: {s}", .{method});
+        const project = if (self.projects.get(project_directory)) |p| p else return tp.exit("No project");
+        return if (std.mem.eql(u8, method, "client/registerCapability"))
+            project.register_capability(from, id, params_cb)
+        else blk: {
+            const params = try cbor.toJsonAlloc(self.allocator, params_cb);
+            defer self.allocator.free(params);
+            break :blk tp.exit_fmt("unsupported LSP request: {s} -> {s}", .{ method, params });
+        };
     }
 
     fn persist_projects(self: *Process) void {

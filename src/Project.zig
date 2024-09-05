@@ -749,6 +749,18 @@ pub fn show_message(_: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
         logger.print("{s}", .{msg});
 }
 
+pub fn register_capability(self: *Self, from: tp.pid_ref, id: i32, params_cb: []const u8) !void {
+    _ = params_cb;
+    return self.send_lsp_response(from, id, null);
+}
+
+pub fn send_lsp_response(self: *Self, from: tp.pid_ref, id: i32, result: anytype) !void {
+    var cb = std.ArrayList(u8).init(self.allocator);
+    defer cb.deinit();
+    try cbor.writeValue(cb.writer(), result);
+    return from.send(.{ "RSP", id, cb.items });
+}
+
 fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) !tp.message {
     return lsp.send_request(self.allocator, "initialize", .{
         .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
