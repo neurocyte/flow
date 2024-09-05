@@ -293,6 +293,7 @@ fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
     if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.string, 0 })) {
         switch (keypress) {
             key.ENTER => try self.bracketed_paste_buffer.appendSlice("\n"),
+            key.TAB => try self.bracketed_paste_buffer.appendSlice("\t"),
             else => if (!key.synthesized_p(keypress)) {
                 var buf: [6]u8 = undefined;
                 const bytes = try ucs32_to_utf8(&[_]u32{egc_}, &buf);
