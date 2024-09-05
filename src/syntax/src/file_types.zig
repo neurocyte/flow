@@ -163,6 +163,7 @@ pub const json = .{
     .extensions = .{"json"},
     .comment = "//",
     .language_server = .{ "deno", "lsp" },
+    .formatter = .{ "hjson", "-j" },
 };
 
 pub const kdl = .{
