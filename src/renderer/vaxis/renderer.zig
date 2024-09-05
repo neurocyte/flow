@@ -170,11 +170,9 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
                 text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
                 @as(u8, @bitCast(key_.mods)),
             });
-            if (self.bracketed_paste and self.handle_bracketed_paste_input(cbor_msg) catch |e| {
-                self.bracketed_paste_buffer.clearAndFree();
-                self.bracketed_paste = false;
-                return e;
-            }) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
+            if (self.bracketed_paste and self.handle_bracketed_paste_input(cbor_msg) catch |e| return self.handle_bracketed_paste_error(e)) {
+                // we have stored it to handle on .paste_end, so do nothing more here
+            } else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
         },
         .key_release => |key__| {
             const key_ = filter_mods(key__);
@@ -238,10 +236,7 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
         .focus_out => {
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_out"}));
         },
-        .paste_start => {
-            self.bracketed_paste = true;
-            self.bracketed_paste_buffer.clearRetainingCapacity();
-        },
+        .paste_start => try self.handle_bracketed_paste_start(),
         .paste_end => try self.handle_bracketed_paste_end(),
         .paste => |_| {
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
@@ -312,11 +307,25 @@ fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
     return false;
 }
 
+fn handle_bracketed_paste_start(self: *Self) !void {
+    self.bracketed_paste = true;
+    self.bracketed_paste_buffer.clearRetainingCapacity();
+}
+
 fn handle_bracketed_paste_end(self: *Self) !void {
-    defer self.bracketed_paste_buffer.clearAndFree();
+    defer {
+        self.bracketed_paste_buffer.clearAndFree();
+        self.bracketed_paste = false;
+    }
     if (!self.bracketed_paste) return;
-    self.bracketed_paste = false;
     if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", self.bracketed_paste_buffer.items }));
+}
+
+fn handle_bracketed_paste_error(self: *Self, e: anytype) !void {
+    self.logger.err("bracketed paste", e);
+    self.bracketed_paste_buffer.clearAndFree();
+    self.bracketed_paste = false;
+    return e;
 }
 
 pub fn set_terminal_title(self: *Self, text: []const u8) void {
