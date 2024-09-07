@@ -1,35 +1,35 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 ARCH=$(uname -m)
 
 BASEDIR="$(cd "$(dirname "$0")" && pwd)"
 ZIGDIR=$BASEDIR/.cache/zig
-VERSION=$(<build.zig.version)
+VERSION=$(cat build.zig.version)
 
 OS=$(uname)
 
-if [ "$OS" == "Linux" ]; then
+if [ "$OS" = "Linux" ]; then
     OS=linux
-elif [ "$OS" == "Darwin" ]; then
+elif [ "$OS" = "Darwin" ]; then
     OS=macos
-elif [ "$OS" == "FreeBSD" ]; then
+elif [ "$OS" = "FreeBSD" ]; then
     OS=freebsd
-    if [ "$ARCH" == "amd64" ]; then
+    if [ "$ARCH" = "amd64" ]; then
         ARCH=x86_64
     fi
 fi
 
-if [ "$ARCH" == "arm64" ]; then
+if [ "$ARCH" = "arm64" ]; then
     ARCH=aarch64
 fi
 
 ZIGVER="zig-$OS-$ARCH-$VERSION"
 ZIG=$ZIGDIR/$ZIGVER/zig
 
-if [ "$1" == "update" ]; then
+if [ "$1" = "update" ]; then
     curl -L --silent https://ziglang.org/download/index.json | jq -r '.master | .version' >build.zig.version
-    NEWVERSION=$(<build.zig.version)
+    NEWVERSION=$(cat build.zig.version)
 
     if [ "$VERSION" != "$NEWVERSION" ]; then
         echo "zig version updated from $VERSION to $NEWVERSION"
@@ -46,7 +46,7 @@ get_zig() {
         mkdir -p "$ZIGDIR"
         cd "$ZIGDIR"
         TARBALL="https://ziglang.org/builds/$ZIGVER.tar.xz"
-        if [ "$OS" == "freebsd" ]; then
+        if [ "$OS" = "freebsd" ]; then
             TARBALL="https://ziglang.org/download/$VERSION/$ZIGVER.tar.xz"
         fi
 
@@ -57,8 +57,8 @@ get_zig() {
 }
 get_zig
 
-if [ "$1" == "cdb" ]; then
-    rm -rf zig-cache
+if [ "$1" = "cdb" ]; then
+    rm -rf .zig-cache
     rm -rf .cache/cdb
 
     $ZIG build
