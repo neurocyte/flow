@@ -123,6 +123,9 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     } else if (try m.match(.{ "FIF", "done" })) {
         self.find_in_files_done = true;
         return true;
+    } else if (try m.match(.{ "hover", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.string, tp.extract(&lines) })) {
+        try self.add_info_content(lines);
+        return true;
     } else if (try m.match(.{"write_restore_info"})) {
         self.write_restore_info();
         return true;

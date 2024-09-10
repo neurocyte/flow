@@ -3490,6 +3490,12 @@ pub const Editor = struct {
         return project_manager.completion(file_path, primary.cursor.row, primary.cursor.col);
     }
 
+    pub fn hover(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        return project_manager.hover(file_path, primary.cursor.row, primary.cursor.col);
+    }
+
     pub fn add_diagnostic(
         self: *Self,
         file_path: []const u8,
