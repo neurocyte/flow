@@ -20,6 +20,8 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?Widget.EventH
         .ctx = {},
         .label = tui.get_mode(),
         .on_click = on_click,
+        .on_click2 = toggle_panel,
+        .on_click3 = toggle_panel,
         .on_layout = layout,
         .on_render = render,
         .on_event = event_handler,
@@ -96,4 +98,8 @@ fn on_click(_: *void, _: *Button.State(void)) void {
     } else {
         command.executeName("open_command_palette", .{}) catch {};
     }
+}
+
+fn toggle_panel(_: *void, _: *Button.State(void)) void {
+    command.executeName("toggle_panel", .{}) catch {};
 }
