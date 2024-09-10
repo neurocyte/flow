@@ -242,6 +242,7 @@ fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
                     'K' => self.cmd("delete_to_end", .{}),
                     'D' => self.cmd("move_cursor_next_match", .{}),
                     'T' => self.cmd("change_theme", .{}),
+                    'I' => self.cmd("hover", .{}),
                     else => {},
                 },
                 else => {},
