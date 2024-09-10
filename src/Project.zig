@@ -603,7 +603,7 @@ pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, c
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
-    log.logger("lsp").print("fetching hover information...", .{});
+    // log.logger("lsp").print("fetching hover information...", .{});
 
     const response = try lsp.send_request(self.allocator, "textDocument/hover", .{
         .textDocument = .{ .uri = uri },
@@ -612,7 +612,7 @@ pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, c
     defer self.allocator.free(response.buf);
     var result: []const u8 = undefined;
     if (try response.match(.{ "child", tp.string, "result", tp.null_ })) {
-        return;
+        try send_content_msg_empty(from, "hover", file_path, row, col);
     } else if (try response.match(.{ "child", tp.string, "result", tp.extract_cbor(&result) })) {
         try self.send_hover(from, file_path, row, col, result);
     }
@@ -674,16 +674,12 @@ fn send_contents(self: *Self, to: tp.pid_ref, tag: []const u8, file_path: []cons
     return send_content_msg(to, tag, file_path, row, col, kind, value);
 }
 
-fn send_content_msg(
-    to: tp.pid_ref,
-    tag: []const u8,
-    file_path: []const u8,
-    row: usize,
-    col: usize,
-    kind: []const u8,
-    content: []const u8,
-) !void {
+fn send_content_msg(to: tp.pid_ref, tag: []const u8, file_path: []const u8, row: usize, col: usize, kind: []const u8, content: []const u8) !void {
     return try to.send(.{ tag, file_path, row, col, kind, content });
+}
+
+fn send_content_msg_empty(to: tp.pid_ref, tag: []const u8, file_path: []const u8, row: usize, col: usize) !void {
+    return try to.send(.{ tag, file_path, row, col, "plaintext", "" });
 }
 
 pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) !void {
