@@ -47,15 +47,6 @@ find_in_files_done: bool = false,
 file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
 
-const NavState = struct {
-    time: i64 = 0,
-    lines: usize = 0,
-    rows: usize = 0,
-    row: usize = 0,
-    col: usize = 0,
-    matches: usize = 0,
-};
-
 const FileListType = enum {
     diagnostics,
     references,

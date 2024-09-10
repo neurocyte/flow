@@ -3,9 +3,6 @@ const cbor = @import("cbor");
 const tp = @import("thespian");
 const project_manager = @import("project_manager");
 
-const Widget = @import("../../Widget.zig");
-const tui = @import("../../tui.zig");
-
 pub const Type = @import("palette.zig").Create(@This());
 
 pub const label = "Search projects";

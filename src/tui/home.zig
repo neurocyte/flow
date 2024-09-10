@@ -2,13 +2,9 @@ const std = @import("std");
 const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
-const planeutils = @import("renderer").planeutils;
-const channels_ = @import("renderer").channels;
-const style_ = @import("renderer").style;
 const root = @import("root");
 
 const Widget = @import("Widget.zig");
-const WidgetList = @import("WidgetList.zig");
 const Button = @import("Button.zig");
 const Menu = @import("Menu.zig");
 const tui = @import("tui.zig");

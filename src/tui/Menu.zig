@@ -1,13 +1,9 @@
 const std = @import("std");
-const tp = @import("thespian");
-
-const planeutils = @import("renderer").planeutils;
 
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const EventHandler = @import("EventHandler.zig");
 const Button = @import("Button.zig");
-const tui = @import("tui.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 
 pub const Container = WidgetList;

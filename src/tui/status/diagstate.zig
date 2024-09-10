@@ -1,13 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
-const tracy = @import("tracy");
 
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
-const tui = @import("../tui.zig");
 const command = @import("../command.zig");
 
 errors: usize = 0,

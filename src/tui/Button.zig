@@ -6,7 +6,6 @@ const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
 
 const Widget = @import("Widget.zig");
-const command = @import("command.zig");
 const tui = @import("tui.zig");
 
 pub fn Options(context: type) type {

@@ -1,5 +1,3 @@
-const std = @import("std");
-const Plane = @import("renderer").Plane;
 const Buffer = @import("Buffer.zig");
 const Cursor = @import("Cursor.zig");
 

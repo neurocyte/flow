@@ -2,17 +2,13 @@ const eql = @import("std").mem.eql;
 const fmt = @import("std").fmt;
 const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
-const Mutex = @import("std").Thread.Mutex;
 const ArrayList = @import("std").ArrayList;
 
 const tp = @import("thespian");
-const log = @import("log");
 
 const Plane = @import("renderer").Plane;
 
-const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const MessageFilter = @import("MessageFilter.zig");
 
 const escape = fmt.fmtSliceEscapeLower;
 

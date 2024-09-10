@@ -3,9 +3,6 @@ const std = @import("std");
 const status_widget = @import("widget.zig");
 const Widget = @import("../Widget.zig");
 const WidgetList = @import("../WidgetList.zig");
-const tui = @import("../tui.zig");
-
-const Self = @This();
 
 pub const Style = enum { none, grip };
 

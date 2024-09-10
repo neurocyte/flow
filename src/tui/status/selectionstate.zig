@@ -7,7 +7,6 @@ const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
 const ed = @import("../editor.zig");
-const tui = @import("../tui.zig");
 
 plane: Plane,
 matches: usize = 0,

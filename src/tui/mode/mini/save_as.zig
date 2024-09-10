@@ -1,19 +1,11 @@
 const std = @import("std");
 const tp = @import("thespian");
-const log = @import("log");
 const root = @import("root");
 
-const key = @import("renderer").input.key;
-const mod = @import("renderer").input.modifier;
-const event_type = @import("renderer").input.event_type;
-const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
-const project_manager = @import("project_manager");
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
 const command = @import("../../command.zig");
-const EventHandler = @import("../../EventHandler.zig");
-const MessageFilter = @import("../../MessageFilter.zig");
 
 pub const Type = @import("file_browser.zig").Create(@This());
 

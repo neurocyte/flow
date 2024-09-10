@@ -5,7 +5,6 @@ const cbor = @import("cbor");
 const root = @import("root");
 
 const Plane = @import("renderer").Plane;
-const planeutils = @import("renderer").planeutils;
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;

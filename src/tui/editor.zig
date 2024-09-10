@@ -25,21 +25,15 @@ const WidgetList = @import("WidgetList.zig");
 const command = @import("command.zig");
 const tui = @import("tui.zig");
 
-const module = @This();
-
 pub const Cursor = Buffer.Cursor;
 pub const View = Buffer.View;
 pub const Selection = Buffer.Selection;
 
 const Allocator = std.mem.Allocator;
-const copy = std.mem.copy;
-const fmt = std.fmt;
 const time = std.time;
 
 const scroll_step_small = 3;
-const scroll_page_ratio = 3;
 const scroll_cursor_min_border_distance = 5;
-const scroll_cursor_min_border_distance_mouse = 1;
 
 const double_click_time_ms = 350;
 pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_000 else 100_000;
