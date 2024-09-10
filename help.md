@@ -255,6 +255,12 @@ cycle style of editing.
 - Alt-MouseLeft =>
         Goto definition of symbol at click
 
+- Ctrl-k -> Ctrl-i =>
+        Show information about the symbol at the cursor (hover)
+
+- hold Alt =>
+        Enable jump/hover mouse mode
+
 ### Debugging Commands
 
 - F5, Ctrl-Shift-i =>
