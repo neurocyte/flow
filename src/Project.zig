@@ -621,25 +621,40 @@ pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, c
 fn send_hover(self: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, result: []const u8) !void {
     var iter = result;
     var len = cbor.decodeMapHeader(&iter) catch return;
+    var contents: []const u8 = "";
+    var range: ?Range = null;
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
         if (std.mem.eql(u8, field_name, "contents")) {
-            var value: []const u8 = "";
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&value)))) return error.InvalidMessageField;
-            return self.send_contents(to, "hover", file_path, row, col, value);
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&contents)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "range")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidMessageField;
+            range = try read_range(range_);
         } else {
             try cbor.skipValue(&iter);
         }
     }
+    if (contents.len > 0)
+        return self.send_contents(to, "hover", file_path, row, col, contents, range);
 }
 
-fn send_contents(self: *Self, to: tp.pid_ref, tag: []const u8, file_path: []const u8, row: usize, col: usize, result: []const u8) !void {
+fn send_contents(
+    self: *Self,
+    to: tp.pid_ref,
+    tag: []const u8,
+    file_path: []const u8,
+    row: usize,
+    col: usize,
+    result: []const u8,
+    range: ?Range,
+) !void {
     var iter = result;
     var kind: []const u8 = "plaintext";
     var value: []const u8 = "";
     if (try cbor.matchValue(&iter, cbor.extract(&value)))
-        return send_content_msg(to, tag, file_path, row, col, kind, value);
+        return send_content_msg(to, tag, file_path, row, col, kind, value, range);
 
     var is_list = true;
     var len = cbor.decodeArrayHeader(&iter) catch blk: {
@@ -657,7 +672,7 @@ fn send_contents(self: *Self, to: tp.pid_ref, tag: []const u8, file_path: []cons
                 if (len > 1) try content.appendSlice("\n");
             }
         }
-        return send_content_msg(to, tag, file_path, row, col, kind, content.items);
+        return send_content_msg(to, tag, file_path, row, col, kind, content.items, range);
     }
 
     while (len > 0) : (len -= 1) {
@@ -671,15 +686,28 @@ fn send_contents(self: *Self, to: tp.pid_ref, tag: []const u8, file_path: []cons
             try cbor.skipValue(&iter);
         }
     }
-    return send_content_msg(to, tag, file_path, row, col, kind, value);
+    return send_content_msg(to, tag, file_path, row, col, kind, value, range);
 }
 
-fn send_content_msg(to: tp.pid_ref, tag: []const u8, file_path: []const u8, row: usize, col: usize, kind: []const u8, content: []const u8) !void {
-    return try to.send(.{ tag, file_path, row, col, kind, content });
+fn send_content_msg(
+    to: tp.pid_ref,
+    tag: []const u8,
+    file_path: []const u8,
+    row: usize,
+    col: usize,
+    kind: []const u8,
+    content: []const u8,
+    range: ?Range,
+) !void {
+    const r = range orelse Range{
+        .start = .{ .line = row, .character = col },
+        .end = .{ .line = row, .character = col },
+    };
+    return try to.send(.{ tag, file_path, kind, content, r.start.line, r.start.character, r.end.line, r.end.character });
 }
 
 fn send_content_msg_empty(to: tp.pid_ref, tag: []const u8, file_path: []const u8, row: usize, col: usize) !void {
-    return try to.send(.{ tag, file_path, row, col, "plaintext", "" });
+    return send_content_msg(to, tag, file_path, row, col, "plaintext", "", null);
 }
 
 pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) !void {

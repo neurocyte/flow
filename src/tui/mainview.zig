@@ -123,8 +123,8 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     } else if (try m.match(.{ "FIF", "done" })) {
         self.find_in_files_done = true;
         return true;
-    } else if (try m.match(.{ "hover", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.string, tp.extract(&lines) })) {
-        try self.add_info_content(lines);
+    } else if (try m.match(.{ "hover", tp.extract(&path), tp.string, tp.extract(&lines), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
+        try self.add_info_content(begin_line, begin_pos, end_line, end_pos, lines);
         return true;
     } else if (try m.match(.{"write_restore_info"})) {
         self.write_restore_info();
@@ -743,9 +743,28 @@ fn clear_find_in_files_results(self: *Self, file_list_type: FileListType) void {
     fl.reset();
 }
 
-fn add_info_content(self: *Self, content: []const u8) tp.result {
+fn add_info_content(
+    self: *Self,
+    begin_line: usize,
+    begin_pos: usize,
+    end_line: usize,
+    end_pos: usize,
+    content: []const u8,
+) tp.result {
     if (!self.is_panel_view_showing(info_view))
         _ = self.toggle_panel_view(info_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const info = self.get_panel_view(info_view) orelse @panic("info_view missing");
     info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace());
+
+    const match: ed.Match = .{ .begin = .{ .row = begin_line, .col = begin_pos }, .end = .{ .row = end_line, .col = end_pos } };
+    if (self.editor) |editor|
+        switch (editor.matches.items.len) {
+            0 => {
+                (editor.matches.addOne() catch return).* = match;
+            },
+            1 => {
+                editor.matches.items[0] = match;
+            },
+            else => {},
+        };
 }
