@@ -24,6 +24,7 @@ const home = @import("home.zig");
 
 const logview = @import("logview.zig");
 const filelist_view = @import("filelist_view.zig");
+const info_view = @import("info_view.zig");
 
 const Self = @This();
 const Commands = command.Collection(cmds);
@@ -366,6 +367,8 @@ const cmds = struct {
     pub fn toggle_panel(self: *Self, _: Ctx) Result {
         if (self.is_panel_view_showing(logview))
             try self.toggle_panel_view(logview, false)
+        else if (self.is_panel_view_showing(info_view))
+            try self.toggle_panel_view(info_view, false)
         else if (self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false)
         else
@@ -735,4 +738,11 @@ fn clear_find_in_files_results(self: *Self, file_list_type: FileListType) void {
     self.find_in_files_done = false;
     self.file_list_type = file_list_type;
     fl.reset();
+}
+
+fn add_info_content(self: *Self, content: []const u8) tp.result {
+    if (!self.is_panel_view_showing(info_view))
+        _ = self.toggle_panel_view(info_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    const info = self.get_panel_view(info_view) orelse @panic("info_view missing");
+    info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
