@@ -152,6 +152,13 @@ pub fn completion(file_path: []const u8, row: usize, col: usize) !void {
     return (try get()).pid.send(.{ "completion", project, file_path, row, col });
 }
 
+pub fn hover(file_path: []const u8, row: usize, col: usize) !void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return tp.exit("No project");
+    return (try get()).pid.send(.{ "hover", project, file_path, row, col });
+}
+
 pub fn update_mru(file_path: []const u8, row: usize, col: usize) !void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -294,6 +301,8 @@ const Process = struct {
             self.references(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "completion", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.completion(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
+        } else if (try m.match(.{ "hover", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+            self.hover(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
             self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace());
         } else if (try m.match(.{"shutdown"})) {
@@ -441,6 +450,13 @@ const Process = struct {
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return tp.exit("No project");
         return project.completion(from, file_path, row, col);
+    }
+
+    fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) !void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".hover" });
+        defer frame.deinit();
+        const project = self.projects.get(project_directory) orelse return tp.exit("No project");
+        return project.hover(from, file_path, row, col);
     }
 
     fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) !void {

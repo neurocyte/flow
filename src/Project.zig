@@ -599,6 +599,93 @@ pub fn completion(self: *Self, _: tp.pid_ref, file_path: []const u8, row: usize,
     defer self.allocator.free(response.buf);
 }
 
+pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) !void {
+    const lsp = try self.get_file_lsp(file_path);
+    const uri = try self.make_URI(file_path);
+    defer self.allocator.free(uri);
+    log.logger("lsp").print("fetching hover information...", .{});
+
+    const response = try lsp.send_request(self.allocator, "textDocument/hover", .{
+        .textDocument = .{ .uri = uri },
+        .position = .{ .line = row, .character = col },
+    });
+    defer self.allocator.free(response.buf);
+    var result: []const u8 = undefined;
+    if (try response.match(.{ "child", tp.string, "result", tp.null_ })) {
+        return;
+    } else if (try response.match(.{ "child", tp.string, "result", tp.extract_cbor(&result) })) {
+        try self.send_hover(from, file_path, row, col, result);
+    }
+}
+
+fn send_hover(self: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, result: []const u8) !void {
+    var iter = result;
+    var len = cbor.decodeMapHeader(&iter) catch return;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "contents")) {
+            var value: []const u8 = "";
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&value)))) return error.InvalidMessageField;
+            return self.send_contents(to, "hover", file_path, row, col, value);
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+}
+
+fn send_contents(self: *Self, to: tp.pid_ref, tag: []const u8, file_path: []const u8, row: usize, col: usize, result: []const u8) !void {
+    var iter = result;
+    var kind: []const u8 = "plaintext";
+    var value: []const u8 = "";
+    if (try cbor.matchValue(&iter, cbor.extract(&value)))
+        return send_content_msg(to, tag, file_path, row, col, kind, value);
+
+    var is_list = true;
+    var len = cbor.decodeArrayHeader(&iter) catch blk: {
+        is_list = false;
+        iter = result;
+        break :blk cbor.decodeMapHeader(&iter) catch return;
+    };
+
+    if (is_list) {
+        var content = std.ArrayList(u8).init(self.allocator);
+        defer content.deinit();
+        while (len > 0) : (len -= 1) {
+            if (try cbor.matchValue(&iter, cbor.extract(&value))) {
+                try content.appendSlice(value);
+                if (len > 1) try content.appendSlice("\n");
+            }
+        }
+        return send_content_msg(to, tag, file_path, row, col, kind, content.items);
+    }
+
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "kind")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&kind)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "value")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidMessageField;
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    return send_content_msg(to, tag, file_path, row, col, kind, value);
+}
+
+fn send_content_msg(
+    to: tp.pid_ref,
+    tag: []const u8,
+    file_path: []const u8,
+    row: usize,
+    col: usize,
+    kind: []const u8,
+    content: []const u8,
+) !void {
+    return try to.send(.{ tag, file_path, row, col, kind, content });
+}
+
 pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) !void {
     var uri: ?[]const u8 = null;
     var diagnostics: []const u8 = &.{};
