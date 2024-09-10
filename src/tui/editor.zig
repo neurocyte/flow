@@ -3491,9 +3491,19 @@ pub const Editor = struct {
     }
 
     pub fn hover(self: *Self, _: Context) Result {
-        const file_path = self.file_path orelse return;
         const primary = self.get_primary();
-        return project_manager.hover(file_path, primary.cursor.row, primary.cursor.col);
+        return self.hover_at(primary.cursor.row, primary.cursor.col);
+    }
+
+    pub fn hover_at_abs(self: *Self, y: usize, x: usize) Result {
+        const row: usize = self.view.row + y;
+        const col: usize = self.view.col + x;
+        return self.hover_at(row, col);
+    }
+
+    pub fn hover_at(self: *Self, row: usize, col: usize) Result {
+        const file_path = self.file_path orelse return;
+        return project_manager.hover(file_path, row, col);
     }
 
     pub fn add_diagnostic(
@@ -3738,6 +3748,9 @@ pub const EditorWidget = struct {
     last_btn_count: usize = 0,
 
     hover: bool = false,
+    hover_timer: ?tp.Cancellable = null,
+    hover_x: c_int = -1,
+    hover_y: c_int = -1,
 
     const Self = @This();
     const Commands = command.Collection(Editor);
@@ -3769,6 +3782,7 @@ pub const EditorWidget = struct {
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.update_hover_timer(.cancel);
         self.commands.deinit();
         self.editor.deinit();
         self.plane.deinit();
@@ -3797,7 +3811,11 @@ pub const EditorWidget = struct {
         var pos: u32 = 0;
         var bytes: []u8 = "";
 
-        if (try m.match(.{ "B", tp.extract(&evtype), tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
+        if (try m.match(.{ "M", tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
+            self.hover_y, self.hover_x = self.editor.plane.abs_yx_to_rel(y, x);
+            if (self.editor.jump_mode)
+                self.update_hover_timer(.init);
+        } else if (try m.match(.{ "B", tp.extract(&evtype), tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
             try self.mouse_click_event(evtype, btn, y, x, ypx, xpx);
         } else if (try m.match(.{ "D", tp.extract(&evtype), tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
             try self.mouse_drag_event(evtype, btn, y, x, ypx, xpx);
@@ -3812,16 +3830,35 @@ pub const EditorWidget = struct {
         } else if (try m.match(.{ "A", tp.more })) {
             self.editor.add_match(m) catch {};
         } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-            if (self.editor.jump_mode)
-                tui.current().rdr.request_mouse_cursor_pointer(self.hover)
-            else
+            if (self.editor.jump_mode) {
+                self.update_hover_timer(.init);
+                tui.current().rdr.request_mouse_cursor_pointer(self.hover);
+            } else {
+                self.update_hover_timer(.cancel);
                 tui.current().rdr.request_mouse_cursor_text(self.hover);
+            }
+        } else if (try m.match(.{"HOVER"})) {
+            self.update_hover_timer(.fired);
+            if (self.hover_y >= 0 and self.hover_x >= 0)
+                try self.editor.hover_at_abs(@intCast(self.hover_y), @intCast(self.hover_x));
         } else if (try m.match(.{ "show_whitespace", tp.extract(&self.editor.show_whitespace) })) {
             _ = "";
         } else {
             return false;
         }
         return true;
+    }
+
+    fn update_hover_timer(self: *Self, event: enum { init, fired, cancel }) void {
+        if (self.hover_timer) |*t| {
+            if (event != .fired) t.cancel() catch {};
+            t.deinit();
+            self.hover_timer = null;
+        }
+        if (event == .init) {
+            const delay_us: u64 = std.time.us_per_ms * 100;
+            self.hover_timer = tp.self_pid().delay_send_cancellable(self.editor.allocator, "editor.hover_timer", delay_us, .{"HOVER"}) catch null;
+        }
     }
 
     const Result = command.Result;
