@@ -125,6 +125,8 @@ fn load_file_types(comptime Namespace: type) []const FileType {
                     .highlights = if (build_options.use_tree_sitter)
                         if (@hasField(@TypeOf(args), "highlights"))
                             @embedFile(args.highlights)
+                        else if (@hasField(@TypeOf(args), "highlights_list"))
+                            @embedFile(args.highlights_list[0]) ++ "\n" ++ @embedFile(args.highlights_list[1])
                         else
                             @embedFile("tree-sitter-" ++ lang ++ "/queries/highlights.scm")
                     else

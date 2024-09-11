@@ -43,6 +43,10 @@ pub const cpp = .{
     .icon = "",
     .extensions = .{ "cc", "cpp", "cxx", "hpp", "hxx", "h", "ipp", "ixx" },
     .comment = "//",
+    .highlights_list = .{
+        "tree-sitter-c/queries/highlights.scm",
+        "tree-sitter-cpp/queries/highlights.scm",
+    },
     .injections = "tree-sitter-cpp/queries/injections.scm",
     .formatter = .{"clang-format"},
     .language_server = .{"clangd"},
