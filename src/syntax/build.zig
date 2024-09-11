@@ -61,6 +61,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-toml/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-typescript/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-typst/queries/typst/highlights.scm"),
+        ts_queryfile(b, tree_sitter_dep, "tree-sitter-vim/queries/vim/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-xml/queries/dtd/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-xml/queries/xml/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-yaml/queries/highlights.scm"),
@@ -86,6 +87,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-rust/queries/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-superhtml/tree-sitter-superhtml/queries/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-typst/queries/typst/injections.scm"),
+        ts_queryfile(b, tree_sitter_dep, "tree-sitter-vim/queries/vim/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-zig/queries/injections.scm"),
     } else &.{
         .{ .name = "build_options", .module = options_mod },

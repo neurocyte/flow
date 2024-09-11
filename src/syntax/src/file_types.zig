@@ -352,6 +352,15 @@ pub const typst = .{
     .injections = "tree-sitter-typst/queries/typst/injections.scm",
 };
 
+pub const vim = .{
+    .color = 0x007f00,
+    .icon = "",
+    .extensions = .{"vim"},
+    .comment = "\"",
+    .highlights = "tree-sitter-vim/queries/vim/highlights.scm",
+    .injections = "tree-sitter-vim/queries/vim/injections.scm",
+};
+
 pub const xml = .{
     .icon = "󰗀",
     .extensions = .{"xml"},
