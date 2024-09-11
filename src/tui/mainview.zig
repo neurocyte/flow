@@ -758,4 +758,5 @@ fn add_info_content(
             },
             else => {},
         };
+    tui.need_render();
 }
