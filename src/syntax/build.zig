@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-ruby/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-rust/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-ssh-config/queries/highlights.scm"),
-        ts_queryfile(b, tree_sitter_dep, "tree-sitter-scala/queries/scala/highlights.scm"),
+        ts_queryfile(b, tree_sitter_dep, "tree-sitter-scala/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-scheme/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-superhtml/tree-sitter-superhtml/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-toml/queries/highlights.scm"),
