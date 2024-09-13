@@ -58,7 +58,7 @@ get_zig() {
 get_zig
 
 if [ "$1" == "cdb" ]; then
-    rm -rf zig-cache
+    rm -rf .zig-cache
     rm -rf .cache/cdb
 
     $ZIG build
