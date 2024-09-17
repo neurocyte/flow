@@ -179,7 +179,7 @@ fn getCommands(comptime Namespace: type) []const CmdDef(*getTargetType(Namespace
                         .meta = if (@hasDecl(Namespace, decl.name ++ "_meta"))
                             @field(Namespace, decl.name ++ "_meta")
                         else
-                            .{},
+                            @compileError(decl.name ++ " has no meta"),
                     };
                     i += 1;
                 }
