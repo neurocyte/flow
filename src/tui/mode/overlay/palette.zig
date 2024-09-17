@@ -108,28 +108,25 @@ pub fn Create(options: type) type {
         }
 
         fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
-            const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
-            const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
-            button.plane.set_base_style(" ", style_base);
+            const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
+            const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
+            button.plane.set_base_style(" ", style_label);
             button.plane.erase();
             button.plane.home();
-            var command_name: []const u8 = undefined;
-            var keybind_hint: []const u8 = undefined;
+            var label: []const u8 = undefined;
+            var hint: []const u8 = undefined;
             var iter = button.opts.label; // label contains cbor, first the file name, then multiple match indexes
-            if (!(cbor.matchString(&iter, &command_name) catch false))
-                command_name = "#ERROR#";
-            var command_id: command.ID = undefined;
-            if (!(cbor.matchValue(&iter, cbor.extract(&command_id)) catch false))
-                command_id = 0;
-            if (!(cbor.matchString(&iter, &keybind_hint) catch false))
-                keybind_hint = "";
-            button.plane.set_style(style_keybind);
+            if (!(cbor.matchString(&iter, &label) catch false))
+                label = "#ERROR#";
+            if (!(cbor.matchString(&iter, &hint) catch false))
+                hint = "";
+            button.plane.set_style(style_hint);
             const pointer = if (selected) "⏵" else " ";
             _ = button.plane.print("{s}", .{pointer}) catch {};
-            button.plane.set_style(style_base);
-            _ = button.plane.print("{s} ", .{command_name}) catch {};
-            button.plane.set_style(style_keybind);
-            _ = button.plane.print_aligned_right(0, "{s} ", .{keybind_hint}) catch {};
+            button.plane.set_style(style_label);
+            _ = button.plane.print("{s} ", .{label}) catch {};
+            button.plane.set_style(style_hint);
+            _ = button.plane.print_aligned_right(0, "{s} ", .{hint}) catch {};
             var index: usize = 0;
             var len = cbor.decodeArrayHeader(&iter) catch return false;
             while (len > 0) : (len -= 1) {
@@ -301,7 +298,7 @@ pub fn Create(options: type) type {
             self.menu.reset_items();
             self.menu.selected = null;
             for (self.entries.items) |entry|
-                self.longest = @max(self.longest, entry.name.len);
+                self.longest = @max(self.longest, entry.label.len);
 
             if (self.inputbox.text.items.len == 0) {
                 self.total_items = 0;
@@ -340,7 +337,7 @@ pub fn Create(options: type) type {
             var matches = std.ArrayList(Match).init(self.allocator);
 
             for (self.entries.items) |*entry| {
-                const match = searcher.scoreMatches(entry.name, query);
+                const match = searcher.scoreMatches(entry.label, query);
                 if (match.score) |score|
                     (try matches.addOne()).* = .{
                         .entry = entry,
@@ -353,7 +350,7 @@ pub fn Create(options: type) type {
             const less_fn = struct {
                 fn less_fn(_: void, lhs: Match, rhs: Match) bool {
                     return if (lhs.score == rhs.score)
-                        lhs.entry.name.len < rhs.entry.name.len
+                        lhs.entry.label.len < rhs.entry.label.len
                     else
                         lhs.score > rhs.score;
                 }

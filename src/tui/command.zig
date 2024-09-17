@@ -22,6 +22,12 @@ const Vtable = struct {
     id: ID = ID_unknown,
     name: []const u8,
     run: *const fn (self: *Vtable, ctx: Context) tp.result,
+    meta: Metadata,
+};
+
+const Metadata = struct {
+    description: []const u8 = &[_]u8{},
+    interactive: bool = true,
 };
 
 pub fn Closure(comptime T: type) type {
@@ -33,11 +39,12 @@ pub fn Closure(comptime T: type) type {
         const FunT: type = *const fn (T, ctx: Context) Result;
         const Self = @This();
 
-        pub fn init(f: FunT, data: T, name: []const u8) Self {
+        pub fn init(f: FunT, data: T, name: []const u8, meta: Metadata) Self {
             return .{
                 .vtbl = .{
                     .run = run,
                     .name = name,
+                    .meta = meta,
                 },
                 .f = f,
                 .data = data,
@@ -142,6 +149,7 @@ fn CmdDef(comptime T: type) type {
         const Fn = fn (T, Context) anyerror!void;
         name: [:0]const u8,
         f: *const Fn,
+        meta: Metadata,
     };
 }
 
@@ -150,6 +158,7 @@ fn getTargetType(comptime Namespace: type) type {
 }
 
 fn getCommands(comptime Namespace: type) []const CmdDef(*getTargetType(Namespace)) {
+    @setEvalBranchQuota(10_000);
     comptime switch (@typeInfo(Namespace)) {
         .Struct => |info| {
             var count = 0;
@@ -164,7 +173,14 @@ fn getCommands(comptime Namespace: type) []const CmdDef(*getTargetType(Namespace
             var i = 0;
             for (info.decls) |decl| {
                 if (@TypeOf(@field(Namespace, decl.name)) == CmdDef(*Target).Fn) {
-                    cmds[i] = .{ .f = &@field(Namespace, decl.name), .name = decl.name };
+                    cmds[i] = .{
+                        .f = &@field(Namespace, decl.name),
+                        .name = decl.name,
+                        .meta = if (@hasDecl(Namespace, decl.name ++ "_meta"))
+                            @field(Namespace, decl.name ++ "_meta")
+                        else
+                            .{},
+                    };
                     i += 1;
                 }
             }
@@ -208,7 +224,7 @@ pub fn Collection(comptime Namespace: type) type {
             if (cmds.len == 0)
                 @compileError("no commands found in type " ++ @typeName(Target) ++ " (did you mark them public?)");
             inline for (cmds) |cmd| {
-                @field(self.fields, cmd.name) = Closure(*Target).init(cmd.f, targetPtr, cmd.name);
+                @field(self.fields, cmd.name) = Closure(*Target).init(cmd.f, targetPtr, cmd.name, cmd.meta);
                 try @field(self.fields, cmd.name).register();
             }
         }

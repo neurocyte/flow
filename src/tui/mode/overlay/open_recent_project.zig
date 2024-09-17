@@ -10,7 +10,7 @@ pub const name = " project";
 pub const description = "project";
 
 pub const Entry = struct {
-    name: []const u8,
+    label: []const u8,
 };
 
 pub const Match = struct {
@@ -21,7 +21,7 @@ pub const Match = struct {
 
 pub fn deinit(palette: *Type) void {
     for (palette.entries.items) |entry|
-        palette.allocator.free(entry.name);
+        palette.allocator.free(entry.label);
 }
 
 pub fn load_entries(palette: *Type) !void {
@@ -32,7 +32,7 @@ pub fn load_entries(palette: *Type) !void {
     while (len > 0) : (len -= 1) {
         var name_: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract(&name_))) {
-            (try palette.entries.addOne()).* = .{ .name = try palette.allocator.dupe(u8, name_) };
+            (try palette.entries.addOne()).* = .{ .label = try palette.allocator.dupe(u8, name_) };
         } else return error.InvalidMessageField;
     }
 }
@@ -41,10 +41,8 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     var value = std.ArrayList(u8).init(palette.allocator);
     defer value.deinit();
     const writer = value.writer();
-    try cbor.writeValue(writer, entry.name);
-    try cbor.writeValue(writer, if (palette.hints) |hints| hints.get(entry.name) orelse "" else "");
-    if (matches) |matches_|
-        try cbor.writeValue(writer, matches_);
+    try cbor.writeValue(writer, entry.label);
+    try cbor.writeValue(writer, matches orelse &[_]usize{});
     try palette.menu.add_item_with_handler(value.items, select);
     palette.items += 1;
 }

@@ -223,15 +223,22 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
 
     var cmd: []const u8 = undefined;
+    var cmd_id: command.ID = undefined;
     var ctx: cmds.Ctx = .{};
     if (try m.match(.{ "cmd", tp.extract(&cmd) }))
         return command.executeName(cmd, ctx) catch |e| self.logger.err(cmd, e);
+    if (try m.match(.{ "cmd", tp.extract(&cmd_id) }))
+        return command.execute(cmd_id, ctx) catch |e| self.logger.err("command", e);
 
     var arg: []const u8 = undefined;
 
     if (try m.match(.{ "cmd", tp.extract(&cmd), tp.extract_cbor(&arg) })) {
         ctx.args = .{ .buf = arg };
         return command.executeName(cmd, ctx) catch |e| self.logger.err(cmd, e);
+    }
+    if (try m.match(.{ "cmd", tp.extract(&cmd_id), tp.extract_cbor(&arg) })) {
+        ctx.args = .{ .buf = arg };
+        return command.execute(cmd_id, ctx) catch |e| self.logger.err("command", e);
     }
     if (try m.match(.{"quit"})) {
         project_manager.shutdown();
