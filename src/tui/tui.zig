@@ -559,12 +559,14 @@ const cmds = struct {
     pub fn restart(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("restart");
     }
+    pub const restart_meta = .{ .description = "Restart flow (without saving)" };
 
     pub fn force_terminate(self: *Self, _: Ctx) Result {
         self.deinit();
         root.print_exit_status({}, "FORCE TERMINATE");
         root.exit(99);
     }
+    pub const force_terminate_meta = .{ .description = "Force quit without saving" };
 
     pub fn set_theme(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
@@ -579,6 +581,7 @@ const cmds = struct {
         self.logger.print("theme: {s}", .{self.theme.description});
         try self.save_config();
     }
+    pub const set_theme_meta = .{ .interactive = false };
 
     pub fn theme_next(self: *Self, _: Ctx) Result {
         self.theme = get_next_theme_by_name(self.theme.name);
@@ -587,6 +590,7 @@ const cmds = struct {
         self.logger.print("theme: {s}", .{self.theme.description});
         try self.save_config();
     }
+    pub const theme_next_meta = .{ .description = "Switch to next color theme" };
 
     pub fn theme_prev(self: *Self, _: Ctx) Result {
         self.theme = get_prev_theme_by_name(self.theme.name);
@@ -595,6 +599,7 @@ const cmds = struct {
         self.logger.print("theme: {s}", .{self.theme.description});
         try self.save_config();
     }
+    pub const theme_prev_meta = .{ .description = "Switch to previous color theme" };
 
     pub fn toggle_whitespace(self: *Self, _: Ctx) Result {
         self.config.show_whitespace = !self.config.show_whitespace;
@@ -604,6 +609,7 @@ const cmds = struct {
         const m = try tp.message.fmtbuf(&buf, .{ "show_whitespace", self.config.show_whitespace });
         _ = try self.send_widgets(tp.self_pid(), m);
     }
+    pub const toggle_whitespace_meta = .{ .description = "Toggle visible whitespace" };
 
     pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
         self.config.input_mode = if (std.mem.eql(u8, self.config.input_mode, "flow"))
@@ -617,6 +623,7 @@ const cmds = struct {
         self.logger.print("input mode {s}", .{it.first()});
         return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
     }
+    pub const toggle_input_mode_meta = .{ .description = "Switch to next input mode" };
 
     pub fn enter_mode(self: *Self, ctx: Ctx) Result {
         var mode: []const u8 = undefined;
@@ -647,26 +654,32 @@ const cmds = struct {
         };
         // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
+    pub const enter_mode_meta = .{ .interactive = false };
 
     pub fn enter_mode_default(self: *Self, _: Ctx) Result {
         return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
     }
+    pub const enter_mode_default_meta = .{ .interactive = false };
 
     pub fn open_command_palette(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/command_palette.zig").Type);
     }
+    pub const open_command_palette_meta = .{ .interactive = false };
 
     pub fn open_recent(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
     }
+    pub const open_recent_meta = .{ .description = "Open recent file" };
 
     pub fn open_recent_project(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/open_recent_project.zig").Type);
     }
+    pub const open_recent_project_meta = .{ .description = "Open recent project" };
 
     pub fn change_theme(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/theme_palette.zig").Type);
     }
+    pub const change_theme_meta = .{ .description = "Select color theme" };
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
         if (self.input_mode_outer == null) return;
@@ -676,30 +689,37 @@ const cmds = struct {
         }
         if (self.input_mode) |*mode| mode.deinit();
     }
+    pub const exit_overlay_mode_meta = .{ .interactive = false };
 
     pub fn find(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/find.zig"), ctx);
     }
+    pub const find_meta = .{ .description = "Find in current file" };
 
     pub fn find_in_files(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/find_in_files.zig"), ctx);
     }
+    pub const find_in_files_meta = .{ .description = "Find in all project files" };
 
     pub fn goto(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/goto.zig"), ctx);
     }
+    pub const goto_meta = .{ .description = "Goto line" };
 
     pub fn move_to_char(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/move_to_char.zig"), ctx);
     }
+    pub const move_to_char_meta = .{ .description = "Move cursor to matching character" };
 
     pub fn open_file(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
     }
+    pub const open_file_meta = .{ .description = "Open file" };
 
     pub fn save_as(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/save_as.zig"), ctx);
     }
+    pub const save_as_meta = .{ .description = "Save as" };
 
     const MiniModeFactory = fn (Allocator, Ctx) error{ NotFound, OutOfMemory }!EventHandler;
 
@@ -730,6 +750,7 @@ const cmds = struct {
         }
         if (self.input_mode) |*mode| mode.deinit();
     }
+    pub const exit_mini_mode_meta = .{ .interactive = false };
 };
 
 pub const Mode = struct {

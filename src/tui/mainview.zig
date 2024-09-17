@@ -221,16 +221,19 @@ const cmds = struct {
             return tp.exit("unsaved changes");
         try tp.self_pid().send("quit");
     }
+    pub const quit_meta = .{ .description = "Quit (exit) Flow Control" };
 
     pub fn quit_without_saving(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("quit");
     }
+    pub const quit_without_saving_meta = .{ .description = "Quit without saving" };
 
     pub fn open_project_cwd(self: *Self, _: Ctx) Result {
         try project_manager.open(".");
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
+    pub const open_project_cwd_meta = .{ .interactive = false };
 
     pub fn open_project_dir(self: *Self, ctx: Ctx) Result {
         var project_dir: []const u8 = undefined;
@@ -242,6 +245,7 @@ const cmds = struct {
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
+    pub const open_project_dir_meta = .{ .interactive = false };
 
     pub fn change_project(self: *Self, ctx: Ctx) Result {
         var project_dir: []const u8 = undefined;
@@ -269,6 +273,7 @@ const cmds = struct {
             try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
         }
     }
+    pub const change_project_meta = .{ .interactive = false };
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
@@ -339,6 +344,7 @@ const cmds = struct {
         }
         tui.need_render();
     }
+    pub const navigate_meta = .{ .interactive = false };
 
     pub fn open_help(self: *Self, _: Ctx) Result {
         tui.reset_drag_context();
@@ -346,17 +352,20 @@ const cmds = struct {
         try command.executeName("open_scratch_buffer", command.fmt(.{ "help.md", @embedFile("help.md") }));
         tui.need_render();
     }
+    pub const open_help_meta = .{ .description = "Open help" };
 
     pub fn open_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name();
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
     }
+    pub const open_config_meta = .{ .description = "Edit configuration file" };
 
     pub fn restore_session(self: *Self, _: Ctx) Result {
         try self.create_editor();
         try self.read_restore_info();
         tui.need_render();
     }
+    pub const restore_session_meta = .{ .interactive = false };
 
     pub fn toggle_panel(self: *Self, _: Ctx) Result {
         if (self.is_panel_view_showing(logview))
@@ -368,38 +377,47 @@ const cmds = struct {
         else
             try self.toggle_panel_view(logview, false);
     }
+    pub const toggle_panel_meta = .{ .description = "Toggle panel" };
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, false);
     }
+    pub const toggle_logview_meta = .{ .interactive = false };
 
     pub fn show_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, true);
     }
+    pub const show_logview_meta = .{ .description = "View log" };
 
     pub fn toggle_inputview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(@import("inputview.zig"), false);
     }
+    pub const toggle_inputview_meta = .{ .description = "Toggle raw input log" };
 
     pub fn toggle_inspector_view(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(@import("inspector_view.zig"), false);
     }
+    pub const toggle_inspector_view_meta = .{ .description = "Toggle inspector view" };
 
     pub fn show_inspector_view(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(@import("inspector_view.zig"), true);
     }
+    pub const show_inspector_view_meta = .{ .interactive = false };
 
     pub fn jump_back(self: *Self, _: Ctx) Result {
         try self.location_history.back(location_jump);
     }
+    pub const jump_back_meta = .{ .description = "Navigate back to previous history location" };
 
     pub fn jump_forward(self: *Self, _: Ctx) Result {
         try self.location_history.forward(location_jump);
     }
+    pub const jump_forward_meta = .{ .description = "Navigate forward to next history location" };
 
     pub fn show_home(self: *Self, _: Ctx) Result {
         return self.create_home();
     }
+    pub const show_home_meta = .{ .interactive = false };
 
     pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
         const tui_ = tui.current();
@@ -424,6 +442,7 @@ const cmds = struct {
             gutter.relative = lnr;
         }
     }
+    pub const gutter_mode_next_meta = .{ .description = "Next gutter mode" };
 
     pub fn goto_next_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(filelist_view)) {
@@ -435,6 +454,7 @@ const cmds = struct {
             try command.executeName("goto_next_diagnostic", ctx);
         }
     }
+    pub const goto_next_file_or_diagnostic_meta = .{ .description = "Navigate to next file or diagnostic location" };
 
     pub fn goto_prev_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(filelist_view)) {
@@ -446,6 +466,7 @@ const cmds = struct {
             try command.executeName("goto_prev_diagnostic", ctx);
         }
     }
+    pub const goto_prev_file_or_diagnostic_meta = .{ .description = "Navigate to previous file or diagnostic location" };
 
     pub fn add_diagnostic(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
@@ -480,6 +501,7 @@ const cmds = struct {
                 ed.Diagnostic.to_severity(severity),
             );
     }
+    pub const add_diagnostic_meta = .{ .interactive = false };
 
     pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
@@ -492,6 +514,7 @@ const cmds = struct {
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false);
     }
+    pub const clear_diagnostics_meta = .{ .interactive = false };
 
     pub fn show_diagnostics(self: *Self, _: Ctx) Result {
         const editor = self.editor orelse return;
@@ -509,6 +532,7 @@ const cmds = struct {
             );
         }
     }
+    pub const show_diagnostics_meta = .{ .description = "Show diagnostics panel" };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {

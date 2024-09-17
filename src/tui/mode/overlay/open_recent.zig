@@ -342,12 +342,15 @@ const cmds = struct {
     pub fn open_recent_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
+    pub const open_recent_menu_down_meta = .{ .interactive = false };
 
     pub fn open_recent_menu_up(self: *Self, _: Ctx) Result {
         self.menu.select_up();
     }
+    pub const open_recent_menu_up_meta = .{ .interactive = false };
 
     pub fn open_recent_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
     }
+    pub const open_recent_menu_activate_meta = .{ .interactive = false };
 };

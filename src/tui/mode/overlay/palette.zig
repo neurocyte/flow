@@ -439,6 +439,7 @@ pub fn Create(options: type) type {
                 self.menu.select_down();
                 self.selection_updated();
             }
+            pub const palette_menu_down_meta = .{ .interactive = false };
 
             pub fn palette_menu_up(self: *Self, _: Ctx) Result {
                 if (self.menu.selected) |selected| {
@@ -452,6 +453,7 @@ pub fn Create(options: type) type {
                 self.menu.select_up();
                 self.selection_updated();
             }
+            pub const palette_menu_up_meta = .{ .interactive = false };
 
             pub fn palette_menu_pagedown(self: *Self, _: Ctx) Result {
                 if (self.total_items > self.view_rows) {
@@ -463,6 +465,7 @@ pub fn Create(options: type) type {
                 self.menu.select_last();
                 self.selection_updated();
             }
+            pub const palette_menu_pagedown_meta = .{ .interactive = false };
 
             pub fn palette_menu_pageup(self: *Self, _: Ctx) Result {
                 if (self.view_pos > self.view_rows)
@@ -473,15 +476,18 @@ pub fn Create(options: type) type {
                 self.menu.select_first();
                 self.selection_updated();
             }
+            pub const palette_menu_pageup_meta = .{ .interactive = false };
 
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
                 self.menu.activate_selected();
             }
+            pub const palette_menu_activate_meta = .{ .interactive = false };
 
             pub fn palette_menu_cancel(self: *Self, _: Ctx) Result {
                 if (@hasDecl(options, "cancel")) try options.cancel(self);
                 try self.cmd("exit_overlay_mode", .{});
             }
+            pub const palette_menu_cancel_meta = .{ .interactive = false };
         };
     };
 }

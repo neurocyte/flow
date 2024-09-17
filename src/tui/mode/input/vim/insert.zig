@@ -310,22 +310,27 @@ const cmds_ = struct {
     pub fn w(self: *Self, _: Ctx) Result {
         try self.cmd("save_file", .{});
     }
+    pub const w_meta = .{ .description = "w (write file)" };
 
     pub fn q(self: *Self, _: Ctx) Result {
         try self.cmd("quit", .{});
     }
+    pub const q_meta = .{ .description = "w (quit)" };
 
     pub fn @"q!"(self: *Self, _: Ctx) Result {
         try self.cmd("quit_without_saving", .{});
     }
+    pub const @"q!_meta" = .{ .description = "q! (quit without saving)" };
 
     pub fn wq(self: *Self, _: Ctx) Result {
         try self.cmd("save_file", .{});
         try self.cmd("quit", .{});
     }
+    pub const wq_meta = .{ .description = "wq (write file and quit)" };
 
     pub fn @"wq!"(self: *Self, _: Ctx) Result {
         self.cmd("save_file", .{}) catch {};
         try self.cmd("quit_without_saving", .{});
     }
+    pub const @"wq!_meta" = .{ .description = "wq! (write file and quit without saving)" };
 };

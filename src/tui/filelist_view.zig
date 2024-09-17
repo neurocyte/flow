@@ -270,22 +270,27 @@ const cmds = struct {
         self.select_next(.up);
         self.menu.activate_selected();
     }
+    pub const goto_prev_file_meta = .{ .description = "Navigate to previous file in the file list" };
 
     pub fn goto_next_file(self: *Self, _: Ctx) Result {
         self.select_next(.down);
         self.menu.activate_selected();
     }
+    pub const goto_next_file_meta = .{ .description = "Navigate to next file in the file list" };
 
     pub fn select_prev_file(self: *Self, _: Ctx) Result {
         self.select_next(.up);
     }
+    pub const select_prev_file_meta = .{ .description = "Select previous file in the file list" };
 
     pub fn select_next_file(self: *Self, _: Ctx) Result {
         self.select_next(.down);
     }
+    pub const select_next_file_meta = .{ .description = "Select next file in the file list" };
 
     pub fn goto_selected_file(self: *Self, _: Ctx) Result {
         if (self.menu.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
         self.menu.activate_selected();
     }
+    pub const goto_selected_file_meta = .{ .interactive = false };
 };
