@@ -18,8 +18,8 @@
             .hash = "1220220dbc7fe91c1c54438193ca765cebbcb7d58f35cdcaee404a9d2245a42a4362",
         },
         .thespian = .{
-            .url = "https://github.com/neurocyte/thespian/archive/09519fb5b004eaa41fcef7ffc4fa744232968cc8.tar.gz",
-            .hash = "1220efea19c3696d42570e3bef78035cf05ea0d63fb6288e4a1e74536fa20c2f2ff4",
+            .url = "https://github.com/neurocyte/thespian/archive/06ff2a148c1e33095d4838579461f31141565958.tar.gz",
+            .hash = "122064ef6d9da7aa0352da12804ab46dbecdabb033e9d6c1b4208844f9dd3694e373",
         },
         .themes = .{
             .url = "https://github.com/neurocyte/flow-themes/releases/download/master-803da089c5a0fc3b4513a7c34afe9bdaff83efdc/flow-themes.tar.gz",

@@ -146,7 +146,26 @@ const Process = struct {
         return self.receive_safe(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
-    fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) !void {
+    const ReceiveError = error{
+        OutOfMemory,
+        NoSpaceLeft,
+        BufferUnderrun,
+        CborIntegerTooLarge,
+        CborIntegerTooSmall,
+        CborInvalidType,
+        CborTooShort,
+        CborUnsupportedType,
+        SyntaxError,
+        UnexpectedEndOfInput,
+        InvalidSyntax,
+        InvalidMessageField,
+        InvalidMessage,
+        InvalidContentLength,
+        Closed,
+        Exit,
+    };
+
+    fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) ReceiveError!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name });
         defer frame.deinit();
         errdefer self.deinit();
@@ -233,7 +252,7 @@ const Process = struct {
         }
     }
 
-    fn handle_output(self: *Process, bytes: []u8) !void {
+    fn handle_output(self: *Process, bytes: []u8) ReceiveError!void {
         try self.recv_buf.appendSlice(bytes);
         self.write_log("### RECV:\n{s}\n###\n", .{bytes});
         self.frame_message_recv() catch |e| {
@@ -250,7 +269,7 @@ const Process = struct {
         return tp.exit_normal();
     }
 
-    fn send_request(self: *Process, from: tp.pid_ref, method: []const u8, params_cb: []const u8) !void {
+    fn send_request(self: *Process, from: tp.pid_ref, method: []const u8, params_cb: []const u8) ReceiveError!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
         const id = self.next_id;
@@ -349,7 +368,7 @@ const Process = struct {
         self.write_log("### SEND notification:\n{s}\n###\n", .{output.items});
     }
 
-    fn frame_message_recv(self: *Process) !void {
+    fn frame_message_recv(self: *Process) ReceiveError!void {
         const sep = "\r\n\r\n";
         const headers_end = std.mem.indexOf(u8, self.recv_buf.items, sep) orelse return;
         const headers_data = self.recv_buf.items[0..headers_end];
@@ -436,7 +455,7 @@ const Headers = struct {
     content_length: usize = 0,
     content_type: ?[]const u8 = null,
 
-    fn parse(buf_: []const u8) !Headers {
+    fn parse(buf_: []const u8) Process.ReceiveError!Headers {
         var buf = buf_;
         var ret: Headers = .{};
         while (true) {
@@ -456,9 +475,12 @@ const Headers = struct {
         }
     }
 
-    fn parse_one(self: *Headers, name: []const u8, value: []const u8) !void {
+    fn parse_one(self: *Headers, name: []const u8, value: []const u8) Process.ReceiveError!void {
         if (std.mem.eql(u8, "Content-Length", name)) {
-            self.content_length = try std.fmt.parseInt(@TypeOf(self.content_length), value, 10);
+            self.content_length = std.fmt.parseInt(@TypeOf(self.content_length), value, 10) catch |e| switch (e) {
+                error.Overflow => return error.InvalidContentLength,
+                error.InvalidCharacter => return error.InvalidContentLength,
+            };
         } else if (std.mem.eql(u8, "Content-Type", name)) {
             self.content_type = value;
         }
