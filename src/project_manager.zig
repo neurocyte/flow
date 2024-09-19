@@ -465,21 +465,21 @@ const Process = struct {
         return project.references(from, file_path, row, col);
     }
 
-    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.SendError || Project.GetFileLspError)!void {
+    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || SendError || Project.GetFileLspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".completion" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.completion(from, file_path, row, col);
     }
 
-    fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.SendError || Project.InvalidMessageError || Project.GetFileLspError || cbor.Error)!void {
+    fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || SendError || Project.InvalidMessageError || Project.GetFileLspError || cbor.Error)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".hover" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.hover(from, file_path, row, col);
     }
 
-    fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.SendError)!void {
+    fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || SendError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".get_mru_position" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
@@ -491,7 +491,7 @@ const Process = struct {
         return project.update_mru(file_path, row, col);
     }
 
-    fn dispatch_notify(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, params_cb: []const u8) (ProjectError || Project.InvalidMessageError || Project.SendError || cbor.Error || cbor.JsonEncodeError)!void {
+    fn dispatch_notify(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, params_cb: []const u8) (ProjectError || Project.InvalidMessageError || SendError || cbor.Error || cbor.JsonEncodeError)!void {
         _ = language_server;
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return if (std.mem.eql(u8, method, "textDocument/publishDiagnostics"))

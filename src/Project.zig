@@ -21,6 +21,12 @@ file_language_server: std.StringHashMap(LSP),
 
 const Self = @This();
 
+const OutOfMemoryError = error{OutOfMemory};
+const SendError = error{SendFailed};
+const CallError = tp.CallError;
+const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
+pub const InvalidMessageError = error{ InvalidMessage, InvalidMessageField, InvalidTargetURI };
+
 const File = struct {
     path: []const u8,
     mtime: i128,
@@ -450,10 +456,6 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     }
 }
 
-const OutOfMemoryError = error{OutOfMemory};
-pub const SendError = error{SendFailed};
-pub const InvalidMessageError = error{ InvalidMessage, InvalidMessageField, InvalidTargetURI };
-
 fn navigate_to_location_link(_: *Self, from: tp.pid_ref, location_link: []const u8) (SendError || InvalidMessageError || cbor.Error)!void {
     var iter = location_link;
     var targetUri: ?[]const u8 = null;
@@ -882,7 +884,7 @@ pub fn send_lsp_response(self: *Self, from: tp.pid_ref, id: i32, result: anytype
     from.send(.{ "RSP", id, cb.items }) catch return error.SendFailed;
 }
 
-fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) (OutOfMemoryError || SendError)!tp.message {
+fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) (OutOfMemoryError || SpawnError || CallError)!tp.message {
     return lsp.send_request(self.allocator, "initialize", .{
         .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
         .rootPath = project_path,
