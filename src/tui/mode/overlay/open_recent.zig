@@ -148,19 +148,19 @@ fn add_item(self: *Self, file_name: []const u8, matches: ?[]const u8) !void {
     try self.menu.add_item_with_handler(label.items, menu_action_open_file);
 }
 
-fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ "PRJ", tp.more })) {
-        self.process_project_manager(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    if (cbor.match(m.buf, .{ "PRJ", tp.more }) catch false) {
+        try self.process_project_manager(m);
         return true;
     }
     return false;
 }
 
-fn process_project_manager(self: *Self, m: tp.message) !void {
+fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void {
     var file_name: []const u8 = undefined;
     var matches: []const u8 = undefined;
     var query: []const u8 = undefined;
-    if (try m.match(.{ "PRJ", "recent", tp.extract(&self.longest), tp.extract(&file_name), tp.extract_cbor(&matches) })) {
+    if (try cbor.match(m.buf, .{ "PRJ", "recent", tp.extract(&self.longest), tp.extract(&file_name), tp.extract_cbor(&matches) })) {
         if (self.need_reset) self.reset_results();
         try self.add_item(file_name, matches);
         self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
@@ -169,7 +169,7 @@ fn process_project_manager(self: *Self, m: tp.message) !void {
             self.need_select_first = false;
         }
         tui.need_render();
-    } else if (try m.match(.{ "PRJ", "recent", tp.extract(&self.longest), tp.extract(&file_name) })) {
+    } else if (try cbor.match(m.buf, .{ "PRJ", "recent", tp.extract(&self.longest), tp.extract(&file_name) })) {
         if (self.need_reset) self.reset_results();
         try self.add_item(file_name, null);
         self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
@@ -178,7 +178,7 @@ fn process_project_manager(self: *Self, m: tp.message) !void {
             self.need_select_first = false;
         }
         tui.need_render();
-    } else if (try m.match(.{ "PRJ", "recent_done", tp.extract(&self.longest), tp.extract(&query) })) {
+    } else if (try cbor.match(m.buf, .{ "PRJ", "recent_done", tp.extract(&self.longest), tp.extract(&query) })) {
         self.query_pending = false;
         self.need_reset = true;
         if (!std.mem.eql(u8, self.inputbox.text.items, query))
@@ -283,7 +283,7 @@ fn reset_results(self: *Self) void {
     self.need_select_first = true;
 }
 
-fn start_query(self: *Self) !void {
+fn start_query(self: *Self) MessageFilter.Error!void {
     if (self.query_pending) return;
     self.query_pending = true;
     try project_manager.query_recent_files(max_recent_files, self.inputbox.text.items);

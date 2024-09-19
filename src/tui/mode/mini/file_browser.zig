@@ -1,5 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
+const cbor = @import("cbor");
 const log = @import("log");
 const root = @import("root");
 
@@ -216,15 +217,15 @@ pub fn Create(options: type) type {
             try self.do_complete();
         }
 
-        fn receive_path_entry(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            if (try m.match(.{ "PRJ", tp.more })) {
-                self.process_project_manager(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        fn receive_path_entry(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+            if (try cbor.match(m.buf, .{ "PRJ", tp.more })) {
+                try self.process_project_manager(m);
                 return true;
             }
             return false;
         }
 
-        fn process_project_manager(self: *Self, m: tp.message) !void {
+        fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void {
             defer {
                 if (tui.current().mini_mode) |*mini_mode| {
                     mini_mode.text = self.file_path.items;
@@ -232,23 +233,23 @@ pub fn Create(options: type) type {
                 }
             }
             var count: usize = undefined;
-            if (try m.match(.{ "PRJ", "path_entry", tp.more })) {
+            if (try cbor.match(m.buf, .{ "PRJ", "path_entry", tp.more })) {
                 return self.process_path_entry(m);
-            } else if (try m.match(.{ "PRJ", "path_done", tp.any, tp.any, tp.extract(&count) })) {
+            } else if (try cbor.match(m.buf, .{ "PRJ", "path_done", tp.any, tp.any, tp.extract(&count) })) {
                 try self.do_complete();
             } else {
                 log.logger("file_browser").err("receive", tp.unexpected(m));
             }
         }
 
-        fn process_path_entry(self: *Self, m: tp.message) !void {
+        fn process_path_entry(self: *Self, m: tp.message) MessageFilter.Error!void {
             var path: []const u8 = undefined;
             var file_name: []const u8 = undefined;
-            if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&path), "DIR", tp.extract(&file_name) })) {
+            if (try cbor.match(m.buf, .{ tp.any, tp.any, tp.any, tp.extract(&path), "DIR", tp.extract(&file_name) })) {
                 (try self.entries.addOne()).* = .{ .name = try self.allocator.dupe(u8, file_name), .type = .dir };
-            } else if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&path), "LINK", tp.extract(&file_name) })) {
+            } else if (try cbor.match(m.buf, .{ tp.any, tp.any, tp.any, tp.extract(&path), "LINK", tp.extract(&file_name) })) {
                 (try self.entries.addOne()).* = .{ .name = try self.allocator.dupe(u8, file_name), .type = .link };
-            } else if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&path), "FILE", tp.extract(&file_name) })) {
+            } else if (try cbor.match(m.buf, .{ tp.any, tp.any, tp.any, tp.extract(&path), "FILE", tp.extract(&file_name) })) {
                 (try self.entries.addOne()).* = .{ .name = try self.allocator.dupe(u8, file_name), .type = .file };
             } else {
                 log.logger("file_browser").err("receive", tp.unexpected(m));

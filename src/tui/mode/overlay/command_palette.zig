@@ -118,7 +118,7 @@ pub fn restore_state(palette: *Type) !void {
         tp.extract(&name_),
         tp.extract(&used_time),
     }) catch |e| switch (e) {
-        error.CborTooShort => return,
+        error.TooShort => return,
         else => return e,
     }) {
         const id = command.getId(name_) orelse continue;

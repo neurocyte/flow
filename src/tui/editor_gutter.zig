@@ -333,7 +333,7 @@ fn diff_result_send(from: tp.pid_ref, edits: []diff.Edit) !void {
     from.send_raw(tp.message{ .buf = stream.getWritten() }) catch return;
 }
 
-pub fn process_diff(self: *Self, cb: []const u8) !void {
+pub fn process_diff(self: *Self, cb: []const u8) MessageFilter.Error!void {
     var iter = cb;
     self.diff_symbols_clear();
     var count = try cbor.decodeArrayHeader(&iter);
@@ -382,10 +382,10 @@ fn process_edit(self: *Self, kind: Kind, line: usize, offset: usize, bytes: []co
     };
 }
 
-pub fn filter_receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn filter_receive(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     var cb: []const u8 = undefined;
-    if (try m.match(.{ "DIFF", tp.extract_cbor(&cb) })) {
-        self.process_diff(cb) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    if (cbor.match(m.buf, .{ "DIFF", tp.extract_cbor(&cb) }) catch false) {
+        try self.process_diff(cb);
         return true;
     }
     return false;

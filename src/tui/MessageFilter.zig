@@ -1,5 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
+const cbor = @import("cbor");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Self = @This();
@@ -8,9 +9,16 @@ const MessageFilter = Self;
 ptr: *anyopaque,
 vtable: *const VTable,
 
+pub const Error = (cbor.Error || cbor.JsonEncodeError || error{
+    OutOfMemory,
+    ThespianSpawnFailed,
+    NoProject,
+    SendFailed,
+});
+
 pub const VTable = struct {
     deinit: *const fn (ctx: *anyopaque) void,
-    filter: *const fn (ctx: *anyopaque, from: tp.pid_ref, m: tp.message) error{Exit}!bool,
+    filter: *const fn (ctx: *anyopaque, from: tp.pid_ref, m: tp.message) Error!bool,
     type_name: []const u8,
 };
 
@@ -27,7 +35,7 @@ pub fn to_owned(pimpl: anytype) Self {
                 }
             }.deinit,
             .filter = struct {
-                pub fn filter(ctx: *anyopaque, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
+                pub fn filter(ctx: *anyopaque, from_: tp.pid_ref, m: tp.message) Error!bool {
                     return child.filter(@as(*child, @ptrCast(@alignCast(ctx))), from_, m);
                 }
             }.filter,
@@ -46,7 +54,7 @@ pub fn to_unowned(pimpl: anytype) Self {
                 pub fn deinit(_: *anyopaque) void {}
             }.deinit,
             .filter = struct {
-                pub fn filter(ctx: *anyopaque, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
+                pub fn filter(ctx: *anyopaque, from_: tp.pid_ref, m: tp.message) Error!bool {
                     return child.filter(@as(*child, @ptrCast(@alignCast(ctx))), from_, m);
                 }
             }.filter,
@@ -54,7 +62,7 @@ pub fn to_unowned(pimpl: anytype) Self {
     };
 }
 
-pub fn bind(pimpl: anytype, comptime f: *const fn (ctx: @TypeOf(pimpl), from: tp.pid_ref, m: tp.message) error{Exit}!bool) Self {
+pub fn bind(pimpl: anytype, comptime f: *const fn (ctx: @TypeOf(pimpl), from: tp.pid_ref, m: tp.message) Error!bool) Self {
     const impl = @typeInfo(@TypeOf(pimpl));
     const child: type = impl.Pointer.child;
     return .{
@@ -65,7 +73,7 @@ pub fn bind(pimpl: anytype, comptime f: *const fn (ctx: @TypeOf(pimpl), from: tp
                 pub fn deinit(_: *anyopaque) void {}
             }.deinit,
             .filter = struct {
-                pub fn filter(ctx: *anyopaque, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
+                pub fn filter(ctx: *anyopaque, from_: tp.pid_ref, m: tp.message) Error!bool {
                     return @call(.auto, f, .{ @as(*child, @ptrCast(@alignCast(ctx))), from_, m });
                 }
             }.filter,
@@ -84,7 +92,7 @@ pub fn dynamic_cast(self: Self, comptime T: type) ?*T {
         null;
 }
 
-pub fn filter(self: Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn filter(self: Self, from_: tp.pid_ref, m: tp.message) Error!bool {
     return self.vtable.filter(self.ptr, from_, m);
 }
 
@@ -120,14 +128,14 @@ pub const List = struct {
                 self.list.orderedRemove(i).deinit();
     }
 
-    pub fn filter(self: *const List, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    pub fn filter(self: *const List, from: tp.pid_ref, m: tp.message) Error!bool {
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const a = sfa.get();
-        const buf = a.alloc(u8, m.buf.len) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        const buf = try a.alloc(u8, m.buf.len);
         defer a.free(buf);
         @memcpy(buf[0..m.buf.len], m.buf);
         const m_: tp.message = .{ .buf = buf[0..m.buf.len] };
-        var e: ?error{Exit} = null;
+        var e: ?Error = null;
         for (self.list.items) |*i| {
             const consume = i.filter(from, m_) catch |e_| ret: {
                 e = e_;

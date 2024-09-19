@@ -5,10 +5,12 @@ const Allocator = @import("std").mem.Allocator;
 const ArrayList = @import("std").ArrayList;
 
 const tp = @import("thespian");
+const cbor = @import("cbor");
 
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("Widget.zig");
+const MessageFilter = @import("MessageFilter.zig");
 
 const escape = fmt.fmtSliceEscapeLower;
 
@@ -82,21 +84,21 @@ fn output_tdiff(self: *Self, tdiff: i64) !void {
     }
 }
 
-pub fn process_log(m: tp.message) !void {
+pub fn process_log(m: tp.message) MessageFilter.Error!void {
     var src: []const u8 = undefined;
     var context: []const u8 = undefined;
     var msg: []const u8 = undefined;
     const buffer = get_buffer();
-    if (try m.match(.{ "log", tp.extract(&src), tp.extract(&msg) })) {
+    if (try cbor.match(m.buf, .{ "log", tp.extract(&src), tp.extract(&msg) })) {
         try append(buffer, src, msg, .info);
-    } else if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
+    } else if (try cbor.match(m.buf, .{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
         const err_stop = "error.Stop";
         if (eql(u8, msg, err_stop))
             return;
         if (msg.len >= err_stop.len + 1 and eql(u8, msg[0 .. err_stop.len + 1], err_stop ++ "\n"))
             return;
         try append_error(buffer, src, context, msg);
-    } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
+    } else if (try cbor.match(m.buf, .{ "log", tp.extract(&src), tp.more })) {
         try append_json(buffer, src, m);
     }
 }
@@ -120,16 +122,23 @@ fn append(buffer: *Buffer, src: []const u8, msg: []const u8, level: Level) !void
     };
 }
 
-fn append_error(buffer: *Buffer, src: []const u8, context: []const u8, msg_: []const u8) !void {
-    var buf: [4096]u8 = undefined;
-    const msg = try fmt.bufPrint(&buf, "error in {s}: {s}", .{ context, msg_ });
-    try append(buffer, src, msg, .err);
+fn append_error(buffer: *Buffer, src: []const u8, context: []const u8, msg_: []const u8) MessageFilter.Error!void {
+    const std = @import("std");
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var sfa = std.heap.stackFallback(4096, arena.allocator());
+    var msg = std.ArrayList(u8).init(sfa.get());
+    try fmt.format(msg.writer(), "error in {s}: {s}", .{ context, msg_ });
+    try append(buffer, src, msg.items, .err);
 }
 
-fn append_json(buffer: *Buffer, src: []const u8, m: tp.message) !void {
-    var buf: [4096]u8 = undefined;
-    const json = try m.to_json(&buf);
-    try append(buffer, src, json, .err);
+fn append_json(buffer: *Buffer, src: []const u8, m: tp.message) MessageFilter.Error!void {
+    const std = @import("std");
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var sfa = std.heap.stackFallback(4096, arena.allocator());
+    const msg = try cbor.toJsonAlloc(sfa.get(), m.buf);
+    try append(buffer, src, msg, .err);
 }
 
 fn get_buffer() *Buffer {

@@ -1,5 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
+const cbor = @import("cbor");
 const log = @import("log");
 
 const Plane = @import("renderer").Plane;
@@ -76,13 +77,13 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     return false;
 }
 
-fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     var clear_msg_num: usize = 0;
-    if (try m.match(.{ "log", tp.more })) {
-        logview.process_log(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.process_log(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    if (try cbor.match(m.buf, .{ "log", tp.more })) {
+        try logview.process_log(m);
+        try self.process_log(m);
         return true;
-    } else if (try m.match(.{ "MINILOG", tp.extract(&clear_msg_num) })) {
+    } else if (try cbor.match(m.buf, .{ "MINILOG", tp.extract(&clear_msg_num) })) {
         if (clear_msg_num == self.msg_counter)
             self.clear();
         return true;
@@ -90,20 +91,20 @@ fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn process_log(self: *Self, m: tp.message) !void {
+fn process_log(self: *Self, m: tp.message) MessageFilter.Error!void {
     var src: []const u8 = undefined;
     var context: []const u8 = undefined;
     var msg: []const u8 = undefined;
-    if (try m.match(.{ "log", tp.extract(&src), tp.extract(&msg) })) {
+    if (try cbor.match(m.buf, .{ "log", tp.extract(&src), tp.extract(&msg) })) {
         try self.set(msg, .info);
-    } else if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
+    } else if (try cbor.match(m.buf, .{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&msg) })) {
         const err_stop = "error.Stop";
         if (std.mem.eql(u8, msg, err_stop))
             return;
         if (msg.len >= err_stop.len + 1 and std.mem.eql(u8, msg[0 .. err_stop.len + 1], err_stop ++ "\n"))
             return;
         try self.set(msg, .err);
-    } else if (try m.match(.{ "log", tp.extract(&src), tp.more })) {
+    } else if (try cbor.match(m.buf, .{ "log", tp.extract(&src), tp.more })) {
         self.level = .err;
         var s = std.json.writeStream(self.msg.writer(), .{});
         var iter: []const u8 = m.buf;

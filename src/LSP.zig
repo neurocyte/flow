@@ -14,7 +14,11 @@ const sp_tag = "child";
 const debug_lsp = true;
 const lsp_request_timeout = std.time.ns_per_s * 30;
 
-pub fn open(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) !Self {
+const OutOfMemoryError = error{OutOfMemory};
+const SendError = error{SendFailed};
+const CallError = tp.CallError;
+
+pub fn open(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidArgument } || cbor.Error)!Self {
     return .{ .allocator = allocator, .pid = try Process.create(allocator, project, cmd) };
 }
 
@@ -28,29 +32,29 @@ pub fn term(self: *Self) void {
     self.pid.deinit();
 }
 
-pub fn send_request(self: Self, allocator: std.mem.Allocator, method: []const u8, m: anytype) !tp.message {
+pub fn send_request(self: Self, allocator: std.mem.Allocator, method: []const u8, m: anytype) CallError!tp.message {
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
     return self.pid.call(allocator, lsp_request_timeout, .{ "REQ", method, cb.items });
 }
 
-pub fn send_response(self: Self, id: i32, m: anytype) !tp.message {
+pub fn send_response(self: Self, id: i32, m: anytype) SendError!tp.message {
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
     return self.pid.send(.{ "RSP", id, cb.items });
 }
 
-pub fn send_notification(self: Self, method: []const u8, m: anytype) !void {
+pub fn send_notification(self: Self, method: []const u8, m: anytype) (OutOfMemoryError || SendError)!void {
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
     return self.send_notification_raw(method, cb.items);
 }
 
-pub fn send_notification_raw(self: Self, method: []const u8, cb: []const u8) !void {
-    return self.pid.send(.{ "NTFY", method, cb });
+pub fn send_notification_raw(self: Self, method: []const u8, cb: []const u8) SendError!void {
+    self.pid.send(.{ "NTFY", method, cb }) catch return error.SendFailed;
 }
 
 pub fn close(self: *Self) void {
@@ -73,14 +77,14 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) !tp.pid {
+    pub fn create(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidArgument } || OutOfMemoryError || cbor.Error)!tp.pid {
         var tag: []const u8 = undefined;
-        if (try cmd.match(.{tp.extract(&tag)})) {
+        if (try cbor.match(cmd.buf, .{tp.extract(&tag)})) {
             //
-        } else if (try cmd.match(.{ tp.extract(&tag), tp.more })) {
+        } else if (try cbor.match(cmd.buf, .{ tp.extract(&tag), tp.more })) {
             //
         } else {
-            return tp.exit("no LSP command");
+            return error.InvalidArgument;
         }
         const self = try allocator.create(Process);
         var sp_tag_ = std.ArrayList(u8).init(allocator);
@@ -112,18 +116,18 @@ const Process = struct {
         if (self.log_file) |file| file.close();
     }
 
-    fn close(self: *Process) tp.result {
+    fn close(self: *Process) error{CloseFailed}!void {
         if (self.sp) |*sp| {
             defer self.sp = null;
-            try sp.close();
+            sp.close() catch return error.CloseFailed;
             self.write_log("### closed ###\n", .{});
         }
     }
 
-    fn term(self: *Process) tp.result {
+    fn term(self: *Process) error{TerminateFailed}!void {
         if (self.sp) |*sp| {
             defer self.sp = null;
-            try sp.term();
+            sp.term() catch return error.TerminateFailed;
             self.write_log("### terminated ###\n", .{});
         }
     }
@@ -143,29 +147,27 @@ const Process = struct {
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
-        return self.receive_safe(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        return self.receive_safe(from, m) catch |e| switch (e) {
+            error.ExitNormal => tp.exit_normal(),
+            error.ExitUnexpected => error.Exit,
+            else => tp.exit_error(e, @errorReturnTrace()),
+        };
     }
 
-    const ReceiveError = error{
-        OutOfMemory,
-        NoSpaceLeft,
-        BufferUnderrun,
-        CborIntegerTooLarge,
-        CborIntegerTooSmall,
-        CborInvalidType,
-        CborTooShort,
-        CborUnsupportedType,
-        SyntaxError,
-        UnexpectedEndOfInput,
+    const Error = (cbor.Error || cbor.JsonDecodeError || OutOfMemoryError || SendError || error{
         InvalidSyntax,
         InvalidMessageField,
         InvalidMessage,
         InvalidContentLength,
         Closed,
-        Exit,
-    };
+        CloseFailed,
+        TerminateFailed,
+        UnsupportedType,
+        ExitNormal,
+        ExitUnexpected,
+    });
 
-    fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) ReceiveError!void {
+    fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) Error!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name });
         defer frame.deinit();
         errdefer self.deinit();
@@ -175,34 +177,34 @@ const Process = struct {
         var code: u32 = 0;
         var id: i32 = 0;
 
-        if (try m.match(.{ "REQ", tp.extract(&method), tp.extract(&bytes) })) {
+        if (try cbor.match(m.buf, .{ "REQ", tp.extract(&method), tp.extract(&bytes) })) {
             try self.send_request(from, method, bytes);
-        } else if (try m.match(.{ "RSP", tp.extract(&id), tp.extract(&bytes) })) {
+        } else if (try cbor.match(m.buf, .{ "RSP", tp.extract(&id), tp.extract(&bytes) })) {
             try self.send_response(id, bytes);
-        } else if (try m.match(.{ "NTFY", tp.extract(&method), tp.extract(&bytes) })) {
+        } else if (try cbor.match(m.buf, .{ "NTFY", tp.extract(&method), tp.extract(&bytes) })) {
             try self.send_notification(method, bytes);
-        } else if (try m.match(.{"close"})) {
+        } else if (try cbor.match(m.buf, .{"close"})) {
             self.write_log("### LSP close ###\n", .{});
             try self.close();
-        } else if (try m.match(.{"term"})) {
+        } else if (try cbor.match(m.buf, .{"term"})) {
             self.write_log("### LSP terminated ###\n", .{});
             try self.term();
-        } else if (try m.match(.{ self.sp_tag, "stdout", tp.extract(&bytes) })) {
+        } else if (try cbor.match(m.buf, .{ self.sp_tag, "stdout", tp.extract(&bytes) })) {
             try self.handle_output(bytes);
-        } else if (try m.match(.{ self.sp_tag, "term", tp.extract(&err), tp.extract(&code) })) {
+        } else if (try cbor.match(m.buf, .{ self.sp_tag, "term", tp.extract(&err), tp.extract(&code) })) {
             try self.handle_terminated(err, code);
-        } else if (try m.match(.{ self.sp_tag, "stderr", tp.extract(&bytes) })) {
+        } else if (try cbor.match(m.buf, .{ self.sp_tag, "stderr", tp.extract(&bytes) })) {
             self.write_log("{s}\n", .{bytes});
-        } else if (try m.match(.{ "exit", "normal" })) {
+        } else if (try cbor.match(m.buf, .{ "exit", "normal" })) {
             // self.write_log("### exit normal ###\n", .{});
         } else {
-            const e = tp.unexpected(m);
+            tp.unexpected(m) catch {};
             self.write_log("{s}\n", .{tp.error_text()});
-            return e;
+            return error.ExitUnexpected;
         }
     }
 
-    fn receive_lsp_message(self: *Process, cb: []const u8) !void {
+    fn receive_lsp_message(self: *Process, cb: []const u8) Error!void {
         var iter = cb;
 
         const MsgMembers = struct {
@@ -252,7 +254,7 @@ const Process = struct {
         }
     }
 
-    fn handle_output(self: *Process, bytes: []u8) ReceiveError!void {
+    fn handle_output(self: *Process, bytes: []u8) Error!void {
         try self.recv_buf.appendSlice(bytes);
         self.write_log("### RECV:\n{s}\n###\n", .{bytes});
         self.frame_message_recv() catch |e| {
@@ -261,15 +263,15 @@ const Process = struct {
         };
     }
 
-    fn handle_terminated(self: *Process, err: []const u8, code: u32) tp.result {
+    fn handle_terminated(self: *Process, err: []const u8, code: u32) error{ExitNormal}!void {
         const logger = log.logger("LSP");
         logger.print("terminated: {s} {d}", .{ err, code });
         self.write_log("### subprocess terminated {s} {d} ###\n", .{ err, code });
-        try self.parent.send(.{ sp_tag, self.tag, "done" });
-        return tp.exit_normal();
+        self.parent.send(.{ sp_tag, self.tag, "done" }) catch {};
+        return error.ExitNormal;
     }
 
-    fn send_request(self: *Process, from: tp.pid_ref, method: []const u8, params_cb: []const u8) ReceiveError!void {
+    fn send_request(self: *Process, from: tp.pid_ref, method: []const u8, params_cb: []const u8) Error!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
         const id = self.next_id;
@@ -299,12 +301,12 @@ const Process = struct {
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
-        try sp.send(output.items);
+        sp.send(output.items) catch return error.SendFailed;
         self.write_log("### SEND request:\n{s}\n###\n", .{output.items});
         try self.requests.put(id, from.clone());
     }
 
-    fn send_response(self: *Process, id: i32, result_cb: []const u8) !void {
+    fn send_response(self: *Process, id: i32, result_cb: []const u8) (error{Closed} || SendError || cbor.Error || cbor.JsonEncodeError)!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
         var msg = std.ArrayList(u8).init(self.allocator);
@@ -329,11 +331,11 @@ const Process = struct {
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
-        try sp.send(output.items);
+        sp.send(output.items) catch return error.SendFailed;
         self.write_log("### SEND response:\n{s}\n###\n", .{output.items});
     }
 
-    fn send_notification(self: *Process, method: []const u8, params_cb: []const u8) !void {
+    fn send_notification(self: *Process, method: []const u8, params_cb: []const u8) Error!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
         const have_params = !(cbor.match(params_cb, cbor.null_) catch false);
@@ -364,11 +366,11 @@ const Process = struct {
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
-        try sp.send(output.items);
+        sp.send(output.items) catch return error.SendFailed;
         self.write_log("### SEND notification:\n{s}\n###\n", .{output.items});
     }
 
-    fn frame_message_recv(self: *Process) ReceiveError!void {
+    fn frame_message_recv(self: *Process) Error!void {
         const sep = "\r\n\r\n";
         const headers_end = std.mem.indexOf(u8, self.recv_buf.items, sep) orelse return;
         const headers_data = self.recv_buf.items[0..headers_end];
@@ -386,7 +388,7 @@ const Process = struct {
         if (rest.len > 0) return self.frame_message_recv();
     }
 
-    fn receive_lsp_request(self: *Process, id: i32, method: []const u8, params: ?[]const u8) !void {
+    fn receive_lsp_request(self: *Process, id: i32, method: []const u8, params: ?[]const u8) Error!void {
         const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json) |p| self.allocator.free(p);
         self.write_log("### RECV req: {d}\nmethod: {s}\n{s}\n###\n", .{ id, method, json orelse "no params" });
@@ -401,10 +403,10 @@ const Process = struct {
         try cbor.writeValue(writer, method);
         try cbor.writeValue(writer, id);
         if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
-        try self.parent.send_raw(.{ .buf = msg.items });
+        self.parent.send_raw(.{ .buf = msg.items }) catch return error.SendFailed;
     }
 
-    fn receive_lsp_response(self: *Process, id: i32, result: ?[]const u8, err: ?[]const u8) !void {
+    fn receive_lsp_response(self: *Process, id: i32, result: ?[]const u8, err: ?[]const u8) Error!void {
         const json = if (result) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json) |p| self.allocator.free(p);
         const json_err = if (err) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
@@ -424,10 +426,10 @@ const Process = struct {
             try cbor.writeValue(writer, "result");
             _ = try writer.write(result_);
         }
-        try from.send_raw(.{ .buf = msg.items });
+        from.send_raw(.{ .buf = msg.items }) catch return error.SendFailed;
     }
 
-    fn receive_lsp_notification(self: *Process, method: []const u8, params: ?[]const u8) !void {
+    fn receive_lsp_notification(self: *Process, method: []const u8, params: ?[]const u8) Error!void {
         const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json) |p| self.allocator.free(p);
         self.write_log("### RECV notify:\nmethod: {s}\n{s}\n###\n", .{ method, json orelse "no params" });
@@ -441,7 +443,7 @@ const Process = struct {
         try cbor.writeValue(writer, "notify");
         try cbor.writeValue(writer, method);
         if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
-        try self.parent.send_raw(.{ .buf = msg.items });
+        self.parent.send_raw(.{ .buf = msg.items }) catch return error.SendFailed;
     }
 
     fn write_log(self: *Process, comptime format: []const u8, args: anytype) void {
@@ -455,7 +457,7 @@ const Headers = struct {
     content_length: usize = 0,
     content_type: ?[]const u8 = null,
 
-    fn parse(buf_: []const u8) Process.ReceiveError!Headers {
+    fn parse(buf_: []const u8) Process.Error!Headers {
         var buf = buf_;
         var ret: Headers = .{};
         while (true) {
@@ -475,7 +477,7 @@ const Headers = struct {
         }
     }
 
-    fn parse_one(self: *Headers, name: []const u8, value: []const u8) Process.ReceiveError!void {
+    fn parse_one(self: *Headers, name: []const u8, value: []const u8) Process.Error!void {
         if (std.mem.eql(u8, "Content-Length", name)) {
             self.content_length = std.fmt.parseInt(@TypeOf(self.content_length), value, 10) catch |e| switch (e) {
                 error.Overflow => return error.InvalidContentLength,

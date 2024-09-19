@@ -1,5 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
+const cbor = @import("cbor");
 const zeit = @import("zeit");
 
 const Plane = @import("renderer").Plane;
@@ -67,8 +68,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     return false;
 }
 
-fn receive_tick(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{"CLOCK"})) {
+fn receive_tick(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    if (try cbor.match(m.buf, .{"CLOCK"})) {
         tui.need_render();
         self.update_tick_timer(.ticked);
         return true;
