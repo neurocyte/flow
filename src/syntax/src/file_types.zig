@@ -247,6 +247,16 @@ pub const nix = .{
     .injections = "tree-sitter-nix/queries/injections.scm",
 };
 
+pub const nu = .{
+    .color = 0x3AA675,
+    .icon = ">",
+    .extensions = .{ "nu", "nushell" },
+    .comment = "#",
+    .language_server = .{"nu", "--lsp"},
+    .highlights = "tree-sitter-nu/queries/nu/highlights.scm",
+    .injections = "tree-sitter-nu/queries/nu/injections.scm",
+};
+
 pub const ocaml = .{
     .color = 0xF18803,
     .icon = "",
