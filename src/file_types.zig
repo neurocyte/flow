@@ -43,6 +43,10 @@ pub const cpp = .{
     .icon = "",
     .extensions = .{ "cc", "cpp", "cxx", "hpp", "hxx", "h", "ipp", "ixx" },
     .comment = "//",
+    .highlights_list = .{
+        "tree-sitter-c/queries/highlights.scm",
+        "tree-sitter-cpp/queries/highlights.scm",
+    },
     .injections = "tree-sitter-cpp/queries/injections.scm",
     .formatter = .{"clang-format"},
     .language_server = .{"clangd"},
@@ -72,6 +76,16 @@ pub const dtd = .{
     .extensions = .{"dtd"},
     .comment = "<!--",
     .highlights = "tree-sitter-xml/queries/dtd/highlights.scm",
+};
+
+pub const elixir = .{
+    .color = 0x4e2a8e,
+    .icon = "",
+    .extensions = .{ "ex", "exs" },
+    .comment = "#",
+    .injections = "tree-sitter-elixir/queries/injections.scm",
+    .formatter = .{ "mix", "format", "-" },
+    .language_server = .{"elixir-ls"},
 };
 
 pub const fish = .{
@@ -109,7 +123,7 @@ pub const haskell = .{
     .icon = "󰲒",
     .extensions = .{"hs"},
     .comment = "--",
-    .language_server = .{"haskell-language-server-wrapper", "lsp"},
+    .language_server = .{ "haskell-language-server-wrapper", "lsp" },
 };
 
 pub const html = .{
@@ -153,6 +167,7 @@ pub const json = .{
     .extensions = .{"json"},
     .comment = "//",
     .language_server = .{ "deno", "lsp" },
+    .formatter = .{ "hjson", "-j" },
 };
 
 pub const kdl = .{
@@ -232,11 +247,23 @@ pub const nix = .{
     .injections = "tree-sitter-nix/queries/injections.scm",
 };
 
+pub const nu = .{
+    .color = 0x3AA675,
+    .icon = ">",
+    .extensions = .{ "nu", "nushell" },
+    .comment = "#",
+    .language_server = .{"nu", "--lsp"},
+    .highlights = "tree-sitter-nu/queries/nu/highlights.scm",
+    .injections = "tree-sitter-nu/queries/nu/injections.scm",
+};
+
 pub const ocaml = .{
     .color = 0xF18803,
     .icon = "",
     .extensions = .{ "ml", "mli" },
     .comment = "(*",
+    .formatter = .{ "ocamlformat", "--profile=ocamlformat", "-" },
+    .language_server = .{ "ocamllsp", "--fallback-read-dot-merlin" },
 };
 
 pub const openscad = .{
@@ -245,6 +272,7 @@ pub const openscad = .{
     .extensions = .{"scad"},
     .comment = "//",
     .injections = "tree-sitter-openscad/queries/injections.scm",
+    .language_server = .{"openscad-lsp"},
 };
 
 pub const org = .{
@@ -310,7 +338,7 @@ pub const @"ssh-config" = .{
 };
 
 pub const toml = .{
-    .extensions = .{"toml"},
+    .extensions = .{ "toml", "ini" },
     .comment = "#",
     .highlights = "tree-sitter-toml/queries/highlights.scm",
     .parser = @import("file_type.zig").Parser("toml"),
@@ -324,6 +352,25 @@ pub const typescript = .{
     .language_server = .{ "deno", "lsp" },
 };
 
+pub const typst = .{
+    .color = 0x23b6bc,
+    .icon = "t",
+    .extensions = .{ "typst", "typ" },
+    .comment = "//",
+    .language_server = .{"tinymist"},
+    .highlights = "tree-sitter-typst/queries/typst/highlights.scm",
+    .injections = "tree-sitter-typst/queries/typst/injections.scm",
+};
+
+pub const vim = .{
+    .color = 0x007f00,
+    .icon = "",
+    .extensions = .{"vim"},
+    .comment = "\"",
+    .highlights = "tree-sitter-vim/queries/vim/highlights.scm",
+    .injections = "tree-sitter-vim/queries/vim/injections.scm",
+};
+
 pub const xml = .{
     .icon = "󰗀",
     .extensions = .{"xml"},
@@ -335,7 +382,7 @@ pub const xml = .{
 pub const yaml = .{
     .color = 0x000000,
     .icon = "",
-    .extensions = .{"yaml", "yml"},
+    .extensions = .{ "yaml", "yml" },
     .comment = "#",
 };
 
