@@ -33,6 +33,7 @@ file_path: []const u8 = "",
 last_save: ?Root = null,
 file_exists: bool = true,
 file_eol_mode: EolMode = .lf,
+last_save_eol_mode: EolMode = .lf,
 
 undo_history: ?*UndoNode = null,
 redo_history: ?*UndoNode = null,
@@ -1093,6 +1094,7 @@ pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []cons
     self.root = try self.load_from_string(s, &self.file_eol_mode);
     self.file_path = try self.allocator.dupe(u8, file_path);
     self.last_save = self.root;
+    self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = false;
 }
 
@@ -1116,6 +1118,7 @@ pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {
     self.last_save = self.root;
     self.file_exists = file_exists;
     self.file_eol_mode = eol_mode;
+    self.last_save_eol_mode = eol_mode;
 }
 
 pub fn store_to_string(self: *const Self, allocator: Allocator) ![]u8 {
@@ -1156,6 +1159,7 @@ pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) !void {
         else => return e,
     };
     self.last_save = self.root;
+    self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = true;
 }
 
@@ -1163,7 +1167,7 @@ pub fn is_dirty(self: *const Self) bool {
     return if (!self.file_exists)
         self.root.length() > 0
     else if (self.last_save) |p|
-        self.root != p
+        self.root != p or self.last_save_eol_mode != self.file_eol_mode
     else
         true;
 }
