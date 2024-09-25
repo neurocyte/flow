@@ -1170,6 +1170,7 @@ pub const Editor = struct {
         self.last.primary = primary.*;
         self.last.dirty = dirty;
         self.last.root = root;
+        self.last.eol_mode = eol_mode;
     }
 
     fn send_editor_pos(self: *const Self, cursor: *const Cursor) !void {
@@ -3869,10 +3870,13 @@ pub const Editor = struct {
     pub const to_lower_meta = .{ .description = "Convert selection or word to lower case" };
 
     pub fn toggle_eol_mode(self: *Self, _: Context) Result {
-        if (self.buffer) |b| b.file_eol_mode = switch (b.file_eol_mode) {
-            .lf => .crlf,
-            .crlf => .lf,
-        };
+        if (self.buffer) |b| {
+            b.file_eol_mode = switch (b.file_eol_mode) {
+                .lf => .crlf,
+                .crlf => .lf,
+            };
+            self.update_event() catch {};
+        }
     }
     pub const toggle_eol_mode_meta = .{ .description = "Toggle end of line sequence" };
 };

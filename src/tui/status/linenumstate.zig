@@ -34,8 +34,9 @@ fn on_click(_: *Self, _: *Button.State(Self)) void {
     command.executeName("goto", .{}) catch {};
 }
 
-pub fn layout(self: *Self, _: *Button.State(Self)) Widget.Layout {
-    return .{ .static = self.rendered.len };
+pub fn layout(self: *Self, btn: *Button.State(Self)) Widget.Layout {
+    const len = btn.plane.egc_chunk_width(self.rendered, 0);
+    return .{ .static = len };
 }
 
 pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
@@ -64,11 +65,15 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.format();
     } else if (try m.match(.{ "E", "eol_mode", tp.extract(&eol_mode) })) {
         self.eol_mode = @enumFromInt(eol_mode);
+        self.format();
+    } else if (try m.match(.{ "E", "open", tp.more })) {
+        self.eol_mode = .lf;
     } else if (try m.match(.{ "E", "close" })) {
         self.lines = 0;
         self.line = 0;
         self.column = 0;
         self.rendered = "";
+        self.eol_mode = .lf;
     }
     return false;
 }

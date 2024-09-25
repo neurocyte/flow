@@ -190,6 +190,7 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.file_dirty = false;
         self.name = root.abbreviate_home(&self.name_buf, self.name);
     } else if (try m.match(.{ "E", "open", tp.extract(&file_path), tp.extract(&self.file_exists), tp.extract(&file_type), tp.extract(&file_icon), tp.extract(&self.file_color) })) {
+        self.eol_mode = .lf;
         @memcpy(self.name_buf[0..file_path.len], file_path);
         self.name = self.name_buf[0..file_path.len];
         @memcpy(self.file_type_buf[0..file_type.len], file_type);
@@ -207,6 +208,7 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.column = 0;
         self.file_exists = true;
         self.file = false;
+        self.eol_mode = .lf;
         self.show_project();
     } else if (try m.match(.{ "PRJ", "open" })) {
         if (!self.file)
