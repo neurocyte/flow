@@ -206,6 +206,7 @@ pub const Editor = struct {
         whole_file: ?std.ArrayList(u8),
         bytes: usize = 0,
         chunks: usize = 0,
+        eol_mode: Buffer.EolMode = .lf,
     } = null,
     matches: Match.List,
     match_token: usize = 0,
@@ -238,6 +239,7 @@ pub const Editor = struct {
         matches: usize = 0,
         cursels: usize = 0,
         dirty: bool = false,
+        eol_mode: Buffer.EolMode = .lf,
     } = .{},
 
     syntax: ?*syntax = null,
@@ -357,6 +359,10 @@ pub const Editor = struct {
         return if (self.buffer) |p| p.root else error.Stop;
     }
 
+    fn buf_eol_mode(self: *const Self) !Buffer.EolMode {
+        return if (self.buffer) |p| p.file_eol_mode else error.Stop;
+    }
+
     fn buf_a(self: *const Self) !Allocator {
         return if (self.buffer) |p| p.allocator else error.Stop;
     }
@@ -406,7 +412,7 @@ pub const Editor = struct {
             const lang_override = tp.env.get().str("language");
             var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
-            try new_buf.root.store(content.writer());
+            try new_buf.root.store(content.writer(), new_buf.file_eol_mode);
             const syn = if (lang_override.len > 0)
                 syntax.create_file_type(self.allocator, content.items, lang_override) catch null
             else
@@ -509,12 +515,18 @@ pub const Editor = struct {
 
     fn update_buf(self: *Self, root: Buffer.Root) !void {
         const b = self.buffer orelse return error.Stop;
+        return self.update_buf_and_eol_mode(root, b.file_eol_mode);
+    }
+
+    fn update_buf_and_eol_mode(self: *Self, root: Buffer.Root, eol_mode: Buffer.EolMode) !void {
+        const b = self.buffer orelse return error.Stop;
         var sfa = std.heap.stackFallback(512, self.allocator);
         const allocator = sfa.get();
         const meta = try self.store_undo_meta(allocator);
         defer allocator.free(meta);
         try b.store_undo(meta);
         b.update(root);
+        b.file_eol_mode = eol_mode;
         try self.send_editor_modified();
     }
 
@@ -1114,10 +1126,14 @@ pub const Editor = struct {
         const dirty = if (self.buffer) |buf| buf.is_dirty() else false;
 
         const root: ?Buffer.Root = self.buf_root() catch null;
+        const eol_mode = self.buf_eol_mode() catch .lf;
         if (token_from(self.last.root) != token_from(root)) {
-            try self.send_editor_update(self.last.root, root);
+            try self.send_editor_update(self.last.root, root, eol_mode);
             self.lsp_version += 1;
         }
+
+        if (self.last.eol_mode != eol_mode)
+            try self.send_editor_eol_mode(eol_mode);
 
         if (self.last.dirty != dirty)
             try self.send_editor_dirty(dirty);
@@ -1227,10 +1243,14 @@ pub const Editor = struct {
         return if (p) |p_| @intFromPtr(p_) else 0;
     }
 
-    fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root) !void {
-        _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root) });
+    fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
+        _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root), @intFromEnum(eol_mode) });
         if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
-            project_manager.did_change(file_path, self.lsp_version, token_from(new_root), token_from(old_root)) catch {};
+            project_manager.did_change(file_path, self.lsp_version, token_from(new_root), token_from(old_root), eol_mode) catch {};
+    }
+
+    fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode) !void {
+        _ = try self.handlers.msg(.{ "E", "eol_mode", @intFromEnum(eol_mode) });
     }
 
     fn clamp_abs(self: *Self, abs: bool) void {
@@ -1448,7 +1468,8 @@ pub const Editor = struct {
             match.nudge_insert(nudge);
         if (self.syntax) |syn| {
             const root = self.buf_root() catch return;
-            const start_byte = root.get_byte_pos(nudge.begin, self.plane.metrics()) catch return;
+            const eol_mode = self.buf_eol_mode() catch return;
+            const start_byte = root.get_byte_pos(nudge.begin, self.plane.metrics(), eol_mode) catch return;
             syn.edit(.{
                 .start_byte = @intCast(start_byte),
                 .old_end_byte = @intCast(start_byte),
@@ -1472,7 +1493,8 @@ pub const Editor = struct {
             };
         if (self.syntax) |syn| {
             const root = self.buf_root() catch return;
-            const start_byte = root.get_byte_pos(nudge.begin, self.plane.metrics()) catch return;
+            const eol_mode = self.buf_eol_mode() catch return;
+            const start_byte = root.get_byte_pos(nudge.begin, self.plane.metrics(), eol_mode) catch return;
             syn.edit(.{
                 .start_byte = @intCast(start_byte),
                 .old_end_byte = @intCast(start_byte + size),
@@ -3002,6 +3024,7 @@ pub const Editor = struct {
         const frame = tracy.initZone(@src(), .{ .name = "editor update syntax" });
         defer frame.deinit();
         const root = try self.buf_root();
+        const eol_mode = try self.buf_eol_mode();
         const token = @intFromPtr(root);
         if (root.lines() > root_mod.max_syntax_lines)
             return;
@@ -3011,7 +3034,7 @@ pub const Editor = struct {
             if (self.syntax_refresh_full) {
                 var content = std.ArrayList(u8).init(self.allocator);
                 defer content.deinit();
-                try root.store(content.writer());
+                try root.store(content.writer(), eol_mode);
                 try syn.refresh_full(content.items);
                 self.syntax_refresh_full = false;
             } else {
@@ -3021,7 +3044,7 @@ pub const Editor = struct {
         } else {
             var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
-            try root.store(content.writer());
+            try root.store(content.writer(), eol_mode);
             self.syntax = if (tp.env.get().is("no-syntax"))
                 null
             else
@@ -3759,7 +3782,7 @@ pub const Editor = struct {
         self.cancel_all_selections();
         self.cancel_all_matches();
         if (state.whole_file) |buf| {
-            state.work_root = try b.load_from_string(buf.items);
+            state.work_root = try b.load_from_string(buf.items, &state.eol_mode);
             state.bytes = buf.items.len;
             state.chunks = 1;
             primary.cursor = state.old_primary.cursor;
@@ -3770,7 +3793,7 @@ pub const Editor = struct {
             if (state.old_primary_reversed) sel.reverse();
             primary.cursor = sel.end;
         }
-        try self.update_buf(state.work_root);
+        try self.update_buf_and_eol_mode(state.work_root, state.eol_mode);
         primary.cursor.clamp_to_buffer(state.work_root, self.plane.metrics());
         self.logger.print("filter: done (bytes:{d} chunks:{d})", .{ state.bytes, state.chunks });
         self.reset_syntax();
@@ -3844,6 +3867,14 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const to_lower_meta = .{ .description = "Convert selection or word to lower case" };
+
+    pub fn toggle_eol_mode(self: *Self, _: Context) Result {
+        if (self.buffer) |b| b.file_eol_mode = switch (b.file_eol_mode) {
+            .lf => .crlf,
+            .crlf => .lf,
+        };
+    }
+    pub const toggle_eol_mode_meta = .{ .description = "Toggle end of line sequence" };
 };
 
 pub fn create(allocator: Allocator, parent: Widget) !Widget {

@@ -306,7 +306,8 @@ fn diff_update(self: *Self) !void {
     const editor = self.editor;
     const new = editor.get_current_root() orelse return;
     const old = if (editor.buffer) |buffer| buffer.last_save orelse return else return;
-    return self.diff.diff(diff_result, new, old);
+    const eol_mode = if (editor.buffer) |buffer| buffer.file_eol_mode else return;
+    return self.diff.diff(diff_result, new, old, eol_mode);
 }
 
 fn diff_result(from: tp.pid_ref, edits: []diff.Edit) void {

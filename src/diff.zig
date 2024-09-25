@@ -63,14 +63,15 @@ const Process = struct {
         var cb: usize = 0;
         var root_dst: usize = 0;
         var root_src: usize = 0;
+        var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
 
-        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&root_dst), tp.extract(&root_src) }))
-            self.diff(from, cb, root_dst, root_src) catch |e| tp.exit_error(e, @errorReturnTrace())
+        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&root_dst), tp.extract(&root_src), tp.extract(&eol_mode) }))
+            self.diff(from, cb, root_dst, root_src, @enumFromInt(eol_mode)) catch |e| tp.exit_error(e, @errorReturnTrace())
         else if (try m.match(.{"shutdown"}))
             tp.exit_normal();
     }
 
-    fn diff(self: *Process, from: tp.pid_ref, cb_addr: usize, root_new_addr: usize, root_old_addr: usize) !void {
+    fn diff(self: *Process, from: tp.pid_ref, cb_addr: usize, root_new_addr: usize, root_old_addr: usize, eol_mode: Buffer.EolMode) !void {
         const frame = tracy.initZone(@src(), .{ .name = "diff" });
         defer frame.deinit();
         const cb: *CallBack = if (cb_addr == 0) return else @ptrFromInt(cb_addr);
@@ -90,8 +91,8 @@ const Process = struct {
             dizzy_edits.deinit(self.allocator);
         }
 
-        try root_dst.store(dst.writer());
-        try root_src.store(src.writer());
+        try root_dst.store(dst.writer(), eol_mode);
+        try root_src.store(src.writer(), eol_mode);
 
         const scratch_len = 4 * (dst.items.len + src.items.len) + 2;
         try scratch.ensureTotalCapacity(self.allocator, scratch_len);
@@ -158,6 +159,6 @@ const Process = struct {
 
 pub const CallBack = fn (from: tp.pid_ref, edits: []Edit) void;
 
-pub fn diff(self: Self, cb: *const CallBack, root_dst: Buffer.Root, root_src: Buffer.Root) tp.result {
-    if (self.pid) |pid| try pid.send(.{ "D", @intFromPtr(cb), @intFromPtr(root_dst), @intFromPtr(root_src) });
+pub fn diff(self: Self, cb: *const CallBack, root_dst: Buffer.Root, root_src: Buffer.Root, eol_mode: Buffer.EolMode) tp.result {
+    if (self.pid) |pid| try pid.send(.{ "D", @intFromPtr(cb), @intFromPtr(root_dst), @intFromPtr(root_src), @intFromEnum(eol_mode) });
 }

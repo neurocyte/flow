@@ -32,10 +32,14 @@ file_buf: ?[]const u8 = null,
 file_path: []const u8 = "",
 last_save: ?Root = null,
 file_exists: bool = true,
+file_eol_mode: EolMode = .lf,
 
 undo_history: ?*UndoNode = null,
 redo_history: ?*UndoNode = null,
 curr_history: ?*UndoNode = null,
+
+pub const EolMode = enum { lf, crlf };
+pub const EolModeTag = @typeInfo(EolMode).Enum.tag_type;
 
 const UndoNode = struct {
     root: Root,
@@ -850,16 +854,18 @@ const Node = union(enum) {
         return .{ line, col, self };
     }
 
-    pub fn store(self: *const Node, writer: anytype) !void {
+    pub fn store(self: *const Node, writer: anytype, eol_mode: EolMode) !void {
         switch (self.*) {
             .node => |*node| {
-                try node.left.store(writer);
-                try node.right.store(writer);
+                try node.left.store(writer, eol_mode);
+                try node.right.store(writer, eol_mode);
             },
             .leaf => |*leaf| {
                 _ = try writer.write(leaf.buf);
-                if (leaf.eol)
-                    _ = try writer.write("\n");
+                if (leaf.eol) switch (eol_mode) {
+                    .lf => _ = try writer.write("\n"),
+                    .crlf => _ = try writer.write("\r\n"),
+                };
             },
         }
     }
@@ -934,10 +940,10 @@ const Node = union(enum) {
             .buf = try allocator.alloc(u8, pattern.len * 2),
         };
         defer allocator.free(ctx.buf);
-        return self.store(ctx.writer());
+        return self.store(ctx.writer(), .lf);
     }
 
-    pub fn get_byte_pos(self: *const Node, pos_: Cursor, metrics_: Metrics) !usize {
+    pub fn get_byte_pos(self: *const Node, pos_: Cursor, metrics_: Metrics, eol_mode: EolMode) !usize {
         const Ctx = struct {
             line: usize = 0,
             abs_col: usize = 0,
@@ -980,7 +986,7 @@ const Node = union(enum) {
             .pos = pos_,
             .metrics = metrics_,
         };
-        self.store(ctx.writer()) catch |e| switch (e) {
+        self.store(ctx.writer(), eol_mode) catch |e| switch (e) {
             error.Stop => return ctx.byte_pos,
         };
         return error.NotFound;
@@ -1035,8 +1041,9 @@ fn new_file(self: *const Self, file_exists: *bool) !Root {
     return Leaf.new(self.allocator, "", true, false);
 }
 
-pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
-    const eol = '\n';
+pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode) !Root {
+    const lf = '\n';
+    const cr = '\r';
     var buf = try self.external_allocator.alloc(u8, size);
     const self_ = @constCast(self);
     self_.file_buf = buf;
@@ -1047,9 +1054,14 @@ pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
     if (final_read != 0)
         @panic("unexpected data in final read");
 
+    eol_mode.* = .lf;
     var leaf_count: usize = 1;
     for (0..buf.len) |i| {
-        if (buf[i] == eol) leaf_count += 1;
+        if (buf[i] == lf) {
+            leaf_count += 1;
+            if (i > 0 and buf[i - 1] == cr)
+                eol_mode.* = .crlf;
+        }
     }
 
     var leaves = try self.external_allocator.alloc(Node, leaf_count);
@@ -1057,8 +1069,9 @@ pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
     var cur_leaf: usize = 0;
     var b: usize = 0;
     for (0..buf.len) |i| {
-        if (buf[i] == eol) {
-            const line = buf[b..i];
+        if (buf[i] == lf) {
+            const line_end = if (i > 0 and buf[i - 1] == cr) i - 1 else i;
+            const line = buf[b..line_end];
             leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = true } };
             cur_leaf += 1;
             b = i + 1;
@@ -1071,19 +1084,19 @@ pub fn load(self: *const Self, reader: anytype, size: usize) !Root {
     return Node.merge_in_place(leaves, self.allocator);
 }
 
-pub fn load_from_string(self: *const Self, s: []const u8) !Root {
+pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode) !Root {
     var stream = std.io.fixedBufferStream(s);
-    return self.load(stream.reader(), s.len);
+    return self.load(stream.reader(), s.len, eol_mode);
 }
 
 pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) !void {
-    self.root = try self.load_from_string(s);
+    self.root = try self.load_from_string(s, &self.file_eol_mode);
     self.file_path = try self.allocator.dupe(u8, file_path);
     self.last_save = self.root;
     self.file_exists = false;
 }
 
-pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bool) !Root {
+pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bool, eol_mode: *EolMode) !Root {
     const file = cwd().openFile(file_path, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return self.new_file(file_exists),
         else => return e,
@@ -1092,15 +1105,17 @@ pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bo
     file_exists.* = true;
     defer file.close();
     const stat = try file.stat();
-    return self.load(file.reader(), @intCast(stat.size));
+    return self.load(file.reader(), @intCast(stat.size), eol_mode);
 }
 
 pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {
     var file_exists: bool = false;
-    self.root = try self.load_from_file(file_path, &file_exists);
+    var eol_mode: EolMode = .lf;
+    self.root = try self.load_from_file(file_path, &file_exists, &eol_mode);
     self.file_path = try self.allocator.dupe(u8, file_path);
     self.last_save = self.root;
     self.file_exists = file_exists;
+    self.file_eol_mode = eol_mode;
 }
 
 pub fn store_to_string(self: *const Self, allocator: Allocator) ![]u8 {
@@ -1117,7 +1132,7 @@ fn store_to_file_const(self: *const Self, file: anytype) !void {
     const file_writer: std.fs.File.Writer = file.writer();
     var buffered_writer: BufferedWriter = .{ .unbuffered_writer = file_writer };
 
-    try self.root.store(Writer{ .context = &buffered_writer });
+    try self.root.store(Writer{ .context = &buffered_writer }, self.file_eol_mode);
     try buffered_writer.flush();
 }
 

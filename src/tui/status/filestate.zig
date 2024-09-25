@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const tracy = @import("tracy");
+const Buffer = @import("Buffer");
 const root = @import("root");
 
 const Plane = @import("renderer").Plane;
@@ -29,6 +30,7 @@ file_exists: bool,
 file_dirty: bool = false,
 detailed: bool = false,
 file: bool = false,
+eol_mode: Buffer.EolMode = .lf,
 
 const project_icon = "";
 const Self = @This();
@@ -134,11 +136,16 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void 
         const project_name = tp.env.get().str("project");
         _ = plane.print("{s} ({s})", .{ self.name, project_name }) catch {};
     } else {
+        const eol_mode = switch (self.eol_mode) {
+            .lf => " [↩ = ␊]",
+            .crlf => " [↩ = ␍␊]",
+        };
+
         _ = plane.putstr(if (!self.file_exists) "󰽂" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
         _ = plane.print(" {s}:{d}:{d}", .{ self.name, self.line + 1, self.column + 1 }) catch {};
         _ = plane.print(" of {d} lines", .{self.lines}) catch {};
         if (self.file_type.len > 0)
-            _ = plane.print(" ({s})", .{self.file_type}) catch {};
+            _ = plane.print(" ({s}){s}", .{ self.file_type, eol_mode }) catch {};
     }
     return;
 }
@@ -169,10 +176,13 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
     var file_type: []const u8 = undefined;
     var file_icon: []const u8 = undefined;
     var file_dirty: bool = undefined;
+    var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
     if (try m.match(.{ "E", "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.extract(&self.column) }))
         return false;
     if (try m.match(.{ "E", "dirty", tp.extract(&file_dirty) })) {
         self.file_dirty = file_dirty;
+    } else if (try m.match(.{ "E", "eol_mode", tp.extract(&eol_mode) })) {
+        self.eol_mode = @enumFromInt(eol_mode);
     } else if (try m.match(.{ "E", "save", tp.extract(&file_path) })) {
         @memcpy(self.name_buf[0..file_path.len], file_path);
         self.name = self.name_buf[0..file_path.len];

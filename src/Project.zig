@@ -302,7 +302,7 @@ pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, langu
     });
 }
 
-pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_addr: usize, root_src_addr: usize) GetFileLspError!void {
+pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_addr: usize, root_src_addr: usize, eol_mode: Buffer.EolMode) GetFileLspError!void {
     const lsp = try self.get_file_lsp(file_path);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
@@ -325,8 +325,8 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
         dizzy_edits.deinit(self.allocator);
     }
 
-    try root_dst.store(dst.writer());
-    try root_src.store(src.writer());
+    try root_dst.store(dst.writer(), eol_mode);
+    try root_src.store(src.writer(), eol_mode);
 
     const scratch_len = 4 * (dst.items.len + src.items.len) + 2;
     try scratch.ensureTotalCapacity(self.allocator, scratch_len);
