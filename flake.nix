@@ -45,20 +45,7 @@
         zigDisableWrap = false;
       };
 
-      # For bundling with nix bundle for running outside of nix
-      # example: https://github.com/ralismark/nix-appimage
-      apps.bundle.target = genAttrs allTargetTriples (target: let
-        pkg = packages.target.${target};
-      in {
-        type = "app";
-        program = "${pkg}/bin/default";
-      });
-
-      # default bundle
-      apps.bundle.default = apps.bundle.target.${system-triple};
-
       # nix run .
-      # apps.default = env.app [] "zig build run -- \"$@\"";
       apps.default = let
         pkg = packages.target.${system-triple};
       in {
