@@ -55,8 +55,5 @@
 
       # nix run .#build
       apps.build = env.app [] "zig build \"$@\"";
-
-      # nix develop
-      devShells.default = env.mkShell {};
     }));
 }
