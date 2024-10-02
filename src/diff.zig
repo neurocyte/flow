@@ -30,21 +30,17 @@ pub fn deinit(self: *Self) void {
 }
 
 const Process = struct {
-    arena: std.heap.ArenaAllocator,
-    allocator: std.mem.Allocator,
     receiver: Receiver,
 
     const Receiver = tp.Receiver(*Process);
-    const outer_a = std.heap.page_allocator;
+    const allocator = std.heap.c_allocator;
 
     pub fn create() !tp.pid {
-        const self = try outer_a.create(Process);
+        const self = try allocator.create(Process);
         self.* = .{
-            .arena = std.heap.ArenaAllocator.init(outer_a),
-            .allocator = self.arena.allocator(),
             .receiver = Receiver.init(Process.receive, self),
         };
-        return tp.spawn_link(self.allocator, self, Process.start, module_name);
+        return tp.spawn_link(allocator, self, Process.start, module_name);
     }
 
     fn start(self: *Process) tp.result {
@@ -53,8 +49,7 @@ const Process = struct {
     }
 
     fn deinit(self: *Process) void {
-        self.arena.deinit();
-        outer_a.destroy(self);
+        allocator.destroy(self);
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
@@ -66,12 +61,15 @@ const Process = struct {
         var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
 
         return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&root_dst), tp.extract(&root_src), tp.extract(&eol_mode) }))
-            self.diff(from, cb, root_dst, root_src, @enumFromInt(eol_mode)) catch |e| tp.exit_error(e, @errorReturnTrace())
+            do_diff(from, cb, root_dst, root_src, @enumFromInt(eol_mode)) catch |e| tp.exit_error(e, @errorReturnTrace())
         else if (try m.match(.{"shutdown"}))
             tp.exit_normal();
     }
 
-    fn diff(self: *Process, from: tp.pid_ref, cb_addr: usize, root_new_addr: usize, root_old_addr: usize, eol_mode: Buffer.EolMode) !void {
+    fn do_diff(from: tp.pid_ref, cb_addr: usize, root_new_addr: usize, root_old_addr: usize, eol_mode: Buffer.EolMode) !void {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
         const frame = tracy.initZone(@src(), .{ .name = "diff" });
         defer frame.deinit();
         const cb: *CallBack = if (cb_addr == 0) return else @ptrFromInt(cb_addr);
@@ -79,26 +77,19 @@ const Process = struct {
         const root_src: Buffer.Root = if (root_old_addr == 0) return else @ptrFromInt(root_old_addr);
 
         var dizzy_edits = std.ArrayListUnmanaged(dizzy.Edit){};
-        var dst = std.ArrayList(u8).init(self.allocator);
-        var src = std.ArrayList(u8).init(self.allocator);
+        var dst = std.ArrayList(u8).init(a);
+        var src = std.ArrayList(u8).init(a);
         var scratch = std.ArrayListUnmanaged(u32){};
-        var edits = std.ArrayList(Edit).init(self.allocator);
-
-        defer {
-            dst.deinit();
-            src.deinit();
-            scratch.deinit(self.allocator);
-            dizzy_edits.deinit(self.allocator);
-        }
+        var edits = std.ArrayList(Edit).init(a);
 
         try root_dst.store(dst.writer(), eol_mode);
         try root_src.store(src.writer(), eol_mode);
 
         const scratch_len = 4 * (dst.items.len + src.items.len) + 2;
-        try scratch.ensureTotalCapacity(self.allocator, scratch_len);
+        try scratch.ensureTotalCapacity(a, scratch_len);
         scratch.items.len = scratch_len;
 
-        try dizzy.PrimitiveSliceDiffer(u8).diff(self.allocator, &dizzy_edits, src.items, dst.items, scratch.items);
+        try dizzy.PrimitiveSliceDiffer(u8).diff(a, &dizzy_edits, src.items, dst.items, scratch.items);
 
         if (dizzy_edits.items.len > 2)
             try edits.ensureTotalCapacity((dizzy_edits.items.len - 1) / 2);
