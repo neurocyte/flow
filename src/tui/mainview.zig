@@ -160,8 +160,12 @@ fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
         break :blk self.panels.?;
     };
     const h = self.plane.dim_y();
-    self.panel_height = @max(2, h - @min(h, y + 1));
+    self.panel_height = @max(1, h - @min(h, y + 1));
     panels.layout = .{ .static = self.panel_height.? };
+    if (self.panel_height == 1) {
+        self.panel_height = null;
+        command.executeName("toggle_panel", .{}) catch {};
+    }
 }
 
 fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !void {
