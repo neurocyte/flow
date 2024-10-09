@@ -433,6 +433,7 @@ pub fn Create(options: type) type {
                         self.view_pos += 1;
                         try self.start_query();
                         self.menu.select_last();
+                        self.selection_updated();
                         return;
                     }
                 }
@@ -447,6 +448,7 @@ pub fn Create(options: type) type {
                         self.view_pos -= 1;
                         try self.start_query();
                         self.menu.select_first();
+                        self.selection_updated();
                         return;
                     }
                 }
