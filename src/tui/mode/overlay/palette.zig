@@ -173,7 +173,7 @@ pub fn Create(options: type) type {
         }
 
         fn update_scrollbar(self: *Self) void {
-            self.menu.scrollbar.?.set(@intCast(self.total_items), @intCast(self.view_rows), @intCast(self.view_pos));
+            self.menu.scrollbar.?.set(@intCast(@max(self.total_items, 1) - 1), @intCast(self.view_rows), @intCast(self.view_pos));
         }
 
         fn mouse_click_button4(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
@@ -429,7 +429,9 @@ pub fn Create(options: type) type {
 
             pub fn palette_menu_down(self: *Self, _: Ctx) Result {
                 if (self.menu.selected) |selected| {
-                    if (selected == self.view_rows - 1) {
+                    if (selected == self.view_rows - 1 and
+                        self.view_pos + self.view_rows < self.total_items)
+                    {
                         self.view_pos += 1;
                         try self.start_query();
                         self.menu.select_last();
