@@ -24,8 +24,8 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?Widget.EventH
 }
 
 pub fn layout(_: *void, btn: *Button.State(void)) Widget.Layout {
-    const name = btn.plane.egc_chunk_width(tui.get_mode(), 0);
-    const logo = if (is_mini_mode() or is_overlay_mode()) 1 else btn.plane.egc_chunk_width(left ++ symbol ++ right, 0);
+    const name = btn.plane.egc_chunk_width(tui.get_mode(), 0, 1);
+    const logo = if (is_mini_mode() or is_overlay_mode()) 1 else btn.plane.egc_chunk_width(left ++ symbol ++ right, 0, 1);
     const padding: usize = 2;
     const minimode_sep: usize = if (is_mini_mode()) 1 else 0;
     return .{ .static = logo + name + padding + minimode_sep };

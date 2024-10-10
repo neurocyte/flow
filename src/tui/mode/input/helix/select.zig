@@ -645,7 +645,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "toggle_inputview", "A-i" },
     .{ "toggle_inspector_view", "F5, C-F5, C-S-i" },
     .{ "toggle_panel", "C-j, F11" },
-    .{ "toggle_whitespace", "C-F10" },
+    .{ "toggle_whitespace_mode", "C-F10" },
     .{ "to_lower", "A-l" },
     .{ "to_upper", "A-u" },
     .{ "undo", "C-z" },

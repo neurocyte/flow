@@ -99,13 +99,13 @@ pub const CurSel = struct {
         };
     }
 
-    fn expand_selection_to_line(self: *Self, root: Buffer.Root, plane: Plane) *Selection {
+    fn expand_selection_to_line(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) *Selection {
         const sel = self.enable_selection();
         sel.normalize();
         sel.begin.move_begin();
         if (!(sel.end.row > sel.begin.row and sel.end.col == 0)) {
-            sel.end.move_end(root, plane.metrics());
-            sel.end.move_right(root, plane.metrics()) catch {};
+            sel.end.move_end(root, metrics);
+            sel.end.move_right(root, metrics) catch {};
         }
         return sel;
     }
@@ -185,6 +185,7 @@ pub const Editor = struct {
 
     allocator: Allocator,
     plane: Plane,
+    metrics: Buffer.Metrics,
     logger: log.Logger,
 
     file_path: ?[]const u8,
@@ -230,7 +231,9 @@ pub const Editor = struct {
     animation_last_time: i64,
 
     enable_terminal_cursor: bool,
-    show_whitespace: bool,
+    render_whitespace: WhitespaceMode,
+    indent_size: usize,
+    tab_width: usize,
 
     last: struct {
         root: ?Buffer.Root = null,
@@ -257,6 +260,7 @@ pub const Editor = struct {
 
     need_save_after_filter: bool = false,
 
+    const WhitespaceMode = enum { visible, indent, none };
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
     const Context = command.Context;
@@ -315,9 +319,14 @@ pub const Editor = struct {
         const logger = log.logger("editor");
         var frame_rate = tp.env.get().num("frame-rate");
         if (frame_rate == 0) frame_rate = 60;
+        const indent_size = tui.current().config.indent_size;
+        const tab_width = tui.current().config.tab_width;
         self.* = Self{
             .allocator = allocator,
             .plane = n,
+            .indent_size = indent_size,
+            .tab_width = tab_width,
+            .metrics = self.plane.metrics(tab_width),
             .logger = logger,
             .file_path = null,
             .buffer = null,
@@ -329,7 +338,7 @@ pub const Editor = struct {
             .cursels_saved = CurSel.List.init(allocator),
             .matches = Match.List.init(allocator),
             .enable_terminal_cursor = tui.current().config.enable_terminal_cursor,
-            .show_whitespace = tui.current().config.show_whitespace,
+            .render_whitespace = from_whitespace_mode(tui.current().config.whitespace_mode),
             .diagnostics = std.ArrayList(Diagnostic).init(allocator),
         };
     }
@@ -343,6 +352,15 @@ pub const Editor = struct {
         self.handlers.deinit();
         self.logger.deinit();
         if (self.buffer) |p| p.deinit();
+    }
+
+    fn from_whitespace_mode(whitespace_mode: []const u8) WhitespaceMode {
+        return if (std.mem.eql(u8, whitespace_mode, "visible"))
+            .visible
+        else if (std.mem.eql(u8, whitespace_mode, "indent"))
+            .indent
+        else
+            .none;
     }
 
     fn need_render(_: *Self) void {
@@ -579,7 +597,7 @@ pub const Editor = struct {
         }
     }
 
-    fn find_first_non_ws(root: Buffer.Root, row: usize, plane: Plane) usize {
+    fn find_first_non_ws(root: Buffer.Root, row: usize, metrics: Buffer.Metrics) usize {
         const Ctx = struct {
             col: usize = 0,
             fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Buffer.Metrics) Buffer.Walker {
@@ -592,7 +610,7 @@ pub const Editor = struct {
             }
         };
         var ctx: Ctx = .{};
-        root.walk_egc_forward(row, Ctx.walker, &ctx, plane.metrics()) catch return 0;
+        root.walk_egc_forward(row, Ctx.walker, &ctx, metrics) catch return 0;
         return ctx.col;
     }
 
@@ -603,9 +621,7 @@ pub const Editor = struct {
         writer: anytype,
         map_error: fn (e: anyerror, stack_trace: ?*std.builtin.StackTrace) @TypeOf(writer).Error,
         wcwidth_: ?*usize,
-        plane_: Plane,
     ) @TypeOf(writer).Error!void {
-        _ = self;
         const Writer = @TypeOf(writer);
         const Ctx = struct {
             col: usize = 0,
@@ -639,7 +655,7 @@ pub const Editor = struct {
         ctx.sel.normalize();
         if (sel.begin.eql(sel.end))
             return;
-        root.walk_egc_forward(sel.begin.row, Ctx.walker, &ctx, plane_.metrics()) catch |e| return map_error(e, @errorReturnTrace());
+        root.walk_egc_forward(sel.begin.row, Ctx.walker, &ctx, self.metrics) catch |e| return map_error(e, @errorReturnTrace());
         if (wcwidth_) |p| p.* = ctx.wcwidth;
     }
 
@@ -678,6 +694,7 @@ pub const Editor = struct {
             match_idx: usize = 0,
             theme: *const Widget.Theme,
             hl_row: ?usize,
+            leading: bool = true,
 
             fn walker(ctx_: *anyopaque, leaf: *const Buffer.Leaf, _: Buffer.Metrics) Buffer.Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
@@ -707,11 +724,16 @@ pub const Editor = struct {
                     if (ctx.buf_col >= view.col + view.cols)
                         break;
                     var cell = n.cell_init();
+                    var end_cell: ?Cell = null;
                     const c = &cell;
+                    switch (chunk[0]) {
+                        0...8, 10...31, 32, 9 => {},
+                        else => ctx.leading = false,
+                    }
                     const bytes, const colcount = switch (chunk[0]) {
                         0...8, 10...31 => |code| ctx.self.render_control_code(c, n, code, ctx.theme),
-                        32 => ctx.self.render_space(c, n, ctx.theme),
-                        9 => ctx.self.render_tab(c, n, ctx.buf_col, ctx.theme),
+                        32 => ctx.self.render_space(c, n, ctx.buf_col, ctx.leading, ctx.theme),
+                        9 => ctx.self.render_tab(c, n, ctx.buf_col, ctx.theme, &end_cell),
                         else => render_egc(c, n, chunk),
                     };
                     if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
@@ -728,7 +750,7 @@ pub const Editor = struct {
                     while (ctx.buf_col < new_col) {
                         if (ctx.buf_col >= view.col + view.cols)
                             break;
-                        var cell_ = n.cell_init();
+                        var cell_ = if (end_cell) |ec| if (ctx.buf_col == new_col - 1) ec else c.* else n.cell_init();
                         const c_ = &cell_;
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, c_);
@@ -755,6 +777,7 @@ pub const Editor = struct {
                     n.cursor_move_rel(1, 0) catch |e| return Buffer.Walker{ .err = e };
                     ctx.buf_row += 1;
                     ctx.buf_col = 0;
+                    ctx.leading = true;
                 }
                 return Buffer.Walker.keep_walking;
             }
@@ -772,7 +795,7 @@ pub const Editor = struct {
             if (hl_row) |_|
                 self.render_line_highlight(&self.get_primary().cursor, theme) catch {};
             self.plane.home();
-            _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_, self.plane.metrics()) catch {};
+            _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_, self.metrics) catch {};
         }
         self.render_syntax(theme, cache, root) catch {};
         self.render_diagnostics(theme, hl_row) catch {};
@@ -935,7 +958,7 @@ pub const Editor = struct {
 
     inline fn render_control_code(self: *const Self, c: *Cell, n: *Plane, code: u8, theme: *const Widget.Theme) struct { usize, usize } {
         const val = Buffer.unicode.control_code_to_unicode(code);
-        if (self.show_whitespace)
+        if (self.render_whitespace == .visible)
             c.set_style(theme.editor_whitespace);
         _ = n.cell_load(c, val) catch {};
         return .{ 1, 1 };
@@ -944,7 +967,7 @@ pub const Editor = struct {
     inline fn render_eol(self: *const Self, n: *Plane, theme: *const Widget.Theme) Cell {
         var cell = n.cell_init();
         const c = &cell;
-        if (self.show_whitespace) {
+        if (self.render_whitespace == .visible) {
             c.set_style(theme.editor_whitespace);
             //_ = n.cell_load(c, "$") catch {};
             //_ = n.cell_load(c, " ") catch {};
@@ -973,36 +996,43 @@ pub const Editor = struct {
         return cell;
     }
 
-    inline fn render_space(self: *const Self, c: *Cell, n: *Plane, theme: *const Widget.Theme) struct { usize, usize } {
-        if (self.show_whitespace) {
-            c.set_style(theme.editor_whitespace);
-            _ = n.cell_load(c, "·") catch {};
-            //_ = n.cell_load(c, "•") catch {};
-            //_ = n.cell_load(c, "⁃") catch {};
-            //_ = n.cell_load(c, " ") catch {};
-            //_ = n.cell_load(c, "_") catch {};
-            //_ = n.cell_load(c, "󱁐") catch {};
-            //_ = n.cell_load(c, "⎵") catch {};
-            //_ = n.cell_load(c, "‿") catch {};
-            //_ = n.cell_load(c, "_") catch {};
-            //_ = n.cell_load(c, " ") catch {};
-            //_ = n.cell_load(c, "〿") catch {};
-            //_ = n.cell_load(c, "␠") catch {};
-        } else {
-            _ = n.cell_load(c, " ") catch {};
+    inline fn render_space(self: *const Self, c: *Cell, n: *Plane, buf_col: usize, leading: bool, theme: *const Widget.Theme) struct { usize, usize } {
+        switch (self.render_whitespace) {
+            .visible => {
+                c.set_style(theme.editor_whitespace);
+                _ = n.cell_load(c, "·") catch {};
+            },
+            .indent => {
+                c.set_style(theme.editor_whitespace);
+                _ = n.cell_load(c, if (leading) if (buf_col % self.indent_size == 0) "⎸" else " " else " ") catch {};
+            },
+            else => {
+                _ = n.cell_load(c, " ") catch {};
+            },
         }
         return .{ 1, 1 };
     }
 
-    inline fn render_tab(self: *const Self, c: *Cell, n: *Plane, abs_col: usize, theme: *const Widget.Theme) struct { usize, usize } {
-        if (self.show_whitespace) {
-            c.set_style(theme.editor_whitespace);
-            _ = n.cell_load(c, "→") catch {};
-            //_ = n.cell_load(c, "⭲") catch {};
-        } else {
-            _ = n.cell_load(c, " ") catch {};
+    inline fn render_tab(self: *const Self, c: *Cell, n: *Plane, abs_col: usize, theme: *const Widget.Theme, end_cell: *?Cell) struct { usize, usize } {
+        const begin_char = "-";
+        const end_char = ">";
+        const colcount = 1 + self.tab_width - (abs_col % self.tab_width);
+        switch (self.render_whitespace) {
+            .visible => {
+                c.set_style(theme.editor_whitespace);
+                _ = n.cell_load(c, if (colcount == 2) end_char else begin_char) catch {};
+                if (colcount > 1) {
+                    end_cell.* = n.cell_init();
+                    const c_: *Cell = &end_cell.*.?;
+                    _ = n.cell_load(c_, end_char) catch {};
+                    c_.set_style(theme.editor_whitespace);
+                }
+            },
+            else => {
+                _ = n.cell_load(c, " ") catch {};
+            },
         }
-        return .{ 1, 9 - (abs_col % 8) };
+        return .{ 1, colcount };
     }
 
     inline fn render_egc(c: *Cell, n: *Plane, egc: [:0]const u8) struct { usize, usize } {
@@ -1022,7 +1052,7 @@ pub const Editor = struct {
             root: Buffer.Root,
             pos_cache: PosToWidthCache,
             fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, _: usize, _: *const syntax.Node) error{Stop}!void {
-                const sel_ = ctx.pos_cache.range_to_selection(range, ctx.root, ctx.self.plane) orelse return;
+                const sel_ = ctx.pos_cache.range_to_selection(range, ctx.root, ctx.self.metrics) orelse return;
 
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
@@ -1315,38 +1345,38 @@ pub const Editor = struct {
         self.match_token += 1;
     }
 
-    fn with_cursor_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, plane: Plane) error{Stop}!void {
-        try move(root, &cursel.cursor, plane);
+    fn with_cursor_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
+        try move(root, &cursel.cursor, metrics);
     }
 
     fn with_cursors_const(self: *Self, root: Buffer.Root, move: cursor_operator_const) error{Stop}!void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             cursel.selection = null;
-            try with_cursor_const(root, move, cursel, self.plane);
+            try with_cursor_const(root, move, cursel, self.metrics);
         };
         self.collapse_cursors();
     }
 
-    fn with_cursor_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, plane: Plane) error{Stop}!void {
-        try move(root, &cursel.cursor, ctx, plane);
+    fn with_cursor_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
+        try move(root, &cursel.cursor, ctx, metrics);
     }
 
     fn with_cursors_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             cursel.selection = null;
-            try with_cursor_const_arg(root, move, cursel, ctx, self.plane);
+            try with_cursor_const_arg(root, move, cursel, ctx, self.metrics);
         };
         self.collapse_cursors();
     }
 
-    fn with_cursor_and_view_const(root: Buffer.Root, move: cursor_view_operator_const, cursel: *CurSel, view: *const View, plane: Plane) error{Stop}!void {
-        try move(root, &cursel.cursor, view, plane);
+    fn with_cursor_and_view_const(root: Buffer.Root, move: cursor_view_operator_const, cursel: *CurSel, view: *const View, metrics: Buffer.Metrics) error{Stop}!void {
+        try move(root, &cursel.cursor, view, metrics);
     }
 
     fn with_cursors_and_view_const(self: *Self, root: Buffer.Root, move: cursor_view_operator_const, view: *const View) error{Stop}!void {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            with_cursor_and_view_const(root, move, cursel, view, self.plane) catch {
+            with_cursor_and_view_const(root, move, cursel, view, self.metrics) catch {
                 someone_stopped = true;
             };
         self.collapse_cursors();
@@ -1367,9 +1397,9 @@ pub const Editor = struct {
         return root;
     }
 
-    fn with_selection_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, plane: Plane) error{Stop}!void {
+    fn with_selection_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
         const sel = cursel.enable_selection();
-        try move(root, &sel.end, plane);
+        try move(root, &sel.end, metrics);
         cursel.cursor = sel.end;
         cursel.check_selection();
     }
@@ -1377,16 +1407,16 @@ pub const Editor = struct {
     fn with_selections_const(self: *Self, root: Buffer.Root, move: cursor_operator_const) error{Stop}!void {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            with_selection_const(root, move, cursel, self.plane) catch {
+            with_selection_const(root, move, cursel, self.metrics) catch {
                 someone_stopped = true;
             };
         self.collapse_cursors();
         return if (someone_stopped) error.Stop else {};
     }
 
-    fn with_selection_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, plane: Plane) error{Stop}!void {
+    fn with_selection_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         const sel = cursel.enable_selection();
-        try move(root, &sel.end, ctx, plane);
+        try move(root, &sel.end, ctx, metrics);
         cursel.cursor = sel.end;
         cursel.check_selection();
     }
@@ -1394,23 +1424,23 @@ pub const Editor = struct {
     fn with_selections_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            with_selection_const_arg(root, move, cursel, ctx, self.plane) catch {
+            with_selection_const_arg(root, move, cursel, ctx, self.metrics) catch {
                 someone_stopped = true;
             };
         self.collapse_cursors();
         return if (someone_stopped) error.Stop else {};
     }
 
-    fn with_selection_and_view_const(root: Buffer.Root, move: cursor_view_operator_const, cursel: *CurSel, view: *const View, plane: Plane) error{Stop}!void {
+    fn with_selection_and_view_const(root: Buffer.Root, move: cursor_view_operator_const, cursel: *CurSel, view: *const View, metrics: Buffer.Metrics) error{Stop}!void {
         const sel = cursel.enable_selection();
-        try move(root, &sel.end, view, plane);
+        try move(root, &sel.end, view, metrics);
         cursel.cursor = sel.end;
     }
 
     fn with_selections_and_view_const(self: *Self, root: Buffer.Root, move: cursor_view_operator_const, view: *const View) error{Stop}!void {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            with_selection_and_view_const(root, move, cursel, view, self.plane) catch {
+            with_selection_and_view_const(root, move, cursel, view, self.metrics) catch {
                 someone_stopped = true;
             };
         self.collapse_cursors();
@@ -1470,7 +1500,7 @@ pub const Editor = struct {
         if (self.syntax) |syn| {
             const root = self.buf_root() catch return;
             const eol_mode = self.buf_eol_mode() catch return;
-            const start_byte = root.get_byte_pos(nudge.begin, self.plane.metrics(), eol_mode) catch return;
+            const start_byte = root.get_byte_pos(nudge.begin, self.metrics, eol_mode) catch return;
             syn.edit(.{
                 .start_byte = @intCast(start_byte),
                 .old_end_byte = @intCast(start_byte),
@@ -1495,7 +1525,7 @@ pub const Editor = struct {
         if (self.syntax) |syn| {
             const root = self.buf_root() catch return;
             const eol_mode = self.buf_eol_mode() catch return;
-            const start_byte = root.get_byte_pos(nudge.begin, self.plane.metrics(), eol_mode) catch return;
+            const start_byte = root.get_byte_pos(nudge.begin, self.metrics, eol_mode) catch return;
             syn.edit(.{
                 .start_byte = @intCast(start_byte),
                 .old_end_byte = @intCast(start_byte + size),
@@ -1513,7 +1543,7 @@ pub const Editor = struct {
         cursel.cursor = sel.begin;
         cursel.selection = null;
         var size: usize = 0;
-        const root_ = try root.delete_range(sel, allocator, &size, self.plane.metrics());
+        const root_ = try root.delete_range(sel, allocator, &size, self.metrics);
         self.nudge_delete(sel, cursel, size);
         return root_;
     }
@@ -1527,7 +1557,7 @@ pub const Editor = struct {
                 all_stop = false;
                 continue;
             }
-            with_selection_const(root, move, cursel, self.plane) catch continue;
+            with_selection_const(root, move, cursel, self.metrics) catch continue;
             root = self.delete_selection(root, cursel, allocator) catch continue;
             all_stop = false;
         };
@@ -1537,10 +1567,10 @@ pub const Editor = struct {
         return root;
     }
 
-    const cursor_predicate = *const fn (root: Buffer.Root, cursor: *Cursor, plane: Plane) bool;
-    const cursor_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void;
-    const cursor_operator_const_arg = *const fn (root: Buffer.Root, cursor: *Cursor, ctx: Context, plane: Plane) error{Stop}!void;
-    const cursor_view_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, view: *const View, plane: Plane) error{Stop}!void;
+    const cursor_predicate = *const fn (root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) bool;
+    const cursor_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void;
+    const cursor_operator_const_arg = *const fn (root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void;
+    const cursor_view_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) error{Stop}!void;
     const cursel_operator_const = *const fn (root: Buffer.Root, cursel: *CurSel) error{Stop}!void;
     const cursor_operator = *const fn (root: Buffer.Root, cursor: *Cursor, allocator: Allocator) error{Stop}!Buffer.Root;
     const cursel_operator = *const fn (root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
@@ -1579,148 +1609,148 @@ pub const Editor = struct {
         return !is_not_word_char(c);
     }
 
-    fn is_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, plane: Plane) bool {
-        return cursor.test_at(root, is_word_char, plane.metrics());
+    fn is_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return cursor.test_at(root, is_word_char, metrics);
     }
 
-    fn is_non_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, plane: Plane) bool {
-        return cursor.test_at(root, is_not_word_char, plane.metrics());
+    fn is_non_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return cursor.test_at(root, is_not_word_char, metrics);
     }
 
-    fn is_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, plane: Plane) bool {
+    fn is_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         if (cursor.col == 0)
             return true;
-        if (is_non_word_char_at_cursor(root, cursor, plane))
+        if (is_non_word_char_at_cursor(root, cursor, metrics))
             return false;
         var next = cursor.*;
-        next.move_left(root, plane.metrics()) catch return true;
-        if (is_non_word_char_at_cursor(root, &next, plane))
+        next.move_left(root, metrics) catch return true;
+        if (is_non_word_char_at_cursor(root, &next, metrics))
             return true;
         return false;
     }
 
-    fn is_non_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, plane: Plane) bool {
+    fn is_non_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         if (cursor.col == 0)
             return true;
-        if (is_word_char_at_cursor(root, cursor, plane))
+        if (is_word_char_at_cursor(root, cursor, metrics))
             return false;
         var next = cursor.*;
-        next.move_left(root, plane.metrics()) catch return true;
-        if (is_word_char_at_cursor(root, &next, plane))
+        next.move_left(root, metrics) catch return true;
+        if (is_word_char_at_cursor(root, &next, metrics))
             return true;
         return false;
     }
 
-    fn is_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, plane: Plane) bool {
-        const line_width = root.line_width(cursor.row, plane.metrics()) catch return true;
+    fn is_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        const line_width = root.line_width(cursor.row, metrics) catch return true;
         if (cursor.col >= line_width)
             return true;
-        if (is_non_word_char_at_cursor(root, cursor, plane))
+        if (is_non_word_char_at_cursor(root, cursor, metrics))
             return false;
         var next = cursor.*;
-        next.move_right(root, plane.metrics()) catch return true;
-        if (is_non_word_char_at_cursor(root, &next, plane))
+        next.move_right(root, metrics) catch return true;
+        if (is_non_word_char_at_cursor(root, &next, metrics))
             return true;
         return false;
     }
 
-    fn is_non_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, plane: Plane) bool {
-        const line_width = root.line_width(cursor.row, plane.metrics()) catch return true;
+    fn is_non_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        const line_width = root.line_width(cursor.row, metrics) catch return true;
         if (cursor.col >= line_width)
             return true;
-        if (is_word_char_at_cursor(root, cursor, plane))
+        if (is_word_char_at_cursor(root, cursor, metrics))
             return false;
         var next = cursor.*;
-        next.move_right(root, plane.metrics()) catch return true;
-        if (is_word_char_at_cursor(root, &next, plane))
+        next.move_right(root, metrics) catch return true;
+        if (is_word_char_at_cursor(root, &next, metrics))
             return true;
         return false;
     }
 
-    fn is_eol_left(_: Buffer.Root, cursor: *const Cursor, _: Plane) bool {
+    fn is_eol_left(_: Buffer.Root, cursor: *const Cursor, _: Buffer.Metrics) bool {
         if (cursor.col == 0)
             return true;
         return false;
     }
 
-    fn is_eol_right(root: Buffer.Root, cursor: *const Cursor, plane: Plane) bool {
-        const line_width = root.line_width(cursor.row, plane.metrics()) catch return true;
+    fn is_eol_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        const line_width = root.line_width(cursor.row, metrics) catch return true;
         if (cursor.col >= line_width)
             return true;
         return false;
     }
 
-    fn is_eol_right_vim(root: Buffer.Root, cursor: *const Cursor, plane: Plane) bool {
-        const line_width = root.line_width(cursor.row, plane.metrics()) catch return true;
+    fn is_eol_right_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        const line_width = root.line_width(cursor.row, metrics) catch return true;
         if (line_width == 0) return true;
         if (cursor.col >= line_width - 1)
             return true;
         return false;
     }
 
-    fn move_cursor_left(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        try cursor.move_left(root, plane.metrics());
+    fn move_cursor_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        try cursor.move_left(root, metrics);
     }
 
-    fn move_cursor_left_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, plane: Plane) void {
-        while (!pred(root, cursor, plane))
-            move_cursor_left(root, cursor, plane) catch return;
+    fn move_cursor_left_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, metrics: Buffer.Metrics) void {
+        while (!pred(root, cursor, metrics))
+            move_cursor_left(root, cursor, metrics) catch return;
     }
 
-    fn move_cursor_left_unless(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, plane: Plane) void {
-        if (!pred(root, cursor, plane))
-            move_cursor_left(root, cursor, plane) catch return;
+    fn move_cursor_left_unless(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, metrics: Buffer.Metrics) void {
+        if (!pred(root, cursor, metrics))
+            move_cursor_left(root, cursor, metrics) catch return;
     }
 
-    fn move_cursor_begin(_: Buffer.Root, cursor: *Cursor, _: Plane) !void {
+    fn move_cursor_begin(_: Buffer.Root, cursor: *Cursor, _: Buffer.Metrics) !void {
         cursor.move_begin();
     }
 
-    fn smart_move_cursor_begin(root: Buffer.Root, cursor: *Cursor, plane: Plane) !void {
-        const first = find_first_non_ws(root, cursor.row, plane);
-        return if (cursor.col == first) cursor.move_begin() else cursor.move_to(root, cursor.row, first, plane.metrics());
+    fn smart_move_cursor_begin(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        const first = find_first_non_ws(root, cursor.row, metrics);
+        return if (cursor.col == first) cursor.move_begin() else cursor.move_to(root, cursor.row, first, metrics);
     }
 
-    fn move_cursor_right(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        try cursor.move_right(root, plane.metrics());
+    fn move_cursor_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        try cursor.move_right(root, metrics);
     }
 
-    fn move_cursor_right_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, plane: Plane) void {
-        while (!pred(root, cursor, plane))
-            move_cursor_right(root, cursor, plane) catch return;
+    fn move_cursor_right_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, metrics: Buffer.Metrics) void {
+        while (!pred(root, cursor, metrics))
+            move_cursor_right(root, cursor, metrics) catch return;
     }
 
-    fn move_cursor_right_unless(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, plane: Plane) void {
-        if (!pred(root, cursor, plane))
-            move_cursor_right(root, cursor, plane) catch return;
+    fn move_cursor_right_unless(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, metrics: Buffer.Metrics) void {
+        if (!pred(root, cursor, metrics))
+            move_cursor_right(root, cursor, metrics) catch return;
     }
 
-    fn move_cursor_end(root: Buffer.Root, cursor: *Cursor, plane: Plane) !void {
-        cursor.move_end(root, plane.metrics());
+    fn move_cursor_end(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        cursor.move_end(root, metrics);
     }
 
-    fn move_cursor_up(root: Buffer.Root, cursor: *Cursor, plane: Plane) !void {
-        try cursor.move_up(root, plane.metrics());
+    fn move_cursor_up(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        try cursor.move_up(root, metrics);
     }
 
-    fn move_cursor_down(root: Buffer.Root, cursor: *Cursor, plane: Plane) !void {
-        try cursor.move_down(root, plane.metrics());
+    fn move_cursor_down(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        try cursor.move_down(root, metrics);
     }
 
-    fn move_cursor_buffer_begin(_: Buffer.Root, cursor: *Cursor, _: Plane) !void {
+    fn move_cursor_buffer_begin(_: Buffer.Root, cursor: *Cursor, _: Buffer.Metrics) !void {
         cursor.move_buffer_begin();
     }
 
-    fn move_cursor_buffer_end(root: Buffer.Root, cursor: *Cursor, plane: Plane) !void {
-        cursor.move_buffer_end(root, plane.metrics());
+    fn move_cursor_buffer_end(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        cursor.move_buffer_end(root, metrics);
     }
 
-    fn move_cursor_page_up(root: Buffer.Root, cursor: *Cursor, view: *const View, plane: Plane) !void {
-        cursor.move_page_up(root, view, plane.metrics());
+    fn move_cursor_page_up(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
+        cursor.move_page_up(root, view, metrics);
     }
 
-    fn move_cursor_page_down(root: Buffer.Root, cursor: *Cursor, view: *const View, plane: Plane) !void {
-        cursor.move_page_down(root, view, plane.metrics());
+    fn move_cursor_page_down(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
+        cursor.move_page_down(root, view, metrics);
     }
 
     pub fn primary_click(self: *Self, y: c_int, x: c_int) !void {
@@ -1733,7 +1763,7 @@ pub const Editor = struct {
         self.selection_mode = .char;
         try self.send_editor_jump_source();
         const root = self.buf_root() catch return;
-        primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.plane.metrics()) catch return;
+        primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         self.clamp_mouse();
         try self.send_editor_jump_destination();
         if (self.jump_mode) try self.goto_definition(.{});
@@ -1744,7 +1774,7 @@ pub const Editor = struct {
         primary.selection = null;
         self.selection_mode = .word;
         const root = self.buf_root() catch return;
-        primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.plane.metrics()) catch return;
+        primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         _ = try self.select_word_at_cursor(primary);
         self.clamp_mouse();
     }
@@ -1754,7 +1784,7 @@ pub const Editor = struct {
         primary.selection = null;
         self.selection_mode = .line;
         const root = self.buf_root() catch return;
-        primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.plane.metrics()) catch return;
+        primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         try self.select_line_at_cursor(primary);
         self.clamp_mouse();
     }
@@ -1765,18 +1795,18 @@ pub const Editor = struct {
         const primary = self.get_primary();
         const sel = primary.enable_selection();
         const root = self.buf_root() catch return;
-        sel.end.move_abs(root, &self.view, @intCast(y_), @intCast(x_), self.plane.metrics()) catch return;
+        sel.end.move_abs(root, &self.view, @intCast(y_), @intCast(x_), self.metrics) catch return;
         switch (self.selection_mode) {
             .char => {},
             .word => if (sel.begin.right_of(sel.end))
-                with_selection_const(root, move_cursor_word_begin, primary, self.plane) catch return
+                with_selection_const(root, move_cursor_word_begin, primary, self.metrics) catch return
             else
-                with_selection_const(root, move_cursor_word_end, primary, self.plane) catch return,
+                with_selection_const(root, move_cursor_word_end, primary, self.metrics) catch return,
             .line => if (sel.begin.right_of(sel.end))
-                with_selection_const(root, move_cursor_begin, primary, self.plane) catch return
+                with_selection_const(root, move_cursor_begin, primary, self.metrics) catch return
             else {
-                with_selection_const(root, move_cursor_end, primary, self.plane) catch return;
-                with_selection_const(root, move_cursor_right, primary, self.plane) catch return;
+                with_selection_const(root, move_cursor_end, primary, self.metrics) catch return;
+                with_selection_const(root, move_cursor_right, primary, self.metrics) catch return;
             },
         }
         primary.cursor = sel.end;
@@ -1927,29 +1957,29 @@ pub const Editor = struct {
         tui.current().rdr.copy_to_system_clipboard(text);
     }
 
-    fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, plane: Plane) ![]const u8 {
+    fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]const u8 {
         var size: usize = 0;
-        _ = try root.get_range(sel, null, &size, null, plane.metrics());
+        _ = try root.get_range(sel, null, &size, null, metrics);
         const buf__ = try text_allocator.alloc(u8, size);
-        return (try root.get_range(sel, buf__, null, null, plane.metrics())).?;
+        return (try root.get_range(sel, buf__, null, null, metrics)).?;
     }
 
     pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) ![]const u8 {
-        return copy_selection(try self.buf_root(), sel, text_allocator, self.plane);
+        return copy_selection(try self.buf_root(), sel, text_allocator, self.metrics);
     }
 
     fn copy_word_at_cursor(self: *Self, text_allocator: Allocator) ![]const u8 {
         const root = try self.buf_root();
         const primary = self.get_primary();
         const sel = if (primary.selection) |*sel| sel else try self.select_word_at_cursor(primary);
-        return try copy_selection(root, sel.*, text_allocator, self.plane);
+        return try copy_selection(root, sel.*, text_allocator, self.metrics);
     }
 
     pub fn cut_selection(self: *Self, root: Buffer.Root, cursel: *CurSel) !struct { []const u8, Buffer.Root } {
         return if (cursel.selection) |sel| ret: {
             var old_selection: Selection = sel;
             old_selection.normalize();
-            const cut_text = try copy_selection(root, sel, self.allocator, self.plane);
+            const cut_text = try copy_selection(root, sel, self.allocator, self.metrics);
             if (cut_text.len > 100) {
                 self.logger.print("cut:{s}...", .{std.fmt.fmtSliceEscapeLower(cut_text[0..100])});
             } else {
@@ -1959,16 +1989,16 @@ pub const Editor = struct {
         } else error.Stop;
     }
 
-    fn expand_selection_to_all(root: Buffer.Root, sel: *Selection, plane: Plane) !void {
-        try move_cursor_buffer_begin(root, &sel.begin, plane);
-        try move_cursor_buffer_end(root, &sel.end, plane);
+    fn expand_selection_to_all(root: Buffer.Root, sel: *Selection, metrics: Buffer.Metrics) !void {
+        try move_cursor_buffer_begin(root, &sel.begin, metrics);
+        try move_cursor_buffer_end(root, &sel.end, metrics);
     }
 
     fn insert(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
         var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, allocator) else root;
         const cursor = &cursel.cursor;
         const begin = cursel.cursor;
-        cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.plane.metrics());
+        cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.metrics);
         cursor.target = cursor.col;
         self.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
         return root_;
@@ -1981,9 +2011,9 @@ pub const Editor = struct {
         if (self.cursels.items.len == 1)
             if (primary.selection) |_| {} else {
                 const sel = primary.enable_selection();
-                try move_cursor_begin(root, &sel.begin, self.plane);
-                try move_cursor_end(root, &sel.end, self.plane);
-                try move_cursor_right(root, &sel.end, self.plane);
+                try move_cursor_begin(root, &sel.begin, self.metrics);
+                try move_cursor_end(root, &sel.end, self.metrics);
+                try move_cursor_right(root, &sel.end, self.metrics);
             };
         var first = true;
         var text = std.ArrayList(u8).init(self.allocator);
@@ -2008,7 +2038,7 @@ pub const Editor = struct {
         var text = std.ArrayList(u8).init(self.allocator);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |sel| {
-                const copy_text = try copy_selection(root, sel, self.allocator, self.plane);
+                const copy_text = try copy_selection(root, sel, self.allocator, self.metrics);
                 if (first) {
                     first = false;
                 } else {
@@ -2140,12 +2170,12 @@ pub const Editor = struct {
     }
     pub const move_right_meta = .{ .description = "Move cursor right" };
 
-    fn move_cursor_left_vim(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        move_cursor_left_unless(root, cursor, is_eol_left, plane);
+    fn move_cursor_left_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        move_cursor_left_unless(root, cursor, is_eol_left, metrics);
     }
 
-    fn move_cursor_right_vim(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        move_cursor_right_unless(root, cursor, is_eol_right_vim, plane);
+    fn move_cursor_right_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        move_cursor_right_unless(root, cursor, is_eol_right_vim, metrics);
     }
 
     pub fn move_left_vim(self: *Self, _: Context) Result {
@@ -2162,63 +2192,63 @@ pub const Editor = struct {
     }
     pub const move_right_vim_meta = .{ .description = "Move cursor right (vim)" };
 
-    fn move_cursor_word_begin(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        if (is_non_word_char_at_cursor(root, cursor, plane)) {
-            move_cursor_left_until(root, cursor, is_word_boundary_right, plane);
-            try move_cursor_right(root, cursor, plane);
+    fn move_cursor_word_begin(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        if (is_non_word_char_at_cursor(root, cursor, metrics)) {
+            move_cursor_left_until(root, cursor, is_word_boundary_right, metrics);
+            try move_cursor_right(root, cursor, metrics);
         } else {
-            move_cursor_left_until(root, cursor, is_word_boundary_left, plane);
+            move_cursor_left_until(root, cursor, is_word_boundary_left, metrics);
         }
     }
 
-    fn move_cursor_word_end(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        if (is_non_word_char_at_cursor(root, cursor, plane)) {
-            move_cursor_right_until(root, cursor, is_word_boundary_left, plane);
-            try move_cursor_left(root, cursor, plane);
+    fn move_cursor_word_end(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        if (is_non_word_char_at_cursor(root, cursor, metrics)) {
+            move_cursor_right_until(root, cursor, is_word_boundary_left, metrics);
+            try move_cursor_left(root, cursor, metrics);
         } else {
-            move_cursor_right_until(root, cursor, is_word_boundary_right, plane);
+            move_cursor_right_until(root, cursor, is_word_boundary_right, metrics);
         }
-        try move_cursor_right(root, cursor, plane);
+        try move_cursor_right(root, cursor, metrics);
     }
 
-    fn move_cursor_word_left(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        try move_cursor_left(root, cursor, plane);
-        move_cursor_left_until(root, cursor, is_word_boundary_left, plane);
+    fn move_cursor_word_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        try move_cursor_left(root, cursor, metrics);
+        move_cursor_left_until(root, cursor, is_word_boundary_left, metrics);
     }
 
-    fn move_cursor_word_left_space(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        try move_cursor_left(root, cursor, plane);
+    fn move_cursor_word_left_space(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        try move_cursor_left(root, cursor, metrics);
         var next = cursor.*;
-        next.move_left(root, plane.metrics()) catch
-            return move_cursor_left_until(root, cursor, is_word_boundary_left, plane);
-        if (is_non_word_char_at_cursor(root, cursor, plane) and is_non_word_char_at_cursor(root, &next, plane))
-            move_cursor_left_until(root, cursor, is_non_word_boundary_left, plane)
+        next.move_left(root, metrics) catch
+            return move_cursor_left_until(root, cursor, is_word_boundary_left, metrics);
+        if (is_non_word_char_at_cursor(root, cursor, metrics) and is_non_word_char_at_cursor(root, &next, metrics))
+            move_cursor_left_until(root, cursor, is_non_word_boundary_left, metrics)
         else
-            move_cursor_left_until(root, cursor, is_word_boundary_left, plane);
+            move_cursor_left_until(root, cursor, is_word_boundary_left, metrics);
     }
 
-    pub fn move_cursor_word_right(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        move_cursor_right_until(root, cursor, is_word_boundary_right, plane);
-        try move_cursor_right(root, cursor, plane);
+    pub fn move_cursor_word_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        move_cursor_right_until(root, cursor, is_word_boundary_right, metrics);
+        try move_cursor_right(root, cursor, metrics);
     }
 
-    pub fn move_cursor_word_right_vim(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
-        try move_cursor_right(root, cursor, plane);
-        move_cursor_right_until(root, cursor, is_word_boundary_left, plane);
+    pub fn move_cursor_word_right_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        try move_cursor_right(root, cursor, metrics);
+        move_cursor_right_until(root, cursor, is_word_boundary_left, metrics);
     }
 
-    pub fn move_cursor_word_right_space(root: Buffer.Root, cursor: *Cursor, plane: Plane) error{Stop}!void {
+    pub fn move_cursor_word_right_space(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         var next = cursor.*;
-        next.move_right(root, plane.metrics()) catch {
-            move_cursor_right_until(root, cursor, is_word_boundary_right, plane);
-            try move_cursor_right(root, cursor, plane);
+        next.move_right(root, metrics) catch {
+            move_cursor_right_until(root, cursor, is_word_boundary_right, metrics);
+            try move_cursor_right(root, cursor, metrics);
             return;
         };
-        if (is_non_word_char_at_cursor(root, cursor, plane) and is_non_word_char_at_cursor(root, &next, plane))
-            move_cursor_right_until(root, cursor, is_non_word_boundary_right, plane)
+        if (is_non_word_char_at_cursor(root, cursor, metrics) and is_non_word_char_at_cursor(root, &next, metrics))
+            move_cursor_right_until(root, cursor, is_non_word_boundary_right, metrics)
         else
-            move_cursor_right_until(root, cursor, is_word_boundary_right, plane);
-        try move_cursor_right(root, cursor, plane);
+            move_cursor_right_until(root, cursor, is_word_boundary_right, metrics);
+        try move_cursor_right(root, cursor, metrics);
     }
 
     pub fn move_word_left(self: *Self, _: Context) Result {
@@ -2242,33 +2272,33 @@ pub const Editor = struct {
     }
     pub const move_word_right_vim_meta = .{ .description = "Move cursor right by word (vim)" };
 
-    fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, plane: Plane) error{Stop}!void {
+    fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
             return error.Stop;
-        try move_cursor_left(root, cursor, plane);
+        try move_cursor_left(root, cursor, metrics);
         while (true) {
-            const curr_egc, _, _ = root.ecg_at(cursor.row, cursor.col, plane.metrics()) catch return error.Stop;
+            const curr_egc, _, _ = root.ecg_at(cursor.row, cursor.col, metrics) catch return error.Stop;
             if (std.mem.eql(u8, curr_egc, egc))
                 return;
-            if (is_eol_left(root, cursor, plane))
+            if (is_eol_left(root, cursor, metrics))
                 return;
-            move_cursor_left(root, cursor, plane) catch return error.Stop;
+            move_cursor_left(root, cursor, metrics) catch return error.Stop;
         }
     }
 
-    pub fn move_cursor_to_char_right(root: Buffer.Root, cursor: *Cursor, ctx: Context, plane: Plane) error{Stop}!void {
+    pub fn move_cursor_to_char_right(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
             return error.Stop;
-        try move_cursor_right(root, cursor, plane);
+        try move_cursor_right(root, cursor, metrics);
         while (true) {
-            const curr_egc, _, _ = root.ecg_at(cursor.row, cursor.col, plane.metrics()) catch return error.Stop;
+            const curr_egc, _, _ = root.ecg_at(cursor.row, cursor.col, metrics) catch return error.Stop;
             if (std.mem.eql(u8, curr_egc, egc))
                 return;
-            if (is_eol_right(root, cursor, plane))
+            if (is_eol_right(root, cursor, metrics))
                 return;
-            move_cursor_right(root, cursor, plane) catch return error.Stop;
+            move_cursor_right(root, cursor, metrics) catch return error.Stop;
         }
     }
 
@@ -2297,7 +2327,7 @@ pub const Editor = struct {
         try self.push_cursor();
         const primary = self.get_primary();
         const root = try self.buf_root();
-        move_cursor_up(root, &primary.cursor, self.plane) catch {};
+        move_cursor_up(root, &primary.cursor, self.metrics) catch {};
         self.clamp();
     }
     pub const add_cursor_up_meta = .{ .description = "Add cursor up" };
@@ -2313,7 +2343,7 @@ pub const Editor = struct {
         try self.push_cursor();
         const primary = self.get_primary();
         const root = try self.buf_root();
-        move_cursor_down(root, &primary.cursor, self.plane) catch {};
+        move_cursor_down(root, &primary.cursor, self.metrics) catch {};
         self.clamp();
     }
     pub const add_cursor_down_meta = .{ .description = "Add cursor down" };
@@ -2330,7 +2360,7 @@ pub const Editor = struct {
             const root = self.buf_root() catch return;
             primary.selection = match.to_selection();
             match.has_selection = true;
-            primary.cursor.move_to(root, match.end.row, match.end.col, self.plane.metrics()) catch return;
+            primary.cursor.move_to(root, match.end.row, match.end.col, self.metrics) catch return;
         }
         self.clamp();
         try self.send_editor_jump_destination();
@@ -2346,7 +2376,7 @@ pub const Editor = struct {
             const root = self.buf_root() catch return;
             primary.selection = match.to_selection();
             match.has_selection = true;
-            primary.cursor.move_to(root, match.end.row, match.end.col, self.plane.metrics()) catch return;
+            primary.cursor.move_to(root, match.end.row, match.end.col, self.metrics) catch return;
         }
         self.clamp();
         try self.send_editor_jump_destination();
@@ -2366,7 +2396,7 @@ pub const Editor = struct {
                     .col = 0,
                 },
             };
-            new_cursel.*.?.cursor.move_end(root, self.plane.metrics());
+            new_cursel.*.?.cursor.move_end(root, self.metrics);
         }
     }
 
@@ -2384,18 +2414,18 @@ pub const Editor = struct {
     fn pull_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
-        const sel = cursel.expand_selection_to_line(root, self.plane);
+        const sel = cursel.expand_selection_to_line(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
+        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
         root = try self.delete_selection(root, cursel, allocator);
-        try cursel.cursor.move_up(root, self.plane.metrics());
+        try cursel.cursor.move_up(root, self.metrics);
         root = self.insert(root, cursel, cut_text, allocator) catch return error.Stop;
         cursel.* = saved;
-        try cursel.cursor.move_up(root, self.plane.metrics());
+        try cursel.cursor.move_up(root, self.metrics);
         if (cursel.selection) |*sel_| {
-            try sel_.begin.move_up(root, self.plane.metrics());
-            try sel_.end.move_up(root, self.plane.metrics());
+            try sel_.begin.move_up(root, self.metrics);
+            try sel_.end.move_up(root, self.metrics);
         }
         return root;
     }
@@ -2411,18 +2441,18 @@ pub const Editor = struct {
     fn pull_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
-        const sel = cursel.expand_selection_to_line(root, self.plane);
+        const sel = cursel.expand_selection_to_line(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
+        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
         root = try self.delete_selection(root, cursel, allocator);
-        try cursel.cursor.move_down(root, self.plane.metrics());
+        try cursel.cursor.move_down(root, self.metrics);
         root = self.insert(root, cursel, cut_text, allocator) catch return error.Stop;
         cursel.* = saved;
-        try cursel.cursor.move_down(root, self.plane.metrics());
+        try cursel.cursor.move_down(root, self.metrics);
         if (cursel.selection) |*sel_| {
-            try sel_.begin.move_down(root, self.plane.metrics());
-            try sel_.end.move_down(root, self.plane.metrics());
+            try sel_.begin.move_down(root, self.metrics);
+            try sel_.end.move_down(root, self.metrics);
         }
         return root;
     }
@@ -2437,10 +2467,10 @@ pub const Editor = struct {
 
     fn dupe_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
-        const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.plane.metrics());
+        const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
         cursel.selection = null;
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const text = copy_selection(root, sel, sfa.get(), self.plane) catch return error.Stop;
+        const text = copy_selection(root, sel, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(text);
         cursel.cursor = sel.begin;
         root = self.insert(root, cursel, text, allocator) catch return error.Stop;
@@ -2459,10 +2489,10 @@ pub const Editor = struct {
 
     fn dupe_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
-        const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.plane.metrics());
+        const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
         cursel.selection = null;
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const text = copy_selection(root, sel, sfa.get(), self.plane) catch return error.Stop;
+        const text = copy_selection(root, sel, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(text);
         cursel.cursor = sel.end;
         root = self.insert(root, cursel, text, allocator) catch return error.Stop;
@@ -2481,10 +2511,10 @@ pub const Editor = struct {
     fn toggle_cursel_prefix(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
-        const sel = cursel.expand_selection_to_line(root, self.plane);
+        const sel = cursel.expand_selection_to_line(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const alloc = sfa.get();
-        const text = copy_selection(root, sel.*, alloc, self.plane) catch return error.Stop;
+        const text = copy_selection(root, sel.*, alloc, self.metrics) catch return error.Stop;
         defer allocator.free(text);
         root = try self.delete_selection(root, cursel, allocator);
         const new_text = text_manip.toggle_prefix_in_text(self.prefix, text, alloc) catch return error.Stop;
@@ -2515,8 +2545,8 @@ pub const Editor = struct {
         const space = "    ";
         var cursel: CurSel = .{};
         cursel.cursor = cursor;
-        const cols = 4 - find_first_non_ws(root, cursel.cursor.row, self.plane) % 4;
-        try smart_move_cursor_begin(root, &cursel.cursor, self.plane);
+        const cols = self.indent_size - find_first_non_ws(root, cursel.cursor.row, self.metrics) % self.indent_size;
+        try smart_move_cursor_begin(root, &cursel.cursor, self.metrics);
         return self.insert(root, &cursel, space[0..cols], allocator) catch return error.Stop;
     }
 
@@ -2545,18 +2575,18 @@ pub const Editor = struct {
         var newroot = root;
         defer {
             cursel.* = saved;
-            cursel.cursor.clamp_to_buffer(newroot, self.plane.metrics());
+            cursel.cursor.clamp_to_buffer(newroot, self.metrics);
         }
         cursel.selection = null;
         cursel.cursor = cursor;
-        const first = find_first_non_ws(root, cursel.cursor.row, self.plane);
+        const first = find_first_non_ws(root, cursel.cursor.row, self.metrics);
         if (first == 0) return error.Stop;
-        const off = first % 4;
-        const cols = if (off == 0) 4 else off;
+        const off = first % self.indent_size;
+        const cols = if (off == 0) self.indent_size else off;
         const sel = cursel.enable_selection();
         sel.begin.move_begin();
-        try sel.end.move_to(root, sel.end.row, cols, self.plane.metrics());
-        if (cursel.cursor.col < cols) try cursel.cursor.move_to(root, cursel.cursor.row, cols, self.plane.metrics());
+        try sel.end.move_to(root, sel.end.row, cols, self.metrics);
+        if (cursel.cursor.col < cols) try cursel.cursor.move_to(root, cursel.cursor.row, cols, self.metrics);
         newroot = try self.delete_selection(root, cursel, allocator);
         return newroot;
     }
@@ -2682,7 +2712,7 @@ pub const Editor = struct {
         try self.send_editor_jump_source();
         self.cancel_all_selections();
         const root = self.buf_root() catch return;
-        self.get_primary().cursor.move_buffer_end(root, self.plane.metrics());
+        self.get_primary().cursor.move_buffer_end(root, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
@@ -2843,7 +2873,7 @@ pub const Editor = struct {
         const primary = self.get_primary();
         const sel = primary.enable_selection();
         const root = try self.buf_root();
-        try expand_selection_to_all(root, sel, self.plane);
+        try expand_selection_to_all(root, sel, self.metrics);
         primary.cursor = sel.end;
         self.clamp();
         try self.send_editor_jump_destination();
@@ -2855,8 +2885,8 @@ pub const Editor = struct {
         const sel = cursel.enable_selection();
         defer cursel.check_selection();
         sel.normalize();
-        try move_cursor_word_begin(root, &sel.begin, self.plane);
-        try move_cursor_word_end(root, &sel.end, self.plane);
+        try move_cursor_word_begin(root, &sel.begin, self.metrics);
+        try move_cursor_word_end(root, &sel.end, self.metrics);
         cursel.cursor = sel.end;
         return sel;
     }
@@ -2865,8 +2895,8 @@ pub const Editor = struct {
         const root = try self.buf_root();
         const sel = cursel.enable_selection();
         sel.normalize();
-        try move_cursor_begin(root, &sel.begin, self.plane);
-        try move_cursor_end(root, &sel.end, self.plane);
+        try move_cursor_begin(root, &sel.begin, self.metrics);
+        try move_cursor_end(root, &sel.end, self.metrics);
         cursel.cursor = sel.end;
     }
 
@@ -2913,7 +2943,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.plane), cursel.cursor.col);
+            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
             var sfa = std.heap.stackFallback(512, self.allocator);
             const allocator = sfa.get();
             var stream = std.ArrayList(u8).init(allocator);
@@ -2933,9 +2963,9 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            try move_cursor_begin(root, &cursel.cursor, self.plane);
+            try move_cursor_begin(root, &cursel.cursor, self.metrics);
             root = try self.insert(root, cursel, "\n", b.allocator);
-            try move_cursor_left(root, &cursel.cursor, self.plane);
+            try move_cursor_left(root, &cursel.cursor, self.metrics);
         };
         try self.update_buf(root);
         self.clamp();
@@ -2946,10 +2976,10 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.plane), cursel.cursor.col);
-            try move_cursor_begin(root, &cursel.cursor, self.plane);
+            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+            try move_cursor_begin(root, &cursel.cursor, self.metrics);
             root = try self.insert(root, cursel, "\n", b.allocator);
-            try move_cursor_left(root, &cursel.cursor, self.plane);
+            try move_cursor_left(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
             const allocator = sfa.get();
             var stream = std.ArrayList(u8).init(allocator);
@@ -2969,7 +2999,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            try move_cursor_end(root, &cursel.cursor, self.plane);
+            try move_cursor_end(root, &cursel.cursor, self.metrics);
             root = try self.insert(root, cursel, "\n", b.allocator);
         };
         try self.update_buf(root);
@@ -2981,8 +3011,8 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.plane), cursel.cursor.col);
-            try move_cursor_end(root, &cursel.cursor, self.plane);
+            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+            try move_cursor_end(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
             const allocator = sfa.get();
             var stream = std.ArrayList(u8).init(allocator);
@@ -3039,7 +3069,7 @@ pub const Editor = struct {
                 try syn.refresh_full(content.items);
                 self.syntax_refresh_full = false;
             } else {
-                try syn.refresh_from_buffer(root, self.plane.metrics());
+                try syn.refresh_from_buffer(root, self.metrics);
             }
             self.syntax_token = token;
         } else {
@@ -3065,7 +3095,7 @@ pub const Editor = struct {
         const primary = self.get_primary();
         var tree = std.ArrayList(u8).init(self.allocator);
         defer tree.deinit();
-        root.debug_render_chunks(primary.cursor.row, &tree, self.plane.metrics()) catch |e|
+        root.debug_render_chunks(primary.cursor.row, &tree, self.metrics) catch |e|
             return self.logger.print("line {d}: {any}", .{ primary.cursor.row, e });
         self.logger.print("line {d}:{s}", .{ primary.cursor.row, std.fmt.fmtSliceEscapeLower(tree.items) });
     }
@@ -3340,8 +3370,8 @@ pub const Editor = struct {
         const root = self.buf_root() catch return;
         const begin_line = begin_line_ - 1;
         const end_line = end_line_ - 1;
-        const begin_pos = root.pos_to_width(begin_line, begin_pos_, self.plane.metrics()) catch return;
-        const end_pos = root.pos_to_width(end_line, end_pos_, self.plane.metrics()) catch return;
+        const begin_pos = root.pos_to_width(begin_line, begin_pos_, self.metrics) catch return;
+        const end_pos = root.pos_to_width(end_line, end_pos_, self.metrics) catch return;
         var match: Match = .{ .begin = .{ .row = begin_line, .col = begin_pos }, .end = .{ .row = end_line, .col = end_pos } };
         if (match.end.eql(self.get_primary().cursor))
             match.has_selection = true;
@@ -3397,7 +3427,7 @@ pub const Editor = struct {
         if (self.scan_prev_match(cursor)) |match| return match;
         const root = self.buf_root() catch return null;
         var cursor_ = cursor;
-        cursor_.move_buffer_end(root, self.plane.metrics());
+        cursor_.move_buffer_end(root, self.metrics);
         return self.scan_prev_match(cursor_);
     }
 
@@ -3409,7 +3439,7 @@ pub const Editor = struct {
                 match_.has_selection = false;
             };
             primary.selection = match.to_selection();
-            primary.cursor.move_to(root, match.end.row, match.end.col, self.plane.metrics()) catch return;
+            primary.cursor.move_to(root, match.end.row, match.end.col, self.metrics) catch return;
             self.clamp();
         }
     }
@@ -3438,7 +3468,7 @@ pub const Editor = struct {
             };
             primary.selection = match.to_selection();
             primary.selection.?.reverse();
-            primary.cursor.move_to(root, match.begin.row, match.begin.col, self.plane.metrics()) catch return;
+            primary.cursor.move_to(root, match.begin.row, match.begin.col, self.metrics) catch return;
             self.clamp();
         }
     }
@@ -3497,7 +3527,7 @@ pub const Editor = struct {
         const primary = self.get_primary();
         try self.send_editor_jump_source();
         self.cancel_all_selections();
-        try primary.cursor.move_to(root, diag.sel.begin.row, diag.sel.begin.col, self.plane.metrics());
+        try primary.cursor.move_to(root, diag.sel.begin.row, diag.sel.begin.col, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
@@ -3522,7 +3552,7 @@ pub const Editor = struct {
         const root = self.buf_root() catch return;
         self.cancel_all_selections();
         const primary = self.get_primary();
-        try primary.cursor.move_to(root, @intCast(if (line < 1) 0 else line - 1), primary.cursor.col, self.plane.metrics());
+        try primary.cursor.move_to(root, @intCast(if (line < 1) 0 else line - 1), primary.cursor.col, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
@@ -3534,7 +3564,7 @@ pub const Editor = struct {
             return error.InvalidArgument;
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        try primary.cursor.move_to(root, primary.cursor.row, @intCast(if (column < 1) 0 else column - 1), self.plane.metrics());
+        try primary.cursor.move_to(root, primary.cursor.row, @intCast(if (column < 1) 0 else column - 1), self.metrics);
         self.clamp();
     }
     pub const goto_column_meta = .{ .interactive = false };
@@ -3568,7 +3598,7 @@ pub const Editor = struct {
             root,
             @intCast(if (line < 1) 0 else line - 1),
             @intCast(if (column < 1) 0 else column - 1),
-            self.plane.metrics(),
+            self.metrics,
         );
         if (have_sel) primary.selection = sel;
         if (self.view.is_visible(&primary.cursor))
@@ -3722,7 +3752,7 @@ pub const Editor = struct {
         const primary = self.get_primary();
         var sel: Selection = if (primary.selection) |sel_| sel_ else val: {
             var sel_: Selection = .{};
-            try expand_selection_to_all(root, &sel_, self.plane);
+            try expand_selection_to_all(root, &sel_, self.metrics);
             break :val sel_;
         };
         const reversed = sel.begin.right_of(sel.end);
@@ -3747,10 +3777,10 @@ pub const Editor = struct {
             sp.deinit();
         }
         var buffer = sp.bufferedWriter();
-        try self.write_range(state.before_root, sel, buffer.writer(), tp.exit_error, null, self.plane);
+        try self.write_range(state.before_root, sel, buffer.writer(), tp.exit_error, null);
         try buffer.flush();
         self.logger.print("filter: sent", .{});
-        state.work_root = try state.work_root.delete_range(sel, buf_a_, null, self.plane.metrics());
+        state.work_root = try state.work_root.delete_range(sel, buf_a_, null, self.metrics);
     }
 
     fn filter_stdout(self: *Self, bytes: []const u8) !void {
@@ -3761,7 +3791,7 @@ pub const Editor = struct {
             try buf.appendSlice(bytes);
         } else {
             const cursor = &state.pos.cursor;
-            cursor.row, cursor.col, state.work_root = try state.work_root.insert_chars(cursor.row, cursor.col, bytes, buf_a_, self.plane.metrics());
+            cursor.row, cursor.col, state.work_root = try state.work_root.insert_chars(cursor.row, cursor.col, bytes, buf_a_, self.metrics);
             state.bytes += bytes.len;
             state.chunks += 1;
         }
@@ -3795,7 +3825,7 @@ pub const Editor = struct {
             primary.cursor = sel.end;
         }
         try self.update_buf_and_eol_mode(state.work_root, state.eol_mode);
-        primary.cursor.clamp_to_buffer(state.work_root, self.plane.metrics());
+        primary.cursor.clamp_to_buffer(state.work_root, self.metrics);
         self.logger.print("filter: done (bytes:{d} chunks:{d})", .{ state.bytes, state.chunks });
         self.reset_syntax();
         self.clamp();
@@ -3814,12 +3844,12 @@ pub const Editor = struct {
         const saved = cursel.*;
         const sel = if (cursel.selection) |*sel| sel else ret: {
             var sel = cursel.enable_selection();
-            move_cursor_word_begin(root, &sel.begin, self.plane) catch return error.Stop;
-            move_cursor_word_end(root, &sel.end, self.plane) catch return error.Stop;
+            move_cursor_word_begin(root, &sel.begin, self.metrics) catch return error.Stop;
+            move_cursor_word_end(root, &sel.end, self.metrics) catch return error.Stop;
             break :ret sel;
         };
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
+        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
         const cd = CaseData.init(allocator) catch return error.Stop;
         defer cd.deinit();
@@ -3844,12 +3874,12 @@ pub const Editor = struct {
         const saved = cursel.*;
         const sel = if (cursel.selection) |*sel| sel else ret: {
             var sel = cursel.enable_selection();
-            move_cursor_word_begin(root, &sel.begin, self.plane) catch return error.Stop;
-            move_cursor_word_end(root, &sel.end, self.plane) catch return error.Stop;
+            move_cursor_word_begin(root, &sel.begin, self.metrics) catch return error.Stop;
+            move_cursor_word_end(root, &sel.end, self.metrics) catch return error.Stop;
             break :ret sel;
         };
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const cut_text = copy_selection(root, sel.*, sfa.get(), self.plane) catch return error.Stop;
+        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
         const cd = CaseData.init(allocator) catch return error.Stop;
         defer cd.deinit();
@@ -3990,8 +4020,8 @@ pub const EditorWidget = struct {
             self.update_hover_timer(.fired);
             if (self.hover_y >= 0 and self.hover_x >= 0)
                 try self.editor.hover_at_abs(@intCast(self.hover_y), @intCast(self.hover_x));
-        } else if (try m.match(.{ "show_whitespace", tp.extract(&self.editor.show_whitespace) })) {
-            _ = "";
+        } else if (try m.match(.{ "whitespace_mode", tp.extract(&bytes) })) {
+            self.editor.render_whitespace = Editor.from_whitespace_mode(bytes);
         } else {
             return false;
         }
@@ -4126,17 +4156,17 @@ pub const PosToWidthCache = struct {
         self.cache.deinit();
     }
 
-    pub fn range_to_selection(self: *Self, range: syntax.Range, root: Buffer.Root, plane: Plane) ?Selection {
+    pub fn range_to_selection(self: *Self, range: syntax.Range, root: Buffer.Root, metrics: Buffer.Metrics) ?Selection {
         const start = range.start_point;
         const end = range.end_point;
         if (root != self.cached_root or self.cached_line != start.row) {
             self.cache.clearRetainingCapacity();
             self.cached_line = start.row;
             self.cached_root = root;
-            root.get_line_width_map(self.cached_line, &self.cache, plane.metrics()) catch return null;
+            root.get_line_width_map(self.cached_line, &self.cache, metrics) catch return null;
         }
         const start_col = if (start.column < self.cache.items.len) self.cache.items[start.column] else start.column;
-        const end_col = if (end.row == start.row and end.column < self.cache.items.len) self.cache.items[end.column] else root.pos_to_width(end.row, end.column, plane.metrics()) catch end.column;
+        const end_col = if (end.row == start.row and end.column < self.cache.items.len) self.cache.items[end.column] else root.pos_to_width(end.row, end.column, metrics) catch end.column;
         return .{ .begin = .{ .row = start.row, .col = start_col }, .end = .{ .row = end.row, .col = end_col } };
     }
 };

@@ -35,7 +35,7 @@ fn on_click(_: *Self, _: *Button.State(Self)) void {
 }
 
 pub fn layout(self: *Self, btn: *Button.State(Self)) Widget.Layout {
-    const len = btn.plane.egc_chunk_width(self.rendered, 0);
+    const len = btn.plane.egc_chunk_width(self.rendered, 0, 1);
     return .{ .static = len };
 }
 

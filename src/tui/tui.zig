@@ -601,15 +601,20 @@ const cmds = struct {
     }
     pub const theme_prev_meta = .{ .description = "Switch to previous color theme" };
 
-    pub fn toggle_whitespace(self: *Self, _: Ctx) Result {
-        self.config.show_whitespace = !self.config.show_whitespace;
-        self.logger.print("show_whitspace {s}", .{if (self.config.show_whitespace) "enabled" else "disabled"});
+    pub fn toggle_whitespace_mode(self: *Self, _: Ctx) Result {
+        self.config.whitespace_mode = if (std.mem.eql(u8, self.config.whitespace_mode, "none"))
+            "indent"
+        else if (std.mem.eql(u8, self.config.whitespace_mode, "indent"))
+            "visible"
+        else
+            "none";
         try self.save_config();
         var buf: [32]u8 = undefined;
-        const m = try tp.message.fmtbuf(&buf, .{ "show_whitespace", self.config.show_whitespace });
+        const m = try tp.message.fmtbuf(&buf, .{ "whitespace_mode", self.config.whitespace_mode });
         _ = try self.send_widgets(tp.self_pid(), m);
+        self.logger.print("whitespace rendering {s}", .{self.config.whitespace_mode});
     }
-    pub const toggle_whitespace_meta = .{ .description = "Toggle visible whitespace" };
+    pub const toggle_whitespace_mode_meta = .{ .description = "Switch to next whitespace rendering mode" };
 
     pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
         self.config.input_mode = if (std.mem.eql(u8, self.config.input_mode, "flow"))
