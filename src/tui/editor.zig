@@ -2542,7 +2542,7 @@ pub const Editor = struct {
     pub const toggle_comment_meta = .{ .description = "Toggle comment" };
 
     fn indent_cursor(self: *Self, root: Buffer.Root, cursor: Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
-        const space = "    ";
+        const space = "                                ";
         var cursel: CurSel = .{};
         cursel.cursor = cursor;
         const cols = self.indent_size - find_first_non_ws(root, cursel.cursor.row, self.metrics) % self.indent_size;
