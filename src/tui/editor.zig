@@ -579,7 +579,6 @@ pub const Editor = struct {
             };
             try self.restore_undo_redo_meta(meta);
             try self.send_editor_jump_destination();
-            self.reset_syntax();
         }
     }
 
@@ -596,7 +595,6 @@ pub const Editor = struct {
             };
             try self.restore_undo_redo_meta(meta);
             try self.send_editor_jump_destination();
-            self.reset_syntax();
         }
     }
 
