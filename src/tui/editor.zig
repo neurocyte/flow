@@ -3676,9 +3676,21 @@ pub const Editor = struct {
         code: []const u8,
         message: []const u8,
         severity: i32,
-        sel: Selection,
+        sel_: Selection,
     ) Result {
         if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
+
+        const root = self.buf_root() catch return;
+        const sel: Selection = .{
+            .begin = .{
+                .row = sel_.begin.row,
+                .col = root.pos_to_width(sel_.begin.row, sel_.begin.col, self.metrics) catch return,
+            },
+            .end = .{
+                .row = sel_.end.row,
+                .col = root.pos_to_width(sel_.end.row, sel_.end.col, self.metrics) catch return,
+            },
+        };
 
         (try self.diagnostics.addOne()).* = .{
             .source = try self.diagnostics.allocator.dupe(u8, source),
