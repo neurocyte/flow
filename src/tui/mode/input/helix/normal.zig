@@ -667,7 +667,7 @@ const cmds_ = struct {
     pub fn q(self: *Self, _: Ctx) Result {
         try self.cmd("quit", .{});
     }
-    pub const q_meta = .{ .description = "w (quit)" };
+    pub const q_meta = .{ .description = "q (quit)" };
 
     pub fn @"q!"(self: *Self, _: Ctx) Result {
         try self.cmd("quit_without_saving", .{});
