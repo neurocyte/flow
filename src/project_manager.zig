@@ -789,8 +789,9 @@ fn is_filtered_dir(dirname: []const u8) bool {
 }
 
 const FilteredWalker = struct {
-    stack: std.ArrayList(StackItem),
-    name_buffer: std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    stack: std.ArrayListUnmanaged(StackItem),
+    name_buffer: std.ArrayListUnmanaged(u8),
 
     const Path = []const u8;
 
@@ -813,10 +814,10 @@ const FilteredWalker = struct {
             }) |base| {
                 self.name_buffer.shrinkRetainingCapacity(dirname_len);
                 if (self.name_buffer.items.len != 0) {
-                    try self.name_buffer.append(std.fs.path.sep);
+                    try self.name_buffer.append(self.allocator, std.fs.path.sep);
                     dirname_len += 1;
                 }
-                try self.name_buffer.appendSlice(base.name);
+                try self.name_buffer.appendSlice(self.allocator, base.name);
                 switch (base.kind) {
                     .directory => {
                         if (is_filtered_dir(base.name))
@@ -827,7 +828,7 @@ const FilteredWalker = struct {
                         };
                         {
                             errdefer new_dir.close();
-                            try self.stack.append(StackItem{
+                            try self.stack.append(self.allocator, .{
                                 .iter = new_dir.iterateAssumeFirstIteration(),
                                 .dirname_len = self.name_buffer.items.len,
                             });
@@ -855,26 +856,24 @@ const FilteredWalker = struct {
                 item.iter.dir.close();
             }
         }
-        self.stack.deinit();
-        self.name_buffer.deinit();
+        self.stack.deinit(self.allocator);
+        self.name_buffer.deinit(self.allocator);
     }
 };
 
 fn walk_filtered(dir: std.fs.Dir, allocator: std.mem.Allocator) !FilteredWalker {
-    var name_buffer = std.ArrayList(u8).init(allocator);
-    errdefer name_buffer.deinit();
+    var stack: std.ArrayListUnmanaged(FilteredWalker.StackItem) = .{};
+    errdefer stack.deinit(allocator);
 
-    var stack = std.ArrayList(FilteredWalker.StackItem).init(allocator);
-    errdefer stack.deinit();
-
-    try stack.append(FilteredWalker.StackItem{
+    try stack.append(allocator, .{
         .iter = dir.iterate(),
         .dirname_len = 0,
     });
 
-    return FilteredWalker{
+    return .{
+        .allocator = allocator,
         .stack = stack,
-        .name_buffer = name_buffer,
+        .name_buffer = .{},
     };
 }
 
