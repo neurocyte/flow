@@ -252,7 +252,7 @@ pub const nu = .{
     .icon = ">",
     .extensions = .{ "nu", "nushell" },
     .comment = "#",
-    .language_server = .{"nu", "--lsp"},
+    .language_server = .{ "nu", "--lsp" },
     .highlights = "tree-sitter-nu/queries/nu/highlights.scm",
     .injections = "tree-sitter-nu/queries/nu/injections.scm",
 };

@@ -2,7 +2,6 @@ const std = @import("std");
 const tp = @import("thespian");
 const root = @import("root");
 
-
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
 const command = @import("../../command.zig");
