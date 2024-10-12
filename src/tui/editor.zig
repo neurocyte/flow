@@ -248,6 +248,7 @@ pub const Editor = struct {
     } = .{},
 
     syntax: ?*syntax = null,
+    syntax_no_render: bool = false,
     syntax_refresh_full: bool = false,
     syntax_token: usize = 0,
     syntax_refresh_update: bool = false,
@@ -427,7 +428,7 @@ pub const Editor = struct {
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
 
-        self.syntax = if (tp.env.get().is("no-syntax")) null else syntax: {
+        self.syntax = syntax: {
             if (new_buf.root.lines() > root_mod.max_syntax_lines)
                 break :syntax null;
             const lang_override = tp.env.get().str("language");
@@ -435,13 +436,14 @@ pub const Editor = struct {
             defer content.deinit();
             try new_buf.root.store(content.writer(), new_buf.file_eol_mode);
             const syn = if (lang_override.len > 0)
-                syntax.create_file_type(self.allocator, content.items, lang_override) catch null
+                syntax.create_file_type(self.allocator, lang_override) catch null
             else
                 syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch null;
             if (syn) |syn_|
                 project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch {};
             break :syntax syn;
         };
+        self.syntax_no_render = tp.env.get().is("no-syntax");
 
         const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
         const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";
@@ -3063,6 +3065,7 @@ pub const Editor = struct {
         if (self.syntax_token == token)
             return;
         if (self.syntax) |syn| {
+            if (self.syntax_no_render) return;
             if (!self.syntax_refresh_update)
                 self.syntax_refresh_full = true;
             if (self.syntax_refresh_full) {
@@ -3083,13 +3086,12 @@ pub const Editor = struct {
             var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
             try root.store(content.writer(), eol_mode);
-            self.syntax = if (tp.env.get().is("no-syntax"))
-                null
-            else
-                syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch |e| switch (e) {
-                    error.NotFound => null,
-                    else => return e,
-                };
+            self.syntax = syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch |e| switch (e) {
+                error.NotFound => null,
+                else => return e,
+            };
+            if (self.syntax_no_render) return;
+            if (self.syntax) |syn| try syn.refresh_full(content.items);
         }
     }
 
