@@ -181,6 +181,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         },
         mod.SHIFT => switch (keypress) {
             key.F03 => self.cmd("goto_prev_match", .{}),
+            key.F10 => self.cmd("toggle_syntax_highlighting", .{}),
             key.LEFT => self.cmd("select_left", .{}),
             key.RIGHT => self.cmd("select_right", .{}),
             key.UP => self.cmd("select_up", .{}),
@@ -611,6 +612,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "toggle_inspector_view", "F5, C-F5, C-S-i" },
     .{ "toggle_panel", "C-j, F11" },
     .{ "toggle_whitespace_mode", "C-F10" },
+    .{ "toggle_syntax_highlighting", "S-F10" },
     .{ "to_lower", "A-l" },
     .{ "to_upper", "A-u" },
     .{ "undo", "C-z" },

@@ -58,8 +58,15 @@ pub fn destroy(self: *Self) void {
     self.allocator.destroy(self);
 }
 
+pub fn reset(self: *Self) void {
+    if (self.tree) |tree| {
+        tree.destroy();
+        self.tree = null;
+    }
+}
+
 pub fn refresh_full(self: *Self, content: []const u8) !void {
-    if (self.tree) |tree| tree.destroy();
+    self.reset();
     self.tree = try self.parser.parseString(null, content);
 }
 

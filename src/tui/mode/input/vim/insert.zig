@@ -176,6 +176,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         },
         mod.SHIFT => switch (keypress) {
             key.F03 => self.cmd("goto_prev_match", .{}),
+            key.F10 => self.cmd("toggle_syntax_highlighting", .{}),
             key.LEFT => self.cmd("select_left", .{}),
             key.RIGHT => self.cmd("select_right", .{}),
             key.UP => self.cmd("select_up", .{}),

@@ -3065,7 +3065,11 @@ pub const Editor = struct {
         if (self.syntax_token == token)
             return;
         if (self.syntax) |syn| {
-            if (self.syntax_no_render) return;
+            if (self.syntax_no_render) {
+                syn.reset();
+                self.syntax_token = 0;
+                return;
+            }
             if (!self.syntax_refresh_update)
                 self.syntax_refresh_full = true;
             if (self.syntax_refresh_full) {
@@ -3081,7 +3085,6 @@ pub const Editor = struct {
             } else {
                 try syn.refresh_from_buffer(root, self.metrics);
             }
-            self.syntax_token = token;
         } else {
             var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
@@ -3093,6 +3096,7 @@ pub const Editor = struct {
             if (self.syntax_no_render) return;
             if (self.syntax) |syn| try syn.refresh_full(content.items);
         }
+        self.syntax_token = token;
     }
 
     fn reset_syntax(self: *Self) void {
@@ -3930,6 +3934,15 @@ pub const Editor = struct {
         }
     }
     pub const toggle_eol_mode_meta = .{ .description = "Toggle end of line sequence" };
+
+    pub fn toggle_syntax_highlighting(self: *Self, _: Context) Result {
+        self.syntax_no_render = !self.syntax_no_render;
+        if (self.syntax_no_render) {
+            if (self.syntax) |syn| syn.reset();
+            self.syntax_token = 0;
+        }
+    }
+    pub const toggle_syntax_highlighting_meta = .{ .description = "Toggle syntax highlighting" };
 };
 
 pub fn create(allocator: Allocator, parent: Widget) !Widget {
