@@ -10,6 +10,7 @@ const text_manip = @import("text_manip");
 const syntax = @import("syntax");
 const project_manager = @import("project_manager");
 const CaseData = @import("CaseData");
+const code_point = @import("code_point");
 const root_mod = @import("root");
 
 const Plane = @import("renderer").Plane;
@@ -3923,6 +3924,49 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const to_lower_meta = .{ .description = "Convert selection or word to lower case" };
+
+    fn switch_case_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        var root = root_;
+        const saved = cursel.*;
+        const sel = if (cursel.selection) |*sel| sel else ret: {
+            var sel = cursel.enable_selection();
+            move_cursor_right(root, &sel.begin, self.metrics) catch return error.Stop;
+            break :ret sel;
+        };
+        var sfa = std.heap.stackFallback(4096, self.allocator);
+        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
+        defer allocator.free(cut_text);
+        const cd = CaseData.init(allocator) catch return error.Stop;
+        defer cd.deinit();
+        const flipped = blk: {
+            var bytes = std.ArrayList(u8).initCapacity(allocator, cut_text.len) catch return error.Stop;
+            defer bytes.deinit();
+
+            var iter = code_point.Iterator{ .bytes = cut_text };
+            var buf: [4]u8 = undefined;
+
+            while (iter.next()) |cp| {
+                const code = if (cd.isLower(cp.code)) cd.toUpper(cp.code) else cd.toLower(cp.code);
+                const len = std.unicode.utf8Encode(code, &buf) catch return error.Stop;
+                bytes.appendSliceAssumeCapacity(buf[0..len]);
+            }
+
+            break :blk bytes.toOwnedSlice() catch return error.Stop;
+        };
+        defer allocator.free(flipped);
+        root = try self.delete_selection(root, cursel, allocator);
+        root = self.insert(root, cursel, flipped, allocator) catch return error.Stop;
+        cursel.* = saved;
+        return root;
+    }
+
+    pub fn switch_case(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut(b.root, switch_case_cursel, b.allocator);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const switch_case_meta = .{ .description = "Switch the casing of selection or cell" };
 
     pub fn toggle_eol_mode(self: *Self, _: Context) Result {
         if (self.buffer) |b| {

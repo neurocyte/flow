@@ -212,6 +212,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'o' => self.seq(.{ "smart_insert_line_before", "enter_mode" }, command.fmt(.{"vim/insert"})),
             'k' => self.cmd("hover", .{}),
 
+            '`' => self.seq(.{ "switch_case", "move_right_vim" }, .{}),
             else => {},
         },
         0 => switch (keypress) {
