@@ -307,14 +307,14 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try self.send_widgets(from, m))
         return;
 
-    if (try m.match(.{ "exit", "normal" }))
-        return;
-
-    if (try m.match(.{ "exit", "timeout_error", 125, "Operation aborted." }))
-        return;
-
-    if (try m.match(.{ "exit", "DEADSEND", tp.more }))
-        return;
+    if (try m.match(.{ "exit", tp.more })) {
+        if (try m.match(.{ tp.string, "normal" }) or
+            try m.match(.{ tp.string, "timeout_error", 125, "Operation aborted." }) or
+            try m.match(.{ tp.string, "DEADSEND", tp.more }) or
+            try m.match(.{ tp.string, "error.LspFailed", tp.more }) or
+            try m.match(.{ tp.string, "error.NoLsp", tp.more }))
+            return;
+    }
 
     var msg: []const u8 = undefined;
     if (try m.match(.{ "exit", tp.extract(&msg) }) or try m.match(.{ "exit", tp.extract(&msg), tp.more })) {

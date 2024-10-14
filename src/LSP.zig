@@ -22,12 +22,12 @@ pub fn open(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) 
     return .{ .allocator = allocator, .pid = try Process.create(allocator, project, cmd) };
 }
 
-pub fn deinit(self: *Self) void {
+pub fn deinit(self: Self) void {
     self.pid.send(.{"close"}) catch {};
     self.pid.deinit();
 }
 
-pub fn term(self: *Self) void {
+pub fn term(self: Self) void {
     self.pid.send(.{"term"}) catch {};
     self.pid.deinit();
 }
@@ -155,6 +155,7 @@ const Process = struct {
     }
 
     const Error = (cbor.Error || cbor.JsonDecodeError || OutOfMemoryError || SendError || error{
+        FileNotFound,
         InvalidSyntax,
         InvalidMessageField,
         InvalidMessage,
@@ -197,6 +198,12 @@ const Process = struct {
             self.write_log("{s}\n", .{bytes});
         } else if (try cbor.match(m.buf, .{ "exit", "normal" })) {
             // self.write_log("### exit normal ###\n", .{});
+        } else if (try cbor.match(m.buf, .{ "exit", "error.FileNotFound" })) {
+            self.write_log("### LSP not found ###\n", .{});
+            const logger = log.logger("LSP");
+            var buf: [1024]u8 = undefined;
+            logger.print_err("init", "executable not found: {s}", .{self.cmd.to_json(&buf) catch "{command too large}"});
+            return error.FileNotFound;
         } else {
             tp.unexpected(m) catch {};
             self.write_log("{s}\n", .{tp.error_text()});
