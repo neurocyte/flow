@@ -1,7 +1,7 @@
 const std = @import("std");
 const tui = @import("tui");
 const thespian = @import("thespian");
-const clap = @import("clap");
+const flags = @import("flags");
 const builtin = @import("builtin");
 
 const list_languages = @import("list_languages.zig");
@@ -32,30 +32,6 @@ const renderer = @import("renderer");
 pub const panic = if (@hasDecl(renderer, "panic")) renderer.panic else std.builtin.default_panic;
 
 pub fn main() anyerror!void {
-    const params = comptime clap.parseParamsComptime(
-        \\-h, --help               Display this help and exit.
-        \\-f, --frame-rate <num>   Set target frame rate. (default: 60)
-        \\--debug-wait             Wait for key press before starting UI.
-        \\--debug-dump-on-error    Dump stack traces on errors.
-        \\--no-sleep               Do not sleep the main loop when idle.
-        \\--no-alternate           Do not use the alternate terminal screen.
-        \\-t, --trace              Enable internal tracing. (repeat to increase detail)
-        \\--no-trace               Do not enable internal tracing.
-        \\--restore-session        Restore restart session.
-        \\--show-input             Open the input view on start.
-        \\--show-log               Open the log view on start.
-        \\-l, --language <lang>    Force the language of the file to be opened.
-        \\--list-languages         Show available languages.
-        \\--no-syntax              Disable syntax highlighting.
-        \\-e, --exec <command>...  Execute a command on startup.
-        \\-v, --version            Show build version and exit.
-        \\<file>...                File or directory to open.
-        \\                         Add +<LINE> to the command line or append
-        \\                         :LINE or :LINE:COL to the file name to jump
-        \\                         to a location in the file.
-        \\
-    );
-
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't pickup junk from previous application/shell
         _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
@@ -63,32 +39,79 @@ pub fn main() anyerror!void {
 
     const a = std.heap.c_allocator;
 
-    const parsers = comptime .{
-        .num = clap.parsers.int(usize, 10),
-        .lang = clap.parsers.string,
-        .file = clap.parsers.string,
-        .command = clap.parsers.string,
+
+    const Flags = struct {
+        pub const description =
+            \\A programmer's text editor.
+            \\
+            \\Pass in file names to be opened with an optional :LINE or :LINE:COL appended to the
+            \\file name to specify a specific location, or pass +<LINE> separately to set the line.
+        ;
+
+        pub const descriptions = .{
+            .frame_rate = "Set target frame rate. (default: 60)",
+            .debug_wait = "Wait for key press before starting UI.",
+            .debug_dump_on_error = "Dump stack traces on errors.",
+            .no_sleep = "Do not sleep the main loop when idle.",
+            .no_alternate = "Do not use the alternate terminal screen.",
+            .trace_level = "Enable internal tracing. (level of detail from 1-5)",
+            .no_trace = "Do not enable internal tracing.",
+            .restore_session = "Restore restart session.",
+            .show_input = "Open the input view on start.",
+            .show_log = "Open the log view on start.",
+            .language = "Force the language of the file to be opened.",
+            .list_languages = "Show available languages.",
+            .no_syntax = "Disable syntax highlighting.",
+            .exec = "Execute a command on startup.",
+            .version = "Show build version and exit.",
+        };
+
+        pub const switches  = .{
+            .frame_rate = 'f',
+            .trace_level = 't',
+            .language = 'l',
+            .exec = 'e',
+            .version = 'v',
+        };
+
+        frame_rate: ?usize,
+        debug_wait: bool,
+        debug_dump_on_error: bool,
+        no_sleep: bool,
+        no_alternate: bool,
+        trace_level: u8 = 0,
+        no_trace: bool,
+        restore_session: bool,
+        show_input: bool,
+        show_log: bool,
+        language: ?[]const u8,
+        list_languages: bool,
+        no_syntax: bool,
+        exec: ?[]const u8,
+        version: bool,
     };
 
-    var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &params, parsers, .{
-        .diagnostic = &diag,
-        .allocator = a,
+    var arg_iter = try std.process.argsWithAllocator(a);
+    defer arg_iter.deinit();
+
+    var diag: flags.Diagnostics = undefined;
+    var positional_args = std.ArrayList([]const u8).init(a);
+    defer positional_args.deinit();
+
+    const args = flags.parse(&arg_iter, "flow", Flags, .{
+        .diagnostics = &diag,
+        .trailing_list = &positional_args,
     }) catch |err| {
-        diag.report(std.io.getStdErr().writer(), err) catch {};
-        clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{}) catch {};
+        if (err == error.PrintedHelp) exit(0);
+        diag.help.generated.render(std.io.getStdOut(), flags.ColorScheme.default) catch {};
         exit(1);
         return err;
     };
-    defer res.deinit();
 
-    if (res.args.help != 0)
-        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
-
-    if (res.args.version != 0)
+    if (args.version)
         return std.io.getStdOut().writeAll(@embedFile("version_info"));
 
-    if (res.args.@"list-languages" != 0) {
+    if (args.list_languages) {
         const stdout = std.io.getStdOut();
         const tty_config = std.io.tty.detectConfig(stdout);
         return list_languages.list(a, stdout.writer(), tty_config);
@@ -97,7 +120,7 @@ pub fn main() anyerror!void {
     if (builtin.os.tag != .windows)
         if (std.posix.getenv("JITDEBUG")) |_| thespian.install_debugger();
 
-    if (res.args.@"debug-wait" != 0) {
+    if (args.debug_wait) {
         std.debug.print("press return to start", .{});
         var buf: [1]u8 = undefined;
         _ = try std.io.getStdIn().read(&buf);
@@ -108,7 +131,7 @@ pub fn main() anyerror!void {
         exit(1);
     }
 
-    if (res.args.@"debug-dump-on-error" != 0)
+    if (args.debug_dump_on_error)
         thespian.stack_trace_on_errors = true;
 
     var ctx = try thespian.context.init(a);
@@ -117,33 +140,33 @@ pub fn main() anyerror!void {
     const env = thespian.env.init();
     defer env.deinit();
     if (build_options.enable_tracy) {
-        if (res.args.@"no-trace" == 0) {
+        if (!args.no_trace) {
             env.enable_all_channels();
             env.on_trace(trace);
         }
     } else {
-        if (res.args.trace != 0) {
+        if (args.trace_level != 0) {
             env.enable_all_channels();
             var threshold: usize = 1;
-            if (res.args.trace < threshold) {
+            if (args.trace_level < threshold) {
                 env.disable(thespian.channel.widget);
             }
             threshold += 1;
-            if (res.args.trace < threshold) {
+            if (args.trace_level < threshold) {
                 env.disable(thespian.channel.receive);
             }
             threshold += 1;
-            if (res.args.trace < threshold) {
+            if (args.trace_level < threshold) {
                 env.disable(thespian.channel.event);
             }
             threshold += 1;
-            if (res.args.trace < threshold) {
+            if (args.trace_level < threshold) {
                 env.disable(thespian.channel.metronome);
                 env.disable(thespian.channel.execute);
                 env.disable(thespian.channel.link);
             }
             threshold += 1;
-            if (res.args.trace < threshold) {
+            if (args.trace_level < threshold) {
                 env.disable(thespian.channel.input);
                 env.disable(thespian.channel.send);
             }
@@ -156,16 +179,16 @@ pub fn main() anyerror!void {
     log.set_std_log_pid(log_proc.ref());
     defer log.set_std_log_pid(null);
 
-    env.set("restore-session", (res.args.@"restore-session" != 0));
-    env.set("no-alternate", (res.args.@"no-alternate" != 0));
-    env.set("show-input", (res.args.@"show-input" != 0));
-    env.set("show-log", (res.args.@"show-log" != 0));
-    env.set("no-sleep", (res.args.@"no-sleep" != 0));
-    env.set("no-syntax", (res.args.@"no-syntax" != 0));
-    env.set("dump-stack-trace", (res.args.@"debug-dump-on-error" != 0));
-    if (res.args.@"frame-rate") |s| env.num_set("frame-rate", @intCast(s));
+    env.set("restore-session", (args.restore_session));
+    env.set("no-alternate", (args.no_alternate));
+    env.set("show-input", (args.show_input));
+    env.set("show-log", (args.show_log));
+    env.set("no-sleep", (args.no_sleep));
+    env.set("no-syntax", (args.no_syntax));
+    env.set("dump-stack-trace", (args.debug_dump_on_error));
+    if (args.frame_rate) |s| env.num_set("frame-rate", @intCast(s));
     env.proc_set("log", log_proc.ref());
-    if (res.args.language) |s| env.str_set("language", s);
+    if (args.language) |s| env.str_set("language", s);
 
     var eh = thespian.make_exit_handler({}, print_exit_status);
     const tui_proc = try tui.spawn(a, &ctx, &eh, &env);
@@ -181,7 +204,7 @@ pub fn main() anyerror!void {
     defer dests.deinit();
     var prev: ?*Dest = null;
     var line_next: ?usize = null;
-    for (res.positionals) |arg| {
+    for (positional_args.items) |arg| {
         if (arg.len == 0) continue;
 
         if (arg[0] == '+') {
@@ -255,7 +278,10 @@ pub fn main() anyerror!void {
         try tui_proc.send(.{ "cmd", "show_home" });
     }
 
-    for (res.args.exec) |cmd| try tui_proc.send(.{ "cmd", cmd, .{} });
+    if (args.exec) |exec_str| {
+        var cmds = std.mem.splitScalar(u8, exec_str, ';');
+        while (cmds.next()) |cmd| try tui_proc.send(.{ "cmd", cmd, .{} });
+    }
 
     ctx.run();
 

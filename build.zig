@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
     });
     const vaxis_mod = vaxis_dep.module("vaxis");
 
-    const clap_dep = b.dependency("clap", .{
+    const flags_dep = b.dependency("flags", .{
         .target = target,
         .optimize = dependency_optimize,
     });
@@ -225,7 +225,7 @@ pub fn build(b: *std.Build) void {
     if (use_lld_option) |enabled| exe.use_lld = enabled;
 
     exe.root_module.addImport("build_options", options_mod);
-    exe.root_module.addImport("clap", clap_dep.module("clap"));
+    exe.root_module.addImport("flags", flags_dep.module("flags"));
     exe.root_module.addImport("cbor", cbor_mod);
     exe.root_module.addImport("config", config_mod);
     exe.root_module.addImport("tui", tui_mod);
@@ -256,7 +256,7 @@ pub fn build(b: *std.Build) void {
     if (use_lld_option) |enabled| check_exe.use_lld = enabled;
 
     check_exe.root_module.addImport("build_options", options_mod);
-    check_exe.root_module.addImport("clap", clap_dep.module("clap"));
+    check_exe.root_module.addImport("flags", flags_dep.module("flags"));
     check_exe.root_module.addImport("cbor", cbor_mod);
     check_exe.root_module.addImport("config", config_mod);
     check_exe.root_module.addImport("tui", tui_mod);
