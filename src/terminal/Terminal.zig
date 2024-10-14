@@ -295,7 +295,7 @@ fn run(self: *Terminal) !void {
                 while (iter.next()) |g| {
                     const gr = g.bytes(str);
                     // TODO: use actual instead of .unicode
-                    const w = try vaxis.gwidth.gwidth(gr, .unicode, &self.unicode.width_data);
+                    const w = vaxis.gwidth.gwidth(gr, .unicode, &self.unicode.width_data);
                     try self.back_screen.print(gr, @truncate(w), self.mode.autowrap);
                 }
             },
@@ -511,7 +511,7 @@ fn run(self: *Terminal) !void {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
                         // TODO: maybe not .unicode
-                        const w = try vaxis.gwidth.gwidth(self.last_printed, .unicode, &self.unicode.width_data);
+                        const w = vaxis.gwidth.gwidth(self.last_printed, .unicode, &self.unicode.width_data);
                         var i: usize = 0;
                         while (i < n) : (i += 1) {
                             try self.back_screen.print(self.last_printed, @truncate(w), self.mode.autowrap);
