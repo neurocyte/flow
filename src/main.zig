@@ -41,7 +41,7 @@ pub fn main() anyerror!void {
 
     const Flags = struct {
         pub const description =
-            application_title ++ " " ++ application_subtext ++
+            application_title ++ ": " ++ application_subtext ++
             \\
             \\
             \\Pass in file names to be opened with an optional :LINE or :LINE:COL appended to the
