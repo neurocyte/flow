@@ -768,6 +768,7 @@ fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) (SpawnError ||
 }
 
 const filtered_dirs = [_][]const u8{
+    "build",
     ".git",
     ".jj",
     ".cache",
