@@ -42,7 +42,8 @@ pub fn main() anyerror!void {
 
     const Flags = struct {
         pub const description =
-            \\A programmer's text editor.
+            application_title ++ " " ++ application_subtext ++
+            \\
             \\
             \\Pass in file names to be opened with an optional :LINE or :LINE:COL appended to the
             \\file name to specify a specific location, or pass +<LINE> separately to set the line.
