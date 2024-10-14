@@ -16,6 +16,8 @@ const Self = @This();
 const module_name = @typeName(Self);
 const request_timeout = std.time.ns_per_s * 5;
 
+pub const Error = ProjectError || ProjectManagerError;
+
 pub const ProjectError = error{NoProject};
 
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});

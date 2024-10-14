@@ -221,7 +221,7 @@ pub fn main() anyerror!void {
     defer files.deinit();
     for (dests.items) |dest| {
         if (dest.file.len == 0) continue;
-        if (try is_directory(dest.file)) {
+        if (is_directory(dest.file)) {
             if (have_project) {
                 std.debug.print("more than one directory is not allowed\n", .{});
                 exit(1);
@@ -585,16 +585,10 @@ fn restart() noreturn {
     exit(234);
 }
 
-pub fn is_directory(rel_path: []const u8) !bool {
+pub fn is_directory(rel_path: []const u8) bool {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch |e| switch (e) {
-        error.FileNotFound => return false,
-        else => return e,
-    };
-    var dir = std.fs.openDirAbsolute(abs_path, .{}) catch |e| switch (e) {
-        error.NotDir => return false,
-        else => return e,
-    };
+    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch return false;
+    var dir = std.fs.openDirAbsolute(abs_path, .{}) catch return false;
     dir.close();
     return true;
 }

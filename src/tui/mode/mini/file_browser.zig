@@ -175,13 +175,13 @@ pub fn Create(options: type) type {
             self.entries.clearRetainingCapacity();
         }
 
-        fn try_complete_file(self: *Self) !void {
+        fn try_complete_file(self: *Self) project_manager.Error!void {
             self.complete_trigger_count += 1;
             if (self.complete_trigger_count == 1) {
                 self.query.clearRetainingCapacity();
                 self.match.clearRetainingCapacity();
                 self.clear_entries();
-                if (try root.is_directory(self.file_path.items)) {
+                if (root.is_directory(self.file_path.items)) {
                     try self.query.appendSlice(self.file_path.items);
                 } else if (self.file_path.items.len > 0) blk: {
                     const basename_begin = std.mem.lastIndexOfScalar(u8, self.file_path.items, std.fs.path.sep) orelse {
@@ -198,7 +198,7 @@ pub fn Create(options: type) type {
             }
         }
 
-        fn reverse_complete_file(self: *Self) !void {
+        fn reverse_complete_file(self: *Self) error{OutOfMemory}!void {
             if (self.complete_trigger_count < 2) {
                 self.complete_trigger_count = 0;
                 self.file_path.clearRetainingCapacity();
@@ -220,6 +220,10 @@ pub fn Create(options: type) type {
         fn receive_path_entry(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
             if (try cbor.match(m.buf, .{ "PRJ", tp.more })) {
                 try self.process_project_manager(m);
+                return true;
+            }
+            if (try cbor.match(m.buf, .{ "exit", "error.FileNotFound" })) {
+                message("path not found", .{});
                 return true;
             }
             return false;
@@ -262,13 +266,15 @@ pub fn Create(options: type) type {
             self.file_path.clearRetainingCapacity();
             if (self.match.items.len > 0) {
                 try self.match_path();
-            } else {
+            } else if (self.entries.items.len > 0) {
                 try self.construct_path(self.query.items, self.entries.items[self.complete_trigger_count - 1], self.complete_trigger_count - 1);
+            } else {
+                try self.construct_path(self.query.items, .{ .name = "", .type = .file }, 0);
             }
             message("{d}/{d}", .{ self.matched_entry + 1, self.entries.items.len });
         }
 
-        fn construct_path(self: *Self, path_: []const u8, entry: Entry, entry_no: usize) !void {
+        fn construct_path(self: *Self, path_: []const u8, entry: Entry, entry_no: usize) error{OutOfMemory}!void {
             self.matched_entry = entry_no;
             const path = project_manager.normalize_file_path(path_);
             try self.file_path.appendSlice(path);
