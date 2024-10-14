@@ -53,6 +53,8 @@ pub fn shutdown() void {
 pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSystemError || std.fs.File.OpenError || SetCwdError)!void {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const project_directory = std.fs.cwd().realpath(rel_project_directory, &path_buf) catch "(none)";
+    const current_project = tp.env.get().str("project");
+    if (std.mem.eql(u8, current_project, project_directory)) return;
     var dir = try std.fs.openDirAbsolute(project_directory, .{});
     try dir.setAsCwd();
     dir.close();
