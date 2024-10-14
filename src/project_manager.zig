@@ -769,17 +769,17 @@ fn walk_tree_async(a_: std.mem.Allocator, root_path_: []const u8) (SpawnError ||
 
 const filtered_dirs = [_][]const u8{
     "build",
+    ".cache",
+    ".cargo",
     ".git",
     ".jj",
-    ".cache",
-    ".var",
-    "zig-out",
-    "zig-cache",
-    ".zig-cache",
-    ".rustup",
-    ".npm",
-    ".cargo",
     "node_modules",
+    ".npm",
+    ".rustup",
+    ".var",
+    ".zig-cache",
+    "zig-cache",
+    "zig-out",
 };
 
 fn is_filtered_dir(dirname: []const u8) bool {
