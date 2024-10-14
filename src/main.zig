@@ -137,8 +137,7 @@ pub fn main() anyerror!void {
         exit(1);
     }
 
-    if (args.debug_dump_on_error)
-        thespian.stack_trace_on_errors = true;
+    thespian.stack_trace_on_errors = args.debug_dump_on_error;
 
     var ctx = try thespian.context.init(a);
     defer ctx.deinit();
@@ -185,13 +184,13 @@ pub fn main() anyerror!void {
     log.set_std_log_pid(log_proc.ref());
     defer log.set_std_log_pid(null);
 
-    env.set("restore-session", (args.restore_session));
-    env.set("no-alternate", (args.no_alternate));
-    env.set("show-input", (args.show_input));
-    env.set("show-log", (args.show_log));
-    env.set("no-sleep", (args.no_sleep));
-    env.set("no-syntax", (args.no_syntax));
-    env.set("dump-stack-trace", (args.debug_dump_on_error));
+    env.set("restore-session", args.restore_session);
+    env.set("no-alternate", args.no_alternate);
+    env.set("show-input", args.show_input);
+    env.set("show-log", args.show_log);
+    env.set("no-sleep", args.no_sleep);
+    env.set("no-syntax", args.no_syntax);
+    env.set("dump-stack-trace", args.debug_dump_on_error);
     if (args.frame_rate) |s| env.num_set("frame-rate", @intCast(s));
     env.proc_set("log", log_proc.ref());
     if (args.language) |s| env.str_set("language", s);
