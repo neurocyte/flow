@@ -66,6 +66,12 @@ pub fn main() anyerror!void {
             .version = "Show build version and exit.",
         };
 
+        pub const formats = .{
+            .frame_rate = "num",
+            .trace_level = "num",
+            .exec = "cmds"
+        };
+
         pub const switches  = .{
             .frame_rate = 'f',
             .trace_level = 't',
