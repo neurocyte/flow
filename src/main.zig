@@ -39,7 +39,6 @@ pub fn main() anyerror!void {
 
     const a = std.heap.c_allocator;
 
-
     const Flags = struct {
         pub const description =
             application_title ++ " " ++ application_subtext ++
@@ -67,13 +66,9 @@ pub fn main() anyerror!void {
             .version = "Show build version and exit.",
         };
 
-        pub const formats = .{
-            .frame_rate = "num",
-            .trace_level = "num",
-            .exec = "cmds"
-        };
+        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds" };
 
-        pub const switches  = .{
+        pub const switches = .{
             .frame_rate = 'f',
             .trace_level = 't',
             .language = 'l',
