@@ -20,10 +20,12 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tt
         max_extensions_len = @max(max_extensions_len, args_string_length(file_type.extensions));
     }
 
+    try tty_config.setColor(writer, .yellow);
     try write_string(writer, "Language", max_language_len + 1);
     try write_string(writer, "Extensions", max_extensions_len + 1 + checkmark_width);
     try write_string(writer, "Language Server", max_langserver_len + 1 + checkmark_width);
     try write_string(writer, "Formatter", max_formatter_len);
+    try tty_config.setColor(writer, .reset);
     try writer.writeAll("\n");
 
     const bin_paths = std.process.getEnvVarOwned(allocator, "PATH") catch |err| switch (err) {
