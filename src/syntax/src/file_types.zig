@@ -15,7 +15,7 @@ pub const bash = .{
 
 pub const c = .{
     .icon = "",
-    .extensions = .{ "c", "h" },
+    .extensions = .{"c"},
     .comment = "//",
     .formatter = .{"clang-format"},
     .language_server = .{"clangd"},
