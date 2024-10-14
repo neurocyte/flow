@@ -265,7 +265,7 @@ pub fn Create(options: type) type {
             } else {
                 try self.construct_path(self.query.items, self.entries.items[self.complete_trigger_count - 1], self.complete_trigger_count - 1);
             }
-            log.logger("file_browser").print("{d}/{d}", .{ self.matched_entry + 1, self.entries.items.len });
+            message("{d}/{d}", .{ self.matched_entry + 1, self.entries.items.len });
         }
 
         fn construct_path(self: *Self, path_: []const u8, entry: Entry, entry_no: usize) !void {
@@ -300,7 +300,7 @@ pub fn Create(options: type) type {
                 try self.construct_path(self.query.items, entry, last_no);
                 self.complete_trigger_count = matched;
             } else {
-                log.logger("file_browser").print("no match for '{s}'", .{self.match.items});
+                message("no match for '{s}'", .{self.match.items});
                 try self.construct_path(self.query.items, .{ .name = self.match.items, .type = .file }, 0);
             }
         }
@@ -321,6 +321,11 @@ pub fn Create(options: type) type {
             } else {
                 self.file_path.clearRetainingCapacity();
             }
+        }
+
+        fn message(comptime fmt: anytype, args: anytype) void {
+            var buf: [256]u8 = undefined;
+            tp.self_pid().send(.{ "message", std.fmt.bufPrint(&buf, fmt, args) catch @panic("too large") }) catch {};
         }
     };
 }
