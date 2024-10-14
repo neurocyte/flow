@@ -5,9 +5,9 @@
 
     .dependencies = .{
         .syntax = .{ .path = "src/syntax" },
-        .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/c0193e9247335a6c1688b946325060289405de2a.tar.gz",
-            .hash = "12207ee987ce045596cb992cfb15b0d6d9456e50d4721c3061c69dabc2962053644d",
+        .flags = .{
+            .url = "https://github.com/n0s4/flags/archive/b3905aa990719ff567f1c5a2f89e6dd3292d8533.tar.gz",
+            .hash = "1220930a42f8da3fb7f723e3ad3f6dcc6db76327dd8d26274566423192d53e91b2bb",
         },
         .tracy = .{
             .url = "https://github.com/neurocyte/zig-tracy/archive/58999b786089e5319dd0707f6afbfca04c6340e7.tar.gz",
