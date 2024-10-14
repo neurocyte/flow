@@ -49,21 +49,21 @@ pub fn main() anyerror!void {
         ;
 
         pub const descriptions = .{
-            .frame_rate = "Set target frame rate. (default: 60)",
-            .debug_wait = "Wait for key press before starting UI.",
-            .debug_dump_on_error = "Dump stack traces on errors.",
-            .no_sleep = "Do not sleep the main loop when idle.",
-            .no_alternate = "Do not use the alternate terminal screen.",
-            .trace_level = "Enable internal tracing. (level of detail from 1-5)",
-            .no_trace = "Do not enable internal tracing.",
-            .restore_session = "Restore restart session.",
-            .show_input = "Open the input view on start.",
-            .show_log = "Open the log view on start.",
-            .language = "Force the language of the file to be opened.",
-            .list_languages = "Show available languages.",
-            .no_syntax = "Disable syntax highlighting.",
-            .exec = "Execute a command on startup.",
-            .version = "Show build version and exit.",
+            .frame_rate = "Set target frame rate (default: 60)",
+            .debug_wait = "Wait for key press before starting UI",
+            .debug_dump_on_error = "Dump stack traces on errors",
+            .no_sleep = "Do not sleep the main loop when idle",
+            .no_alternate = "Do not use the alternate terminal screen",
+            .trace_level = "Enable internal tracing (level of detail from 1-5)",
+            .no_trace = "Do not enable internal tracing",
+            .restore_session = "Restore restart session",
+            .show_input = "Open the input view on start",
+            .show_log = "Open the log view on start",
+            .language = "Force the language of the file to be opened",
+            .list_languages = "Show available languages",
+            .no_syntax = "Disable syntax highlighting",
+            .exec = "Execute a command on startup",
+            .version = "Show build version and exit",
         };
 
         pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds" };
