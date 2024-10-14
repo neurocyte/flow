@@ -355,7 +355,10 @@ const config = @import("config");
 
 pub fn read_config(allocator: std.mem.Allocator, buf: *?[]const u8) config {
     const file_name = get_app_config_file_name(application_name) catch return .{};
-    return read_json_config_file(allocator, file_name, buf) catch .{};
+    return read_json_config_file(allocator, file_name, buf) catch |e| {
+        log.logger("config").print_err("read_config", "error reading config file: {any}", .{e});
+        return .{};
+    };
 }
 
 fn read_json_config_file(allocator: std.mem.Allocator, file_name: []const u8, buf: *?[]const u8) !config {
