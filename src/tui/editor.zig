@@ -3933,18 +3933,34 @@ pub const Editor = struct {
             saved.cursor = sel.end;
             break :ret sel;
         };
-        var sfa = std.heap.stackFallback(4096, self.allocator);
-        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
-        defer allocator.free(cut_text);
-        const cd = CaseData.init(allocator) catch return error.Stop;
-        defer cd.deinit();
-        const flipped = (if (cd.isLowerStr(cut_text))
-            cd.toUpperStr(allocator, cut_text)
-        else
-            cd.toLowerStr(allocator, cut_text)) catch return error.Stop;
-        defer allocator.free(flipped);
+        const cd = CaseData.init(self.allocator) catch return error.Stop;
+        var result = std.ArrayList(u8).init(self.allocator);
+        defer result.deinit();
+        const writer: struct {
+            allocator: Allocator,
+            cd: *const CaseData,
+            result: *std.ArrayList(u8),
+
+            const Error = (error{ Stop, OutOfMemory } || @typeInfo(@typeInfo(@TypeOf(CaseData.toUpperStr)).Fn.return_type.?).ErrorUnion.error_set);
+            pub fn write(writer: *@This(), bytes: []const u8) Error!void {
+                const flipped = if (writer.cd.isLowerStr(bytes))
+                    try writer.cd.toUpperStr(writer.allocator, bytes)
+                else
+                    try writer.cd.toLowerStr(writer.allocator, bytes);
+                defer writer.allocator.free(flipped);
+                return writer.result.appendSlice(flipped);
+            }
+            fn map_error(e: anyerror, _: ?*std.builtin.StackTrace) Error {
+                return @errorCast(e);
+            }
+        } = .{
+            .allocator = self.allocator,
+            .cd = &cd,
+            .result = &result,
+        };
+        self.write_range(root, sel.*, writer, @TypeOf(writer).map_error, null) catch return error.Stop;
         root = try self.delete_selection(root, cursel, allocator);
-        root = self.insert(root, cursel, flipped, allocator) catch return error.Stop;
+        root = self.insert(root, cursel, writer.result.items, allocator) catch return error.Stop;
         cursel.* = saved;
         return root;
     }
