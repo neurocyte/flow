@@ -148,6 +148,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'P' => self.cmd("goto_prev_file_or_diagnostic", .{}),
             'U' => self.cmd("to_upper", .{}),
             'L' => self.cmd("to_lower", .{}),
+            'C' => self.cmd("switch_case", .{}),
             'I' => self.cmd("toggle_inputview", .{}),
             'B' => self.cmd("move_word_left", .{}),
             'F' => self.cmd("move_word_right", .{}),
