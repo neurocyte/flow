@@ -264,6 +264,8 @@ pub const Editor = struct {
 
     need_save_after_filter: bool = false,
 
+    case_data: ?CaseData = null,
+
     const WhitespaceMode = enum { visible, indent, none };
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
@@ -356,6 +358,7 @@ pub const Editor = struct {
         self.handlers.deinit();
         self.logger.deinit();
         if (self.buffer) |p| p.deinit();
+        if (self.case_data) |cd| cd.deinit();
     }
 
     fn from_whitespace_mode(whitespace_mode: []const u8) WhitespaceMode {
@@ -369,6 +372,12 @@ pub const Editor = struct {
 
     fn need_render(_: *Self) void {
         Widget.need_render();
+    }
+
+    fn get_case_data(self: *Self) *CaseData {
+        if (self.case_data) |*cd| return cd;
+        self.case_data = CaseData.init(self.allocator) catch @panic("CaseData.init");
+        return &self.case_data.?;
     }
 
     fn buf_for_update(self: *Self) !*const Buffer {
@@ -3876,9 +3885,7 @@ pub const Editor = struct {
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
-        const cd = CaseData.init(allocator) catch return error.Stop;
-        defer cd.deinit();
-        const ucased = cd.toUpperStr(allocator, cut_text) catch return error.Stop;
+        const ucased = self.get_case_data().toUpperStr(allocator, cut_text) catch return error.Stop;
         defer allocator.free(ucased);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
@@ -3906,9 +3913,7 @@ pub const Editor = struct {
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
-        const cd = CaseData.init(allocator) catch return error.Stop;
-        defer cd.deinit();
-        const ucased = cd.toLowerStr(allocator, cut_text) catch return error.Stop;
+        const ucased = self.get_case_data().toLowerStr(allocator, cut_text) catch return error.Stop;
         defer allocator.free(ucased);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
@@ -3933,29 +3938,27 @@ pub const Editor = struct {
             saved.cursor = sel.end;
             break :ret sel;
         };
-        const cd = CaseData.init(self.allocator) catch return error.Stop;
         var result = std.ArrayList(u8).init(self.allocator);
         defer result.deinit();
         const writer: struct {
-            allocator: Allocator,
-            cd: *const CaseData,
+            self_: *Self,
             result: *std.ArrayList(u8),
 
-            const Error = (error{ Stop, OutOfMemory } || @typeInfo(@typeInfo(@TypeOf(CaseData.toUpperStr)).Fn.return_type.?).ErrorUnion.error_set);
+            const Error = @typeInfo(@typeInfo(@TypeOf(CaseData.toUpperStr)).Fn.return_type.?).ErrorUnion.error_set;
             pub fn write(writer: *@This(), bytes: []const u8) Error!void {
-                const flipped = if (writer.cd.isLowerStr(bytes))
-                    try writer.cd.toUpperStr(writer.allocator, bytes)
+                const cd = writer.self_.get_case_data();
+                const flipped = if (cd.isLowerStr(bytes))
+                    try cd.toUpperStr(writer.self_.allocator, bytes)
                 else
-                    try writer.cd.toLowerStr(writer.allocator, bytes);
-                defer writer.allocator.free(flipped);
+                    try cd.toLowerStr(writer.self_.allocator, bytes);
+                defer writer.self_.allocator.free(flipped);
                 return writer.result.appendSlice(flipped);
             }
             fn map_error(e: anyerror, _: ?*std.builtin.StackTrace) Error {
                 return @errorCast(e);
             }
         } = .{
-            .allocator = self.allocator,
-            .cd = &cd,
+            .self_ = self,
             .result = &result,
         };
         self.write_range(root, sel.*, writer, @TypeOf(writer).map_error, null) catch return error.Stop;
