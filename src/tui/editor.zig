@@ -36,7 +36,7 @@ const scroll_step_small = 3;
 const scroll_cursor_min_border_distance = 5;
 
 const double_click_time_ms = 350;
-const syntax_refresh_update_time = 5; // ms
+const syntax_refresh_update_time = 10; // ms
 
 pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_000 else 100_000;
 pub const max_match_lines = 15;
