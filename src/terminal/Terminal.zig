@@ -291,7 +291,7 @@ fn run(self: *Terminal) !void {
 
         switch (event) {
             .print => |str| {
-                var iter = grapheme.Iterator.init(str, &self.unicode.grapheme_data);
+                var iter = grapheme.Iterator.init(str, &self.unicode.width_data.g_data);
                 while (iter.next()) |g| {
                     const gr = g.bytes(str);
                     // TODO: use actual instead of .unicode
