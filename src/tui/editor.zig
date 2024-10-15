@@ -1007,7 +1007,7 @@ pub const Editor = struct {
             },
             .indent => {
                 c.set_style(theme.editor_whitespace);
-                _ = n.cell_load(c, if (leading) if (buf_col % self.indent_size == 0) "⎸" else " " else " ") catch {};
+                _ = n.cell_load(c, if (leading) if (buf_col % self.indent_size == 0) "│" else " " else " ") catch {};
             },
             else => {
                 _ = n.cell_load(c, " ") catch {};
