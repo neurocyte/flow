@@ -116,6 +116,7 @@ pub const go = .{
     .extensions = .{"go"},
     .comment = "//",
     .language_server = .{"gopls"},
+    .formatter = .{ "gofmt" },
 };
 
 pub const haskell = .{
