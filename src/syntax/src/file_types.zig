@@ -316,6 +316,7 @@ pub const ruby = .{
     .icon = "󰴭",
     .extensions = .{"rb"},
     .comment = "#",
+    .language_server = .{"ruby-lsp"},
 };
 
 pub const rust = .{
