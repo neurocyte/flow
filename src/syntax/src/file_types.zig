@@ -302,7 +302,7 @@ pub const python = .{
     .icon = "󰌠",
     .extensions = .{"py"},
     .comment = "#",
-    .first_line_matches = .{ .prefix = "#!", .content = "/bin/bash" },
+    .first_line_matches = .{ .prefix = "#!", .content = "python" },
     .language_server = .{"pylsp"},
 };
 
