@@ -116,7 +116,12 @@ pub const go = .{
     .extensions = .{"go"},
     .comment = "//",
     .language_server = .{"gopls"},
-    .formatter = .{ "gofmt" },
+    .formatter = .{"gofmt"},
+};
+
+pub const hare = .{
+    .extensions = .{"ha"},
+    .comment = "//",
 };
 
 pub const haskell = .{
