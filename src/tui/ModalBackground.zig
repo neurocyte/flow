@@ -11,6 +11,9 @@ const event_type = @import("renderer").input.event_type;
 pub fn Options(context: type) type {
     return struct {
         ctx: Context,
+        
+        dim: u8 = 255,
+        dim_target: u8 = 128,
 
         on_click: *const fn (ctx: context, self: *State(Context)) void = on_click_exit_overlay_mode,
         on_click2: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
@@ -20,6 +23,7 @@ pub fn Options(context: type) type {
         on_render: *const fn (ctx: context, self: *State(Context), theme: *const Widget.Theme) bool = on_render_dim,
         on_layout: *const fn (ctx: context) Widget.Layout = on_layout_default,
         on_resize: *const fn (ctx: context, state: *State(Context), box: Widget.Box) void = on_resize_default,
+
 
         pub const Context = context;
         pub fn do_nothing(_: context, _: *State(Context)) void {}
@@ -36,7 +40,11 @@ pub fn Options(context: type) type {
             const height = self.plane.dim_y();
             const width = self.plane.dim_x();
             for (0..height) |y| for (0..width) |x|
-                dim_cell(&self.plane, y, x) catch {};
+                dim_cell(&self.plane, y, x, self.opts.dim) catch {};
+            if (self.opts.dim > self.opts.dim_target) {
+                self.opts.dim -= 1;
+                return true;
+            }
             return false;
         }
 
@@ -64,7 +72,7 @@ pub fn State(ctx_type: type) type {
         plane: Plane,
         opts: options_type,
         hover: bool = false,
-
+        
         const Self = @This();
         const options_type = Options(ctx_type);
 
@@ -113,10 +121,10 @@ pub fn State(ctx_type: type) type {
     };
 }
 
-fn dim_cell(plane: *Plane, y: usize, x: usize) !void {
+fn dim_cell(plane: *Plane, y: usize, x: usize, dim_target: u8) !void {
     plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
     var cell = plane.cell_init();
     _ = plane.at_cursor_cell(&cell) catch return;
-    cell.dim(256 - 32);
+    cell.dim(dim_target);
     _ = plane.putc(&cell) catch {};
 }
