@@ -18,6 +18,7 @@ const InputBox = @import("../../InputBox.zig");
 const Widget = @import("../../Widget.zig");
 const mainview = @import("../../mainview.zig");
 const scrollbar_v = @import("../../scrollbar_v.zig");
+const ModalBackground = @import("../../ModalBackground.zig");
 
 pub const Menu = @import("../../Menu.zig");
 
@@ -26,6 +27,7 @@ const max_menu_width = 80;
 pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
+        modal: *ModalBackground.State(*Self),
         menu: *Menu.State(*Self),
         inputbox: *InputBox.State(*Self),
         logger: log.Logger,
@@ -51,6 +53,7 @@ pub fn Create(options: type) type {
             const self: *Self = try allocator.create(Self);
             self.* = .{
                 .allocator = allocator,
+                .modal = try ModalBackground.create(*Self, allocator, tui.current().mainview, .{ .ctx = self }),
                 .menu = try Menu.create(*Self, allocator, tui.current().mainview, .{
                     .ctx = self,
                     .on_render = on_render_menu,
@@ -78,6 +81,7 @@ pub fn Create(options: type) type {
                 options.restore_state(self) catch {};
             try self.commands.init(self);
             try self.start_query();
+            try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
             return .{
                 .handler = EventHandler.to_owned(self),
@@ -92,8 +96,10 @@ pub fn Create(options: type) type {
                 options.deinit(self);
             self.entries.deinit();
             tui.current().message_filters.remove_ptr(self);
-            if (tui.current().mainview.dynamic_cast(mainview)) |mv|
+            if (tui.current().mainview.dynamic_cast(mainview)) |mv| {
                 mv.floating_views.remove(self.menu.container_widget);
+                mv.floating_views.remove(self.modal.widget());
+            }
             self.logger.deinit();
             self.allocator.destroy(self);
         }

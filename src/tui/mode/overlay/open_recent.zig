@@ -20,12 +20,14 @@ const InputBox = @import("../../InputBox.zig");
 const Menu = @import("../../Menu.zig");
 const Widget = @import("../../Widget.zig");
 const mainview = @import("../../mainview.zig");
+const ModalBackground = @import("../../ModalBackground.zig");
 
 const Self = @This();
 const max_recent_files: usize = 25;
 
 allocator: std.mem.Allocator,
 f: usize = 0,
+modal: *ModalBackground.State(*Self),
 menu: *Menu.State(*Self),
 inputbox: *InputBox.State(*Self),
 logger: log.Logger,
@@ -40,6 +42,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
+        .modal = try ModalBackground.create(*Self, allocator, tui.current().mainview, .{ .ctx = self }),
         .menu = try Menu.create(*Self, allocator, tui.current().mainview, .{
             .ctx = self,
             .on_render = on_render_menu,
@@ -56,6 +59,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     self.query_pending = true;
     try project_manager.request_recent_files(max_recent_files);
     self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = max_menu_width() + 2 });
+    try mv.floating_views.add(self.modal.widget());
     try mv.floating_views.add(self.menu.container_widget);
     return .{
         .handler = EventHandler.to_owned(self),
@@ -67,8 +71,10 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
 pub fn deinit(self: *Self) void {
     self.commands.deinit();
     tui.current().message_filters.remove_ptr(self);
-    if (tui.current().mainview.dynamic_cast(mainview)) |mv|
+    if (tui.current().mainview.dynamic_cast(mainview)) |mv| {
         mv.floating_views.remove(self.menu.container_widget);
+        mv.floating_views.remove(self.modal.widget());
+    }
     self.logger.deinit();
     self.allocator.destroy(self);
 }
