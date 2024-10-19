@@ -20,16 +20,20 @@ Make sure your system meets the requirements listed above.
 Flow builds with zig 0.13 at this time. Build with:
 
 ```shell
-zig build -Doptimize=ReleaseFast
+zig build -Doptimize=ReleaseSafe -Dcpu=baseline
 ```
+
+`-Dcpu=baseline` is optional, but may be required to prevent illegal instruction errors depending on
+zig's support for your cpu features.
+
 
 Thanks to Zig you may also cross-compile from any host to pretty much any
 target. For example:
 
 ```shell
-zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows --prefix zig-out/x86_64-windows
-zig build -Doptimize=ReleaseFast -Dtarget=x86_64-macos-none --prefix zig-out/x86_64-macos
-zig build -Doptimize=ReleaseFast -Dtarget=aarch64-linux-musl --prefix zig-out/aarch64-linux -Dcpu=baseline
+zig build -Doptimize=ReleaseSafe -Dcpu=baseline -Dtarget=x86_64-windows --prefix zig-out/x86_64-windows
+zig build -Doptimize=ReleaseSafe -Dcpu=baseline -Dtarget=x86_64-macos-none --prefix zig-out/x86_64-macos
+zig build -Doptimize=ReleaseSafe -Dcpu=baseline -Dtarget=aarch64-linux-musl --prefix zig-out/aarch64-linux -Dcpu=baseline
 ```
 
 # Running Flow Control
@@ -49,7 +53,7 @@ sudo cp zig-out/bin/flow /usr/local/bin
 Or if you prefer, let zig install it in your home directory:
 
 ```shell
-zig build -Doptimize=ReleaseFast --prefix ~/.local
+zig build -Doptimize=ReleaseSafe --prefix ~/.local
 ```
 
 Flow Control is a single statically linked binary. No further runtime files are required.
