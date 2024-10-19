@@ -60,7 +60,7 @@ pub fn dim(self: *Cell, alpha: u8) void {
 }
 
 fn apply_alpha_value(c: vaxis.Cell.Color, a: u8) vaxis.Cell.Color {
-    var rgb = c.rgb;
+    var rgb = if (c == .rgb) c.rgb else return c;
     rgb[0] = @intCast((@as(u32, @intCast(rgb[0])) * a) / 256);
     rgb[1] = @intCast((@as(u32, @intCast(rgb[1])) * a) / 256);
     rgb[2] = @intCast((@as(u32, @intCast(rgb[2])) * a) / 256);
