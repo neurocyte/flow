@@ -17,7 +17,7 @@ pub fn Options(context: type) type {
         on_click3: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
         on_click4: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
         on_click5: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
-        on_render: *const fn (ctx: context, self: *State(Context), theme: *const Widget.Theme) bool = on_render_default,
+        on_render: *const fn (ctx: context, self: *State(Context), theme: *const Widget.Theme) bool = on_render_dim,
         on_layout: *const fn (ctx: context) Widget.Layout = on_layout_default,
         on_resize: *const fn (ctx: context, state: *State(Context), box: Widget.Box) void = on_resize_default,
 
@@ -29,6 +29,14 @@ pub fn Options(context: type) type {
         }
 
         pub fn on_render_default(_: context, _: *State(Context), _: *const Widget.Theme) bool {
+            return false;
+        }
+
+        pub fn on_render_dim(_: context, self: *State(Context), _: *const Widget.Theme) bool {
+            const height = self.plane.dim_y();
+            const width = self.plane.dim_x();
+            for (0..height) |y| for (0..width) |x|
+                dim_cell(&self.plane, y, x) catch {};
             return false;
         }
 
@@ -85,7 +93,7 @@ pub fn State(ctx_type: type) type {
                 self.call_click_handler(btn);
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-                tui.current().rdr.request_mouse_cursor_pointer(self.hover);
+                tui.current().rdr.request_mouse_cursor_default(self.hover);
                 return true;
             }
             return false;
@@ -103,4 +111,12 @@ pub fn State(ctx_type: type) type {
             }
         }
     };
+}
+
+fn dim_cell(plane: *Plane, y: usize, x: usize) !void {
+    plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+    var cell = plane.cell_init();
+    _ = plane.at_cursor_cell(&cell) catch return;
+    cell.dim(256 - 32);
+    _ = plane.putc(&cell) catch {};
 }

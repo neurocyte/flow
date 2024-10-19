@@ -53,3 +53,16 @@ pub fn columns(self: *const Cell) usize {
     // return if (self.cell.char.width == 0) self.window.gwidth(self.cell.char.grapheme) else self.cell.char.width; // FIXME?
     return self.cell.char.width;
 }
+
+pub fn dim(self: *Cell, alpha: u8) void {
+    self.cell.style.fg = apply_alpha_value(self.cell.style.fg, alpha);
+    self.cell.style.bg = apply_alpha_value(self.cell.style.bg, alpha);
+}
+
+fn apply_alpha_value(c: vaxis.Cell.Color, a: u8) vaxis.Cell.Color {
+    var rgb = c.rgb;
+    rgb[0] = @intCast((@as(u32, @intCast(rgb[0])) * a) / 256);
+    rgb[1] = @intCast((@as(u32, @intCast(rgb[1])) * a) / 256);
+    rgb[2] = @intCast((@as(u32, @intCast(rgb[2])) * a) / 256);
+    return .{ .rgb = rgb };
+}
