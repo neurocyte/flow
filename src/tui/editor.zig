@@ -323,8 +323,7 @@ pub const Editor = struct {
 
     fn init(self: *Self, allocator: Allocator, n: Plane) void {
         const logger = log.logger("editor");
-        var frame_rate = tp.env.get().num("frame-rate");
-        if (frame_rate == 0) frame_rate = 60;
+        const frame_rate = tp.env.get().num("frame-rate");
         const indent_size = tui.current().config.indent_size;
         const tab_width = tui.current().config.tab_width;
         self.* = Self{
