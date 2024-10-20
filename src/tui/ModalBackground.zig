@@ -11,7 +11,7 @@ const event_type = @import("renderer").input.event_type;
 pub fn Options(context: type) type {
     return struct {
         ctx: Context,
-        
+
         dim: u8 = 255,
         dim_target: u8 = 128,
 
@@ -23,7 +23,6 @@ pub fn Options(context: type) type {
         on_render: *const fn (ctx: context, self: *State(Context), theme: *const Widget.Theme) bool = on_render_dim,
         on_layout: *const fn (ctx: context) Widget.Layout = on_layout_default,
         on_resize: *const fn (ctx: context, state: *State(Context), box: Widget.Box) void = on_resize_default,
-
 
         pub const Context = context;
         pub fn do_nothing(_: context, _: *State(Context)) void {}
@@ -37,12 +36,15 @@ pub fn Options(context: type) type {
         }
 
         pub fn on_render_dim(_: context, self: *State(Context), _: *const Widget.Theme) bool {
+            const frame_time_ms = @divTrunc(1000, self.frame_rate);
+            const fade_steps = self.fade_time_ms / frame_time_ms;
+            const step_size: u8 = @intCast((255 - self.opts.dim_target) / fade_steps);
             const height = self.plane.dim_y();
             const width = self.plane.dim_x();
             for (0..height) |y| for (0..width) |x|
                 dim_cell(&self.plane, y, x, self.opts.dim) catch {};
             if (self.opts.dim > self.opts.dim_target) {
-                self.opts.dim -= 1;
+                self.opts.dim -= step_size;
                 return true;
             }
             return false;
@@ -62,6 +64,8 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Widget, opts
         .allocator = allocator,
         .plane = parent.plane.*,
         .opts = opts,
+        .fade_time_ms = tui.current().config.animation_max_lag,
+        .frame_rate = @intCast(tp.env.get().num("frame-rate")),
     };
     return self;
 }
@@ -71,8 +75,10 @@ pub fn State(ctx_type: type) type {
         allocator: std.mem.Allocator,
         plane: Plane,
         opts: options_type,
+        fade_time_ms: usize,
+        frame_rate: usize,
         hover: bool = false,
-        
+
         const Self = @This();
         const options_type = Options(ctx_type);
 
