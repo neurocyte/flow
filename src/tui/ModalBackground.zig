@@ -37,7 +37,7 @@ pub fn Options(context: type) type {
 
         pub fn on_render_dim(_: context, self: *State(Context), _: *const Widget.Theme) bool {
             const frame_time_ms = @divTrunc(1000, self.frame_rate);
-            const fade_steps = self.fade_time_ms / frame_time_ms;
+            const fade_steps = @max(self.fade_time_ms / frame_time_ms, 1);
             const step_size: u8 = @intCast((255 - self.opts.dim_target) / fade_steps);
             const height = self.plane.dim_y();
             const width = self.plane.dim_x();
