@@ -22,12 +22,13 @@ input: ArrayList(u8),
 last_cmd: []const u8 = "",
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
 commands: Commands = undefined,
-keypress_stack: std.ArrayList(KeyPressEvent),
+last_key_event: KeyPressEvent,
 
 pub const KeyPressEvent = struct {
-    key: u32,
-    modifiers: u32,
-    egc: u32,
+    keypress: u32 = 0,
+    modifiers: u32 = std.math.maxInt(u32),
+    egc: u32 = 0,
+    timestamp_ms: i64,
 };
 
 pub fn create(allocator: Allocator) !tui.Mode {
@@ -35,7 +36,7 @@ pub fn create(allocator: Allocator) !tui.Mode {
     self.* = .{
         .allocator = allocator,
         .input = try ArrayList(u8).initCapacity(allocator, input_buffer_size),
-        .keypress_stack = try ArrayList(KeyPressEvent).initCapacity(allocator, 8),
+        .last_key_event = .{ .timestamp_ms = std.time.milliTimestamp() },
     };
     try self.commands.init(self);
     return .{
@@ -50,7 +51,6 @@ pub fn create(allocator: Allocator) !tui.Mode {
 pub fn deinit(self: *Self) void {
     self.commands.deinit();
     self.input.deinit();
-    self.keypress_stack.deinit();
     self.allocator.destroy(self);
 }
 
@@ -93,18 +93,38 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         else => {},
     }
 
-    if (self.keypress_stack.items.len != 0) {
-        if (modifiers == 0 and self.keypress_stack.items[0].key == 'j' and keypress == 'k'
-        ) {
-            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
-
-            return;
-        } else {
-            const in_stack = self.keypress_stack.items[0].egc;
-            self.keypress_stack.items.len = 0;
-            try self.insert_code_point(in_stack);
-        }
+    //reset chord if enough time has passed
+    const chord_time_window_ms = 750;
+    if (std.time.milliTimestamp() - self.last_key_event.timestamp_ms > chord_time_window_ms) {
+        self.last_key_event = .{ .timestamp_ms = std.time.milliTimestamp() };
     }
+
+    //chording
+    var ready_to_return: bool = false;
+    switch (self.last_key_event.modifiers) {
+        0 => switch (self.last_key_event.keypress) {
+            'j' => {
+                if (modifiers == 0 and keypress == 'k') {
+                    try self.cmd("delete_backward", .{});
+                    try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+                    ready_to_return = true;
+                }
+            },
+            else => {},
+        },
+        else => {},
+    }
+
+    //record current key event
+    self.last_key_event = .{
+        .keypress = keypress,
+        .modifiers = modifiers,
+        .egc = egc,
+        .timestamp_ms = std.time.milliTimestamp(),
+    };
+
+    //don't process further if chording already processed the event
+    if (ready_to_return) return;
 
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
@@ -242,17 +262,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.PGUP => self.cmd("move_page_up", .{}),
             key.PGDOWN => self.cmd("move_page_down", .{}),
             key.TAB => self.cmd("indent", .{}),
-
-            //handle prefixes
-            'j' => {
-                try self.keypress_stack.append(.{
-                    .key = keypress,
-                    .modifiers = modifiers,
-                    .egc = egc,
-                });
-            },
             else => if (!key.synthesized_p(keypress)) {
-                // std.debug.print("{} pressed", .{keypress});
                 try self.insert_code_point(egc);
             } else {},
         },
