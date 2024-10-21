@@ -28,7 +28,7 @@ pub const KeyPressEvent = struct {
     keypress: u32 = 0,
     modifiers: u32 = std.math.maxInt(u32),
     egc: u32 = 0,
-    timestamp_ms: i64,
+    timestamp_ms: i64 = 0,
 };
 
 pub fn create(allocator: Allocator) !tui.Mode {
@@ -96,7 +96,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     //reset chord if enough time has passed
     const chord_time_window_ms = 750;
     if (std.time.milliTimestamp() - self.last_key_event.timestamp_ms > chord_time_window_ms) {
-        self.last_key_event = .{ .timestamp_ms = std.time.milliTimestamp() };
+        self.last_key_event = .{};
     }
 
     //chording
