@@ -1,4 +1,5 @@
 const tp = @import("thespian");
+const std = @import("std");
 
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
@@ -21,12 +22,20 @@ input: ArrayList(u8),
 last_cmd: []const u8 = "",
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
 commands: Commands = undefined,
+keypress_stack: std.ArrayList(KeyPressEvent),
+
+pub const KeyPressEvent = struct {
+    key: u32,
+    modifiers: u32,
+    egc: u32,
+};
 
 pub fn create(allocator: Allocator) !tui.Mode {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
         .input = try ArrayList(u8).initCapacity(allocator, input_buffer_size),
+        .keypress_stack = try ArrayList(KeyPressEvent).initCapacity(allocator, 8),
     };
     try self.commands.init(self);
     return .{
@@ -41,6 +50,7 @@ pub fn create(allocator: Allocator) !tui.Mode {
 pub fn deinit(self: *Self) void {
     self.commands.deinit();
     self.input.deinit();
+    self.keypress_stack.deinit();
     self.allocator.destroy(self);
 }
 
@@ -82,6 +92,20 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         key.LALT, key.RALT => return self.cmd("enable_jump_mode", .{}),
         else => {},
     }
+
+    if (self.keypress_stack.items.len != 0) {
+        if (modifiers == 0 and self.keypress_stack.items[0].key == 'j' and keypress == 'k'
+        ) {
+            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+
+            return;
+        } else {
+            const in_stack = self.keypress_stack.items[0].egc;
+            self.keypress_stack.items.len = 0;
+            try self.insert_code_point(in_stack);
+        }
+    }
+
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
             'E' => self.cmd("open_recent", .{}),
@@ -218,9 +242,19 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.PGUP => self.cmd("move_page_up", .{}),
             key.PGDOWN => self.cmd("move_page_down", .{}),
             key.TAB => self.cmd("indent", .{}),
-            else => if (!key.synthesized_p(keypress))
-                self.insert_code_point(egc)
-            else {},
+
+            //handle prefixes
+            'j' => {
+                try self.keypress_stack.append(.{
+                    .key = keypress,
+                    .modifiers = modifiers,
+                    .egc = egc,
+                });
+            },
+            else => if (!key.synthesized_p(keypress)) {
+                // std.debug.print("{} pressed", .{keypress});
+                try self.insert_code_point(egc);
+            } else {},
         },
         else => {},
     };
