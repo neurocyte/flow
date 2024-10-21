@@ -264,9 +264,9 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.PGUP => self.cmd("move_page_up", .{}),
             key.PGDOWN => self.cmd("move_page_down", .{}),
             key.TAB => self.cmd("indent", .{}),
-            else => if (!key.synthesized_p(keypress)) {
-                try self.insert_code_point(egc);
-            } else {},
+            else => if (!key.synthesized_p(keypress))
+                try self.insert_code_point(egc)
+            else {},
         },
         else => {},
     };
