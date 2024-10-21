@@ -31,7 +31,7 @@ const posix = std.posix;
 const log = std.log.scoped(.terminal);
 
 pub const Options = struct {
-    scrollback_size: usize = 500,
+    scrollback_size: u16 = 500,
     winsize: Winsize = .{ .rows = 24, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     initial_working_directory: ?[]const u8 = null,
 };
@@ -52,7 +52,7 @@ pub var global_vts: ?std.AutoHashMap(i32, *Terminal) = null;
 pub var global_sigchild_installed: bool = false;
 
 allocator: std.mem.Allocator,
-scrollback_size: usize,
+scrollback_size: u16,
 
 pty: Pty,
 cmd: Command,
@@ -221,9 +221,9 @@ pub fn draw(self: *Terminal, win: vaxis.Window) !void {
         }
     }
 
-    var row: usize = 0;
+    var row: u16 = 0;
     while (row < self.front_screen.height) : (row += 1) {
-        var col: usize = 0;
+        var col: u16 = 0;
         while (col < self.front_screen.width) {
             const cell = self.front_screen.readCell(col, row) orelse continue;
             win.writeCell(col, row, cell);

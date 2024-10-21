@@ -49,8 +49,8 @@ pub const Cursor = struct {
     style: vaxis.Style = .{},
     uri: std.ArrayList(u8) = undefined,
     uri_id: std.ArrayList(u8) = undefined,
-    col: usize = 0,
-    row: usize = 0,
+    col: u16 = 0,
+    row: u16 = 0,
     pending_wrap: bool = false,
     shape: vaxis.Cell.CursorShape = .default,
     visible: bool = true,
@@ -68,10 +68,10 @@ pub const Cursor = struct {
 };
 
 pub const ScrollingRegion = struct {
-    top: usize,
-    bottom: usize,
-    left: usize,
-    right: usize,
+    top: u16,
+    bottom: u16,
+    left: u16,
+    right: u16,
 
     pub fn contains(self: ScrollingRegion, col: usize, row: usize) bool {
         return col >= self.left and
@@ -81,8 +81,8 @@ pub const ScrollingRegion = struct {
     }
 };
 
-width: usize = 0,
-height: usize = 0,
+width: u16 = 0,
+height: u16 = 0,
 
 scrolling_region: ScrollingRegion,
 
@@ -93,7 +93,7 @@ cursor: Cursor = .{},
 csi_u_flags: vaxis.Key.KittyFlags = @bitCast(@as(u5, 0)),
 
 /// sets each cell to the default cell
-pub fn init(alloc: std.mem.Allocator, w: usize, h: usize) !Screen {
+pub fn init(alloc: std.mem.Allocator, w: u16, h: u16) !Screen {
     var screen = Screen{
         .buf = try alloc.alloc(Cell, w * h),
         .scrolling_region = .{
@@ -313,7 +313,7 @@ pub fn sgr(self: *Screen, seq: ansi.CSI) void {
     }
 }
 
-pub fn cursorUp(self: *Screen, n: usize) void {
+pub fn cursorUp(self: *Screen, n: u16) void {
     self.cursor.pending_wrap = false;
     if (self.withinScrollingRegion())
         self.cursor.row = @max(
@@ -324,7 +324,7 @@ pub fn cursorUp(self: *Screen, n: usize) void {
         self.cursor.row -|= n;
 }
 
-pub fn cursorLeft(self: *Screen, n: usize) void {
+pub fn cursorLeft(self: *Screen, n: u16) void {
     self.cursor.pending_wrap = false;
     if (self.withinScrollingRegion())
         self.cursor.col = @max(
@@ -335,7 +335,7 @@ pub fn cursorLeft(self: *Screen, n: usize) void {
         self.cursor.col = self.cursor.col -| n;
 }
 
-pub fn cursorRight(self: *Screen, n: usize) void {
+pub fn cursorRight(self: *Screen, n: u16) void {
     self.cursor.pending_wrap = false;
     if (self.withinScrollingRegion())
         self.cursor.col = @min(
