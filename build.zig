@@ -301,6 +301,24 @@ pub fn build(b: *std.Build) void {
     const check = b.step("check", "Check the app");
     check.dependOn(&check_exe.step);
 
+    const keybinding_tests = b.addTest(.{
+        .root_source_file = b.path("src/tui/keybindings.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    keybinding_tests.root_module.addImport("renderer", renderer_mod);
+    keybinding_tests.root_module.addImport("thespian", thespian_mod);
+    keybinding_tests.root_module.addImport("tui", tui_mod);
+    keybinding_tests.root_module.addImport("keybind", keybind_static_mod);
+    keybinding_tests.root_module.addImport("config", config_mod);
+    keybinding_tests.root_module.addImport("command", command_mod);
+    keybinding_tests.root_module.addImport("EventHandler", EventHandler_mod);
+    keybinding_tests.root_module.addImport("build_options", options_mod);
+    keybinding_tests.root_module.addImport("log", log_mod);
+    keybinding_tests.root_module.addImport("color", color_mod);
+    keybinding_tests.root_module.addImport("theme", themes_dep.module("theme"));
+    keybinding_tests.root_module.addImport("Buffer", Buffer_mod);
+
     const tests = b.addTest(.{
         .root_source_file = b.path("test/tests.zig"),
         .target = target,
@@ -318,9 +336,11 @@ pub fn build(b: *std.Build) void {
     // b.installArtifact(tests);
 
     const test_run_cmd = b.addRunArtifact(tests);
+    const keybinding_test_run_cmd = b.addRunArtifact(keybinding_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run_cmd.step);
+    test_step.dependOn(&keybinding_test_run_cmd.step);
 
     const lints_step = b.step("lint", "Run lints");
 
