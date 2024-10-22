@@ -770,6 +770,7 @@ fn add_info_content(
     end_pos: usize,
     content: []const u8,
 ) tp.result {
+    if (content.len == 0) return;
     if (!self.is_panel_view_showing(info_view))
         _ = self.toggle_panel_view(info_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const info = self.get_panel_view(info_view) orelse @panic("info_view missing");
