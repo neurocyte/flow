@@ -330,3 +330,30 @@ test "insert_chars" {
     try std.testing.expectEqual(line, 1);
     try std.testing.expectEqual(col, 1);
 }
+
+test "get_from_pos" {
+    var eol_mode: Buffer.EolMode = .lf;
+    const buffer = try get_big_doc(&eol_mode);
+    defer buffer.deinit();
+
+    const lines = buffer.root.lines();
+    try std.testing.expectEqual(lines, 10002);
+
+    const line0 = try get_line(buffer, 0);
+    defer a.free(line0);
+    const line1 = try get_line(buffer, 1);
+    defer a.free(line1);
+
+    var result_buf: [1024]u8 = undefined;
+    const result1 = buffer.root.get_from_pos(.{ .row = 0, .col = 0 }, &result_buf, metrics());
+    try std.testing.expectEqualDeep(result1[0..line0.len], line0);
+
+    const result2 = buffer.root.get_from_pos(.{ .row = 1, .col = 5 }, &result_buf, metrics());
+    try std.testing.expectEqualDeep(result2[0..line1.len - 5], line1[5..]);
+
+    _, _, const root = try buffer.root.insert_chars(1, 3, " ", buffer.allocator, metrics());
+    buffer.update(root);
+
+    const result3 = buffer.root.get_from_pos(.{ .row = 1, .col = 5 }, &result_buf, metrics());
+    try std.testing.expectEqualDeep(result3[0..line1.len - 4], line1[4..]);
+}
