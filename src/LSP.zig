@@ -12,7 +12,7 @@ const Self = @This();
 const module_name = @typeName(Self);
 const sp_tag = "child";
 const debug_lsp = true;
-const lsp_request_timeout = std.time.ns_per_s * 30;
+const lsp_request_timeout = std.time.ns_per_s * 3;
 
 const OutOfMemoryError = error{OutOfMemory};
 const SendError = error{SendFailed};
