@@ -92,41 +92,44 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         else => {},
     }
 
-    //reset chord if enough time has passed
-    const chord_time_window_ms = 750;
-    if (std.time.milliTimestamp() - self.last_key.timestamp_ms > chord_time_window_ms) {
-        self.last_key = .{};
-    }
+    if (tui.current().config.vim_insert_chording_keybindings) {
 
-    //chording
-    if (self.last_key.keypress == 'j' and self.last_key.modifiers == 0 and keypress == 'k' and modifiers == 0) {
-        try self.cmd("delete_backward", .{});
-        try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
-        return;
-    }
-    if (self.last_key.keypress == 'k' and self.last_key.modifiers == 0 and keypress == 'j' and modifiers == 0) {
-        try self.cmd("delete_backward", .{});
-        try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
-        return;
-    }
-    if (self.last_key.keypress == 'f' and self.last_key.modifiers == 0 and keypress == 'j' and modifiers == 0) {
-        try self.cmd("delete_backward", .{});
-        try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
-        return;
-    }
-    if (self.last_key.keypress == 'j' and self.last_key.modifiers == 0 and keypress == 'f' and modifiers == 0) {
-        try self.cmd("delete_backward", .{});
-        try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
-        return;
-    }
+        //reset chord if enough time has passed
+        const chord_time_window_ms = 750;
+        if (std.time.milliTimestamp() - self.last_key.timestamp_ms > chord_time_window_ms) {
+            self.last_key = .{};
+        }
 
-    //record current key event
-    self.last_key = .{
-        .keypress = keypress,
-        .modifiers = modifiers,
-        .egc = egc,
-        .timestamp_ms = std.time.milliTimestamp(),
-    };
+        //chording
+        if (self.last_key.keypress == 'j' and self.last_key.modifiers == 0 and keypress == 'k' and modifiers == 0) {
+            try self.cmd("delete_backward", .{});
+            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+            return;
+        }
+        if (self.last_key.keypress == 'k' and self.last_key.modifiers == 0 and keypress == 'j' and modifiers == 0) {
+            try self.cmd("delete_backward", .{});
+            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+            return;
+        }
+        if (self.last_key.keypress == 'f' and self.last_key.modifiers == 0 and keypress == 'j' and modifiers == 0) {
+            try self.cmd("delete_backward", .{});
+            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+            return;
+        }
+        if (self.last_key.keypress == 'j' and self.last_key.modifiers == 0 and keypress == 'f' and modifiers == 0) {
+            try self.cmd("delete_backward", .{});
+            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+            return;
+        }
+
+        //record current key event
+        self.last_key = .{
+            .keypress = keypress,
+            .modifiers = modifiers,
+            .egc = egc,
+            .timestamp_ms = std.time.milliTimestamp(),
+        };
+    }
 
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
