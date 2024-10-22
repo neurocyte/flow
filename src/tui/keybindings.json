@@ -1,0 +1,47 @@
+{
+    "vim": {
+        "normal": {
+            "on_match_failure": "ignore",
+            "bindings": [
+                ["j", "cursor_down"],
+                ["k", "cursor_up"],
+                ["h", "cursor_right_vim"],
+                ["l", "cursor_left_vim"],
+                ["i", "change_mode", "insert"],
+                ["o", "change_mode", "insert"],
+                ["a", "change_mode", "insert"],
+                ["v", "change_mode", "visual"],
+                ["gg", "goto_page_begin"],
+                ["<S-g>", "goto_page_end"],
+                ["<S-:>", "open_command_palette"],
+                ["<C-u>", "cursor_half_page_up"],
+                ["<C-d>", "cursor_half_page_down"]
+            ]
+        },
+        "insert": {
+            "on_match_failure": "insert",
+            "bindings": [
+                ["jk", "change_mode", "normal"],
+                ["<Esc>", "change_mode", "normal"]
+            ]
+        } 
+    },
+    "emacs" : {
+        "base": {
+            "on_match_failure": "insert",
+            "bindings": [
+                ["<C-a>", "cursor_line_start"],
+                ["<C-e>", "cursor_line_end"],
+                ["<C-b>", "cursor_left"],
+                ["<C-f>", "cursor_right"],
+                ["<C-p>", "cursor_up"],
+                ["<C-n>", "cursor_down"],
+                ["<C-x><C-s>", "save"],
+                ["<C-x><C-c>", "quit"],
+                ["<C-x>b", "open_recent_files"],
+                ["<A-x>", "open_command_palette"]
+            ]
+        }
+    }
+}
+
