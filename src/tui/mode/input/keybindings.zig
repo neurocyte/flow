@@ -3,11 +3,15 @@ const std = @import("std");
 
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
+const event_type = @import("renderer").input.event_type;
+const command = @import("../../../command.zig");
 
 //A single key event, such as Ctrl-E
 pub const KeyEvent = struct {
-    keynormal: u32,
+    key: u32, //keypress value
+    event_type: usize = event_type.PRESS,
     modifiers: u32 = 0,
+    character: u32 = 0,
 };
 
 //An action that can be triggered by a Key Sequence
@@ -23,22 +27,26 @@ pub const Action = struct {
 
 //An association of an action with a triggering key chord
 pub const Binding = struct {
-    key_sequence: []KeyEvent,
-    action: Action,
+    trigger: []const KeyEvent,
+    actions: []const Action,
 
     pub fn len(self: Binding) usize {
-        return self.key_sequence.len;
+        return self.trigger.len;
     }
 };
 
 //A Collection of keybindings
 pub const Mode = struct {
     name: []const u8,
-    bindings: []Binding,
+    bindings: []const Binding,
     no_match_behavior: NoMatchBehavior = .ignore,
 
     //what to do with a key press that does not match any bindings
-    pub const NoMatchBehavior = enum { ignore, insert };
+    pub const NoMatchBehavior = union(enum) {
+        insert: void,
+        ignore: void,
+        fallback_mode: []const u8,
+    };
 };
 
 //A collection of various modes under a single namespace, such as "vim" or "emacs"
@@ -54,9 +62,65 @@ pub const Bindings = struct {
     active_mode: usize,
     namespaces: std.StringArrayHashMap(Namespace),
     history: std.ArrayList(KeyEvent),
-    last_key_event_timestamp_ms: usize,
+    last_key_event_timestamp_ms: i64,
+    input_buffer: std.ArrayList(u8),
+    last_command: []const u8 = "",
 
+    const Self = @This();
     pub const max_key_sequence_time_interval = 750;
+    pub const max_input_buffer_size = 1024;
+
+    fn insertBytes(self: *Self, bytes: []const u8) !void {
+        if (self.input_buffer.items.len + 4 > max_input_buffer_size)
+            try self.flushInputBuffer();
+        try self.input.appendSlice(bytes);
+    }
+
+    fn flushInputBuffer(self: *Self) !void {
+        const Static = struct {
+            var insert_chars_id: ?command.ID = null;
+        };
+        if (self.input_buffer.items.len > 0) {
+            defer self.input.clearRetainingCapacity();
+            const id = Static.insert_chars_id orelse
+                command.get_id_cache("insert_chars", &Static.insert_chars_id) orelse {
+                return tp.exit_error(error.InputTargetNotFound, null);
+            };
+            try command.execute(id, command.fmt(.{self.input.items}));
+            self.last_command = "insert_chars";
+        }
+    }
+
+    pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+        var evtype: u32 = undefined;
+        var keypress: u32 = undefined;
+        var egc: u32 = undefined;
+        var modifiers: u32 = undefined;
+        var text: []const u8 = undefined;
+
+        if (try m.match(.{
+            "I",
+            tp.extract(&evtype),
+            tp.extract(&keypress),
+            tp.extract(&egc),
+            tp.string,
+            tp.extract(&modifiers),
+        })) {
+            try self.registerKeyEvent(.{
+                .event_type = evtype,
+                .key = keypress,
+                .character = egc,
+                .modifiers = modifiers,
+            }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        } else if (try m.match(.{"F"})) {
+            self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
+            self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        }
+        return false;
+    }
 
     //lists namespaces
     pub fn listNamespaces(self: *const Bindings) []const []const u8 {
@@ -65,7 +129,7 @@ pub const Bindings = struct {
 
     //lists modes of active namespace
     pub fn listModes(self: *const Bindings) []const []const u8 {
-        return self.namespaces.entries[self.active_namespace].modes.keys();
+        return self.namespaces.unmanaged.entries[self.active_namespace].modes.keys();
     }
 
     //register a key press and try to match it with a binding
@@ -79,13 +143,13 @@ pub const Bindings = struct {
         self.last_key_event_timestamp_ms = timestamp;
 
         try self.history.append(event);
-        try self.matchHistoryToAction();
+        _ = try self.matchHistory();
     }
 
     ///Returns active bindings
-    pub fn active(self: *Bindings) []const Binding {
-        return self.namespaces.entries[self.active_namespace].modes[self.active_mode].bindings;
-    }
+    // pub fn active(self: *Bindings) []const Binding {
+    //     return self.namespaces.entries[self.active_namespace].modes[self.active_mode].bindings;
+    // }
 
     //Returns the last N key events
     pub fn lastNKeyEvents(self: *const Bindings, n: usize) ?[]const KeyEvent {
@@ -97,14 +161,68 @@ pub const Bindings = struct {
         }
     }
 
-    //Checks if recent key events correspond to any key action, and if so, activate it
-    pub fn matchHistoryToAction(self: *Bindings) !void {
-        for (self.active) |binding| {
-            const relevant_history = self.lastNKeyEvents(binding.len()) orelse continue;
-            if (std.mem.eql(KeyEvent, binding.key_sequence, relevant_history)) {
-                try binding.action.activate();
-                self.history.clearRetainingCapacity();
+    pub fn lastKeyEvent(self: *const Bindings) KeyEvent {
+        std.debug.assert(self.history.items.len > 0);
+        return self.history.items[self.history.items.len - 1];
+    }
+
+    pub fn activateNamespace(self: *Bindings, namespace_name: []const u8) void {
+        self.history.clearRetainingCapacity();
+        self.active_namespace = self.namespaces.getIndex(namespace_name).?;
+    }
+
+    pub fn activateMode(self: *Bindings, mode_name: []const u8) void {
+        for (self.activeNamespace().modes, 0..) |mode, i| {
+            if (std.mem.eql(u8, mode_name, mode.name)) {
+                self.active_mode = i;
+                return;
             }
+        }
+        std.debug.assert(false); //mode name should always be valid
+    }
+
+    pub fn activeNamespace(self: *const Bindings) *Namespace {
+        return self.namespaces.unmanaged.entries.ptr + self.active_namespace;
+    }
+
+    pub fn activeMode(self: *Bindings) *Mode {
+        return self.activeNamespace().modes.ptr + self.active_mode;
+    }
+
+    pub fn getModeFromName(self: *const Bindings, mode_name: []const u8) ?*Mode {
+        for (self.activeNameSpace().modes) |*mode| {
+            if (std.mem.eql(u8, mode.name, mode_name)) {
+                return mode;
+            }
+        }
+        return null;
+    }
+
+    //Checks if recent key events correspond to any key action
+    pub fn matchHistory(self: *Bindings, mode: *Mode) !?Action {
+        for (mode.bindings) |binding| {
+            const relevant_history = self.lastNKeyEvents(binding.len()) orelse continue;
+            if (std.mem.eql(KeyEvent, binding.trigger, relevant_history)) {
+
+                //TODO undo binding.len() character insertions if they happened
+                self.history.clearRetainingCapacity();
+
+                return binding.action;
+            }
+        }
+
+        //handle no match
+        switch (mode.no_match_behavior) {
+            .ignore => {
+                return null;
+            },
+            .insert => {
+                try self.insert_bytes(self.lastKeyEvent().character);
+                return null;
+            },
+            .fallback_mode => |mode_name| {
+                return try self.matchHistoryToAction(self.getModeFromName(mode_name).?);
+            },
         }
     }
 
@@ -113,51 +231,79 @@ pub const Bindings = struct {
             .allocator = allocator,
             .active_namespace = 0,
             .active_mode = 0,
-            .namespaces = std.StringArrayHashMap(Mode).init(allocator),
+            .namespaces = std.StringArrayHashMap(Namespace).init(allocator),
             .history = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
             .last_key_event_timestamp_ms = std.time.milliTimestamp(),
+            .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
         };
     }
 
     pub fn deinit(self: *Bindings) void {
-        for (self.namespaces.entries) |namespace| {
+        for (self.namespaces.unmanaged.entries) |namespace| {
             namespace.modes.deinit();
         }
         self.namespaces.deinit();
         self.history.deinit();
+        self.input_buffer.deinit();
     }
 
     pub fn addNamespace(self: *Bindings, name: []const u8, modes: []const Mode) !void {
-        self.namespaces.put(name, .{ .name = name, .modes = modes });
+        try self.namespaces.put(name, .{ .name = name, .modes = modes });
     }
 };
 
+pub const vim = struct {
+    pub const actions = struct {
+        pub const return_to_normal_mode: []const Action = &.{.{ .command = "mode_change" }};
+    };
+
+    pub const bindings = struct {
+        pub const normal_navigation: []const Binding = &.{
+            Binding{
+                .trigger = &[_]KeyEvent{KeyEvent{ .key = 'j' }},
+                .actions = &.{.{ .command = "move_cursor_down", .description = "Moves Cursor Down" }},
+            },
+            Binding{
+                .trigger = &[_]KeyEvent{KeyEvent{ .key = 'j' }},
+                .actions = &.{.{ .command = "move_cursor_up", .description = "Moves Cursor Up" }},
+            },
+        };
+
+        pub const return_to_normal_mode: []const Binding = &.{
+            Binding{
+                .trigger = &[_]KeyEvent{ KeyEvent{ .key = 'j' }, KeyEvent{ .key = 'k' } },
+                .actions = actions.return_to_normal_mode,
+            },
+            Binding{
+                .trigger = &[_]KeyEvent{KeyEvent{ .key = key.ESC }},
+                .actions = actions.return_to_normal_mode,
+            },
+        };
+    };
+};
+
 pub fn addVimNamespace(bindings: *Bindings) !void {
-    bindings.addNamespace("vim", []Mode{ .{
+    try bindings.addNamespace("vim", &[_]Mode{ .{
         .name = "normal",
         .no_match_behavior = .ignore,
-        .bindings = []Binding{
-            Binding{
-                .key_sequence = []KeyEvent{KeyEvent{ .keynormal = 'J' }},
-                .action = .{ .command = "move_cursor_down", .description = "Moves Cursor Down" },
-            },
-            Binding{
-                .key_sequence = []KeyEvent{KeyEvent{ .keynormal = 'K' }},
-                .action = .{ .command = "move_cursor_up", .description = "Moves Cursor Up" },
-            },
-        },
+        .bindings = vim.bindings.normal_navigation,
     }, .{
         .name = "insert",
         .no_match_behavior = .insert,
-        .bindings = []Binding{
-            Binding{
-                .key_sequence = []KeyEvent{ KeyEvent{ .keynormal = 'J' }, KeyEvent{ .keynormal = 'K' } },
-                .action = .{ .command = "mode_change", .description = "Exits Normal Mode", .args = "vim/normal" },
-            },
-            Binding{
-                .key_sequence = []KeyEvent{KeyEvent{ .keynormal = key.ESC }},
-                .action = .{ .command = "mode_change", .description = "Exits Normal Mode", .args = "vim/normal" },
-            },
-        },
+        .bindings = vim.bindings.return_to_normal_mode,
     } });
+}
+
+test "match" {
+    const alloc = std.testing.allocator;
+    var bind = try Bindings.init(alloc);
+    defer bind.deinit();
+
+    try addVimNamespace(&bind);
+    bind.activateNamespace("vim");
+    bind.activeMode("insert");
+
+    bind.history.append(.{ .key = 'j' });
+    bind.history.append(.{ .key = 'k' });
+    std.testing.expectEqual(vim.actions.return_to_normal_mode, bind.matchHistory());
 }

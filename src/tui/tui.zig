@@ -1,4 +1,5 @@
 const std = @import("std");
+pub const keybindings = @import("mode/input/keybindings.zig");
 const tp = @import("thespian");
 const log = @import("log");
 const config = @import("config");
@@ -67,6 +68,7 @@ pub fn spawn(allocator: Allocator, ctx: *tp.context, eh: anytype, env: ?*const t
 }
 
 fn start(args: StartArgs) tp.result {
+    _ = &keybindings.Bindings; //test to force evaluation
     _ = tp.set_trap(true);
     var self = init(args.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
     errdefer self.deinit();

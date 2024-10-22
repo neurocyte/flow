@@ -278,6 +278,7 @@ pub fn build(b: *std.Build) void {
     tests.root_module.addImport("build_options", options_mod);
     tests.root_module.addImport("log", log_mod);
     tests.root_module.addImport("Buffer", Buffer_mod);
+    tests.root_module.addImport("tui", tui_mod);
     tests.root_module.addImport("color", color_mod);
     // b.installArtifact(tests);
 
