@@ -1122,9 +1122,9 @@ pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {
     self.last_save_eol_mode = eol_mode;
 }
 
-pub fn store_to_string(self: *const Self, allocator: Allocator) ![]u8 {
+pub fn store_to_string(self: *const Self, allocator: Allocator, eol_mode: EolMode) ![]u8 {
     var s = try ArrayList(u8).initCapacity(allocator, self.root.weights_sum().len);
-    try self.root.store(s.writer());
+    try self.root.store(s.writer(), eol_mode);
     return s.toOwnedSlice();
 }
 
