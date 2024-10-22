@@ -4076,9 +4076,13 @@ pub const EditorWidget = struct {
         var bytes: []u8 = "";
 
         if (try m.match(.{ "M", tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
-            self.hover_y, self.hover_x = self.editor.plane.abs_yx_to_rel(y, x);
-            if (self.editor.jump_mode)
-                self.update_hover_timer(.init);
+            const hover_y, const hover_x = self.editor.plane.abs_yx_to_rel(y, x);
+            if (hover_y != self.hover_y or hover_x != self.hover_x) {
+                self.hover_y, self.hover_x = .{ 
+                hover_y, hover_x };
+                if (self.editor.jump_mode)
+                    self.update_hover_timer(.init);
+            }
         } else if (try m.match(.{ "B", tp.extract(&evtype), tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
             try self.mouse_click_event(evtype, btn, y, x, ypx, xpx);
         } else if (try m.match(.{ "D", tp.extract(&evtype), tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
