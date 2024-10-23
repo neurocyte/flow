@@ -1,3 +1,13 @@
+//TODO implement keybinding hints
+
+//TODO handle inserting and then deleting characters inside keybindings
+
+//TODO figure out how keybindings should be configured
+
+//TODO create vimscript style keybinding parser for KeyEvent (ie, convert "<C-p>a" into a sequence of key events)
+
+//TODO figure out how to handle bindings that can take a numerical prefix
+
 const tp = @import("thespian");
 const std = @import("std");
 const builtin = @import("builtin");
@@ -25,6 +35,7 @@ pub const Action = struct {
     //description: []const u8 = "",
 
     pub fn activate(self: Action) !void {
+        //TODO implement
         _ = self;
     }
 };
