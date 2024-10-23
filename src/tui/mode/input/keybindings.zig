@@ -11,8 +11,45 @@ pub const KeyEvent = struct {
     key: u32, //keypress value
     event_type: usize = event_type.PRESS,
     modifiers: u32 = 0,
-    character: u32 = 0,
+
+    pub fn fromString(str: []const u8) KeyEvent {
+        _ = str;
+        return undefined;
+    }
+
+    pub fn eql(self: @This(), other: @This()) bool {
+        return std.mem.eql(@This(), self, other);
+    }
 };
+
+pub const KeyEventRecord = struct {
+    key_event: KeyEvent,
+    timestamp_ms: i64,
+    egc_inserted: bool = false,
+};
+
+// pub const SequenceBuilder = struct {
+//     //events: std.MultiArrayList(KeyEventRecord),
+//     partial_match_buffer: std.ArrayList(Binding),
+
+//     pub const MatchResult = union(enum) {
+//         no_match: void,
+//         partial_match: []const Binding,
+//         match: Binding,
+//     };
+
+//     pub fn attemptMatch(self: @This(), key_sequence: []const KeyEventRecord, bindings: []const Binding) MatchResult {
+//         self.partial_match_buffer.clearRetainingCapacity();
+//         for (bindings) |binding| {
+//             for (binding.key_sequence, 0..) |key_event, i| {
+//                 if (key_event.eql(key_sequence[i].key_event)) {}
+//             }
+//         }
+//     }
+//     // for(binding.key_sequence) |key_event| {
+//     // if(key_event.eql
+//     // }
+// };
 
 //An action that can be triggered by a Key Sequence
 pub const Action = struct {
@@ -27,11 +64,11 @@ pub const Action = struct {
 
 //An association of an action with a triggering key chord
 pub const Binding = struct {
-    trigger: []const KeyEvent,
+    key_sequence: []const KeyEvent,
     actions: []const Action,
 
     pub fn len(self: Binding) usize {
-        return self.trigger.len;
+        return self.key_sequence.len;
     }
 };
 
@@ -64,6 +101,7 @@ pub const Bindings = struct {
     history: std.ArrayList(KeyEvent),
     last_key_event_timestamp_ms: i64,
     input_buffer: std.ArrayList(u8),
+    required_undo_count: usize = 0,
     last_command: []const u8 = "",
 
     const Self = @This();
@@ -181,13 +219,13 @@ pub const Bindings = struct {
         std.debug.assert(false); //mode name should always be valid
     }
 
-    pub fn activeNamespace(self: *const Bindings) *Namespace {
-        return self.namespaces.unmanaged.entries.ptr + self.active_namespace;
-    }
+    // pub fn activeNamespace(self: *const Bindings) *Namespace {
+    //     return self.namespaces.unmanaged.entries.ptr + self.active_namespace;
+    // }
 
-    pub fn activeMode(self: *Bindings) *Mode {
-        return self.activeNamespace().modes.ptr + self.active_mode;
-    }
+    // pub fn activeMode(self: *Bindings) *Mode {
+    //     return self.activeNamespace().modes.ptr + self.active_mode;
+    // }
 
     pub fn getModeFromName(self: *const Bindings, mode_name: []const u8) ?*Mode {
         for (self.activeNameSpace().modes) |*mode| {
@@ -197,15 +235,21 @@ pub const Bindings = struct {
         }
         return null;
     }
+    
+    //erases current key sequence
+    pub fn clearHistory(self: *@This()) void {
+        self.history.clearRetainingCapacity();
+        for(0..self.required_undo_count) |_|{
+            self.cmd("undo", .{});
+        }
+    }
 
     //Checks if recent key events correspond to any key action
-    pub fn matchHistory(self: *Bindings, mode: *Mode) !?Action {
+    pub fn matchHistory(self: *const Bindings, mode: *Mode) !?Action {
         for (mode.bindings) |binding| {
             const relevant_history = self.lastNKeyEvents(binding.len()) orelse continue;
             if (std.mem.eql(KeyEvent, binding.trigger, relevant_history)) {
-
-                //TODO undo binding.len() character insertions if they happened
-                self.history.clearRetainingCapacity();
+                self.clearHistory();
 
                 return binding.action;
             }
@@ -218,6 +262,7 @@ pub const Bindings = struct {
             },
             .insert => {
                 try self.insert_bytes(self.lastKeyEvent().character);
+                self.required_undo_count += 1;
                 return null;
             },
             .fallback_mode => |mode_name| {
@@ -250,6 +295,13 @@ pub const Bindings = struct {
     pub fn addNamespace(self: *Bindings, name: []const u8, modes: []const Mode) !void {
         try self.namespaces.put(name, .{ .name = name, .modes = modes });
     }
+
+    fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
+        try self.flush_input();
+        self.last_cmd = name_;
+        try command.executeName(name_, ctx);
+    }
+
 };
 
 pub const vim = struct {
@@ -260,7 +312,7 @@ pub const vim = struct {
     pub const bindings = struct {
         pub const normal_navigation: []const Binding = &.{
             Binding{
-                .trigger = &[_]KeyEvent{KeyEvent{ .key = 'j' }},
+                .key_sequence = &[_]KeyEvent{KeyEvent{ .key = 'j' }},
                 .actions = &.{.{ .command = "move_cursor_down", .description = "Moves Cursor Down" }},
             },
             Binding{
