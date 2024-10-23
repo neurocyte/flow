@@ -13,7 +13,7 @@ pub fn Options(context: type) type {
         ctx: Context,
 
         dim: u8 = 255,
-        dim_target: u8 = 128,
+        dim_target: u8 = 192,
 
         on_click: *const fn (ctx: context, self: *State(Context)) void = on_click_exit_overlay_mode,
         on_click2: *const fn (ctx: context, self: *State(Context)) void = do_nothing,
