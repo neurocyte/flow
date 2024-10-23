@@ -4,7 +4,7 @@ const std = @import("std");
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
-const command = @import("../../../command.zig");
+const command = @import("../../command.zig");
 
 //A single key event, such as Ctrl-E
 pub const KeyEvent = struct {
@@ -108,8 +108,8 @@ pub const Bindings = struct {
     active_mode: usize,
     namespaces: HashMap(Namespace),
     current_sequence: std.ArrayList(KeyEvent),
-    current_sequence_egc: std.ArrayList(u32),
-    last_key_event_timestamp_ms: i64,
+    current_sequence_egc: std.ArrayList(u8),
+    // last_key_event_timestamp_ms: i64,
     input_buffer: std.ArrayList(u8),
     required_undo_count: usize = 0,
     last_command: []const u8 = "",
@@ -121,7 +121,7 @@ pub const Bindings = struct {
     fn insertBytes(self: *Self, bytes: []const u8) !void {
         if (self.input_buffer.items.len + 4 > max_input_buffer_size)
             try self.flushInputBuffer();
-        try self.input.appendSlice(bytes);
+        try self.input_buffer.appendSlice(bytes);
     }
 
     fn flushInputBuffer(self: *Self) !void {
@@ -129,12 +129,12 @@ pub const Bindings = struct {
             var insert_chars_id: ?command.ID = null;
         };
         if (self.input_buffer.items.len > 0) {
-            defer self.input.clearRetainingCapacity();
+            defer self.input_buffer.clearRetainingCapacity();
             const id = Static.insert_chars_id orelse
                 command.get_id_cache("insert_chars", &Static.insert_chars_id) orelse {
                 return tp.exit_error(error.InputTargetNotFound, null);
             };
-            try command.execute(id, command.fmt(.{self.input.items}));
+            try command.execute(id, command.fmt(.{self.input_buffer.items}));
             self.last_command = "insert_chars";
         }
     }
@@ -157,9 +157,8 @@ pub const Bindings = struct {
             try self.registerKeyEvent(.{
                 .event_type = evtype,
                 .key = keypress,
-                .character = egc,
                 .modifiers = modifiers,
-            }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            }, egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{"F"})) {
             self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
@@ -181,22 +180,23 @@ pub const Bindings = struct {
     // }
 
     //register a key press and try to match it with a binding
-    pub fn registerKeyEvent(self: *Bindings, event: KeyEvent) !void {
+    pub fn registerKeyEvent(self: *Bindings, event: KeyEvent, egc: u8) !void {
 
         //clear key history if enough time has passed since last key press
-        const timestamp = std.time.milliTimestamp();
-        if (self.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
-            self.history.clearRetainingCapacity();
-        }
-        self.last_key_event_timestamp_ms = timestamp;
+        // const timestamp = std.time.milliTimestamp();
+        // if (self.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
+        // self.history.clearRetainingCapacity();
+        // }
+        // self.last_key_event_timestamp_ms = timestamp;
 
         try self.current_sequence.append(event);
+        try self.current_sequence_egc.append(egc);
 
         var all_matches_impossible = true;
         for (self.activeMode().bindings) |binding| blk: {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
-                    binding.action.activate();
+                    try binding.action.activate();
                     self.current_sequence.clearRetainingCapacity();
                     self.current_sequence_egc.clearRetainingCapacity();
                     break :blk;
@@ -208,7 +208,7 @@ pub const Bindings = struct {
             }
         }
         if (all_matches_impossible) {
-            self.insertBytes(self.current_sequence_egc.items);
+            try self.insertBytes(self.current_sequence_egc.items);
             self.current_sequence.clearRetainingCapacity();
             self.current_sequence_egc.clearRetainingCapacity();
         }
@@ -249,12 +249,12 @@ pub const Bindings = struct {
     //     std.debug.assert(false); //mode name should always be valid
     // }
 
-    pub fn activeNamespace(self: *const Bindings) *Namespace {
-        return self.namespaces.values().ptr + self.active_namespace;
+    pub fn activeNamespace(self: *const Bindings) Namespace {
+        return self.namespaces.values()[self.active_namespace];
     }
 
-    pub fn activeMode(self: *Bindings) *Mode {
-        return self.activeNamespace().modes.values().ptr + self.active_mode;
+    pub fn activeMode(self: *Bindings) Mode {
+        return self.activeNamespace().values()[self.active_mode];
     }
 
     //erases current key sequence
@@ -299,8 +299,8 @@ pub const Bindings = struct {
             .active_mode = 0,
             .namespaces = std.StringArrayHashMap(Namespace).init(allocator),
             .current_sequence = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
-            .current_sequence_egc = try std.ArrayList(u32).initCapacity(allocator, 16),
-            .last_key_event_timestamp_ms = std.time.milliTimestamp(),
+            .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
+            //.last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
         };
     }
@@ -308,7 +308,7 @@ pub const Bindings = struct {
     pub fn deinit(self: *Bindings) void {
         for (self.namespaces.values()) |*namespace| {
             // for(namespace.values()) |*mode| {
-                // mode.deinit();
+            // mode.deinit();
             // }
             namespace.deinit();
         }

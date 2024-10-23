@@ -34,8 +34,7 @@ test "binding.match.4" {
 test "Bindings.register" {
     var bindings = try kb.Bindings.init(alloc);
     defer bindings.deinit();
-    _ = &bindings;
-    //try bindings.registerKeyEvent(.{});
+    try bindings.registerKeyEvent(.{.key = 'j'}, 'j');
 }
 
 
