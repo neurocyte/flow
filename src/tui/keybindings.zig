@@ -4,7 +4,7 @@ const std = @import("std");
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
-const command = @import("../../command.zig");
+const command = @import("command.zig");
 
 //A single key event, such as Ctrl-E
 pub const KeyEvent = struct {
@@ -384,3 +384,44 @@ pub const Bindings = struct {
 //     bind.history.append(.{ .key = 'k' });
 //     std.testing.expectEqual(vim.actions.return_to_normal_mode, bind.matchHistory());
 // }
+
+const alloc = std.testing.allocator;
+
+test "binding.match.1" {
+    const binding = Binding{.keys = &.{.{.key = 'j'}}};
+    const sequence: []const KeyEvent = &.{.{.key = 'j'}};
+    const result = binding.match(sequence);
+    try std.testing.expect(result == .matched);
+}
+
+test "binding.match.2" {
+    const binding = Binding{.keys = &.{.{.key = 'j'}, .{.key = 'k'}}};
+    const sequence: []const KeyEvent = &.{.{.key = 'j'}};
+    const result = binding.match(sequence);
+    try std.testing.expect(result == .match_possible);
+}
+
+test "binding.match.3" {
+    const binding = Binding{.keys = &.{.{.key = 'j'}, .{.key = 'k'}}};
+    const sequence: []const KeyEvent = &.{.{.key = 'j'}, .{.key = 'k'}};
+    const result = binding.match(sequence);
+    try std.testing.expect(result == .matched);
+}
+
+test "binding.match.4" {
+    const binding = Binding{.keys = &.{.{.key = 'j'}, .{.key = 'k'}}};
+    const sequence: []const KeyEvent = &.{.{.key = 'k'}, .{.key = 'j'}};
+    const result = binding.match(sequence);
+    try std.testing.expect(result == .match_impossible);
+}
+
+test "Bindings.register" {
+    var bindings = try Bindings.init(alloc);
+    defer bindings.deinit();
+    try bindings.registerKeyEvent(.{.key = 'j'}, 'j');
+}
+
+
+
+
+

@@ -215,33 +215,6 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const keybindings_mod = b.createModule(.{
-        .root_source_file = b.path("src/tui/mode/input/keybindings.zig"),
-        .imports = &.{
-            .{ .name = "renderer", .module = renderer_mod },
-            .{ .name = "thespian", .module = thespian_mod },
-            .{ .name = "cbor", .module = cbor_mod },
-            .{ .name = "config", .module = config_mod },
-            .{ .name = "log", .module = log_mod },
-            .{ .name = "location_history", .module = location_history_mod },
-            .{ .name = "project_manager", .module = project_manager_mod },
-            .{ .name = "syntax", .module = syntax_mod },
-            .{ .name = "text_manip", .module = text_manip_mod },
-            .{ .name = "Buffer", .module = Buffer_mod },
-            .{ .name = "ripgrep", .module = ripgrep_mod },
-            .{ .name = "theme", .module = themes_dep.module("theme") },
-            .{ .name = "themes", .module = themes_dep.module("themes") },
-            .{ .name = "tracy", .module = tracy_mod },
-            .{ .name = "build_options", .module = options_mod },
-            .{ .name = "color", .module = color_mod },
-            .{ .name = "diff", .module = diff_mod },
-            .{ .name = "help.md", .module = help_mod },
-            .{ .name = "CaseData", .module = zg_dep.module("CaseData") },
-            .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
-            .{ .name = "zeit", .module = zeit_mod },
-        },
-    });
-
     const exe = b.addExecutable(.{
         .name = "flow",
         .root_source_file = b.path("src/main.zig"),
@@ -296,6 +269,21 @@ pub fn build(b: *std.Build) void {
     const check = b.step("check", "Check the app");
     check.dependOn(&check_exe.step);
 
+    const keybinding_tests = b.addTest(.{
+        .root_source_file = b.path("src/tui/keybindings.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    keybinding_tests.root_module.addImport("renderer", renderer_mod);
+    keybinding_tests.root_module.addImport("thespian", thespian_mod);
+    keybinding_tests.root_module.addImport("tui", tui_mod);
+    keybinding_tests.root_module.addImport("config", config_mod);
+    keybinding_tests.root_module.addImport("build_options", options_mod);
+    keybinding_tests.root_module.addImport("log", log_mod);
+    keybinding_tests.root_module.addImport("color", color_mod);
+    keybinding_tests.root_module.addImport("theme", themes_dep.module("theme"));
+    keybinding_tests.root_module.addImport("Buffer", Buffer_mod);
+
     const tests = b.addTest(.{
         .root_source_file = b.path("test/tests.zig"),
         .target = target,
@@ -305,14 +293,15 @@ pub fn build(b: *std.Build) void {
     tests.root_module.addImport("build_options", options_mod);
     tests.root_module.addImport("log", log_mod);
     tests.root_module.addImport("Buffer", Buffer_mod);
-    tests.root_module.addImport("keybindings", keybindings_mod);
     tests.root_module.addImport("color", color_mod);
     // b.installArtifact(tests);
 
     const test_run_cmd = b.addRunArtifact(tests);
+    const keybinding_test_run_cmd = b.addRunArtifact(keybinding_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run_cmd.step);
+    test_step.dependOn(&keybinding_test_run_cmd.step);
 
     const lints_step = b.step("lint", "Run lints");
 
