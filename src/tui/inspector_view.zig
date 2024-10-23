@@ -73,7 +73,9 @@ fn clear(self: *Self) void {
 
 fn inspect_location(self: *Self, row: usize, col: usize) void {
     const syn = self.editor.syntax orelse return;
-    syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col) });
+    const root = (self.editor.buffer orelse return).root;
+    const col_pos = root.get_line_width_to_pos(row, col,self.editor.metrics) catch return;
+    syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col_pos) });
 }
 
 fn get_buffer_text(self: *Self, buf: []u8, sel: Buffer.Selection) ?[]const u8 {

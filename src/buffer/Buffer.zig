@@ -553,6 +553,24 @@ const Node = union(enum) {
         };
     }
 
+    pub fn get_line_width_to_pos(self: *const Node, line: usize, col: usize, metrics: Metrics) error{Stop}!usize {
+        const Ctx = struct {
+            col: usize,
+            wcwidth: usize = 0,
+            pos: usize = 0,
+            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Metrics) Walker {
+                const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+                if (ctx.wcwidth >= ctx.col) return Walker.stop;
+                ctx.pos += egc.len;
+                ctx.wcwidth += wcwidth;
+                return if (egc[0] == '\n') Walker.stop else Walker.keep_walking;
+            }
+        };
+        var ctx: Ctx = .{ .col = col };
+        self.walk_egc_forward(line, Ctx.walker, &ctx, metrics) catch return error.Stop;
+        return ctx.pos;
+    }
+
     pub fn get_range(self: *const Node, sel: Selection, copy_buf: ?[]u8, size: ?*usize, wcwidth_: ?*usize, metrics_: Metrics) error{ Stop, NoSpaceLeft }!?[]u8 {
         const Ctx = struct {
             col: usize = 0,
