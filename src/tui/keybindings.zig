@@ -214,25 +214,25 @@ pub const Bindings = struct {
         }
     }
 
-    ///Returns active bindings
+    //Returns active bindings
     // pub fn active(self: *Bindings) []const Binding {
     // return self.namespaces.entries[self.active_namespace].modes[self.active_mode].bindings;
     // }
 
     //Returns the last N key events
-    pub fn lastNKeyEvents(self: *const Bindings, n: usize) ?[]const KeyEvent {
-        const len = self.history.items.len;
-        if (len >= n) {
-            return self.history.items[len - n ..];
-        } else {
-            return null;
-        }
-    }
+    // pub fn lastNKeyEvents(self: *const Bindings, n: usize) ?[]const KeyEvent {
+    //     const len = self.history.items.len;
+    //     if (len >= n) {
+    //         return self.history.items[len - n ..];
+    //     } else {
+    //         return null;
+    //     }
+    // }
 
-    pub fn lastKeyEvent(self: *const Bindings) KeyEvent {
-        std.debug.assert(self.history.items.len > 0);
-        return self.history.items[self.history.items.len - 1];
-    }
+    // pub fn lastKeyEvent(self: *const Bindings) KeyEvent {
+        // std.debug.assert(self.history.items.len > 0);
+        // return self.history.items[self.history.items.len - 1];
+    // }
 
     // pub fn activateNamespace(self: *Bindings, namespace_name: []const u8) void {
     // self.history.clearRetainingCapacity();
