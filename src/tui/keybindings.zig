@@ -70,19 +70,25 @@ pub const Binding = struct {
     pub const MatchResult = enum { match_impossible, match_possible, matched };
 
     pub fn match(self: @This(), keys: []const KeyEvent) MatchResult {
-        var result: MatchResult = .match_possible;
+        //var result: MatchResult = .match_possible;
+        //var num_matched_keys: usize = 0;
         for (keys, 0..) |key_event, i| {
             if (!key_event.eql(self.keys[i])) {
-                result = .match_impossible;
+                return .match_impossible;
             }
         }
 
-        if (result == .match_possible and keys.len == self.len()) {
-            result = .matched;
+        if (keys.len >= self.len()) {
+            return .matched;
+        } else {
+            return .match_possible;
         }
-        return result;
     }
 };
+
+fn matchBinding(binding: Binding, sequence: []const KeyEvent) Binding.MatchResult {
+    return binding.match(sequence);
+}
 
 //A Collection of keybindings
 pub const Mode = struct {
@@ -314,9 +320,6 @@ pub const Bindings = struct {
 
     pub fn deinit(self: *Bindings) void {
         for (self.namespaces.values()) |*namespace| {
-            // for(namespace.values()) |*mode| {
-            // mode.deinit();
-            // }
             namespace.deinit();
         }
         self.namespaces.deinit();
@@ -395,37 +398,84 @@ pub const Bindings = struct {
 // }
 
 const alloc = std.testing.allocator;
+const expectEqual = std.testing.expectEqual;
 
-test "binding.match.1" {
-    const binding = Binding{ .keys = &.{.{ .key = 'j' }} };
-    const sequence: []const KeyEvent = &.{.{ .key = 'j' }};
-    const result = binding.match(sequence);
-    try std.testing.expect(result == .matched);
-}
+test "binding.match" {
+    try expectEqual(
+        .matched,
+        matchBinding(
+            Binding{ .keys = &[_]KeyEvent{.{ .key = 'j' }} },
+            &[_]KeyEvent{.{ .key = 'j' }},
+        ),
+    );
 
-test "binding.match.2" {
-    const binding = Binding{ .keys = &.{ .{ .key = 'j' }, .{ .key = 'k' } } };
-    const sequence: []const KeyEvent = &.{.{ .key = 'j' }};
-    const result = binding.match(sequence);
-    try std.testing.expect(result == .match_possible);
-}
+    try expectEqual(
+        .match_possible,
+        matchBinding(
+            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'j' }, .{ .key = 'k' } } },
+            &[_]KeyEvent{.{ .key = 'j' }},
+        ),
+    );
 
-test "binding.match.3" {
-    const binding = Binding{ .keys = &.{ .{ .key = 'j' }, .{ .key = 'k' } } };
-    const sequence: []const KeyEvent = &.{ .{ .key = 'j' }, .{ .key = 'k' } };
-    const result = binding.match(sequence);
-    try std.testing.expect(result == .matched);
-}
+    try expectEqual(
+        .matched,
+        matchBinding(
+            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'j' }, .{ .key = 'k' } } },
+            &[_]KeyEvent{ .{ .key = 'j' }, .{ .key = 'k' } },
+        ),
+    );
 
-test "binding.match.4" {
-    const binding = Binding{ .keys = &.{ .{ .key = 'j' }, .{ .key = 'k' } } };
-    const sequence: []const KeyEvent = &.{ .{ .key = 'k' }, .{ .key = 'j' } };
-    const result = binding.match(sequence);
-    try std.testing.expect(result == .match_impossible);
+    try expectEqual(
+        .match_impossible,
+        matchBinding(
+            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'j' }, .{ .key = 'k' } } },
+            &[_]KeyEvent{ .{ .key = 'k' }, .{ .key = 'j' }, .{ .key = 'k' } },
+        ),
+    );
+
+    try expectEqual(
+        .match_impossible,
+        matchBinding(
+            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.CTRL } } },
+            &[_]KeyEvent{ .{ .key = 'x' }, .{ .key = 'j' }, .{ .key = 'k' } },
+        ),
+    );
+
+    try expectEqual(
+        .match_impossible,
+        matchBinding(
+            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.CTRL } } },
+            &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c' } },
+        ),
+    );
+
+    try expectEqual(
+        .matched,
+        matchBinding(
+            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.CTRL } } },
+            &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.CTRL } },
+        ),
+    );
+
+    try expectEqual(
+        .match_possible,
+        matchBinding(
+            Binding{ .keys = &[_]KeyEvent{
+                .{ .key = 'x', .modifiers = mod.CTRL },
+                .{ .key = 'c', .modifiers = mod.ALT },
+                .{ .key = 'b' },
+            } },
+            &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.ALT } },
+        ),
+    );
 }
 
 test "Bindings.register" {
     var bindings = try Bindings.init(alloc);
     defer bindings.deinit();
     try bindings.registerKeyEvent(.{ .key = 'j' }, 'j');
+    try bindings.registerKeyEvent(.{ .key = 'k' }, 'k');
+    try bindings.registerKeyEvent(.{ .key = 'g' }, 'g');
+    try bindings.registerKeyEvent(.{ .key = 'i' }, 'i');
+    try bindings.registerKeyEvent(.{ .key = 'i', .modifiers = mod.CTRL }, 0);
 }
