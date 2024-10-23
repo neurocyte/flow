@@ -1,5 +1,6 @@
 const tp = @import("thespian");
 const std = @import("std");
+const builtin = @import("builtin");
 
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
@@ -85,8 +86,8 @@ pub const Binding = struct {
 
 //A Collection of keybindings
 pub const Mode = struct {
-    name: []const u8,
-    bindings: []const Binding,
+    //name: []const u8,
+    bindings: []const Binding = &.{},
     no_match_behavior: NoMatchBehavior = .ignore,
 
     //what to do with a key press that does not match any bindings
@@ -134,7 +135,9 @@ pub const Bindings = struct {
                 command.get_id_cache("insert_chars", &Static.insert_chars_id) orelse {
                 return tp.exit_error(error.InputTargetNotFound, null);
             };
-            try command.execute(id, command.fmt(.{self.input_buffer.items}));
+            if (builtin.is_test == false) {
+                try command.execute(id, command.fmt(.{self.input_buffer.items}));
+            }
             self.last_command = "insert_chars";
         }
     }
@@ -230,8 +233,8 @@ pub const Bindings = struct {
     // }
 
     // pub fn lastKeyEvent(self: *const Bindings) KeyEvent {
-        // std.debug.assert(self.history.items.len > 0);
-        // return self.history.items[self.history.items.len - 1];
+    // std.debug.assert(self.history.items.len > 0);
+    // return self.history.items[self.history.items.len - 1];
     // }
 
     // pub fn activateNamespace(self: *Bindings, namespace_name: []const u8) void {
@@ -293,7 +296,7 @@ pub const Bindings = struct {
     // }
 
     pub fn init(allocator: std.mem.Allocator) !Bindings {
-        return .{
+        var result: @This() = .{
             .allocator = allocator,
             .active_namespace = 0,
             .active_mode = 0,
@@ -303,6 +306,10 @@ pub const Bindings = struct {
             //.last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
         };
+        var flow = HashMap(Mode).init(allocator);
+        try flow.put("flow", .{});
+        try result.namespaces.put("flow", flow);
+        return result;
     }
 
     pub fn deinit(self: *Bindings) void {
@@ -325,7 +332,9 @@ pub const Bindings = struct {
     fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
         try self.flush_input();
         self.last_cmd = name_;
-        try command.executeName(name_, ctx);
+        if (builtin.is_test == false) {
+            try command.executeName(name_, ctx);
+        }
     }
 };
 
@@ -388,29 +397,29 @@ pub const Bindings = struct {
 const alloc = std.testing.allocator;
 
 test "binding.match.1" {
-    const binding = Binding{.keys = &.{.{.key = 'j'}}};
-    const sequence: []const KeyEvent = &.{.{.key = 'j'}};
+    const binding = Binding{ .keys = &.{.{ .key = 'j' }} };
+    const sequence: []const KeyEvent = &.{.{ .key = 'j' }};
     const result = binding.match(sequence);
     try std.testing.expect(result == .matched);
 }
 
 test "binding.match.2" {
-    const binding = Binding{.keys = &.{.{.key = 'j'}, .{.key = 'k'}}};
-    const sequence: []const KeyEvent = &.{.{.key = 'j'}};
+    const binding = Binding{ .keys = &.{ .{ .key = 'j' }, .{ .key = 'k' } } };
+    const sequence: []const KeyEvent = &.{.{ .key = 'j' }};
     const result = binding.match(sequence);
     try std.testing.expect(result == .match_possible);
 }
 
 test "binding.match.3" {
-    const binding = Binding{.keys = &.{.{.key = 'j'}, .{.key = 'k'}}};
-    const sequence: []const KeyEvent = &.{.{.key = 'j'}, .{.key = 'k'}};
+    const binding = Binding{ .keys = &.{ .{ .key = 'j' }, .{ .key = 'k' } } };
+    const sequence: []const KeyEvent = &.{ .{ .key = 'j' }, .{ .key = 'k' } };
     const result = binding.match(sequence);
     try std.testing.expect(result == .matched);
 }
 
 test "binding.match.4" {
-    const binding = Binding{.keys = &.{.{.key = 'j'}, .{.key = 'k'}}};
-    const sequence: []const KeyEvent = &.{.{.key = 'k'}, .{.key = 'j'}};
+    const binding = Binding{ .keys = &.{ .{ .key = 'j' }, .{ .key = 'k' } } };
+    const sequence: []const KeyEvent = &.{ .{ .key = 'k' }, .{ .key = 'j' } };
     const result = binding.match(sequence);
     try std.testing.expect(result == .match_impossible);
 }
@@ -418,10 +427,5 @@ test "binding.match.4" {
 test "Bindings.register" {
     var bindings = try Bindings.init(alloc);
     defer bindings.deinit();
-    try bindings.registerKeyEvent(.{.key = 'j'}, 'j');
+    try bindings.registerKeyEvent(.{ .key = 'j' }, 'j');
 }
-
-
-
-
-
