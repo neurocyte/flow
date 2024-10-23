@@ -18,35 +18,6 @@ pub const KeyEvent = struct {
     }
 };
 
-// pub const KeyEventRecord = struct {
-//     key_event: KeyEvent,
-//     timestamp_ms: i64,
-//     egc_inserted: bool = false,
-//};
-
-// pub const SequenceBuilder = struct {
-//     //events: std.MultiArrayList(KeyEventRecord),
-//     partial_match_buffer: std.ArrayList(Binding),
-
-//     pub const MatchResult = union(enum) {
-//         no_match: void,
-//         partial_match: []const Binding,
-//         match: Binding,
-//     };
-
-//     pub fn attemptMatch(self: @This(), key_sequence: []const KeyEventRecord, bindings: []const Binding) MatchResult {
-//         self.partial_match_buffer.clearRetainingCapacity();
-//         for (bindings) |binding| {
-//             for (binding.key_sequence, 0..) |key_event, i| {
-//                 if (key_event.eql(key_sequence[i].key_event)) {}
-//             }
-//         }
-//     }
-//     // for(binding.key_sequence) |key_event| {
-//     // if(key_event.eql
-//     // }
-// };
-
 //An action that can be triggered by a Key Sequence
 pub const Action = struct {
     command: []const u8 = "",
@@ -70,8 +41,6 @@ pub const Binding = struct {
     pub const MatchResult = enum { match_impossible, match_possible, matched };
 
     pub fn match(self: @This(), keys: []const KeyEvent) MatchResult {
-        //var result: MatchResult = .match_possible;
-        //var num_matched_keys: usize = 0;
         for (keys, 0..) |key_event, i| {
             if (!key_event.eql(self.keys[i])) {
                 return .match_impossible;
@@ -92,7 +61,6 @@ fn matchBinding(binding: Binding, sequence: []const KeyEvent) Binding.MatchResul
 
 //A Collection of keybindings
 pub const Mode = struct {
-    //name: []const u8,
     bindings: []const Binding = &.{},
     no_match_behavior: NoMatchBehavior = .ignore,
 
@@ -116,7 +84,7 @@ pub const Bindings = struct {
     namespaces: HashMap(Namespace),
     current_sequence: std.ArrayList(KeyEvent),
     current_sequence_egc: std.ArrayList(u8),
-    // last_key_event_timestamp_ms: i64,
+    last_key_event_timestamp_ms: i64 = 0,
     input_buffer: std.ArrayList(u8),
     required_undo_count: usize = 0,
     last_command: []const u8 = "",
@@ -183,26 +151,21 @@ pub const Bindings = struct {
         return self.namespaces.keys();
     }
 
-    //lists modes of active namespace
-    // pub fn listModes(self: *const Bindings) []const []const u8 {
-    // return self.namespaces.values[self.active_namespace].modes.keys();
-    // }
-
     //register a key press and try to match it with a binding
-    pub fn registerKeyEvent(self: *Bindings, event: KeyEvent, egc: u8) !void {
+    pub fn registerKeyEvent(self: *Bindings, mode: Mode, egc: u8, event: KeyEvent) !void {
 
         //clear key history if enough time has passed since last key press
-        // const timestamp = std.time.milliTimestamp();
-        // if (self.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
-        // self.history.clearRetainingCapacity();
-        // }
-        // self.last_key_event_timestamp_ms = timestamp;
+        const timestamp = std.time.milliTimestamp();
+        if (self.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
+            try self.abortCurrentSequence(.timeout, mode, egc, event);
+        }
+        self.last_key_event_timestamp_ms = timestamp;
 
         try self.current_sequence.append(event);
         try self.current_sequence_egc.append(egc);
 
         var all_matches_impossible = true;
-        for (self.activeMode().bindings) |binding| blk: {
+        for (mode.bindings) |binding| blk: {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
                     try binding.action.activate();
@@ -217,46 +180,34 @@ pub const Bindings = struct {
             }
         }
         if (all_matches_impossible) {
-            try self.insertBytes(self.current_sequence_egc.items);
-            self.current_sequence.clearRetainingCapacity();
-            self.current_sequence_egc.clearRetainingCapacity();
+            try self.abortCurrentSequence(.match_impossible, mode, egc, event);
         }
     }
 
-    //Returns active bindings
-    // pub fn active(self: *Bindings) []const Binding {
-    // return self.namespaces.entries[self.active_namespace].modes[self.active_mode].bindings;
-    // }
-
-    //Returns the last N key events
-    // pub fn lastNKeyEvents(self: *const Bindings, n: usize) ?[]const KeyEvent {
-    //     const len = self.history.items.len;
-    //     if (len >= n) {
-    //         return self.history.items[len - n ..];
-    //     } else {
-    //         return null;
-    //     }
-    // }
-
-    // pub fn lastKeyEvent(self: *const Bindings) KeyEvent {
-    // std.debug.assert(self.history.items.len > 0);
-    // return self.history.items[self.history.items.len - 1];
-    // }
-
-    // pub fn activateNamespace(self: *Bindings, namespace_name: []const u8) void {
-    // self.history.clearRetainingCapacity();
-    //self.active_namespace = self.namespaces.getIndex(namespace_name).?;
-    // }
-
-    // pub fn activateMode(self: *Bindings, mode_name: []const u8) void {
-    //     for (self.activeNamespace().modes, 0..) |mode, i| {
-    //         if (std.mem.eql(u8, mode_name, mode.name)) {
-    //             self.active_mode = i;
-    //             return;
-    //         }
-    //     }
-    //     std.debug.assert(false); //mode name should always be valid
-    // }
+    pub const AbortType = enum { timeout, match_impossible };
+    pub fn abortCurrentSequence(self: *@This(), abort_type: AbortType, mode: Mode, egc: u8, key_event: KeyEvent) anyerror!void {
+        if (abort_type == .match_impossible) {
+            switch (mode.no_match_behavior) {
+                .insert => {
+                    try self.insertBytes(self.current_sequence_egc.items);
+                    self.current_sequence_egc.clearRetainingCapacity();
+                    self.current_sequence.clearRetainingCapacity();
+                },
+                .ignore => {
+                    self.current_sequence.clearRetainingCapacity();
+                    self.current_sequence_egc.clearRetainingCapacity();
+                },
+                .fallback_mode => |fallback_mode_name| {
+                    const fallback_mode = self.activeNamespace().get(fallback_mode_name).?;
+                    try self.registerKeyEvent(fallback_mode, egc, key_event);
+                },
+            }
+        } else if (abort_type == .timeout) {
+            try self.insertBytes(self.current_sequence_egc.items);
+            self.current_sequence_egc.clearRetainingCapacity();
+            self.current_sequence.clearRetainingCapacity();
+        }
+    }
 
     pub fn activeNamespace(self: *const Bindings) Namespace {
         return self.namespaces.values()[self.active_namespace];
@@ -266,41 +217,6 @@ pub const Bindings = struct {
         return self.activeNamespace().values()[self.active_mode];
     }
 
-    //erases current key sequence
-    // pub fn clearHistory(self: *@This()) void {
-    //     self.history.clearRetainingCapacity();
-    //     for (0..self.required_undo_count) |_| {
-    //         self.cmd("undo", .{});
-    //     }
-    // }
-
-    //Checks if recent key events correspond to any key action
-    // pub fn matchHistory(self: *const Bindings, mode: *Mode) !?Action {
-    //     for (mode.bindings) |binding| {
-    //         const relevant_history = self.lastNKeyEvents(binding.len()) orelse continue;
-    //         if (std.mem.eql(KeyEvent, binding.trigger, relevant_history)) {
-    //             self.clearHistory();
-
-    //             return binding.action;
-    //         }
-    //     }
-
-    //     //handle no match
-    //     switch (mode.no_match_behavior) {
-    //         .ignore => {
-    //             return null;
-    //         },
-    //         .insert => {
-    //             try self.insert_bytes(self.lastKeyEvent().character);
-    //             self.required_undo_count += 1;
-    //             return null;
-    //         },
-    //         .fallback_mode => |mode_name| {
-    //             return try self.matchHistoryToAction(self.getModeFromName(mode_name).?);
-    //         },
-    //     }
-    // }
-
     pub fn init(allocator: std.mem.Allocator) !Bindings {
         var result: @This() = .{
             .allocator = allocator,
@@ -309,7 +225,7 @@ pub const Bindings = struct {
             .namespaces = std.StringArrayHashMap(Namespace).init(allocator),
             .current_sequence = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
             .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
-            //.last_key_event_timestamp_ms = std.time.milliTimestamp(),
+            .last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
         };
         var flow = HashMap(Mode).init(allocator);
@@ -340,62 +256,6 @@ pub const Bindings = struct {
         }
     }
 };
-
-// pub const vim = struct {
-//     pub const actions = struct {
-//         pub const return_to_normal_mode: []const Action = &.{.{ .command = "mode_change" }};
-//     };
-
-//     pub const bindings = struct {
-//         pub const normal_navigation: []const Binding = &.{
-//             Binding{
-//                 .key_sequence = &[_]KeyEvent{KeyEvent{ .key = 'j' }},
-//                 .actions = &.{.{ .command = "move_cursor_down", .description = "Moves Cursor Down" }},
-//             },
-//             Binding{
-//                 .trigger = &[_]KeyEvent{KeyEvent{ .key = 'j' }},
-//                 .actions = &.{.{ .command = "move_cursor_up", .description = "Moves Cursor Up" }},
-//             },
-//         };
-
-//         pub const return_to_normal_mode: []const Binding = &.{
-//             Binding{
-//                 .trigger = &[_]KeyEvent{ KeyEvent{ .key = 'j' }, KeyEvent{ .key = 'k' } },
-//                 .actions = actions.return_to_normal_mode,
-//             },
-//             Binding{
-//                 .trigger = &[_]KeyEvent{KeyEvent{ .key = key.ESC }},
-//                 .actions = actions.return_to_normal_mode,
-//             },
-//         };
-//     };
-// };
-
-// // pub fn addVimNamespace(bindings: *Bindings) !void {
-// //     try bindings.addNamespace("vim", &[_]Mode{ .{
-// //         .name = "normal",
-// //         .no_match_behavior = .ignore,
-// //         .bindings = vim.bindings.normal_navigation,
-//     }, .{
-//         .name = "insert",
-//         .no_match_behavior = .insert,
-//         .bindings = vim.bindings.return_to_normal_mode,
-//     } });
-// }
-
-// test "match" {
-//     const alloc = std.testing.allocator;
-//     var bind = try Bindings.init(alloc);
-//     defer bind.deinit();
-
-//     try addVimNamespace(&bind);
-//     bind.activateNamespace("vim");
-//     bind.activeMode("insert");
-
-//     bind.history.append(.{ .key = 'j' });
-//     bind.history.append(.{ .key = 'k' });
-//     std.testing.expectEqual(vim.actions.return_to_normal_mode, bind.matchHistory());
-// }
 
 const alloc = std.testing.allocator;
 const expectEqual = std.testing.expectEqual;
@@ -473,9 +333,10 @@ test "binding.match" {
 test "Bindings.register" {
     var bindings = try Bindings.init(alloc);
     defer bindings.deinit();
-    try bindings.registerKeyEvent(.{ .key = 'j' }, 'j');
-    try bindings.registerKeyEvent(.{ .key = 'k' }, 'k');
-    try bindings.registerKeyEvent(.{ .key = 'g' }, 'g');
-    try bindings.registerKeyEvent(.{ .key = 'i' }, 'i');
-    try bindings.registerKeyEvent(.{ .key = 'i', .modifiers = mod.CTRL }, 0);
+    const mode = bindings.activeMode();
+    try bindings.registerKeyEvent(mode, 'j', .{ .key = 'j' });
+    try bindings.registerKeyEvent(mode, 'k', .{ .key = 'k' });
+    try bindings.registerKeyEvent(mode, 'g', .{ .key = 'g' });
+    try bindings.registerKeyEvent(mode, 'i', .{ .key = 'i' });
+    try bindings.registerKeyEvent(mode, 0, .{ .key = 'i', .modifiers = mod.CTRL });
 }
