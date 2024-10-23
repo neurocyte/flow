@@ -215,6 +215,33 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const keybindings_mod = b.createModule(.{
+        .root_source_file = b.path("src/tui/mode/input/keybindings.zig"),
+        .imports = &.{
+            .{ .name = "renderer", .module = renderer_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "config", .module = config_mod },
+            .{ .name = "log", .module = log_mod },
+            .{ .name = "location_history", .module = location_history_mod },
+            .{ .name = "project_manager", .module = project_manager_mod },
+            .{ .name = "syntax", .module = syntax_mod },
+            .{ .name = "text_manip", .module = text_manip_mod },
+            .{ .name = "Buffer", .module = Buffer_mod },
+            .{ .name = "ripgrep", .module = ripgrep_mod },
+            .{ .name = "theme", .module = themes_dep.module("theme") },
+            .{ .name = "themes", .module = themes_dep.module("themes") },
+            .{ .name = "tracy", .module = tracy_mod },
+            .{ .name = "build_options", .module = options_mod },
+            .{ .name = "color", .module = color_mod },
+            .{ .name = "diff", .module = diff_mod },
+            .{ .name = "help.md", .module = help_mod },
+            .{ .name = "CaseData", .module = zg_dep.module("CaseData") },
+            .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
+            .{ .name = "zeit", .module = zeit_mod },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = "flow",
         .root_source_file = b.path("src/main.zig"),
@@ -278,7 +305,7 @@ pub fn build(b: *std.Build) void {
     tests.root_module.addImport("build_options", options_mod);
     tests.root_module.addImport("log", log_mod);
     tests.root_module.addImport("Buffer", Buffer_mod);
-    tests.root_module.addImport("tui", tui_mod);
+    tests.root_module.addImport("keybindings", keybindings_mod);
     tests.root_module.addImport("color", color_mod);
     // b.installArtifact(tests);
 

@@ -1,5 +1,4 @@
 const std = @import("std");
-pub const keybindings = @import("mode/input/keybindings.zig");
 const tp = @import("thespian");
 const log = @import("log");
 const config = @import("config");

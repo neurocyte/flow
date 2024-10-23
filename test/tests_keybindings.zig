@@ -1,6 +1,5 @@
 const std = @import("std");
-const tui = @import("tui");
-const kb = tui.keybindings;
+const kb = @import("keybindings");
 const alloc = std.testing.allocator;
 
 test "binding.match.1" {
