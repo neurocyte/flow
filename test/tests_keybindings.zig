@@ -1,17 +1,41 @@
 const std = @import("std");
 const tui = @import("tui");
-const Bindings = tui.keybindings.Bindings;
+const kb = tui.keybindings;
+const alloc = std.testing.allocator;
 
-test "match" {
-    const alloc = std.testing.allocator;
-    var bind = try Bindings.init(alloc);
-    defer bind.deinit();
-
-    try tui.keybindings.addVimNamespace(&bind);
-    bind.activateNamespace("vim");
-    bind.activateMode("insert");
-
-    try bind.history.append(.{ .key = 'j' });
-    try bind.history.append(.{ .key = 'k' });
-    try std.testing.expectEqual(tui.keybindings.vim.actions.return_to_normal_mode, bind.matchHistory());
+test "binding.match.1" {
+    const binding = kb.Binding{.keys = &.{.{.key = 'j'}}};
+    const sequence: []const kb.KeyEvent = &.{.{.key = 'j'}};
+    const result = binding.match(sequence);
+    try std.testing.expect(result == .matched);
 }
+
+test "binding.match.2" {
+    const binding = kb.Binding{.keys = &.{.{.key = 'j'}, .{.key = 'k'}}};
+    const sequence: []const kb.KeyEvent = &.{.{.key = 'j'}};
+    const result = binding.match(sequence);
+    try std.testing.expect(result == .match_possible);
+}
+
+test "binding.match.3" {
+    const binding = kb.Binding{.keys = &.{.{.key = 'j'}, .{.key = 'k'}}};
+    const sequence: []const kb.KeyEvent = &.{.{.key = 'j'}, .{.key = 'k'}};
+    const result = binding.match(sequence);
+    try std.testing.expect(result == .matched);
+}
+
+test "binding.match.4" {
+    const binding = kb.Binding{.keys = &.{.{.key = 'j'}, .{.key = 'k'}}};
+    const sequence: []const kb.KeyEvent = &.{.{.key = 'k'}, .{.key = 'j'}};
+    const result = binding.match(sequence);
+    try std.testing.expect(result == .match_impossible);
+}
+
+test "Bindings.register" {
+    var bindings = try kb.Bindings.init(alloc);
+    defer bindings.deinit();
+    _ = &bindings;
+    //try bindings.registerKeyEvent(.{});
+}
+
+
