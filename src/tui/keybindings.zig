@@ -12,6 +12,7 @@ const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const command = @import("command.zig");
 const EventHandler = @import("EventHandler.zig");
+const tui = @import("tui.zig");
 
 //A single key event, such as Ctrl-E
 pub const KeyEvent = struct {
@@ -368,7 +369,7 @@ pub const Mode = struct {
     current_sequence_egc: std.ArrayList(u8),
     last_key_event_timestamp_ms: i64 = 0,
     input_buffer: std.ArrayList(u8),
-    handler: EventHandler,
+    tui_mode: tui.Mode,
 
     pub fn hints(self: *@This()) ![]const Hint {
         if (self.hints == null) {
@@ -406,8 +407,14 @@ pub const Mode = struct {
             .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
             .last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
-            .handler = EventHandler.to_owned(self),
             .bindings = std.ArrayList(Binding).init(allocator),
+            .tui_mode = tui.Mode{
+                .handler = EventHandler.to_owned(self),
+                .name = "INSERT",
+                .description = "vim",
+                .line_numbers = .relative,
+                .cursor_shape = .beam,
+            },
         };
         return self;
     }
