@@ -272,10 +272,8 @@ const cmds = struct {
         tui.current().rdr.set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
-        if (try project_manager.request_most_recent_file(self.allocator)) |file_path| {
-            defer self.allocator.free(file_path);
-            try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
-        }
+        if (try project_manager.request_most_recent_file(self.allocator)) |file_path|
+            self.show_file_async_and_free(file_path);
     }
     pub const change_project_meta = .{ .interactive = false };
 
@@ -547,10 +545,10 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         return self.location_update(m);
 
     if (try m.match(.{ "E", "close" })) {
-        if (self.pop_file_stack(editor.file_path)) |file_path| {
-            defer self.allocator.free(file_path);
-            self.show_previous_async(file_path);
-        } else self.show_home_async();
+        if (self.pop_file_stack(editor.file_path)) |file_path|
+            self.show_file_async_and_free(file_path)
+        else
+            self.show_home_async();
         self.editor = null;
         return;
     }
@@ -661,7 +659,8 @@ fn toggle_inputview_async(_: *Self) void {
     tp.self_pid().send(.{ "cmd", "toggle_inputview" }) catch return;
 }
 
-fn show_previous_async(_: *Self, file_path: []const u8) void {
+fn show_file_async_and_free(self: *Self, file_path: []const u8) void {
+    defer self.allocator.free(file_path);
     tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch return;
 }
 
