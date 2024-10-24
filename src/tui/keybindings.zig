@@ -304,21 +304,6 @@ pub fn parseBinding(allocator: std.mem.Allocator, str: []const u8) !Binding {
     return result;
 }
 
-pub fn parseBindingList(allocator: std.mem.Allocator, str: []const u8) !std.ArrayList(Binding) {
-    var result = std.ArrayList(Binding).init(allocator);
-    errdefer {
-        for (result.items) |binding| {
-            binding.deinit();
-        }
-        result.deinit();
-    }
-    var iter = std.mem.tokenizeAny(u8, str, &.{'\n'});
-    while (iter.next()) |token| {
-        try result.append(try parseBinding(allocator, token));
-    }
-    return result;
-}
-
 const String = std.ArrayList(u8);
 
 //An association of an command with a triggering key chord
@@ -359,7 +344,7 @@ pub const Binding = struct {
         };
     }
 
-    pub fn deinit(self: @This()) void {
+    pub fn deinit(self: *const @This()) void {
         self.keys.deinit();
         self.command.deinit();
         for (self.args.items) |arg| {
@@ -385,11 +370,11 @@ pub const Mode = struct {
     allocator: std.mem.Allocator,
     bindings: std.ArrayList(Binding),
     on_match_failure: NoMatchBehavior = .ignore,
-    name: []const u8 = "",
-    description: []const u8 = "",
-    line_numbers: enum { absolute, relative } = .absolute,
-    hints: ?std.ArrayList(Hint) = null,
-    cursor_shape: renderer.CursorShape = .block,
+    current_sequence: std.ArrayList(KeyEvent),
+    current_sequence_egc: std.ArrayList(u8),
+    last_key_event_timestamp_ms: i64 = 0,
+    input_buffer: std.ArrayList(u8),
+    handler: EventHandler,
 
     pub fn hints(self: *@This()) ![]const Hint {
         if (self.hints == null) {
@@ -419,43 +404,56 @@ pub const Mode = struct {
         fallback_mode: []const u8,
     };
 
-    pub fn deinit(self: @This()) void {
+    pub fn init(allocator: std.mem.Allocator) !*@This() {
+        const self = try allocator.create(@This());
+        self.* = .{
+            .allocator = allocator,
+            .current_sequence = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
+            .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
+            .last_key_event_timestamp_ms = std.time.milliTimestamp(),
+            .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
+            .handler = EventHandler.to_owned(self),
+            .bindings = std.ArrayList(Binding).init(allocator),
+        };
+        return self;
+    }
+
+    pub fn deinit(self: *const @This()) void {
         for (self.bindings.items) |binding| {
             binding.deinit();
         }
         self.bindings.deinit();
+        self.current_sequence.deinit();
+        self.current_sequence_egc.deinit();
+        self.input_buffer.deinit();
+        self.allocator.destroy(self);
     }
-};
 
-//A collection of various modes under a single namespace, such as "vim" or "emacs"
-pub const Namespace = HashMap(Mode);
-const HashMap = std.StringArrayHashMap;
+    pub fn parseBindingList(self: *@This(), str: []const u8) !void {
+        var iter = std.mem.tokenizeAny(u8, str, &.{'\n'});
+        while (iter.next()) |token| {
+            try self.bindings.append(try parseBinding(self.allocator, token));
+        }
+    }
 
-//Data structure for mapping key events to keybindings
-pub const Bindings = struct {
-    allocator: std.mem.Allocator,
-    active_namespace: usize,
-    active_mode: usize,
-    namespaces: HashMap(Namespace),
-    current_sequence: std.ArrayList(KeyEvent),
-    current_sequence_egc: std.ArrayList(u8),
-    last_key_event_timestamp_ms: i64 = 0,
-    input_buffer: std.ArrayList(u8),
-    required_undo_count: usize = 0,
-    last_command: []const u8 = "",
-    handler: EventHandler,
+    fn cmd(self: *@This(), name_: []const u8, ctx: command.Context) tp.result {
+        try self.flushInputBuffer();
+        self.last_cmd = name_;
+        if (builtin.is_test == false) {
+            try command.executeName(name_, ctx);
+        }
+    }
 
-    const Self = @This();
     pub const max_key_sequence_time_interval = 750;
     pub const max_input_buffer_size = 1024;
 
-    fn insertBytes(self: *Self, bytes: []const u8) !void {
+    fn insertBytes(self: *@This(), bytes: []const u8) !void {
         if (self.input_buffer.items.len + 4 > max_input_buffer_size)
             try self.flushInputBuffer();
         try self.input_buffer.appendSlice(bytes);
     }
 
-    fn flushInputBuffer(self: *Self) !void {
+    fn flushInputBuffer(self: *@This()) !void {
         const Static = struct {
             var insert_chars_id: ?command.ID = null;
         };
@@ -468,16 +466,16 @@ pub const Bindings = struct {
             if (builtin.is_test == false) {
                 try command.execute(id, command.fmt(.{self.input_buffer.items}));
             }
-            self.last_command = "insert_chars";
+            //self.last_command = "insert_chars";
         }
     }
 
-    pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-        var evtype: u32 = undefined;
-        var keypress: u32 = undefined;
-        var egc: u32 = undefined;
-        var modifiers: u32 = undefined;
-        var text: []const u8 = undefined;
+    pub fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+        var evtype: u32 = 0;
+        var keypress: u32 = 0;
+        var egc: u32 = 0;
+        var modifiers: u32 = 0;
+        var text: []const u8 = "";
 
         if (try m.match(.{
             "I",
@@ -487,7 +485,7 @@ pub const Bindings = struct {
             tp.string,
             tp.extract(&modifiers),
         })) {
-            self.registerKeyEvent(self.activeMode(), @intCast(egc), .{
+            self.registerKeyEvent(@intCast(egc), .{
                 .event_type = evtype,
                 .key = keypress,
                 .modifiers = modifiers,
@@ -502,18 +500,13 @@ pub const Bindings = struct {
         return false;
     }
 
-    //lists namespaces
-    pub fn listNamespaces(self: *const @This()) []const []const u8 {
-        return self.namespaces.keys();
-    }
-
     //register a key press and try to match it with a binding
-    pub fn registerKeyEvent(self: *Bindings, mode: Mode, egc: u8, event: KeyEvent) !void {
+    pub fn registerKeyEvent(self: *Mode, egc: u8, event: KeyEvent) !void {
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
         if (self.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
-            try self.abortCurrentSequence(.timeout, mode, egc, event);
+            try self.abortCurrentSequence(.timeout, egc, event);
         }
         self.last_key_event_timestamp_ms = timestamp;
 
@@ -521,7 +514,7 @@ pub const Bindings = struct {
         try self.current_sequence_egc.append(egc);
 
         var all_matches_impossible = true;
-        for (mode.bindings.items) |binding| blk: {
+        for (self.bindings.items) |binding| blk: {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
                     if (!builtin.is_test) {
@@ -538,14 +531,16 @@ pub const Bindings = struct {
             }
         }
         if (all_matches_impossible) {
-            try self.abortCurrentSequence(.match_impossible, mode, egc, event);
+            try self.abortCurrentSequence(.match_impossible, egc, event);
         }
     }
 
     pub const AbortType = enum { timeout, match_impossible };
-    pub fn abortCurrentSequence(self: *@This(), abort_type: AbortType, mode: Mode, egc: u8, key_event: KeyEvent) anyerror!void {
+    pub fn abortCurrentSequence(self: *@This(), abort_type: AbortType, egc: u8, key_event: KeyEvent) anyerror!void {
+        _ = egc;
+        _ = key_event;
         if (abort_type == .match_impossible) {
-            switch (mode.on_match_failure) {
+            switch (self.on_match_failure) {
                 .insert => {
                     try self.insertBytes(self.current_sequence_egc.items);
                     self.current_sequence_egc.clearRetainingCapacity();
@@ -556,8 +551,10 @@ pub const Bindings = struct {
                     self.current_sequence_egc.clearRetainingCapacity();
                 },
                 .fallback_mode => |fallback_mode_name| {
-                    const fallback_mode = self.activeNamespace().get(fallback_mode_name).?;
-                    try self.registerKeyEvent(fallback_mode, egc, key_event);
+                    _ = fallback_mode_name;
+                    @panic("This feature not supported yet");
+                    //const fallback_mode = self.activeNamespace().get(fallback_mode_name).?;
+                    //try self.registerKeyEvent(fallback_mode, egc, key_event);
                 },
             }
         } else if (abort_type == .timeout) {
@@ -565,6 +562,23 @@ pub const Bindings = struct {
             self.current_sequence_egc.clearRetainingCapacity();
             self.current_sequence.clearRetainingCapacity();
         }
+    }
+};
+
+//A collection of various modes under a single namespace, such as "vim" or "emacs"
+pub const Namespace = HashMap(Mode);
+const HashMap = std.StringArrayHashMap;
+
+//Data structure for mapping key events to keybindings
+pub const Bindings = struct {
+    allocator: std.mem.Allocator,
+    active_namespace: usize,
+    active_mode: usize,
+    namespaces: HashMap(Namespace),
+
+    //lists namespaces
+    pub fn listNamespaces(self: *const @This()) []const []const u8 {
+        return self.namespaces.keys();
     }
 
     pub fn activeNamespace(self: *const Bindings) Namespace {
@@ -582,11 +596,6 @@ pub const Bindings = struct {
             .active_namespace = 0,
             .active_mode = 0,
             .namespaces = std.StringArrayHashMap(Namespace).init(allocator),
-            .current_sequence = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
-            .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
-            .last_key_event_timestamp_ms = std.time.milliTimestamp(),
-            .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
-            .handler = EventHandler.to_owned(self),
         };
         return self;
     }
@@ -607,23 +616,10 @@ pub const Bindings = struct {
             namespace.deinit();
         }
         self.namespaces.deinit();
-        self.current_sequence.deinit();
-        self.current_sequence_egc.deinit();
-        self.input_buffer.deinit();
-        self.allocator.destroy(self);
-
     }
 
     pub fn addNamespace(self: *Bindings, name: []const u8, modes: []const Mode) !void {
         try self.namespaces.put(name, .{ .name = name, .modes = modes });
-    }
-
-    fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
-        try self.flushInputBuffer();
-        self.last_cmd = name_;
-        if (builtin.is_test == false) {
-            try command.executeName(name_, ctx);
-        }
     }
 };
 
@@ -725,24 +721,27 @@ const test_str =
 ;
 
 test "parseBindingList" {
-    var arena = std.heap.ArenaAllocator.init(alloc);
-    defer arena.deinit();
-    const bindings = try parseBindingList(arena.allocator(), test_str);
-    bindings.deinit();
+    //var arena = std.heap.ArenaAllocator.init(alloc);
+    //defer arena.deinit();
+    const mode = try Mode.init(alloc);
+    defer mode.deinit();
+    try mode.parseBindingList(test_str);
+    //const bindings = try parseBindingList(arena.allocator(), test_str);
+    //bindings.deinit();
 }
 
 test "Bindings.register" {
-    var bindings = try Bindings.init(alloc);
-    defer bindings.deinit();
-    try bindings.addMode("test_namespace", "test_mode", Mode{
-        .allocator = alloc,
-        .bindings = try parseBindingList(alloc, test_str),
-    });
+    // var bindings = try Bindings.init(alloc);
+    // defer bindings.deinit();
+    // try bindings.addMode("test_namespace", "test_mode", Mode{
+    //     .allocator = alloc,
+    //     .bindings = try parseBindingList(alloc, test_str),
+    // });
 
-    const mode = bindings.activeMode();
-    try bindings.registerKeyEvent(mode, 'j', .{ .key = 'j' });
-    try bindings.registerKeyEvent(mode, 'k', .{ .key = 'k' });
-    try bindings.registerKeyEvent(mode, 'g', .{ .key = 'g' });
-    try bindings.registerKeyEvent(mode, 'i', .{ .key = 'i' });
-    try bindings.registerKeyEvent(mode, 0, .{ .key = 'i', .modifiers = mod.CTRL });
+    // const mode = bindings.activeMode();
+    // try mode.registerKeyEvent('j', .{ .key = 'j' });
+    // try mode.registerKeyEvent('k', .{ .key = 'k' });
+    // try mode.registerKeyEvent('g', .{ .key = 'g' });
+    // try mode.registerKeyEvent('i', .{ .key = 'i' });
+    // try mode.registerKeyEvent(0, .{ .key = 'i', .modifiers = mod.CTRL });
 }
