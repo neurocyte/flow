@@ -120,8 +120,11 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                 switch (char) {
                     '0'...'9' => {
                         function_key_number *= 10;
-                        function_key_number += char;
-                        if (function_key_number < 1 or function_key_number > 35) return error.parse;
+                        function_key_number += char - '0';
+                        if (function_key_number < 1 or function_key_number > 35) {
+                            std.debug.print("function_key_number: {}\n", .{function_key_number});
+                            return error.parse;
+                        }
                     },
                     '>' => {
                         const function_key = key.F01 - 1 + function_key_number;
@@ -166,6 +169,30 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                         return error.parse;
                     },
                 }
+            },
+        }
+    }
+    return result;
+}
+
+pub fn parseBinding(allocator: std.mem.Allocator, str: []const u8) !Binding {
+    const State = enum { key_sequence, command, args };
+    var state: State = .key_sequence;
+    var iter = std.mem.tokenizeAny(u8, str, &.{' '});
+    var result: Binding = .{};
+    while (iter.next()) |token| {
+        switch (state) {
+            .key_sequence => {
+                const key_sequence = try parseKeySequence(allocator, token);
+                result.keys = key_sequence.items;
+                state = .command;
+            },
+            .command => {
+                result.action.command = try allocator.dupe(u8, token);
+                state = .args;
+            },
+            .args => {
+                //todo
             },
         }
     }
@@ -508,4 +535,11 @@ test "parseKeySequence" {
     for (expected, 0..) |char, i| {
         try expectEqual(char, sequence.items[i]);
     }
+}
+
+test "parseBinding" {
+    const str = "<F10> open_help";
+    const binding = try parseBinding(alloc, str);
+    _ = binding;
+    //    alloc.free(binding.keys);
 }
