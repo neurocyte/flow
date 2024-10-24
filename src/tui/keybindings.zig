@@ -34,6 +34,8 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
     const State = enum {
         base,
         escape_sequence,
+        escape_S,
+        escape_D,
         modifier_delimiter,
         modifier_char,
         modifier_end,
@@ -46,6 +48,9 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
         space_c,
         space_e,
         space_end,
+        del_e,
+        del_l,
+        del_end,
     };
     var state: State = .base;
     var function_key_number: u8 = 0;
@@ -74,8 +79,7 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                         state = .modifier_delimiter;
                     },
                     'S' => {
-                        modifier = mod.SHIFT;
-                        state = .modifier_delimiter;
+                        state = .escape_S;
                     },
                     'A' => {
                         modifier = mod.ALT;
@@ -87,8 +91,8 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                     'T' => {
                         state = .tab_a;
                     },
-                    's' => {
-                        state = .space_p;
+                    'D' => {
+                        state = .escape_D;
                     },
                     else => {
                         return error.parseEscapeSequence;
@@ -100,6 +104,55 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                     'p' => .space_a,
                     else => return error.parseSpaceP,
                 };
+            },
+            .escape_S => {
+                switch (char) {
+                    'p' => {
+                        state = .space_a;
+                    },
+                    '-' => {
+                        modifier = mod.SHIFT;
+                        state = .modifier_char;
+                    },
+                    else => return error.parseEscapeS,
+                }
+            },
+            .escape_D => {
+                switch (char) {
+                    'e' => {
+                        state = .del_l;
+                    },
+                    '-' => {
+                        modifier = mod.SUPER;
+                        state = .modifier_char;
+                    },
+                    else => return error.parseEscapeD,
+                }
+            },
+            .del_e => {
+                state = switch (char) {
+                    'e' => .del_l,
+                    else => return error.parseDelE,
+                };
+            },
+            .del_l => {
+                state = switch (char) {
+                    'l' => .del_end,
+                    else => return error.parseDelL,
+                };
+            },
+
+            .del_end => {
+                switch (char) {
+                    '>' => {
+                        try result.append(.{ .key = key.DEL, .modifiers = modifier });
+                        modifier = 0;
+                        state = .base;
+                    },
+                    else => {
+                        return error.parseDelEnd;
+                    },
+                }
             },
             .space_a => {
                 state = switch (char) {
@@ -123,7 +176,7 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                 switch (char) {
                     '>' => {
                         try result.append(.{ .key = key.SPACE, .modifiers = modifier });
-
+                        modifier = 0;
                         state = .base;
                     },
                     else => return error.parseSpaceEnd,
@@ -145,6 +198,7 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                 switch (char) {
                     '>' => {
                         try result.append(.{ .key = key.TAB, .modifiers = modifier });
+                        modifier = 0;
                         state = .base;
                     },
                     else => return error.parseTabEnd,
@@ -188,6 +242,12 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                     },
                     'T' => {
                         state = .tab_a;
+                    },
+                    'S' => {
+                        state = .space_p;
+                    },
+                    'D' => {
+                        state = .del_e;
                     },
                     else => {
                         return error.parse;
@@ -592,7 +652,10 @@ test "parseBindingList" {
         \\k cursor_up
         \\<Tab> indent
         \\<S-Tab> unindent
-        \\<space> buffer_next
+        \\<Space> buffer_next
+        \\<S-Space> find
+        \\<A-Del> test
+        \\<D-Del><C-Tab><A-Space><Space><F10>asdf<Space><F35> brute_force_test
     ;
     const bindings = try parseBindingList(arena.allocator(), str);
     bindings.deinit();
