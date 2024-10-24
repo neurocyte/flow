@@ -12,10 +12,12 @@ const tp = @import("thespian");
 const std = @import("std");
 const builtin = @import("builtin");
 
+pub const renderer = @import("renderer");
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const command = @import("command.zig");
+const EventHandler = @import("EventHandler.zig");
 
 //A single key event, such as Ctrl-E
 pub const KeyEvent = struct {
@@ -25,6 +27,13 @@ pub const KeyEvent = struct {
 
     pub fn eql(self: @This(), other: @This()) bool {
         return std.meta.eql(self, other);
+    }
+
+    pub fn toString(self: @This(), allocator: std.mem.Allocator) []const u8 {
+        //TODO implement
+        _ = self;
+        _ = allocator;
+        return "";
     }
 };
 
@@ -365,10 +374,43 @@ fn matchBinding(binding: Binding, sequence: []const KeyEvent) Binding.MatchResul
     return binding.match(sequence);
 }
 
+pub const Hint = struct {
+    keys: []const u8,
+    command: []const u8,
+    description: []const u8,
+};
+
 //A Collection of keybindings
 pub const Mode = struct {
+    allocator: std.mem.Allocator,
     bindings: std.ArrayList(Binding),
-    no_match_behavior: NoMatchBehavior = .ignore,
+    on_match_failure: NoMatchBehavior = .ignore,
+    name: []const u8 = "",
+    description: []const u8 = "",
+    line_numbers: enum { absolute, relative } = .absolute,
+    hints: ?std.ArrayList(Hint) = null,
+    cursor_shape: renderer.CursorShape = .block,
+
+    pub fn hints(self: *@This()) ![]const Hint {
+        if (self.hints == null) {
+            self.hints = try std.ArrayList(Hint).init(self.allocator);
+        }
+
+        if (self.hints.?.len == self.bindings.items.len) {
+            return self.hints.?.items;
+        } else {
+            self.hints.?.clearRetainingCapacity();
+            for (self.bindings.items) |binding| {
+                const hint: Hint = .{
+                    .keys = binding.KeyEvent.toString(self.allocator),
+                    .command = binding.command,
+                    .description = "", //TODO lookup command description here
+                };
+                try self.hints.?.append(hint);
+            }
+            return self.hints.?.items;
+        }
+    }
 
     //what to do with a key press that does not match any bindings
     pub const NoMatchBehavior = union(enum) {
@@ -401,6 +443,7 @@ pub const Bindings = struct {
     input_buffer: std.ArrayList(u8),
     required_undo_count: usize = 0,
     last_command: []const u8 = "",
+    handler: EventHandler,
 
     const Self = @This();
     pub const max_key_sequence_time_interval = 750;
@@ -444,17 +487,17 @@ pub const Bindings = struct {
             tp.string,
             tp.extract(&modifiers),
         })) {
-            try self.registerKeyEvent(.{
+            self.registerKeyEvent(self.activeMode(), @intCast(egc), .{
                 .event_type = evtype,
                 .key = keypress,
                 .modifiers = modifiers,
-            }, egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            }) catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{"F"})) {
-            self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.flushInputBuffer() catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-            self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
-            self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
-            self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.flushInputBuffer() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.insertBytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.flushInputBuffer() catch |e| return tp.exit_error(e, @errorReturnTrace());
         }
         return false;
     }
@@ -502,7 +545,7 @@ pub const Bindings = struct {
     pub const AbortType = enum { timeout, match_impossible };
     pub fn abortCurrentSequence(self: *@This(), abort_type: AbortType, mode: Mode, egc: u8, key_event: KeyEvent) anyerror!void {
         if (abort_type == .match_impossible) {
-            switch (mode.no_match_behavior) {
+            switch (mode.on_match_failure) {
                 .insert => {
                     try self.insertBytes(self.current_sequence_egc.items);
                     self.current_sequence_egc.clearRetainingCapacity();
@@ -532,8 +575,9 @@ pub const Bindings = struct {
         return self.activeNamespace().values()[self.active_mode];
     }
 
-    pub fn init(allocator: std.mem.Allocator) !Bindings {
-        const result: @This() = .{
+    pub fn init(allocator: std.mem.Allocator) !*Bindings {
+        const self: *@This() = try allocator.create(@This());
+        self.* = .{
             .allocator = allocator,
             .active_namespace = 0,
             .active_mode = 0,
@@ -542,8 +586,9 @@ pub const Bindings = struct {
             .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
             .last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
+            .handler = EventHandler.to_owned(self),
         };
-        return result;
+        return self;
     }
 
     pub fn addMode(self: *@This(), namespace_name: []const u8, mode_name: []const u8, mode: Mode) !void {
@@ -565,6 +610,8 @@ pub const Bindings = struct {
         self.current_sequence.deinit();
         self.current_sequence_egc.deinit();
         self.input_buffer.deinit();
+        self.allocator.destroy(self);
+
     }
 
     pub fn addNamespace(self: *Bindings, name: []const u8, modes: []const Mode) !void {
@@ -572,7 +619,7 @@ pub const Bindings = struct {
     }
 
     fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
-        try self.flush_input();
+        try self.flushInputBuffer();
         self.last_cmd = name_;
         if (builtin.is_test == false) {
             try command.executeName(name_, ctx);
@@ -688,6 +735,7 @@ test "Bindings.register" {
     var bindings = try Bindings.init(alloc);
     defer bindings.deinit();
     try bindings.addMode("test_namespace", "test_mode", Mode{
+        .allocator = alloc,
         .bindings = try parseBindingList(alloc, test_str),
     });
 
