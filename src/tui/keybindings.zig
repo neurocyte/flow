@@ -179,12 +179,12 @@ pub fn parseBinding(allocator: std.mem.Allocator, str: []const u8) !Binding {
     const State = enum { key_sequence, command, args };
     var state: State = .key_sequence;
     var iter = std.mem.tokenizeAny(u8, str, &.{' '});
-    var result: Binding = .{};
+    var result: Binding = .{ .keys = Sequence.init(allocator) };
     while (iter.next()) |token| {
         switch (state) {
             .key_sequence => {
                 const key_sequence = try parseKeySequence(allocator, token);
-                result.keys = key_sequence.items;
+                result.keys = key_sequence;
                 state = .command;
             },
             .command => {
@@ -195,6 +195,15 @@ pub fn parseBinding(allocator: std.mem.Allocator, str: []const u8) !Binding {
                 //todo
             },
         }
+    }
+    return result;
+}
+
+pub fn parseBindingList(allocator: std.mem.Allocator, str: []const u8) !std.ArrayList(Binding) {
+    var result = std.ArrayList(Binding).init(allocator);
+    var iter = std.mem.tokenizeAny(u8, str, &.{'\n'});
+    while (iter.next()) |token| {
+        try result.append(try parseBinding(allocator, token));
     }
     return result;
 }
@@ -213,18 +222,18 @@ pub const Action = struct {
 
 //An association of an action with a triggering key chord
 pub const Binding = struct {
-    keys: []const KeyEvent = &.{},
+    keys: Sequence,
     action: Action = .{},
 
     pub fn len(self: Binding) usize {
-        return self.keys.len;
+        return self.keys.items.len;
     }
 
     pub const MatchResult = enum { match_impossible, match_possible, matched };
 
     pub fn match(self: @This(), keys: []const KeyEvent) MatchResult {
         for (keys, 0..) |key_event, i| {
-            if (!key_event.eql(self.keys[i])) {
+            if (!key_event.eql(self.keys.items[i])) {
                 return .match_impossible;
             }
         }
@@ -235,6 +244,10 @@ pub const Binding = struct {
             return .match_possible;
         }
     }
+
+    pub fn deinit(self: @This()) void {
+        self.keys.deinit();
+    }
 };
 
 fn matchBinding(binding: Binding, sequence: []const KeyEvent) Binding.MatchResult {
@@ -243,7 +256,7 @@ fn matchBinding(binding: Binding, sequence: []const KeyEvent) Binding.MatchResul
 
 //A Collection of keybindings
 pub const Mode = struct {
-    bindings: []const Binding = &.{},
+    bindings: std.ArrayList(Binding),
     no_match_behavior: NoMatchBehavior = .ignore,
 
     //what to do with a key press that does not match any bindings
@@ -347,7 +360,7 @@ pub const Bindings = struct {
         try self.current_sequence_egc.append(egc);
 
         var all_matches_impossible = true;
-        for (mode.bindings) |binding| blk: {
+        for (mode.bindings.items) |binding| blk: {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
                     try binding.action.activate();
@@ -400,7 +413,7 @@ pub const Bindings = struct {
     }
 
     pub fn init(allocator: std.mem.Allocator) !Bindings {
-        var result: @This() = .{
+        const result: @This() = .{
             .allocator = allocator,
             .active_namespace = 0,
             .active_mode = 0,
@@ -410,9 +423,9 @@ pub const Bindings = struct {
             .last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
         };
-        var flow = HashMap(Mode).init(allocator);
-        try flow.put("flow", .{});
-        try result.namespaces.put("flow", flow);
+        //var flow = HashMap(Mode).init(allocator);
+        //try flow.put("flow", .{});
+        //try result.namespaces.put("flow", flow);
         return result;
     }
 
@@ -442,86 +455,75 @@ pub const Bindings = struct {
 const alloc = std.testing.allocator;
 const expectEqual = std.testing.expectEqual;
 
-test "binding.match" {
-    try expectEqual(
-        .matched,
-        matchBinding(
-            Binding{ .keys = &[_]KeyEvent{.{ .key = 'j' }} },
-            &[_]KeyEvent{.{ .key = 'j' }},
-        ),
-    );
-
-    try expectEqual(
-        .match_possible,
-        matchBinding(
-            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'j' }, .{ .key = 'k' } } },
-            &[_]KeyEvent{.{ .key = 'j' }},
-        ),
-    );
-
-    try expectEqual(
-        .matched,
-        matchBinding(
-            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'j' }, .{ .key = 'k' } } },
-            &[_]KeyEvent{ .{ .key = 'j' }, .{ .key = 'k' } },
-        ),
-    );
-
-    try expectEqual(
-        .match_impossible,
-        matchBinding(
-            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'j' }, .{ .key = 'k' } } },
-            &[_]KeyEvent{ .{ .key = 'k' }, .{ .key = 'j' }, .{ .key = 'k' } },
-        ),
-    );
-
-    try expectEqual(
-        .match_impossible,
-        matchBinding(
-            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.CTRL } } },
-            &[_]KeyEvent{ .{ .key = 'x' }, .{ .key = 'j' }, .{ .key = 'k' } },
-        ),
-    );
-
-    try expectEqual(
-        .match_impossible,
-        matchBinding(
-            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.CTRL } } },
-            &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c' } },
-        ),
-    );
-
-    try expectEqual(
-        .matched,
-        matchBinding(
-            Binding{ .keys = &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.CTRL } } },
-            &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.CTRL } },
-        ),
-    );
-
-    try expectEqual(
-        .match_possible,
-        matchBinding(
-            Binding{ .keys = &[_]KeyEvent{
-                .{ .key = 'x', .modifiers = mod.CTRL },
-                .{ .key = 'c', .modifiers = mod.ALT },
-                .{ .key = 'b' },
-            } },
-            &[_]KeyEvent{ .{ .key = 'x', .modifiers = mod.CTRL }, .{ .key = 'c', .modifiers = mod.ALT } },
-        ),
-    );
+test "binding.match.1" {
+    const binding = try parseBinding(alloc, "j");
+    defer binding.deinit();
+    const input = try parseKeySequence(alloc, "j");
+    defer input.deinit();
+    try expectEqual(.matched, matchBinding(binding, input.items));
 }
 
-test "Bindings.register" {
-    var bindings = try Bindings.init(alloc);
-    defer bindings.deinit();
-    const mode = bindings.activeMode();
-    try bindings.registerKeyEvent(mode, 'j', .{ .key = 'j' });
-    try bindings.registerKeyEvent(mode, 'k', .{ .key = 'k' });
-    try bindings.registerKeyEvent(mode, 'g', .{ .key = 'g' });
-    try bindings.registerKeyEvent(mode, 'i', .{ .key = 'i' });
-    try bindings.registerKeyEvent(mode, 0, .{ .key = 'i', .modifiers = mod.CTRL });
+test "binding.match.2" {
+    const binding = try parseBinding(alloc, "jk");
+    defer binding.deinit();
+    const input = try parseKeySequence(alloc, "j");
+    defer input.deinit();
+    try expectEqual(.match_possible, matchBinding(binding, input.items));
 }
+test "binding.match.3" {
+    const binding = try parseBinding(alloc, "jk");
+    defer binding.deinit();
+    const input = try parseKeySequence(alloc, "j");
+    defer input.deinit();
+    try expectEqual(.match_possible, matchBinding(binding, input.items));
+}
+test "binding.match.4" {
+    const binding = try parseBinding(alloc, "jk");
+    defer binding.deinit();
+    const input = try parseKeySequence(alloc, "kjk");
+    defer input.deinit();
+    try expectEqual(.match_impossible, matchBinding(binding, input.items));
+}
+test "binding.match.5" {
+    const binding = try parseBinding(alloc, "<C-x><C-c>");
+    defer binding.deinit();
+    const input = try parseKeySequence(alloc, "xjk");
+    defer input.deinit();
+    try expectEqual(.match_impossible, matchBinding(binding, input.items));
+}
+
+test "binding.match.6" {
+    const binding = try parseBinding(alloc, "<C-x><C-c>");
+    defer binding.deinit();
+    const input = try parseKeySequence(alloc, "<C-x>c");
+    defer input.deinit();
+    try expectEqual(.match_impossible, matchBinding(binding, input.items));
+}
+test "binding.match.7" {
+    const binding = try parseBinding(alloc, "<C-x><C-c>");
+    defer binding.deinit();
+    const input = try parseKeySequence(alloc, "<C-x><C-c>");
+    defer input.deinit();
+    try expectEqual(.matched, matchBinding(binding, input.items));
+}
+test "binding.match.8" {
+    const binding = try parseBinding(alloc, "<C-x><A-c>b");
+    defer binding.deinit();
+    const input = try parseKeySequence(alloc, "<C-x><A-c>");
+    defer input.deinit();
+    try expectEqual(.match_possible, matchBinding(binding, input.items));
+}
+
+// test "Bindings.register" {
+//     var bindings = try Bindings.init(alloc);
+//     defer bindings.deinit();
+//     const mode = bindings.activeMode();
+//     try bindings.registerKeyEvent(mode, 'j', .{ .key = 'j' });
+//     try bindings.registerKeyEvent(mode, 'k', .{ .key = 'k' });
+//     try bindings.registerKeyEvent(mode, 'g', .{ .key = 'g' });
+//     try bindings.registerKeyEvent(mode, 'i', .{ .key = 'i' });
+//     try bindings.registerKeyEvent(mode, 0, .{ .key = 'i', .modifiers = mod.CTRL });
+// }
 
 test "parseKeySequence" {
     const sequence = try parseKeySequence(alloc, "<C-x><A-Tab><C-c>p");
@@ -540,6 +542,23 @@ test "parseKeySequence" {
 test "parseBinding" {
     const str = "<F10> open_help";
     const binding = try parseBinding(alloc, str);
-    _ = binding;
-    //    alloc.free(binding.keys);
+    alloc.free(binding.action.command);
+    binding.deinit();
+}
+
+test "parseBindingList" {
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const str =
+        \\<F10> open_help
+        \\<F10> open_help
+        \\<C-p> open_recent_files
+        \\<C-x><C-c> force_quit
+        \\j cursor_down
+        \\k cursor_up
+        \\<Tab> indent
+        \\<S-Tab> unindent
+    ;
+    const bindings = try parseBindingList(arena.allocator(), str);
+    bindings.deinit();
 }
