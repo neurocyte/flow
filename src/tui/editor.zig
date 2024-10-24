@@ -935,9 +935,11 @@ pub const Editor = struct {
         return pos;
     }
 
-    fn render_diagnostic_message(self: *Self, message: []const u8, y: usize, max_space: usize, style: Widget.Theme.Style) void {
+    fn render_diagnostic_message(self: *Self, message_: []const u8, y: usize, max_space: usize, style: Widget.Theme.Style) void {
         self.plane.set_style(style);
-        _ = self.plane.print_aligned_right(@intCast(y), "{s}", .{message[0..@min(max_space, message.len)]}) catch {};
+        var iter = std.mem.splitScalar(u8, message_, '\n');
+        if (iter.next()) |message|
+            _ = self.plane.print_aligned_right(@intCast(y), "{s}", .{message[0..@min(max_space, message.len)]}) catch {};
     }
 
     inline fn render_diagnostic_cell(self: *Self, style: Widget.Theme.Style) void {
@@ -4078,8 +4080,7 @@ pub const EditorWidget = struct {
         if (try m.match(.{ "M", tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
             const hover_y, const hover_x = self.editor.plane.abs_yx_to_rel(y, x);
             if (hover_y != self.hover_y or hover_x != self.hover_x) {
-                self.hover_y, self.hover_x = .{ 
-                hover_y, hover_x };
+                self.hover_y, self.hover_x = .{ hover_y, hover_x };
                 if (self.editor.jump_mode)
                     self.update_hover_timer(.init);
             }
