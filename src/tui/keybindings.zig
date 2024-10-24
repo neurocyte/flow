@@ -1,10 +1,4 @@
-//TODO implement keybinding hints
-
-//TODO handle inserting and then deleting characters inside keybindings
-
 //TODO figure out how keybindings should be configured
-
-//TODO create vimscript style keybinding parser for KeyEvent (ie, convert "<C-p>a" into a sequence of key events)
 
 //TODO figure out how to handle bindings that can take a numerical prefix
 
@@ -566,7 +560,7 @@ pub const Mode = struct {
 };
 
 //A collection of various modes under a single namespace, such as "vim" or "emacs"
-pub const Namespace = HashMap(Mode);
+pub const Namespace = HashMap(*Mode);
 const HashMap = std.StringArrayHashMap;
 
 //Data structure for mapping key events to keybindings
@@ -585,7 +579,7 @@ pub const Bindings = struct {
         return self.namespaces.values()[self.active_namespace];
     }
 
-    pub fn activeMode(self: *Bindings) Mode {
+    pub fn activeMode(self: *Bindings) *Mode {
         return self.activeNamespace().values()[self.active_mode];
     }
 
@@ -600,7 +594,7 @@ pub const Bindings = struct {
         return self;
     }
 
-    pub fn addMode(self: *@This(), namespace_name: []const u8, mode_name: []const u8, mode: Mode) !void {
+    pub fn addMode(self: *@This(), namespace_name: []const u8, mode_name: []const u8, mode: *Mode) !void {
         const namespace = self.namespaces.getPtr(namespace_name) orelse blk: {
             try self.namespaces.putNoClobber(namespace_name, Namespace.init(self.allocator));
             break :blk self.namespaces.getPtr(namespace_name).?;
@@ -616,6 +610,7 @@ pub const Bindings = struct {
             namespace.deinit();
         }
         self.namespaces.deinit();
+        self.allocator.destroy(self);
     }
 
     pub fn addNamespace(self: *Bindings, name: []const u8, modes: []const Mode) !void {
@@ -721,27 +716,20 @@ const test_str =
 ;
 
 test "parseBindingList" {
-    //var arena = std.heap.ArenaAllocator.init(alloc);
-    //defer arena.deinit();
     const mode = try Mode.init(alloc);
     defer mode.deinit();
     try mode.parseBindingList(test_str);
-    //const bindings = try parseBindingList(arena.allocator(), test_str);
-    //bindings.deinit();
 }
 
 test "Bindings.register" {
-    // var bindings = try Bindings.init(alloc);
-    // defer bindings.deinit();
-    // try bindings.addMode("test_namespace", "test_mode", Mode{
-    //     .allocator = alloc,
-    //     .bindings = try parseBindingList(alloc, test_str),
-    // });
+    var bindings = try Bindings.init(alloc);
+    defer bindings.deinit();
+    try bindings.addMode("test_namespace", "test_mode", try Mode.init(alloc));
 
-    // const mode = bindings.activeMode();
-    // try mode.registerKeyEvent('j', .{ .key = 'j' });
-    // try mode.registerKeyEvent('k', .{ .key = 'k' });
-    // try mode.registerKeyEvent('g', .{ .key = 'g' });
-    // try mode.registerKeyEvent('i', .{ .key = 'i' });
-    // try mode.registerKeyEvent(0, .{ .key = 'i', .modifiers = mod.CTRL });
+    const mode = bindings.activeMode();
+    try mode.registerKeyEvent('j', .{ .key = 'j' });
+    try mode.registerKeyEvent('k', .{ .key = 'k' });
+    try mode.registerKeyEvent('g', .{ .key = 'g' });
+    try mode.registerKeyEvent('i', .{ .key = 'i' });
+    try mode.registerKeyEvent(0, .{ .key = 'i', .modifiers = mod.CTRL });
 }
