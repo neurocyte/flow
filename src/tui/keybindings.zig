@@ -31,8 +31,19 @@ pub const KeyEvent = struct {
 const Sequence = std.ArrayList(KeyEvent);
 
 pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence {
-    const State = enum { base, modifier_type, modifier_delimiter, modifier_char, modifier_end };
+    const State = enum {
+        base,
+        escape_sequence,
+        modifier_delimiter,
+        modifier_char,
+        modifier_end,
+        function_key,
+        tab_a,
+        tab_b,
+        tab_end,
+    };
     var state: State = .base;
+    var function_key_number: u8 = 0;
     var result = Sequence.init(allocator);
     errdefer result.deinit();
     var modifier: u32 = 0;
@@ -41,7 +52,7 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
             .base => {
                 switch (char) {
                     '<' => {
-                        state = .modifier_type;
+                        state = .escape_sequence;
                     },
                     'a'...'z' => {
                         try result.append(.{ .key = char });
@@ -51,7 +62,7 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                     },
                 }
             },
-            .modifier_type => {
+            .escape_sequence => {
                 switch (char) {
                     'C' => {
                         modifier = mod.CTRL;
@@ -65,9 +76,60 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                         modifier = mod.ALT;
                         state = .modifier_delimiter;
                     },
+                    'F' => {
+                        state = .function_key;
+                    },
+                    'T' => {
+                        state = .tab_a;
+                    },
                     else => {
                         return error.parse;
                     },
+                }
+            },
+            .tab_a => {
+                switch (char) {
+                    'a' => {
+                        state = .tab_b;
+                    },
+                    else => return error.parse,
+                }
+            },
+            .tab_b => {
+                switch (char) {
+                    'b' => {
+                        state = .tab_end;
+                    },
+                    else => {
+                        return error.parse;
+                    },
+                }
+            },
+            .tab_end => {
+                switch (char) {
+                    '>' => {
+                        try result.append(.{ .key = key.TAB, .modifiers = modifier });
+                        state = .base;
+                    },
+                    else => {
+                        return error.parse;
+                    },
+                }
+            },
+            .function_key => {
+                switch (char) {
+                    '0'...'9' => {
+                        function_key_number *= 10;
+                        function_key_number += char;
+                        if (function_key_number < 1 or function_key_number > 35) return error.parse;
+                    },
+                    '>' => {
+                        const function_key = key.F01 - 1 + function_key_number;
+                        try result.append(.{ .key = function_key });
+                        function_key_number = 0;
+                        state = .base;
+                    },
+                    else => return error.parse,
                 }
             },
             .modifier_delimiter => {
@@ -86,6 +148,9 @@ pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence
                         try result.append(.{ .key = char, .modifiers = modifier });
                         modifier = 0;
                         state = .modifier_end;
+                    },
+                    'T' => {
+                        state = .tab_a;
                     },
                     else => {
                         return error.parse;
@@ -432,12 +497,15 @@ test "Bindings.register" {
 }
 
 test "parseKeySequence" {
-    const sequence = try parseKeySequence(alloc, "<C-x><C-c>p");
+    const sequence = try parseKeySequence(alloc, "<C-x><A-Tab><C-c>p");
     defer sequence.deinit();
     const expected: []const KeyEvent = &[_]KeyEvent{
         KeyEvent{ .key = 'x', .modifiers = mod.CTRL },
+        KeyEvent{ .key = key.TAB, .modifiers = mod.ALT },
         KeyEvent{ .key = 'c', .modifiers = mod.CTRL },
         KeyEvent{ .key = 'p' },
     };
-    _ = expected;
+    for (expected, 0..) |char, i| {
+        try expectEqual(char, sequence.items[i]);
+    }
 }
