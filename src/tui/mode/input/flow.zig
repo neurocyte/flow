@@ -143,6 +143,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             else => {},
         },
         mod.ALT => switch (keynormal) {
+            'O' => self.cmd("open_previous_file", .{}),
             'J' => self.cmd("join_next_line", .{}),
             'N' => self.cmd("goto_next_file_or_diagnostic", .{}),
             'P' => self.cmd("goto_prev_file_or_diagnostic", .{}),
@@ -383,6 +384,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "move_word_right", "C-right, A-f" },
     .{ "open_command_palette", "C-S-p, S-A-p, A-x" },
     .{ "open_file", "C-o" },
+    .{ "open_previous_file", "A-o" },
     .{ "open_recent", "C-e" },
     .{ "open_recent_project", "C-r" },
     .{ "paste", "A-v" },

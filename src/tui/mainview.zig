@@ -535,6 +535,12 @@ const cmds = struct {
         }
     }
     pub const show_diagnostics_meta = .{ .description = "Show diagnostics panel" };
+
+    pub fn open_previous_file(self: *Self, _: Ctx) Result {
+        const file_path = try project_manager.request_n_most_recent_file(self.allocator, 1);
+        self.show_file_async_and_free(file_path orelse return error.Stop);
+    }
+    pub const open_previous_file_meta = .{ .description = "Open the previous file" };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {

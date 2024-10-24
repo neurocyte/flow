@@ -138,6 +138,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'F' => self.cmd("find_in_files", .{}),
             'L' => self.cmd_async("add_cursor_all_matches"),
             'I' => self.cmd_async("toggle_inspector_view"),
+            '6' => self.cmd("open_previous_file", .{}),
             key.ENTER => self.cmd("smart_insert_line_before", .{}),
             key.END => self.cmd("select_buffer_end", .{}),
             key.HOME => self.cmd("select_buffer_begin", .{}),
@@ -481,6 +482,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "find", "C-f, /" },
     .{ "goto", "C-g" },
     .{ "move_to_char", "C-b, C-t" }, // true/false
+    .{ "open_previous_file", "C-^" },
     .{ "open_file", "C-o" },
     .{ "filter", "A-s" }, // self.cmd("filter", command.fmt(.{"sort"})),
     // .{ "filter", "S-A-s" }, // self.cmd("filter", command.fmt(.{ "sort", "-u" })),

@@ -64,14 +64,18 @@ pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSyste
     return send(.{ "open", project_directory });
 }
 
-pub fn request_most_recent_file(allocator: std.mem.Allocator) (CallError || ProjectError || cbor.Error)!?[]const u8 {
+pub fn request_n_most_recent_file(allocator: std.mem.Allocator, n: usize) (CallError || ProjectError || cbor.Error)!?[]const u8 {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    const rsp = try (try get()).pid.call(allocator, request_timeout, .{ "request_most_recent_file", project });
+    const rsp = try (try get()).pid.call(allocator, request_timeout, .{ "request_n_most_recent_file", project, n });
     defer allocator.free(rsp.buf);
     var file_path: []const u8 = undefined;
     return if (try cbor.match(rsp.buf, .{tp.extract(&file_path)})) try allocator.dupe(u8, file_path) else null;
+}
+
+pub fn request_most_recent_file(allocator: std.mem.Allocator) (CallError || ProjectError || cbor.Error)!?[]const u8 {
+    return request_n_most_recent_file(allocator, 0);
 }
 
 pub fn request_recent_files(max: usize) (ProjectManagerError || ProjectError)!void {
@@ -274,6 +278,7 @@ const Process = struct {
         var version: usize = 0;
         var text_ptr: usize = 0;
         var text_len: usize = 0;
+        var n: usize = 0;
 
         var root_dst: usize = 0;
         var root_src: usize = 0;
@@ -300,8 +305,8 @@ const Process = struct {
             self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
         } else if (try cbor.match(m.buf, .{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "request_most_recent_file", tp.extract(&project_directory) })) {
-            self.request_most_recent_file(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_n_most_recent_file", tp.extract(&project_directory), tp.extract(&n) })) {
+            self.request_n_most_recent_file(from, project_directory, n) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
             self.request_recent_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_recent_projects", tp.extract(&project_directory) })) {
@@ -375,10 +380,10 @@ const Process = struct {
         });
     }
 
-    fn request_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
+    fn request_n_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8, n: usize) (ProjectError || Project.ClientError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         project.sort_files_by_mtime();
-        return project.request_most_recent_file(from);
+        return project.request_n_most_recent_file(from, n);
     }
 
     fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.ClientError)!void {

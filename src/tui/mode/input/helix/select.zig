@@ -105,6 +105,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
             'P' => self.cmd("open_command_palette", .{}),
+            '6' => self.cmd("open_previous_file", .{}),
             else => {},
         },
         mod.ALT => switch (keynormal) {
@@ -604,6 +605,7 @@ const hints = tui.KeybindHints.initComptime(.{
     .{ "move_word_right", "C-right, A-f, e" },
     .{ "move_word_right_vim", "w" },
     .{ "open_command_palette", "Space ?, C-S-p, :, S-;, S-A-p" },
+    .{ "open_previous_file", "C-^" },
     .{ "open_recent", "C-e" },
     .{ "paste", "A-v, p" },
     .{ "pop_cursor", "C-u" },

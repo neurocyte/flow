@@ -167,8 +167,9 @@ pub fn sort_files_by_mtime(self: *Self) void {
     std.mem.sort(File, self.files.items, {}, less_fn);
 }
 
-pub fn request_most_recent_file(self: *Self, from: tp.pid_ref) ClientError!void {
-    const file_path = if (self.files.items.len > 0) self.files.items[0].path else null;
+pub fn request_n_most_recent_file(self: *Self, from: tp.pid_ref, n: usize) ClientError!void {
+    if (n >= self.files.items.len) return error.ClientFailed;
+    const file_path = if (self.files.items.len > 0) self.files.items[n].path else null;
     from.send(.{file_path}) catch return error.ClientFailed;
 }
 
