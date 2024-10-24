@@ -19,7 +19,7 @@ const command = @import("command.zig");
 
 //A single key event, such as Ctrl-E
 pub const KeyEvent = struct {
-    key: u32, //keypress value
+    key: u32 = 0, //keypress value
     event_type: usize = event_type.PRESS,
     modifiers: u32 = 0,
 
@@ -27,6 +27,85 @@ pub const KeyEvent = struct {
         return std.meta.eql(self, other);
     }
 };
+
+const Sequence = std.ArrayList(KeyEvent);
+
+pub fn parseKeySequence(allocator: std.mem.Allocator, str: []const u8) !Sequence {
+    const State = enum { base, modifier_type, modifier_delimiter, modifier_char, modifier_end };
+    var state: State = .base;
+    var result = Sequence.init(allocator);
+    errdefer result.deinit();
+    var modifier: u32 = 0;
+    for (str) |char| {
+        switch (state) {
+            .base => {
+                switch (char) {
+                    '<' => {
+                        state = .modifier_type;
+                    },
+                    'a'...'z' => {
+                        try result.append(.{ .key = char });
+                    },
+                    else => {
+                        return error.parse;
+                    },
+                }
+            },
+            .modifier_type => {
+                switch (char) {
+                    'C' => {
+                        modifier = mod.CTRL;
+                        state = .modifier_delimiter;
+                    },
+                    'S' => {
+                        modifier = mod.SHIFT;
+                        state = .modifier_delimiter;
+                    },
+                    'A' => {
+                        modifier = mod.ALT;
+                        state = .modifier_delimiter;
+                    },
+                    else => {
+                        return error.parse;
+                    },
+                }
+            },
+            .modifier_delimiter => {
+                switch (char) {
+                    '-' => {
+                        state = .modifier_char;
+                    },
+                    else => {
+                        return error.parse;
+                    },
+                }
+            },
+            .modifier_char => {
+                switch (char) {
+                    'a'...'z' => {
+                        try result.append(.{ .key = char, .modifiers = modifier });
+                        modifier = 0;
+                        state = .modifier_end;
+                    },
+                    else => {
+                        return error.parse;
+                    },
+                }
+            },
+            .modifier_end => {
+                switch (char) {
+                    '>' => {
+                        state = .base;
+                    },
+                    else => {
+                        return error.parse;
+                    },
+                }
+            },
+        }
+    }
+    return result;
+}
 
 //An action that can be triggered by a Key Sequence
 pub const Action = struct {
@@ -350,4 +429,15 @@ test "Bindings.register" {
     try bindings.registerKeyEvent(mode, 'g', .{ .key = 'g' });
     try bindings.registerKeyEvent(mode, 'i', .{ .key = 'i' });
     try bindings.registerKeyEvent(mode, 0, .{ .key = 'i', .modifiers = mod.CTRL });
+}
+
+test "parseKeySequence" {
+    const sequence = try parseKeySequence(alloc, "<C-x><C-c>p");
+    defer sequence.deinit();
+    const expected: []const KeyEvent = &[_]KeyEvent{
+        KeyEvent{ .key = 'x', .modifiers = mod.CTRL },
+        KeyEvent{ .key = 'c', .modifiers = mod.CTRL },
+        KeyEvent{ .key = 'p' },
+    };
+    _ = expected;
 }
