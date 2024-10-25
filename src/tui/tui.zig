@@ -10,6 +10,7 @@ const builtin = @import("builtin");
 pub const renderer = @import("renderer");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+const keybind = @import("keybind");
 
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
@@ -755,25 +756,13 @@ const cmds = struct {
     pub const exit_mini_mode_meta = .{ .interactive = false };
 };
 
-pub const Mode = struct {
-    handler: EventHandler,
-    name: []const u8,
-    description: []const u8,
-    line_numbers: enum { absolute, relative } = .absolute,
-    keybind_hints: ?*const KeybindHints = null,
-    cursor_shape: renderer.CursorShape = .block,
-
-    fn deinit(self: *Mode) void {
-        self.handler.deinit();
-    }
-};
-
 pub const MiniMode = struct {
     event_handler: ?EventHandler = null,
     text: []const u8 = "",
     cursor: ?usize = null,
 };
 
+pub const Mode = keybind.Mode;
 pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
 
 threadlocal var instance_: ?*Self = null;

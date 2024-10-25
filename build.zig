@@ -156,6 +156,17 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const keybind_static_mod = b.createModule(.{
+        .root_source_file = b.path("src/keybind/static/root.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "command", .module = command_mod },
+            .{ .name = "EventHandler", .module = EventHandler_mod },
+            .{ .name = "renderer", .module = renderer_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+
     const ripgrep_mod = b.createModule(.{
         .root_source_file = b.path("src/ripgrep.zig"),
         .imports = &.{
@@ -218,6 +229,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "syntax", .module = syntax_mod },
             .{ .name = "text_manip", .module = text_manip_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
+            .{ .name = "keybind", .module = keybind_static_mod },
             .{ .name = "ripgrep", .module = ripgrep_mod },
             .{ .name = "theme", .module = themes_dep.module("theme") },
             .{ .name = "themes", .module = themes_dep.module("themes") },
