@@ -13,34 +13,34 @@ const Allocator = @import("std").mem.Allocator;
 const fmt = @import("std").fmt;
 
 const Self = @This();
+const name = "＃goto";
 
 allocator: Allocator,
 buf: [30]u8 = undefined,
 input: ?usize = null,
 start: usize,
 
-pub fn create(allocator: Allocator, _: command.Context) !*Self {
+pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
     const self: *Self = try allocator.create(Self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
         self.* = .{
             .allocator = allocator,
             .start = editor.get_primary().cursor.row + 1,
         };
-        return self;
+        return .{
+            .{
+                .handler = EventHandler.to_owned(self),
+                .name = name,
+                .description = name,
+            },
+            .{},
+        };
     };
     return error.NotFound;
 }
 
 pub fn deinit(self: *Self) void {
     self.allocator.destroy(self);
-}
-
-pub fn handler(self: *Self) EventHandler {
-    return EventHandler.to_owned(self);
-}
-
-pub fn name(_: *Self) []const u8 {
-    return "＃goto";
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {

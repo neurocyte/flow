@@ -14,6 +14,7 @@ const Allocator = @import("std").mem.Allocator;
 const eql = @import("std").mem.eql;
 
 const Self = @This();
+const name = "󰥨 find";
 
 allocator: Allocator,
 buf: [1024]u8 = undefined,
@@ -22,7 +23,7 @@ last_buf: [1024]u8 = undefined,
 last_input: []u8 = "",
 mainview: *mainview,
 
-pub fn create(allocator: Allocator, _: command.Context) !*Self {
+pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
     const self: *Self = try allocator.create(Self);
     if (tui.current().mainview.dynamic_cast(mainview)) |mv| {
         self.* = .{
@@ -35,21 +36,20 @@ pub fn create(allocator: Allocator, _: command.Context) !*Self {
             @memcpy(self.buf[0..text.len], text);
             self.input = self.buf[0..text.len];
         };
-        return self;
+        return .{
+            .{
+                .handler = EventHandler.to_owned(self),
+                .name = name,
+                .description = name,
+            },
+            .{},
+        };
     }
     return error.NotFound;
 }
 
 pub fn deinit(self: *Self) void {
     self.allocator.destroy(self);
-}
-
-pub fn handler(self: *Self) EventHandler {
-    return EventHandler.to_owned(self);
-}
-
-pub fn name(_: *Self) []const u8 {
-    return "󰥨 find";
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {

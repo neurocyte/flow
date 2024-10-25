@@ -34,7 +34,7 @@ pub fn Create(options: type) type {
             type: enum { dir, file, link },
         };
 
-        pub fn create(allocator: std.mem.Allocator, _: command.Context) !*Self {
+        pub fn create(allocator: std.mem.Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
             const self: *Self = try allocator.create(Self);
             self.* = .{
                 .allocator = allocator,
@@ -47,7 +47,14 @@ pub fn Create(options: type) type {
             try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
-            return self;
+            return .{
+                .{
+                    .handler = EventHandler.to_owned(self),
+                    .name = options.name(self),
+                    .description = options.name(self),
+                },
+                .{},
+            };
         }
 
         pub fn deinit(self: *Self) void {
@@ -58,14 +65,6 @@ pub fn Create(options: type) type {
             self.query.deinit();
             self.file_path.deinit();
             self.allocator.destroy(self);
-        }
-
-        pub fn handler(self: *Self) EventHandler {
-            return EventHandler.to_owned(self);
-        }
-
-        pub fn name(self: *Self) []const u8 {
-            return options.name(self);
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {

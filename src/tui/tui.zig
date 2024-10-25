@@ -31,7 +31,7 @@ input_mode: ?Mode,
 input_mode_outer: ?Mode = null,
 input_listeners: EventHandler.List,
 keyboard_focus: ?Widget = null,
-mini_mode: ?MiniModeState = null,
+mini_mode: ?MiniMode = null,
 hover_focus: ?*Widget = null,
 last_hover_x: c_int = -1,
 last_hover_y: c_int = -1,
@@ -727,8 +727,6 @@ const cmds = struct {
     }
     pub const save_as_meta = .{ .description = "Save as" };
 
-    const MiniModeFactory = fn (Allocator, Ctx) error{ NotFound, OutOfMemory }!EventHandler;
-
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) Result {
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
@@ -738,13 +736,9 @@ const cmds = struct {
             self.input_mode_outer = null;
             self.mini_mode = null;
         }
-        const mode_instance = try mode.create(self.allocator, ctx);
-        self.input_mode = .{
-            .handler = mode_instance.handler(),
-            .name = mode_instance.name(),
-            .description = mode_instance.name(),
-        };
-        self.mini_mode = .{};
+        const input_mode, const mini_mode = try mode.create(self.allocator, ctx);
+        self.input_mode = input_mode;
+        self.mini_mode = mini_mode;
     }
 
     pub fn exit_mini_mode(self: *Self, _: Ctx) Result {
@@ -755,6 +749,7 @@ const cmds = struct {
             self.mini_mode = null;
         }
         if (self.input_mode) |*mode| mode.deinit();
+        if (self.mini_mode) |*mode| if (mode.event_handler) |*event_handler| event_handler.deinit();
     }
     pub const exit_mini_mode_meta = .{ .interactive = false };
 };
@@ -772,7 +767,8 @@ pub const Mode = struct {
     }
 };
 
-pub const MiniModeState = struct {
+pub const MiniMode = struct {
+    event_handler: ?EventHandler = null,
     text: []const u8 = "",
     cursor: ?usize = null,
 };
