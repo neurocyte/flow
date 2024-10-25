@@ -5,9 +5,9 @@ const tracy = @import("tracy");
 const Plane = @import("renderer").Plane;
 const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
+const EventHandler = @import("EventHandler");
 
 const Widget = @import("Widget.zig");
-const EventHandler = @import("EventHandler.zig");
 
 plane: Plane,
 pos_scrn: u32 = 0,

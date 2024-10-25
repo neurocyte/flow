@@ -1,6 +1,7 @@
 const std = @import("std");
 const tp = @import("thespian");
 
+const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
@@ -22,7 +23,7 @@ pub fn Options(context: type) type {
         on_render: *const fn (ctx: *context, button: *State(Context), theme: *const Widget.Theme) bool = on_render_default,
         on_layout: *const fn (ctx: *context, button: *State(Context)) Widget.Layout = on_layout_default,
         on_receive: *const fn (ctx: *context, button: *State(Context), from: tp.pid_ref, m: tp.message) error{Exit}!bool = on_receive_default,
-        on_event: ?Widget.EventHandler = null,
+        on_event: ?EventHandler = null,
 
         pub const Context = context;
         pub fn do_nothing(_: *context, _: *State(Context)) void {}

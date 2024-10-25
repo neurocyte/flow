@@ -2,7 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const log = @import("log");
 
-const tui = @import("tui.zig");
+pub var context_check: ?*const fn() void = null;
 
 pub const ID = usize;
 pub const ID_unknown = std.math.maxInt(ID);
@@ -98,7 +98,7 @@ pub fn removeCommand(id: ID) void {
 }
 
 pub fn execute(id: ID, ctx: Context) tp.result {
-    _ = tui.current(); // assert we are in tui thread scope
+    if(context_check) |check| check();
     if (id >= commands.items.len)
         return tp.exit_fmt("CommandNotFound: {d}", .{id});
     const cmd = commands.items[id];

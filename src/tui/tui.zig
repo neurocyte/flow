@@ -8,11 +8,11 @@ const tracy = @import("tracy");
 const builtin = @import("builtin");
 
 pub const renderer = @import("renderer");
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
-const command = @import("command.zig");
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
-const EventHandler = @import("EventHandler.zig");
 const mainview = @import("mainview.zig");
 
 const Allocator = std.mem.Allocator;
@@ -67,6 +67,7 @@ pub fn spawn(allocator: Allocator, ctx: *tp.context, eh: anytype, env: ?*const t
 }
 
 fn start(args: StartArgs) tp.result {
+    command.context_check = &context_check;
     _ = tp.set_trap(true);
     var self = init(args.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
     errdefer self.deinit();
@@ -779,6 +780,10 @@ threadlocal var instance_: ?*Self = null;
 
 pub fn current() *Self {
     return instance_ orelse @panic("tui call out of context");
+}
+
+fn context_check() void {
+    if (instance_ == null) @panic("tui call out of context");
 }
 
 pub fn get_mode() []const u8 {

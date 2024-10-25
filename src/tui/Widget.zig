@@ -3,10 +3,10 @@ const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
+const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 pub const Box = @import("Box.zig");
-pub const EventHandler = @import("EventHandler.zig");
 pub const Theme = @import("theme");
 pub const themes = @import("themes").themes;
 pub const scopes = @import("themes").scopes;

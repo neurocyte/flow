@@ -10,10 +10,10 @@ const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const project_manager = @import("project_manager");
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
-const command = @import("../../command.zig");
-const EventHandler = @import("../../EventHandler.zig");
 const MessageFilter = @import("../../MessageFilter.zig");
 const Button = @import("../../Button.zig");
 const InputBox = @import("../../InputBox.zig");

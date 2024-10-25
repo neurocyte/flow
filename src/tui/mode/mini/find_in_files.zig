@@ -4,11 +4,11 @@ const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
-const command = @import("../../command.zig");
-const EventHandler = @import("../../EventHandler.zig");
 
 const Allocator = @import("std").mem.Allocator;
 const eql = @import("std").mem.eql;

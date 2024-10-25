@@ -35,6 +35,25 @@ pub fn to_owned(pimpl: anytype) Self {
     };
 }
 
+pub fn static(T: type) Self {
+    return .{
+        .ptr = &none,
+        .vtable = comptime &.{
+            .type_name = @typeName(T),
+            .deinit = struct {
+                pub fn deinit(_: *anyopaque) void {}
+            }.deinit,
+            .send = struct {
+                pub fn receive(_: *anyopaque, from_: tp.pid_ref, m: tp.message) tp.result {
+                    _ = try T.receive(from_, m);
+                }
+            }.receive,
+        },
+    };
+}
+
+var none = {};
+
 pub fn to_unowned(pimpl: anytype) Self {
     const impl = @typeInfo(@TypeOf(pimpl));
     const child: type = impl.Pointer.child;

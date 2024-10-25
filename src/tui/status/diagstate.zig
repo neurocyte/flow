@@ -3,10 +3,11 @@ const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
-const command = @import("../command.zig");
 
 errors: usize = 0,
 warnings: usize = 0,
@@ -17,7 +18,7 @@ rendered: [:0]const u8 = "",
 
 const Self = @This();
 
-pub fn create(allocator: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
     return Button.create_widget(Self, allocator, parent, .{
         .ctx = .{},
         .label = "",

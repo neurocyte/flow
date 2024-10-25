@@ -2,8 +2,7 @@ const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian");
 const root = @import("root");
-
-const command = @import("../../command.zig");
+const command = @import("command");
 
 pub const Type = @import("palette.zig").Create(@This());
 

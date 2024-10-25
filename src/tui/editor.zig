@@ -16,13 +16,13 @@ const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;
 const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor_gutter = @import("editor_gutter.zig");
-const EventHandler = @import("EventHandler.zig");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
-const command = @import("command.zig");
 const tui = @import("tui.zig");
 
 pub const Cursor = Buffer.Cursor;

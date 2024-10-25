@@ -7,10 +7,11 @@ const root = @import("root");
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
-const command = @import("../command.zig");
 const tui = @import("../tui.zig");
 
 allocator: Allocator,
@@ -35,7 +36,7 @@ eol_mode: Buffer.EolMode = .lf,
 const project_icon = "";
 const Self = @This();
 
-pub fn create(allocator: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
     const btn = try Button.create(Self, allocator, parent, .{
         .ctx = .{
             .allocator = allocator,

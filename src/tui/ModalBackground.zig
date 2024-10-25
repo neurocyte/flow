@@ -1,9 +1,9 @@
 const std = @import("std");
 const tp = @import("thespian");
+const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const EventHandler = @import("EventHandler.zig");
 const Plane = @import("renderer").Plane;
 const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;

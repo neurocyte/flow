@@ -1,8 +1,8 @@
 const std = @import("std");
+const EventHandler = @import("EventHandler");
 
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
-const EventHandler = @import("EventHandler.zig");
 const Button = @import("Button.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 

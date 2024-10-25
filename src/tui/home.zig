@@ -8,7 +8,8 @@ const Widget = @import("Widget.zig");
 const Button = @import("Button.zig");
 const Menu = @import("Menu.zig");
 const tui = @import("tui.zig");
-const command = @import("command.zig");
+const command = @import("command");
+
 const fonts = @import("fonts.zig");
 
 allocator: std.mem.Allocator,

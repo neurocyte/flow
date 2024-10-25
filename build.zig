@@ -118,6 +118,21 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const command_mod = b.createModule(.{
+        .root_source_file = b.path("src/command.zig"),
+        .imports = &.{
+            .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "log", .module = log_mod },
+        },
+    });
+
+    const EventHandler_mod = b.createModule(.{
+        .root_source_file = b.path("src/EventHandler.zig"),
+        .imports = &.{
+            .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+
     const color_mod = b.createModule(.{
         .root_source_file = b.path("src/color.zig"),
     });
@@ -196,6 +211,8 @@ pub fn build(b: *std.Build) void {
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "config", .module = config_mod },
             .{ .name = "log", .module = log_mod },
+            .{ .name = "command", .module = command_mod },
+            .{ .name = "EventHandler", .module = EventHandler_mod },
             .{ .name = "location_history", .module = location_history_mod },
             .{ .name = "project_manager", .module = project_manager_mod },
             .{ .name = "syntax", .module = syntax_mod },
