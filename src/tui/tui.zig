@@ -33,8 +33,8 @@ input_listeners: EventHandler.List,
 keyboard_focus: ?Widget = null,
 mini_mode: ?MiniModeState = null,
 hover_focus: ?*Widget = null,
-last_hover_x: c_int = 0,
-last_hover_y: c_int = 0,
+last_hover_x: c_int = -1,
+last_hover_y: c_int = -1,
 commands: Commands = undefined,
 logger: log.Logger,
 drag_source: ?*Widget = null,
@@ -81,6 +81,7 @@ fn init(allocator: Allocator) !*Self {
 
     const theme = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return tp.exit("unknown theme");
     conf.theme = theme.name;
+    conf.whitespace_mode = try allocator.dupe(u8, conf.whitespace_mode);
     conf.input_mode = try allocator.dupe(u8, conf.input_mode);
     conf.top_bar = try allocator.dupe(u8, conf.top_bar);
     conf.bottom_bar = try allocator.dupe(u8, conf.bottom_bar);
@@ -88,6 +89,7 @@ fn init(allocator: Allocator) !*Self {
     const frame_rate: usize = @intCast(tp.env.get().num("frame-rate"));
     if (frame_rate != 0)
         conf.frame_rate = frame_rate;
+    tp.env.get().num_set("frame-rate", @intCast(conf.frame_rate));
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 
@@ -307,14 +309,14 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try self.send_widgets(from, m))
         return;
 
-    if (try m.match(.{ "exit", "normal" }))
-        return;
-
-    if (try m.match(.{ "exit", "timeout_error", 125, "Operation aborted." }))
-        return;
-
-    if (try m.match(.{ "exit", "DEADSEND", tp.more }))
-        return;
+    if (try m.match(.{ "exit", tp.more })) {
+        if (try m.match(.{ tp.string, "normal" }) or
+            try m.match(.{ tp.string, "timeout_error", 125, "Operation aborted." }) or
+            try m.match(.{ tp.string, "DEADSEND", tp.more }) or
+            try m.match(.{ tp.string, "error.LspFailed", tp.more }) or
+            try m.match(.{ tp.string, "error.NoLsp", tp.more }))
+            return;
+    }
 
     var msg: []const u8 = undefined;
     if (try m.match(.{ "exit", tp.extract(&msg) }) or try m.match(.{ "exit", tp.extract(&msg), tp.more })) {
@@ -509,7 +511,7 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
 fn update_hover(self: *Self, y: c_int, x: c_int) !?*Widget {
     self.last_hover_y = y;
     self.last_hover_x = x;
-    if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
+    if (y > 0 and x > 0) if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
         if (if (self.hover_focus) |h| h != w else true) {
             var buf: [256]u8 = undefined;
             if (self.hover_focus) |h| {
@@ -520,10 +522,9 @@ fn update_hover(self: *Self, y: c_int, x: c_int) !?*Widget {
             _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
         }
         return w;
-    } else {
-        try self.clear_hover_focus();
-        return null;
-    }
+    };
+    try self.clear_hover_focus();
+    return null;
 }
 
 fn clear_hover_focus(self: *Self) tp.result {
@@ -601,15 +602,20 @@ const cmds = struct {
     }
     pub const theme_prev_meta = .{ .description = "Switch to previous color theme" };
 
-    pub fn toggle_whitespace(self: *Self, _: Ctx) Result {
-        self.config.show_whitespace = !self.config.show_whitespace;
-        self.logger.print("show_whitspace {s}", .{if (self.config.show_whitespace) "enabled" else "disabled"});
+    pub fn toggle_whitespace_mode(self: *Self, _: Ctx) Result {
+        self.config.whitespace_mode = if (std.mem.eql(u8, self.config.whitespace_mode, "none"))
+            "indent"
+        else if (std.mem.eql(u8, self.config.whitespace_mode, "indent"))
+            "visible"
+        else
+            "none";
         try self.save_config();
         var buf: [32]u8 = undefined;
-        const m = try tp.message.fmtbuf(&buf, .{ "show_whitespace", self.config.show_whitespace });
+        const m = try tp.message.fmtbuf(&buf, .{ "whitespace_mode", self.config.whitespace_mode });
         _ = try self.send_widgets(tp.self_pid(), m);
+        self.logger.print("whitespace rendering {s}", .{self.config.whitespace_mode});
     }
-    pub const toggle_whitespace_meta = .{ .description = "Toggle visible whitespace" };
+    pub const toggle_whitespace_mode_meta = .{ .description = "Switch to next whitespace rendering mode" };
 
     pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
         self.config.input_mode = if (std.mem.eql(u8, self.config.input_mode, "flow"))

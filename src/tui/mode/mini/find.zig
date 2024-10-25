@@ -160,7 +160,7 @@ fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) !void {
 fn insert_code_point(self: *Self, c: u32) !void {
     var buf: [16]u8 = undefined;
     const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    try self.input.appendSlice(buf[0 .. bytes]);
+    try self.input.appendSlice(buf[0..bytes]);
 }
 
 fn insert_bytes(self: *Self, bytes: []const u8) !void {

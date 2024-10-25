@@ -92,7 +92,11 @@ pub fn resize(self: *Self, pos: Widget.Box) void {
 }
 
 pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
-    for (self.widgets.items) |*w|
+    const len = self.widgets.items.len;
+    for (0..len) |i| {
+        const n = len - i - 1;
+        const w = &self.widgets.items[n];
         if (w.walk(walk_ctx, f)) return true;
+    }
     return false;
 }

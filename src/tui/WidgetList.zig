@@ -16,7 +16,7 @@ pub const Layout = Widget.Layout;
 
 const WidgetState = struct {
     widget: Widget,
-    layout: Layout = .{},
+    layout: Layout = .dynamic,
 };
 
 plane: Plane,
@@ -85,8 +85,10 @@ pub fn add(self: *Self, w_: Widget) !void {
 
 pub fn addP(self: *Self, w_: Widget) !*Widget {
     var w: *WidgetState = try self.widgets.addOne();
-    w.widget = w_;
-    w.layout = w_.layout();
+    w.* = .{
+        .widget = w_,
+        .layout = w_.layout(),
+    };
     return &w.widget;
 }
 

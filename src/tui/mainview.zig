@@ -160,8 +160,12 @@ fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
         break :blk self.panels.?;
     };
     const h = self.plane.dim_y();
-    self.panel_height = @max(2, h - @min(h, y + 1));
+    self.panel_height = @max(1, h - @min(h, y + 1));
     panels.layout = .{ .static = self.panel_height.? };
+    if (self.panel_height == 1) {
+        self.panel_height = null;
+        command.executeName("toggle_panel", .{}) catch {};
+    }
 }
 
 fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !void {
@@ -268,10 +272,8 @@ const cmds = struct {
         tui.current().rdr.set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
-        if (try project_manager.request_most_recent_file(self.allocator)) |file_path| {
-            defer self.allocator.free(file_path);
-            try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
-        }
+        if (try project_manager.request_most_recent_file(self.allocator)) |file_path|
+            self.show_file_async_and_free(file_path);
     }
     pub const change_project_meta = .{ .interactive = false };
 
@@ -533,6 +535,12 @@ const cmds = struct {
         }
     }
     pub const show_diagnostics_meta = .{ .description = "Show diagnostics panel" };
+
+    pub fn open_previous_file(self: *Self, _: Ctx) Result {
+        const file_path = try project_manager.request_n_most_recent_file(self.allocator, 1);
+        self.show_file_async_and_free(file_path orelse return error.Stop);
+    }
+    pub const open_previous_file_meta = .{ .description = "Open the previous file" };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
@@ -543,10 +551,10 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         return self.location_update(m);
 
     if (try m.match(.{ "E", "close" })) {
-        if (self.pop_file_stack(editor.file_path)) |file_path| {
-            defer self.allocator.free(file_path);
-            self.show_previous_async(file_path);
-        } else self.show_home_async();
+        if (self.pop_file_stack(editor.file_path)) |file_path|
+            self.show_file_async_and_free(file_path)
+        else
+            self.show_home_async();
         self.editor = null;
         return;
     }
@@ -657,7 +665,8 @@ fn toggle_inputview_async(_: *Self) void {
     tp.self_pid().send(.{ "cmd", "toggle_inputview" }) catch return;
 }
 
-fn show_previous_async(_: *Self, file_path: []const u8) void {
+fn show_file_async_and_free(self: *Self, file_path: []const u8) void {
+    defer self.allocator.free(file_path);
     tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch return;
 }
 
@@ -766,6 +775,7 @@ fn add_info_content(
     end_pos: usize,
     content: []const u8,
 ) tp.result {
+    if (content.len == 0) return;
     if (!self.is_panel_view_showing(info_view))
         _ = self.toggle_panel_view(info_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const info = self.get_panel_view(info_view) orelse @panic("info_view missing");

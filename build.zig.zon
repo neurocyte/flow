@@ -5,9 +5,9 @@
 
     .dependencies = .{
         .syntax = .{ .path = "src/syntax" },
-        .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/c0193e9247335a6c1688b946325060289405de2a.tar.gz",
-            .hash = "12207ee987ce045596cb992cfb15b0d6d9456e50d4721c3061c69dabc2962053644d",
+        .flags = .{
+            .url = "https://github.com/n0s4/flags/archive/b3905aa990719ff567f1c5a2f89e6dd3292d8533.tar.gz",
+            .hash = "1220930a42f8da3fb7f723e3ad3f6dcc6db76327dd8d26274566423192d53e91b2bb",
         },
         .tracy = .{
             .url = "https://github.com/neurocyte/zig-tracy/archive/58999b786089e5319dd0707f6afbfca04c6340e7.tar.gz",
@@ -18,12 +18,12 @@
             .hash = "1220220dbc7fe91c1c54438193ca765cebbcb7d58f35cdcaee404a9d2245a42a4362",
         },
         .thespian = .{
-            .url = "https://github.com/neurocyte/thespian/archive/6e65fa623a45a4925875955aeb45e5cb0b5f7a68.tar.gz",
-            .hash = "12206feb723c41340acfe574b16f98a90e3af1f2662850ee2904ec0facb9dc5f0eef",
+            .url = "https://github.com/neurocyte/thespian/archive/2b380bbef442cd80842176f87517ef5726480a7a.tar.gz",
+            .hash = "122011f0b0bd6798c0575b7c8f5ec8903fe19509976aedffa5f17c6d98a4dc786de3",
         },
         .themes = .{
-            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-803da089c5a0fc3b4513a7c34afe9bdaff83efdc/flow-themes.tar.gz",
-            .hash = "12208fa20104c3311e97c20e70d0a81a257f2c2e24f627616984e38dda309749b29a",
+            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-08c07e21c47abe41ebd16ee260438da5b4c2039e/flow-themes.tar.gz",
+            .hash = "12202be270e675e3b61d96845baad143494539b167bcb8b1ef32659bf146dd85d3e1",
         },
         .fuzzig = .{
             .url = "https://github.com/fjebaker/fuzzig/archive/0fd156d5097365151e85a85eef9d8cf0eebe7b00.tar.gz",

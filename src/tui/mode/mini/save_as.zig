@@ -2,7 +2,6 @@ const std = @import("std");
 const tp = @import("thespian");
 const root = @import("root");
 
-
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
 const command = @import("../../command.zig");
@@ -29,7 +28,7 @@ pub fn name(_: *Type) []const u8 {
 }
 
 pub fn select(self: *Type) void {
-    if (root.is_directory(self.file_path.items) catch false) return;
+    if (root.is_directory(self.file_path.items)) return;
     if (self.file_path.items.len > 0)
         tp.self_pid().send(.{ "cmd", "save_file_as", .{self.file_path.items} }) catch {};
     command.executeName("exit_mini_mode", .{}) catch {};

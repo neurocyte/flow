@@ -83,6 +83,9 @@ fn receive_log(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bo
         try logview.process_log(m);
         try self.process_log(m);
         return true;
+    } else if (try cbor.match(m.buf, .{ "message", tp.more })) {
+        try self.process_message(m);
+        return true;
     } else if (try cbor.match(m.buf, .{ "MINILOG", tp.extract(&clear_msg_num) })) {
         if (clear_msg_num == self.msg_counter)
             self.clear();
@@ -112,6 +115,12 @@ fn process_log(self: *Self, m: tp.message) MessageFilter.Error!void {
         Widget.need_render();
         try self.update_clear_timer();
     }
+}
+
+fn process_message(self: *Self, m: tp.message) MessageFilter.Error!void {
+    var msg: []const u8 = undefined;
+    if (try cbor.match(m.buf, .{ tp.string, tp.extract(&msg) }))
+        try self.set(msg, .info);
 }
 
 fn update_clear_timer(self: *Self) !void {
