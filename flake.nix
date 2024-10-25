@@ -1,89 +1,72 @@
 {
+  description = "flow project flake";
+
   inputs = {
-    flake-parts.url = "github:hercules-ci/flake-parts";
-    nixpkgs.url = "github:NixOs/nixpkgs/nixos-unstable-small";
-    flow.flake = false;
-    flow.url = "github:neurocyte/flow";
-    zig2nix.inputs.nixpkgs.follows = "nixpkgs";
     zig2nix.url = "github:Cloudef/zig2nix";
   };
 
   outputs =
-    { self, ... }@inputs:
-    inputs.flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = inputs.nixpkgs.lib.systems.flakeExposed;
-      perSystem =
-        { pkgs, system, ... }:
-        {
-          packages =
-            let
-              flow = inputs.zig2nix.outputs.zig-env.${system} {
-                zig = inputs.zig2nix.outputs.packages.${system}.zig."0.13.0".bin;
-              };
-              build-zig = src: zigBuildZonLock: flow.package { inherit src zigBuildZonLock; };
-            in
+    { zig2nix, ... }:
+    let
+      flake-utils = zig2nix.inputs.flake-utils;
+    in
+    (flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        # Zig flake helper
+        # Check the flake.nix in zig2nix project for more options:
+        # <https://github.com/Cloudef/zig2nix/blob/master/flake.nix>
+        env = zig2nix.outputs.zig-env.${system} { };
+        system-triple = env.lib.zigTripleFromString system;
+      in
+      with builtins;
+      with env.lib;
+      with env.pkgs.lib;
+      rec {
+        # nix build .#target.{zig-target}
+        # e.g. nix build .#target.x86_64-linux-gnu
+        packages.target = genAttrs allTargetTriples (
+          target:
+          env.packageForTarget target (
             {
-              flow = build-zig (pkgs.lib.cleanSource inputs.flow) ./build.zig.zon2json-lock;
-            };
+              src = cleanSource ./.;
+
+              nativeBuildInputs = with env.pkgs; [ ];
+              buildInputs = with env.pkgsForTarget target; [ ];
+
+              # Smaller binaries and avoids shipping glibc.
+              zigPreferMusl = true;
+
+              # This disables LD_LIBRARY_PATH mangling, binary patching etc...
+              # The package won't be usable inside nix.
+              zigDisableWrap = true;
+            }
+            // optionalAttrs (!pathExists ./build.zig.zon) {
+              pname = "flow";
+              version = "0.1.0";
+            }
+          )
+        );
+
+        # nix build .
+        packages.default = packages.target.${system-triple}.override {
+          # Prefer nix friendly settings.
+          zigPreferMusl = false;
+          zigDisableWrap = false;
         };
-    };
+
+        # nix run .
+        apps.default =
+          let
+            pkg = packages.target.${system-triple};
+          in
+          {
+            type = "app";
+            program = "${pkg}/bin/flow";
+          };
+
+        # nix run .#build
+        apps.build = env.app [ ] "zig build \"$@\"";
+      }
+    ));
 }
-# {
-#   description = "flow project flake";
-#
-#   inputs = {
-#     zig2nix.url = "github:Cloudef/zig2nix";
-#   };
-#
-#   outputs = {zig2nix, ...}: let
-#     flake-utils = zig2nix.inputs.flake-utils;
-#   in (flake-utils.lib.eachDefaultSystem (system: let
-#     # Zig flake helper
-#     # Check the flake.nix in zig2nix project for more options:
-#     # <https://github.com/Cloudef/zig2nix/blob/master/flake.nix>
-#     env = zig2nix.outputs.zig-env.${system} {};
-#     system-triple = env.lib.zigTripleFromString system;
-#   in
-#     with builtins;
-#     with env.lib;
-#     with env.pkgs.lib; rec {
-#       # nix build .#target.{zig-target}
-#       # e.g. nix build .#target.x86_64-linux-gnu
-#       packages.target = genAttrs allTargetTriples (target:
-#         env.packageForTarget target ({
-#             src = cleanSource ./.;
-#
-#             nativeBuildInputs = with env.pkgs; [];
-#             buildInputs = with env.pkgsForTarget target; [];
-#
-#             # Smaller binaries and avoids shipping glibc.
-#             zigPreferMusl = true;
-#
-#             # This disables LD_LIBRARY_PATH mangling, binary patching etc...
-#             # The package won't be usable inside nix.
-#             zigDisableWrap = true;
-#           }
-#           // optionalAttrs (!pathExists ./build.zig.zon) {
-#             pname = "flow";
-#             version = "0.1.0";
-#           }));
-#
-#       # nix build .
-#       packages.default = packages.target.${system-triple}.override {
-#         # Prefer nix friendly settings.
-#         zigPreferMusl = false;
-#         zigDisableWrap = false;
-#       };
-#
-#       # nix run .
-#       apps.default = let
-#         pkg = packages.target.${system-triple};
-#       in {
-#         type = "app";
-#         program = "${pkg}/bin/flow";
-#       };
-#
-#       # nix run .#build
-#       apps.build = env.app [] "zig build \"$@\"";
-#     }));
-# }
