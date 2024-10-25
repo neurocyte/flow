@@ -1,4 +1,5 @@
 const tp = @import("thespian");
+const std = @import("std");
 
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
@@ -21,6 +22,14 @@ input: ArrayList(u8),
 last_cmd: []const u8 = "",
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
 commands: Commands = undefined,
+last_key: KeyPressEvent = .{},
+
+pub const KeyPressEvent = struct {
+    keypress: u32 = 0,
+    modifiers: u32 = std.math.maxInt(u32),
+    egc: u32 = 0,
+    timestamp_ms: i64 = 0,
+};
 
 pub fn create(allocator: Allocator) !tui.Mode {
     const self: *Self = try allocator.create(Self);
@@ -82,6 +91,46 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         key.LALT, key.RALT => return self.cmd("enable_jump_mode", .{}),
         else => {},
     }
+
+    if (tui.current().config.vim_insert_chording_keybindings) {
+
+        //reset chord if enough time has passed
+        const chord_time_window_ms = 750;
+        if (std.time.milliTimestamp() - self.last_key.timestamp_ms > chord_time_window_ms) {
+            self.last_key = .{};
+        }
+
+        //chording
+        if (self.last_key.keypress == 'j' and self.last_key.modifiers == 0 and keypress == 'k' and modifiers == 0) {
+            try self.cmd("undo", .{});
+            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+            return;
+        }
+        if (self.last_key.keypress == 'k' and self.last_key.modifiers == 0 and keypress == 'j' and modifiers == 0) {
+            try self.cmd("undo", .{});
+            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+            return;
+        }
+        if (self.last_key.keypress == 'f' and self.last_key.modifiers == 0 and keypress == 'j' and modifiers == 0) {
+            try self.cmd("undo", .{});
+            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+            return;
+        }
+        if (self.last_key.keypress == 'j' and self.last_key.modifiers == 0 and keypress == 'f' and modifiers == 0) {
+            try self.cmd("undo", .{});
+            try self.cmd("enter_mode", command.fmt(.{"vim/normal"}));
+            return;
+        }
+
+        //record current key event
+        self.last_key = .{
+            .keypress = keypress,
+            .modifiers = modifiers,
+            .egc = egc,
+            .timestamp_ms = std.time.milliTimestamp(),
+        };
+    }
+
     return switch (modifiers) {
         mod.CTRL => switch (keynormal) {
             'E' => self.cmd("open_recent", .{}),
@@ -121,7 +170,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.BACKSPACE => self.cmd("delete_word_left", .{}),
             key.DEL => self.cmd("delete_word_right", .{}),
             key.F05 => self.cmd("toggle_inspector_view", .{}),
-            key.F10 => self.cmd("toggle_whitespace", .{}), // aka F34
+            key.F10 => self.cmd("toggle_whitespace_mode", .{}), // aka F34
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
@@ -176,6 +225,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         },
         mod.SHIFT => switch (keypress) {
             key.F03 => self.cmd("goto_prev_match", .{}),
+            key.F10 => self.cmd("toggle_syntax_highlighting", .{}),
             key.LEFT => self.cmd("select_left", .{}),
             key.RIGHT => self.cmd("select_right", .{}),
             key.UP => self.cmd("select_up", .{}),
@@ -202,7 +252,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.F10 => self.cmd("theme_next", .{}),
             key.F11 => self.cmd("toggle_panel", .{}),
             key.F12 => self.cmd("goto_definition", .{}),
-            key.F34 => self.cmd("toggle_whitespace", .{}), // C-F10
+            key.F34 => self.cmd("toggle_whitespace_mode", .{}), // C-F10
             key.F58 => self.cmd("gutter_mode_next", .{}), // A-F10
             key.ESC => self.cmd("enter_mode", command.fmt(.{"vim/normal"})),
             key.ENTER => self.cmd("smart_insert_line", .{}),
@@ -315,7 +365,7 @@ const cmds_ = struct {
     pub fn q(self: *Self, _: Ctx) Result {
         try self.cmd("quit", .{});
     }
-    pub const q_meta = .{ .description = "w (quit)" };
+    pub const q_meta = .{ .description = "q (quit)" };
 
     pub fn @"q!"(self: *Self, _: Ctx) Result {
         try self.cmd("quit_without_saving", .{});

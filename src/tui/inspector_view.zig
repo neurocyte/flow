@@ -73,16 +73,18 @@ fn clear(self: *Self) void {
 
 fn inspect_location(self: *Self, row: usize, col: usize) void {
     const syn = self.editor.syntax orelse return;
-    syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col) });
+    const root = (self.editor.buffer orelse return).root;
+    const col_pos = root.get_line_width_to_pos(row, col,self.editor.metrics) catch return;
+    syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col_pos) });
 }
 
 fn get_buffer_text(self: *Self, buf: []u8, sel: Buffer.Selection) ?[]const u8 {
     const root = self.editor.get_current_root() orelse return null;
-    return root.get_range(sel, buf, null, null, self.plane.metrics()) catch return null;
+    return root.get_range(sel, buf, null, null, self.plane.metrics(self.editor.tab_width)) catch return null;
 }
 
 fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, ast_node: *const syntax.Node) error{Stop}!void {
-    const sel = self.pos_cache.range_to_selection(range, self.editor.get_current_root() orelse return, self.plane) orelse return;
+    const sel = self.pos_cache.range_to_selection(range, self.editor.get_current_root() orelse return, self.editor.metrics) orelse return;
 
     var update_match: enum { no, add, set } = .no;
     var match = ed.Match.from_selection(sel);
@@ -113,7 +115,7 @@ fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, 
             const ast_parent = parent.asSExpressionString();
             _ = self.plane.print("parent: {s}\n", .{ast_parent}) catch {};
             syntax.Node.freeSExpressionString(ast_parent);
-            const sel_parent = self.pos_cache.range_to_selection(parent.getRange(), self.editor.get_current_root() orelse return, self.plane) orelse return;
+            const sel_parent = self.pos_cache.range_to_selection(parent.getRange(), self.editor.get_current_root() orelse return, self.editor.metrics) orelse return;
             var match_parent = ed.Match.from_selection(sel_parent);
             if (self.theme) |theme| match_parent.style = .{ .bg = theme.editor_gutter_added.fg };
             switch (update_match) {

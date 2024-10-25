@@ -15,7 +15,7 @@ pub const bash = .{
 
 pub const c = .{
     .icon = "",
-    .extensions = .{ "c", "h" },
+    .extensions = .{"c"},
     .comment = "//",
     .formatter = .{"clang-format"},
     .language_server = .{"clangd"},
@@ -116,6 +116,12 @@ pub const go = .{
     .extensions = .{"go"},
     .comment = "//",
     .language_server = .{"gopls"},
+    .formatter = .{"gofmt"},
+};
+
+pub const hare = .{
+    .extensions = .{"ha"},
+    .comment = "//",
 };
 
 pub const haskell = .{
@@ -252,7 +258,7 @@ pub const nu = .{
     .icon = ">",
     .extensions = .{ "nu", "nushell" },
     .comment = "#",
-    .language_server = .{"nu", "--lsp"},
+    .language_server = .{ "nu", "--lsp" },
     .highlights = "tree-sitter-nu/queries/nu/highlights.scm",
     .injections = "tree-sitter-nu/queries/nu/injections.scm",
 };
@@ -302,7 +308,7 @@ pub const python = .{
     .icon = "󰌠",
     .extensions = .{"py"},
     .comment = "#",
-    .first_line_matches = .{ .prefix = "#!", .content = "/bin/bash" },
+    .first_line_matches = .{ .prefix = "#!", .content = "python" },
     .language_server = .{"pylsp"},
 };
 
@@ -316,6 +322,7 @@ pub const ruby = .{
     .icon = "󰴭",
     .extensions = .{"rb"},
     .comment = "#",
+    .language_server = .{"ruby-lsp"},
 };
 
 pub const rust = .{

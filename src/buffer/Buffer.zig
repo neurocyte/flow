@@ -19,8 +19,9 @@ pub const Metrics = struct {
     ctx: *const anyopaque,
     egc_length: egc_length_func,
     egc_chunk_width: egc_chunk_width_func,
-    pub const egc_length_func = *const fn (ctx: *const anyopaque, egcs: []const u8, colcount: *c_int, abs_col: usize) usize;
-    pub const egc_chunk_width_func = *const fn (self: *const anyopaque, chunk_: []const u8, abs_col_: usize) usize;
+    tab_width: usize,
+    pub const egc_length_func = *const fn (self: Metrics, egcs: []const u8, colcount: *c_int, abs_col: usize) usize;
+    pub const egc_chunk_width_func = *const fn (self: Metrics, chunk_: []const u8, abs_col_: usize) usize;
 };
 
 arena: std.heap.ArenaAllocator,
@@ -165,11 +166,11 @@ pub const Leaf = struct {
         var buf = self.buf;
         while (buf.len > 0 and pos.* > 0) {
             if (buf[0] == '\t') {
-                cols = @intCast(8 - (abs_col % 8));
+                cols = @intCast(metrics.tab_width - (abs_col % metrics.tab_width));
                 buf = buf[1..];
                 pos.* -= 1;
             } else {
-                const bytes = metrics.egc_length(metrics.ctx, buf, &cols, abs_col);
+                const bytes = metrics.egc_length(metrics, buf, &cols, abs_col);
                 buf = buf[bytes..];
                 pos.* -= bytes;
             }
@@ -192,7 +193,7 @@ pub const Leaf = struct {
         return while (buf.len > 0) {
             if (col == 0)
                 break @intFromPtr(buf.ptr) - @intFromPtr(self.buf.ptr);
-            const bytes = metrics.egc_length(metrics.ctx, buf, &cols, abs_col);
+            const bytes = metrics.egc_length(metrics, buf, &cols, abs_col);
             buf = buf[bytes..];
             if (col < cols)
                 break @intFromPtr(buf.ptr) - @intFromPtr(self.buf.ptr);
@@ -225,7 +226,7 @@ pub const Leaf = struct {
                     buf = buf[1..];
                 },
                 else => {
-                    const bytes = metrics.egc_length(metrics.ctx, buf, &cols, 0);
+                    const bytes = metrics.egc_length(metrics, buf, &cols, 0);
                     var buf_: [4096]u8 = undefined;
                     try l.appendSlice(try std.fmt.bufPrint(&buf_, "{s}", .{std.fmt.fmtSliceEscapeLower(buf[0..bytes])}));
                     buf = buf[bytes..];
@@ -484,7 +485,7 @@ const Node = union(enum) {
                 var buf: []const u8 = leaf.buf;
                 while (buf.len > 0) {
                     var cols: c_int = undefined;
-                    const bytes = metrics.egc_length(metrics.ctx, buf, &cols, ctx.abs_col);
+                    const bytes = metrics.egc_length(metrics, buf, &cols, ctx.abs_col);
                     const ret = ctx.walker_f(ctx.walker_ctx, buf[0..bytes], @intCast(cols), metrics);
                     if (ret.err) |e| return .{ .err = e };
                     buf = buf[bytes..];
@@ -550,6 +551,24 @@ const Node = union(enum) {
             error.NoSpaceLeft => error.NoSpaceLeft,
             else => error.Stop,
         };
+    }
+
+    pub fn get_line_width_to_pos(self: *const Node, line: usize, col: usize, metrics: Metrics) error{Stop}!usize {
+        const Ctx = struct {
+            col: usize,
+            wcwidth: usize = 0,
+            pos: usize = 0,
+            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Metrics) Walker {
+                const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+                if (ctx.wcwidth >= ctx.col) return Walker.stop;
+                ctx.pos += egc.len;
+                ctx.wcwidth += wcwidth;
+                return if (egc[0] == '\n') Walker.stop else Walker.keep_walking;
+            }
+        };
+        var ctx: Ctx = .{ .col = col };
+        self.walk_egc_forward(line, Ctx.walker, &ctx, metrics) catch return error.Stop;
+        return ctx.pos;
     }
 
     pub fn get_range(self: *const Node, sel: Selection, copy_buf: ?[]u8, size: ?*usize, wcwidth_: ?*usize, metrics_: Metrics) error{ Stop, NoSpaceLeft }!?[]u8 {
@@ -849,7 +868,7 @@ const Node = union(enum) {
                 line += 1;
                 col = 0;
             } else {
-                col += metrics_.egc_chunk_width(metrics_.ctx, chunk, col);
+                col += metrics_.egc_chunk_width(metrics_, chunk, col);
             }
         }
         return .{ line, col, self };
@@ -972,7 +991,7 @@ const Node = union(enum) {
                     if (ctx.abs_col >= ctx.pos.col) return error.Stop;
                     if (buf[0] == '\n') return error.Stop;
                     var cols: c_int = undefined;
-                    const egc_bytes = ctx.metrics.egc_length(ctx.metrics.ctx, buf, &cols, ctx.abs_col);
+                    const egc_bytes = ctx.metrics.egc_length(ctx.metrics, buf, &cols, ctx.abs_col);
                     ctx.abs_col += @intCast(cols);
                     ctx.byte_pos += egc_bytes;
                     buf = buf[egc_bytes..];
@@ -1121,9 +1140,9 @@ pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {
     self.last_save_eol_mode = eol_mode;
 }
 
-pub fn store_to_string(self: *const Self, allocator: Allocator) ![]u8 {
+pub fn store_to_string(self: *const Self, allocator: Allocator, eol_mode: EolMode) ![]u8 {
     var s = try ArrayList(u8).initCapacity(allocator, self.root.weights_sum().len);
-    try self.root.store(s.writer());
+    try self.root.store(s.writer(), eol_mode);
     return s.toOwnedSlice();
 }
 

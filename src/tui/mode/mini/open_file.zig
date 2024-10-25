@@ -2,7 +2,6 @@ const std = @import("std");
 const tp = @import("thespian");
 const root = @import("root");
 
-
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
 const command = @import("../../command.zig");
@@ -11,7 +10,7 @@ pub const Type = @import("file_browser.zig").Create(@This());
 
 pub const create = Type.create;
 
-pub fn load_entries(self: *Type) !void {
+pub fn load_entries(self: *Type) error{ Exit, OutOfMemory }!void {
     if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
         if (editor.is_dirty()) return tp.exit("unsaved changes");
         if (editor.file_path) |old_path|
@@ -32,7 +31,7 @@ pub fn name(_: *Type) []const u8 {
 }
 
 pub fn select(self: *Type) void {
-    if (root.is_directory(self.file_path.items) catch false) return;
+    if (root.is_directory(self.file_path.items)) return;
     if (self.file_path.items.len > 0)
         tp.self_pid().send(.{ "cmd", "navigate", .{ .file = self.file_path.items } }) catch {};
     command.executeName("exit_mini_mode", .{}) catch {};

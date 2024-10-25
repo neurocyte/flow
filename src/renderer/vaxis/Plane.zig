@@ -121,7 +121,7 @@ pub fn print_aligned_right(self: *Plane, y: c_int, comptime fmt: anytype, args: 
     var buf: [fmt.len + 4096]u8 = undefined;
     const width = self.window.width;
     const text = try std.fmt.bufPrint(&buf, fmt, args);
-    const text_width = self.egc_chunk_width(text, 0);
+    const text_width = self.egc_chunk_width(text, 0, 8);
     self.row = @intCast(y);
     self.col = @intCast(if (text_width >= width) 0 else width - text_width);
     return self.putstr(text);
@@ -131,7 +131,7 @@ pub fn print_aligned_center(self: *Plane, y: c_int, comptime fmt: anytype, args:
     var buf: [fmt.len + 4096]u8 = undefined;
     const width = self.window.width;
     const text = try std.fmt.bufPrint(&buf, fmt, args);
-    const text_width = self.egc_chunk_width(text, 0);
+    const text_width = self.egc_chunk_width(text, 0, 8);
     self.row = @intCast(y);
     self.col = @intCast(if (text_width >= width) 0 else (width - text_width) / 2);
     return self.putstr(text);
@@ -230,7 +230,7 @@ pub fn cell_init(self: Plane) Cell {
 
 pub fn cell_load(self: *Plane, cell: *Cell, gcluster: [:0]const u8) !usize {
     var cols: c_int = 0;
-    const bytes = self.egc_length(gcluster, &cols, 0);
+    const bytes = self.egc_length(gcluster, &cols, 0, 1);
     cell.cell.char.grapheme = self.cache.put(gcluster[0..bytes]);
     cell.cell.char.width = @intCast(cols);
     return bytes;
@@ -334,9 +334,9 @@ inline fn set_font_style(style: *vaxis.Cell.Style, fs: FontStyle) void {
     }
 }
 
-pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *c_int, abs_col: usize) usize {
+pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *c_int, abs_col: usize, tab_width: usize) usize {
     if (egcs[0] == '\t') {
-        colcount.* = @intCast(8 - abs_col % 8);
+        colcount.* = @intCast(tab_width - (abs_col % tab_width));
         return 1;
     }
     var iter = self.window.screen.unicode.graphemeIterator(egcs);
@@ -350,13 +350,13 @@ pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *c_int, abs_co
     return s.len;
 }
 
-pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize) usize {
+pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize, tab_width: usize) usize {
     var abs_col = abs_col_;
     var chunk = chunk_;
     var colcount: usize = 0;
     var cols: c_int = 0;
     while (chunk.len > 0) {
-        const bytes = self.egc_length(chunk, &cols, abs_col);
+        const bytes = self.egc_length(chunk, &cols, abs_col, tab_width);
         colcount += @intCast(cols);
         abs_col += @intCast(cols);
         if (chunk.len < bytes) break;
@@ -365,21 +365,22 @@ pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize) 
     return colcount;
 }
 
-pub fn metrics(self: *const Plane) Buffer.Metrics {
+pub fn metrics(self: *const Plane, tab_width: usize) Buffer.Metrics {
     return .{
         .ctx = self,
         .egc_length = struct {
-            fn f(ctx: *const anyopaque, egcs: []const u8, colcount: *c_int, abs_col: usize) usize {
-                const self_: *const Plane = @ptrCast(@alignCast(ctx));
-                return self_.egc_length(egcs, colcount, abs_col);
+            fn f(self_: Buffer.Metrics, egcs: []const u8, colcount: *c_int, abs_col: usize) usize {
+                const plane: *const Plane = @ptrCast(@alignCast(self_.ctx));
+                return plane.egc_length(egcs, colcount, abs_col, self_.tab_width);
             }
         }.f,
         .egc_chunk_width = struct {
-            fn f(ctx: *const anyopaque, chunk_: []const u8, abs_col_: usize) usize {
-                const self_: *const Plane = @ptrCast(@alignCast(ctx));
-                return self_.egc_chunk_width(chunk_, abs_col_);
+            fn f(self_: Buffer.Metrics, chunk_: []const u8, abs_col_: usize) usize {
+                const plane: *const Plane = @ptrCast(@alignCast(self_.ctx));
+                return plane.egc_chunk_width(chunk_, abs_col_, self_.tab_width);
             }
         }.f,
+        .tab_width = tab_width,
     };
 }
 

@@ -26,7 +26,7 @@ query: *Query,
 injections: *Query,
 tree: ?*treez.Tree = null,
 
-pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, content: []const u8) !*Self {
+pub fn create(file_type: *const FileType, allocator: std.mem.Allocator) !*Self {
     const self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
@@ -38,18 +38,17 @@ pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, content:
     };
     errdefer self.destroy();
     try self.parser.setLanguage(self.lang);
-    try self.refresh_full(content);
     return self;
 }
 
-pub fn create_file_type(allocator: std.mem.Allocator, content: []const u8, lang_name: []const u8) !*Self {
+pub fn create_file_type(allocator: std.mem.Allocator, lang_name: []const u8) !*Self {
     const file_type = FileType.get_by_name(lang_name) orelse return error.NotFound;
-    return create(file_type, allocator, content);
+    return create(file_type, allocator);
 }
 
 pub fn create_guess_file_type(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8) !*Self {
     const file_type = FileType.guess(file_path, content) orelse return error.NotFound;
-    return create(file_type, allocator, content);
+    return create(file_type, allocator);
 }
 
 pub fn destroy(self: *Self) void {
@@ -59,8 +58,15 @@ pub fn destroy(self: *Self) void {
     self.allocator.destroy(self);
 }
 
+pub fn reset(self: *Self) void {
+    if (self.tree) |tree| {
+        tree.destroy();
+        self.tree = null;
+    }
+}
+
 pub fn refresh_full(self: *Self, content: []const u8) !void {
-    if (self.tree) |tree| tree.destroy();
+    self.reset();
     self.tree = try self.parser.parseString(null, content);
 }
 

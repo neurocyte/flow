@@ -121,7 +121,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.BACKSPACE => self.cmd("delete_word_left", .{}),
             key.DEL => self.cmd("delete_word_right", .{}),
             key.F05 => self.cmd("toggle_inspector_view", .{}),
-            key.F10 => self.cmd("toggle_whitespace", .{}), // aka F34
+            key.F10 => self.cmd("toggle_whitespace_mode", .{}), // aka F34
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
@@ -202,7 +202,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             key.F10 => self.cmd("theme_next", .{}),
             key.F11 => self.cmd("toggle_panel", .{}),
             key.F12 => self.cmd("goto_definition", .{}),
-            key.F34 => self.cmd("toggle_whitespace", .{}), // C-F10
+            key.F34 => self.cmd("toggle_whitespace_mode", .{}), // C-F10
             key.F58 => self.cmd("gutter_mode_next", .{}), // A-F10
             key.ESC => self.cmd("enter_mode", command.fmt(.{"helix/normal"})),
             key.ENTER => self.cmd("smart_insert_line", .{}),
@@ -315,7 +315,7 @@ const cmds_ = struct {
     pub fn q(self: *Self, _: Ctx) Result {
         try self.cmd("quit", .{});
     }
-    pub const q_meta = .{ .description = "w (quit)" };
+    pub const q_meta = .{ .description = "q (quit)" };
 
     pub fn @"q!"(self: *Self, _: Ctx) Result {
         try self.cmd("quit_without_saving", .{});

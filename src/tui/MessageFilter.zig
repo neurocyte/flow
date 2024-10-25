@@ -13,6 +13,7 @@ pub const Error = (cbor.Error || cbor.JsonEncodeError || error{
     OutOfMemory,
     ThespianSpawnFailed,
     NoProject,
+    ProjectManagerFailed,
     SendFailed,
 });
 

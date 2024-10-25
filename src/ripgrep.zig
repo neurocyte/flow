@@ -120,6 +120,7 @@ const Process = struct {
             // "--line-buffered",
             "--fixed-strings",
             "--json",
+            "--smart-case",
             self.query,
         });
         self.sp = tp.subprocess.init(self.allocator, args, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
