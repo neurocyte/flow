@@ -2,6 +2,7 @@
   description = "flow project flake";
 
   inputs = {
+    nixpkgs.url = "github:NixOs/nixpkgs/nixos-unstable-small";
     zig2nix.url = "github:Cloudef/zig2nix";
     zig2nix.inputs.nixpkgs.follows = "nixpkgs";
   };
