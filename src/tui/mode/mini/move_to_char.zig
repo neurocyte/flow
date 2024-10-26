@@ -4,6 +4,7 @@ const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
+const keybind = @import("keybind");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -14,10 +15,13 @@ const Allocator = @import("std").mem.Allocator;
 
 const Self = @This();
 
+const Commands = command.Collection(cmds);
+
 allocator: Allocator,
 key: [6]u8 = undefined,
 direction: Direction,
 operation: Operation,
+commands: Commands = undefined,
 
 const Direction = enum {
     left,
@@ -39,17 +43,18 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
         .direction = if (right) .right else .left,
         .operation = if (select) .select else .move,
     };
+    try self.commands.init(self);
     return .{
+        try keybind.mode.mini.move_to_char.create(allocator),
         .{
-            .handler = EventHandler.to_owned(self),
-        },
-        .{
+            .event_handler = EventHandler.to_owned(self),
             .name = self.name(),
         },
     };
 }
 
 pub fn deinit(self: *Self) void {
+    self.commands.deinit();
     self.allocator.destroy(self);
 }
 
@@ -66,21 +71,8 @@ fn name(self: *Self) []const u8 {
     };
 }
 
-pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var evtype: u32 = undefined;
-    var keypress: u32 = undefined;
-    var modifiers: u32 = undefined;
-    var egc: u32 = undefined;
-    if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) }))
-        try self.mapEvent(evtype, keypress, egc, modifiers);
+pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
     return false;
-}
-
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) tp.result {
-    switch (evtype) {
-        event_type.PRESS => try self.mapPress(keypress, egc, modifiers),
-        else => {},
-    }
 }
 
 fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
@@ -119,6 +111,34 @@ fn execute_operation(self: *Self, c: u32) void {
     command.executeName("exit_mini_mode", .{}) catch {};
 }
 
-fn cancel(_: *Self) void {
-    command.executeName("exit_mini_mode", .{}) catch {};
-}
+const cmds = struct {
+    pub const Target = Self;
+    const Ctx = command.Context;
+    const Result = command.Result;
+
+    pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
+        var code_point: u32 = 0;
+        if (!try ctx.args.match(.{tp.extract(&code_point)}))
+            return error.InvalidArgument;
+        var buf: [6]u8 = undefined;
+        const bytes = ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidArgument;
+        const cmd = switch (self.direction) {
+            .left => switch (self.operation) {
+                .move => "move_to_char_left",
+                .select => "select_to_char_left",
+            },
+            .right => switch (self.operation) {
+                .move => "move_to_char_right",
+                .select => "select_to_char_right",
+            },
+        };
+        try command.executeName(cmd, command.fmt(.{buf[0..bytes]}));
+        try command.executeName("exit_mini_mode", .{});
+    }
+    pub const mini_mode_insert_code_point_meta = .{ .interactive = false };
+
+    pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
+        command.executeName("exit_mini_mode", .{}) catch {};
+    }
+    pub const mini_mode_cancel_meta = .{ .description = "Cancel input" };
+};

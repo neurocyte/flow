@@ -11,9 +11,7 @@ const fmt = @import("std").fmt;
 const Mode = @import("root.zig").Mode;
 
 pub fn create(_: Allocator) error{OutOfMemory}!Mode {
-    return .{
-        .handler = EventHandler.static(@This()),
-    };
+    return .{ .handler = EventHandler.static(@This()) };
 }
 
 pub fn receive(_: tp.pid_ref, m: tp.message) error{Exit}!bool {

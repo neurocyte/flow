@@ -1,6 +1,7 @@
 pub const mode = struct {
     pub const mini = struct {
         pub const goto = @import("goto.zig");
+        pub const move_to_char = @import("move_to_char.zig");
     };
 };
 
