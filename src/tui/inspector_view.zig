@@ -7,10 +7,10 @@ const syntax = @import("syntax");
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
+const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const EventHandler = @import("EventHandler.zig");
 const mainview = @import("mainview.zig");
 const ed = @import("editor.zig");
 
@@ -74,7 +74,7 @@ fn clear(self: *Self) void {
 fn inspect_location(self: *Self, row: usize, col: usize) void {
     const syn = self.editor.syntax orelse return;
     const root = (self.editor.buffer orelse return).root;
-    const col_pos = root.get_line_width_to_pos(row, col,self.editor.metrics) catch return;
+    const col_pos = root.get_line_width_to_pos(row, col, self.editor.metrics) catch return;
     syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col_pos) });
 }
 

@@ -1,10 +1,10 @@
 const std = @import("std");
 const tp = @import("thespian");
 const root = @import("root");
+const command = @import("command");
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
-const command = @import("../../command.zig");
 
 pub const Type = @import("file_browser.zig").Create(@This());
 

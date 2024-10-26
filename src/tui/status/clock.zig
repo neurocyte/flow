@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const zeit = @import("zeit");
 
+const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
@@ -12,12 +13,12 @@ const tui = @import("../tui.zig");
 allocator: std.mem.Allocator,
 plane: Plane,
 tick_timer: ?tp.Cancellable = null,
-on_event: ?Widget.EventHandler,
+on_event: ?EventHandler,
 tz: zeit.timezone.TimeZone,
 
 const Self = @This();
 
-pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
     var env = std.process.getEnvMap(allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
     defer env.deinit();
     const self: *Self = try allocator.create(Self);

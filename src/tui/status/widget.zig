@@ -1,6 +1,8 @@
 const std = @import("std");
-const Widget = @import("../Widget.zig");
+const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
+
+const Widget = @import("../Widget.zig");
 
 const widgets = std.static_string_map.StaticStringMap(CreateFunction).initComptime(.{
     .{ "mode", @import("modestate.zig").create },
@@ -16,9 +18,9 @@ const widgets = std.static_string_map.StaticStringMap(CreateFunction).initCompti
     .{ "clock", @import("clock.zig").create },
 });
 pub const CreateError = error{ OutOfMemory, Exit };
-pub const CreateFunction = *const fn (allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) CreateError!Widget;
+pub const CreateFunction = *const fn (allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) CreateError!Widget;
 
-pub fn create(name: []const u8, allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) CreateError!?Widget {
+pub fn create(name: []const u8, allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) CreateError!?Widget {
     const create_ = widgets.get(name) orelse return null;
     return try create_(allocator, parent, event_handler);
 }

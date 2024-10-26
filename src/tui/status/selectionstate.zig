@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const tracy = @import("tracy");
-
+const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
@@ -14,11 +14,11 @@ cursels: usize = 0,
 selection: ?ed.Selection = null,
 buf: [256]u8 = undefined,
 rendered: [:0]const u8 = "",
-on_event: ?Widget.EventHandler,
+on_event: ?EventHandler,
 
 const Self = @This();
 
-pub fn create(allocator: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),

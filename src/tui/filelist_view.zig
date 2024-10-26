@@ -6,12 +6,12 @@ const Plane = @import("renderer").Plane;
 const tp = @import("thespian");
 const log = @import("log");
 const root = @import("root");
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
-const command = @import("command.zig");
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const Menu = @import("Menu.zig");
-const EventHandler = @import("EventHandler.zig");
 const Button = @import("Button.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor = @import("editor.zig");

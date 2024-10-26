@@ -7,11 +7,11 @@ const Plane = @import("renderer").Plane;
 const utils = @import("renderer").input.utils;
 const key_ = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const Widget = @import("../Widget.zig");
-const command = @import("../command.zig");
 const tui = @import("../tui.zig");
-const EventHandler = @import("../EventHandler.zig");
 
 const history = 8;
 
@@ -31,7 +31,7 @@ const Self = @This();
 const idle_msg = "🐶";
 pub const width = idle_msg.len + 20;
 
-pub fn create(allocator: Allocator, parent: Plane, _: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, _: ?EventHandler) @import("widget.zig").CreateError!Widget {
     const frame_rate = tp.env.get().num("frame-rate");
     const self: *Self = try allocator.create(Self);
     self.* = .{

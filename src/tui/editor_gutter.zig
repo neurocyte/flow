@@ -10,12 +10,12 @@ const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
 const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const Widget = @import("Widget.zig");
-const EventHandler = @import("EventHandler.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
-const command = @import("command.zig");
 const ed = @import("editor.zig");
 
 allocator: Allocator,
