@@ -42,10 +42,10 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     return .{
         .{
             .handler = EventHandler.to_owned(self),
-            .name = self.name(),
-            .description = self.name(),
         },
-        .{},
+        .{
+            .name = self.name(),
+        },
     };
 }
 

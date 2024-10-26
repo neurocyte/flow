@@ -10,13 +10,9 @@ const fmt = @import("std").fmt;
 
 const Mode = @import("root.zig").Mode;
 
-const name = "＃goto";
-
 pub fn create(_: Allocator) error{OutOfMemory}!Mode {
     return .{
         .handler = EventHandler.static(@This()),
-        .name = name,
-        .description = name,
     };
 }
 

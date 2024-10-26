@@ -33,7 +33,6 @@ pub fn create(allocator: Allocator) !tui.Mode {
     return .{
         .handler = EventHandler.to_owned(self),
         .name = "NORMAL",
-        .description = "vim",
         .line_numbers = if (tui.current().config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
         .keybind_hints = &hints,
         .cursor_shape = .block,

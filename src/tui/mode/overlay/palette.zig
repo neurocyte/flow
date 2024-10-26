@@ -86,7 +86,6 @@ pub fn Create(options: type) type {
             return .{
                 .handler = EventHandler.to_owned(self),
                 .name = options.name,
-                .description = options.description,
             };
         }
 

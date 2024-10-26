@@ -50,10 +50,10 @@ pub fn Create(options: type) type {
             return .{
                 .{
                     .handler = EventHandler.to_owned(self),
-                    .name = options.name(self),
-                    .description = options.name(self),
                 },
-                .{},
+                .{
+                    .name = options.name(self),
+                },
             };
         }
 

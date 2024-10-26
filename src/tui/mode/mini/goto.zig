@@ -36,6 +36,7 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
             try keybind.mode.mini.goto.create(allocator),
             .{
                 .event_handler = EventHandler.to_owned(self),
+                .name = name,
             },
         };
     };

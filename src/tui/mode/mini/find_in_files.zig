@@ -39,10 +39,10 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
         return .{
             .{
                 .handler = EventHandler.to_owned(self),
-                .name = name,
-                .description = name,
             },
-            .{},
+            .{
+                .name = name,
+            },
         };
     }
     return error.NotFound;

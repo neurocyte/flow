@@ -758,6 +758,7 @@ const cmds = struct {
 
 pub const MiniMode = struct {
     event_handler: ?EventHandler = null,
+    name: []const u8,
     text: []const u8 = "",
     cursor: ?usize = null,
 };
@@ -776,7 +777,12 @@ fn context_check() void {
 }
 
 pub fn get_mode() []const u8 {
-    return if (current().input_mode) |m| m.name else "INI";
+    return if (current().mini_mode) |m|
+        m.name
+    else if (current().input_mode) |m|
+        m.name
+    else
+        "INI";
 }
 
 pub fn reset_drag_context() void {
