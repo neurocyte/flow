@@ -3,14 +3,15 @@ const Allocator = std.mem.Allocator;
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
-const command = @import("../command.zig");
 const tui = @import("../tui.zig");
 const CreateError = @import("widget.zig").CreateError;
 
-pub fn create(allocator: Allocator, parent: Plane, event_handler: ?Widget.EventHandler) CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler) CreateError!Widget {
     return Button.create_widget(void, allocator, parent, .{
         .ctx = {},
         .label = tui.get_mode(),

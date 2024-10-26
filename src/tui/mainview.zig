@@ -11,11 +11,11 @@ const log = @import("log");
 const Plane = @import("renderer").Plane;
 const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
+const command = @import("command");
 
 const tui = @import("tui.zig");
-const command = @import("command.zig");
 const Box = @import("Box.zig");
-const EventHandler = @import("EventHandler.zig");
+const EventHandler = @import("EventHandler");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const WidgetStack = @import("WidgetStack.zig");

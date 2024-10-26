@@ -7,11 +7,11 @@ const Plane = @import("renderer").Plane;
 const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
 const utils = @import("renderer").input.utils;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const Widget = @import("../Widget.zig");
-const command = @import("../command.zig");
 const tui = @import("../tui.zig");
-const EventHandler = @import("../EventHandler.zig");
 
 plane: Plane,
 ctrl: bool = false,
@@ -23,7 +23,7 @@ const Self = @This();
 
 pub const width = 5;
 
-pub fn create(allocator: Allocator, parent: Plane, _: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, _: ?EventHandler) @import("widget.zig").CreateError!Widget {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),

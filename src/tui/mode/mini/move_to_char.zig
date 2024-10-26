@@ -4,11 +4,11 @@ const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
-const command = @import("../../command.zig");
-const EventHandler = @import("../../EventHandler.zig");
 
 const Allocator = @import("std").mem.Allocator;
 
@@ -29,7 +29,7 @@ const Operation = enum {
     select,
 };
 
-pub fn create(allocator: Allocator, ctx: command.Context) !*Self {
+pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
     var right: bool = true;
     const select = if (tui.current().mainview.dynamic_cast(mainview)) |mv| if (mv.get_editor()) |editor| if (editor.get_primary().selection) |_| true else false else false else false;
     _ = ctx.args.match(.{tp.extract(&right)}) catch return error.NotFound;
@@ -39,18 +39,21 @@ pub fn create(allocator: Allocator, ctx: command.Context) !*Self {
         .direction = if (right) .right else .left,
         .operation = if (select) .select else .move,
     };
-    return self;
+    return .{
+        .{
+            .handler = EventHandler.to_owned(self),
+            .name = self.name(),
+            .description = self.name(),
+        },
+        .{},
+    };
 }
 
 pub fn deinit(self: *Self) void {
     self.allocator.destroy(self);
 }
 
-pub fn handler(self: *Self) EventHandler {
-    return EventHandler.to_owned(self);
-}
-
-pub fn name(self: *Self) []const u8 {
+fn name(self: *Self) []const u8 {
     return switch (self.operation) {
         .move => switch (self.direction) {
             .left => "↶ move",

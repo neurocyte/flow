@@ -1,18 +1,19 @@
 const std = @import("std");
 const tp = @import("thespian");
 const Plane = @import("renderer").Plane;
+const EventHandler = @import("EventHandler");
 
 const Widget = @import("../Widget.zig");
 
 plane: Plane,
 layout: Widget.Layout,
-on_event: ?Widget.EventHandler,
+on_event: ?EventHandler,
 
 const Self = @This();
 
 pub fn Create(comptime layout_: Widget.Layout) @import("widget.zig").CreateFunction {
     return struct {
-        fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+        fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
             const self: *Self = try allocator.create(Self);
             self.* = .{
                 .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),

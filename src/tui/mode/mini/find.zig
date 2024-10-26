@@ -4,11 +4,11 @@ const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
+const command = @import("command");
+const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
 const mainview = @import("../../mainview.zig");
-const command = @import("../../command.zig");
-const EventHandler = @import("../../EventHandler.zig");
 const ed = @import("../../editor.zig");
 
 const Allocator = @import("std").mem.Allocator;
@@ -16,6 +16,7 @@ const eql = @import("std").mem.eql;
 const ArrayList = @import("std").ArrayList;
 
 const Self = @This();
+const name = "󱎸 find";
 
 allocator: Allocator,
 input: ArrayList(u8),
@@ -25,7 +26,7 @@ start_cursor: ed.Cursor,
 editor: *ed.Editor,
 history_pos: ?usize = null,
 
-pub fn create(allocator: Allocator, _: command.Context) !*Self {
+pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
     if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
         const self: *Self = try allocator.create(Self);
         self.* = .{
@@ -41,7 +42,14 @@ pub fn create(allocator: Allocator, _: command.Context) !*Self {
             defer self.allocator.free(text);
             try self.input.appendSlice(text);
         }
-        return self;
+        return .{
+            .{
+                .handler = EventHandler.to_owned(self),
+                .name = name,
+                .description = name,
+            },
+            .{},
+        };
     };
     return error.NotFound;
 }
@@ -50,14 +58,6 @@ pub fn deinit(self: *Self) void {
     self.input.deinit();
     self.last_input.deinit();
     self.allocator.destroy(self);
-}
-
-pub fn handler(self: *Self) EventHandler {
-    return EventHandler.to_owned(self);
-}
-
-pub fn name(_: *Self) []const u8 {
-    return "󱎸 find";
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {

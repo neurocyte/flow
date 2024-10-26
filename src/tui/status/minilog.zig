@@ -2,7 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
-
+const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("../Widget.zig");
@@ -15,7 +15,7 @@ msg: std.ArrayList(u8),
 msg_counter: usize = 0,
 clear_timer: ?tp.Cancellable = null,
 level: Level = .info,
-on_event: ?Widget.EventHandler,
+on_event: ?EventHandler,
 
 const message_display_time_seconds = 2;
 const error_display_time_seconds = 4;
@@ -26,7 +26,7 @@ const Level = enum {
     err,
 };
 
-pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Widget.EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),

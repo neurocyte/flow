@@ -6,10 +6,10 @@ const ArrayList = @import("std").ArrayList;
 const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
+const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const EventHandler = @import("EventHandler.zig");
 
 pub const name = "inputview";
 
