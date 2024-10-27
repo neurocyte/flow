@@ -36,7 +36,7 @@ const scroll_step_small = 3;
 const scroll_cursor_min_border_distance = 5;
 
 const double_click_time_ms = 350;
-const syntax_refresh_update_time = 10; // ms
+const syntax_full_reparse_time_limit = 30; // ms
 
 pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_000 else 100_000;
 pub const max_match_lines = 15;
@@ -251,7 +251,7 @@ pub const Editor = struct {
     syntax_no_render: bool = false,
     syntax_refresh_full: bool = false,
     syntax_token: usize = 0,
-    syntax_refresh_update: bool = false,
+    syntax_incremental_reparse: bool = false,
 
     style_cache: ?StyleCache = null,
     style_cache_theme: []const u8 = "",
@@ -3080,7 +3080,7 @@ pub const Editor = struct {
                 self.syntax_token = 0;
                 return;
             }
-            if (!self.syntax_refresh_update)
+            if (!self.syntax_incremental_reparse)
                 self.syntax_refresh_full = true;
             if (self.syntax_refresh_full) {
                 const start_time = std.time.milliTimestamp();
@@ -3090,8 +3090,8 @@ pub const Editor = struct {
                 try syn.refresh_full(content.items);
                 self.syntax_refresh_full = false;
                 const end_time = std.time.milliTimestamp();
-                if (end_time - start_time > syntax_refresh_update_time)
-                    self.syntax_refresh_update = true;
+                if (end_time - start_time > syntax_full_reparse_time_limit)
+                    self.syntax_incremental_reparse = true;
             } else {
                 try syn.refresh_from_buffer(root, self.metrics);
             }
