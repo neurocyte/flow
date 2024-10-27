@@ -272,8 +272,6 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{ "system_clipboard", tp.string })) {
-        if (self.mini_mode) |mode| if (mode.event_handler) |eh|
-            return eh.send(tp.self_pid(), m) catch |e| self.logger.err("clipboard handler", e);
         if (self.active_event_handler()) |eh|
             eh.send(tp.self_pid(), m) catch |e| self.logger.err("clipboard handler", e);
         return;
@@ -394,9 +392,8 @@ fn render(self: *Self) void {
 }
 
 fn active_event_handler(self: *Self) ?EventHandler {
-    if (self.mini_mode) |mm| if (mm.event_handler) |eh| return eh;
-    if (self.input_mode) |im| return im.handler;
-    return null;
+    const mode = self.input_mode orelse return null;
+    return mode.event_handler orelse mode.input_handler;
 }
 
 fn dispatch_flush_input_event(self: *Self) !void {
@@ -419,7 +416,7 @@ fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
         })
             return;
     if (self.input_mode) |mode|
-        mode.handler.send(from, m) catch |e| self.logger.err("input handler", e);
+        mode.input_handler.send(from, m) catch |e| self.logger.err("input handler", e);
 }
 
 fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
@@ -753,26 +750,22 @@ const cmds = struct {
 
     pub fn exit_mini_mode(self: *Self, _: Ctx) Result {
         if (self.mini_mode) |_| {} else return;
-        defer {
-            self.input_mode = self.input_mode_outer;
-            self.input_mode_outer = null;
-            self.mini_mode = null;
-        }
         if (self.input_mode) |*mode| mode.deinit();
-        if (self.mini_mode) |*mode| if (mode.event_handler) |*event_handler| event_handler.deinit();
+        self.input_mode = self.input_mode_outer;
+        self.input_mode_outer = null;
+        self.mini_mode = null;
     }
     pub const exit_mini_mode_meta = .{ .interactive = false };
 };
 
 pub const MiniMode = struct {
-    event_handler: ?EventHandler = null,
     name: []const u8,
     text: []const u8 = "",
     cursor: ?usize = null,
 };
 
 pub const Mode = keybind.Mode;
-pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
+pub const KeybindHints = keybind.KeybindHints;
 
 threadlocal var instance_: ?*Self = null;
 

@@ -45,9 +45,11 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     };
     try self.commands.init(self);
     return .{
-        try keybind.mode.mini.move_to_char.create(allocator),
         .{
+            .input_handler = keybind.mode.mini.move_to_char.create(allocator),
             .event_handler = EventHandler.to_owned(self),
+        },
+        .{
             .name = self.name(),
         },
     };

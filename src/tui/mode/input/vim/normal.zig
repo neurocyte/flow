@@ -31,7 +31,7 @@ pub fn create(allocator: Allocator) !tui.Mode {
     };
     try self.commands.init(self);
     return .{
-        .handler = EventHandler.to_owned(self),
+        .input_handler = EventHandler.to_owned(self),
         .name = "NORMAL",
         .line_numbers = if (tui.current().config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
         .keybind_hints = &hints,

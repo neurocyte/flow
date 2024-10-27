@@ -9,14 +9,17 @@ pub const mode = struct {
 };
 
 pub const Mode = struct {
-    handler: EventHandler,
+    input_handler: EventHandler,
+    event_handler: ?EventHandler = null,
+
     name: []const u8 = "",
     line_numbers: enum { absolute, relative } = .absolute,
     keybind_hints: ?*const KeybindHints = null,
     cursor_shape: renderer.CursorShape = .block,
 
     pub fn deinit(self: *Mode) void {
-        self.handler.deinit();
+        self.input_handler.deinit();
+        if (self.event_handler) |eh| eh.deinit();
     }
 };
 

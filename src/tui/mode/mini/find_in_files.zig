@@ -42,9 +42,11 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
             self.input = self.buf[0..text.len];
         };
         return .{
-            try keybind.mode.mini.find_in_files.create(allocator),
             .{
+                .input_handler = keybind.mode.mini.find_in_files.create(allocator),
                 .event_handler = EventHandler.to_owned(self),
+            },
+            .{
                 .name = name,
             },
         };

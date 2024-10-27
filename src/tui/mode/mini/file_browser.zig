@@ -52,9 +52,11 @@ pub fn Create(options: type) type {
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             return .{
-                try keybind.mode.mini.file_browser.create(allocator),
                 .{
+                    .input_handler = keybind.mode.mini.file_browser.create(allocator),
                     .event_handler = EventHandler.to_owned(self),
+                },
+                .{
                     .name = options.name(self),
                 },
             };

@@ -33,9 +33,11 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
         };
         try self.commands.init(self);
         return .{
-            try keybind.mode.mini.goto.create(allocator),
             .{
+                .input_handler = keybind.mode.mini.goto.create(allocator),
                 .event_handler = EventHandler.to_owned(self),
+            },
+            .{
                 .name = name,
             },
         };

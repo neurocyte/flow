@@ -48,9 +48,11 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
             try self.input.appendSlice(text);
         }
         return .{
-            try keybind.mode.mini.find.create(allocator),
             .{
+                .input_handler = keybind.mode.mini.find.create(allocator),
                 .event_handler = EventHandler.to_owned(self),
+            },
+            .{
                 .name = name,
             },
         };

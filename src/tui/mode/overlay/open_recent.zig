@@ -62,7 +62,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     try mv.floating_views.add(self.modal.widget());
     try mv.floating_views.add(self.menu.container_widget);
     return .{
-        .handler = EventHandler.to_owned(self),
+        .input_handler = EventHandler.to_owned(self),
         .name = "󰈞 open recent",
     };
 }

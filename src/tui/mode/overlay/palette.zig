@@ -84,7 +84,7 @@ pub fn Create(options: type) type {
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
             return .{
-                .handler = EventHandler.to_owned(self),
+                .input_handler = EventHandler.to_owned(self),
                 .name = options.name,
             };
         }
