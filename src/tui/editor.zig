@@ -262,7 +262,12 @@ pub const Editor = struct {
     diag_info: usize = 0,
     diag_hints: usize = 0,
 
-    need_save_after_filter: bool = false,
+    need_save_after_filter: ?struct {
+        then: ?struct {
+            cmd: []const u8,
+            args: []const u8,
+        } = null,
+    } = null,
 
     case_data: ?CaseData = null,
 
@@ -3167,9 +3172,15 @@ pub const Editor = struct {
     }
     pub const open_scratch_buffer_meta = .{ .interactive = false };
 
-    pub fn save_file(self: *Self, _: Context) Result {
+    pub fn save_file(self: *Self, ctx: Context) Result {
+        var then = false;
+        var cmd: []const u8 = undefined;
+        var args: []const u8 = undefined;
+        if (ctx.args.match(.{ "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
+            then = true;
+        }
         if (tui.current().config.enable_format_on_save) if (self.get_formatter()) |_| {
-            self.need_save_after_filter = true;
+            self.need_save_after_filter = .{ .then = if (then) .{ .cmd = cmd, .args = args } else null };
             const primary = self.get_primary();
             const sel = primary.selection;
             primary.selection = null;
@@ -3178,6 +3189,8 @@ pub const Editor = struct {
             return;
         };
         try self.save();
+        if (then)
+            return command.executeName(cmd, .{ .args = .{ .buf = args } });
     }
     pub const save_file_meta = .{ .description = "Save file" };
 
@@ -3836,7 +3849,11 @@ pub const Editor = struct {
     fn filter_error(self: *Self, bytes: []const u8) !void {
         defer self.filter_deinit();
         self.logger.print("filter: ERR: {s}", .{bytes});
-        if (self.need_save_after_filter) try self.save();
+        if (self.need_save_after_filter) |info| {
+            try self.save();
+            if (info.then) |then|
+                return command.executeName(then.cmd, .{ .args = .{ .buf = then.args } });
+        }
     }
 
     fn filter_done(self: *Self) !void {
@@ -3866,7 +3883,11 @@ pub const Editor = struct {
         self.reset_syntax();
         self.clamp();
         self.need_render();
-        if (self.need_save_after_filter) try self.save();
+        if (self.need_save_after_filter) |info| {
+            try self.save();
+            if (info.then) |then|
+                return command.executeName(then.cmd, .{ .args = .{ .buf = then.args } });
+        }
     }
 
     fn filter_deinit(self: *Self) void {

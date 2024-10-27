@@ -644,8 +644,7 @@ const cmds_ = struct {
     pub const @"q!_meta" = .{ .description = "q! (quit without saving)" };
 
     pub fn wq(self: *Self, _: Ctx) Result {
-        try self.cmd("save_file", .{});
-        try self.cmd("quit", .{});
+        try self.cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
     }
     pub const wq_meta = .{ .description = "wq (write file and quit)" };
 
