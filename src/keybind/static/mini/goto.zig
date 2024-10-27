@@ -5,10 +5,7 @@ const event_type = @import("renderer").input.event_type;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
-const Allocator = @import("std").mem.Allocator;
-const fmt = @import("std").fmt;
-
-pub fn create(_: Allocator) EventHandler {
+pub fn create() EventHandler {
     return EventHandler.static(@This());
 }
 

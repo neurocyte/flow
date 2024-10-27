@@ -1,4 +1,7 @@
 pub const mode = struct {
+    pub const overlay = struct {
+        pub const palette = @import("overlay/palette.zig");
+    };
     pub const mini = struct {
         pub const goto = @import("mini/goto.zig");
         pub const move_to_char = @import("mini/move_to_char.zig");
