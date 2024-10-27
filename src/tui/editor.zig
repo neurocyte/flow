@@ -3083,6 +3083,7 @@ pub const Editor = struct {
             if (!self.syntax_incremental_reparse)
                 self.syntax_refresh_full = true;
             if (self.syntax_refresh_full) {
+                syn.reset();
                 const start_time = std.time.milliTimestamp();
                 var content = std.ArrayList(u8).init(self.allocator);
                 defer content.deinit();
