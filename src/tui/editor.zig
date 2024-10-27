@@ -3169,13 +3169,11 @@ pub const Editor = struct {
 
     pub fn save_file(self: *Self, _: Context) Result {
         if (tui.current().config.enable_format_on_save) if (self.get_formatter()) |_| {
-            self.need_save_after_filter = true;
             const primary = self.get_primary();
             const sel = primary.selection;
             primary.selection = null;
             defer primary.selection = sel;
             try self.format(.{});
-            return;
         };
         try self.save();
     }
