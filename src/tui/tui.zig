@@ -272,8 +272,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{ "system_clipboard", tp.string })) {
-        if (self.input_mode) |mode|
-            mode.handler.send(tp.self_pid(), m) catch |e| self.logger.err("clipboard handler", e);
+        if (self.mini_mode) |mode| if (mode.event_handler) |eh|
+            return eh.send(tp.self_pid(), m) catch |e| self.logger.err("clipboard handler", e);
+        if (self.active_event_handler()) |eh|
+            eh.send(tp.self_pid(), m) catch |e| self.logger.err("clipboard handler", e);
         return;
     }
 
@@ -391,10 +393,16 @@ fn render(self: *Self) void {
     }
 }
 
+fn active_event_handler(self: *Self) ?EventHandler {
+    if (self.mini_mode) |mm| if (mm.event_handler) |eh| return eh;
+    if (self.input_mode) |im| return im.handler;
+    return null;
+}
+
 fn dispatch_flush_input_event(self: *Self) !void {
     var buf: [32]u8 = undefined;
-    if (self.input_mode) |mode|
-        try mode.handler.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
+    if (self.active_event_handler()) |eh|
+        try eh.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
 }
 
 fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {

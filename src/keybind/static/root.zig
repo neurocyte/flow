@@ -3,6 +3,7 @@ pub const mode = struct {
         pub const goto = @import("goto.zig");
         pub const move_to_char = @import("move_to_char.zig");
         pub const file_browser = @import("file_browser.zig");
+        pub const find_in_files = @import("find_in_files.zig");
     };
 };
 
