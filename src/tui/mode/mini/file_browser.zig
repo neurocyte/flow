@@ -71,7 +71,8 @@ pub fn Create(options: type) type {
             self.allocator.destroy(self);
         }
 
-        pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
+        pub fn receive(self: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
+            self.update_mini_mode_text();
             return false;
         }
 
