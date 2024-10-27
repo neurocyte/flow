@@ -8,7 +8,7 @@ const EventHandler = @import("EventHandler");
 const Allocator = @import("std").mem.Allocator;
 const fmt = @import("std").fmt;
 
-const Mode = @import("root.zig").Mode;
+const Mode = @import("../root.zig").Mode;
 
 pub fn create(_: Allocator) error{OutOfMemory}!Mode {
     return .{ .handler = EventHandler.static(@This()) };

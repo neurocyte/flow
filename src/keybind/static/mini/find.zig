@@ -7,7 +7,7 @@ const EventHandler = @import("EventHandler");
 
 const Allocator = @import("std").mem.Allocator;
 
-const Mode = @import("root.zig").Mode;
+const Mode = @import("../root.zig").Mode;
 
 pub fn create(_: Allocator) !Mode {
     return .{ .handler = EventHandler.static(@This()) };
@@ -43,13 +43,19 @@ fn mapPress(keypress: u32, egc: u32, modifiers: u32) !void {
             'G' => command.executeName("mini_mode_cancel", .{}),
             'C' => command.executeName("mini_mode_cancel", .{}),
             'L' => command.executeName("scroll_view_center", .{}),
+            'F' => command.executeName("goto_next_match", .{}),
+            'N' => command.executeName("goto_next_match", .{}),
+            'P' => command.executeName("goto_prev_match", .{}),
             'I' => command.executeName("mini_mode_insert_bytes", command.fmt(.{"\t"})),
             key.SPACE => command.executeName("mini_mode_cancel", .{}),
-            key.BACKSPACE => command.executeName("mini_mode_delete_to_previous_path_segment", .{}),
+            key.ENTER => command.executeName("mini_mode_insert_bytes", command.fmt(.{"\n"})),
+            key.BACKSPACE => command.executeName("mini_mode_reset", .{}),
             else => {},
         },
         mod.ALT => switch (keynormal) {
             'V' => command.executeName("system_paste", .{}),
+            'N' => command.executeName("goto_next_match", .{}),
+            'P' => command.executeName("goto_prev_match", .{}),
             else => {},
         },
         mod.ALT | mod.SHIFT => switch (keynormal) {
@@ -57,20 +63,24 @@ fn mapPress(keypress: u32, egc: u32, modifiers: u32) !void {
             else => {},
         },
         mod.SHIFT => switch (keypress) {
-            key.TAB => command.executeName("mini_mode_reverse_complete_file", .{}),
+            key.ENTER => command.executeName("goto_prev_match", .{}),
+            key.F03 => command.executeName("goto_prev_match", .{}),
             else => if (!key.synthesized_p(keypress))
                 command.executeName("mini_mode_insert_code_point", command.fmt(.{egc}))
             else {},
         },
         0 => switch (keypress) {
-            key.UP => command.executeName("mini_mode_reverse_complete_file", .{}),
-            key.DOWN => command.executeName("mini_mode_try_complete_file", .{}),
-            key.RIGHT => command.executeName("mini_mode_try_complete_file_forward", .{}),
-            key.LEFT => command.executeName("mini_mode_delete_to_previous_path_segment", .{}),
-            key.TAB => command.executeName("mini_mode_try_complete_file", .{}),
+            key.UP => command.executeName("mini_mode_history_prev", .{}),
+            key.DOWN => command.executeName("mini_mode_history_next", .{}),
+            key.F03 => command.executeName("goto_next_match", .{}),
+            key.F15 => command.executeName("goto_prev_match", .{}),
+            key.F09 => command.executeName("theme_prev", .{}),
+            key.F10 => command.executeName("theme_next", .{}),
             key.ESC => command.executeName("mini_mode_cancel", .{}),
             key.ENTER => command.executeName("mini_mode_select", .{}),
             key.BACKSPACE => command.executeName("mini_mode_delete_backwards", .{}),
+            key.LCTRL, key.RCTRL => command.executeName("enable_fast_scroll", .{}),
+            key.LALT, key.RALT => command.executeName("enable_fast_scroll", .{}),
             else => if (!key.synthesized_p(keypress))
                 command.executeName("mini_mode_insert_code_point", command.fmt(.{egc}))
             else {},

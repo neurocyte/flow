@@ -7,7 +7,7 @@ const EventHandler = @import("EventHandler");
 
 const Allocator = @import("std").mem.Allocator;
 
-const Mode = @import("root.zig").Mode;
+const Mode = @import("../root.zig").Mode;
 
 pub fn create(_: Allocator) !Mode {
     return .{ .handler = EventHandler.static(@This()) };
