@@ -39,8 +39,9 @@ fn mapPress(keypress: u32, egc: u32, modifiers: u32) !void {
             'W' => command.executeName("close_file", .{}),
             'P' => command.executeName("palette_menu_up", .{}),
             'N' => command.executeName("palette_menu_down", .{}),
-            'T' => command.executeName("palette_menu_down", .{}), // select theme repeat key
+            'E' => command.executeName("palette_menu_down", .{}), // open recent repeat key
             'R' => command.executeName("palette_menu_down", .{}), // open recent project repeat key
+            'T' => command.executeName("palette_menu_down", .{}), // select theme repeat key
             'V' => command.executeName("system_paste", .{}),
             'C' => command.executeName("palette_menu_cancel", .{}),
             'G' => command.executeName("palette_menu_cancel", .{}),
@@ -54,10 +55,11 @@ fn mapPress(keypress: u32, egc: u32, modifiers: u32) !void {
             else => {},
         },
         mod.CTRL | mod.SHIFT => switch (keynormal) {
+            'E' => command.executeName("palette_menu_up", .{}), // open recent repeat key
+            'R' => command.executeName("palette_menu_up", .{}), // open recent project repeat key
             'P' => command.executeName("palette_menu_down", .{}), // command palette repeat key
             'Q' => command.executeName("quit_without_saving", .{}),
             'W' => command.executeName("close_file_without_saving", .{}),
-            'R' => command.executeName("restart", .{}),
             'L' => command.executeName("overlay_toggle_panel", .{}),
             'I' => command.executeName("overlay_toggle_inputview", .{}),
             else => {},

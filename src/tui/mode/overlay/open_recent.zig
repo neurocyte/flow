@@ -8,6 +8,7 @@ const Plane = @import("renderer").Plane;
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
+const keybind = @import("keybind");
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const project_manager = @import("project_manager");
 const command = @import("command");
@@ -62,7 +63,8 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     try mv.floating_views.add(self.modal.widget());
     try mv.floating_views.add(self.menu.container_widget);
     return .{
-        .input_handler = EventHandler.to_owned(self),
+        .input_handler = keybind.mode.overlay.palette.create(),
+        .event_handler = EventHandler.to_owned(self),
         .name = "󰈞 open recent",
     };
 }
@@ -194,91 +196,12 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var evtype: u32 = undefined;
-    var keypress: u32 = undefined;
-    var egc: u32 = undefined;
-    var modifiers: u32 = undefined;
     var text: []const u8 = undefined;
 
-    if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-        self.mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
+    if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
         self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return false;
-}
-
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
-    return switch (evtype) {
-        event_type.PRESS => self.mapPress(keypress, egc, modifiers),
-        event_type.REPEAT => self.mapPress(keypress, egc, modifiers),
-        event_type.RELEASE => self.mapRelease(keypress, modifiers),
-        else => {},
-    };
-}
-
-fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
-    const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
-    return switch (modifiers) {
-        mod.CTRL => switch (keynormal) {
-            'J' => self.cmd("toggle_panel", .{}),
-            'Q' => self.cmd("quit", .{}),
-            'W' => self.cmd("close_file", .{}),
-            'E' => self.cmd("open_recent_menu_down", .{}),
-            'P' => self.cmd("open_recent_menu_up", .{}),
-            'N' => self.cmd("open_recent_menu_down", .{}),
-            'V' => self.cmd("system_paste", .{}),
-            'C' => self.cmd("exit_overlay_mode", .{}),
-            'G' => self.cmd("exit_overlay_mode", .{}),
-            key.ESC => self.cmd("exit_overlay_mode", .{}),
-            key.UP => self.cmd("open_recent_menu_up", .{}),
-            key.DOWN => self.cmd("open_recent_menu_down", .{}),
-            key.ENTER => self.cmd("open_recent_menu_activate", .{}),
-            key.BACKSPACE => self.delete_word(),
-            else => {},
-        },
-        mod.CTRL | mod.SHIFT => switch (keynormal) {
-            'Q' => self.cmd("quit_without_saving", .{}),
-            'W' => self.cmd("close_file_without_saving", .{}),
-            'R' => self.cmd("restart", .{}),
-            'L' => self.cmd_async("toggle_panel"),
-            'I' => self.cmd_async("toggle_inputview"),
-            'E' => self.cmd("open_recent_menu_up", .{}),
-            else => {},
-        },
-        mod.ALT => switch (keynormal) {
-            'L' => self.cmd("toggle_panel", .{}),
-            'I' => self.cmd("toggle_inputview", .{}),
-            else => {},
-        },
-        mod.SHIFT => switch (keypress) {
-            else => if (!key.synthesized_p(keypress))
-                self.insert_code_point(egc)
-            else {},
-        },
-        0 => switch (keypress) {
-            key.F09 => self.cmd("theme_prev", .{}),
-            key.F10 => self.cmd("theme_next", .{}),
-            key.F11 => self.cmd("toggle_panel", .{}),
-            key.F12 => self.cmd("toggle_inputview", .{}),
-            key.ESC => self.cmd("exit_overlay_mode", .{}),
-            key.UP => self.cmd("open_recent_menu_up", .{}),
-            key.DOWN => self.cmd("open_recent_menu_down", .{}),
-            key.ENTER => self.cmd("open_recent_menu_activate", .{}),
-            key.BACKSPACE => self.delete_code_point(),
-            else => if (!key.synthesized_p(keypress))
-                self.insert_code_point(egc)
-            else {},
-        },
-        else => {},
-    };
-}
-
-fn mapRelease(self: *Self, keypress: u32, _: u32) !void {
-    return switch (keypress) {
-        key.LCTRL, key.RCTRL => if (self.menu.selected orelse 0 > 0) return self.cmd("open_recent_menu_activate", .{}),
-        else => {},
-    };
 }
 
 fn reset_results(self: *Self) void {
@@ -344,18 +267,56 @@ const cmds = struct {
     const Ctx = command.Context;
     const Result = command.Result;
 
-    pub fn open_recent_menu_down(self: *Self, _: Ctx) Result {
+    pub fn palette_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
-    pub const open_recent_menu_down_meta = .{ .interactive = false };
+    pub const palette_menu_down_meta = .{ .interactive = false };
 
-    pub fn open_recent_menu_up(self: *Self, _: Ctx) Result {
+    pub fn palette_menu_up(self: *Self, _: Ctx) Result {
         self.menu.select_up();
     }
-    pub const open_recent_menu_up_meta = .{ .interactive = false };
+    pub const palette_menu_up_meta = .{ .interactive = false };
 
-    pub fn open_recent_menu_activate(self: *Self, _: Ctx) Result {
+    pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
     }
-    pub const open_recent_menu_activate_meta = .{ .interactive = false };
+    pub const palette_menu_activate_meta = .{ .interactive = false };
+
+    pub fn palette_menu_cancel(self: *Self, _: Ctx) Result {
+        try self.cmd("exit_overlay_mode", .{});
+    }
+    pub const palette_menu_cancel_meta = .{ .interactive = false };
+
+    pub fn overlay_delete_word_left(self: *Self, _: Ctx) Result {
+        self.delete_word() catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const overlay_delete_word_left_meta = .{ .description = "Delete word to the left" };
+
+    pub fn overlay_delete_backwards(self: *Self, _: Ctx) Result {
+        self.delete_code_point() catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const overlay_delete_backwards_meta = .{ .description = "Delete backwards" };
+
+    pub fn overlay_insert_code_point(self: *Self, ctx: Ctx) Result {
+        var egc: u32 = 0;
+        if (!try ctx.args.match(.{tp.extract(&egc)}))
+            return error.InvalidArgument;
+        self.insert_code_point(egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const overlay_insert_code_point_meta = .{ .interactive = false };
+
+    pub fn overlay_release_control(self: *Self, _: Ctx) Result {
+        if (self.menu.selected orelse 0 > 0) return self.cmd("palette_menu_activate", .{});
+    }
+    pub const overlay_release_control_meta = .{ .interactive = false };
+
+    pub fn overlay_toggle_panel(self: *Self, _: Ctx) Result {
+        return self.cmd_async("toggle_panel");
+    }
+    pub const overlay_toggle_panel_meta = .{ .interactive = false };
+
+    pub fn overlay_toggle_inputview(self: *Self, _: Ctx) Result {
+        return self.cmd_async("toggle_inputview");
+    }
+    pub const overlay_toggle_inputview_meta = .{ .interactive = false };
 };
