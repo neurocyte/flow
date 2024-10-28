@@ -344,6 +344,15 @@ pub const @"ssh-config" = .{
     .comment = "#",
 };
 
+pub const swift = .{
+    .color = 0xf05138,
+    .icon = "󰛥",
+    .extensions = .{ "swift" },
+    .comment = "//",
+    .language_server = .{"sourcekit-lsp"},
+    .formatter = .{ "swift-format" },
+};
+
 pub const toml = .{
     .extensions = .{ "toml", "ini" },
     .comment = "#",
