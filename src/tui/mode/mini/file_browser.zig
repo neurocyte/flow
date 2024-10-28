@@ -73,7 +73,12 @@ pub fn Create(options: type) type {
             self.allocator.destroy(self);
         }
 
-        pub fn receive(self: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
+        pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+            var text: []const u8 = undefined;
+
+            if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
+                self.file_path.appendSlice(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            }
             self.update_mini_mode_text();
             return false;
         }
