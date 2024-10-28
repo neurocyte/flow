@@ -77,25 +77,6 @@ pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) tp.result {
-    switch (keypress) {
-        key.LSUPER, key.RSUPER => return,
-        key.LSHIFT, key.RSHIFT => return,
-        key.LCTRL, key.RCTRL => return,
-        key.LALT, key.RALT => return,
-        else => {},
-    }
-    return switch (modifiers) {
-        mod.SHIFT => if (!key.synthesized_p(keypress)) self.execute_operation(egc) else self.cancel(),
-        0 => switch (keypress) {
-            key.ESC => self.cancel(),
-            key.ENTER => self.cancel(),
-            else => if (!key.synthesized_p(keypress)) self.execute_operation(egc) else self.cancel(),
-        },
-        else => self.cancel(),
-    };
-}
-
 fn execute_operation(self: *Self, c: u32) void {
     const cmd = switch (self.direction) {
         .left => switch (self.operation) {
