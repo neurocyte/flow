@@ -363,6 +363,9 @@ const cmds = struct {
     pub const open_config_meta = .{ .description = "Edit configuration file" };
 
     pub fn restore_session(self: *Self, _: Ctx) Result {
+        if (tp.env.get().str("project").len == 0) {
+            try open_project_cwd(self, .{});
+        }
         try self.create_editor();
         try self.read_restore_info();
         tui.need_render();

@@ -453,7 +453,8 @@ pub const Editor = struct {
             else
                 syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch null;
             if (syn) |syn_|
-                project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch {};
+                project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch |e|
+                    self.logger.print("project_manager.did_open failed: {any}", .{e});
             break :syntax syn;
         };
         self.syntax_no_render = tp.env.get().is("no-syntax");
