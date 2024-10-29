@@ -6,6 +6,7 @@ const root = @import("root");
 const dizzy = @import("dizzy");
 const Buffer = @import("Buffer");
 const fuzzig = @import("fuzzig");
+const tracy = @import("tracy");
 const builtin = @import("builtin");
 
 const LSP = @import("LSP.zig");
@@ -327,70 +328,88 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
     const writer = edits_cb.writer();
 
     defer {
+        const frame = tracy.initZone(@src(), .{ .name = "deinit" });
         edits_cb.deinit();
         dst.deinit();
         src.deinit();
         scratch.deinit(self.allocator);
         dizzy_edits.deinit(self.allocator);
+        frame.deinit();
     }
-
-    try root_dst.store(dst.writer(), eol_mode);
-    try root_src.store(src.writer(), eol_mode);
-
+    {
+        const frame = tracy.initZone(@src(), .{ .name = "store" });
+        defer frame.deinit();
+        try root_dst.store(dst.writer(), eol_mode);
+        try root_src.store(src.writer(), eol_mode);
+    }
     const scratch_len = 4 * (dst.items.len + src.items.len) + 2;
-    try scratch.ensureTotalCapacity(self.allocator, scratch_len);
+    {
+        const frame = tracy.initZone(@src(), .{ .name = "scratch" });
+        defer frame.deinit();
+        try scratch.ensureTotalCapacity(self.allocator, scratch_len);
+    }
     scratch.items.len = scratch_len;
 
-    try dizzy.PrimitiveSliceDiffer(u8).diff(self.allocator, &dizzy_edits, src.items, dst.items, scratch.items);
-
+    {
+        const frame = tracy.initZone(@src(), .{ .name = "diff" });
+        defer frame.deinit();
+        try dizzy.PrimitiveSliceDiffer(u8).diff(self.allocator, &dizzy_edits, src.items, dst.items, scratch.items);
+    }
     var lines_dst: usize = 0;
     var last_offset: usize = 0;
     var edits_count: usize = 0;
 
-    for (dizzy_edits.items) |dizzy_edit| {
-        switch (dizzy_edit.kind) {
-            .equal => {
-                scan_char(src.items[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
-            },
-            .insert => {
-                const line_start_dst: usize = lines_dst;
-                try cbor.writeValue(writer, .{
-                    .range = .{
-                        .start = .{ .line = line_start_dst, .character = last_offset },
-                        .end = .{ .line = line_start_dst, .character = last_offset },
-                    },
-                    .text = dst.items[dizzy_edit.range.start..dizzy_edit.range.end],
-                });
-                edits_count += 1;
-                scan_char(dst.items[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
-            },
-            .delete => {
-                var line_end_dst: usize = lines_dst;
-                var offset_end_dst: usize = last_offset;
-                scan_char(src.items[dizzy_edit.range.start..dizzy_edit.range.end], &line_end_dst, '\n', &offset_end_dst);
-                try cbor.writeValue(writer, .{
-                    .range = .{
-                        .start = .{ .line = lines_dst, .character = last_offset },
-                        .end = .{ .line = line_end_dst, .character = offset_end_dst },
-                    },
-                    .text = "",
-                });
-                edits_count += 1;
-            },
+    {
+        const frame = tracy.initZone(@src(), .{ .name = "transform" });
+        defer frame.deinit();
+        for (dizzy_edits.items) |dizzy_edit| {
+            switch (dizzy_edit.kind) {
+                .equal => {
+                    scan_char(src.items[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
+                },
+                .insert => {
+                    const line_start_dst: usize = lines_dst;
+                    try cbor.writeValue(writer, .{
+                        .range = .{
+                            .start = .{ .line = line_start_dst, .character = last_offset },
+                            .end = .{ .line = line_start_dst, .character = last_offset },
+                        },
+                        .text = dst.items[dizzy_edit.range.start..dizzy_edit.range.end],
+                    });
+                    edits_count += 1;
+                    scan_char(dst.items[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
+                },
+                .delete => {
+                    var line_end_dst: usize = lines_dst;
+                    var offset_end_dst: usize = last_offset;
+                    scan_char(src.items[dizzy_edit.range.start..dizzy_edit.range.end], &line_end_dst, '\n', &offset_end_dst);
+                    try cbor.writeValue(writer, .{
+                        .range = .{
+                            .start = .{ .line = lines_dst, .character = last_offset },
+                            .end = .{ .line = line_end_dst, .character = offset_end_dst },
+                        },
+                        .text = "",
+                    });
+                    edits_count += 1;
+                },
+            }
         }
     }
+    {
+        const frame = tracy.initZone(@src(), .{ .name = "send" });
+        defer frame.deinit();
+        var msg = std.ArrayList(u8).init(self.allocator);
+        defer msg.deinit();
+        const msg_writer = msg.writer();
+        try cbor.writeMapHeader(msg_writer, 2);
+        try cbor.writeValue(msg_writer, "textDocument");
+        try cbor.writeValue(msg_writer, .{ .uri = uri, .version = version });
+        try cbor.writeValue(msg_writer, "contentChanges");
+        try cbor.writeArrayHeader(msg_writer, edits_count);
+        _ = try msg_writer.write(edits_cb.items);
 
-    var msg = std.ArrayList(u8).init(self.allocator);
-    defer msg.deinit();
-    const msg_writer = msg.writer();
-    try cbor.writeMapHeader(msg_writer, 2);
-    try cbor.writeValue(msg_writer, "textDocument");
-    try cbor.writeValue(msg_writer, .{ .uri = uri, .version = version });
-    try cbor.writeValue(msg_writer, "contentChanges");
-    try cbor.writeArrayHeader(msg_writer, edits_count);
-    _ = try msg_writer.write(edits_cb.items);
-
-    lsp.send_notification_raw("textDocument/didChange", msg.items) catch return error.LspFailed;
+        lsp.send_notification_raw("textDocument/didChange", msg.items) catch return error.LspFailed;
+    }
 }
 
 fn scan_char(chars: []const u8, lines: *usize, char: u8, last_offset: ?*usize) void {
