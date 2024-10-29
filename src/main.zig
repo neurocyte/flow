@@ -62,6 +62,7 @@ pub fn main() anyerror!void {
             .language = "Force the language of the file to be opened",
             .list_languages = "Show available languages",
             .no_syntax = "Disable syntax highlighting",
+            .syntax_report_timing = "Report syntax highlighting time",
             .exec = "Execute a command on startup",
             .version = "Show build version and exit",
         };
@@ -89,6 +90,7 @@ pub fn main() anyerror!void {
         language: ?[]const u8,
         list_languages: bool,
         no_syntax: bool,
+        syntax_report_timing: bool,
         exec: ?[]const u8,
         version: bool,
     };
@@ -186,6 +188,7 @@ pub fn main() anyerror!void {
     env.set("show-log", args.show_log);
     env.set("no-sleep", args.no_sleep);
     env.set("no-syntax", args.no_syntax);
+    env.set("syntax-report-timing", args.syntax_report_timing);
     env.set("dump-stack-trace", args.debug_dump_on_error);
     if (args.frame_rate) |s| env.num_set("frame-rate", @intCast(s));
     env.proc_set("log", log_proc.ref());
