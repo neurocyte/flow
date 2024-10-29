@@ -31,7 +31,7 @@ relative: bool,
 highlight: bool,
 width: usize = 4,
 editor: *ed.Editor,
-diff: diff,
+diff: diff.AsyncDiffer,
 diff_symbols: std.ArrayList(Symbol),
 
 const Self = @This();
@@ -310,11 +310,11 @@ fn diff_update(self: *Self) !void {
     return self.diff.diff(diff_result, new, old, eol_mode);
 }
 
-fn diff_result(from: tp.pid_ref, edits: []diff.Edit) void {
+fn diff_result(from: tp.pid_ref, edits: []diff.Diff) void {
     diff_result_send(from, edits) catch |e| @import("log").err(@typeName(Self), "diff", e);
 }
 
-fn diff_result_send(from: tp.pid_ref, edits: []diff.Edit) !void {
+fn diff_result_send(from: tp.pid_ref, edits: []diff.Diff) !void {
     var buf: [tp.max_message_size]u8 = undefined;
     var stream = std.io.fixedBufferStream(&buf);
     const writer = stream.writer();
