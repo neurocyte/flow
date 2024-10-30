@@ -3072,13 +3072,15 @@ pub const Editor = struct {
                 self.syntax_refresh_full = true;
             if (self.syntax_last_rendered_root == null)
                 self.syntax_refresh_full = true;
-            var content = std.ArrayList(u8).init(self.allocator);
-            defer content.deinit();
+            var content_ = std.ArrayList(u8).init(self.allocator);
+            defer content_.deinit();
             {
                 const frame = tracy.initZone(@src(), .{ .name = "editor store syntax" });
                 defer frame.deinit();
-                try root.store(content.writer(), eol_mode);
+                try root.store(content_.writer(), eol_mode);
             }
+            const content = try content_.toOwnedSliceSentinel(0);
+            defer self.allocator.free(content);
             if (self.syntax_refresh_full) {
                 {
                     const frame = tracy.initZone(@src(), .{ .name = "editor reset syntax" });
@@ -3088,7 +3090,7 @@ pub const Editor = struct {
                 {
                     const frame = tracy.initZone(@src(), .{ .name = "editor refresh_full syntax" });
                     defer frame.deinit();
-                    try syn.refresh_full(content.items);
+                    try syn.refresh_full(content);
                 }
                 kind = .full;
                 self.syntax_last_rendered_root = root;
@@ -3107,7 +3109,7 @@ pub const Editor = struct {
                         const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
                         defer frame.deinit();
                         const diff = @import("diff");
-                        const edits = try diff.diff(self.allocator, content.items, old_content.items);
+                        const edits = try diff.diff(self.allocator, content, old_content.items);
                         defer self.allocator.free(edits);
                         for (edits) |edit|
                             syntax_process_edit(syn, edit);
@@ -3116,7 +3118,7 @@ pub const Editor = struct {
                     {
                         const frame = tracy.initZone(@src(), .{ .name = "editor refresh syntax" });
                         defer frame.deinit();
-                        try syn.refresh(content.items);
+                        try syn.refresh_from_string(content);
                     }
                     self.syntax_last_rendered_root = root;
                     kind = .incremental;

@@ -74,12 +74,6 @@ pub fn edit(self: *Self, ed: Edit) void {
     if (self.tree) |tree| tree.edit(&ed);
 }
 
-pub fn refresh(self: *Self, content: []const u8) !void {
-    const old_tree = self.tree;
-    defer if (old_tree) |tree| tree.destroy();
-    self.tree = try self.parser.parseString(old_tree, content);
-}
-
 pub fn refresh_from_buffer(self: *Self, buffer: anytype, metrics: anytype) !void {
     const old_tree = self.tree;
     defer if (old_tree) |tree| tree.destroy();
