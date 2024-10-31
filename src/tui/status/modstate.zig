@@ -21,7 +21,7 @@ hover: bool = false,
 
 const Self = @This();
 
-pub const width = 5;
+pub const width = 8;
 
 pub fn create(allocator: Allocator, parent: Plane, _: ?EventHandler) @import("widget.zig").CreateError!Widget {
     const self: *Self = try allocator.create(Self);
@@ -53,10 +53,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
     self.plane.home();
 
-    _ = self.plane.print("\u{2003}{s}{s}{s}\u{2003}", .{
-        mode(self.ctrl, "Ⓒ", "🅒"),
-        mode(self.shift, "Ⓢ", "🅢"),
-        mode(self.alt, "Ⓐ", "🅐"),
+    _ = self.plane.print(" {s}{s}{s} ", .{
+        mode(self.ctrl, "Ⓒ ", "🅒 "),
+        mode(self.shift, "Ⓢ ", "🅢 "),
+        mode(self.alt, "Ⓐ ", "🅐 "),
     }) catch {};
     return false;
 }
