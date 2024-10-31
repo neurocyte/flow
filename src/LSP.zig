@@ -12,7 +12,6 @@ const Self = @This();
 const module_name = @typeName(Self);
 const sp_tag = "child";
 const debug_lsp = true;
-const lsp_request_timeout = std.time.ns_per_s * 3;
 
 const OutOfMemoryError = error{OutOfMemory};
 const SendError = error{SendFailed};
@@ -36,7 +35,8 @@ pub fn send_request(self: Self, allocator: std.mem.Allocator, method: []const u8
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
-    return self.pid.call(allocator, lsp_request_timeout, .{ "REQ", method, cb.items });
+    const request_timeout: u64 = @intCast(std.time.ns_per_s * tp.env.get().num("lsp-request-timeout"));
+    return self.pid.call(allocator, request_timeout, .{ "REQ", method, cb.items });
 }
 
 pub fn send_response(self: Self, id: i32, m: anytype) SendError!tp.message {
