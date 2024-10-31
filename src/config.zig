@@ -24,4 +24,4 @@ tab_width: usize = 8,
 top_bar: []const u8 = "",
 bottom_bar: []const u8 = "mode file log selection diagnostics linenumber",
 
-lsp_request_timeout: usize = 3,
+lsp_request_timeout: usize = 10,
