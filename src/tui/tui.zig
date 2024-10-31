@@ -557,6 +557,7 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     if (self.input_mode_outer) |_| try cmds.exit_overlay_mode(self, .{});
     self.input_mode_outer = self.input_mode;
     self.input_mode = try mode.create(self.allocator);
+    self.refresh_hover();
 }
 
 const cmds = struct {
@@ -701,6 +702,7 @@ const cmds = struct {
             self.input_mode_outer = null;
         }
         if (self.input_mode) |*mode| mode.deinit();
+        self.refresh_hover();
     }
     pub const exit_overlay_mode_meta = .{ .interactive = false };
 
