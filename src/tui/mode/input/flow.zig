@@ -29,9 +29,8 @@ pub fn create(allocator: Allocator) !tui.Mode {
         .input = try ArrayList(u8).initCapacity(allocator, input_buffer_size),
     };
     return .{
-        .handler = EventHandler.to_owned(self),
+        .input_handler = EventHandler.to_owned(self),
         .name = root.application_name,
-        .description = "default",
         .keybind_hints = &hints,
     };
 }

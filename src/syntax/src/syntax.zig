@@ -74,12 +74,6 @@ pub fn edit(self: *Self, ed: Edit) void {
     if (self.tree) |tree| tree.edit(&ed);
 }
 
-pub fn refresh(self: *Self, content: []const u8) !void {
-    const old_tree = self.tree;
-    defer if (old_tree) |tree| tree.destroy();
-    self.tree = try self.parser.parseString(old_tree, content);
-}
-
 pub fn refresh_from_buffer(self: *Self, buffer: anytype, metrics: anytype) !void {
     const old_tree = self.tree;
     defer if (old_tree) |tree| tree.destroy();
@@ -109,6 +103,47 @@ pub fn refresh_from_buffer(self: *Self, buffer: anytype, metrics: anytype) !void
         .encoding = .utf_8,
     };
     self.tree = try self.parser.parse(old_tree, input);
+}
+
+pub fn refresh_from_string(self: *Self, content: [:0]const u8) !void {
+    const old_tree = self.tree;
+    defer if (old_tree) |tree| tree.destroy();
+
+    const State = struct {
+        content: @TypeOf(content),
+    };
+    var state: State = .{
+        .content = content,
+    };
+
+    const input: Input = .{
+        .payload = &state,
+        .read = struct {
+            fn read(payload: ?*anyopaque, _: u32, position: treez.Point, bytes_read: *u32) callconv(.C) [*:0]const u8 {
+                bytes_read.* = 0;
+                const ctx: *State = @ptrCast(@alignCast(payload orelse return ""));
+                const pos = (find_line_begin(ctx.content, position.row) orelse return "") + position.column;
+                if (pos >= ctx.content.len) return "";
+                bytes_read.* = @intCast(ctx.content.len - pos);
+                return ctx.content[pos..].ptr;
+            }
+        }.read,
+        .encoding = .utf_8,
+    };
+    self.tree = try self.parser.parse(old_tree, input);
+}
+
+fn find_line_begin(s: []const u8, line: usize) ?usize {
+    var idx: usize = 0;
+    var at_line: usize = 0;
+    while (idx < s.len) {
+        if (at_line == line)
+            return idx;
+        if (s[idx] == '\n')
+            at_line += 1;
+        idx += 1;
+    }
+    return null;
 }
 
 fn CallBack(comptime T: type) type {

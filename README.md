@@ -20,21 +20,22 @@ Make sure your system meets the requirements listed above.
 Flow builds with zig 0.13 at this time. Build with:
 
 ```shell
-zig build -Doptimize=ReleaseSafe -Dcpu=baseline
+zig build -Doptimize=ReleaseSafe
 ```
 
-`-Dcpu=baseline` is optional, but may be required to prevent illegal instruction errors depending on
-zig's support for your cpu features.
+Zig will by default build a binary optimized for your specific CPU. If you get illegal instruction errors add `-Dcpu=baseline` to the build command to produce a binary with generic CPU support.
 
 
 Thanks to Zig you may also cross-compile from any host to pretty much any
 target. For example:
 
 ```shell
-zig build -Doptimize=ReleaseSafe -Dcpu=baseline -Dtarget=x86_64-windows --prefix zig-out/x86_64-windows
-zig build -Doptimize=ReleaseSafe -Dcpu=baseline -Dtarget=x86_64-macos-none --prefix zig-out/x86_64-macos
-zig build -Doptimize=ReleaseSafe -Dcpu=baseline -Dtarget=aarch64-linux-musl --prefix zig-out/aarch64-linux -Dcpu=baseline
+zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows --prefix zig-out/x86_64-windows
+zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos-none --prefix zig-out/x86_64-macos
+zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/aarch64-linux
 ```
+
+When cross-compiling zig will build a binary with generic CPU support.
 
 # Running Flow Control
 

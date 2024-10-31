@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
+const keybind = @import("keybind");
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
@@ -16,12 +17,15 @@ const eql = @import("std").mem.eql;
 const Self = @This();
 const name = "󰥨 find";
 
+const Commands = command.Collection(cmds);
+
 allocator: Allocator,
 buf: [1024]u8 = undefined,
 input: []u8 = "",
 last_buf: [1024]u8 = undefined,
 last_input: []u8 = "",
 mainview: *mainview,
+commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
     const self: *Self = try allocator.create(Self);
@@ -30,6 +34,7 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
             .allocator = allocator,
             .mainview = mv,
         };
+        try self.commands.init(self);
         if (mv.get_editor()) |editor| if (editor.get_primary().selection) |sel| ret: {
             const text = editor.get_selection(sel, self.allocator) catch break :ret;
             defer self.allocator.free(text);
@@ -38,117 +43,33 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
         };
         return .{
             .{
-                .handler = EventHandler.to_owned(self),
-                .name = name,
-                .description = name,
+                .input_handler = keybind.mode.mini.find_in_files.create(),
+                .event_handler = EventHandler.to_owned(self),
             },
-            .{},
+            .{
+                .name = name,
+            },
         };
     }
     return error.NotFound;
 }
 
 pub fn deinit(self: *Self) void {
+    self.commands.deinit();
     self.allocator.destroy(self);
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var evtype: u32 = undefined;
-    var keypress: u32 = undefined;
-    var egc: u32 = undefined;
-    var modifiers: u32 = undefined;
     var text: []const u8 = undefined;
 
-    defer {
-        if (tui.current().mini_mode) |*mini_mode| {
-            mini_mode.text = self.input;
-            mini_mode.cursor = self.input.len;
-        }
-    }
+    defer self.update_mini_mode_text();
 
-    if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-        self.mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    } else if (try m.match(.{"F"})) {
+    if (try m.match(.{"F"})) {
         self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
         self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return false;
-}
-
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
-    switch (evtype) {
-        event_type.PRESS => try self.mapPress(keypress, egc, modifiers),
-        event_type.REPEAT => try self.mapPress(keypress, egc, modifiers),
-        event_type.RELEASE => try self.mapRelease(keypress, egc, modifiers),
-        else => {},
-    }
-}
-
-fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
-    const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
-    return switch (modifiers) {
-        mod.CTRL => switch (keynormal) {
-            'Q' => self.cmd("quit", .{}),
-            'V' => self.cmd("system_paste", .{}),
-            'U' => self.input = "",
-            'G' => self.cancel(),
-            'C' => self.cancel(),
-            'L' => self.cmd("scroll_view_center", .{}),
-            'F' => self.cmd("goto_next_match", .{}),
-            'N' => self.cmd("goto_next_match", .{}),
-            'P' => self.cmd("goto_prev_match", .{}),
-            'I' => self.insert_bytes("\t"),
-            key.SPACE => self.cancel(),
-            key.ENTER => self.insert_bytes("\n"),
-            key.BACKSPACE => self.input = "",
-            else => {},
-        },
-        mod.ALT => switch (keynormal) {
-            'V' => self.cmd("system_paste", .{}),
-            'N' => self.cmd("goto_next_file", .{}),
-            'P' => self.cmd("goto_prev_file", .{}),
-            else => {},
-        },
-        mod.ALT | mod.SHIFT => switch (keynormal) {
-            'V' => self.cmd("system_paste", .{}),
-            else => {},
-        },
-        mod.SHIFT => switch (keypress) {
-            key.ENTER => self.cmd("goto_prev_match", .{}),
-            key.F03 => self.cmd("goto_prev_match", .{}),
-            else => if (!key.synthesized_p(keypress))
-                self.insert_code_point(egc)
-            else {},
-        },
-        0 => switch (keypress) {
-            key.UP => self.cmd("select_prev_file", .{}),
-            key.DOWN => self.cmd("select_next_file", .{}),
-            key.F03 => self.cmd("goto_next_match", .{}),
-            key.F15 => self.cmd("goto_prev_match", .{}),
-            key.F09 => self.cmd("theme_prev", .{}),
-            key.F10 => self.cmd("theme_next", .{}),
-            key.ESC => self.cancel(),
-            key.ENTER => self.cmd("goto_selected_file", .{}) catch self.cmd("exit_mini_mode", .{}),
-            key.BACKSPACE => if (self.input.len > 0) {
-                self.input = self.input[0 .. self.input.len - 1];
-            },
-            key.LCTRL, key.RCTRL => self.cmd("enable_fast_scroll", .{}),
-            key.LALT, key.RALT => self.cmd("enable_fast_scroll", .{}),
-            else => if (!key.synthesized_p(keypress))
-                self.insert_code_point(egc)
-            else {},
-        },
-        else => {},
-    };
-}
-
-fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) !void {
-    return switch (keypress) {
-        key.LCTRL, key.RCTRL => self.cmd("disable_fast_scroll", .{}),
-        key.LALT, key.RALT => self.cmd("disable_fast_scroll", .{}),
-        else => {},
-    };
 }
 
 fn insert_code_point(self: *Self, c: u32) !void {
@@ -176,11 +97,58 @@ fn flush_input(self: *Self) !void {
     }
 }
 
-fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
-    self.flush_input() catch {};
-    return command.executeName(name_, ctx);
+fn update_mini_mode_text(self: *Self) void {
+    if (tui.current().mini_mode) |*mini_mode| {
+        mini_mode.text = self.input;
+        mini_mode.cursor = self.input.len;
+    }
 }
 
-fn cancel(_: *Self) void {
-    command.executeName("exit_mini_mode", .{}) catch {};
-}
+const cmds = struct {
+    pub const Target = Self;
+    const Ctx = command.Context;
+    const Result = command.Result;
+
+    pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
+        self.flush_input() catch {};
+        self.input = "";
+        self.update_mini_mode_text();
+    }
+    pub const mini_mode_reset_meta = .{ .description = "Clear input" };
+
+    pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
+        command.executeName("exit_mini_mode", .{}) catch {};
+    }
+    pub const mini_mode_cancel_meta = .{ .description = "Cancel input" };
+
+    pub fn mini_mode_select(_: *Self, _: Ctx) Result {
+        command.executeName("goto_selected_file", .{}) catch {};
+        return command.executeName("exit_mini_mode", .{});
+    }
+    pub const mini_mode_select_meta = .{ .description = "Select" };
+
+    pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
+        var egc: u32 = 0;
+        if (!try ctx.args.match(.{tp.extract(&egc)}))
+            return error.InvalidArgument;
+        self.insert_code_point(egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.update_mini_mode_text();
+    }
+    pub const mini_mode_insert_code_point_meta = .{ .interactive = false };
+
+    pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
+        var bytes: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&bytes)}))
+            return error.InvalidArgument;
+        self.insert_bytes(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.update_mini_mode_text();
+    }
+    pub const mini_mode_insert_bytes_meta = .{ .interactive = false };
+
+    pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
+        if (self.input.len > 0) {
+            self.input = self.input[0 .. self.input.len - 1];
+        }
+    }
+    pub const mini_mode_delete_backwards_meta = .{ .description = "Delete backwards" };
+};

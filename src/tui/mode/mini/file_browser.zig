@@ -7,6 +7,7 @@ const root = @import("root");
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
+const keybind = @import("keybind");
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const project_manager = @import("project_manager");
 const command = @import("command");
@@ -26,7 +27,9 @@ pub fn Create(options: type) type {
         entries: std.ArrayList(Entry),
         complete_trigger_count: usize = 0,
         matched_entry: usize = 0,
+        commands: Commands = undefined,
 
+        const Commands = command.Collection(cmds);
         const Self = @This();
 
         const Entry = struct {
@@ -43,21 +46,24 @@ pub fn Create(options: type) type {
                 .match = std.ArrayList(u8).init(allocator),
                 .entries = std.ArrayList(Entry).init(allocator),
             };
+            try self.commands.init(self);
             try tui.current().message_filters.add(MessageFilter.bind(self, receive_path_entry));
             try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             return .{
                 .{
-                    .handler = EventHandler.to_owned(self),
-                    .name = options.name(self),
-                    .description = options.name(self),
+                    .input_handler = keybind.mode.mini.file_browser.create(),
+                    .event_handler = EventHandler.to_owned(self),
                 },
-                .{},
+                .{
+                    .name = options.name(self),
+                },
             };
         }
 
         pub fn deinit(self: *Self) void {
+            self.commands.deinit();
             tui.current().message_filters.remove_ptr(self);
             self.clear_entries();
             self.entries.deinit();
@@ -68,105 +74,13 @@ pub fn Create(options: type) type {
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            var evtype: u32 = undefined;
-            var keypress: u32 = undefined;
-            var egc: u32 = undefined;
-            var modifiers: u32 = undefined;
+            var text: []const u8 = undefined;
 
-            defer {
-                if (tui.current().mini_mode) |*mini_mode| {
-                    mini_mode.text = self.file_path.items;
-                    mini_mode.cursor = self.file_path.items.len;
-                }
+            if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
+                self.file_path.appendSlice(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
-
-            if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-                self.mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
-            }
+            self.update_mini_mode_text();
             return false;
-        }
-
-        fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
-            switch (evtype) {
-                event_type.PRESS => try self.mapPress(keypress, egc, modifiers),
-                event_type.REPEAT => try self.mapPress(keypress, egc, modifiers),
-                event_type.RELEASE => try self.mapRelease(keypress, egc, modifiers),
-                else => {},
-            }
-        }
-
-        fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
-            const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
-            return switch (modifiers) {
-                mod.CTRL => switch (keynormal) {
-                    'Q' => self.cmd("quit", .{}),
-                    'V' => self.cmd("system_paste", .{}),
-                    'U' => self.file_path.clearRetainingCapacity(),
-                    'G' => self.cancel(),
-                    'C' => self.cancel(),
-                    'L' => self.cmd("scroll_view_center", .{}),
-                    'I' => self.insert_bytes("\t"),
-                    key.SPACE => self.cancel(),
-                    key.BACKSPACE => self.delete_to_previous_path_segment(),
-                    else => {},
-                },
-                mod.ALT => switch (keynormal) {
-                    'V' => self.cmd("system_paste", .{}),
-                    else => {},
-                },
-                mod.ALT | mod.SHIFT => switch (keynormal) {
-                    'V' => self.cmd("system_paste", .{}),
-                    else => {},
-                },
-                mod.SHIFT => switch (keypress) {
-                    key.TAB => self.reverse_complete_file(),
-                    else => if (!key.synthesized_p(keypress))
-                        self.insert_code_point(egc)
-                    else {},
-                },
-                0 => switch (keypress) {
-                    key.UP => self.reverse_complete_file(),
-                    key.DOWN => self.try_complete_file(),
-                    key.TAB => self.try_complete_file(),
-                    key.ESC => self.cancel(),
-                    key.ENTER => self.select(),
-                    key.BACKSPACE => if (self.file_path.items.len > 0) {
-                        self.complete_trigger_count = 0;
-                        self.file_path.shrinkRetainingCapacity(self.file_path.items.len - 1);
-                    },
-                    else => if (!key.synthesized_p(keypress))
-                        self.insert_code_point(egc)
-                    else {},
-                },
-                else => {},
-            };
-        }
-
-        fn mapRelease(_: *Self, _: u32, _: u32, _: u32) !void {}
-
-        fn insert_code_point(self: *Self, c: u32) !void {
-            self.complete_trigger_count = 0;
-            var buf: [32]u8 = undefined;
-            const bytes = try ucs32_to_utf8(&[_]u32{c}, &buf);
-            try self.file_path.appendSlice(buf[0..bytes]);
-        }
-
-        fn insert_bytes(self: *Self, bytes: []const u8) !void {
-            self.complete_trigger_count = 0;
-            try self.file_path.appendSlice(bytes);
-        }
-
-        fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
-            self.complete_trigger_count = 0;
-            return command.executeName(name_, ctx);
-        }
-
-        fn cancel(_: *Self) void {
-            command.executeName("exit_mini_mode", .{}) catch {};
-        }
-
-        fn select(self: *Self) void {
-            options.select(self);
         }
 
         fn clear_entries(self: *Self) void {
@@ -332,5 +246,91 @@ pub fn Create(options: type) type {
             var buf: [256]u8 = undefined;
             tp.self_pid().send(.{ "message", std.fmt.bufPrint(&buf, fmt, args) catch @panic("too large") }) catch {};
         }
+
+        fn update_mini_mode_text(self: *Self) void {
+            if (tui.current().mini_mode) |*mini_mode| {
+                mini_mode.text = self.file_path.items;
+                mini_mode.cursor = self.file_path.items.len;
+            }
+        }
+
+        const cmds = struct {
+            pub const Target = Self;
+            const Ctx = command.Context;
+            const Result = command.Result;
+
+            pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
+                self.complete_trigger_count = 0;
+                self.file_path.clearRetainingCapacity();
+                self.update_mini_mode_text();
+            }
+            pub const mini_mode_reset_meta = .{ .description = "Clear input" };
+
+            pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
+                command.executeName("exit_mini_mode", .{}) catch {};
+            }
+            pub const mini_mode_cancel_meta = .{ .description = "Cancel input" };
+
+            pub fn mini_mode_delete_to_previous_path_segment(self: *Self, _: Ctx) Result {
+                self.delete_to_previous_path_segment();
+                self.update_mini_mode_text();
+            }
+            pub const mini_mode_delete_to_previous_path_segment_meta = .{ .description = "Delete to previous path segment" };
+
+            pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
+                if (self.file_path.items.len > 0) {
+                    self.complete_trigger_count = 0;
+                    self.file_path.shrinkRetainingCapacity(self.file_path.items.len - 1);
+                }
+                self.update_mini_mode_text();
+            }
+            pub const mini_mode_delete_backwards_meta = .{ .description = "Delete backwards" };
+
+            pub fn mini_mode_try_complete_file(self: *Self, _: Ctx) Result {
+                self.try_complete_file() catch |e| return tp.exit_error(e, @errorReturnTrace());
+                self.update_mini_mode_text();
+            }
+            pub const mini_mode_try_complete_file_meta = .{ .description = "Complete file" };
+
+            pub fn mini_mode_try_complete_file_forward(self: *Self, ctx: Ctx) Result {
+                self.complete_trigger_count = 0;
+                return mini_mode_try_complete_file(self, ctx);
+            }
+            pub const mini_mode_try_complete_file_forward_meta = .{ .description = "Complete file forward" };
+
+            pub fn mini_mode_reverse_complete_file(self: *Self, _: Ctx) Result {
+                self.reverse_complete_file() catch |e| return tp.exit_error(e, @errorReturnTrace());
+                self.update_mini_mode_text();
+            }
+            pub const mini_mode_reverse_complete_file_meta = .{ .description = "Reverse complete file" };
+
+            pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
+                var egc: u32 = 0;
+                if (!try ctx.args.match(.{tp.extract(&egc)}))
+                    return error.InvalidArgument;
+                self.complete_trigger_count = 0;
+                var buf: [32]u8 = undefined;
+                const bytes = try ucs32_to_utf8(&[_]u32{egc}, &buf);
+                try self.file_path.appendSlice(buf[0..bytes]);
+                self.update_mini_mode_text();
+            }
+            pub const mini_mode_insert_code_point_meta = .{ .interactive = false };
+
+            pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
+                var bytes: []const u8 = undefined;
+                if (!try ctx.args.match(.{tp.extract(&bytes)}))
+                    return error.InvalidArgument;
+                self.complete_trigger_count = 0;
+                try self.file_path.appendSlice(bytes);
+                self.update_mini_mode_text();
+            }
+            pub const mini_mode_insert_bytes_meta = .{ .interactive = false };
+
+            pub fn mini_mode_select(self: *Self, _: Ctx) Result {
+                options.select(self);
+                self.update_mini_mode_text();
+            }
+            pub const mini_mode_select_meta = .{ .description = "Select" };
+        };
     };
 }

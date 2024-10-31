@@ -36,7 +36,7 @@ const scroll_step_small = 3;
 const scroll_cursor_min_border_distance = 5;
 
 const double_click_time_ms = 350;
-const syntax_refresh_update_time = 10; // ms
+const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
 
 pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_000 else 100_000;
 pub const max_match_lines = 15;
@@ -249,9 +249,10 @@ pub const Editor = struct {
 
     syntax: ?*syntax = null,
     syntax_no_render: bool = false,
+    syntax_report_timing: bool = false,
     syntax_refresh_full: bool = false,
-    syntax_token: usize = 0,
-    syntax_refresh_update: bool = false,
+    syntax_last_rendered_root: ?Buffer.Root = null,
+    syntax_incremental_reparse: bool = false,
 
     style_cache: ?StyleCache = null,
     style_cache_theme: []const u8 = "",
@@ -262,7 +263,12 @@ pub const Editor = struct {
     diag_info: usize = 0,
     diag_hints: usize = 0,
 
-    need_save_after_filter: bool = false,
+    need_save_after_filter: ?struct {
+        then: ?struct {
+            cmd: []const u8,
+            args: []const u8,
+        } = null,
+    } = null,
 
     case_data: ?CaseData = null,
 
@@ -436,9 +442,15 @@ pub const Editor = struct {
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
 
+        if (new_buf.root.lines() > root_mod.max_syntax_lines) {
+            self.logger.print("large file threshold {d} lines < file size {d} lines", .{
+                root_mod.max_syntax_lines,
+                new_buf.root.lines(),
+            });
+            self.logger.print("syntax highlighting disabled", .{});
+            self.syntax_no_render = true;
+        }
         self.syntax = syntax: {
-            if (new_buf.root.lines() > root_mod.max_syntax_lines)
-                break :syntax null;
             const lang_override = tp.env.get().str("language");
             var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
@@ -448,10 +460,12 @@ pub const Editor = struct {
             else
                 syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch null;
             if (syn) |syn_|
-                project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch {};
+                project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch |e|
+                    self.logger.print("project_manager.did_open failed: {any}", .{e});
             break :syntax syn;
         };
         self.syntax_no_render = tp.env.get().is("no-syntax");
+        self.syntax_report_timing = tp.env.get().is("syntax-report-timing");
 
         const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
         const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";
@@ -1504,28 +1518,15 @@ pub const Editor = struct {
         self.collapse_cursors();
     }
 
-    fn nudge_insert(self: *Self, nudge: Selection, exclude: *const CurSel, size: usize) void {
+    fn nudge_insert(self: *Self, nudge: Selection, exclude: *const CurSel, _: usize) void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             if (cursel != exclude)
                 cursel.nudge_insert(nudge);
         for (self.matches.items) |*match_| if (match_.*) |*match|
             match.nudge_insert(nudge);
-        if (self.syntax) |syn| {
-            const root = self.buf_root() catch return;
-            const eol_mode = self.buf_eol_mode() catch return;
-            const start_byte = root.get_byte_pos(nudge.begin, self.metrics, eol_mode) catch return;
-            syn.edit(.{
-                .start_byte = @intCast(start_byte),
-                .old_end_byte = @intCast(start_byte),
-                .new_end_byte = @intCast(start_byte + size),
-                .start_point = .{ .row = @intCast(nudge.begin.row), .column = @intCast(nudge.begin.col) },
-                .old_end_point = .{ .row = @intCast(nudge.begin.row), .column = @intCast(nudge.begin.col) },
-                .new_end_point = .{ .row = @intCast(nudge.end.row), .column = @intCast(nudge.end.col) },
-            });
-        }
     }
 
-    fn nudge_delete(self: *Self, nudge: Selection, exclude: *const CurSel, size: usize) void {
+    fn nudge_delete(self: *Self, nudge: Selection, exclude: *const CurSel, _: usize) void {
         for (self.cursels.items, 0..) |*cursel_, i| if (cursel_.*) |*cursel|
             if (cursel != exclude)
                 if (!cursel.nudge_delete(nudge)) {
@@ -1535,19 +1536,6 @@ pub const Editor = struct {
             if (!match.nudge_delete(nudge)) {
                 self.matches.items[i] = null;
             };
-        if (self.syntax) |syn| {
-            const root = self.buf_root() catch return;
-            const eol_mode = self.buf_eol_mode() catch return;
-            const start_byte = root.get_byte_pos(nudge.begin, self.metrics, eol_mode) catch return;
-            syn.edit(.{
-                .start_byte = @intCast(start_byte),
-                .old_end_byte = @intCast(start_byte + size),
-                .new_end_byte = @intCast(start_byte),
-                .start_point = .{ .row = @intCast(nudge.begin.row), .column = @intCast(nudge.begin.col) },
-                .old_end_point = .{ .row = @intCast(nudge.end.row), .column = @intCast(nudge.end.col) },
-                .new_end_point = .{ .row = @intCast(nudge.begin.row), .column = @intCast(nudge.begin.col) },
-            });
-        }
     }
 
     fn delete_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
@@ -3065,35 +3053,76 @@ pub const Editor = struct {
     pub const disable_jump_mode_meta = .{ .interactive = false };
 
     fn update_syntax(self: *Self) !void {
-        const frame = tracy.initZone(@src(), .{ .name = "editor update syntax" });
-        defer frame.deinit();
         const root = try self.buf_root();
         const eol_mode = try self.buf_eol_mode();
-        const token = @intFromPtr(root);
-        if (root.lines() > root_mod.max_syntax_lines)
+        if (self.syntax_last_rendered_root == root)
             return;
-        if (self.syntax_token == token)
-            return;
+        var kind: enum { full, incremental, none } = .none;
+        var edit_count: usize = 0;
+        const start_time = std.time.milliTimestamp();
         if (self.syntax) |syn| {
             if (self.syntax_no_render) {
+                const frame = tracy.initZone(@src(), .{ .name = "editor reset syntax" });
+                defer frame.deinit();
                 syn.reset();
-                self.syntax_token = 0;
+                self.syntax_last_rendered_root = null;
                 return;
             }
-            if (!self.syntax_refresh_update)
+            if (!self.syntax_incremental_reparse)
                 self.syntax_refresh_full = true;
+            if (self.syntax_last_rendered_root == null)
+                self.syntax_refresh_full = true;
+            var content_ = std.ArrayList(u8).init(self.allocator);
+            defer content_.deinit();
+            {
+                const frame = tracy.initZone(@src(), .{ .name = "editor store syntax" });
+                defer frame.deinit();
+                try root.store(content_.writer(), eol_mode);
+            }
+            const content = try content_.toOwnedSliceSentinel(0);
+            defer self.allocator.free(content);
             if (self.syntax_refresh_full) {
-                const start_time = std.time.milliTimestamp();
-                var content = std.ArrayList(u8).init(self.allocator);
-                defer content.deinit();
-                try root.store(content.writer(), eol_mode);
-                try syn.refresh_full(content.items);
+                {
+                    const frame = tracy.initZone(@src(), .{ .name = "editor reset syntax" });
+                    defer frame.deinit();
+                    syn.reset();
+                }
+                {
+                    const frame = tracy.initZone(@src(), .{ .name = "editor refresh_full syntax" });
+                    defer frame.deinit();
+                    try syn.refresh_full(content);
+                }
+                kind = .full;
+                self.syntax_last_rendered_root = root;
                 self.syntax_refresh_full = false;
-                const end_time = std.time.milliTimestamp();
-                if (end_time - start_time > syntax_refresh_update_time)
-                    self.syntax_refresh_update = true;
             } else {
-                try syn.refresh_from_buffer(root, self.metrics);
+                if (self.syntax_last_rendered_root) |root_src| {
+                    self.syntax_last_rendered_root = null;
+                    var old_content = std.ArrayList(u8).init(self.allocator);
+                    defer old_content.deinit();
+                    {
+                        const frame = tracy.initZone(@src(), .{ .name = "editor store syntax" });
+                        defer frame.deinit();
+                        try root_src.store(old_content.writer(), eol_mode);
+                    }
+                    {
+                        const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
+                        defer frame.deinit();
+                        const diff = @import("diff");
+                        const edits = try diff.diff(self.allocator, content, old_content.items);
+                        defer self.allocator.free(edits);
+                        for (edits) |edit|
+                            syntax_process_edit(syn, edit);
+                        edit_count = edits.len;
+                    }
+                    {
+                        const frame = tracy.initZone(@src(), .{ .name = "editor refresh syntax" });
+                        defer frame.deinit();
+                        try syn.refresh_from_string(content);
+                    }
+                    self.syntax_last_rendered_root = root;
+                    kind = .incremental;
+                }
             }
         } else {
             var content = std.ArrayList(u8).init(self.allocator);
@@ -3103,10 +3132,43 @@ pub const Editor = struct {
                 error.NotFound => null,
                 else => return e,
             };
-            if (self.syntax_no_render) return;
-            if (self.syntax) |syn| try syn.refresh_full(content.items);
+            if (!self.syntax_no_render) {
+                if (self.syntax) |syn| {
+                    const frame = tracy.initZone(@src(), .{ .name = "editor parse syntax" });
+                    defer frame.deinit();
+                    try syn.refresh_full(content.items);
+                    self.syntax_last_rendered_root = root;
+                }
+            }
         }
-        self.syntax_token = token;
+        const end_time = std.time.milliTimestamp();
+        if (kind == .full or kind == .incremental) {
+            const update_time = end_time - start_time;
+            self.syntax_incremental_reparse = end_time - start_time > syntax_full_reparse_time_limit;
+            if (self.syntax_report_timing)
+                self.logger.print("syntax update {s} time: {d}ms ({d} edits)", .{ @tagName(kind), update_time, edit_count });
+        }
+    }
+
+    fn syntax_process_edit(syn: *syntax, edit: @import("diff").Diff) void {
+        switch (edit.kind) {
+            .insert => syn.edit(.{
+                .start_byte = @intCast(edit.start),
+                .old_end_byte = @intCast(edit.start),
+                .new_end_byte = @intCast(edit.start + edit.bytes.len),
+                .start_point = .{ .row = 0, .column = 0 },
+                .old_end_point = .{ .row = 0, .column = 0 },
+                .new_end_point = .{ .row = 0, .column = 0 },
+            }),
+            .delete => syn.edit(.{
+                .start_byte = @intCast(edit.start),
+                .old_end_byte = @intCast(edit.start + edit.bytes.len),
+                .new_end_byte = @intCast(edit.start),
+                .start_point = .{ .row = 0, .column = 0 },
+                .old_end_point = .{ .row = 0, .column = 0 },
+                .new_end_point = .{ .row = 0, .column = 0 },
+            }),
+        }
     }
 
     fn reset_syntax(self: *Self) void {
@@ -3166,9 +3228,15 @@ pub const Editor = struct {
     }
     pub const open_scratch_buffer_meta = .{ .interactive = false };
 
-    pub fn save_file(self: *Self, _: Context) Result {
+    pub fn save_file(self: *Self, ctx: Context) Result {
+        var then = false;
+        var cmd: []const u8 = undefined;
+        var args: []const u8 = undefined;
+        if (ctx.args.match(.{ "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
+            then = true;
+        }
         if (tui.current().config.enable_format_on_save) if (self.get_formatter()) |_| {
-            self.need_save_after_filter = true;
+            self.need_save_after_filter = .{ .then = if (then) .{ .cmd = cmd, .args = args } else null };
             const primary = self.get_primary();
             const sel = primary.selection;
             primary.selection = null;
@@ -3177,6 +3245,8 @@ pub const Editor = struct {
             return;
         };
         try self.save();
+        if (then)
+            return command.executeName(cmd, .{ .args = .{ .buf = args } });
     }
     pub const save_file_meta = .{ .description = "Save file" };
 
@@ -3835,7 +3905,11 @@ pub const Editor = struct {
     fn filter_error(self: *Self, bytes: []const u8) !void {
         defer self.filter_deinit();
         self.logger.print("filter: ERR: {s}", .{bytes});
-        if (self.need_save_after_filter) try self.save();
+        if (self.need_save_after_filter) |info| {
+            try self.save();
+            if (info.then) |then|
+                return command.executeName(then.cmd, .{ .args = .{ .buf = then.args } });
+        }
     }
 
     fn filter_done(self: *Self) !void {
@@ -3865,7 +3939,11 @@ pub const Editor = struct {
         self.reset_syntax();
         self.clamp();
         self.need_render();
-        if (self.need_save_after_filter) try self.save();
+        if (self.need_save_after_filter) |info| {
+            try self.save();
+            if (info.then) |then|
+                return command.executeName(then.cmd, .{ .args = .{ .buf = then.args } });
+        }
     }
 
     fn filter_deinit(self: *Self) void {
@@ -3991,11 +4069,23 @@ pub const Editor = struct {
     pub fn toggle_syntax_highlighting(self: *Self, _: Context) Result {
         self.syntax_no_render = !self.syntax_no_render;
         if (self.syntax_no_render) {
-            if (self.syntax) |syn| syn.reset();
-            self.syntax_token = 0;
+            if (self.syntax) |syn| {
+                const frame = tracy.initZone(@src(), .{ .name = "editor reset syntax" });
+                defer frame.deinit();
+                syn.reset();
+                self.syntax_last_rendered_root = null;
+                self.syntax_refresh_full = true;
+                self.syntax_incremental_reparse = false;
+            }
         }
+        self.logger.print("syntax highlighting {s}", .{if (self.syntax_no_render) "disabled" else "enabled"});
     }
     pub const toggle_syntax_highlighting_meta = .{ .description = "Toggle syntax highlighting" };
+
+    pub fn toggle_syntax_timing(self: *Self, _: Context) Result {
+        self.syntax_report_timing = !self.syntax_report_timing;
+    }
+    pub const toggle_syntax_timing_meta = .{ .description = "Toggle tree-sitter timing reports" };
 };
 
 pub fn create(allocator: Allocator, parent: Widget) !Widget {

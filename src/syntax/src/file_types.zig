@@ -176,6 +176,14 @@ pub const json = .{
     .formatter = .{ "hjson", "-j" },
 };
 
+pub const julia = .{
+    .color = 0x4D64AE,
+    .icon = "",
+    .extensions = .{"jl"},
+    .comment = "#",
+    .language_server = .{ "julia", "-e", "using LanguageServer; runserver()" },
+};
+
 pub const kdl = .{
     .color = 0x000000,
     .icon = "",
@@ -342,6 +350,15 @@ pub const scheme = .{
 pub const @"ssh-config" = .{
     .extensions = .{".ssh/config"},
     .comment = "#",
+};
+
+pub const swift = .{
+    .color = 0xf05138,
+    .icon = "󰛥",
+    .extensions = .{ "swift", "swiftinterface" },
+    .comment = "//",
+    .language_server = .{"sourcekit-lsp"},
+    .formatter = .{"swift-format"},
 };
 
 pub const toml = .{

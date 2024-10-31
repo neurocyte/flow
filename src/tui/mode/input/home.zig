@@ -22,9 +22,8 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
         .allocator = allocator,
     };
     return .{
-        .handler = EventHandler.to_owned(self),
+        .input_handler = EventHandler.to_owned(self),
         .name = root.application_name,
-        .description = "home",
         .keybind_hints = &hints,
     };
 }

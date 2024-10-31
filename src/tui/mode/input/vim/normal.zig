@@ -31,9 +31,8 @@ pub fn create(allocator: Allocator) !tui.Mode {
     };
     try self.commands.init(self);
     return .{
-        .handler = EventHandler.to_owned(self),
+        .input_handler = EventHandler.to_owned(self),
         .name = "NORMAL",
-        .description = "vim",
         .line_numbers = if (tui.current().config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
         .keybind_hints = &hints,
         .cursor_shape = .block,
@@ -645,8 +644,7 @@ const cmds_ = struct {
     pub const @"q!_meta" = .{ .description = "q! (quit without saving)" };
 
     pub fn wq(self: *Self, _: Ctx) Result {
-        try self.cmd("save_file", .{});
-        try self.cmd("quit", .{});
+        try self.cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
     }
     pub const wq_meta = .{ .description = "wq (write file and quit)" };
 
