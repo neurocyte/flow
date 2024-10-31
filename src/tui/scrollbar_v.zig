@@ -82,7 +82,6 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.active = false;
         return true;
     } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-        self.active = false;
         return true;
     }
 
