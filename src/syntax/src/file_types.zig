@@ -176,6 +176,14 @@ pub const json = .{
     .formatter = .{ "hjson", "-j" },
 };
 
+pub const julia = .{
+    .color = 0x4D64AE,
+    .icon = "",
+    .extensions = .{"jl"},
+    .comment = "#",
+    .language_server = .{ "julia", "-e", "using LanguageServer; runserver()" },
+};
+
 pub const kdl = .{
     .color = 0x000000,
     .icon = "",
@@ -350,7 +358,7 @@ pub const swift = .{
     .extensions = .{ "swift", "swiftinterface" },
     .comment = "//",
     .language_server = .{"sourcekit-lsp"},
-    .formatter = .{ "swift-format" },
+    .formatter = .{"swift-format"},
 };
 
 pub const toml = .{

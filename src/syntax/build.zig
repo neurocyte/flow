@@ -37,6 +37,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-javascript/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-jsdoc/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-json/queries/highlights.scm"),
+        ts_queryfile(b, tree_sitter_dep, "tree-sitter-julia/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-kdl/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-lua/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-make/queries/highlights.scm"),
