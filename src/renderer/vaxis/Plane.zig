@@ -1,10 +1,13 @@
 const std = @import("std");
 const Style = @import("theme").Style;
+const ThemeColor = @import("theme").Color;
 const FontStyle = @import("theme").FontStyle;
 const StyleBits = @import("style.zig").StyleBits;
 const Cell = @import("Cell.zig");
 const vaxis = @import("vaxis");
 const Buffer = @import("Buffer");
+const color = @import("color");
+const RGB = @import("color").RGB;
 
 const Plane = @This();
 
@@ -266,12 +269,20 @@ pub fn off_styles(self: *Plane, stylebits: StyleBits) void {
     if (stylebits.italic) self.style.italic = false;
 }
 
-pub fn set_fg_rgb(self: *Plane, channel: u32) !void {
-    self.style.fg = vaxis.Cell.Color.rgbFromUint(@intCast(channel));
+pub fn set_fg_rgb(self: *Plane, col: ThemeColor) !void {
+    self.style.fg = to_cell_color(col);
 }
 
-pub fn set_bg_rgb(self: *Plane, channel: u32) !void {
-    self.style.bg = vaxis.Cell.Color.rgbFromUint(@intCast(channel));
+pub fn set_fg_rgb_alpha(self: *Plane, alpha_bg: ThemeColor, col: ThemeColor) !void {
+    self.style.fg = apply_alpha_theme(alpha_bg, col);
+}
+
+pub fn set_bg_rgb(self: *Plane, col: ThemeColor) !void {
+    self.style.bg = to_cell_color(col);
+}
+
+pub fn set_bg_rgb_alpha(self: *Plane, alpha_bg: ThemeColor, col: ThemeColor) !void {
+    self.style.bg = apply_alpha_theme(alpha_bg, col);
 }
 
 pub fn set_fg_palindex(self: *Plane, idx: c_uint) !void {
@@ -283,38 +294,54 @@ pub fn set_bg_palindex(self: *Plane, idx: c_uint) !void {
 }
 
 pub inline fn set_base_style(self: *Plane, _: [*c]const u8, style_: Style) void {
-    self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
-    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    self.style_base.fg = if (style_.fg) |col| to_cell_color(col) else .default;
+    self.style_base.bg = if (style_.bg) |col| to_cell_color(col) else .default;
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.set_style(style_);
 }
 
 pub fn set_base_style_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
-    self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
-    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    self.style_base.fg = if (style_.fg) |col| to_cell_color(col) else .default;
+    self.style_base.bg = if (style_.bg) |col| to_cell_color(col) else .default;
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.set_style(style_);
     self.transparent = true;
 }
 
 pub fn set_base_style_bg_transparent(self: *Plane, _: [*:0]const u8, style_: Style) void {
-    self.style_base.fg = if (style_.fg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
-    self.style_base.bg = if (style_.bg) |color| vaxis.Cell.Color.rgbFromUint(@intCast(color)) else .default;
+    self.style_base.fg = if (style_.fg) |col| to_cell_color(col) else .default;
+    self.style_base.bg = if (style_.bg) |col| to_cell_color(col) else .default;
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.set_style(style_);
     self.transparent = true;
 }
 
+fn apply_alpha(bg: vaxis.Cell.Color, col: ThemeColor) vaxis.Cell.Color {
+    const alpha = col.alpha;
+    return if (alpha == 0xFF or bg != .rgb)
+        .{ .rgb = RGB.to_u8s(RGB.from_u24(col.color)) }
+    else
+        .{ .rgb = color.apply_alpha(RGB.from_u8s(bg.rgb), RGB.from_u24(col.color), alpha).to_u8s() };
+}
+
+fn apply_alpha_theme(bg: ThemeColor, col: ThemeColor) vaxis.Cell.Color {
+    const alpha = col.alpha;
+    return if (alpha == 0xFF)
+        .{ .rgb = RGB.to_u8s(RGB.from_u24(col.color)) }
+    else
+        .{ .rgb = color.apply_alpha(RGB.from_u24(bg.color), RGB.from_u24(col.color), alpha).to_u8s() };
+}
+
 pub inline fn set_style(self: *Plane, style_: Style) void {
-    if (style_.fg) |color| self.style.fg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
-    if (style_.bg) |color| self.style.bg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
+    if (style_.fg) |col| self.style.fg = apply_alpha(self.style_base.bg, col);
+    if (style_.bg) |col| self.style.bg = apply_alpha(self.style_base.bg, col);
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.transparent = false;
 }
 
 pub inline fn set_style_bg_transparent(self: *Plane, style_: Style) void {
-    if (style_.fg) |color| self.style.fg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
-    if (style_.bg) |color| self.style.bg = vaxis.Cell.Color.rgbFromUint(@intCast(color));
+    if (style_.fg) |col| self.style.fg = apply_alpha(self.style_base.bg, col);
+    if (style_.bg) |col| self.style.bg = apply_alpha(self.style_base.bg, col);
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.transparent = true;
 }
@@ -395,3 +422,7 @@ const GraphemeCache = struct {
         return self.buf[self.idx .. self.idx + bytes.len];
     }
 };
+
+fn to_cell_color(col: ThemeColor) vaxis.Cell.Color {
+    return .{ .rgb = RGB.to_u8s(RGB.from_u24(col.color)) };
+}

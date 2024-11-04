@@ -157,9 +157,15 @@ fn show_color(self: *Self, tag: []const u8, c_: ?Widget.Theme.Color) void {
     if (c_) |c| {
         _ = self.plane.print(" {s}:", .{tag}) catch return;
         self.plane.set_bg_rgb(c) catch {};
-        self.plane.set_fg_rgb(color.max_contrast(c, theme.panel.fg orelse 0xFFFFFF, theme.panel.bg orelse 0x000000)) catch {};
-        _ = self.plane.print("#{x}", .{c}) catch return;
+        self.plane.set_fg_rgb(.{ .color = color.max_contrast(
+            c.color,
+            (theme.panel.fg orelse Widget.Theme.Color{ .color = 0xFFFFFF }).color,
+            (theme.panel.bg orelse Widget.Theme.Color{ .color = 0x000000 }).color,
+        ) }) catch {};
+        _ = self.plane.print("#{x}", .{c.color}) catch return;
         self.reset_style();
+        if (c.alpha != 0xff)
+            _ = self.plane.print(" ɑ{x}", .{c.alpha}) catch return;
     }
 }
 

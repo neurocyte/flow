@@ -161,10 +161,10 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
         if (linenum == self.line + 1) {
-            self.plane.set_base_style(" ", theme.editor_gutter_active);
+            self.plane.set_style(theme.editor_gutter_active);
             self.plane.on_styles(style.bold);
         } else {
-            self.plane.set_base_style(" ", theme.editor_gutter);
+            self.plane.set_style(theme.editor_gutter);
             self.plane.off_styles(style.bold);
         }
         _ = self.plane.print_aligned_right(@intCast(pos), "{s}", .{std.fmt.bufPrintZ(&buf, "{d} ", .{linenum}) catch return}) catch {};
@@ -187,7 +187,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
     var buf: [31:0]u8 = undefined;
     while (rows > 0) : (rows -= 1) {
         if (pos > self.lines - @as(u32, @intCast(row))) return;
-        self.plane.set_base_style(" ", if (linenum == 0) theme.editor_gutter_active else theme.editor_gutter);
+        self.plane.set_style(if (linenum == 0) theme.editor_gutter_active else theme.editor_gutter);
         const val = @abs(if (linenum == 0) line else linenum);
         const fmt = std.fmt.bufPrintZ(&buf, "{d} ", .{val}) catch return;
         _ = self.plane.print_aligned_right(@intCast(pos), "{s}", .{if (fmt.len > 6) "==> " else fmt}) catch {};

@@ -960,7 +960,7 @@ pub const Editor = struct {
         var cell = self.plane.cell_init();
         _ = self.plane.at_cursor_cell(&cell) catch return;
         cell.set_style(.{ .fs = .undercurl });
-        if (style.fg) |ul_col| cell.set_under_color(ul_col);
+        if (style.fg) |ul_col| cell.set_under_color(ul_col.color);
         _ = self.plane.putc(&cell) catch {};
     }
 

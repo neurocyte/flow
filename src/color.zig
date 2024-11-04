@@ -19,6 +19,14 @@ pub const RGB = struct {
         return r | b | g;
     }
 
+    pub inline fn from_u8s(v: [3]u8) RGB {
+        return .{ .r = v[0], .g = v[1], .b = v[2] };
+    }
+
+    pub fn to_u8s(v: RGB) [3]u8 {
+        return [_]u8{ v.r, v.g, v.b };
+    }
+
     pub fn contrast(a_: RGB, b_: RGB) f32 {
         const a = RGBf.from_RGB(a_).luminance();
         const b = RGBf.from_RGB(b_).luminance();
@@ -59,4 +67,20 @@ pub const RGBf = struct {
 
 pub fn max_contrast(v: u24, a: u24, b: u24) u24 {
     return RGB.max_contrast(RGB.from_u24(v), RGB.from_u24(a), RGB.from_u24(b)).to_u24();
+}
+
+pub fn apply_alpha(base: RGB, over: RGB, alpha_u8: u8) RGB {
+    const alpha: f64 = @as(f64, @floatFromInt(alpha_u8)) / @as(f64, @floatFromInt(0xFF));
+    return .{
+        .r = component_apply_alpha(base.r, over.r, alpha),
+        .g = component_apply_alpha(base.g, over.g, alpha),
+        .b = component_apply_alpha(base.b, over.b, alpha),
+    };
+}
+
+inline fn component_apply_alpha(base_u8: u8, over_u8: u8, alpha: f64) u8 {
+    const base: f64 = @floatFromInt(base_u8);
+    const over: f64 = @floatFromInt(over_u8);
+    const result = ((1 - alpha) * base) + (alpha * over);
+    return @intFromFloat(result);
 }
