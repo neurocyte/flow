@@ -93,7 +93,7 @@ fn render_idle(self: *Self) bool {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = @typeName(@This()) ++ " render" });
     defer frame.deinit();
-    self.plane.set_base_style(" ", if (self.hover) theme.statusbar_hover else theme.statusbar);
+    self.plane.set_base_style(if (self.hover) theme.statusbar_hover else theme.statusbar);
     self.frame += 1;
     if (self.frame - self.key_active_frame > self.wipe_after_frames)
         self.unset_key_all();

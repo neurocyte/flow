@@ -76,7 +76,7 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor;
     if (button.active or button.hover or selected) {
-        button.plane.set_base_style(" ", style_base);
+        button.plane.set_base_style(style_base);
         button.plane.erase();
     } else {
         button.plane.set_base_style_bg_transparent(" ", style_base);
@@ -134,7 +134,7 @@ fn menu_action_quit(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style("", theme.editor);
+    self.plane.set_base_style(theme.editor);
     self.plane.erase();
     self.plane.home();
     if (self.fire) |*fire| fire.render();

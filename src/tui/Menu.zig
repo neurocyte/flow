@@ -27,7 +27,7 @@ pub fn Options(context: type) type {
 
         pub fn on_render_default(_: context, button: *Button.State(*State(Context)), theme: *const Widget.Theme, selected: bool) bool {
             const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor;
-            button.plane.set_base_style(" ", style_base);
+            button.plane.set_base_style(style_base);
             button.plane.erase();
             button.plane.home();
             _ = button.plane.print(" {s} ", .{button.opts.label}) catch {};

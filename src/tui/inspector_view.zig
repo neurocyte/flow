@@ -200,5 +200,5 @@ fn show_font(self: *Self, font: ?Widget.Theme.FontStyle) void {
 }
 
 fn reset_style(self: *Self) void {
-    self.plane.set_base_style(" ", (self.theme orelse return).panel);
+    self.plane.set_base_style((self.theme orelse return).panel);
 }

@@ -42,7 +42,7 @@ fn is_overlay_mode() bool {
 
 pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) bool {
     const base_style = if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover;
-    self.plane.set_base_style(" ", base_style);
+    self.plane.set_base_style(base_style);
     self.plane.on_styles(style.bold);
     self.plane.erase();
     self.plane.home();
@@ -52,7 +52,7 @@ pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) b
     } else {
         _ = self.plane.putstr("  ") catch {};
     }
-    self.plane.set_base_style(" ", base_style);
+    self.plane.set_base_style(base_style);
     self.plane.on_styles(style.bold);
     _ = self.plane.putstr(std.fmt.bufPrintZ(&buf, "{s} ", .{tui.get_mode()}) catch return false) catch {};
     if (is_mini_mode())

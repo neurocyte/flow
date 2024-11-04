@@ -122,7 +122,7 @@ inline fn get_width(self: *Self) usize {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = "gutter render" });
     defer frame.deinit();
-    self.plane.set_base_style(" ", theme.editor_gutter);
+    self.plane.set_base_style(theme.editor_gutter);
     self.plane.erase();
     if (self.linenum) {
         const relative = self.relative or if (tui.current().input_mode) |mode| mode.line_numbers == .relative else false;

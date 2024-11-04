@@ -50,7 +50,7 @@ pub fn set_content(self: *Self, content: []const u8) !void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style(" ", theme.panel);
+    self.plane.set_base_style(theme.panel);
     self.plane.erase();
     self.plane.home();
     for (self.lines.items) |line| {

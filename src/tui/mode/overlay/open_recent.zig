@@ -98,7 +98,7 @@ inline fn max_menu_width() usize {
 fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
-    button.plane.set_base_style(" ", style_base);
+    button.plane.set_base_style(style_base);
     button.plane.erase();
     button.plane.home();
     var file_path: []const u8 = undefined;

@@ -293,7 +293,7 @@ pub fn set_bg_palindex(self: *Plane, idx: c_uint) !void {
     self.style.bg = .{ .index = @intCast(idx) };
 }
 
-pub inline fn set_base_style(self: *Plane, _: [*c]const u8, style_: Style) void {
+pub inline fn set_base_style(self: *Plane, style_: Style) void {
     self.style_base.fg = if (style_.fg) |col| to_cell_color(col) else .default;
     self.style_base.bg = if (style_.bg) |col| to_cell_color(col) else .default;
     if (style_.fs) |fs| set_font_style(&self.style, fs);

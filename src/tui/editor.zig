@@ -815,7 +815,7 @@ pub const Editor = struct {
             const frame = tracy.initZone(@src(), .{ .name = "editor render screen" });
             defer frame.deinit();
 
-            self.plane.set_base_style(" ", theme.editor);
+            self.plane.set_base_style(theme.editor);
             self.plane.erase();
             if (hl_row) |_|
                 self.render_line_highlight(&self.get_primary().cursor, theme) catch {};

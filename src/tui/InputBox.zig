@@ -22,7 +22,7 @@ pub fn Options(context: type) type {
         pub fn do_nothing(_: context, _: *State(Context)) void {}
 
         pub fn on_render_default(_: context, self: *State(Context), theme: *const Widget.Theme) bool {
-            self.plane.set_base_style(" ", if (self.text.items.len > 0) theme.input else theme.input_placeholder);
+            self.plane.set_base_style(if (self.text.items.len > 0) theme.input else theme.input_placeholder);
             self.plane.erase();
             self.plane.home();
             if (self.text.items.len > 0) {

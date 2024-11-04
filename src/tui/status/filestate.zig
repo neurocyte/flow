@@ -78,7 +78,7 @@ pub fn layout(_: *Self, _: *Button.State(Self)) Widget.Layout {
 pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = @typeName(@This()) ++ " render" });
     defer frame.deinit();
-    btn.plane.set_base_style(" ", if (btn.active) theme.editor_cursor else theme.statusbar);
+    btn.plane.set_base_style(if (btn.active) theme.editor_cursor else theme.statusbar);
     btn.plane.erase();
     btn.plane.home();
     if (tui.current().mini_mode) |_|

@@ -52,7 +52,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const style_normal = theme.panel;
     const style_info: Widget.Theme.Style = .{ .fg = theme.editor_information.fg, .fs = theme.editor_information.fs };
     const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs };
-    self.plane.set_base_style(" ", style_normal);
+    self.plane.set_base_style(style_normal);
     self.plane.erase();
     self.plane.home();
     const height = self.plane.dim_y();

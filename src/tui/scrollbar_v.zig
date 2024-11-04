@@ -126,7 +126,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         theme.scrollbar;
     const frame = tracy.initZone(@src(), .{ .name = "scrollbar_v render" });
     defer frame.deinit();
-    self.plane.set_base_style(" ", style);
+    self.plane.set_base_style(style);
     self.plane.erase();
     smooth_bar_at(&self.plane, @intCast(self.pos_scrn), @intCast(self.view_scrn)) catch {};
     return false;

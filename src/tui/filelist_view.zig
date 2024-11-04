@@ -122,7 +122,7 @@ pub fn reset(self: *Self) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style(" ", theme.panel);
+    self.plane.set_base_style(theme.panel);
     self.plane.erase();
     self.plane.home();
     return self.menu.container_widget.render(theme);
@@ -148,7 +148,7 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
     if (idx >= self.entries.items.len) {
         return false;
     }
-    button.plane.set_base_style(" ", style_base);
+    button.plane.set_base_style(style_base);
     button.plane.erase();
     button.plane.home();
     const entry = &self.entries.items[idx];

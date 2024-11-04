@@ -52,7 +52,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style(" ", theme.panel);
+    self.plane.set_base_style(theme.panel);
     self.plane.erase();
     self.plane.home();
     const height = self.plane.dim_y();

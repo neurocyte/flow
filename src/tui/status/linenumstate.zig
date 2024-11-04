@@ -41,7 +41,7 @@ pub fn layout(self: *Self, btn: *Button.State(Self)) Widget.Layout {
 }
 
 pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
-    btn.plane.set_base_style(" ", if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar);
+    btn.plane.set_base_style(if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar);
     btn.plane.erase();
     btn.plane.home();
     _ = btn.plane.putstr(self.rendered) catch {};

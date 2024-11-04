@@ -39,7 +39,7 @@ pub fn layout(self: *Self) Widget.Layout {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = @typeName(@This()) ++ " render" });
     defer frame.deinit();
-    self.plane.set_base_style(" ", theme.statusbar);
+    self.plane.set_base_style(theme.statusbar);
     self.plane.erase();
     self.plane.home();
     _ = self.plane.putstr(self.rendered) catch {};

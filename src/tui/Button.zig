@@ -29,7 +29,7 @@ pub fn Options(context: type) type {
         pub fn do_nothing(_: *context, _: *State(Context)) void {}
 
         pub fn on_render_default(_: *context, self: *State(Context), theme: *const Widget.Theme) bool {
-            self.plane.set_base_style(" ", if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
+            self.plane.set_base_style(if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
             self.plane.erase();
             self.plane.home();
             _ = self.plane.print(" {s} ", .{self.opts.label}) catch {};
