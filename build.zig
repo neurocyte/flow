@@ -4,16 +4,18 @@ const builtin = @import("builtin");
 pub fn build(b: *std.Build) void {
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
     const optimize_deps = b.option(bool, "optimize_deps", "Enable optimization for dependecies (default: yes)") orelse true;
-    const use_llvm_option = b.option(bool, "use_llvm", "Enable llvm backend (default: yes)");
-    const use_lld_option = b.option(bool, "use_lld", "Enable lld backend (default: yes)");
+    const use_llvm = b.option(bool, "use_llvm", "Enable llvm backend (default: yes)") orelse true;
     const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
+    const strip = b.option(bool, "strip", "Disable debug information (default: no)") orelse false;
+    const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: no)") orelse false;
 
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "optimize_deps", optimize_deps);
+    options.addOption(bool, "use_llvm", use_llvm);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
-    options.addOption(bool, "use_llvm", use_llvm_option orelse true);
-    options.addOption(bool, "use_lld", use_lld_option orelse true);
+    options.addOption(bool, "strip", strip);
+    options.addOption(bool, "pie", pie);
 
     const options_mod = options.createModule();
 
@@ -153,6 +155,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "log", .module = log_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
+            .{ .name = "color", .module = color_mod },
         },
     });
 
@@ -249,10 +252,12 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .use_llvm = use_llvm,
+        .use_lld = use_llvm,
+        .strip = strip,
     });
-    if (use_llvm_option) |enabled| exe.use_llvm = enabled;
-    if (use_lld_option) |enabled| exe.use_lld = enabled;
 
+    exe.pie = pie;
     exe.root_module.addImport("build_options", options_mod);
     exe.root_module.addImport("flags", flags_dep.module("flags"));
     exe.root_module.addImport("cbor", cbor_mod);
@@ -281,8 +286,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    if (use_llvm_option) |enabled| check_exe.use_llvm = enabled;
-    if (use_lld_option) |enabled| check_exe.use_lld = enabled;
 
     check_exe.root_module.addImport("build_options", options_mod);
     check_exe.root_module.addImport("flags", flags_dep.module("flags"));
@@ -302,8 +305,12 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("test/tests.zig"),
         .target = target,
         .optimize = optimize,
+        .use_llvm = use_llvm,
+        .use_lld = use_llvm,
+        .strip = strip,
     });
 
+    tests.pie = pie;
     tests.root_module.addImport("build_options", options_mod);
     tests.root_module.addImport("log", log_mod);
     tests.root_module.addImport("Buffer", Buffer_mod);
