@@ -895,11 +895,12 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "class.defaultLibrary", .tm = "support.class" },
     .{ .ts = "interface", .tm = "entity.name.type.interface" },
     .{ .ts = "enum", .tm = "entity.name.type.enum" },
+    .{ .ts = "constant", .tm = "entity.name.constant" },
     .{ .ts = "function", .tm = "entity.name.function" },
     .{ .ts = "function.defaultLibrary", .tm = "support.function" },
     .{ .ts = "method", .tm = "entity.name.function.member" },
     .{ .ts = "macro", .tm = "entity.name.function.macro" },
-    .{ .ts = "variable", .tm = "variable.other.readwrite , entity.name.variable" },
+    .{ .ts = "variable", .tm = "entity.name.variable" },
     .{ .ts = "variable.readonly", .tm = "variable.other.constant" },
     .{ .ts = "variable.readonly.defaultLibrary", .tm = "support.constant" },
     .{ .ts = "parameter", .tm = "variable.parameter" },
@@ -911,12 +912,17 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     // zig
     .{ .ts = "attribute", .tm = "keyword" },
     .{ .ts = "number", .tm = "constant.numeric" },
-    .{ .ts = "conditional", .tm = "keyword.control.conditional" },
     .{ .ts = "operator", .tm = "keyword.operator" },
     .{ .ts = "boolean", .tm = "keyword.constant.bool" },
-    .{ .ts = "string", .tm = "string.quoted" },
+    .{ .ts = "string", .tm = "string.quoted.double" },
+    .{ .ts = "character", .tm = "string.quoted.single" },
     .{ .ts = "repeat", .tm = "keyword.control.flow" },
     .{ .ts = "field", .tm = "variable" },
+    .{ .ts = "keyword.conditional", .tm = "keyword.control.conditional" },
+    .{ .ts = "keyword.repeat", .tm = "keyword.control.repeat" },
+    .{ .ts = "keyword.modifier", .tm = "keyword.storage" },    
+    .{ .ts = "keyword.type", .tm = "keyword.structure" },    
+    .{ .ts = "constant.builtin", .tm = "keyword.constant" },    
 };
 
 fn set_terminal_style(self: *Self) void {
