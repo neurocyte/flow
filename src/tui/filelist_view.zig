@@ -67,6 +67,7 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    self.reset();
     self.plane.deinit();
     self.commands.deinit();
     allocator.destroy(self);

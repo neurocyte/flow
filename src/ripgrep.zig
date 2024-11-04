@@ -100,10 +100,14 @@ const Process = struct {
     }
 
     fn deinit(self: *Process) void {
+        if (self.sp) |*sp| sp.deinit();
+        self.parent.deinit();
         self.output.deinit();
         self.logger.deinit();
+        self.allocator.free(self.tag);
         self.allocator.free(self.query);
         self.close() catch {};
+        self.allocator.destroy(self);
     }
 
     fn close(self: *Process) tp.result {
@@ -114,6 +118,7 @@ const Process = struct {
     }
 
     fn start(self: *Process) tp.result {
+        errdefer self.deinit();
         _ = tp.set_trap(true);
         const args = tp.message.fmt(.{
             ripgrep_binary,
