@@ -286,8 +286,8 @@ pub fn set_fg_rgb(self: *Plane, col: ThemeColor) !void {
     self.style.fg = to_cell_color(col);
 }
 
-pub fn set_fg_rgb_alpha(self: *Plane, alpha_bg: ThemeColor, col: ThemeColor) !void {
-    self.style.fg = apply_alpha_theme(alpha_bg, col);
+pub fn set_fg_rgb_alpha(self: *Plane, alpha_fg: ThemeColor, col: ThemeColor) !void {
+    self.style.fg = apply_alpha_theme(alpha_fg, col);
 }
 
 pub fn set_bg_rgb(self: *Plane, col: ThemeColor) !void {
@@ -329,31 +329,31 @@ pub fn set_base_style_bg_transparent(self: *Plane, _: [*:0]const u8, style_: Sty
     self.transparent = true;
 }
 
-fn apply_alpha(bg: vaxis.Cell.Color, col: ThemeColor) vaxis.Cell.Color {
+fn apply_alpha(base: vaxis.Cell.Color, col: ThemeColor) vaxis.Cell.Color {
     const alpha = col.alpha;
-    return if (alpha == 0xFF or bg != .rgb)
+    return if (alpha == 0xFF or base != .rgb)
         .{ .rgb = RGB.to_u8s(RGB.from_u24(col.color)) }
     else
-        .{ .rgb = color.apply_alpha(RGB.from_u8s(bg.rgb), RGB.from_u24(col.color), alpha).to_u8s() };
+        .{ .rgb = color.apply_alpha(RGB.from_u8s(base.rgb), RGB.from_u24(col.color), alpha).to_u8s() };
 }
 
-fn apply_alpha_theme(bg: ThemeColor, col: ThemeColor) vaxis.Cell.Color {
+fn apply_alpha_theme(base: ThemeColor, col: ThemeColor) vaxis.Cell.Color {
     const alpha = col.alpha;
     return if (alpha == 0xFF)
         .{ .rgb = RGB.to_u8s(RGB.from_u24(col.color)) }
     else
-        .{ .rgb = color.apply_alpha(RGB.from_u24(bg.color), RGB.from_u24(col.color), alpha).to_u8s() };
+        .{ .rgb = color.apply_alpha(RGB.from_u24(base.color), RGB.from_u24(col.color), alpha).to_u8s() };
 }
 
 pub inline fn set_style(self: *Plane, style_: Style) void {
-    if (style_.fg) |col| self.style.fg = apply_alpha(self.style_base.bg, col);
+    if (style_.fg) |col| self.style.fg = apply_alpha(self.style_base.fg, col);
     if (style_.bg) |col| self.style.bg = apply_alpha(self.style_base.bg, col);
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.transparent = false;
 }
 
 pub inline fn set_style_bg_transparent(self: *Plane, style_: Style) void {
-    if (style_.fg) |col| self.style.fg = apply_alpha(self.style_base.bg, col);
+    if (style_.fg) |col| self.style.fg = apply_alpha(self.style_base.fg, col);
     if (style_.bg) |col| self.style.bg = apply_alpha(self.style_base.bg, col);
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.transparent = true;
