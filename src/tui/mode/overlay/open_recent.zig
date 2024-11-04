@@ -96,11 +96,17 @@ inline fn max_menu_width() usize {
 }
 
 fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
-    const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
+    const style_base = theme.editor_widget;
+    const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
     button.plane.set_base_style(style_base);
     button.plane.erase();
     button.plane.home();
+    button.plane.set_style(style_label);
+    if (button.active or button.hover or selected) {
+        _ = button.plane.fill_width(" ", .{}) catch {};
+        button.plane.home();
+    }
     var file_path: []const u8 = undefined;
     var iter = button.opts.label; // label contains cbor, first the file name, then multiple match indexes
     if (!(cbor.matchString(&iter, &file_path) catch false))
@@ -111,7 +117,7 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var removed_prefix: usize = 0;
     const max_len = max_menu_width() - 2;
-    button.plane.set_style(style_base);
+    button.plane.set_style(style_label);
     _ = button.plane.print("{s} ", .{
         if (file_path.len > max_len) root.shorten_path(&buf, file_path, &removed_prefix, max_len) else file_path,
     }) catch {};

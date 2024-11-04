@@ -115,11 +115,17 @@ pub fn Create(options: type) type {
         }
 
         fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+            const style_base = theme.editor_widget;
             const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
             const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
-            button.plane.set_base_style(style_label);
+            button.plane.set_base_style(style_base);
             button.plane.erase();
             button.plane.home();
+            button.plane.set_style(style_label);
+            if (button.active or button.hover or selected) {
+                _ = button.plane.fill_width(" ", .{}) catch {};
+                button.plane.home();
+            }
             var label: []const u8 = undefined;
             var hint: []const u8 = undefined;
             var iter = button.opts.label; // label contains cbor, first the file name, then multiple match indexes

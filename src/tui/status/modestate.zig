@@ -41,18 +41,24 @@ fn is_overlay_mode() bool {
 }
 
 pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) bool {
-    const base_style = if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover;
-    self.plane.set_base_style(base_style);
+    const style_base = theme.statusbar_hover;
+    const style_label = if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else style_base;
+    self.plane.set_base_style(style_base);
     self.plane.on_styles(style.bold);
     self.plane.erase();
     self.plane.home();
+    self.plane.set_style(style_label);
+    if (self.active or self.hover) {
+        _ = self.plane.fill_width(" ", .{}) catch {};
+        self.plane.home();
+    }
     var buf: [31:0]u8 = undefined;
     if (!is_mini_mode() and !is_overlay_mode()) {
-        render_logo(self, theme, base_style);
+        render_logo(self, theme, style_label);
     } else {
         _ = self.plane.putstr("  ") catch {};
     }
-    self.plane.set_base_style(base_style);
+    self.plane.set_style(style_label);
     self.plane.on_styles(style.bold);
     _ = self.plane.putstr(std.fmt.bufPrintZ(&buf, "{s} ", .{tui.get_mode()}) catch return false) catch {};
     if (is_mini_mode())

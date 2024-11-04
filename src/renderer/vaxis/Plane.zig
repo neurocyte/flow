@@ -114,6 +114,19 @@ pub fn home(self: *Plane) void {
     self.col = 0;
 }
 
+pub fn fill_width(self: *Plane, comptime fmt: anytype, args: anytype) !usize {
+    var buf: [fmt.len + 4096]u8 = undefined;
+    var pos: usize = 0;
+    const width = self.window.width;
+    var text_width: usize = 0;
+    while (text_width < width) {
+        const text = try std.fmt.bufPrint(buf[pos..], fmt, args);
+        pos += text.len;
+        text_width += self.egc_chunk_width(text, 0, 8);
+    }
+    return self.putstr(buf[0..pos]);
+}
+
 pub fn print(self: *Plane, comptime fmt: anytype, args: anytype) !usize {
     var buf: [fmt.len + 4096]u8 = undefined;
     const text = try std.fmt.bufPrint(&buf, fmt, args);

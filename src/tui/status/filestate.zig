@@ -76,11 +76,16 @@ pub fn layout(_: *Self, _: *Button.State(Self)) Widget.Layout {
 }
 
 pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
-    const frame = tracy.initZone(@src(), .{ .name = @typeName(@This()) ++ " render" });
-    defer frame.deinit();
-    btn.plane.set_base_style(if (btn.active) theme.editor_cursor else theme.statusbar);
+    const style_base = theme.statusbar;
+    const style_label = if (btn.active) theme.editor_cursor else style_base;
+    btn.plane.set_base_style(style_base);
     btn.plane.erase();
     btn.plane.home();
+    btn.plane.set_style(style_label);
+    if (btn.active) {
+        _ = btn.plane.fill_width(" ", .{}) catch {};
+        btn.plane.home();
+    }
     if (tui.current().mini_mode) |_|
         render_mini_mode(&btn.plane, theme)
     else if (self.detailed)
