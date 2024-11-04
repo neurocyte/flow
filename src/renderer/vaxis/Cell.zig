@@ -55,6 +55,10 @@ pub inline fn set_style_fg(self: *Cell, style_: Style) void {
     if (style_.fg) |fg| self.cell.style.fg = apply_alpha(self.cell.style.bg, fg);
 }
 
+pub inline fn set_style_bg_opaque(self: *Cell, style_: Style) void {
+    if (style_.bg) |bg| self.cell.style.bg = vaxis.Cell.Color.rgbFromUint(bg.color);
+}
+
 pub inline fn set_style_bg(self: *Cell, style_: Style) void {
     if (style_.bg) |bg| self.cell.style.bg = apply_alpha(self.cell.style.bg, bg);
 }

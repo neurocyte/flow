@@ -972,6 +972,7 @@ pub const Editor = struct {
     }
 
     inline fn render_selection_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
+        cell.set_style_bg_opaque(theme.editor);
         cell.set_style_bg(theme.editor_selection);
     }
 
