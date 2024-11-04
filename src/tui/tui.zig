@@ -846,11 +846,16 @@ pub fn get_prev_theme_by_name(name: []const u8) Widget.Theme {
 }
 
 pub fn find_scope_style(theme: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Token {
-    return if (find_scope_fallback(scope)) |tm_scope| find_scope_style_nofallback(theme, tm_scope) orelse find_scope_style_nofallback(theme, scope) else find_scope_style_nofallback(theme, scope);
+    return if (find_scope_fallback(scope)) |tm_scope|
+        scope_to_theme_token(theme, tm_scope) orelse
+            scope_to_theme_token(theme, scope)
+    else
+        scope_to_theme_token(theme, scope);
 }
 
-fn find_scope_style_nofallback(theme: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Token {
+fn scope_to_theme_token(theme: *const Widget.Theme, document_scope: []const u8) ?Widget.Theme.Token {
     var idx = theme.tokens.len - 1;
+    var matched: ?Widget.Theme.Token = null;
     var done = false;
     while (!done) : (if (idx == 0) {
         done = true;
@@ -858,13 +863,16 @@ fn find_scope_style_nofallback(theme: *const Widget.Theme, scope: []const u8) ?W
         idx -= 1;
     }) {
         const token = theme.tokens[idx];
-        const name = Widget.scopes[token.id];
-        if (name.len > scope.len)
-            continue;
-        if (std.mem.eql(u8, name, scope[0..name.len]))
-            return token;
+        const theme_scope = Widget.scopes[token.id];
+        const last_matched_scope = if (matched) |tok| Widget.scopes[tok.id] else "";
+        if (theme_scope.len < last_matched_scope.len) continue;
+        if (theme_scope.len < document_scope.len and document_scope[theme_scope.len] != '.') continue;
+        if (theme_scope.len > document_scope.len) continue;
+        const prefix = @min(theme_scope.len, document_scope.len);
+        if (std.mem.eql(u8, theme_scope[0..prefix], document_scope[0..prefix]))
+            matched = token;
     }
-    return null;
+    return matched;
 }
 
 fn find_scope_fallback(scope: []const u8) ?[]const u8 {
