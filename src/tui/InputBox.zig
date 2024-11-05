@@ -22,8 +22,13 @@ pub fn Options(context: type) type {
         pub fn do_nothing(_: context, _: *State(Context)) void {}
 
         pub fn on_render_default(_: context, self: *State(Context), theme: *const Widget.Theme) bool {
-            self.plane.set_base_style(if (self.text.items.len > 0) theme.input else theme.input_placeholder);
+            const style_base = theme.editor_widget;
+            const style_label = if (self.text.items.len > 0) theme.input else theme.input_placeholder;
+            self.plane.set_base_style(style_base);
             self.plane.erase();
+            self.plane.home();
+            self.plane.set_style(style_label);
+            _ = self.plane.fill_width(" ", .{}) catch {};
             self.plane.home();
             if (self.text.items.len > 0) {
                 _ = self.plane.print(" {s} ", .{self.text.items}) catch {};

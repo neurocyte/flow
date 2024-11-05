@@ -26,10 +26,16 @@ pub fn Options(context: type) type {
         pub fn do_nothing_click(_: **State(Context), _: *Button.State(*State(Context))) void {}
 
         pub fn on_render_default(_: context, button: *Button.State(*State(Context)), theme: *const Widget.Theme, selected: bool) bool {
-            const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor;
+            const style_base = theme.editor;
+            const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else style_base;
             button.plane.set_base_style(style_base);
             button.plane.erase();
             button.plane.home();
+            if (button.active or button.hover or selected) {
+                button.plane.set_style(style_label);
+                _ = button.plane.fill_width(" ", .{}) catch {};
+                button.plane.home();
+            }
             _ = button.plane.print(" {s} ", .{button.opts.label}) catch {};
             return false;
         }
