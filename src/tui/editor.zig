@@ -1079,7 +1079,7 @@ pub const Editor = struct {
             cache: *StyleCache,
             root: Buffer.Root,
             pos_cache: PosToWidthCache,
-            last_begin: Cursor = .{},
+            last_begin: Cursor = Cursor.invalid(),
             fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, _: *const syntax.Node) error{Stop}!void {
                 const sel_ = ctx.pos_cache.range_to_selection(range, ctx.root, ctx.self.metrics) orelse return;
                 
