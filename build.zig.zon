@@ -37,6 +37,10 @@
             .url = "https://github.com/rockorager/zeit/archive/9cca8ec620a54c3b07cd249f25e5bcb3153d03d7.tar.gz",
             .hash = "1220755ea2a5aa6bb3713437aaafefd44812169fe43f1da755c3ee6101b85940f441",
         },
+        .zigwin32 = .{
+            .url = "https://github.com/marlersoft/zigwin32/archive/bb91dfe32a453d9938d4cc928ac1c1e91debc788.tar.gz",
+            .hash = "122000146e606b128691f5887c52054b289a056cf3d4a923b0e6f1e537303ff660e7",
+        },
     },
     .paths = .{
         "include",
