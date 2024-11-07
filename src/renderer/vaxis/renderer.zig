@@ -2,6 +2,7 @@ const std = @import("std");
 const cbor = @import("cbor");
 const log = @import("log");
 const Style = @import("theme").Style;
+const Color = @import("theme").Color;
 const vaxis = @import("vaxis");
 const builtin = @import("builtin");
 
@@ -332,6 +333,10 @@ pub fn set_terminal_style(self: *Self, style_: Style) void {
         self.vx.setTerminalForegroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
     if (style_.bg) |color|
         self.vx.setTerminalBackgroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+}
+
+pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
+        self.vx.setTerminalCursorColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {

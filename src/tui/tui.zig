@@ -931,6 +931,8 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
 };
 
 fn set_terminal_style(self: *Self) void {
-    if (self.config.enable_terminal_color_scheme)
+    if (self.config.enable_terminal_color_scheme) {
         self.rdr.set_terminal_style(self.theme.editor);
+        self.rdr.set_terminal_cursor_color(self.theme.editor_cursor.bg.?);
+    }
 }
