@@ -16,7 +16,7 @@ input: std.ArrayList(u8),
 last_cmd: []const u8 = "",
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
 
-pub fn create(allocator: std.mem.Allocator) !EventHandler {
+pub fn create(allocator: std.mem.Allocator, _: anytype) !EventHandler {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,

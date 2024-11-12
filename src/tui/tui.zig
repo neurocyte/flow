@@ -561,11 +561,20 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     self.refresh_hover();
 }
 
-fn static_mode(self: *Self, mode: anytype, name: []const u8) !Mode {
+fn static_mode(self: *Self, mode: anytype, name: []const u8, opts: anytype) !Mode {
+    // .line_numbers_relative = if (self.config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
     return .{
-        .input_handler = try mode.create(self.allocator),
+        .input_handler = try mode.create(self.allocator, opts),
         .name = name,
         .keybind_hints = &mode.hints,
+        .line_numbers = if (@hasField(@TypeOf(opts), "line_numbers_relative"))
+            if (opts.line_numbers_relative)
+                .relative
+            else
+                .absolute
+        else
+            .absolute,
+        .cursor_shape = if (@hasField(@TypeOf(opts), "cursor_shape")) opts.cursor_shape else .block,
     };
 }
 
@@ -656,11 +665,21 @@ const cmds = struct {
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode) |*m| m.deinit();
         self.input_mode = if (std.mem.eql(u8, mode, "vim/normal"))
-            try @import("mode/input/vim/normal.zig").create(self.allocator)
+            try self.static_mode(keybind.mode.input.vim.normal, "NORMAL", .{
+                .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
+                .cursor_shape = .block,
+            })
         else if (std.mem.eql(u8, mode, "vim/insert"))
-            try @import("mode/input/vim/insert.zig").create(self.allocator)
+            try self.static_mode(keybind.mode.input.vim.insert, "INSERT", .{
+                .enable_chording = self.config.vim_insert_chording_keybindings,
+                .line_numbers_relative = self.config.vim_insert_gutter_line_numbers_relative,
+                .cursor_shape = .beam,
+            })
         else if (std.mem.eql(u8, mode, "vim/visual"))
-            try @import("mode/input/vim/visual.zig").create(self.allocator)
+            try self.static_mode(keybind.mode.input.vim.visual, "VISUAL", .{
+                .line_numbers_relative = self.config.vim_visual_gutter_line_numbers_relative,
+                .cursor_shape = .underline,
+            })
         else if (std.mem.eql(u8, mode, "helix/normal"))
             try @import("mode/input/helix/normal.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "helix/insert"))
@@ -668,12 +687,12 @@ const cmds = struct {
         else if (std.mem.eql(u8, mode, "helix/select"))
             try @import("mode/input/helix/select.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "flow"))
-            try self.static_mode(keybind.mode.input.flow, "flow")
+            try self.static_mode(keybind.mode.input.flow, "flow", .{})
         else if (std.mem.eql(u8, mode, "home"))
-            try self.static_mode(keybind.mode.input.home, "home")
+            try self.static_mode(keybind.mode.input.home, "home", .{})
         else ret: {
             self.logger.print("unknown mode {s}", .{mode});
-            break :ret try self.static_mode(keybind.mode.input.flow, "flow");
+            break :ret try self.static_mode(keybind.mode.input.flow, "flow", .{});
         };
         // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
@@ -932,10 +951,10 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "repeat", .tm = "keyword.control.repeat" },
     .{ .ts = "keyword.conditional", .tm = "keyword.control.conditional" },
     .{ .ts = "keyword.repeat", .tm = "keyword.control.repeat" },
-    .{ .ts = "keyword.modifier", .tm = "keyword.storage" },    
-    .{ .ts = "keyword.type", .tm = "keyword.structure" },    
-    .{ .ts = "keyword.function", .tm = "storage.type.function" },    
-    .{ .ts = "constant.builtin", .tm = "keyword.constant" },    
+    .{ .ts = "keyword.modifier", .tm = "keyword.storage" },
+    .{ .ts = "keyword.type", .tm = "keyword.structure" },
+    .{ .ts = "keyword.function", .tm = "storage.type.function" },
+    .{ .ts = "constant.builtin", .tm = "keyword.constant" },
 };
 
 fn set_terminal_style(self: *Self) void {
