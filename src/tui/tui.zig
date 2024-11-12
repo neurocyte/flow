@@ -562,7 +562,6 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
 }
 
 fn static_mode(self: *Self, mode: anytype, name: []const u8, opts: anytype) !Mode {
-    // .line_numbers_relative = if (self.config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
     return .{
         .input_handler = try mode.create(self.allocator, opts),
         .name = name,
@@ -681,11 +680,20 @@ const cmds = struct {
                 .cursor_shape = .underline,
             })
         else if (std.mem.eql(u8, mode, "helix/normal"))
-            try @import("mode/input/helix/normal.zig").create(self.allocator)
+            try self.static_mode(keybind.mode.input.helix.normal, "NOR", .{
+                .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
+                .cursor_shape = .block,
+            })
         else if (std.mem.eql(u8, mode, "helix/insert"))
-            try @import("mode/input/helix/insert.zig").create(self.allocator)
+            try self.static_mode(keybind.mode.input.helix.insert, "INS", .{
+                .line_numbers_relative = self.config.vim_insert_gutter_line_numbers_relative,
+                .cursor_shape = .beam,
+            })
         else if (std.mem.eql(u8, mode, "helix/select"))
-            try @import("mode/input/helix/select.zig").create(self.allocator)
+            try self.static_mode(keybind.mode.input.helix.visual, "SEL", .{
+                .line_numbers_relative = self.config.vim_visual_gutter_line_numbers_relative,
+                .cursor_shape = .block,
+            })
         else if (std.mem.eql(u8, mode, "flow"))
             try self.static_mode(keybind.mode.input.flow, "flow", .{})
         else if (std.mem.eql(u8, mode, "home"))

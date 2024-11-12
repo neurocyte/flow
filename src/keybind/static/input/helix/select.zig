@@ -1,42 +1,31 @@
+const std = @import("std");
 const tp = @import("thespian");
-
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
-
-const tui = @import("../../../tui.zig");
-
-const Allocator = @import("std").mem.Allocator;
-const ArrayList = @import("std").ArrayList;
-const eql = @import("std").mem.eql;
+const keybind = @import("../../keybind.zig");
 
 const Self = @This();
 const input_buffer_size = 1024;
 
-allocator: Allocator,
-input: ArrayList(u8),
+allocator: std.mem.Allocator,
+input: std.ArrayList(u8),
 last_cmd: []const u8 = "",
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
 count: usize = 0,
 commands: Commands = undefined,
 
-pub fn create(allocator: Allocator) !tui.Mode {
+pub fn create(allocator: std.mem.Allocator, _: anytype) !EventHandler {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
-        .input = try ArrayList(u8).initCapacity(allocator, input_buffer_size),
+        .input = try std.ArrayList(u8).initCapacity(allocator, input_buffer_size),
     };
     try self.commands.init(self);
-    return .{
-        .input_handler = EventHandler.to_owned(self),
-        .name = "NOR",
-        .line_numbers = if (tui.current().config.vim_normal_gutter_line_numbers_relative) .relative else .absolute,
-        .keybind_hints = &hints,
-        .cursor_shape = .block,
-    };
+    return EventHandler.to_owned(self);
 }
 
 pub fn deinit(self: *Self) void {
@@ -128,8 +117,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'P', key.LEFT => self.cmd("select_prev_sibling", .{}),
             'N', key.RIGHT => self.cmd("select_next_sibling", .{}),
 
-            'E' => self.cmd("move_parent_node_end", .{}),
-            'B' => self.cmd("move_parent_node_start", .{}),
+            'E' => self.cmd("extend_parent_node_end", .{}),
+            'B' => self.cmd("extend_parent_node_start", .{}),
             'A' => self.cmd("select_all_siblings", .{}),
 
             'X' => self.cmd("shrink_to_line_bounds", .{}),
@@ -160,13 +149,13 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         mod.SHIFT => switch (keypress) {
             '`' => self.cmd("switch_case", .{}),
 
-            't' => self.cmd("till_prev_char", .{}),
-            'f' => self.cmd("find_prev_char", .{}),
+            't' => self.cmd("extend_till_prev_char", .{}),
+            'f' => self.cmd("extend_prev_char", .{}),
             'r' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
 
-            'w' => self.cmd_count("move_next_long_word_start", .{}),
-            'b' => self.cmd_count("move_prev_long_word_start", .{}),
-            'e' => self.cmd_count("move_next_long_word_end", .{}),
+            'w' => self.cmd_count("extend_next_long_word_start", .{}),
+            'b' => self.cmd_count("extend_prev_long_word_start", .{}),
+            'e' => self.cmd_count("extend_next_long_word_end", .{}),
 
             'g' => if (self.count == 0)
                 self.cmd("move_buffer_end", .{})
@@ -191,8 +180,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
 
             '/' => self.cmd("rfind", .{}),
 
-            'n' => self.cmd("goto_prev_match", .{}),
-            '8' => self.cmd("search_selection", .{}),
+            'n' => self.cmd("extend_search_next", .{}),
+            '8' => self.cmd("extend_search_prev", .{}),
 
             'u' => self.cmd("redo", .{}),
 
@@ -221,25 +210,25 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
         },
         0 => switch (keypress) {
             key.F02 => self.cmd("toggle_input_mode", .{}),
-            'h', key.LEFT => self.cmd_count("move_left", .{}),
-            'j', key.DOWN => self.cmd_count("move_down", .{}),
-            'k', key.UP => self.cmd_count("move_up", .{}),
-            'l', key.RIGHT => self.cmd_count("move_right", .{}),
+            'h', key.LEFT => self.cmd_count("select_left", .{}),
+            'j', key.DOWN => self.cmd_count("select_down", .{}),
+            'k', key.UP => self.cmd_count("select_up", .{}),
+            'l', key.RIGHT => self.cmd_count("select_right", .{}),
 
-            't' => self.cmd("find_till_char", .{}),
-            'f' => self.cmd("find_next_char", .{}),
+            't' => self.cmd("extend_till_char", .{}),
+            'f' => self.cmd("extend_next_char", .{}),
             'r' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
 
             '`' => self.cmd("switch_to_lowercase", .{}),
 
-            key.HOME => self.cmd("move_begin", .{}),
-            key.END => self.cmd("move_end", .{}),
+            key.HOME => self.cmd("extend_to_line_start", .{}),
+            key.END => self.cmd("extend_to_line_end", .{}),
 
-            'w' => self.cmd_count("move_next_word_start", .{}),
-            'b' => self.cmd_count("move_prev_word_start", .{}),
-            'e' => self.cmd_count("move_next_word_end", .{}),
+            'w' => self.cmd_count("extend_next_word_start", .{}),
+            'b' => self.cmd_count("extend_pre_word_start", .{}),
+            'e' => self.cmd_count("extend_next_word_end", .{}),
 
-            'v' => self.cmd("enter_mode", command.fmt(.{"helix/select"})),
+            'v' => self.cmd("enter_mode", command.fmt(.{"helix/normal"})),
             'g' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
 
             'i' => self.cmd("enter_mode", command.fmt(.{"helix/insert"})),
@@ -274,7 +263,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
 
             ',' => self.cmd("keep_primary_selection", .{}),
 
-            key.ESC => self.cmd("cancel", .{}),
+            key.ESC => self.cmd("enter_mode", command.fmt(.{"helix/normal"})),
 
             key.PGUP => self.cmd("move_scroll_page_up", .{}),
             key.PGDOWN => self.cmd("move_scroll_page_down", .{}),
@@ -504,9 +493,9 @@ fn cmd_count(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
 }
 
 fn cmd_cycle3(self: *Self, name1: []const u8, name2: []const u8, name3: []const u8, ctx: command.Context) tp.result {
-    return if (eql(u8, self.last_cmd, name2))
+    return if (std.mem.eql(u8, self.last_cmd, name2))
         self.cmd(name3, ctx)
-    else if (eql(u8, self.last_cmd, name1))
+    else if (std.mem.eql(u8, self.last_cmd, name1))
         self.cmd(name2, ctx)
     else
         self.cmd(name1, ctx);
@@ -536,7 +525,7 @@ fn seq_count(self: *Self, cmds: anytype, ctx: command.Context) tp.result {
             try self.cmd(@field(cmds, field_info.name), ctx);
 }
 
-const hints = tui.KeybindHints.initComptime(.{
+pub const hints = keybind.KeybindHints.initComptime(.{
     .{ "add_cursor_all_matches", "C-S-l" },
     .{ "add_cursor_down", "S-A-down" },
     .{ "add_cursor_next_match", "C-d" },

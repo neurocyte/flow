@@ -1,40 +1,30 @@
+const std = @import("std");
 const tp = @import("thespian");
-
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
-
-const tui = @import("../../../tui.zig");
-
-const Allocator = @import("std").mem.Allocator;
-const ArrayList = @import("std").ArrayList;
-const eql = @import("std").mem.eql;
+const keybind = @import("../../keybind.zig");
 
 const Self = @This();
 const input_buffer_size = 1024;
 
-allocator: Allocator,
-input: ArrayList(u8),
+allocator: std.mem.Allocator,
+input: std.ArrayList(u8),
 last_cmd: []const u8 = "",
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
 commands: Commands = undefined,
 
-pub fn create(allocator: Allocator) !tui.Mode {
+pub fn create(allocator: std.mem.Allocator, _: anytype) !EventHandler {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
-        .input = try ArrayList(u8).initCapacity(allocator, input_buffer_size),
+        .input = try std.ArrayList(u8).initCapacity(allocator, input_buffer_size),
     };
     try self.commands.init(self);
-    return .{
-        .input_handler = EventHandler.to_owned(self),
-        .name = "INS",
-        .line_numbers = if (tui.current().config.vim_insert_gutter_line_numbers_relative) .relative else .absolute,
-        .cursor_shape = .beam,
-    };
+    return EventHandler.to_owned(self);
 }
 
 pub fn deinit(self: *Self) void {
@@ -287,9 +277,9 @@ fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
 }
 
 fn cmd_cycle3(self: *Self, name1: []const u8, name2: []const u8, name3: []const u8, ctx: command.Context) tp.result {
-    return if (eql(u8, self.last_cmd, name2))
+    return if (std.mem.eql(u8, self.last_cmd, name2))
         self.cmd(name3, ctx)
-    else if (eql(u8, self.last_cmd, name1))
+    else if (std.mem.eql(u8, self.last_cmd, name1))
         self.cmd(name2, ctx)
     else
         self.cmd(name1, ctx);
@@ -299,6 +289,8 @@ fn cmd_async(self: *Self, name_: []const u8) tp.result {
     self.last_cmd = name_;
     return tp.self_pid().send(.{ "cmd", name_ });
 }
+
+pub const hints = keybind.KeybindHints.initComptime(.{});
 
 const Commands = command.Collection(cmds_);
 const cmds_ = struct {

@@ -7,6 +7,11 @@ pub const mode = struct {
             pub const insert = @import("input/vim/insert.zig");
             pub const visual = @import("input/vim/visual.zig");
         };
+        pub const helix = struct {
+            pub const normal = @import("input/helix/normal.zig");
+            pub const insert = @import("input/helix/insert.zig");
+            pub const visual = @import("input/helix/select.zig");
+        };
     };
     pub const overlay = struct {
         pub const palette = @import("overlay/palette.zig");
