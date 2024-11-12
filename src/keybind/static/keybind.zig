@@ -1,5 +1,6 @@
 pub const mode = struct {
     pub const input = struct {
+        pub const flow = @import("input/flow.zig");
         pub const home = @import("input/home.zig");
     };
     pub const overlay = struct {

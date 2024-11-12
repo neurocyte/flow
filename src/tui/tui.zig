@@ -668,12 +668,12 @@ const cmds = struct {
         else if (std.mem.eql(u8, mode, "helix/select"))
             try @import("mode/input/helix/select.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "flow"))
-            try @import("mode/input/flow.zig").create(self.allocator)
+            try self.static_mode(keybind.mode.input.flow, "flow")
         else if (std.mem.eql(u8, mode, "home"))
             try self.static_mode(keybind.mode.input.home, "home")
         else ret: {
             self.logger.print("unknown mode {s}", .{mode});
-            break :ret try @import("mode/input/flow.zig").create(self.allocator);
+            break :ret try self.static_mode(keybind.mode.input.flow, "flow");
         };
         // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
