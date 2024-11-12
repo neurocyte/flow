@@ -689,7 +689,7 @@ const cmds = struct {
         else if (std.mem.eql(u8, mode, "flow"))
             try self.static_mode(keybind.mode.input.flow, "flow", .{})
         else if (std.mem.eql(u8, mode, "home"))
-            try self.static_mode(keybind.mode.input.home, "home", .{})
+            try self.static_mode(keybind.mode.input.home, "flow", .{})
         else ret: {
             self.logger.print("unknown mode {s}", .{mode});
             break :ret try self.static_mode(keybind.mode.input.flow, "flow", .{});
