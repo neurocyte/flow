@@ -160,7 +160,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const keybind_static_mod = b.createModule(.{
-        .root_source_file = b.path("src/keybind/static/root.zig"),
+        .root_source_file = b.path("src/keybind/static/keybind.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "command", .module = command_mod },

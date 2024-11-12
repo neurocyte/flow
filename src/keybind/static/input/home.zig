@@ -5,7 +5,7 @@ const event_type = @import("renderer").input.event_type;
 const mod = @import("renderer").input.modifier;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
-const keybind = @import("../root.zig");
+const keybind = @import("../keybind.zig");
 
 const Self = @This();
 
