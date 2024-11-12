@@ -1,14 +1,11 @@
 const std = @import("std");
 const tp = @import("thespian");
-const root = @import("root");
-
 const key = @import("renderer").input.key;
 const event_type = @import("renderer").input.event_type;
 const mod = @import("renderer").input.modifier;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
-
-const tui = @import("../../tui.zig");
+const keybind = @import("../root.zig");
 
 const Self = @This();
 
@@ -16,16 +13,12 @@ allocator: std.mem.Allocator,
 f: usize = 0,
 leader: ?struct { keypress: u32, modifiers: u32 } = null,
 
-pub fn create(allocator: std.mem.Allocator) !tui.Mode {
+pub fn create(allocator: std.mem.Allocator) !EventHandler {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
     };
-    return .{
-        .input_handler = EventHandler.to_owned(self),
-        .name = root.application_name,
-        .keybind_hints = &hints,
-    };
+    return EventHandler.to_owned(self);
 }
 
 pub fn deinit(self: *Self) void {
@@ -155,7 +148,7 @@ fn sheeran(self: *Self) void {
     }
 }
 
-const hints = tui.KeybindHints.initComptime(.{
+pub const hints = keybind.KeybindHints.initComptime(.{
     .{ "find_in_files", "C-S-f" },
     .{ "open_file", "o, C-o" },
     .{ "open_recent", "e, C-e" },

@@ -561,6 +561,14 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     self.refresh_hover();
 }
 
+fn static_mode(self: *Self, mode: anytype, name: []const u8) !Mode {
+    return .{
+        .input_handler = try mode.create(self.allocator),
+        .name = name,
+        .keybind_hints = &mode.hints,
+    };
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
@@ -662,7 +670,7 @@ const cmds = struct {
         else if (std.mem.eql(u8, mode, "flow"))
             try @import("mode/input/flow.zig").create(self.allocator)
         else if (std.mem.eql(u8, mode, "home"))
-            try @import("mode/input/home.zig").create(self.allocator)
+            try self.static_mode(keybind.mode.input.home, "home")
         else ret: {
             self.logger.print("unknown mode {s}", .{mode});
             break :ret try @import("mode/input/flow.zig").create(self.allocator);

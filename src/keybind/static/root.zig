@@ -1,4 +1,7 @@
 pub const mode = struct {
+    pub const input = struct {
+        pub const home = @import("input/home.zig");
+    };
     pub const overlay = struct {
         pub const palette = @import("overlay/palette.zig");
     };
