@@ -16,32 +16,32 @@ const EventHandler = @import("EventHandler");
 
 pub const mode = struct {
     pub const input = struct {
-        pub const flow = Handler("flow");
-        pub const home = Handler("home");
+        pub const flow = Handler("flow", "normal");
+        pub const home = Handler("home", "normal");
         pub const vim = struct {
-            pub const normal = Handler("vim/normal");
-            pub const insert = Handler("vim/insert");
-            pub const visual = Handler("vim/visual");
+            pub const normal = Handler("vim", "normal");
+            pub const insert = Handler("vim", "insert");
+            pub const visual = Handler("vim", "visual");
         };
         pub const helix = struct {
-            pub const normal = Handler("helix/normal");
-            pub const insert = Handler("helix/insert");
-            pub const visual = Handler("helix/select");
+            pub const normal = Handler("helix", "normal");
+            pub const insert = Handler("helix", "insert");
+            pub const visual = Handler("helix", "select");
         };
     };
     pub const overlay = struct {
-        pub const palette = HandlerStatic("overlay/palette");
+        pub const palette = Handler("overlay", "palette");
     };
     pub const mini = struct {
-        pub const goto = HandlerStatic("mini/goto");
-        pub const move_to_char = HandlerStatic("mini/move_to_char");
-        pub const file_browser = HandlerStatic("mini/file_browser");
-        pub const find_in_files = HandlerStatic("mini/find_in_files");
-        pub const find = HandlerStatic("mini/find");
+        pub const goto = Handler("mini", "goto");
+        pub const move_to_char = Handler("mini", "move_to_char");
+        pub const file_browser = Handler("mini", "file_browser");
+        pub const find_in_files = Handler("mini", "find_in_files");
+        pub const find = Handler("mini", "find");
     };
 };
 
-fn Handler(_: []const u8) type {
+fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
     return struct {
         allocator: std.mem.Allocator,
         bindings: *Bindings,
@@ -52,6 +52,8 @@ fn Handler(_: []const u8) type {
                 .bindings = try Bindings.init(allocator),
             };
             try self.bindings.loadJson(@embedFile("keybindings.json"));
+            try self.bindings.selectNamespace(namespace_name);
+            try self.bindings.selectMode(mode_name);
             return EventHandler.to_owned(self);
         }
         pub fn deinit(self: *@This()) void {
@@ -62,17 +64,6 @@ fn Handler(_: []const u8) type {
             return self.bindings.activeMode().receive(from, m);
         }
         pub const hints = KeybindHints.initComptime(.{});
-    };
-}
-
-fn HandlerStatic(_: []const u8) type {
-    return struct {
-        pub fn create() EventHandler {
-            return EventHandler.static(@This());
-        }
-        pub fn receive(_: tp.pid_ref, _: tp.message) error{Exit}!bool {
-            return false;
-        }
     };
 }
 
@@ -689,8 +680,29 @@ const Bindings = struct {
         return self.namespaces.keys();
     }
 
+    fn selectNamespace(self: *Bindings, namespace_name: []const u8) error{NotFound}!void {
+        for (self.namespaces.keys(), 0..) |name, i| {
+            if (std.mem.eql(u8, name, namespace_name)) {
+                self.active_namespace = i;
+                return;
+            }
+        }
+        return error.NotFound;
+    }
+
     fn activeNamespace(self: *const Bindings) Namespace {
         return self.namespaces.values()[self.active_namespace];
+    }
+
+    fn selectMode(self: *Bindings, mode_name: []const u8) error{NotFound}!void {
+        const namespace = self.activeNamespace();
+        for (namespace.keys(), 0..) |name, i| {
+            if (std.mem.eql(u8, name, mode_name)) {
+                self.active_mode = i;
+                return;
+            }
+        }
+        return error.NotFound;
     }
 
     fn activeMode(self: *Bindings) *BindingSet {
