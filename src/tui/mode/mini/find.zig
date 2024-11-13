@@ -49,7 +49,7 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
         }
         return .{
             .{
-                .input_handler = keybind.mode.mini.find.create(),
+                .input_handler = try keybind.mode.mini.find.create(allocator, .{}),
                 .event_handler = EventHandler.to_owned(self),
             },
             .{

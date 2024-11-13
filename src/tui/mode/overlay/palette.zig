@@ -85,7 +85,7 @@ pub fn Create(options: type) type {
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
             return .{
-                .input_handler = keybind.mode.overlay.palette.create(),
+                .input_handler = try keybind.mode.overlay.palette.create(allocator, .{}),
                 .event_handler = EventHandler.to_owned(self),
                 .name = options.name,
             };

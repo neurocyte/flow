@@ -53,7 +53,7 @@ pub fn Create(options: type) type {
                 options.restore_state(self) catch {};
             return .{
                 .{
-                    .input_handler = keybind.mode.mini.file_browser.create(),
+                    .input_handler = try keybind.mode.mini.file_browser.create(allocator, .{}),
                     .event_handler = EventHandler.to_owned(self),
                 },
                 .{
