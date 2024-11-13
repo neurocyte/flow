@@ -11,6 +11,7 @@ const renderer = @import("renderer");
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
+const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -584,7 +585,7 @@ const BindingSet = struct {
             tp.string,
             tp.extract(&modifiers),
         })) {
-            self.registerKeyEvent(@intCast(egc), .{
+            self.registerKeyEvent(egc, .{
                 .event_type = evtype,
                 .key = keypress,
                 .modifiers = modifiers,
@@ -600,7 +601,7 @@ const BindingSet = struct {
     }
 
     //register a key press and try to match it with a binding
-    fn registerKeyEvent(self: *BindingSet, egc: u8, event: KeyEvent) !void {
+    fn registerKeyEvent(self: *BindingSet, egc: u32, event: KeyEvent) !void {
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
@@ -610,7 +611,9 @@ const BindingSet = struct {
         self.last_key_event_timestamp_ms = timestamp;
 
         try self.current_sequence.append(event);
-        try self.current_sequence_egc.append(egc);
+        var buf: [6]u8 = undefined;
+        const bytes = try ucs32_to_utf8(&[_]u32{egc}, &buf);
+        try self.current_sequence_egc.appendSlice(buf[0..bytes]);
 
         var all_matches_impossible = true;
         for (self.bindings.items) |binding| blk: {
@@ -635,7 +638,7 @@ const BindingSet = struct {
     }
 
     const AbortType = enum { timeout, match_impossible };
-    fn abortCurrentSequence(self: *@This(), abort_type: AbortType, egc: u8, key_event: KeyEvent) anyerror!void {
+    fn abortCurrentSequence(self: *@This(), abort_type: AbortType, egc: u32, key_event: KeyEvent) anyerror!void {
         _ = egc;
         _ = key_event;
         if (abort_type == .match_impossible) {
