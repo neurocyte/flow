@@ -12,7 +12,23 @@ const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
-const tui = @import("tui.zig");
+
+pub const Mode = struct {
+    input_handler: EventHandler,
+    event_handler: ?EventHandler = null,
+
+    name: []const u8 = "",
+    line_numbers: enum { absolute, relative } = .absolute,
+    keybind_hints: ?*const KeybindHints = null,
+    cursor_shape: renderer.CursorShape = .block,
+
+    pub fn deinit(self: *Mode) void {
+        self.input_handler.deinit();
+        if (self.event_handler) |eh| eh.deinit();
+    }
+};
+
+pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
 
 //A single key event, such as Ctrl-E
 pub const KeyEvent = struct {
@@ -361,7 +377,7 @@ pub const Hint = struct {
 };
 
 //A Collection of keybindings
-pub const Mode = struct {
+const BindingSet = struct {
     allocator: std.mem.Allocator,
     bindings: std.ArrayList(Binding),
     on_match_failure: OnMatchFailure = .ignore,
@@ -369,7 +385,7 @@ pub const Mode = struct {
     current_sequence_egc: std.ArrayList(u8),
     last_key_event_timestamp_ms: i64 = 0,
     input_buffer: std.ArrayList(u8),
-    tui_mode: tui.Mode,
+    tui_mode: Mode,
 
     const OnMatchFailure = enum { insert, ignore };
 
@@ -377,8 +393,8 @@ pub const Mode = struct {
         bindings: []const []const []const u8,
         on_match_failure: OnMatchFailure,
 
-        pub fn toMode(self: *const @This(), allocator: std.mem.Allocator) !*Mode {
-            var result = try Mode.init(allocator);
+        pub fn toMode(self: *const @This(), allocator: std.mem.Allocator) !*BindingSet {
+            var result = try init(allocator);
             result.on_match_failure = self.on_match_failure;
             var state: enum { key_event, command, args } = .key_event;
             for (self.bindings) |entry| {
@@ -437,8 +453,8 @@ pub const Mode = struct {
             .last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
             .bindings = std.ArrayList(Binding).init(allocator),
-            .tui_mode = tui.Mode{
-                .handler = EventHandler.to_owned(self),
+            .tui_mode = Mode{
+                .input_handler = EventHandler.to_owned(self),
                 .name = "INSERT",
                 //.description = "vim",
                 .line_numbers = .relative,
@@ -448,7 +464,7 @@ pub const Mode = struct {
         return self;
     }
 
-    pub fn deinit(self: *const Mode) void {
+    pub fn deinit(self: *const BindingSet) void {
         for (self.bindings.items) |binding| {
             binding.deinit();
         }
@@ -530,7 +546,7 @@ pub const Mode = struct {
     }
 
     //register a key press and try to match it with a binding
-    pub fn registerKeyEvent(self: *Mode, egc: u8, event: KeyEvent) !void {
+    pub fn registerKeyEvent(self: *BindingSet, egc: u8, event: KeyEvent) !void {
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
@@ -595,7 +611,7 @@ pub const Mode = struct {
 };
 
 //A collection of various modes under a single namespace, such as "vim" or "emacs"
-pub const Namespace = HashMap(*Mode);
+const Namespace = HashMap(*BindingSet);
 const HashMap = std.StringArrayHashMap;
 
 //Data structure for mapping key events to keybindings
@@ -614,7 +630,7 @@ pub const Bindings = struct {
         return self.namespaces.values()[self.active_namespace];
     }
 
-    pub fn activeMode(self: *Bindings) *Mode {
+    pub fn activeMode(self: *Bindings) *BindingSet {
         return self.activeNamespace().values()[self.active_mode];
     }
 
@@ -629,7 +645,7 @@ pub const Bindings = struct {
         return self;
     }
 
-    pub fn addMode(self: *@This(), namespace_name: []const u8, mode_name: []const u8, mode: *Mode) !void {
+    pub fn addMode(self: *@This(), namespace_name: []const u8, mode_name: []const u8, mode: *BindingSet) !void {
         const namespace = self.namespaces.getPtr(namespace_name) orelse blk: {
             try self.namespaces.putNoClobber(namespace_name, Namespace.init(self.allocator));
             break :blk self.namespaces.getPtr(namespace_name).?;
@@ -648,7 +664,7 @@ pub const Bindings = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn addNamespace(self: *Bindings, name: []const u8, modes: []const Mode) !void {
+    pub fn addNamespace(self: *Bindings, name: []const u8, modes: []const BindingSet) !void {
         try self.namespaces.put(name, .{ .name = name, .modes = modes });
     }
 
@@ -659,7 +675,7 @@ pub const Bindings = struct {
         for (parsed.value.object.values(), 0..) |namespace, i| {
             if (namespace != .object) return error.namespaceNotObject;
             for (namespace.object.values(), 0..) |mode, j| {
-                const mode_config = try std.json.parseFromValue(Mode.JsonConfig, self.allocator, mode, .{});
+                const mode_config = try std.json.parseFromValue(BindingSet.JsonConfig, self.allocator, mode, .{});
                 defer mode_config.deinit();
                 const parsed_mode = try mode_config.value.toMode(self.allocator);
                 try self.addMode(parsed.value.object.keys()[i], namespace.object.keys()[j], parsed_mode);
@@ -668,7 +684,6 @@ pub const Bindings = struct {
     }
 };
 
-const alloc = std.testing.allocator;
 const expectEqual = std.testing.expectEqual;
 
 const parse_test_cases = .{
@@ -682,6 +697,7 @@ const parse_test_cases = .{
 };
 
 test "parse" {
+    const alloc = std.testing.allocator;
     inline for (parse_test_cases) |case| {
         var parsed = Sequence.init(alloc);
         defer parsed.deinit();
@@ -708,6 +724,7 @@ const match_test_cases = .{
 };
 
 test "match" {
+    const alloc = std.testing.allocator;
     inline for (match_test_cases) |case| {
         var input = Sequence.init(alloc);
         defer input.deinit();
@@ -721,6 +738,7 @@ test "match" {
 }
 
 test "json" {
+    const alloc = std.testing.allocator;
     var bindings = try Bindings.init(alloc);
     defer bindings.deinit();
     try bindings.loadJson(@embedFile("keybindings.json"));
