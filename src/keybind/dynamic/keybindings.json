@@ -42,6 +42,42 @@
                 ["<A-x>", "open_command_palette"]
             ]
         }
+    },
+    "home": {
+        "normal": {
+            "on_match_failure": "ignore",
+            "bindings": [
+                ["<C-f>", "sheeran"],
+                ["<C-j>", "toggle_panel"],
+                ["<C-q>", "quit"],
+                ["<C-w>", "quit"],
+                ["<C-o>", "open_file"],
+                ["<C-e>", "open_recent"],
+                ["<C-r>", "open_recent_project"],
+                ["<C-p>", "open_command_palette"],
+                ["<C-/>", "open_help"],
+                ["<C-k><C-t>", "change_theme"],
+                ["<C-S-P>", "open_command_palette"],
+                ["<C-S-Q>", "quit_without_saving"],
+                ["<C-S-R>", "restart"],
+                ["<C-S-F>", "find_in_files"],
+                ["<C-S-L>", "toggle_panel"],
+                ["<C-S-/>", "open_help"],
+                ["<A-S-p>", "open_command_palette"],
+                ["<A-n>", "goto_next_file_or_diagnostic"],
+                ["<A-p>", "goto_prev_file_or_diagnostic"],
+                ["<A-l>", "toggle_panel"],
+                ["<A-i>", "toggle_inputview"],
+                ["<A-x>", "open_command_palette"],
+                ["h", "open_help"],
+                ["o", "open_file"],
+                ["e", "open_recent"],
+                ["r", "open_recent_project"],
+                ["p", "open_command_palette"],
+                ["c", "open_config"],
+                ["t", "change_theme"],
+                ["q", "quit"]
+            ]
+        }
     }
 }
-
