@@ -722,25 +722,24 @@ const Bindings = struct {
 
     fn addMode(self: *@This(), namespace_name: []const u8, mode_name: []const u8, mode_bindings: *BindingSet) !void {
         const namespace = self.namespaces.getPtr(namespace_name) orelse blk: {
-            try self.namespaces.putNoClobber(namespace_name, Namespace.init(self.allocator));
+            try self.namespaces.putNoClobber(try self.allocator.dupe(u8, namespace_name), Namespace.init(self.allocator));
             break :blk self.namespaces.getPtr(namespace_name).?;
         };
-        try namespace.putNoClobber(mode_name, mode_bindings);
+        try namespace.putNoClobber(try self.allocator.dupe(u8, mode_name), mode_bindings);
     }
 
     fn deinit(self: *Bindings) void {
         for (self.namespaces.values()) |*namespace| {
-            for (namespace.values()) |mode_bindings| {
+            for (namespace.values()) |mode_bindings|
                 mode_bindings.deinit();
-            }
+            for (namespace.keys()) |mode_name|
+                self.allocator.free(mode_name);
             namespace.deinit();
         }
+        for (self.namespaces.keys()) |namespace|
+            self.allocator.free(namespace);
         self.namespaces.deinit();
         self.allocator.destroy(self);
-    }
-
-    fn addNamespace(self: *Bindings, name: []const u8, modes: []const BindingSet) !void {
-        try self.namespaces.put(name, .{ .name = name, .modes = modes });
     }
 
     fn loadJson(self: *@This(), json_string: []const u8) !void {
