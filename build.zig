@@ -8,6 +8,7 @@ pub fn build(b: *std.Build) void {
     const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
     const strip = b.option(bool, "strip", "Disable debug information (default: no)") orelse false;
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: no)") orelse false;
+    const dynamic_keybind = b.option(bool, "dynamic_keybind", "Build with dynamic keybinding support (default: no) (EXPERIMENTAL)") orelse false;
 
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
@@ -16,6 +17,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
     options.addOption(bool, "strip", strip);
     options.addOption(bool, "pie", pie);
+    options.addOption(bool, "dynamic_keybind", dynamic_keybind);
 
     const options_mod = options.createModule();
 
@@ -169,6 +171,33 @@ pub fn build(b: *std.Build) void {
             .{ .name = "thespian", .module = thespian_mod },
         },
     });
+    const keybind_dynamic_mod = b.createModule(.{
+        .root_source_file = b.path("src/keybind/dynamic/keybind.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "command", .module = command_mod },
+            .{ .name = "EventHandler", .module = EventHandler_mod },
+            .{ .name = "renderer", .module = renderer_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+    const keybind_mod = if (dynamic_keybind) keybind_dynamic_mod else keybind_static_mod;
+
+    const keybind_test_run_cmd = blk: {
+        const tests = b.addTest(.{
+            .root_source_file = b.path("src/keybind/dynamic/keybind.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        tests.root_module.addImport("cbor", cbor_mod);
+        tests.root_module.addImport("command", command_mod);
+        tests.root_module.addImport("EventHandler", EventHandler_mod);
+        tests.root_module.addImport("renderer", renderer_mod);
+        tests.root_module.addImport("thespian", thespian_mod);
+        // b.installArtifact(tests);
+        break :blk b.addRunArtifact(tests);
+    };
+    
 
     const ripgrep_mod = b.createModule(.{
         .root_source_file = b.path("src/ripgrep.zig"),
@@ -232,7 +261,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "syntax", .module = syntax_mod },
             .{ .name = "text_manip", .module = text_manip_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
-            .{ .name = "keybind", .module = keybind_static_mod },
+            .{ .name = "keybind", .module = keybind_mod },
             .{ .name = "ripgrep", .module = ripgrep_mod },
             .{ .name = "theme", .module = themes_dep.module("theme") },
             .{ .name = "themes", .module = themes_dep.module("themes") },
@@ -301,24 +330,6 @@ pub fn build(b: *std.Build) void {
     const check = b.step("check", "Check the app");
     check.dependOn(&check_exe.step);
 
-    const keybinding_tests = b.addTest(.{
-        .root_source_file = b.path("src/tui/keybindings.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    keybinding_tests.root_module.addImport("renderer", renderer_mod);
-    keybinding_tests.root_module.addImport("thespian", thespian_mod);
-    keybinding_tests.root_module.addImport("tui", tui_mod);
-    keybinding_tests.root_module.addImport("keybind", keybind_static_mod);
-    keybinding_tests.root_module.addImport("config", config_mod);
-    keybinding_tests.root_module.addImport("command", command_mod);
-    keybinding_tests.root_module.addImport("EventHandler", EventHandler_mod);
-    keybinding_tests.root_module.addImport("build_options", options_mod);
-    keybinding_tests.root_module.addImport("log", log_mod);
-    keybinding_tests.root_module.addImport("color", color_mod);
-    keybinding_tests.root_module.addImport("theme", themes_dep.module("theme"));
-    keybinding_tests.root_module.addImport("Buffer", Buffer_mod);
-
     const tests = b.addTest(.{
         .root_source_file = b.path("test/tests.zig"),
         .target = target,
@@ -336,11 +347,10 @@ pub fn build(b: *std.Build) void {
     // b.installArtifact(tests);
 
     const test_run_cmd = b.addRunArtifact(tests);
-    const keybinding_test_run_cmd = b.addRunArtifact(keybinding_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run_cmd.step);
-    test_step.dependOn(&keybinding_test_run_cmd.step);
+    test_step.dependOn(&keybind_test_run_cmd.step);
 
     const lints_step = b.step("lint", "Run lints");
 
