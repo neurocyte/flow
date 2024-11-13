@@ -2,16 +2,79 @@
 
 //TODO figure out how to handle bindings that can take a numerical prefix
 
-const tp = @import("thespian");
 const std = @import("std");
+const tp = @import("thespian");
+const cbor = @import("cbor");
 const builtin = @import("builtin");
 
-pub const renderer = @import("renderer");
+const renderer = @import("renderer");
 const key = @import("renderer").input.key;
 const mod = @import("renderer").input.modifier;
 const event_type = @import("renderer").input.event_type;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+
+pub const mode = struct {
+    pub const input = struct {
+        pub const flow = Handler("flow");
+        pub const home = Handler("home");
+        pub const vim = struct {
+            pub const normal = Handler("vim/normal");
+            pub const insert = Handler("vim/insert");
+            pub const visual = Handler("vim/visual");
+        };
+        pub const helix = struct {
+            pub const normal = Handler("helix/normal");
+            pub const insert = Handler("helix/insert");
+            pub const visual = Handler("helix/select");
+        };
+    };
+    pub const overlay = struct {
+        pub const palette = HandlerStatic("overlay/palette");
+    };
+    pub const mini = struct {
+        pub const goto = HandlerStatic("mini/goto");
+        pub const move_to_char = HandlerStatic("mini/move_to_char");
+        pub const file_browser = HandlerStatic("mini/file_browser");
+        pub const find_in_files = HandlerStatic("mini/find_in_files");
+        pub const find = HandlerStatic("mini/find");
+    };
+};
+
+fn Handler(_: []const u8) type {
+    return struct {
+        allocator: std.mem.Allocator,
+        bindings: *Bindings,
+        pub fn create(allocator: std.mem.Allocator, _: anytype) !EventHandler {
+            const self: *@This() = try allocator.create(@This());
+            self.* = .{
+                .allocator = allocator,
+                .bindings = try Bindings.init(allocator),
+            };
+            try self.bindings.loadJson(@embedFile("keybindings.json"));
+            return EventHandler.to_owned(self);
+        }
+        pub fn deinit(self: *@This()) void {
+            self.bindings.deinit();
+            self.allocator.destroy(self);
+        }
+        pub fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+            return self.bindings.activeMode().receive(from, m);
+        }
+        pub const hints = KeybindHints.initComptime(.{});
+    };
+}
+
+fn HandlerStatic(_: []const u8) type {
+    return struct {
+        pub fn create() EventHandler {
+            return EventHandler.static(@This());
+        }
+        pub fn receive(_: tp.pid_ref, _: tp.message) error{Exit}!bool {
+            return false;
+        }
+    };
+}
 
 pub const Mode = struct {
     input_handler: EventHandler,
@@ -31,16 +94,16 @@ pub const Mode = struct {
 pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
 
 //A single key event, such as Ctrl-E
-pub const KeyEvent = struct {
+const KeyEvent = struct {
     key: u32 = 0, //keypress value
     event_type: usize = event_type.PRESS,
     modifiers: u32 = 0,
 
-    pub fn eql(self: @This(), other: @This()) bool {
+    fn eql(self: @This(), other: @This()) bool {
         return std.meta.eql(self, other);
     }
 
-    pub fn toString(self: @This(), allocator: std.mem.Allocator) String {
+    fn toString(self: @This(), allocator: std.mem.Allocator) String {
         //TODO implement
         _ = self;
         _ = allocator;
@@ -316,26 +379,26 @@ pub fn parseKeySequence(result: *Sequence, str: []const u8) !void {
 const String = std.ArrayList(u8);
 
 //An association of an command with a triggering key chord
-pub const Binding = struct {
+const Binding = struct {
     keys: Sequence,
     command: String,
-    args: std.ArrayList(String),
+    args: std.ArrayList(u8),
 
-    pub fn len(self: Binding) usize {
+    fn len(self: Binding) usize {
         return self.keys.items.len;
     }
 
-    pub fn execute(self: @This()) !void {
-        try command.executeName(self.command.items, .{ .buf = self.args.items });
+    fn execute(self: @This()) !void {
+        try command.executeName(self.command.items, .{ .args = .{ .buf = self.args.items } });
     }
 
-    pub const MatchResult = enum { match_impossible, match_possible, matched };
+    const MatchResult = enum { match_impossible, match_possible, matched };
 
-    pub fn match(self: *const @This(), keys: []const KeyEvent) MatchResult {
+    fn match(self: *const @This(), keys: []const KeyEvent) MatchResult {
         return matchKeySequence(self.keys.items, keys);
     }
 
-    pub fn matchKeySequence(self: []const KeyEvent, keys: []const KeyEvent) MatchResult {
+    fn matchKeySequence(self: []const KeyEvent, keys: []const KeyEvent) MatchResult {
         if (self.len == 0) {
             return .match_impossible;
         }
@@ -352,25 +415,22 @@ pub const Binding = struct {
         }
     }
 
-    pub fn init(allocator: std.mem.Allocator) @This() {
+    fn init(allocator: std.mem.Allocator) @This() {
         return .{
             .keys = Sequence.init(allocator),
             .command = String.init(allocator),
-            .args = std.ArrayList(String).init(allocator),
+            .args = std.ArrayList(u8).init(allocator),
         };
     }
 
-    pub fn deinit(self: *const @This()) void {
+    fn deinit(self: *const @This()) void {
         self.keys.deinit();
         self.command.deinit();
-        for (self.args.items) |arg| {
-            arg.deinit();
-        }
         self.args.deinit();
     }
 };
 
-pub const Hint = struct {
+const Hint = struct {
     keys: []const u8,
     command: []const u8,
     description: []const u8,
@@ -385,20 +445,24 @@ const BindingSet = struct {
     current_sequence_egc: std.ArrayList(u8),
     last_key_event_timestamp_ms: i64 = 0,
     input_buffer: std.ArrayList(u8),
-    tui_mode: Mode,
 
     const OnMatchFailure = enum { insert, ignore };
 
-    pub const JsonConfig = struct {
+    const JsonConfig = struct {
         bindings: []const []const []const u8,
         on_match_failure: OnMatchFailure,
 
-        pub fn toMode(self: *const @This(), allocator: std.mem.Allocator) !*BindingSet {
+        fn toMode(self: *const @This(), allocator: std.mem.Allocator) !*BindingSet {
             var result = try init(allocator);
             result.on_match_failure = self.on_match_failure;
             var state: enum { key_event, command, args } = .key_event;
             for (self.bindings) |entry| {
                 var binding = Binding.init(allocator);
+                var args = std.ArrayList(String).init(allocator);
+                defer {
+                    for (args.items) |arg| arg.deinit();
+                    args.deinit();
+                }
                 for (entry) |token| {
                     switch (state) {
                         .key_event => {
@@ -413,17 +477,23 @@ const BindingSet = struct {
                         .args => {
                             var arg = String.init(allocator);
                             try arg.appendSlice(token);
-                            try binding.args.append(arg);
+                            try args.append(arg);
                         },
                     }
                 }
+                var args_cbor = std.ArrayList(u8).init(allocator);
+                defer args_cbor.deinit();
+                const writer = args_cbor.writer();
+                try cbor.writeArrayHeader(writer, args.items.len);
+                for (args.items) |arg| try cbor.writeValue(writer, arg.items);
+                try binding.args.appendSlice(args_cbor.items);
                 try result.bindings.append(binding);
             }
             return result;
         }
     };
 
-    pub fn hints(self: *@This()) ![]const Hint {
+    fn hints(self: *@This()) ![]const Hint {
         if (self.hints == null) {
             self.hints = try std.ArrayList(Hint).init(self.allocator);
         }
@@ -444,7 +514,7 @@ const BindingSet = struct {
         }
     }
 
-    pub fn init(allocator: std.mem.Allocator) !*@This() {
+    fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
@@ -453,18 +523,11 @@ const BindingSet = struct {
             .last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
             .bindings = std.ArrayList(Binding).init(allocator),
-            .tui_mode = Mode{
-                .input_handler = EventHandler.to_owned(self),
-                .name = "INSERT",
-                //.description = "vim",
-                .line_numbers = .relative,
-                .cursor_shape = .beam,
-            },
         };
         return self;
     }
 
-    pub fn deinit(self: *const BindingSet) void {
+    fn deinit(self: *const BindingSet) void {
         for (self.bindings.items) |binding| {
             binding.deinit();
         }
@@ -475,7 +538,7 @@ const BindingSet = struct {
         self.allocator.destroy(self);
     }
 
-    // pub fn parseBindingList(self: *@This(), str: []const u8) !void {
+    //  fn parseBindingList(self: *@This(), str: []const u8) !void {
     // var iter = std.mem.tokenizeAny(u8, str, &.{'\n'});
     // while (iter.next()) |token| {
     // try self.bindings.append(try parseBinding(self.allocator, token));
@@ -490,8 +553,8 @@ const BindingSet = struct {
         }
     }
 
-    pub const max_key_sequence_time_interval = 750;
-    pub const max_input_buffer_size = 1024;
+    const max_key_sequence_time_interval = 750;
+    const max_input_buffer_size = 1024;
 
     fn insertBytes(self: *@This(), bytes: []const u8) !void {
         if (self.input_buffer.items.len + 4 > max_input_buffer_size)
@@ -515,7 +578,7 @@ const BindingSet = struct {
         }
     }
 
-    pub fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         var evtype: u32 = 0;
         var keypress: u32 = 0;
         var egc: u32 = 0;
@@ -546,7 +609,7 @@ const BindingSet = struct {
     }
 
     //register a key press and try to match it with a binding
-    pub fn registerKeyEvent(self: *BindingSet, egc: u8, event: KeyEvent) !void {
+    fn registerKeyEvent(self: *BindingSet, egc: u8, event: KeyEvent) !void {
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
@@ -580,8 +643,8 @@ const BindingSet = struct {
         }
     }
 
-    pub const AbortType = enum { timeout, match_impossible };
-    pub fn abortCurrentSequence(self: *@This(), abort_type: AbortType, egc: u8, key_event: KeyEvent) anyerror!void {
+    const AbortType = enum { timeout, match_impossible };
+    fn abortCurrentSequence(self: *@This(), abort_type: AbortType, egc: u8, key_event: KeyEvent) anyerror!void {
         _ = egc;
         _ = key_event;
         if (abort_type == .match_impossible) {
@@ -615,26 +678,26 @@ const Namespace = HashMap(*BindingSet);
 const HashMap = std.StringArrayHashMap;
 
 //Data structure for mapping key events to keybindings
-pub const Bindings = struct {
+const Bindings = struct {
     allocator: std.mem.Allocator,
     active_namespace: usize,
     active_mode: usize,
     namespaces: HashMap(Namespace),
 
     //lists namespaces
-    pub fn listNamespaces(self: *const @This()) []const []const u8 {
+    fn listNamespaces(self: *const @This()) []const []const u8 {
         return self.namespaces.keys();
     }
 
-    pub fn activeNamespace(self: *const Bindings) Namespace {
+    fn activeNamespace(self: *const Bindings) Namespace {
         return self.namespaces.values()[self.active_namespace];
     }
 
-    pub fn activeMode(self: *Bindings) *BindingSet {
+    fn activeMode(self: *Bindings) *BindingSet {
         return self.activeNamespace().values()[self.active_mode];
     }
 
-    pub fn init(allocator: std.mem.Allocator) !*Bindings {
+    fn init(allocator: std.mem.Allocator) !*Bindings {
         const self: *@This() = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
@@ -645,18 +708,18 @@ pub const Bindings = struct {
         return self;
     }
 
-    pub fn addMode(self: *@This(), namespace_name: []const u8, mode_name: []const u8, mode: *BindingSet) !void {
+    fn addMode(self: *@This(), namespace_name: []const u8, mode_name: []const u8, mode_bindings: *BindingSet) !void {
         const namespace = self.namespaces.getPtr(namespace_name) orelse blk: {
             try self.namespaces.putNoClobber(namespace_name, Namespace.init(self.allocator));
             break :blk self.namespaces.getPtr(namespace_name).?;
         };
-        try namespace.putNoClobber(mode_name, mode);
+        try namespace.putNoClobber(mode_name, mode_bindings);
     }
 
-    pub fn deinit(self: *Bindings) void {
+    fn deinit(self: *Bindings) void {
         for (self.namespaces.values()) |*namespace| {
-            for (namespace.values()) |mode| {
-                mode.deinit();
+            for (namespace.values()) |mode_bindings| {
+                mode_bindings.deinit();
             }
             namespace.deinit();
         }
@@ -664,18 +727,18 @@ pub const Bindings = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn addNamespace(self: *Bindings, name: []const u8, modes: []const BindingSet) !void {
+    fn addNamespace(self: *Bindings, name: []const u8, modes: []const BindingSet) !void {
         try self.namespaces.put(name, .{ .name = name, .modes = modes });
     }
 
-    pub fn loadJson(self: *@This(), json_string: []const u8) !void {
+    fn loadJson(self: *@This(), json_string: []const u8) !void {
         const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, json_string, .{});
         defer parsed.deinit();
         if (parsed.value != .object) return error.notObject;
         for (parsed.value.object.values(), 0..) |namespace, i| {
             if (namespace != .object) return error.namespaceNotObject;
-            for (namespace.object.values(), 0..) |mode, j| {
-                const mode_config = try std.json.parseFromValue(BindingSet.JsonConfig, self.allocator, mode, .{});
+            for (namespace.object.values(), 0..) |mode_bindings, j| {
+                const mode_config = try std.json.parseFromValue(BindingSet.JsonConfig, self.allocator, mode_bindings, .{});
                 defer mode_config.deinit();
                 const parsed_mode = try mode_config.value.toMode(self.allocator);
                 try self.addMode(parsed.value.object.keys()[i], namespace.object.keys()[j], parsed_mode);
@@ -742,10 +805,10 @@ test "json" {
     var bindings = try Bindings.init(alloc);
     defer bindings.deinit();
     try bindings.loadJson(@embedFile("keybindings.json"));
-    const mode = bindings.activeMode();
-    try mode.registerKeyEvent('j', .{ .key = 'j' });
-    try mode.registerKeyEvent('k', .{ .key = 'k' });
-    try mode.registerKeyEvent('g', .{ .key = 'g' });
-    try mode.registerKeyEvent('i', .{ .key = 'i' });
-    try mode.registerKeyEvent(0, .{ .key = 'i', .modifiers = mod.CTRL });
+    const mode_binding_set = bindings.activeMode();
+    try mode_binding_set.registerKeyEvent('j', .{ .key = 'j' });
+    try mode_binding_set.registerKeyEvent('k', .{ .key = 'k' });
+    try mode_binding_set.registerKeyEvent('g', .{ .key = 'g' });
+    try mode_binding_set.registerKeyEvent('i', .{ .key = 'i' });
+    try mode_binding_set.registerKeyEvent(0, .{ .key = 'i', .modifiers = mod.CTRL });
 }
