@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-elixir/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-git-rebase/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-gitcommit/queries/highlights.scm"),
+        ts_queryfile(b, tree_sitter_dep, "tree-sitter-gleam/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-go/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-fish/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-haskell/queries/highlights.scm"),
