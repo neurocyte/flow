@@ -116,7 +116,7 @@ pub const gleam = .{
     .extensions = .{ "gleam" },
     .comment = "//",
     .language_server = .{"gleam", "lsp"},
-    .formatter = .{"gleam", "format"},
+    .formatter = .{"gleam", "format", "--stdin"},
 };
 
 pub const go = .{
