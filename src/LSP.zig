@@ -39,13 +39,6 @@ pub fn send_request(self: Self, allocator: std.mem.Allocator, method: []const u8
     return self.pid.call(allocator, request_timeout, .{ "REQ", method, cb.items });
 }
 
-pub fn send_response(self: Self, id: i32, m: anytype) SendError!tp.message {
-    var cb = std.ArrayList(u8).init(self.allocator);
-    defer cb.deinit();
-    try cbor.writeValue(cb.writer(), m);
-    return self.pid.send(.{ "RSP", id, cb.items });
-}
-
 pub fn send_notification(self: Self, method: []const u8, m: anytype) (OutOfMemoryError || SendError)!void {
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
@@ -73,7 +66,7 @@ const Process = struct {
     sp_tag: [:0]const u8,
     log_file: ?std.fs.File = null,
     next_id: i32 = 0,
-    requests: std.AutoHashMap(i32, tp.pid),
+    requests: std.StringHashMap(tp.pid),
 
     const Receiver = tp.Receiver(*Process);
 
@@ -99,7 +92,7 @@ const Process = struct {
             .parent = tp.self_pid().clone(),
             .tag = try allocator.dupeZ(u8, tag),
             .project = try allocator.dupeZ(u8, project),
-            .requests = std.AutoHashMap(i32, tp.pid).init(allocator),
+            .requests = std.StringHashMap(tp.pid).init(allocator),
             .sp_tag = try sp_tag_.toOwnedSliceSentinel(0),
         };
         return tp.spawn_link(self.allocator, self, Process.start, self.tag);
@@ -107,7 +100,10 @@ const Process = struct {
 
     fn deinit(self: *Process) void {
         var i = self.requests.iterator();
-        while (i.next()) |req| req.value_ptr.deinit();
+        while (i.next()) |req| {
+            self.allocator.free(req.key_ptr.*);
+            req.value_ptr.deinit();
+        }
         self.allocator.free(self.sp_tag);
         self.recv_buf.deinit();
         self.allocator.free(self.cmd.buf);
@@ -176,12 +172,12 @@ const Process = struct {
         var bytes: []u8 = "";
         var err: []u8 = "";
         var code: u32 = 0;
-        var id: i32 = 0;
+        var cbor_id: []const u8 = "";
 
         if (try cbor.match(m.buf, .{ "REQ", tp.extract(&method), tp.extract(&bytes) })) {
             try self.send_request(from, method, bytes);
-        } else if (try cbor.match(m.buf, .{ "RSP", tp.extract(&id), tp.extract(&bytes) })) {
-            try self.send_response(id, bytes);
+        } else if (try cbor.match(m.buf, .{ "RSP", tp.extract_cbor(&cbor_id), tp.extract_cbor(&bytes) })) {
+            try self.send_response(cbor_id, bytes);
         } else if (try cbor.match(m.buf, .{ "NTFY", tp.extract(&method), tp.extract(&bytes) })) {
             try self.send_notification(method, bytes);
         } else if (try cbor.match(m.buf, .{"close"})) {
@@ -215,7 +211,7 @@ const Process = struct {
         var iter = cb;
 
         const MsgMembers = struct {
-            id: ?i32 = null,
+            cbor_id: ?[]const u8 = null,
             method: ?[]const u8 = null,
             params: ?[]const u8 = null,
             result: ?[]const u8 = null,
@@ -228,7 +224,9 @@ const Process = struct {
             var field_name: []const u8 = undefined;
             if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
             if (std.mem.eql(u8, field_name, "id")) {
-                if (!(try cbor.matchValue(&iter, cbor.extract(&values.id)))) return error.InvalidMessageField;
+                var value: []const u8 = undefined;
+                if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&value)))) return error.InvalidMessageField;
+                values.cbor_id = value;
             } else if (std.mem.eql(u8, field_name, "method")) {
                 if (!(try cbor.matchValue(&iter, cbor.extract(&values.method)))) return error.InvalidMessageField;
             } else if (std.mem.eql(u8, field_name, "params")) {
@@ -248,11 +246,11 @@ const Process = struct {
             }
         }
 
-        if (values.id) |id| {
+        if (values.cbor_id) |cbor_id| {
             return if (values.method) |method| // Request messages have a method
-                self.receive_lsp_request(id, method, values.params)
+                self.receive_lsp_request(cbor_id, method, values.params)
             else // Everything else is a Response message
-                self.receive_lsp_response(id, values.result, values.@"error");
+                self.receive_lsp_response(cbor_id, values.result, values.@"error");
         } else { // Notification message has no ID
             return if (values.method) |method|
                 self.receive_lsp_notification(method, values.params)
@@ -310,10 +308,14 @@ const Process = struct {
 
         sp.send(output.items) catch return error.SendFailed;
         self.write_log("### SEND request:\n{s}\n###\n", .{output.items});
-        try self.requests.put(id, from.clone());
+
+        var cbor_id = std.ArrayList(u8).init(self.allocator);
+        defer cbor_id.deinit();
+        try cbor.writeValue(cbor_id.writer(), id);
+        try self.requests.put(try cbor_id.toOwnedSlice(), from.clone());
     }
 
-    fn send_response(self: *Process, id: i32, result_cb: []const u8) (error{Closed} || SendError || cbor.Error || cbor.JsonEncodeError)!void {
+    fn send_response(self: *Process, cbor_id: []const u8, result_cb: []const u8) (error{Closed} || SendError || cbor.Error || cbor.JsonEncodeError)!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
         var msg = std.ArrayList(u8).init(self.allocator);
@@ -323,7 +325,7 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "jsonrpc");
         try cbor.writeValue(msg_writer, "2.0");
         try cbor.writeValue(msg_writer, "id");
-        try cbor.writeValue(msg_writer, id);
+        try msg_writer.writeAll(cbor_id);
         try cbor.writeValue(msg_writer, "result");
         _ = try msg_writer.write(result_cb);
 
@@ -395,10 +397,12 @@ const Process = struct {
         if (rest.len > 0) return self.frame_message_recv();
     }
 
-    fn receive_lsp_request(self: *Process, id: i32, method: []const u8, params: ?[]const u8) Error!void {
+    fn receive_lsp_request(self: *Process, cbor_id: []const u8, method: []const u8, params: ?[]const u8) Error!void {
+        const json_id = try cbor.toJsonPrettyAlloc(self.allocator, cbor_id);
+        defer self.allocator.free(json_id);
         const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json) |p| self.allocator.free(p);
-        self.write_log("### RECV req: {d}\nmethod: {s}\n{s}\n###\n", .{ id, method, json orelse "no params" });
+        self.write_log("### RECV req: {s}\nmethod: {s}\n{s}\n###\n", .{ json_id, method, json orelse "no params" });
         var msg = std.ArrayList(u8).init(self.allocator);
         defer msg.deinit();
         const writer = msg.writer();
@@ -408,18 +412,20 @@ const Process = struct {
         try cbor.writeValue(writer, self.tag);
         try cbor.writeValue(writer, "request");
         try cbor.writeValue(writer, method);
-        try cbor.writeValue(writer, id);
+        try writer.writeAll(cbor_id);
         if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
         self.parent.send_raw(.{ .buf = msg.items }) catch return error.SendFailed;
     }
 
-    fn receive_lsp_response(self: *Process, id: i32, result: ?[]const u8, err: ?[]const u8) Error!void {
+    fn receive_lsp_response(self: *Process, cbor_id: []const u8, result: ?[]const u8, err: ?[]const u8) Error!void {
+        const json_id = try cbor.toJsonPrettyAlloc(self.allocator, cbor_id);
+        defer self.allocator.free(json_id);
         const json = if (result) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json) |p| self.allocator.free(p);
         const json_err = if (err) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json_err) |p| self.allocator.free(p);
-        self.write_log("### RECV rsp: {d} {s}\n{s}\n###\n", .{ id, if (json_err) |_| "error" else "response", json_err orelse json orelse "no result" });
-        const from = self.requests.get(id) orelse return;
+        self.write_log("### RECV rsp: {s} {s}\n{s}\n###\n", .{ json_id, if (json_err) |_| "error" else "response", json_err orelse json orelse "no result" });
+        const from = self.requests.get(cbor_id) orelse return;
         var msg = std.ArrayList(u8).init(self.allocator);
         defer msg.deinit();
         const writer = msg.writer();

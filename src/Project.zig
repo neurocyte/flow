@@ -900,16 +900,25 @@ pub fn show_message(_: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
         logger.print("{s}", .{msg});
 }
 
-pub fn register_capability(self: *Self, from: tp.pid_ref, id: i32, params_cb: []const u8) ClientError!void {
+pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) ClientError!void {
     _ = params_cb;
-    return self.send_lsp_response(from, id, null);
+    return self.send_lsp_response(from, cbor_id, null);
 }
 
-pub fn send_lsp_response(self: *Self, from: tp.pid_ref, id: i32, result: anytype) ClientError!void {
+pub fn workDoneProgress_create(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) ClientError!void {
+    _ = params_cb;
+    return self.send_lsp_response(from, cbor_id, null);
+}
+
+pub fn send_lsp_response(self: *Self, from: tp.pid_ref, cbor_id: []const u8, result: anytype) ClientError!void {
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
+    const writer = cb.writer();
+    try cbor.writeArrayHeader(writer, 3);
+    try cbor.writeValue(writer, "RSP");
+    try writer.writeAll(cbor_id);
     try cbor.writeValue(cb.writer(), result);
-    from.send(.{ "RSP", id, cb.items }) catch return error.ClientFailed;
+    from.send_raw(.{ .buf = cb.items }) catch return error.ClientFailed;
 }
 
 fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) CallError!tp.message {

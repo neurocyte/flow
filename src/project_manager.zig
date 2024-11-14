@@ -268,7 +268,7 @@ const Process = struct {
         var file_type: []const u8 = undefined;
         var language_server: []const u8 = undefined;
         var method: []const u8 = undefined;
-        var id: i32 = 0;
+        var cbor_id: []const u8 = undefined;
         var params_cb: []const u8 = undefined;
         var high: i64 = 0;
         var low: i64 = 0;
@@ -299,8 +299,8 @@ const Process = struct {
             self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
             self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("lsp-handling", e);
-        } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract(&id), tp.extract_cbor(&params_cb) })) {
-            self.dispatch_request(from, project_directory, language_server, method, id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
+        } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract_cbor(&cbor_id), tp.extract_cbor(&params_cb) })) {
+            self.dispatch_request(from, project_directory, language_server, method, cbor_id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&path), "done" })) {
             self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
         } else if (try cbor.match(m.buf, .{ "open", tp.extract(&project_directory) })) {
@@ -524,11 +524,13 @@ const Process = struct {
         };
     }
 
-    fn dispatch_request(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8, method: []const u8, id: i32, params_cb: []const u8) (ProjectError || Project.ClientError || cbor.Error || cbor.JsonEncodeError || UnsupportedError)!void {
+    fn dispatch_request(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8, method: []const u8, cbor_id: []const u8, params_cb: []const u8) (ProjectError || Project.ClientError || cbor.Error || cbor.JsonEncodeError || UnsupportedError)!void {
         _ = language_server;
         const project = if (self.projects.get(project_directory)) |p| p else return error.NoProject;
         return if (std.mem.eql(u8, method, "client/registerCapability"))
-            project.register_capability(from, id, params_cb)
+            project.register_capability(from, cbor_id, params_cb)
+        else if (std.mem.eql(u8, method, "window/workDoneProgress/create"))
+            project.workDoneProgress_create(from, cbor_id, params_cb)
         else blk: {
             const params = try cbor.toJsonAlloc(self.allocator, params_cb);
             defer self.allocator.free(params);
