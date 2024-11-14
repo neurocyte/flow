@@ -50,9 +50,8 @@ fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
             const self: *@This() = try allocator.create(@This());
             self.* = .{
                 .allocator = allocator,
-                .bindings = try BindingSet.init(allocator),
+                .bindings = try BindingSet.init(allocator, @embedFile("keybindings.json"), namespace_name, mode_name),
             };
-            try self.bindings.load_json(@embedFile("keybindings.json"), namespace_name, mode_name);
             return EventHandler.to_owned(self);
         }
         pub fn deinit(self: *@This()) void {
@@ -459,8 +458,8 @@ const BindingSet = struct {
         }
     }
 
-    fn init(allocator: std.mem.Allocator) !@This() {
-        return .{
+    fn init(allocator: std.mem.Allocator, json_string: []const u8, namespace_name: []const u8, mode_name: []const u8) !@This() {
+        var self: @This() = .{
             .allocator = allocator,
             .current_sequence = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
             .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
@@ -468,6 +467,8 @@ const BindingSet = struct {
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
             .bindings = std.ArrayList(Binding).init(allocator),
         };
+        try self.load_json(json_string, namespace_name, mode_name);
+        return self;
     }
 
     fn deinit(self: *const BindingSet) void {
