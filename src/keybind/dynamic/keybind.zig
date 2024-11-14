@@ -584,6 +584,9 @@ const BindingSet = struct {
     //register a key press and try to match it with a binding
     fn process_key_event(self: *BindingSet, egc: u32, event: KeyEvent) !void {
 
+        //hacky fix since we are ignoring repeats and keyups right now
+        if (event.event_type != event_type.PRESS) return;
+
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
         if (self.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
