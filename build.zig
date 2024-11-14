@@ -177,6 +177,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "EventHandler", .module = EventHandler_mod },
             .{ .name = "renderer", .module = renderer_mod },
             .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "log", .module = log_mod },
         },
     });
     const keybind_mod = if (dynamic_keybind) keybind_dynamic_mod else keybind_static_mod;
@@ -192,6 +193,7 @@ pub fn build(b: *std.Build) void {
         tests.root_module.addImport("EventHandler", EventHandler_mod);
         tests.root_module.addImport("renderer", renderer_mod);
         tests.root_module.addImport("thespian", thespian_mod);
+        tests.root_module.addImport("log", log_mod);
         // b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };

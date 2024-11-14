@@ -6,6 +6,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const builtin = @import("builtin");
+const log = @import("log");
 
 const renderer = @import("renderer");
 const key = @import("renderer").input.key;
@@ -91,13 +92,6 @@ const KeyEvent = struct {
     fn eql(self: @This(), other: @This()) bool {
         return std.meta.eql(self, other);
     }
-
-    fn toString(self: @This(), allocator: std.mem.Allocator) String {
-        //TODO implement
-        _ = self;
-        _ = allocator;
-        return "";
-    }
 };
 
 fn peek(str: []const u8, i: usize) !u8 {
@@ -106,9 +100,7 @@ fn peek(str: []const u8, i: usize) !u8 {
     } else return error.outOfBounds;
 }
 
-const Sequence = std.ArrayList(KeyEvent);
-
-pub fn parseKeySequence(result: *Sequence, str: []const u8) !void {
+pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEvent {
     const State = enum {
         base,
         escape_sequence_start,
@@ -130,6 +122,8 @@ pub fn parseKeySequence(result: *Sequence, str: []const u8) !void {
     var state: State = .base;
     var function_key_number: u8 = 0;
     var modifiers: u32 = 0;
+    var result = std.ArrayList(KeyEvent).init(allocator);
+    defer result.deinit();
 
     var i: usize = 0;
     while (i < str.len) {
@@ -212,7 +206,7 @@ pub fn parseKeySequence(result: *Sequence, str: []const u8) !void {
                         }
                     },
                     else => {
-                        std.debug.print("str: {s}, i: {}\n", .{ str, i });
+                        std.debug.print("str: {s}, i: {} c: {c}\n", .{ str, i, str[i] });
                         return error.parseEscapeSequenceStart;
                     },
                 }
@@ -363,59 +357,38 @@ pub fn parseKeySequence(result: *Sequence, str: []const u8) !void {
             },
         }
     }
+    return result.toOwnedSlice();
 }
-
-const String = std.ArrayList(u8);
 
 //An association of an command with a triggering key chord
 const Binding = struct {
-    keys: Sequence,
-    command: String,
-    args: std.ArrayList(u8),
+    keys: []KeyEvent,
+    command: []const u8,
+    args: []const u8,
+
+    fn deinit(self: *const @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.keys);
+        allocator.free(self.command);
+        allocator.free(self.args);
+    }
 
     fn len(self: Binding) usize {
         return self.keys.items.len;
     }
 
     fn execute(self: @This()) !void {
-        try command.executeName(self.command.items, .{ .args = .{ .buf = self.args.items } });
+        try command.executeName(self.command, .{ .args = .{ .buf = self.args } });
     }
 
     const MatchResult = enum { match_impossible, match_possible, matched };
 
-    fn match(self: *const @This(), keys: []const KeyEvent) MatchResult {
-        return matchKeySequence(self.keys.items, keys);
-    }
-
-    fn matchKeySequence(self: []const KeyEvent, keys: []const KeyEvent) MatchResult {
-        if (self.len == 0) {
-            return .match_impossible;
+    fn match(self: *const @This(), match_keys: []const KeyEvent) MatchResult {
+        if (self.keys.len == 0) return .match_impossible;
+        for (self.keys, 0..) |key_event, i| {
+            if (match_keys.len <= i) return .match_possible;
+            if (!key_event.eql(match_keys[i])) return .match_impossible;
         }
-        for (keys, 0..) |key_event, i| {
-            if (!key_event.eql(self[i])) {
-                return .match_impossible;
-            }
-        }
-
-        if (keys.len >= self.len) {
-            return .matched;
-        } else {
-            return .match_possible;
-        }
-    }
-
-    fn init(allocator: std.mem.Allocator) @This() {
-        return .{
-            .keys = Sequence.init(allocator),
-            .command = String.init(allocator),
-            .args = std.ArrayList(u8).init(allocator),
-        };
-    }
-
-    fn deinit(self: *const @This()) void {
-        self.keys.deinit();
-        self.command.deinit();
-        self.args.deinit();
+        return if (self.keys.len == match_keys.len) .matched else .match_possible;
     }
 };
 
@@ -434,6 +407,7 @@ const BindingSet = struct {
     current_sequence_egc: std.ArrayList(u8),
     last_key_event_timestamp_ms: i64 = 0,
     input_buffer: std.ArrayList(u8),
+    logger: log.Logger,
 
     const OnMatchFailure = enum { insert, ignore };
 
@@ -466,13 +440,14 @@ const BindingSet = struct {
             .last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
             .bindings = std.ArrayList(Binding).init(allocator),
+            .logger = if (!builtin.is_test) log.logger("keybind") else undefined,
         };
         try self.load_json(json_string, namespace_name, mode_name);
         return self;
     }
 
     fn deinit(self: *const BindingSet) void {
-        for (self.bindings.items) |binding| binding.deinit();
+        for (self.bindings.items) |binding| binding.deinit(self.allocator);
         self.bindings.deinit();
         self.current_sequence.deinit();
         self.current_sequence_egc.deinit();
@@ -484,6 +459,7 @@ const BindingSet = struct {
         defer parsed.deinit();
         if (parsed.value != .object) return error.NotAnObject;
         var namespaces = parsed.value.object.iterator();
+        if (!builtin.is_test) self.logger.print("load_json namespace:{s} mode:{s}", .{ namespace_name, mode_name });
         while (namespaces.next()) |*namespace_entry| {
             if (namespace_entry.value_ptr.* != .object) return error.NotAnObject;
             if (!std.mem.eql(u8, namespace_entry.key_ptr.*, namespace_name)) continue;
@@ -495,75 +471,71 @@ const BindingSet = struct {
         }
     }
 
-    fn load_set_from_json(self_: *BindingSet, mode_bindings: std.json.Value) !void {
+    fn load_set_from_json(self: *BindingSet, mode_bindings: std.json.Value) !void {
         const JsonConfig = struct {
             bindings: []const []const []const u8,
             on_match_failure: OnMatchFailure,
         };
-        const parsed = try std.json.parseFromValue(JsonConfig, self_.allocator, mode_bindings, .{});
+        const parsed = try std.json.parseFromValue(JsonConfig, self.allocator, mode_bindings, .{});
         defer parsed.deinit();
-        self_.on_match_failure = parsed.value.on_match_failure;
-        var state: enum { key_event, command, args } = .key_event;
+        self.on_match_failure = parsed.value.on_match_failure;
+        if (!builtin.is_test) self.logger.print("load_set_from_json bindings:{d}", .{parsed.value.bindings.len});
         for (parsed.value.bindings) |entry| {
-            var binding = Binding.init(self_.allocator);
-            var args = std.ArrayList(String).init(self_.allocator);
+            var state: enum { key_event, command, args } = .key_event;
+            var keys: ?[]KeyEvent = null;
+            var command_: ?[]const u8 = null;
+            var args = std.ArrayListUnmanaged([]const u8){};
             defer {
-                for (args.items) |arg| arg.deinit();
-                args.deinit();
+                if (keys) |p| self.allocator.free(p);
+                if (command_) |p| self.allocator.free(p);
+                for (args.items) |p| self.allocator.free(p);
+                args.deinit(self.allocator);
             }
             for (entry) |token| {
                 switch (state) {
                     .key_event => {
-                        try parseKeySequence(&binding.keys, token);
+                        keys = try parse_key_events(self.allocator, token);
                         state = .command;
                     },
                     .command => {
-                        binding.command = String.init(self_.allocator);
-                        try binding.command.appendSlice(token);
+                        command_ = try self.allocator.dupe(u8, token);
                         state = .args;
                     },
                     .args => {
-                        var arg = String.init(self_.allocator);
-                        try arg.appendSlice(token);
-                        try args.append(arg);
+                        try args.append(self.allocator, try self.allocator.dupe(u8, token));
                     },
                 }
             }
-            var args_cbor = std.ArrayList(u8).init(self_.allocator);
-            defer args_cbor.deinit();
-            const writer = args_cbor.writer();
+            if (state != .args) {
+                if (builtin.is_test) @panic("invalid state in load_set_from_json");
+                continue;
+            }
+            var args_cbor = std.ArrayListUnmanaged(u8){};
+            defer args_cbor.deinit(self.allocator);
+            const writer = args_cbor.writer(self.allocator);
             try cbor.writeArrayHeader(writer, args.items.len);
-            for (args.items) |arg| try cbor.writeValue(writer, arg.items);
-            try binding.args.appendSlice(args_cbor.items);
-            try self_.bindings.append(binding);
-        }
-    }
+            for (args.items) |arg| try cbor.writeValue(writer, arg);
 
-    //  fn parseBindingList(self: *@This(), str: []const u8) !void {
-    // var iter = std.mem.tokenizeAny(u8, str, &.{'\n'});
-    // while (iter.next()) |token| {
-    // try self.bindings.append(try parseBinding(self.allocator, token));
-    // }
-    // }
-
-    fn cmd(self: *@This(), name_: []const u8, ctx: command.Context) tp.result {
-        try self.flushInputBuffer();
-        self.last_cmd = name_;
-        if (builtin.is_test == false) {
-            try command.executeName(name_, ctx);
+            try self.bindings.append(.{
+                .keys = keys.?,
+                .command = command_.?,
+                .args = try args_cbor.toOwnedSlice(self.allocator),
+            });
+            keys = null;
+            command_ = null;
         }
     }
 
     const max_key_sequence_time_interval = 750;
     const max_input_buffer_size = 1024;
 
-    fn insertBytes(self: *@This(), bytes: []const u8) !void {
+    fn insert_bytes(self: *@This(), bytes: []const u8) !void {
         if (self.input_buffer.items.len + 4 > max_input_buffer_size)
-            try self.flushInputBuffer();
+            try self.flush();
         try self.input_buffer.appendSlice(bytes);
     }
 
-    fn flushInputBuffer(self: *@This()) !void {
+    fn flush(self: *@This()) !void {
         const Static = struct {
             var insert_chars_id: ?command.ID = null;
         };
@@ -573,7 +545,7 @@ const BindingSet = struct {
                 command.get_id_cache("insert_chars", &Static.insert_chars_id) orelse {
                 return tp.exit_error(error.InputTargetNotFound, null);
             };
-            if (builtin.is_test == false) {
+            if (!builtin.is_test) {
                 try command.execute(id, command.fmt(.{self.input_buffer.items}));
             }
         }
@@ -594,28 +566,28 @@ const BindingSet = struct {
             tp.string,
             tp.extract(&modifiers),
         })) {
-            self.registerKeyEvent(egc, .{
+            self.process_key_event(egc, .{
                 .event_type = evtype,
                 .key = keypress,
                 .modifiers = modifiers,
             }) catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{"F"})) {
-            self.flushInputBuffer() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-            self.flushInputBuffer() catch |e| return tp.exit_error(e, @errorReturnTrace());
-            self.insertBytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
-            self.flushInputBuffer() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
         }
         return false;
     }
 
     //register a key press and try to match it with a binding
-    fn registerKeyEvent(self: *BindingSet, egc: u32, event: KeyEvent) !void {
+    fn process_key_event(self: *BindingSet, egc: u32, event: KeyEvent) !void {
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
         if (self.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
-            try self.abortCurrentSequence(.timeout, egc, event);
+            try self.terminate_sequence(.timeout, egc, event);
         }
         self.last_key_event_timestamp_ms = timestamp;
 
@@ -625,10 +597,20 @@ const BindingSet = struct {
         try self.current_sequence_egc.appendSlice(buf[0..bytes]);
 
         var all_matches_impossible = true;
+        defer if (!builtin.is_test) self.logger.print("process_key_event all_matches_impossible:{any} event:{any} egc:{d} text:'{s}' sequence:'{s}' bindings:{d}", .{
+            all_matches_impossible,
+            event,
+            egc,
+            buf[0..bytes],
+            self.current_sequence_egc.items,
+            self.bindings.items.len,
+        });
         for (self.bindings.items) |binding| blk: {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
                     if (!builtin.is_test) {
+                        self.logger.print("matched binding -> {s}", .{binding.command});
+                        if (!builtin.is_test) self.logger.print("execute '{s}'", .{binding.command});
                         try binding.execute();
                     }
                     self.current_sequence.clearRetainingCapacity();
@@ -636,24 +618,27 @@ const BindingSet = struct {
                     break :blk;
                 },
                 .match_possible => {
+                    if (!builtin.is_test) self.logger.print("match possible for binding -> {s}", .{binding.command});
                     all_matches_impossible = false;
                 },
-                .match_impossible => {},
+                .match_impossible => {
+                    if (!builtin.is_test) self.logger.print("match impossible for binding -> {s}", .{binding.command});
+                },
             }
         }
         if (all_matches_impossible) {
-            try self.abortCurrentSequence(.match_impossible, egc, event);
+            try self.terminate_sequence(.match_impossible, egc, event);
         }
     }
 
     const AbortType = enum { timeout, match_impossible };
-    fn abortCurrentSequence(self: *@This(), abort_type: AbortType, egc: u32, key_event: KeyEvent) anyerror!void {
+    fn terminate_sequence(self: *@This(), abort_type: AbortType, egc: u32, key_event: KeyEvent) anyerror!void {
         _ = egc;
         _ = key_event;
         if (abort_type == .match_impossible) {
             switch (self.on_match_failure) {
                 .insert => {
-                    try self.insertBytes(self.current_sequence_egc.items);
+                    try self.insert_bytes(self.current_sequence_egc.items);
                     self.current_sequence_egc.clearRetainingCapacity();
                     self.current_sequence.clearRetainingCapacity();
                 },
@@ -661,15 +646,9 @@ const BindingSet = struct {
                     self.current_sequence.clearRetainingCapacity();
                     self.current_sequence_egc.clearRetainingCapacity();
                 },
-                // .fallback_mode => |fallback_mode_name| {
-                // _ = fallback_mode_name;
-                // @panic("This feature not supported yet");
-                //const fallback_mode = self.active_namespace().get(fallback_mode_name).?;
-                //try self.registerKeyEvent(fallback_mode, egc, key_event);
-                // },
             }
         } else if (abort_type == .timeout) {
-            try self.insertBytes(self.current_sequence_egc.items);
+            try self.insert_bytes(self.current_sequence_egc.items);
             self.current_sequence_egc.clearRetainingCapacity();
             self.current_sequence.clearRetainingCapacity();
         }
@@ -719,11 +698,10 @@ const parse_test_cases = .{
 test "parse" {
     const alloc = std.testing.allocator;
     inline for (parse_test_cases) |case| {
-        var parsed = Sequence.init(alloc);
-        defer parsed.deinit();
-        try parseKeySequence(&parsed, case[0]);
+        const parsed = try parse_key_events(alloc, case[0]);
+        defer alloc.free(parsed);
         const expected: []const KeyEvent = case[1];
-        const actual: []const KeyEvent = parsed.items;
+        const actual: []const KeyEvent = parsed;
         try expectEqual(expected.len, actual.len);
         for (expected, 0..) |expected_event, i| {
             try expectEqual(expected_event, actual[i]);
@@ -746,25 +724,26 @@ const match_test_cases = .{
 test "match" {
     const alloc = std.testing.allocator;
     inline for (match_test_cases) |case| {
-        var input = Sequence.init(alloc);
-        defer input.deinit();
-        var binding = Sequence.init(alloc);
-        defer binding.deinit();
+        const input = try parse_key_events(alloc, case[0]);
+        defer alloc.free(input);
+        const binding: Binding = .{
+            .keys = try parse_key_events(alloc, case[1]),
+            .command = undefined,
+            .args = undefined,
+        };
+        defer alloc.free(binding.keys);
 
-        try parseKeySequence(&input, case[0]);
-        try parseKeySequence(&binding, case[1]);
-        try expectEqual(case[2], Binding.matchKeySequence(binding.items, input.items));
+        try expectEqual(case[2], binding.match(input));
     }
 }
 
 test "json" {
     const alloc = std.testing.allocator;
-    var bindings = try BindingSet.init(alloc);
+    var bindings = try BindingSet.init(alloc, @embedFile("keybindings.json"), "vim", "normal");
     defer bindings.deinit();
-    try bindings.load_json(@embedFile("keybindings.json"), "vim", "normal");
-    try bindings.registerKeyEvent('j', .{ .key = 'j' });
-    try bindings.registerKeyEvent('k', .{ .key = 'k' });
-    try bindings.registerKeyEvent('g', .{ .key = 'g' });
-    try bindings.registerKeyEvent('i', .{ .key = 'i' });
-    try bindings.registerKeyEvent(0, .{ .key = 'i', .modifiers = mod.CTRL });
+    try bindings.process_key_event('j', .{ .key = 'j' });
+    try bindings.process_key_event('k', .{ .key = 'k' });
+    try bindings.process_key_event('g', .{ .key = 'g' });
+    try bindings.process_key_event('i', .{ .key = 'i' });
+    try bindings.process_key_event(0, .{ .key = 'i', .modifiers = mod.CTRL });
 }
