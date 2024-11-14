@@ -45,7 +45,7 @@ pub const mode = struct {
 fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
     return struct {
         allocator: std.mem.Allocator,
-        bindings: *Bindings,
+        bindings: Bindings,
         pub fn create(allocator: std.mem.Allocator, _: anytype) !EventHandler {
             const self: *@This() = try allocator.create(@This());
             self.* = .{
@@ -53,8 +53,8 @@ fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
                 .bindings = try Bindings.init(allocator),
             };
             try self.bindings.loadJson(@embedFile("keybindings.json"));
-            try self.bindings.selectNamespace(namespace_name);
-            try self.bindings.selectMode(mode_name);
+            try self.bindings.select_namespace(namespace_name);
+            try self.bindings.select_mode(mode_name);
             return EventHandler.to_owned(self);
         }
         pub fn deinit(self: *@This()) void {
@@ -62,7 +62,8 @@ fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
             self.allocator.destroy(self);
         }
         pub fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            return self.bindings.activeMode().receive(from, m);
+            const active_mode = self.bindings.get_active_mode() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            return active_mode.receive(from, m);
         }
         pub const hints = KeybindHints.initComptime(.{});
     };
@@ -431,6 +432,7 @@ const Hint = struct {
 //A Collection of keybindings
 const BindingSet = struct {
     allocator: std.mem.Allocator,
+    name: []const u8,
     bindings: std.ArrayList(Binding),
     on_match_failure: OnMatchFailure = .ignore,
     current_sequence: std.ArrayList(KeyEvent),
@@ -439,51 +441,6 @@ const BindingSet = struct {
     input_buffer: std.ArrayList(u8),
 
     const OnMatchFailure = enum { insert, ignore };
-
-    const JsonConfig = struct {
-        bindings: []const []const []const u8,
-        on_match_failure: OnMatchFailure,
-
-        fn toMode(self: *const @This(), allocator: std.mem.Allocator) !*BindingSet {
-            var result = try init(allocator);
-            result.on_match_failure = self.on_match_failure;
-            var state: enum { key_event, command, args } = .key_event;
-            for (self.bindings) |entry| {
-                var binding = Binding.init(allocator);
-                var args = std.ArrayList(String).init(allocator);
-                defer {
-                    for (args.items) |arg| arg.deinit();
-                    args.deinit();
-                }
-                for (entry) |token| {
-                    switch (state) {
-                        .key_event => {
-                            try parseKeySequence(&binding.keys, token);
-                            state = .command;
-                        },
-                        .command => {
-                            binding.command = String.init(allocator);
-                            try binding.command.appendSlice(token);
-                            state = .args;
-                        },
-                        .args => {
-                            var arg = String.init(allocator);
-                            try arg.appendSlice(token);
-                            try args.append(arg);
-                        },
-                    }
-                }
-                var args_cbor = std.ArrayList(u8).init(allocator);
-                defer args_cbor.deinit();
-                const writer = args_cbor.writer();
-                try cbor.writeArrayHeader(writer, args.items.len);
-                for (args.items) |arg| try cbor.writeValue(writer, arg.items);
-                try binding.args.appendSlice(args_cbor.items);
-                try result.bindings.append(binding);
-            }
-            return result;
-        }
-    };
 
     fn hints(self: *@This()) ![]const Hint {
         if (self.hints == null) {
@@ -506,28 +463,69 @@ const BindingSet = struct {
         }
     }
 
-    fn init(allocator: std.mem.Allocator) !*@This() {
-        const self = try allocator.create(@This());
-        self.* = .{
+    fn init(allocator: std.mem.Allocator, name: []const u8) !@This() {
+        return .{
             .allocator = allocator,
+            .name = try allocator.dupe(u8, name),
             .current_sequence = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
             .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
             .last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
             .bindings = std.ArrayList(Binding).init(allocator),
         };
-        return self;
     }
 
     fn deinit(self: *const BindingSet) void {
-        for (self.bindings.items) |binding| {
-            binding.deinit();
-        }
+        self.allocator.free(self.name);
+        for (self.bindings.items) |binding| binding.deinit();
         self.bindings.deinit();
         self.current_sequence.deinit();
         self.current_sequence_egc.deinit();
         self.input_buffer.deinit();
-        self.allocator.destroy(self);
+    }
+
+    fn load_json(self_: *BindingSet, mode_bindings: std.json.Value) !void {
+        const JsonConfig = struct {
+            bindings: []const []const []const u8,
+            on_match_failure: OnMatchFailure,
+        };
+        const parsed = try std.json.parseFromValue(JsonConfig, self_.allocator, mode_bindings, .{});
+        defer parsed.deinit();
+        self_.on_match_failure = parsed.value.on_match_failure;
+        var state: enum { key_event, command, args } = .key_event;
+        for (parsed.value.bindings) |entry| {
+            var binding = Binding.init(self_.allocator);
+            var args = std.ArrayList(String).init(self_.allocator);
+            defer {
+                for (args.items) |arg| arg.deinit();
+                args.deinit();
+            }
+            for (entry) |token| {
+                switch (state) {
+                    .key_event => {
+                        try parseKeySequence(&binding.keys, token);
+                        state = .command;
+                    },
+                    .command => {
+                        binding.command = String.init(self_.allocator);
+                        try binding.command.appendSlice(token);
+                        state = .args;
+                    },
+                    .args => {
+                        var arg = String.init(self_.allocator);
+                        try arg.appendSlice(token);
+                        try args.append(arg);
+                    },
+                }
+            }
+            var args_cbor = std.ArrayList(u8).init(self_.allocator);
+            defer args_cbor.deinit();
+            const writer = args_cbor.writer();
+            try cbor.writeArrayHeader(writer, args.items.len);
+            for (args.items) |arg| try cbor.writeValue(writer, arg.items);
+            try binding.args.appendSlice(args_cbor.items);
+            try self_.bindings.append(binding);
+        }
     }
 
     //  fn parseBindingList(self: *@This(), str: []const u8) !void {
@@ -655,7 +653,7 @@ const BindingSet = struct {
                 // .fallback_mode => |fallback_mode_name| {
                 // _ = fallback_mode_name;
                 // @panic("This feature not supported yet");
-                //const fallback_mode = self.activeNamespace().get(fallback_mode_name).?;
+                //const fallback_mode = self.active_namespace().get(fallback_mode_name).?;
                 //try self.registerKeyEvent(fallback_mode, egc, key_event);
                 // },
             }
@@ -668,94 +666,106 @@ const BindingSet = struct {
 };
 
 //A collection of various modes under a single namespace, such as "vim" or "emacs"
-const Namespace = HashMap(*BindingSet);
-const HashMap = std.StringArrayHashMap;
+const Namespace = struct {
+    name: []const u8,
+    modes: std.ArrayList(BindingSet),
+
+    fn init(allocator: std.mem.Allocator, name: []const u8) !Namespace {
+        return .{
+            .name = try allocator.dupe(u8, name),
+            .modes = std.ArrayList(BindingSet).init(allocator),
+        };
+    }
+
+    fn deinit(self: *@This()) void {
+        self.modes.allocator.free(self.name);
+        for (self.modes.items) |*mode_| mode_.deinit();
+        self.modes.deinit();
+    }
+
+    fn get_mode(self: *@This(), mode_name: []const u8) !*BindingSet {
+        for (self.modes.items) |*mode_|
+            if (std.mem.eql(u8, mode_.name, mode_name))
+                return mode_;
+        const mode_ = try self.modes.addOne();
+        mode_.* = try BindingSet.init(self.modes.allocator, mode_name);
+        return mode_;
+    }
+};
 
 //Data structure for mapping key events to keybindings
 const Bindings = struct {
     allocator: std.mem.Allocator,
-    active_namespace: usize,
-    active_mode: usize,
-    namespaces: HashMap(Namespace),
+    active_namespace: ?usize = null,
+    active_mode: ?usize = null,
+    namespaces: std.ArrayList(Namespace),
 
-    //lists namespaces
-    fn listNamespaces(self: *const @This()) []const []const u8 {
-        return self.namespaces.keys();
+    fn list_namespaces(self: *const @This()) []const Namespace {
+        return self.namespaces.items;
     }
 
-    fn selectNamespace(self: *Bindings, namespace_name: []const u8) error{NotFound}!void {
-        for (self.namespaces.keys(), 0..) |name, i| {
-            if (std.mem.eql(u8, name, namespace_name)) {
+    fn select_namespace(self: *Bindings, namespace_name: []const u8) error{NotFound}!void {
+        self.active_namespace = null;
+        for (self.namespaces.items, 0..) |*namespace, i|
+            if (std.mem.eql(u8, namespace.name, namespace_name)) {
                 self.active_namespace = i;
                 return;
-            }
-        }
+            };
         return error.NotFound;
     }
 
-    fn activeNamespace(self: *const Bindings) Namespace {
-        return self.namespaces.values()[self.active_namespace];
+    fn get_active_namespace(self: *const Bindings) error{NoActiveNamespace}!*Namespace {
+        return &self.namespaces.items[self.active_namespace orelse return error.NoActiveNamespace];
     }
 
-    fn selectMode(self: *Bindings, mode_name: []const u8) error{NotFound}!void {
-        const namespace = self.activeNamespace();
-        for (namespace.keys(), 0..) |name, i| {
-            if (std.mem.eql(u8, name, mode_name)) {
+    fn select_mode(self: *Bindings, mode_name: []const u8) error{ NotFound, NoActiveNamespace }!void {
+        self.active_mode = null;
+        const namespace = try self.get_active_namespace();
+        for (namespace.modes.items, 0..) |*mode_, i|
+            if (std.mem.eql(u8, mode_.name, mode_name)) {
                 self.active_mode = i;
                 return;
-            }
-        }
+            };
         return error.NotFound;
     }
 
-    fn activeMode(self: *Bindings) *BindingSet {
-        return self.activeNamespace().values()[self.active_mode];
+    fn get_active_mode(self: *Bindings) error{ NoActiveMode, NoActiveNamespace }!*BindingSet {
+        return &(try self.get_active_namespace()).modes.items[self.active_mode orelse return error.NoActiveMode];
     }
 
-    fn init(allocator: std.mem.Allocator) !*Bindings {
-        const self: *@This() = try allocator.create(@This());
-        self.* = .{
+    fn init(allocator: std.mem.Allocator) !Bindings {
+        return .{
             .allocator = allocator,
-            .active_namespace = 0,
-            .active_mode = 0,
-            .namespaces = std.StringArrayHashMap(Namespace).init(allocator),
+            .namespaces = std.ArrayList(Namespace).init(allocator),
         };
-        return self;
-    }
-
-    fn addMode(self: *@This(), namespace_name: []const u8, mode_name: []const u8, mode_bindings: *BindingSet) !void {
-        const namespace = self.namespaces.getPtr(namespace_name) orelse blk: {
-            try self.namespaces.putNoClobber(try self.allocator.dupe(u8, namespace_name), Namespace.init(self.allocator));
-            break :blk self.namespaces.getPtr(namespace_name).?;
-        };
-        try namespace.putNoClobber(try self.allocator.dupe(u8, mode_name), mode_bindings);
     }
 
     fn deinit(self: *Bindings) void {
-        for (self.namespaces.values()) |*namespace| {
-            for (namespace.values()) |mode_bindings|
-                mode_bindings.deinit();
-            for (namespace.keys()) |mode_name|
-                self.allocator.free(mode_name);
-            namespace.deinit();
-        }
-        for (self.namespaces.keys()) |namespace|
-            self.allocator.free(namespace);
+        for (self.namespaces.items) |*namespace| namespace.deinit();
         self.namespaces.deinit();
-        self.allocator.destroy(self);
+    }
+
+    fn get_namespace(self: *@This(), namespace_name: []const u8) !*Namespace {
+        for (self.namespaces.items) |*namespace|
+            if (std.mem.eql(u8, namespace.name, namespace_name))
+                return namespace;
+        const namespace = try self.namespaces.addOne();
+        namespace.* = try Namespace.init(self.allocator, namespace_name);
+        return namespace;
     }
 
     fn loadJson(self: *@This(), json_string: []const u8) !void {
         const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, json_string, .{});
         defer parsed.deinit();
-        if (parsed.value != .object) return error.notObject;
-        for (parsed.value.object.values(), 0..) |namespace, i| {
-            if (namespace != .object) return error.namespaceNotObject;
-            for (namespace.object.values(), 0..) |mode_bindings, j| {
-                const mode_config = try std.json.parseFromValue(BindingSet.JsonConfig, self.allocator, mode_bindings, .{});
-                defer mode_config.deinit();
-                const parsed_mode = try mode_config.value.toMode(self.allocator);
-                try self.addMode(parsed.value.object.keys()[i], namespace.object.keys()[j], parsed_mode);
+        if (parsed.value != .object) return error.NotAnObject;
+        const namespaces = &parsed.value.object;
+        for (namespaces.keys(), namespaces.values()) |namespace_name, *namespace_object| {
+            if (namespace_object.* != .object) return error.NotAnObject;
+            const self_namespace = try self.get_namespace(namespace_name);
+            const namespace = &namespace_object.object;
+            for (namespace.keys(), namespace.values()) |mode_name, mode_bindings| {
+                const mode_ = try self_namespace.get_mode(mode_name);
+                try mode_.load_json(mode_bindings);
             }
         }
     }
@@ -819,7 +829,7 @@ test "json" {
     var bindings = try Bindings.init(alloc);
     defer bindings.deinit();
     try bindings.loadJson(@embedFile("keybindings.json"));
-    const mode_binding_set = bindings.activeMode();
+    const mode_binding_set = bindings.active_mode();
     try mode_binding_set.registerKeyEvent('j', .{ .key = 'j' });
     try mode_binding_set.registerKeyEvent('k', .{ .key = 'k' });
     try mode_binding_set.registerKeyEvent('g', .{ .key = 'g' });
