@@ -3,14 +3,26 @@
         "normal": {
             "on_match_failure": "ignore",
             "bindings": [
-                ["j", "cursor_down"],
-                ["k", "cursor_up"],
-                ["h", "cursor_right_vim"],
-                ["l", "cursor_left_vim"],
-                ["i", "change_mode", "insert"],
-                ["o", "change_mode", "insert"],
-                ["a", "change_mode", "insert"],
-                ["v", "change_mode", "visual"],
+                ["j", "move_down"],
+                ["k", "move_up"],
+                ["l", "move_right_vim"],
+                ["h", "move_left"],
+                ["<Space>", "move_right_vim"],
+
+                ["i", "enter_mode", "insert"],
+                ["v", "enter_mode", "visual"],
+
+                ["/", "find"],
+                ["n", "goto_next_match"],
+
+                ["0", "move_begin"],
+                ["<S-4>", "move_end"],
+
+                [";", "open_command_palette"],
+                ["<S-;>", "open_command_palette"],
+
+                ["p", "paste"],
+
                 ["gg", "goto_page_begin"],
                 ["<S-g>", "goto_page_end"],
                 ["<C-u>", "cursor_half_page_up"],
@@ -20,8 +32,8 @@
         "insert": {
             "on_match_failure": "insert",
             "bindings": [
-                ["jk", "change_mode", "normal"],
-                ["<Esc>", "change_mode", "normal"]
+                ["jk", "enter_mode", "normal"],
+                ["<Esc>", "enter_mode", "normal"]
             ]
         } 
     },

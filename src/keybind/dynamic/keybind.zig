@@ -134,7 +134,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                         state = .escape_sequence_start;
                         i += 1;
                     },
-                    'a'...'z', ';', '0'...'9' => {
+                    'a'...'z', '\\', '[', ']', '/', '`', '-', '=', ';', '0'...'9' => {
                         try result.append(.{ .key = str[i] });
                         i += 1;
                     },
@@ -608,6 +608,12 @@ const BindingSet = struct {
         for (self.bindings.items) |binding| blk: {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
+                    errdefer {
+                        //clear current sequence if command execution fails
+                        self.current_sequence.clearRetainingCapacity();
+                        self.current_sequence_egc.clearRetainingCapacity();
+                    }
+
                     if (!builtin.is_test) {
                         self.logger.print("matched binding -> {s}", .{binding.command});
                         if (!builtin.is_test) self.logger.print("execute '{s}'", .{binding.command});
