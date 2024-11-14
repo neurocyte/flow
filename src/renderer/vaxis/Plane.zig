@@ -38,10 +38,10 @@ pub const option = enum {
 
 pub fn init(nopts: *const Options, parent_: Plane) !Plane {
     const opts = .{
-        .x_off = nopts.x,
-        .y_off = nopts.y,
-        .width = .{ .limit = nopts.cols },
-        .height = .{ .limit = nopts.rows },
+        .x_off = @as(i17, @intCast(nopts.x)),
+        .y_off = @as(i17, @intCast(nopts.y)),
+        .width = @as(u16, @intCast(nopts.cols)),
+        .height = @as(u16, @intCast(nopts.rows)),
         .border = .{},
     };
     var plane: Plane = .{
@@ -195,16 +195,16 @@ pub fn putc_yx(self: *Plane, y: c_int, x: c_int, cell: *const Cell) !usize {
 }
 
 fn write_cell(self: *Plane, col: usize, row: usize, egc: []const u8) void {
-    var cell: vaxis.Cell = self.window.readCell(col, row) orelse .{ .style = self.style };
+    var cell: vaxis.Cell = self.window.readCell(@intCast(col), @intCast(row)) orelse .{ .style = self.style };
     const w = self.window.gwidth(egc);
     cell.char.grapheme = self.cache.put(egc);
-    cell.char.width = w;
+    cell.char.width = @intCast(w);
     if (self.transparent) {
         cell.style.fg = self.style.fg;
     } else {
         cell.style = self.style;
     }
-    self.window.writeCell(col, row, cell);
+    self.window.writeCell(@intCast(col), @intCast(row), cell);
     self.col += @intCast(w);
 }
 
