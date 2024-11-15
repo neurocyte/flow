@@ -465,7 +465,7 @@ const BindingSet = struct {
         self.current_sequence.deinit();
         self.current_sequence_egc.deinit();
         self.input_buffer.deinit();
-        self.logger.deinit();
+        if (!builtin.is_test) self.logger.deinit();
         self.allocator.free(self.namespace_name);
         self.allocator.free(self.mode_name);
     }
