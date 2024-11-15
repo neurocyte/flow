@@ -168,7 +168,10 @@ fn deinit(self: *Self) void {
         t.deinit();
         self.keepalive_timer = null;
     }
-    if (self.input_mode) |*m| m.deinit();
+    if (self.input_mode) |*m| {
+        m.deinit();
+        self.input_mode = null;
+    }
     if (self.delayed_init_input_mode) |mode| self.allocator.free(mode);
     self.commands.deinit();
     self.mainview.deinit(self.allocator);
@@ -561,8 +564,8 @@ pub fn save_config(self: *const Self) !void {
 }
 
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {
-    if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
-    if (self.input_mode_outer) |_| try cmds.exit_overlay_mode(self, .{});
+    if (self.mini_mode) |_| cmds.exit_mini_mode(self, .{});
+    if (self.input_mode_outer) |_| cmds.exit_overlay_mode(self, .{});
     self.input_mode_outer = self.input_mode;
     self.input_mode = try mode.create(self.allocator);
     self.refresh_hover();
@@ -671,9 +674,12 @@ const cmds = struct {
             self.delayed_init_input_mode = try self.allocator.dupe(u8, mode);
             return;
         }
-        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
-        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
-        if (self.input_mode) |*m| m.deinit();
+        if (self.mini_mode) |_| exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |_| exit_overlay_mode(self, .{});
+        if (self.input_mode) |*m| {
+            m.deinit();
+            self.input_mode = null;
+        }
         self.input_mode = if (std.mem.eql(u8, mode, "vim/normal"))
             try self.static_mode(keybind.mode.input.vim.normal, "NORMAL", .{
                 .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
@@ -742,13 +748,11 @@ const cmds = struct {
     }
     pub const change_theme_meta = .{ .description = "Select color theme" };
 
-    pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
+    pub fn exit_overlay_mode(self: *Self, _: Ctx) void {
         if (self.input_mode_outer == null) return;
-        defer {
-            self.input_mode = self.input_mode_outer;
-            self.input_mode_outer = null;
-        }
         if (self.input_mode) |*mode| mode.deinit();
+        self.input_mode = self.input_mode_outer;
+        self.input_mode_outer = null;
         self.refresh_hover();
     }
     pub const exit_overlay_mode_meta = .{ .interactive = false };
@@ -783,21 +787,17 @@ const cmds = struct {
     }
     pub const save_as_meta = .{ .description = "Save as" };
 
-    fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) Result {
-        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
-        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
-        self.input_mode_outer = self.input_mode;
-        errdefer {
-            self.input_mode = self.input_mode_outer;
-            self.input_mode_outer = null;
-            self.mini_mode = null;
-        }
+    fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
         const input_mode, const mini_mode = try mode.create(self.allocator, ctx);
+        if (self.mini_mode) |_| exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |_| exit_overlay_mode(self, .{});
+        if (self.input_mode_outer != null) @panic("exit_overlay_mode failed");
+        self.input_mode_outer = self.input_mode;
         self.input_mode = input_mode;
         self.mini_mode = mini_mode;
     }
 
-    pub fn exit_mini_mode(self: *Self, _: Ctx) Result {
+    pub fn exit_mini_mode(self: *Self, _: Ctx) void {
         if (self.mini_mode) |_| {} else return;
         if (self.input_mode) |*mode| mode.deinit();
         self.input_mode = self.input_mode_outer;
