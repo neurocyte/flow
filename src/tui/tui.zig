@@ -28,7 +28,9 @@ frame_last_time: i64 = 0,
 receiver: Receiver,
 mainview: Widget,
 message_filters: MessageFilter.List,
-input_mode: ?Mode,
+input_mode: ?Mode = null,
+delayed_init_done: bool = false,
+delayed_init_input_mode: ?[]const u8 = null,
 input_mode_outer: ?Mode = null,
 input_listeners: EventHandler.List,
 keyboard_focus: ?Widget = null,
@@ -106,7 +108,6 @@ fn init(allocator: Allocator) !*Self {
         .receiver = Receiver.init(receive, self),
         .mainview = undefined,
         .message_filters = MessageFilter.List.init(allocator),
-        .input_mode = null,
         .input_listeners = EventHandler.List.init(allocator),
         .logger = log.logger("tui"),
         .init_timer = try tp.timeout.init_ms(init_delay, tp.message.fmt(.{"init"})),
@@ -148,7 +149,12 @@ fn init(allocator: Allocator) !*Self {
 }
 
 fn init_delayed(self: *Self) !void {
-    if (self.input_mode) |_| {} else return cmds.enter_mode(self, command.Context.fmt(.{self.config.input_mode}));
+    self.delayed_init_done = true;
+    if (self.input_mode) |_| {} else {
+        return cmds.enter_mode(self, command.Context.fmt(.{
+            self.delayed_init_input_mode orelse self.config.input_mode,
+        }));
+    }
 }
 
 fn deinit(self: *Self) void {
@@ -163,6 +169,7 @@ fn deinit(self: *Self) void {
         self.keepalive_timer = null;
     }
     if (self.input_mode) |*m| m.deinit();
+    if (self.delayed_init_input_mode) |mode| self.allocator.free(mode);
     self.commands.deinit();
     self.mainview.deinit(self.allocator);
     self.message_filters.deinit();
@@ -660,6 +667,10 @@ const cmds = struct {
         var mode: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&mode)}))
             return tp.exit_error(error.InvalidArgument, null);
+        if (!self.delayed_init_done) {
+            self.delayed_init_input_mode = try self.allocator.dupe(u8, mode);
+            return;
+        }
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode) |*m| m.deinit();
