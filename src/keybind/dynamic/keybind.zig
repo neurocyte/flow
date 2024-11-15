@@ -416,6 +416,8 @@ const BindingSet = struct {
     last_key_event_timestamp_ms: i64 = 0,
     input_buffer: std.ArrayList(u8),
     logger: log.Logger,
+    namespace_name: []const u8,
+    mode_name: []const u8,
 
     const OnMatchFailure = enum { insert, ignore };
 
@@ -449,17 +451,23 @@ const BindingSet = struct {
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
             .bindings = std.ArrayList(Binding).init(allocator),
             .logger = if (!builtin.is_test) log.logger("keybind") else undefined,
+            .namespace_name = try allocator.dupe(u8, namespace_name),
+            .mode_name = try allocator.dupe(u8, mode_name),
         };
         try self.load_json(json_string, namespace_name, mode_name);
         return self;
     }
 
     fn deinit(self: *const BindingSet) void {
+        if (!builtin.is_test) self.logger.print("unload namespace:{s} mode:{s}", .{ self.namespace_name, self.mode_name });
         for (self.bindings.items) |binding| binding.deinit(self.allocator);
         self.bindings.deinit();
         self.current_sequence.deinit();
         self.current_sequence_egc.deinit();
         self.input_buffer.deinit();
+        self.logger.deinit();
+        self.allocator.free(self.namespace_name);
+        self.allocator.free(self.mode_name);
     }
 
     fn load_json(self: *@This(), json_string: []const u8, namespace_name: []const u8, mode_name: []const u8) !void {
