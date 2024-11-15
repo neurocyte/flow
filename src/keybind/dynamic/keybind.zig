@@ -17,7 +17,7 @@ const KeyEvent = @import("KeyEvent.zig");
 pub const mode = struct {
     pub const input = struct {
         pub const flow = Handler("flow", "normal");
-        pub const home = Handler("home", "normal");
+        pub const home = Handler("flow", "home");
         pub const vim = struct {
             pub const normal = Handler("vim", "normal");
             pub const insert = Handler("vim", "insert");
@@ -30,7 +30,7 @@ pub const mode = struct {
         };
     };
     pub const overlay = struct {
-        pub const palette = Handler("overlay", "palette");
+        pub const palette = Handler("flow", "palette");
     };
     pub const mini = struct {
         pub const goto = Handler("mini", "goto");
