@@ -585,11 +585,14 @@ const BindingSet = struct {
             tp.string,
             tp.extract(&modifiers),
         })) {
-            self.process_key_event(egc, .{
+            if (self.process_key_event(egc, .{
                 .event = event,
                 .key = keypress,
                 .modifiers = modifiers,
-            }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            }) catch |e| return tp.exit_error(e, @errorReturnTrace())) |binding| {
+                if (!builtin.is_test) self.logger.print("execute '{s}'", .{binding.command});
+                try binding.execute();
+            }
         } else if (try m.match(.{"F"})) {
             self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
@@ -601,10 +604,10 @@ const BindingSet = struct {
     }
 
     //register a key press and try to match it with a binding
-    fn process_key_event(self: *BindingSet, egc: input.Key, event: KeyEvent) !void {
+    fn process_key_event(self: *BindingSet, egc: input.Key, event: KeyEvent) !?*Binding {
 
         //hacky fix since we are ignoring repeats and keyups right now
-        if (event.event != input.event.press) return;
+        if (event.event != input.event.press) return null;
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
@@ -635,24 +638,17 @@ const BindingSet = struct {
             match_possible_count,
             match_impossible_count,
         });
-        for (self.bindings.items) |binding| blk: {
+        for (self.bindings.items) |*binding| {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
                     matched_count += 1;
-                    errdefer {
+                    defer {
                         //clear current sequence if command execution fails
                         self.current_sequence.clearRetainingCapacity();
                         self.current_sequence_egc.clearRetainingCapacity();
                     }
-
-                    if (!builtin.is_test) {
-                        self.logger.print("matched binding -> {s}", .{binding.command});
-                        if (!builtin.is_test) self.logger.print("execute '{s}'", .{binding.command});
-                        try binding.execute();
-                    }
-                    self.current_sequence.clearRetainingCapacity();
-                    self.current_sequence_egc.clearRetainingCapacity();
-                    break :blk;
+                    if (!builtin.is_test) self.logger.print("matched binding -> {s}", .{binding.command});
+                    return binding;
                 },
                 .match_possible => {
                     match_possible_count += 1;
@@ -668,6 +664,7 @@ const BindingSet = struct {
         if (all_matches_impossible) {
             try self.terminate_sequence(.match_impossible, egc, event);
         }
+        return null;
     }
 
     const AbortType = enum { timeout, match_impossible };
