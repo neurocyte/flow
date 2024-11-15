@@ -81,13 +81,50 @@ pub const Mode = struct {
 
 pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
 
-fn peek(str: []const u8, i: usize) !u8 {
+fn peek(str: []const u8, i: usize) error{OutOfBounds}!u8 {
     if (i + 1 < str.len) {
         return str[i + 1];
-    } else return error.outOfBounds;
+    } else return error.OutOfBounds;
 }
 
-pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEvent {
+const ParseError = error{
+    OutOfMemory,
+    OutOfBounds,
+    InvalidEscapeSequenceStart,
+    InvalidInitialCharacter,
+    InvalidStartOfControlBinding,
+    InvalidStartOfShiftBinding,
+    InvalidStartOfDeleteBinding,
+    InvalidCRBinding,
+    InvalidSpaceBinding,
+    InvalidDeleteBinding,
+    InvalidTabBinding,
+    InvalidUpBinding,
+    InvalidEscapeBinding,
+    InvalidDownBinding,
+    InvalidLeftBinding,
+    InvalidRightBinding,
+    InvalidFunctionKeyNumber,
+    InvalidFunctionKeyBinding,
+    InvalidEscapeSequenceDelimiter,
+    InvalidModifier,
+    InvalidEscapeSequenceEnd,
+};
+
+var parse_error_buf: [256]u8 = undefined;
+var parse_error_message: []const u8 = "";
+
+fn parse_error_reset() void {
+    parse_error_message = "";
+}
+
+fn parse_error(e: ParseError, comptime format: anytype, args: anytype) ParseError {
+    parse_error_message = std.fmt.bufPrint(&parse_error_buf, format, args) catch "error in parse_error";
+    return e;
+}
+
+fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseError![]KeyEvent {
+    parse_error_reset();
     const State = enum {
         base,
         escape_sequence_start,
@@ -125,9 +162,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                         try result.append(.{ .key = str[i] });
                         i += 1;
                     },
-                    else => {
-                        return error.parseBase;
-                    },
+                    else => return parse_error(error.InvalidInitialCharacter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 }
             },
             .escape_sequence_start => {
@@ -143,9 +178,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                             '-' => {
                                 state = .modifier;
                             },
-                            else => {
-                                return error.parseEscapeSequenceStartC;
-                            },
+                            else => return parse_error(error.InvalidStartOfControlBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                         }
                     },
                     'S' => {
@@ -156,7 +189,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                             'p' => {
                                 state = .space;
                             },
-                            else => return error.parseEscapeSequenceStartS,
+                            else => return parse_error(error.InvalidStartOfShiftBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                         }
                     },
                     'F' => {
@@ -189,13 +222,10 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                             'e' => {
                                 state = .del;
                             },
-                            else => return error.parseEscapeSequenceStartD,
+                            else => return parse_error(error.InvalidStartOfDeleteBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                         }
                     },
-                    else => {
-                        std.debug.print("str: {s}, i: {} c: {c}\n", .{ str, i, str[i] });
-                        return error.parseEscapeSequenceStart;
-                    },
+                    else => return parse_error(error.InvalidEscapeSequenceStart, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 }
             },
             .cr => {
@@ -204,7 +234,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
-                } else return error.parseCR;
+                } else return parse_error(error.InvalidCRBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .space => {
                 if (std.mem.indexOf(u8, str[i..], "Space") == 0) {
@@ -212,10 +242,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
-                } else {
-                    std.debug.print("str: {s}, i: {}, char: {}\n", .{ str, i, str[i] });
-                    return error.parseSpace;
-                }
+                } else return parse_error(error.InvalidSpaceBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .del => {
                 if (std.mem.indexOf(u8, str[i..], "Del") == 0) {
@@ -223,7 +250,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
-                } else return error.parseDel;
+                } else return parse_error(error.InvalidDeleteBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .tab => {
                 if (std.mem.indexOf(u8, str[i..], "Tab") == 0) {
@@ -231,7 +258,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
-                } else return error.parseTab;
+                } else return parse_error(error.InvalidTabBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .up => {
                 if (std.mem.indexOf(u8, str[i..], "Up") == 0) {
@@ -239,7 +266,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
-                } else return error.parseSpace;
+                } else return parse_error(error.InvalidUpBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .esc => {
                 if (std.mem.indexOf(u8, str[i..], "Esc") == 0) {
@@ -247,7 +274,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
-                } else return error.parseEsc;
+                } else return parse_error(error.InvalidEscapeBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .down => {
                 if (std.mem.indexOf(u8, str[i..], "Down") == 0) {
@@ -255,7 +282,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
-                } else return error.parseDown;
+                } else return parse_error(error.InvalidDownBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .left => {
                 if (std.mem.indexOf(u8, str[i..], "Left") == 0) {
@@ -263,7 +290,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
-                } else return error.parseLeft;
+                } else return parse_error(error.InvalidLeftBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .right => {
                 if (std.mem.indexOf(u8, str[i..], "Right") == 0) {
@@ -271,17 +298,15 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
-                } else return error.parseRight;
+                } else return parse_error(error.InvalidRightBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .function_key => {
                 switch (str[i]) {
                     '0'...'9' => {
                         function_key_number *= 10;
                         function_key_number += str[i] - '0';
-                        if (function_key_number < 1 or function_key_number > 35) {
-                            std.debug.print("function_key_number: {}\n", .{function_key_number});
-                            return error.FunctionKeyNumber;
-                        }
+                        if (function_key_number < 1 or function_key_number > 35)
+                            return parse_error(error.InvalidFunctionKeyNumber, "function_key_number: {}", .{function_key_number});
                         i += 1;
                     },
                     '>' => {
@@ -292,7 +317,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                         state = .base;
                         i += 1;
                     },
-                    else => return error.parseFunctionKey,
+                    else => return parse_error(error.InvalidFunctionKeyBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 }
             },
             .escape_sequence_delimiter => {
@@ -301,9 +326,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                         state = .char_or_key_or_modifier;
                         i += 1;
                     },
-                    else => {
-                        return error.parseEscapeSequenceDelimiter;
-                    },
+                    else => return parse_error(error.InvalidEscapeSequenceDelimiter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 }
             },
             .char_or_key_or_modifier => {
@@ -325,7 +348,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                     'C' => input.mod.ctrl,
                     'D' => input.mod.super,
                     'S' => input.mod.shift,
-                    else => return error.parseModifier,
+                    else => return parse_error(error.InvalidModifier, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 };
 
                 state = .escape_sequence_delimiter;
@@ -337,9 +360,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                         state = .base;
                         i += 1;
                     },
-                    else => {
-                        return error.parseEscapeSequenceEnd;
-                    },
+                    else => return parse_error(error.InvalidEscapeSequenceEnd, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 }
             },
         }
@@ -481,7 +502,10 @@ const BindingSet = struct {
             for (entry) |token| {
                 switch (state) {
                     .key_event => {
-                        keys = try parse_key_events(self.allocator, token);
+                        keys = parse_key_events(self.allocator, token) catch |e| {
+                            self.logger.print_err("keybind.load", "ERROR: {s} {s}", .{@errorName(e), parse_error_message}); 
+                            return e;
+                        };
                         state = .command;
                     },
                     .command => {
