@@ -1,10 +1,7 @@
 const tp = @import("thespian");
 
-const key = @import("renderer").input.key;
-const mod = @import("renderer").input.modifier;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 const keybind = @import("keybind");
-const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -75,7 +72,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn insert_code_point(self: *Self, c: u32) !void {
     if (self.input.len + 16 > self.buf.len)
         try self.flush_input();
-    const bytes = try ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]);
+    const bytes = try input.ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]);
     self.input = self.buf[0 .. self.input.len + bytes];
 }
 

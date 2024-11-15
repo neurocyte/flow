@@ -4,9 +4,7 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 
 const Plane = @import("renderer").Plane;
-const utils = @import("renderer").input.utils;
-const key_ = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -24,7 +22,7 @@ hover: bool = false,
 
 keys: [history]Key = [_]Key{.{}} ** history,
 
-const Key = struct { id: u32 = 0, mod: u32 = 0 };
+const Key = struct { id: input.Key = 0, mod: input.ModSet = .{} };
 
 const Self = @This();
 
@@ -63,15 +61,15 @@ fn render_active(self: *Self) bool {
             return true;
         if (c > 0)
             _ = self.plane.putstr(" ") catch {};
-        if (utils.isSuper(k.mod))
+        if (k.mod.super)
             _ = self.plane.putstr("H-") catch {};
-        if (utils.isCtrl(k.mod))
+        if (k.mod.ctrl)
             _ = self.plane.putstr("C-") catch {};
-        if (utils.isShift(k.mod))
+        if (k.mod.shift)
             _ = self.plane.putstr("S-") catch {};
-        if (utils.isAlt(k.mod))
+        if (k.mod.alt)
             _ = self.plane.putstr("A-") catch {};
-        _ = self.plane.print("{s}", .{utils.key_id_string(k.id)}) catch {};
+        _ = self.plane.print("{s}", .{input.utils.key_id_string(k.id)}) catch {};
         c += 1;
     }
     return true;
@@ -144,7 +142,7 @@ fn unset_nkey(self: *Self, key: Key) void {
 fn unset_key_all(self: *Self) void {
     for (0..self.keys.len) |i| {
         self.keys[i].id = 0;
-        self.keys[i].mod = 0;
+        self.keys[i].mod = .{};
     }
 }
 
@@ -155,17 +153,17 @@ fn set_key(self: *Self, key: Key, val: bool) void {
 }
 
 pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    var key: u32 = 0;
-    var mod: u32 = 0;
-    if (try m.match(.{ "I", event_type.PRESS, tp.extract(&key), tp.any, tp.any, tp.extract(&mod), tp.more })) {
-        self.set_key(.{ .id = key, .mod = mod }, true);
-    } else if (try m.match(.{ "I", event_type.RELEASE, tp.extract(&key), tp.any, tp.any, tp.extract(&mod), tp.more })) {
-        self.set_key(.{ .id = key, .mod = mod }, false);
+    var key: input.Key = 0;
+    var mod: input.Mods = 0;
+    if (try m.match(.{ "I", input.event.press, tp.extract(&key), tp.any, tp.any, tp.extract(&mod), tp.more })) {
+        self.set_key(.{ .id = key, .mod = @bitCast(mod) }, true);
+    } else if (try m.match(.{ "I", input.event.release, tp.extract(&key), tp.any, tp.any, tp.extract(&mod), tp.more })) {
+        self.set_key(.{ .id = key, .mod = @bitCast(mod) }, false);
     }
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ "B", event_type.PRESS, key_.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
         command.executeName("toggle_inputview", .{}) catch {};
         return true;
     }

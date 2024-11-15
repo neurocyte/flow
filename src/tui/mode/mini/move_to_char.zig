@@ -1,9 +1,6 @@
 const tp = @import("thespian");
 
-const key = @import("renderer").input.key;
-const mod = @import("renderer").input.modifier;
-const event_type = @import("renderer").input.event_type;
-const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
+const input = @import("input");
 const keybind = @import("keybind");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
@@ -89,7 +86,7 @@ fn execute_operation(self: *Self, c: u32) void {
         },
     };
     var buf: [6]u8 = undefined;
-    const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch return;
+    const bytes = input.ucs32_to_utf8(&[_]u32{c}, &buf) catch return;
     command.executeName(cmd, command.fmt(.{buf[0..bytes]})) catch {};
     command.executeName("exit_mini_mode", .{}) catch {};
 }
@@ -104,7 +101,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&code_point)}))
             return error.InvalidArgument;
         var buf: [6]u8 = undefined;
-        const bytes = ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidArgument;
+        const bytes = input.ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidArgument;
         const cmd = switch (self.direction) {
             .left => switch (self.operation) {
                 .move => "move_to_char_left",

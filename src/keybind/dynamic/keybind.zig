@@ -8,13 +8,11 @@ const cbor = @import("cbor");
 const builtin = @import("builtin");
 const log = @import("log");
 
-const renderer = @import("renderer");
-const key = @import("renderer").input.key;
-const mod = @import("renderer").input.modifier;
-const event_type = @import("renderer").input.event_type;
-const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
+const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+
+const KeyEvent = @import("KeyEvent.zig");
 
 pub const mode = struct {
     pub const input = struct {
@@ -73,7 +71,7 @@ pub const Mode = struct {
     name: []const u8 = "",
     line_numbers: enum { absolute, relative } = .absolute,
     keybind_hints: ?*const KeybindHints = null,
-    cursor_shape: renderer.CursorShape = .block,
+    cursor_shape: CursorShape = .block,
 
     pub fn deinit(self: *Mode) void {
         self.input_handler.deinit();
@@ -82,17 +80,6 @@ pub const Mode = struct {
 };
 
 pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
-
-//A single key event, such as Ctrl-E
-const KeyEvent = struct {
-    key: u32 = 0, //keypress value
-    event_type: usize = event_type.PRESS,
-    modifiers: u32 = 0,
-
-    fn eql(self: @This(), other: @This()) bool {
-        return std.meta.eql(self, other);
-    }
-};
 
 fn peek(str: []const u8, i: usize) !u8 {
     if (i + 1 < str.len) {
@@ -121,7 +108,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
     };
     var state: State = .base;
     var function_key_number: u8 = 0;
-    var modifiers: u32 = 0;
+    var modifiers: input.Mods = 0;
     var result = std.ArrayList(KeyEvent).init(allocator);
     defer result.deinit();
 
@@ -213,7 +200,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .cr => {
                 if (std.mem.indexOf(u8, str[i..], "CR") == 0) {
-                    try result.append(.{ .key = key.ENTER, .modifiers = modifiers });
+                    try result.append(.{ .key = input.key.enter, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -221,7 +208,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .space => {
                 if (std.mem.indexOf(u8, str[i..], "Space") == 0) {
-                    try result.append(.{ .key = key.SPACE, .modifiers = modifiers });
+                    try result.append(.{ .key = input.key.space, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
@@ -232,7 +219,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .del => {
                 if (std.mem.indexOf(u8, str[i..], "Del") == 0) {
-                    try result.append(.{ .key = key.DEL, .modifiers = modifiers });
+                    try result.append(.{ .key = input.key.delete, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -240,7 +227,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .tab => {
                 if (std.mem.indexOf(u8, str[i..], "Tab") == 0) {
-                    try result.append(.{ .key = key.TAB, .modifiers = modifiers });
+                    try result.append(.{ .key = input.key.tab, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -248,7 +235,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .up => {
                 if (std.mem.indexOf(u8, str[i..], "Up") == 0) {
-                    try result.append(.{ .key = key.UP, .modifiers = modifiers });
+                    try result.append(.{ .key = input.key.up, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -256,7 +243,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .esc => {
                 if (std.mem.indexOf(u8, str[i..], "Esc") == 0) {
-                    try result.append(.{ .key = key.ESC, .modifiers = modifiers });
+                    try result.append(.{ .key = input.key.escape, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -264,7 +251,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .down => {
                 if (std.mem.indexOf(u8, str[i..], "Down") == 0) {
-                    try result.append(.{ .key = key.DOWN, .modifiers = modifiers });
+                    try result.append(.{ .key = input.key.down, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -272,7 +259,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .left => {
                 if (std.mem.indexOf(u8, str[i..], "Left") == 0) {
-                    try result.append(.{ .key = key.LEFT, .modifiers = modifiers });
+                    try result.append(.{ .key = input.key.left, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -280,7 +267,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .right => {
                 if (std.mem.indexOf(u8, str[i..], "Right") == 0) {
-                    try result.append(.{ .key = key.RIGHT, .modifiers = modifiers });
+                    try result.append(.{ .key = input.key.right, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
@@ -298,7 +285,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
                         i += 1;
                     },
                     '>' => {
-                        const function_key = key.F01 - 1 + function_key_number;
+                        const function_key = input.key.f1 - 1 + function_key_number;
                         try result.append(.{ .key = function_key, .modifiers = modifiers });
                         modifiers = 0;
                         function_key_number = 0;
@@ -334,10 +321,10 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ![]KeyEve
             },
             .modifier => {
                 modifiers |= switch (str[i]) {
-                    'A' => mod.ALT,
-                    'C' => mod.CTRL,
-                    'D' => mod.SUPER,
-                    'S' => mod.SHIFT,
+                    'A' => input.mod.alt,
+                    'C' => input.mod.ctrl,
+                    'D' => input.mod.super,
+                    'S' => input.mod.shift,
                     else => return error.parseModifier,
                 };
 
@@ -552,22 +539,22 @@ const BindingSet = struct {
     }
 
     fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-        var evtype: u32 = 0;
-        var keypress: u32 = 0;
-        var egc: u32 = 0;
-        var modifiers: u32 = 0;
+        var event: input.Event = 0;
+        var keypress: input.Key = 0;
+        var egc: input.Key = 0;
+        var modifiers: input.Mods = 0;
         var text: []const u8 = "";
 
         if (try m.match(.{
             "I",
-            tp.extract(&evtype),
+            tp.extract(&event),
             tp.extract(&keypress),
             tp.extract(&egc),
             tp.string,
             tp.extract(&modifiers),
         })) {
             self.process_key_event(egc, .{
-                .event_type = evtype,
+                .event = event,
                 .key = keypress,
                 .modifiers = modifiers,
             }) catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -582,10 +569,10 @@ const BindingSet = struct {
     }
 
     //register a key press and try to match it with a binding
-    fn process_key_event(self: *BindingSet, egc: u32, event: KeyEvent) !void {
+    fn process_key_event(self: *BindingSet, egc: input.Key, event: KeyEvent) !void {
 
         //hacky fix since we are ignoring repeats and keyups right now
-        if (event.event_type != event_type.PRESS) return;
+        if (event.event != input.event.press) return;
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
@@ -596,7 +583,7 @@ const BindingSet = struct {
 
         try self.current_sequence.append(event);
         var buf: [6]u8 = undefined;
-        const bytes = try ucs32_to_utf8(&[_]u32{egc}, &buf);
+        const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
         try self.current_sequence_egc.appendSlice(buf[0..bytes]);
 
         var all_matches_impossible = true;
@@ -641,7 +628,7 @@ const BindingSet = struct {
     }
 
     const AbortType = enum { timeout, match_impossible };
-    fn terminate_sequence(self: *@This(), abort_type: AbortType, egc: u32, key_event: KeyEvent) anyerror!void {
+    fn terminate_sequence(self: *@This(), abort_type: AbortType, egc: input.Key, key_event: KeyEvent) anyerror!void {
         _ = egc;
         _ = key_event;
         if (abort_type == .match_impossible) {
@@ -692,16 +679,26 @@ const Namespace = struct {
     }
 };
 
+pub const CursorShape = enum {
+    default,
+    block_blink,
+    block,
+    underline_blink,
+    underline,
+    beam_blink,
+    beam,
+};
+
 const expectEqual = std.testing.expectEqual;
 
 const parse_test_cases = .{
     //input, expected
     .{ "j", &.{KeyEvent{ .key = 'j' }} },
     .{ "jk", &.{ KeyEvent{ .key = 'j' }, KeyEvent{ .key = 'k' } } },
-    .{ "<Space>", &.{KeyEvent{ .key = key.SPACE }} },
-    .{ "<C-x><C-c>", &.{ KeyEvent{ .key = 'x', .modifiers = mod.CTRL }, KeyEvent{ .key = 'c', .modifiers = mod.CTRL } } },
-    .{ "<A-x><Tab>", &.{ KeyEvent{ .key = 'x', .modifiers = mod.ALT }, KeyEvent{ .key = key.TAB } } },
-    .{ "<S-A-x><D-Del>", &.{ KeyEvent{ .key = 'x', .modifiers = mod.ALT | mod.SHIFT }, KeyEvent{ .key = key.DEL, .modifiers = mod.SUPER } } },
+    .{ "<Space>", &.{KeyEvent{ .key = input.key.space }} },
+    .{ "<C-x><C-c>", &.{ KeyEvent{ .key = 'x', .modifiers = input.mod.ctrl }, KeyEvent{ .key = 'c', .modifiers = input.mod.ctrl } } },
+    .{ "<A-x><Tab>", &.{ KeyEvent{ .key = 'x', .modifiers = input.mod.alt }, KeyEvent{ .key = input.key.tab } } },
+    .{ "<S-A-x><D-Del>", &.{ KeyEvent{ .key = 'x', .modifiers = input.mod.alt | input.mod.shift }, KeyEvent{ .key = input.key.delete, .modifiers = input.mod.super } } },
 };
 
 test "parse" {
@@ -733,8 +730,8 @@ const match_test_cases = .{
 test "match" {
     const alloc = std.testing.allocator;
     inline for (match_test_cases) |case| {
-        const input = try parse_key_events(alloc, case[0]);
-        defer alloc.free(input);
+        const events = try parse_key_events(alloc, case[0]);
+        defer alloc.free(events);
         const binding: Binding = .{
             .keys = try parse_key_events(alloc, case[1]),
             .command = undefined,
@@ -742,7 +739,7 @@ test "match" {
         };
         defer alloc.free(binding.keys);
 
-        try expectEqual(case[2], binding.match(input));
+        try expectEqual(case[2], binding.match(events));
     }
 }
 
@@ -754,5 +751,5 @@ test "json" {
     try bindings.process_key_event('k', .{ .key = 'k' });
     try bindings.process_key_event('g', .{ .key = 'g' });
     try bindings.process_key_event('i', .{ .key = 'i' });
-    try bindings.process_key_event(0, .{ .key = 'i', .modifiers = mod.CTRL });
+    try bindings.process_key_event(0, .{ .key = 'i', .modifiers = input.mod.ctrl });
 }

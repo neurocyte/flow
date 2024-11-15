@@ -3,8 +3,7 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 
 const Plane = @import("renderer").Plane;
-const key = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 const EventHandler = @import("EventHandler");
 
 const Widget = @import("Widget.zig");
@@ -64,21 +63,21 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var y: i32 = undefined;
     var ypx: i32 = undefined;
 
-    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
         self.active = true;
         self.move_to(y, ypx);
         return true;
-    } else if (try m.match(.{ "B", event_type.RELEASE, tp.more })) {
+    } else if (try m.match(.{ "B", input.event.release, tp.more })) {
         self.active = false;
         return true;
-    } else if (try m.match(.{ "D", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
+    } else if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
         self.active = true;
         self.move_to(y, ypx);
         return true;
-    } else if (try m.match(.{ "B", event_type.RELEASE, tp.more })) {
+    } else if (try m.match(.{ "B", input.event.release, tp.more })) {
         self.active = false;
         return true;
-    } else if (try m.match(.{ "D", event_type.RELEASE, tp.more })) {
+    } else if (try m.match(.{ "D", input.event.release, tp.more })) {
         self.active = false;
         return true;
     } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {

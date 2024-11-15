@@ -5,8 +5,7 @@ const EventHandler = @import("EventHandler");
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const Plane = @import("renderer").Plane;
-const key = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 
 pub fn Options(context: type) type {
     return struct {
@@ -95,16 +94,16 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            var btn: u32 = 0;
-            if (try m.match(.{ "B", event_type.PRESS, tp.more })) {
+            var btn: input.MouseType = 0;
+            if (try m.match(.{ "B", input.event.press, tp.more })) {
                 return true;
-            } else if (try m.match(.{ "B", event_type.RELEASE, tp.extract(&btn), tp.more })) {
-                self.call_click_handler(btn);
+            } else if (try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.more })) {
+                self.call_click_handler(@enumFromInt(btn));
                 return true;
-            } else if (try m.match(.{ "D", event_type.PRESS, tp.extract(&btn), tp.more })) {
+            } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.more })) {
                 return true;
-            } else if (try m.match(.{ "D", event_type.RELEASE, tp.extract(&btn), tp.more })) {
-                self.call_click_handler(btn);
+            } else if (try m.match(.{ "D", input.event.release, tp.extract(&btn), tp.more })) {
+                self.call_click_handler(@enumFromInt(btn));
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
                 tui.current().rdr.request_mouse_cursor_default(self.hover);
@@ -113,14 +112,14 @@ pub fn State(ctx_type: type) type {
             return false;
         }
 
-        fn call_click_handler(self: *Self, btn: u32) void {
+        fn call_click_handler(self: *Self, btn: input.Mouse) void {
             if (!self.hover) return;
             switch (btn) {
-                key.BUTTON1 => self.opts.on_click(self.opts.ctx, self),
-                key.BUTTON2 => self.opts.on_click2(self.opts.ctx, self),
-                key.BUTTON3 => self.opts.on_click3(self.opts.ctx, self),
-                key.BUTTON4 => self.opts.on_click4(self.opts.ctx, self),
-                key.BUTTON5 => self.opts.on_click5(self.opts.ctx, self),
+                input.mouse.BUTTON1 => self.opts.on_click(self.opts.ctx, self),
+                input.mouse.BUTTON2 => self.opts.on_click2(self.opts.ctx, self),
+                input.mouse.BUTTON3 => self.opts.on_click3(self.opts.ctx, self),
+                input.mouse.BUTTON4 => self.opts.on_click4(self.opts.ctx, self),
+                input.mouse.BUTTON5 => self.opts.on_click5(self.opts.ctx, self),
                 else => {},
             }
         }

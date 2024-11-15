@@ -971,3 +971,15 @@ fn set_terminal_style(self: *Self) void {
         self.rdr.set_terminal_cursor_color(self.theme.editor_cursor.bg.?);
     }
 }
+
+pub fn translate_cursor_shape(in: keybind.CursorShape) renderer.CursorShape {
+    return switch (in) {
+        .default => .default,
+        .block_blink => .block_blink,
+        .block => .block,
+        .underline_blink => .underline_blink,
+        .underline => .underline,
+        .beam_blink => .beam_blink,
+        .beam => .beam,
+    };
+}

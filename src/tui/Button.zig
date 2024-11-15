@@ -3,8 +3,7 @@ const tp = @import("thespian");
 
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
-const key = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 
 const Widget = @import("Widget.zig");
 const tui = @import("tui.zig");
@@ -92,36 +91,37 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            var btn: u32 = 0;
-            if (try m.match(.{ "B", event_type.PRESS, tp.extract(&btn), tp.more })) {
-                switch (btn) {
-                    key.BUTTON1 => {
+            var btn: input.MouseType = 0;
+            if (try m.match(.{ "B", input.event.press, tp.extract(&btn), tp.more })) {
+                const btn_enum: input.Mouse = @enumFromInt(btn);
+                switch (btn_enum) {
+                    input.mouse.BUTTON1 => {
                         self.active = true;
                         tui.need_render();
                     },
-                    key.BUTTON4, key.BUTTON5 => {
-                        self.call_click_handler(btn);
+                    input.mouse.BUTTON4, input.mouse.BUTTON5 => {
+                        self.call_click_handler(btn_enum);
                         return true;
                     },
                     else => {},
                 }
                 return true;
-            } else if (try m.match(.{ "B", event_type.RELEASE, tp.extract(&btn), tp.more })) {
-                self.call_click_handler(btn);
+            } else if (try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.more })) {
+                self.call_click_handler(@enumFromInt(btn));
                 tui.need_render();
                 return true;
-            } else if (try m.match(.{ "D", event_type.PRESS, tp.extract(&btn), tp.more })) {
+            } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.more })) {
                 if (self.opts.on_event) |h| {
                     self.active = false;
                     h.send(from, m) catch {};
                 }
                 return true;
-            } else if (try m.match(.{ "D", event_type.RELEASE, tp.extract(&btn), tp.more })) {
+            } else if (try m.match(.{ "D", input.event.release, tp.extract(&btn), tp.more })) {
                 if (self.opts.on_event) |h| {
                     self.active = false;
                     h.send(from, m) catch {};
                 }
-                self.call_click_handler(btn);
+                self.call_click_handler(@enumFromInt(btn));
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
@@ -132,18 +132,18 @@ pub fn State(ctx_type: type) type {
             return self.opts.on_receive(&self.opts.ctx, self, from, m);
         }
 
-        fn call_click_handler(self: *Self, btn: u32) void {
-            if (btn == key.BUTTON1) {
+        fn call_click_handler(self: *Self, btn: input.Mouse) void {
+            if (btn == input.mouse.BUTTON1) {
                 if (!self.active) return;
                 self.active = false;
             }
             if (!self.hover) return;
             switch (btn) {
-                key.BUTTON1 => self.opts.on_click(&self.opts.ctx, self),
-                key.BUTTON2 => self.opts.on_click2(&self.opts.ctx, self),
-                key.BUTTON3 => self.opts.on_click3(&self.opts.ctx, self),
-                key.BUTTON4 => self.opts.on_click4(&self.opts.ctx, self),
-                key.BUTTON5 => self.opts.on_click5(&self.opts.ctx, self),
+                input.mouse.BUTTON1 => self.opts.on_click(&self.opts.ctx, self),
+                input.mouse.BUTTON2 => self.opts.on_click2(&self.opts.ctx, self),
+                input.mouse.BUTTON3 => self.opts.on_click3(&self.opts.ctx, self),
+                input.mouse.BUTTON4 => self.opts.on_click4(&self.opts.ctx, self),
+                input.mouse.BUTTON5 => self.opts.on_click5(&self.opts.ctx, self),
                 else => {},
             }
         }

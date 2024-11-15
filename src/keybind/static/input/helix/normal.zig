@@ -1,9 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
-const key = @import("renderer").input.key;
-const mod = @import("renderer").input.modifier;
-const event_type = @import("renderer").input.event_type;
-const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
+const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const keybind = @import("../../keybind.zig");
@@ -14,7 +11,7 @@ const input_buffer_size = 1024;
 allocator: std.mem.Allocator,
 input: std.ArrayList(u8),
 last_cmd: []const u8 = "",
-leader: ?struct { keypress: u32, modifiers: u32 } = null,
+leader: ?struct { keypress: input.Key, modifiers: input.Mods } = null,
 count: usize = 0,
 commands: Commands = undefined,
 
@@ -35,14 +32,14 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var evtype: u32 = undefined;
-    var keypress: u32 = undefined;
-    var egc: u32 = undefined;
-    var modifiers: u32 = undefined;
+    var event: input.Event = undefined;
+    var keypress: input.Key = undefined;
+    var egc: input.Key = undefined;
+    var modifiers: input.Mods = undefined;
     var text: []const u8 = undefined;
 
-    if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-        self.mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    if (try m.match(.{ "I", tp.extract(&event), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
+        self.map_event(event, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{"F"})) {
         self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
@@ -55,26 +52,26 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 pub fn add_keybind() void {}
 
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
-    return switch (evtype) {
-        event_type.PRESS => self.mapPress(keypress, egc, modifiers),
-        event_type.REPEAT => self.mapPress(keypress, egc, modifiers),
-        event_type.RELEASE => self.mapRelease(keypress, egc, modifiers),
+fn map_event(self: *Self, event: input.Event, keypress: input.Key, egc: input.Key, modifiers: input.Mods) !void {
+    return switch (event) {
+        input.event.press => self.map_press(keypress, egc, modifiers),
+        input.event.repeat => self.map_press(keypress, egc, modifiers),
+        input.event.release => self.map_release(keypress),
         else => {},
     };
 }
 
-fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
+fn map_press(self: *Self, keypress: input.Key, egc: input.Key, modifiers: input.Mods) !void {
     if (self.count > 0 and modifiers == 0 and '0' <= keypress and keypress <= '9') return self.add_count(keypress - '0');
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     if (self.leader) |_| return self.mapFollower(keynormal, egc, modifiers);
     switch (keypress) {
-        key.LCTRL, key.RCTRL => return self.cmd("enable_fast_scroll", .{}),
-        key.LALT, key.RALT => return self.cmd("enable_jump_mode", .{}),
+        input.key.left_control, input.key.right_control => return self.cmd("enable_fast_scroll", .{}),
+        input.key.left_alt, input.key.right_alt => return self.cmd("enable_jump_mode", .{}),
         else => {},
     }
     return switch (modifiers) {
-        mod.CTRL => switch (keynormal) {
+        input.mod.ctrl => switch (keynormal) {
             'B' => self.cmd("move_scroll_page_up", .{}),
             'F' => self.cmd("move_scroll_page_down", .{}),
             'U' => self.cmd("page_cursor_half_up", .{}),
@@ -91,12 +88,12 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             'X' => self.cmd("decrement", .{}),
             else => {},
         },
-        mod.CTRL | mod.SHIFT => switch (keynormal) {
+        input.mod.ctrl | input.mod.shift => switch (keynormal) {
             'P' => self.cmd("open_command_palette", .{}),
             '6' => self.cmd("open_previous_file", .{}),
             else => {},
         },
-        mod.ALT => switch (keynormal) {
+        input.mod.alt => switch (keynormal) {
             '.' => self.cmd("repeat_last_motion", .{}),
 
             '`' => self.cmd("switch_to_uppercase", .{}),
@@ -112,10 +109,10 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             '_' => self.cmd("merge_consecutive_selections", .{}),
 
             ';' => self.cmd("flip_selections", .{}),
-            'O', key.UP => self.cmd("expand_selection", .{}),
-            'I', key.DOWN => self.cmd("shrink_selection", .{}),
-            'P', key.LEFT => self.cmd("select_prev_sibling", .{}),
-            'N', key.RIGHT => self.cmd("select_next_sibling", .{}),
+            'O', input.key.up => self.cmd("expand_selection", .{}),
+            'I', input.key.down => self.cmd("shrink_selection", .{}),
+            'P', input.key.left => self.cmd("select_prev_sibling", .{}),
+            'N', input.key.right => self.cmd("select_next_sibling", .{}),
 
             'E' => self.cmd("move_parent_node_end", .{}),
             'B' => self.cmd("move_parent_node_start", .{}),
@@ -128,12 +125,12 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             ',' => self.cmd("remove_primary_selection", .{}),
             else => {},
         },
-        mod.ALT | mod.SHIFT => switch (keynormal) {
+        input.mod.alt | input.mod.shift => switch (keynormal) {
             'P' => self.cmd("open_command_palette", .{}),
 
             'C' => self.cmd("copy_selection_on_next_line", .{}),
 
-            'I', key.DOWN => self.cmd("select_all_children", .{}),
+            'I', input.key.down => self.cmd("select_all_children", .{}),
 
             'U' => self.cmd("redo", .{}),
 
@@ -146,7 +143,7 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             '1' => self.cmd("shell_append_output", .{}),
             else => {},
         },
-        mod.SHIFT => switch (keypress) {
+        input.mod.shift => switch (keypress) {
             '`' => self.cmd("switch_case", .{}),
 
             't' => self.cmd("till_prev_char", .{}),
@@ -209,11 +206,11 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
             else => {},
         },
         0 => switch (keypress) {
-            key.F02 => self.cmd("toggle_input_mode", .{}),
-            'h', key.LEFT => self.cmd_count("move_left", .{}),
-            'j', key.DOWN => self.cmd_count("move_down", .{}),
-            'k', key.UP => self.cmd_count("move_up", .{}),
-            'l', key.RIGHT => self.cmd_count("move_right", .{}),
+            input.key.f2 => self.cmd("toggle_input_mode", .{}),
+            'h', input.key.left => self.cmd_count("move_left", .{}),
+            'j', input.key.down => self.cmd_count("move_down", .{}),
+            'k', input.key.up => self.cmd_count("move_up", .{}),
+            'l', input.key.right => self.cmd_count("move_right", .{}),
 
             't' => self.cmd("find_till_char", .{}),
             'f' => self.cmd("find_next_char", .{}),
@@ -221,8 +218,8 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
 
             '`' => self.cmd("switch_to_lowercase", .{}),
 
-            key.HOME => self.cmd("move_begin", .{}),
-            key.END => self.cmd("move_end", .{}),
+            input.key.home => self.cmd("move_begin", .{}),
+            input.key.end => self.cmd("move_end", .{}),
 
             'w' => self.cmd_count("move_next_word_start", .{}),
             'b' => self.cmd_count("move_prev_word_start", .{}),
@@ -263,10 +260,10 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
 
             ',' => self.cmd("keep_primary_selection", .{}),
 
-            key.ESC => self.cmd("cancel", .{}),
+            input.key.escape => self.cmd("cancel", .{}),
 
-            key.PGUP => self.cmd("move_scroll_page_up", .{}),
-            key.PGDOWN => self.cmd("move_scroll_page_down", .{}),
+            input.key.page_up => self.cmd("move_scroll_page_up", .{}),
+            input.key.page_down => self.cmd("move_scroll_page_down", .{}),
 
             ' ' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
             'z' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
@@ -286,15 +283,15 @@ fn mapPress(self: *Self, keypress: u32, egc: u32, modifiers: u32) !void {
     };
 }
 
-fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
-    if (keypress == key.LCTRL or
-        keypress == key.RCTRL or
-        keypress == key.LALT or
-        keypress == key.RALT or
-        keypress == key.LSHIFT or
-        keypress == key.RSHIFT or
-        keypress == key.LSUPER or
-        keypress == key.RSUPER) return;
+fn mapFollower(self: *Self, keypress: input.Key, _: u32, modifiers: input.Mods) !void {
+    if (keypress == input.key.left_control or
+        keypress == input.key.right_control or
+        keypress == input.key.left_alt or
+        keypress == input.key.right_alt or
+        keypress == input.key.left_shift or
+        keypress == input.key.right_shift or
+        keypress == input.key.left_super or
+        keypress == input.key.right_super) return;
 
     defer self.leader = null;
     const ldr = if (self.leader) |leader| leader else return;
@@ -324,7 +321,7 @@ fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
                     'W' => self.cmd("goto_word", .{}),
                     else => {},
                 },
-                mod.SHIFT => switch (keypress) {
+                input.mod.shift => switch (keypress) {
                     'D' => self.cmd("goto_declaration", .{}),
                     else => {},
                 },
@@ -346,7 +343,7 @@ fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
             },
             '[' => {
                 try switch (modifiers) {
-                    mod.SHIFT => switch (keypress) {
+                    input.mod.shift => switch (keypress) {
                         'D' => self.cmd("goto_first_diag", .{}),
                         'G' => self.cmd("goto_first_change", .{}),
                         'T' => self.cmd("goto_prev_test", .{}),
@@ -369,7 +366,7 @@ fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
             },
             ']' => {
                 try switch (modifiers) {
-                    mod.SHIFT => switch (keypress) {
+                    input.mod.shift => switch (keypress) {
                         'D' => self.cmd("goto_last_diag", .{}),
                         'G' => self.cmd("goto_last_change", .{}),
                         'T' => self.cmd("goto_next_test", .{}),
@@ -392,7 +389,7 @@ fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
             },
             'W' => switch (modifiers) {
                 // way too much stuff if someone wants they can implement it
-                mod.SHIFT => switch (keypress) {
+                input.mod.shift => switch (keypress) {
                     else => {},
                 },
                 0 => switch (keypress) {
@@ -401,7 +398,7 @@ fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
                 else => {},
             },
             ' ' => switch (modifiers) {
-                mod.SHIFT => switch (keypress) {
+                input.mod.shift => switch (keypress) {
                     'F' => self.cmd("file_picker_in_current_directory", .{}),
                     'S' => self.cmd("workspace_symbol_picker", .{}),
                     'D' => self.cmd("workspace_diagnostics_picker", .{}),
@@ -436,10 +433,10 @@ fn mapFollower(self: *Self, keypress: u32, _: u32, modifiers: u32) !void {
     };
 }
 
-fn mapRelease(self: *Self, keypress: u32, _: u32, _: u32) !void {
+fn map_release(self: *Self, keypress: input.Key) !void {
     return switch (keypress) {
-        key.LCTRL, key.RCTRL => self.cmd("disable_fast_scroll", .{}),
-        key.LALT, key.RALT => self.cmd("disable_jump_mode", .{}),
+        input.key.left_control, input.key.right_control => self.cmd("disable_fast_scroll", .{}),
+        input.key.left_alt, input.key.right_alt => self.cmd("disable_jump_mode", .{}),
         else => {},
     };
 }
@@ -453,7 +450,7 @@ fn insert_code_point(self: *Self, c: u32) !void {
     if (self.input.items.len + 4 > input_buffer_size)
         try self.flush_input();
     var buf: [6]u8 = undefined;
-    const bytes = try ucs32_to_utf8(&[_]u32{c}, &buf);
+    const bytes = try input.ucs32_to_utf8(&[_]u32{c}, &buf);
     try self.input.appendSlice(buf[0..bytes]);
 }
 

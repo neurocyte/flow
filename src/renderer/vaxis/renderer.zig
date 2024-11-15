@@ -4,18 +4,14 @@ const log = @import("log");
 const Style = @import("theme").Style;
 const Color = @import("theme").Color;
 const vaxis = @import("vaxis");
+const input = @import("input");
 const builtin = @import("builtin");
-
-pub const input = @import("input.zig");
 
 pub const Plane = @import("Plane.zig");
 pub const Cell = @import("Cell.zig");
 pub const CursorShape = vaxis.Cell.CursorShape;
 
 pub const style = @import("style.zig").StyleBits;
-
-const key = input.key;
-const event_type = input.event_type;
 
 const Self = @This();
 pub const log_name = "vaxis";
@@ -158,7 +154,7 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
             try self.sync_mod_state(key_.codepoint, key_.mods);
             const cbor_msg = try self.fmtmsg(.{
                 "I",
-                event_type.PRESS,
+                input.event.press,
                 key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
                 text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
@@ -172,7 +168,7 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
             const key_ = filter_mods(key__);
             const cbor_msg = try self.fmtmsg(.{
                 "I",
-                event_type.RELEASE,
+                input.event.release,
                 key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
                 text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
@@ -193,9 +189,9 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
                 })),
                 .press => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
                     "B",
-                    event_type.PRESS,
+                    input.event.press,
                     @intFromEnum(mouse.button),
-                    input.utils.button_id_string(@intFromEnum(mouse.button)),
+                    input.utils.button_id_string(mouse.button),
                     mouse.col,
                     mouse.row,
                     mouse.xoffset,
@@ -203,9 +199,9 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
                 })),
                 .release => f(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
                     "B",
-                    event_type.RELEASE,
+                    input.event.release,
                     @intFromEnum(mouse.button),
-                    input.utils.button_id_string(@intFromEnum(mouse.button)),
+                    input.utils.button_id_string(mouse.button),
                     mouse.col,
                     mouse.row,
                     mouse.xoffset,
@@ -214,9 +210,9 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
                 .drag => if (self.dispatch_mouse_drag) |f_|
                     f_(self.handler_ctx, @intCast(mouse.row), @intCast(mouse.col), try self.fmtmsg(.{
                         "D",
-                        event_type.PRESS,
+                        input.event.press,
                         @intFromEnum(mouse.button),
-                        input.utils.button_id_string(@intFromEnum(mouse.button)),
+                        input.utils.button_id_string(mouse.button),
                         mouse.col,
                         mouse.row,
                         mouse.xoffset,
@@ -282,19 +278,19 @@ fn fmtmsg(self: *Self, value: anytype) ![]const u8 {
 }
 
 fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
-    var keypress: u32 = undefined;
-    var egc_: u32 = undefined;
+    var keypress: input.Key = undefined;
+    var egc_: input.Key = undefined;
     if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.string, 0 })) {
         switch (keypress) {
-            key.ENTER => try self.bracketed_paste_buffer.appendSlice("\n"),
-            key.TAB => try self.bracketed_paste_buffer.appendSlice("\t"),
-            else => if (!key.synthesized_p(keypress)) {
+            input.key.enter => try self.bracketed_paste_buffer.appendSlice("\n"),
+            input.key.tab => try self.bracketed_paste_buffer.appendSlice("\t"),
+            else => if (!input.is_non_input_key(keypress)) {
                 var buf: [6]u8 = undefined;
-                const bytes = try ucs32_to_utf8(&[_]u32{egc_}, &buf);
+                const bytes = try input.ucs32_to_utf8(&[_]u32{egc_}, &buf);
                 try self.bracketed_paste_buffer.appendSlice(buf[0..bytes]);
             } else {
                 var buf: [6]u8 = undefined;
-                const bytes = try ucs32_to_utf8(&[_]u32{egc_}, &buf);
+                const bytes = try input.ucs32_to_utf8(&[_]u32{egc_}, &buf);
                 self.logger.print("unexpected codepoint in paste: {d} {s}", .{ keypress, buf[0..bytes] });
             },
         }
@@ -336,7 +332,7 @@ pub fn set_terminal_style(self: *Self, style_: Style) void {
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
-        self.vx.setTerminalCursorColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+    self.vx.setTerminalCursorColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
@@ -376,32 +372,28 @@ pub fn cursor_disable(self: *Self) void {
     self.vx.screen.cursor_vis = false;
 }
 
-pub fn ucs32_to_utf8(ucs32: []const u32, utf8: []u8) !usize {
-    return @intCast(try std.unicode.utf8Encode(@intCast(ucs32[0]), utf8));
-}
-
 fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !void {
-    if (modifiers.ctrl and !self.mods.ctrl and !(keypress == key.LCTRL or keypress == key.RCTRL))
-        try self.send_sync_key(event_type.PRESS, key.LCTRL, "lctrl", modifiers);
-    if (!modifiers.ctrl and self.mods.ctrl and !(keypress == key.LCTRL or keypress == key.RCTRL))
-        try self.send_sync_key(event_type.RELEASE, key.LCTRL, "lctrl", modifiers);
-    if (modifiers.alt and !self.mods.alt and !(keypress == key.LALT or keypress == key.RALT))
-        try self.send_sync_key(event_type.PRESS, key.LALT, "lalt", modifiers);
-    if (!modifiers.alt and self.mods.alt and !(keypress == key.LALT or keypress == key.RALT))
-        try self.send_sync_key(event_type.RELEASE, key.LALT, "lalt", modifiers);
-    if (modifiers.shift and !self.mods.shift and !(keypress == key.LSHIFT or keypress == key.RSHIFT))
-        try self.send_sync_key(event_type.PRESS, key.LSHIFT, "lshift", modifiers);
-    if (!modifiers.shift and self.mods.shift and !(keypress == key.LSHIFT or keypress == key.RSHIFT))
-        try self.send_sync_key(event_type.RELEASE, key.LSHIFT, "lshift", modifiers);
+    if (modifiers.ctrl and !self.mods.ctrl and !(keypress == input.key.left_control or keypress == input.key.right_control))
+        try self.send_sync_key(input.event.press, input.key.left_control, "lctrl", modifiers);
+    if (!modifiers.ctrl and self.mods.ctrl and !(keypress == input.key.left_control or keypress == input.key.right_control))
+        try self.send_sync_key(input.event.release, input.key.left_control, "lctrl", modifiers);
+    if (modifiers.alt and !self.mods.alt and !(keypress == input.key.left_alt or keypress == input.key.right_alt))
+        try self.send_sync_key(input.event.press, input.key.left_alt, "lalt", modifiers);
+    if (!modifiers.alt and self.mods.alt and !(keypress == input.key.left_alt or keypress == input.key.right_alt))
+        try self.send_sync_key(input.event.release, input.key.left_alt, "lalt", modifiers);
+    if (modifiers.shift and !self.mods.shift and !(keypress == input.key.left_shift or keypress == input.key.right_shift))
+        try self.send_sync_key(input.event.press, input.key.left_shift, "lshift", modifiers);
+    if (!modifiers.shift and self.mods.shift and !(keypress == input.key.left_shift or keypress == input.key.right_shift))
+        try self.send_sync_key(input.event.release, input.key.left_shift, "lshift", modifiers);
     self.mods = modifiers;
 }
 
-fn send_sync_key(self: *Self, event_type_: usize, keypress: u32, key_string: []const u8, modifiers: vaxis.Key.Modifiers) !void {
+fn send_sync_key(self: *Self, event: input.Event, keypress: u32, key_string: []const u8, modifiers: vaxis.Key.Modifiers) !void {
     if (self.dispatch_input) |f| f(
         self.handler_ctx,
         try self.fmtmsg(.{
             "I",
-            event_type_,
+            event,
             keypress,
             keypress,
             key_string,

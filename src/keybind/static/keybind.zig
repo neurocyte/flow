@@ -32,7 +32,7 @@ pub const Mode = struct {
     name: []const u8 = "",
     line_numbers: enum { absolute, relative } = .absolute,
     keybind_hints: ?*const KeybindHints = null,
-    cursor_shape: renderer.CursorShape = .block,
+    cursor_shape: CursorShape = .block,
 
     pub fn deinit(self: *Mode) void {
         self.input_handler.deinit();
@@ -42,6 +42,15 @@ pub const Mode = struct {
 
 pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
 
-const renderer = @import("renderer");
+pub const CursorShape = enum {
+    default,
+    block_blink,
+    block,
+    underline_blink,
+    underline,
+    beam_blink,
+    beam,
+};
+
 const EventHandler = @import("EventHandler");
 const std = @import("std");

@@ -4,9 +4,7 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 
 const Plane = @import("renderer").Plane;
-const key = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
-const utils = @import("renderer").input.utils;
+const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -14,9 +12,7 @@ const Widget = @import("../Widget.zig");
 const tui = @import("../tui.zig");
 
 plane: Plane,
-ctrl: bool = false,
-shift: bool = false,
-alt: bool = false,
+mods: input.ModSet = .{},
 hover: bool = false,
 
 const Self = @This();
@@ -54,9 +50,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.home();
 
     _ = self.plane.print(" {s}{s}{s} ", .{
-        mode(self.ctrl, "Ⓒ ", "🅒 "),
-        mode(self.shift, "Ⓢ ", "🅢 "),
-        mode(self.alt, "Ⓐ ", "🅐 "),
+        mode(self.mods.ctrl, "Ⓒ ", "🅒 "),
+        mode(self.mods.shift, "Ⓢ ", "🅢 "),
+        mode(self.mods.alt, "Ⓐ ", "🅐 "),
     }) catch {};
     return false;
 }
@@ -70,16 +66,14 @@ fn render_modifier(self: *Self, state: bool, off: [:0]const u8, on: [:0]const u8
 }
 
 pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    var mod: u32 = 0;
-    if (try m.match(.{ "I", tp.any, tp.any, tp.any, tp.any, tp.extract(&mod), tp.more })) {
-        self.ctrl = utils.isCtrl(mod);
-        self.shift = utils.isShift(mod);
-        self.alt = utils.isAlt(mod);
+    var mods: input.Mods = 0;
+    if (try m.match(.{ "I", tp.any, tp.any, tp.any, tp.any, tp.extract(&mods), tp.more })) {
+        self.mods = @bitCast(mods);
     }
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
         command.executeName("toggle_inputview", .{}) catch {};
         return true;
     }

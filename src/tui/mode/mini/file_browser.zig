@@ -4,11 +4,8 @@ const cbor = @import("cbor");
 const log = @import("log");
 const root = @import("root");
 
-const key = @import("renderer").input.key;
-const mod = @import("renderer").input.modifier;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 const keybind = @import("keybind");
-const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const project_manager = @import("project_manager");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
@@ -310,7 +307,7 @@ pub fn Create(options: type) type {
                     return error.InvalidArgument;
                 self.complete_trigger_count = 0;
                 var buf: [32]u8 = undefined;
-                const bytes = try ucs32_to_utf8(&[_]u32{egc}, &buf);
+                const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
                 try self.file_path.appendSlice(buf[0..bytes]);
                 self.update_mini_mode_text();
             }

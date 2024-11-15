@@ -1,8 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
-const key = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
-const mod = @import("renderer").input.modifier;
+const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const keybind = @import("../keybind.zig");
@@ -26,20 +24,20 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var evtype: u32 = undefined;
-    var keypress: u32 = undefined;
-    var modifiers: u32 = undefined;
+    var event: input.Event = undefined;
+    var keypress: input.Key = undefined;
+    var modifiers: input.Mods = undefined;
 
-    if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.any, tp.string, tp.extract(&modifiers) })) {
-        try self.mapEvent(evtype, keypress, modifiers);
+    if (try m.match(.{ "I", tp.extract(&event), tp.extract(&keypress), tp.any, tp.string, tp.extract(&modifiers) })) {
+        try self.map_event(event, keypress, modifiers);
     }
     return false;
 }
 
-fn mapEvent(self: *Self, evtype: u32, keypress: u32, modifiers: u32) tp.result {
-    return switch (evtype) {
-        event_type.PRESS => self.mapPress(keypress, modifiers),
-        event_type.REPEAT => self.mapPress(keypress, modifiers),
+fn map_event(self: *Self, event: u32, keypress: u32, modifiers: u32) tp.result {
+    return switch (event) {
+        input.event.press => self.mapPress(keypress, modifiers),
+        input.event.repeat => self.mapPress(keypress, modifiers),
         else => {},
     };
 }
@@ -48,7 +46,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     if (self.leader) |_| return self.mapFollower(keynormal, modifiers);
     return switch (modifiers) {
-        mod.CTRL => switch (keynormal) {
+        input.mod.ctrl => switch (keynormal) {
             'F' => self.sheeran(),
             'J' => self.cmd("toggle_panel", .{}),
             'Q' => self.cmd("quit", .{}),
@@ -61,7 +59,7 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             'K' => self.leader = .{ .keypress = keynormal, .modifiers = modifiers },
             else => {},
         },
-        mod.CTRL | mod.SHIFT => switch (keynormal) {
+        input.mod.ctrl | input.mod.shift => switch (keynormal) {
             'P' => self.cmd("open_command_palette", .{}),
             'Q' => self.cmd("quit_without_saving", .{}),
             'R' => self.cmd("restart", .{}),
@@ -70,22 +68,22 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             '/' => self.cmd("open_help", .{}),
             else => {},
         },
-        mod.ALT | mod.SHIFT => switch (keynormal) {
+        input.mod.alt | input.mod.shift => switch (keynormal) {
             'P' => self.cmd("open_command_palette", .{}),
             else => {},
         },
-        mod.ALT => switch (keynormal) {
+        input.mod.alt => switch (keynormal) {
             'N' => self.cmd("goto_next_file_or_diagnostic", .{}),
             'P' => self.cmd("goto_prev_file_or_diagnostic", .{}),
             'L' => self.cmd("toggle_panel", .{}),
             'I' => self.cmd("toggle_inputview", .{}),
             'X' => self.cmd("open_command_palette", .{}),
-            key.LEFT => self.cmd("jump_back", .{}),
-            key.RIGHT => self.cmd("jump_forward", .{}),
+            input.key.left => self.cmd("jump_back", .{}),
+            input.key.right => self.cmd("jump_forward", .{}),
             else => {},
         },
         0 => switch (keypress) {
-            key.F02 => self.cmd("toggle_input_mode", .{}),
+            input.key.f2 => self.cmd("toggle_input_mode", .{}),
             'h' => self.cmd("open_help", .{}),
             'o' => self.cmd("open_file", .{}),
             'e' => self.cmd("open_recent", .{}),
@@ -95,15 +93,15 @@ fn mapPress(self: *Self, keypress: u32, modifiers: u32) tp.result {
             't' => self.cmd("change_theme", .{}),
             'q' => self.cmd("quit", .{}),
 
-            key.F01 => self.cmd("open_help", .{}),
-            key.F06 => self.cmd("open_config", .{}),
-            key.F09 => self.cmd("theme_prev", .{}),
-            key.F10 => self.cmd("theme_next", .{}),
-            key.F11 => self.cmd("toggle_panel", .{}),
-            key.F12 => self.cmd("toggle_inputview", .{}),
-            key.UP => self.cmd("home_menu_up", .{}),
-            key.DOWN => self.cmd("home_menu_down", .{}),
-            key.ENTER => self.cmd("home_menu_activate", .{}),
+            input.key.f1 => self.cmd("open_help", .{}),
+            input.key.f6 => self.cmd("open_config", .{}),
+            input.key.f9 => self.cmd("theme_prev", .{}),
+            input.key.f10 => self.cmd("theme_next", .{}),
+            input.key.f11 => self.cmd("toggle_panel", .{}),
+            input.key.f12 => self.cmd("toggle_inputview", .{}),
+            input.key.up => self.cmd("home_menu_up", .{}),
+            input.key.down => self.cmd("home_menu_down", .{}),
+            input.key.enter => self.cmd("home_menu_activate", .{}),
             else => {},
         },
         else => {},
@@ -114,9 +112,9 @@ fn mapFollower(self: *Self, keypress: u32, modifiers: u32) !void {
     defer self.leader = null;
     const ldr = if (self.leader) |leader| leader else return;
     return switch (ldr.modifiers) {
-        mod.CTRL => switch (ldr.keypress) {
+        input.mod.ctrl => switch (ldr.keypress) {
             'K' => switch (modifiers) {
-                mod.CTRL => switch (keypress) {
+                input.mod.ctrl => switch (keypress) {
                     'T' => self.cmd("change_theme", .{}),
                     else => {},
                 },

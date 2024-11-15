@@ -2,8 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
-const key = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 
 const Widget = @import("Widget.zig");
 const tui = @import("tui.zig");
@@ -99,16 +98,16 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            if (try m.match(.{ "B", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.active = true;
                 tui.need_render();
                 return true;
-            } else if (try m.match(.{ "B", event_type.RELEASE, key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            } else if (try m.match(.{ "B", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.opts.on_click(self.opts.ctx, self);
                 self.active = false;
                 tui.need_render();
                 return true;
-            } else if (try m.match(.{ "D", event_type.RELEASE, key.BUTTON1, tp.any, tp.any, tp.any, tp.any, tp.any })) {
+            } else if (try m.match(.{ "D", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.opts.on_click(self.opts.ctx, self);
                 self.active = false;
                 tui.need_render();

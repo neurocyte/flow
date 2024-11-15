@@ -8,8 +8,7 @@ const root = @import("root");
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
-const key = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -90,15 +89,15 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var y: i32 = undefined;
     var ypx: i32 = undefined;
 
-    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
         return self.primary_click(y);
-    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON3, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON3), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
         return self.secondary_click();
-    if (try m.match(.{ "D", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
+    if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
         return self.primary_drag(y);
-    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON4, tp.more }))
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON4), tp.more }))
         return self.mouse_click_button4();
-    if (try m.match(.{ "B", event_type.PRESS, key.BUTTON5, tp.more }))
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON5), tp.more }))
         return self.mouse_click_button5();
 
     return false;

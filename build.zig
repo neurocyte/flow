@@ -146,10 +146,18 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const input_mod = b.createModule(.{
+        .root_source_file = b.path("src/renderer/vaxis/input.zig"),
+        .imports = &.{
+            .{ .name = "vaxis", .module = vaxis_mod },
+        },
+    });
+
     const renderer_mod = b.createModule(.{
         .root_source_file = b.path("src/renderer/vaxis/renderer.zig"),
         .imports = &.{
             .{ .name = "vaxis", .module = vaxis_mod },
+            .{ .name = "input", .module = input_mod },
             .{ .name = "theme", .module = themes_dep.module("theme") },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "log", .module = log_mod },
@@ -165,7 +173,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "command", .module = command_mod },
             .{ .name = "EventHandler", .module = EventHandler_mod },
-            .{ .name = "renderer", .module = renderer_mod },
+            .{ .name = "input", .module = input_mod },
             .{ .name = "thespian", .module = thespian_mod },
         },
     });
@@ -175,7 +183,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "command", .module = command_mod },
             .{ .name = "EventHandler", .module = EventHandler_mod },
-            .{ .name = "renderer", .module = renderer_mod },
+            .{ .name = "input", .module = input_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "log", .module = log_mod },
         },
@@ -191,7 +199,7 @@ pub fn build(b: *std.Build) void {
         tests.root_module.addImport("cbor", cbor_mod);
         tests.root_module.addImport("command", command_mod);
         tests.root_module.addImport("EventHandler", EventHandler_mod);
-        tests.root_module.addImport("renderer", renderer_mod);
+        tests.root_module.addImport("input", input_mod);
         tests.root_module.addImport("thespian", thespian_mod);
         tests.root_module.addImport("log", log_mod);
         // b.installArtifact(tests);
@@ -249,6 +257,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/tui/tui.zig"),
         .imports = &.{
             .{ .name = "renderer", .module = renderer_mod },
+            .{ .name = "input", .module = input_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "config", .module = config_mod },
@@ -297,6 +306,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("log", log_mod);
     exe.root_module.addImport("tracy", tracy_mod);
     exe.root_module.addImport("renderer", renderer_mod);
+    exe.root_module.addImport("input", input_mod);
     exe.root_module.addImport("syntax", syntax_mod);
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     b.installArtifact(exe);
@@ -326,6 +336,7 @@ pub fn build(b: *std.Build) void {
     check_exe.root_module.addImport("log", log_mod);
     check_exe.root_module.addImport("tracy", tracy_mod);
     check_exe.root_module.addImport("renderer", renderer_mod);
+    check_exe.root_module.addImport("input", input_mod);
     check_exe.root_module.addImport("syntax", syntax_mod);
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     const check = b.step("check", "Check the app");

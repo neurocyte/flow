@@ -1,10 +1,7 @@
 const tp = @import("thespian");
 
-const key = @import("renderer").input.key;
-const mod = @import("renderer").input.modifier;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 const keybind = @import("keybind");
-const ucs32_to_utf8 = @import("renderer").ucs32_to_utf8;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -82,7 +79,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 fn insert_code_point(self: *Self, c: u32) !void {
     var buf: [16]u8 = undefined;
-    const bytes = ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    const bytes = input.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
     try self.input.appendSlice(buf[0..bytes]);
 }
 

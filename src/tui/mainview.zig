@@ -9,8 +9,7 @@ const project_manager = @import("project_manager");
 const log = @import("log");
 
 const Plane = @import("renderer").Plane;
-const key = @import("renderer").input.key;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 const command = @import("command");
 
 const tui = @import("tui.zig");
@@ -150,7 +149,7 @@ pub fn box(self: *const Self) Box {
 
 fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     var y: usize = undefined;
-    if (try m.match(.{ "D", event_type.PRESS, key.BUTTON1, tp.any, tp.any, tp.extract(&y), tp.any, tp.any }))
+    if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.any }))
         return self.bottom_bar_primary_drag(y);
 }
 

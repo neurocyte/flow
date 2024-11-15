@@ -1,7 +1,5 @@
 const tp = @import("thespian");
-const key = @import("renderer").input.key;
-const mod = @import("renderer").input.modifier;
-const event_type = @import("renderer").input.event_type;
+const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -10,30 +8,30 @@ pub fn create(_: @import("std").mem.Allocator, _: anytype) !EventHandler {
 }
 
 pub fn receive(_: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var evtype: u32 = undefined;
-    var keypress: u32 = undefined;
-    var egc: u32 = undefined;
-    var modifiers: u32 = undefined;
+    var event: input.Event = undefined;
+    var keypress: input.Key = undefined;
+    var egc: input.Key = undefined;
+    var modifiers: input.Mods = undefined;
 
-    if (try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
-        mapEvent(evtype, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    if (try m.match(.{ "I", tp.extract(&event), tp.extract(&keypress), tp.extract(&egc), tp.string, tp.extract(&modifiers) })) {
+        map_event(event, keypress, egc, modifiers) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return false;
 }
 
-fn mapEvent(evtype: u32, keypress: u32, egc: u32, modifiers: u32) !void {
-    switch (evtype) {
-        event_type.PRESS => try mapPress(keypress, egc, modifiers),
-        event_type.REPEAT => try mapPress(keypress, egc, modifiers),
-        event_type.RELEASE => try mapRelease(keypress, egc, modifiers),
+fn map_event(event: input.Event, keypress: input.Key, egc: input.Key, modifiers: input.Mods) !void {
+    switch (event) {
+        input.event.press => try map_press(keypress, egc, modifiers),
+        input.event.repeat => try map_press(keypress, egc, modifiers),
+        input.event.release => try map_release(keypress, egc, modifiers),
         else => {},
     }
 }
 
-fn mapPress(keypress: u32, egc: u32, modifiers: u32) !void {
+fn map_press(keypress: input.Key, egc: input.Key, modifiers: input.Mods) !void {
     const keynormal = if ('a' <= keypress and keypress <= 'z') keypress - ('a' - 'A') else keypress;
     return switch (modifiers) {
-        mod.CTRL => switch (keynormal) {
+        input.mod.ctrl => switch (keynormal) {
             'Q' => command.executeName("quit", .{}),
             'V' => command.executeName("system_paste", .{}),
             'U' => command.executeName("mini_mode_reset", .{}),
@@ -44,41 +42,41 @@ fn mapPress(keypress: u32, egc: u32, modifiers: u32) !void {
             'N' => command.executeName("goto_next_match", .{}),
             'P' => command.executeName("goto_prev_match", .{}),
             'I' => command.executeName("mini_mode_insert_bytes", command.fmt(.{"\t"})),
-            key.SPACE => command.executeName("exit_mini_mode", .{}),
-            key.ENTER => command.executeName("mini_mode_insert_bytes", command.fmt(.{"\n"})),
-            key.BACKSPACE => command.executeName("mini_mode_reset", .{}),
+            input.key.space => command.executeName("exit_mini_mode", .{}),
+            input.key.enter => command.executeName("mini_mode_insert_bytes", command.fmt(.{"\n"})),
+            input.key.backspace => command.executeName("mini_mode_reset", .{}),
             else => {},
         },
-        mod.ALT => switch (keynormal) {
+        input.mod.alt => switch (keynormal) {
             'V' => command.executeName("system_paste", .{}),
             'N' => command.executeName("goto_next_file", .{}),
             'P' => command.executeName("goto_prev_file", .{}),
             else => {},
         },
-        mod.ALT | mod.SHIFT => switch (keynormal) {
+        input.mod.alt | input.mod.shift => switch (keynormal) {
             'V' => command.executeName("system_paste", .{}),
             else => {},
         },
-        mod.SHIFT => switch (keypress) {
-            key.ENTER => command.executeName("goto_prev_match", .{}),
-            key.F03 => command.executeName("goto_prev_match", .{}),
-            else => if (!key.synthesized_p(keypress))
+        input.mod.shift => switch (keypress) {
+            input.key.enter => command.executeName("goto_prev_match", .{}),
+            input.key.f3 => command.executeName("goto_prev_match", .{}),
+            else => if (!input.is_non_input_key(keypress))
                 command.executeName("mini_mode_insert_code_point", command.fmt(.{egc}))
             else {},
         },
         0 => switch (keypress) {
-            key.UP => command.executeName("select_prev_file", .{}),
-            key.DOWN => command.executeName("select_next_file", .{}),
-            key.F03 => command.executeName("goto_next_match", .{}),
-            key.F15 => command.executeName("goto_prev_match", .{}),
-            key.F09 => command.executeName("theme_prev", .{}),
-            key.F10 => command.executeName("theme_next", .{}),
-            key.ESC => command.executeName("exit_mini_mode", .{}),
-            key.ENTER => command.executeName("mini_mode_select", .{}),
-            key.BACKSPACE => command.executeName("mini_mode_delete_backwards", .{}),
-            key.LCTRL, key.RCTRL => command.executeName("enable_fast_scroll", .{}),
-            key.LALT, key.RALT => command.executeName("enable_fast_scroll", .{}),
-            else => if (!key.synthesized_p(keypress))
+            input.key.up => command.executeName("select_prev_file", .{}),
+            input.key.down => command.executeName("select_next_file", .{}),
+            input.key.f3 => command.executeName("goto_next_match", .{}),
+            input.key.f15 => command.executeName("goto_prev_match", .{}),
+            input.key.f9 => command.executeName("theme_prev", .{}),
+            input.key.f10 => command.executeName("theme_next", .{}),
+            input.key.escape => command.executeName("exit_mini_mode", .{}),
+            input.key.enter => command.executeName("mini_mode_select", .{}),
+            input.key.backspace => command.executeName("mini_mode_delete_backwards", .{}),
+            input.key.left_control, input.key.right_control => command.executeName("enable_fast_scroll", .{}),
+            input.key.left_alt, input.key.right_alt => command.executeName("enable_fast_scroll", .{}),
+            else => if (!input.is_non_input_key(keypress))
                 command.executeName("mini_mode_insert_code_point", command.fmt(.{egc}))
             else {},
         },
@@ -86,10 +84,10 @@ fn mapPress(keypress: u32, egc: u32, modifiers: u32) !void {
     };
 }
 
-fn mapRelease(keypress: u32, _: u32, _: u32) !void {
+fn map_release(keypress: input.Key, _: input.Key, _: input.Mods) !void {
     return switch (keypress) {
-        key.LCTRL, key.RCTRL => command.executeName("disable_fast_scroll", .{}),
-        key.LALT, key.RALT => command.executeName("disable_fast_scroll", .{}),
+        input.key.left_control, input.key.right_control => command.executeName("disable_fast_scroll", .{}),
+        input.key.left_alt, input.key.right_alt => command.executeName("disable_fast_scroll", .{}),
         else => {},
     };
 }
