@@ -503,8 +503,8 @@ const BindingSet = struct {
                 switch (state) {
                     .key_event => {
                         keys = parse_key_events(self.allocator, token) catch |e| {
-                            self.logger.print_err("keybind.load", "ERROR: {s} {s}", .{@errorName(e), parse_error_message}); 
-                            return e;
+                            self.logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_error_message });
+                            break;
                         };
                         state = .command;
                     },
