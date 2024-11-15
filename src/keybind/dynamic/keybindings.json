@@ -66,7 +66,7 @@
         "normal": {
             "on_match_failure": "ignore",
             "bindings": [
-                ["<C-f>", "sheeran"],
+                ["<C-f><C-f><C-f><C-f><C-f>", "home_sheeran"],
                 ["<C-j>", "toggle_panel"],
                 ["<C-q>", "quit"],
                 ["<C-w>", "quit"],
@@ -93,7 +93,16 @@
                 ["p", "open_command_palette"],
                 ["c", "open_config"],
                 ["t", "change_theme"],
-                ["q", "quit"]
+                ["q", "quit"],
+                ["<F1>", "open_help"],
+                ["<F6>", "open_config"],
+                ["<F9>", "theme_prev"],
+                ["<F10>", "theme_next"],
+                ["<F11>", "toggle_panel"],
+                ["<F12>", "toggle_inputview"],
+                ["<Up>", "home_menu_up"],
+                ["<Down>", "home_menu_down"],
+                ["<CR>", "home_menu_activate"]
             ]
         }
     }
