@@ -33,11 +33,11 @@ pub const mode = struct {
         pub const palette = Handler("flow", "palette");
     };
     pub const mini = struct {
-        pub const goto = Handler("mini", "goto");
-        pub const move_to_char = Handler("mini", "move_to_char");
-        pub const file_browser = Handler("mini", "file_browser");
-        pub const find_in_files = Handler("mini", "find_in_files");
-        pub const find = Handler("mini", "find");
+        pub const goto = Handler("flow", "mini/goto");
+        pub const move_to_char = Handler("flow", "mini/move_to_char");
+        pub const file_browser = Handler("flow", "mini/file_browser");
+        pub const find_in_files = Handler("flow", "mini/find_in_files");
+        pub const find = Handler("flow", "mini/find");
     };
 };
 

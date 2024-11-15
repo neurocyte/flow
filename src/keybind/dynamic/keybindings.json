@@ -233,6 +233,51 @@
                 ["<CR>", "palette_menu_activate"],
                 ["<Backspace>", "overlay_delete_backwards"]
             ]
+        },
+        "mini/goto": {
+            "on_match_failure": "insert",
+            "bindings": [
+                ["<C-q>", "quit"],
+                ["<C-u>", "mini_mode_reset"],
+                ["<C-g>", "mini_mode_cancel"],
+                ["<C-c>", "mini_mode_cancel"],
+                ["<C-l>", "scroll_view_center"],
+                ["<C-Space>", "mini_mode_cancel"],
+
+                ["<Esc>", "mini_mode_cancel"],
+                ["<CR>", "exit_mini_mode"],
+                ["<Backspace>", "mini_mode_delete_backwards"],
+                ["0", "mini_mode_insert_code_point", "0"],
+                ["1", "mini_mode_insert_code_point", "1"],
+                ["2", "mini_mode_insert_code_point", "2"],
+                ["3", "mini_mode_insert_code_point", "3"],
+                ["4", "mini_mode_insert_code_point", "4"],
+                ["5", "mini_mode_insert_code_point", "5"],
+                ["6", "mini_mode_insert_code_point", "6"],
+                ["7", "mini_mode_insert_code_point", "7"],
+                ["8", "mini_mode_insert_code_point", "8"],
+                ["9", "mini_mode_insert_code_point", "9"]
+            ]
+        },
+        "mini/move_to_char": {
+            "on_match_failure": "insert",
+            "bindings": [
+            ]
+        },
+        "mini/file_browser": {
+            "on_match_failure": "insert",
+            "bindings": [
+            ]
+        },
+        "mini/find_in_files": {
+            "on_match_failure": "insert",
+            "bindings": [
+            ]
+        },
+        "mini/find": {
+            "on_match_failure": "insert",
+            "bindings": [
+            ]
         }
     },
     "vim": {
