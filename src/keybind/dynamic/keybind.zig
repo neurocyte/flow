@@ -619,7 +619,8 @@ const BindingSet = struct {
         try self.current_sequence.append(event);
         var buf: [6]u8 = undefined;
         const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
-        try self.current_sequence_egc.appendSlice(buf[0..bytes]);
+        if (!input.is_non_input_key(event.key))
+            try self.current_sequence_egc.appendSlice(buf[0..bytes]);
 
         var all_matches_impossible = true;
         var matched_count: usize = 0;
