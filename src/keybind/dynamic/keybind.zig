@@ -459,7 +459,6 @@ const BindingSet = struct {
     }
 
     fn deinit(self: *const BindingSet) void {
-        if (!builtin.is_test) self.logger.print("unload namespace:{s} mode:{s}", .{ self.namespace_name, self.mode_name });
         for (self.bindings.items) |binding| binding.deinit(self.allocator);
         self.bindings.deinit();
         self.current_sequence.deinit();
@@ -475,7 +474,6 @@ const BindingSet = struct {
         defer parsed.deinit();
         if (parsed.value != .object) return error.NotAnObject;
         var namespaces = parsed.value.object.iterator();
-        if (!builtin.is_test) self.logger.print("load_json namespace:{s} mode:{s}", .{ namespace_name, mode_name });
         while (namespaces.next()) |*namespace_entry| {
             if (namespace_entry.value_ptr.* != .object) return error.NotAnObject;
             if (!std.mem.eql(u8, namespace_entry.key_ptr.*, namespace_name)) continue;
@@ -495,7 +493,6 @@ const BindingSet = struct {
         const parsed = try std.json.parseFromValue(JsonConfig, self.allocator, mode_bindings, .{});
         defer parsed.deinit();
         self.on_match_failure = parsed.value.on_match_failure;
-        if (!builtin.is_test) self.logger.print("load_set_from_json bindings:{d}", .{parsed.value.bindings.len});
         for (parsed.value.bindings) |entry| {
             var state: enum { key_event, command, args } = .key_event;
             var keys: ?[]KeyEvent = null;
@@ -590,7 +587,6 @@ const BindingSet = struct {
                 .key = keypress,
                 .modifiers = modifiers,
             }) catch |e| return tp.exit_error(e, @errorReturnTrace())) |binding| {
-                if (!builtin.is_test) self.logger.print("execute '{s}'", .{binding.command});
                 try binding.execute();
             }
         } else if (try m.match(.{"F"})) {
@@ -623,43 +619,20 @@ const BindingSet = struct {
             try self.current_sequence_egc.appendSlice(buf[0..bytes]);
 
         var all_matches_impossible = true;
-        var matched_count: usize = 0;
-        var match_possible_count: usize = 0;
-        var match_impossible_count: usize = 0;
-        if (!builtin.is_test) self.logger.print("process_key_event begin event:{} egc:{d} text:'{s}' sequence:'{s}' bindings:{d}", .{
-            event,
-            egc,
-            buf[0..bytes],
-            self.current_sequence_egc.items,
-            self.bindings.items.len,
-        });
-        defer if (!builtin.is_test) self.logger.print("process_key_event end all_matches_impossible:{any} bindings matched:{d} possible:{d} impossible:{d}", .{
-            all_matches_impossible,
-            matched_count,
-            match_possible_count,
-            match_impossible_count,
-        });
         for (self.bindings.items) |*binding| {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
-                    matched_count += 1;
                     defer {
                         //clear current sequence if command execution fails
                         self.current_sequence.clearRetainingCapacity();
                         self.current_sequence_egc.clearRetainingCapacity();
                     }
-                    if (!builtin.is_test) self.logger.print("matched binding -> {s}", .{binding.command});
                     return binding;
                 },
                 .match_possible => {
-                    match_possible_count += 1;
-                    if (!builtin.is_test) self.logger.print("match possible for binding -> {s}", .{binding.command});
                     all_matches_impossible = false;
                 },
-                .match_impossible => {
-                    match_impossible_count += 1;
-                    if (!builtin.is_test) self.logger.print("match impossible for binding -> {s}", .{binding.command});
-                },
+                .match_impossible => {},
             }
         }
         if (all_matches_impossible) {
