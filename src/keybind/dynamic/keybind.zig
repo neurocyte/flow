@@ -587,17 +587,26 @@ const BindingSet = struct {
         try self.current_sequence_egc.appendSlice(buf[0..bytes]);
 
         var all_matches_impossible = true;
-        defer if (!builtin.is_test) self.logger.print("process_key_event all_matches_impossible:{any} event:{any} egc:{d} text:'{s}' sequence:'{s}' bindings:{d}", .{
-            all_matches_impossible,
+        var matched_count: usize = 0;
+        var match_possible_count: usize = 0;
+        var match_impossible_count: usize = 0;
+        if (!builtin.is_test) self.logger.print("process_key_event begin event:{} egc:{d} text:'{s}' sequence:'{s}' bindings:{d}", .{
             event,
             egc,
             buf[0..bytes],
             self.current_sequence_egc.items,
             self.bindings.items.len,
         });
+        defer if (!builtin.is_test) self.logger.print("process_key_event end all_matches_impossible:{any} bindings matched:{d} possible:{d} impossible:{d}", .{
+            all_matches_impossible,
+            matched_count,
+            match_possible_count,
+            match_impossible_count,
+        });
         for (self.bindings.items) |binding| blk: {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
+                    matched_count += 1;
                     errdefer {
                         //clear current sequence if command execution fails
                         self.current_sequence.clearRetainingCapacity();
@@ -614,10 +623,12 @@ const BindingSet = struct {
                     break :blk;
                 },
                 .match_possible => {
+                    match_possible_count += 1;
                     if (!builtin.is_test) self.logger.print("match possible for binding -> {s}", .{binding.command});
                     all_matches_impossible = false;
                 },
                 .match_impossible => {
+                    match_impossible_count += 1;
                     if (!builtin.is_test) self.logger.print("match impossible for binding -> {s}", .{binding.command});
                 },
             }
