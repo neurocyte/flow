@@ -40,7 +40,9 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
         };
         return .{
             .{
-                .input_handler = try keybind.mode.mini.find_in_files.create(allocator, .{}),
+                .input_handler = try keybind.mode.mini.find_in_files.create(allocator, .{
+                    .insert_command = "mini_mode_insert_bytes",
+                }),
                 .event_handler = EventHandler.to_owned(self),
             },
             .{

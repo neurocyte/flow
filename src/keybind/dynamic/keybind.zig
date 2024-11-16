@@ -13,6 +13,8 @@ const command = @import("command");
 const EventHandler = @import("EventHandler");
 
 const KeyEvent = @import("KeyEvent.zig");
+const parse_flow = @import("parse_flow.zig");
+const parse_vim = @import("parse_vim.zig");
 
 pub const mode = struct {
     pub const input = struct {
@@ -45,11 +47,21 @@ fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
     return struct {
         allocator: std.mem.Allocator,
         bindings: BindingSet,
-        pub fn create(allocator: std.mem.Allocator, _: anytype) !EventHandler {
+
+        pub fn create(allocator: std.mem.Allocator, opts: anytype) !EventHandler {
             const self: *@This() = try allocator.create(@This());
             self.* = .{
                 .allocator = allocator,
-                .bindings = try BindingSet.init(allocator, @embedFile("keybindings.json"), namespace_name, mode_name),
+                .bindings = try BindingSet.init(
+                    allocator,
+                    @embedFile("keybindings.json"),
+                    namespace_name,
+                    mode_name,
+                    if (@hasField(@TypeOf(opts), "insert_command"))
+                        opts.insert_command
+                    else
+                        "insert_chars",
+                ),
             };
             return EventHandler.to_owned(self);
         }
@@ -80,293 +92,6 @@ pub const Mode = struct {
 };
 
 pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
-
-fn peek(str: []const u8, i: usize) error{OutOfBounds}!u8 {
-    if (i + 1 < str.len) {
-        return str[i + 1];
-    } else return error.OutOfBounds;
-}
-
-const ParseError = error{
-    OutOfMemory,
-    OutOfBounds,
-    InvalidEscapeSequenceStart,
-    InvalidInitialCharacter,
-    InvalidStartOfControlBinding,
-    InvalidStartOfShiftBinding,
-    InvalidStartOfDeleteBinding,
-    InvalidCRBinding,
-    InvalidSpaceBinding,
-    InvalidDeleteBinding,
-    InvalidTabBinding,
-    InvalidUpBinding,
-    InvalidEscapeBinding,
-    InvalidDownBinding,
-    InvalidLeftBinding,
-    InvalidRightBinding,
-    InvalidFunctionKeyNumber,
-    InvalidFunctionKeyBinding,
-    InvalidEscapeSequenceDelimiter,
-    InvalidModifier,
-    InvalidEscapeSequenceEnd,
-};
-
-var parse_error_buf: [256]u8 = undefined;
-var parse_error_message: []const u8 = "";
-
-fn parse_error_reset() void {
-    parse_error_message = "";
-}
-
-fn parse_error(e: ParseError, comptime format: anytype, args: anytype) ParseError {
-    parse_error_message = std.fmt.bufPrint(&parse_error_buf, format, args) catch "error in parse_error";
-    return e;
-}
-
-fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseError![]KeyEvent {
-    parse_error_reset();
-    const State = enum {
-        base,
-        escape_sequence_start,
-        escape_sequence_delimiter,
-        char_or_key_or_modifier,
-        modifier,
-        escape_sequence_end,
-        function_key,
-        tab,
-        space,
-        del,
-        cr,
-        esc,
-        up,
-        down,
-        left,
-        right,
-    };
-    var state: State = .base;
-    var function_key_number: u8 = 0;
-    var modifiers: input.Mods = 0;
-    var result = std.ArrayList(KeyEvent).init(allocator);
-    defer result.deinit();
-
-    var i: usize = 0;
-    while (i < str.len) {
-        switch (state) {
-            .base => {
-                switch (str[i]) {
-                    '<' => {
-                        state = .escape_sequence_start;
-                        i += 1;
-                    },
-                    'a'...'z', '\\', '[', ']', '/', '`', '-', '=', ';', '0'...'9' => {
-                        try result.append(.{ .key = str[i] });
-                        i += 1;
-                    },
-                    else => return parse_error(error.InvalidInitialCharacter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                }
-            },
-            .escape_sequence_start => {
-                switch (str[i]) {
-                    'A' => {
-                        state = .modifier;
-                    },
-                    'C' => {
-                        switch (try peek(str, i)) {
-                            'R' => {
-                                state = .cr;
-                            },
-                            '-' => {
-                                state = .modifier;
-                            },
-                            else => return parse_error(error.InvalidStartOfControlBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                        }
-                    },
-                    'S' => {
-                        switch (try peek(str, i)) {
-                            '-' => {
-                                state = .modifier;
-                            },
-                            'p' => {
-                                state = .space;
-                            },
-                            else => return parse_error(error.InvalidStartOfShiftBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                        }
-                    },
-                    'F' => {
-                        state = .function_key;
-                        i += 1;
-                    },
-                    'T' => {
-                        state = .tab;
-                    },
-                    'U' => {
-                        state = .up;
-                    },
-                    'L' => {
-                        state = .left;
-                    },
-                    'R' => {
-                        state = .right;
-                    },
-                    'E' => {
-                        state = .esc;
-                    },
-                    'D' => {
-                        switch (try peek(str, i)) {
-                            'o' => {
-                                state = .down;
-                            },
-                            '-' => {
-                                state = .modifier;
-                            },
-                            'e' => {
-                                state = .del;
-                            },
-                            else => return parse_error(error.InvalidStartOfDeleteBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                        }
-                    },
-                    else => return parse_error(error.InvalidEscapeSequenceStart, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                }
-            },
-            .cr => {
-                if (std.mem.indexOf(u8, str[i..], "CR") == 0) {
-                    try result.append(.{ .key = input.key.enter, .modifiers = modifiers });
-                    modifiers = 0;
-                    state = .escape_sequence_end;
-                    i += 2;
-                } else return parse_error(error.InvalidCRBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
-            },
-            .space => {
-                if (std.mem.indexOf(u8, str[i..], "Space") == 0) {
-                    try result.append(.{ .key = input.key.space, .modifiers = modifiers });
-                    modifiers = 0;
-                    state = .escape_sequence_end;
-                    i += 5;
-                } else return parse_error(error.InvalidSpaceBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
-            },
-            .del => {
-                if (std.mem.indexOf(u8, str[i..], "Del") == 0) {
-                    try result.append(.{ .key = input.key.delete, .modifiers = modifiers });
-                    modifiers = 0;
-                    state = .escape_sequence_end;
-                    i += 3;
-                } else return parse_error(error.InvalidDeleteBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
-            },
-            .tab => {
-                if (std.mem.indexOf(u8, str[i..], "Tab") == 0) {
-                    try result.append(.{ .key = input.key.tab, .modifiers = modifiers });
-                    modifiers = 0;
-                    state = .escape_sequence_end;
-                    i += 3;
-                } else return parse_error(error.InvalidTabBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
-            },
-            .up => {
-                if (std.mem.indexOf(u8, str[i..], "Up") == 0) {
-                    try result.append(.{ .key = input.key.up, .modifiers = modifiers });
-                    modifiers = 0;
-                    state = .escape_sequence_end;
-                    i += 2;
-                } else return parse_error(error.InvalidUpBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
-            },
-            .esc => {
-                if (std.mem.indexOf(u8, str[i..], "Esc") == 0) {
-                    try result.append(.{ .key = input.key.escape, .modifiers = modifiers });
-                    modifiers = 0;
-                    state = .escape_sequence_end;
-                    i += 3;
-                } else return parse_error(error.InvalidEscapeBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
-            },
-            .down => {
-                if (std.mem.indexOf(u8, str[i..], "Down") == 0) {
-                    try result.append(.{ .key = input.key.down, .modifiers = modifiers });
-                    modifiers = 0;
-                    state = .escape_sequence_end;
-                    i += 4;
-                } else return parse_error(error.InvalidDownBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
-            },
-            .left => {
-                if (std.mem.indexOf(u8, str[i..], "Left") == 0) {
-                    try result.append(.{ .key = input.key.left, .modifiers = modifiers });
-                    modifiers = 0;
-                    state = .escape_sequence_end;
-                    i += 4;
-                } else return parse_error(error.InvalidLeftBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
-            },
-            .right => {
-                if (std.mem.indexOf(u8, str[i..], "Right") == 0) {
-                    try result.append(.{ .key = input.key.right, .modifiers = modifiers });
-                    modifiers = 0;
-                    state = .escape_sequence_end;
-                    i += 5;
-                } else return parse_error(error.InvalidRightBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
-            },
-            .function_key => {
-                switch (str[i]) {
-                    '0'...'9' => {
-                        function_key_number *= 10;
-                        function_key_number += str[i] - '0';
-                        if (function_key_number < 1 or function_key_number > 35)
-                            return parse_error(error.InvalidFunctionKeyNumber, "function_key_number: {}", .{function_key_number});
-                        i += 1;
-                    },
-                    '>' => {
-                        const function_key = input.key.f1 - 1 + function_key_number;
-                        try result.append(.{ .key = function_key, .modifiers = modifiers });
-                        modifiers = 0;
-                        function_key_number = 0;
-                        state = .base;
-                        i += 1;
-                    },
-                    else => return parse_error(error.InvalidFunctionKeyBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                }
-            },
-            .escape_sequence_delimiter => {
-                switch (str[i]) {
-                    '-' => {
-                        state = .char_or_key_or_modifier;
-                        i += 1;
-                    },
-                    else => return parse_error(error.InvalidEscapeSequenceDelimiter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                }
-            },
-            .char_or_key_or_modifier => {
-                switch (str[i]) {
-                    'a'...'z', ';', '0'...'9' => {
-                        try result.append(.{ .key = str[i], .modifiers = modifiers });
-                        modifiers = 0;
-                        state = .escape_sequence_end;
-                        i += 1;
-                    },
-                    else => {
-                        state = .escape_sequence_start;
-                    },
-                }
-            },
-            .modifier => {
-                modifiers |= switch (str[i]) {
-                    'A' => input.mod.alt,
-                    'C' => input.mod.ctrl,
-                    'D' => input.mod.super,
-                    'S' => input.mod.shift,
-                    else => return parse_error(error.InvalidModifier, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                };
-
-                state = .escape_sequence_delimiter;
-                i += 1;
-            },
-            .escape_sequence_end => {
-                switch (str[i]) {
-                    '>' => {
-                        state = .base;
-                        i += 1;
-                    },
-                    else => return parse_error(error.InvalidEscapeSequenceEnd, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                }
-            },
-        }
-    }
-    return result.toOwnedSlice();
-}
 
 //An association of an command with a triggering key chord
 const Binding = struct {
@@ -410,6 +135,7 @@ const Hint = struct {
 const BindingSet = struct {
     allocator: std.mem.Allocator,
     bindings: std.ArrayList(Binding),
+    syntax: KeySyntax = .flow,
     on_match_failure: OnMatchFailure = .ignore,
     current_sequence: std.ArrayList(KeyEvent),
     current_sequence_egc: std.ArrayList(u8),
@@ -418,7 +144,9 @@ const BindingSet = struct {
     logger: log.Logger,
     namespace_name: []const u8,
     mode_name: []const u8,
+    insert_command: []const u8,
 
+    const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
 
     fn hints(self: *@This()) ![]const Hint {
@@ -442,7 +170,7 @@ const BindingSet = struct {
         }
     }
 
-    fn init(allocator: std.mem.Allocator, json_string: []const u8, namespace_name: []const u8, mode_name: []const u8) !@This() {
+    fn init(allocator: std.mem.Allocator, json_string: []const u8, namespace_name: []const u8, mode_name: []const u8, insert_command: []const u8) !@This() {
         var self: @This() = .{
             .allocator = allocator,
             .current_sequence = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
@@ -453,6 +181,7 @@ const BindingSet = struct {
             .logger = if (!builtin.is_test) log.logger("keybind") else undefined,
             .namespace_name = try allocator.dupe(u8, namespace_name),
             .mode_name = try allocator.dupe(u8, mode_name),
+            .insert_command = try allocator.dupe(u8, insert_command),
         };
         try self.load_json(json_string, namespace_name, mode_name);
         return self;
@@ -467,6 +196,7 @@ const BindingSet = struct {
         if (!builtin.is_test) self.logger.deinit();
         self.allocator.free(self.namespace_name);
         self.allocator.free(self.mode_name);
+        self.allocator.free(self.insert_command);
     }
 
     fn load_json(self: *@This(), json_string: []const u8, namespace_name: []const u8, mode_name: []const u8) !void {
@@ -488,10 +218,12 @@ const BindingSet = struct {
     fn load_set_from_json(self: *BindingSet, mode_bindings: std.json.Value) !void {
         const JsonConfig = struct {
             bindings: []const []const []const u8,
+            syntax: KeySyntax,
             on_match_failure: OnMatchFailure,
         };
         const parsed = try std.json.parseFromValue(JsonConfig, self.allocator, mode_bindings, .{});
         defer parsed.deinit();
+        self.syntax = parsed.value.syntax;
         self.on_match_failure = parsed.value.on_match_failure;
         for (parsed.value.bindings) |entry| {
             var state: enum { key_event, command, args } = .key_event;
@@ -507,9 +239,15 @@ const BindingSet = struct {
             for (entry) |token| {
                 switch (state) {
                     .key_event => {
-                        keys = parse_key_events(self.allocator, token) catch |e| {
-                            self.logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_error_message });
-                            break;
+                        keys = switch (self.syntax) {
+                            .flow => parse_flow.parse_key_events(self.allocator, token) catch |e| {
+                                self.logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
+                                break;
+                            },
+                            .vim => parse_vim.parse_key_events(self.allocator, token) catch |e| {
+                                self.logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
+                                break;
+                            },
                         };
                         state = .command;
                     },
@@ -558,7 +296,7 @@ const BindingSet = struct {
         if (self.input_buffer.items.len > 0) {
             defer self.input_buffer.clearRetainingCapacity();
             const id = Static.insert_chars_id orelse
-                command.get_id_cache("insert_chars", &Static.insert_chars_id) orelse {
+                command.get_id_cache(self.insert_command, &Static.insert_chars_id) orelse {
                 return tp.exit_error(error.InputTargetNotFound, null);
             };
             if (!builtin.is_test) {
@@ -622,11 +360,8 @@ const BindingSet = struct {
         for (self.bindings.items) |*binding| {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
-                    defer {
-                        //clear current sequence if command execution fails
-                        self.current_sequence.clearRetainingCapacity();
-                        self.current_sequence_egc.clearRetainingCapacity();
-                    }
+                    self.current_sequence.clearRetainingCapacity();
+                    self.current_sequence_egc.clearRetainingCapacity();
                     return binding;
                 },
                 .match_possible => {
@@ -647,16 +382,11 @@ const BindingSet = struct {
         _ = key_event;
         if (abort_type == .match_impossible) {
             switch (self.on_match_failure) {
-                .insert => {
-                    try self.insert_bytes(self.current_sequence_egc.items);
-                    self.current_sequence_egc.clearRetainingCapacity();
-                    self.current_sequence.clearRetainingCapacity();
-                },
-                .ignore => {
-                    self.current_sequence.clearRetainingCapacity();
-                    self.current_sequence_egc.clearRetainingCapacity();
-                },
+                .insert => try self.insert_bytes(self.current_sequence_egc.items),
+                .ignore => {},
             }
+            self.current_sequence.clearRetainingCapacity();
+            self.current_sequence_egc.clearRetainingCapacity();
         } else if (abort_type == .timeout) {
             try self.insert_bytes(self.current_sequence_egc.items);
             self.current_sequence_egc.clearRetainingCapacity();
@@ -718,7 +448,7 @@ const parse_test_cases = .{
 test "parse" {
     const alloc = std.testing.allocator;
     inline for (parse_test_cases) |case| {
-        const parsed = try parse_key_events(alloc, case[0]);
+        const parsed = try parse_vim.parse_key_events(alloc, case[0]);
         defer alloc.free(parsed);
         const expected: []const KeyEvent = case[1];
         const actual: []const KeyEvent = parsed;
@@ -744,10 +474,10 @@ const match_test_cases = .{
 test "match" {
     const alloc = std.testing.allocator;
     inline for (match_test_cases) |case| {
-        const events = try parse_key_events(alloc, case[0]);
+        const events = try parse_vim.parse_key_events(alloc, case[0]);
         defer alloc.free(events);
         const binding: Binding = .{
-            .keys = try parse_key_events(alloc, case[1]),
+            .keys = try parse_vim.parse_key_events(alloc, case[1]),
             .command = undefined,
             .args = undefined,
         };
