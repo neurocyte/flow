@@ -489,11 +489,11 @@ test "match" {
 
 test "json" {
     const alloc = std.testing.allocator;
-    var bindings = try BindingSet.init(alloc, @embedFile("keybindings.json"), "vim", "normal");
+    var bindings = try BindingSet.init(alloc, @embedFile("keybindings.json"), "vim", "normal", "insert_chars");
     defer bindings.deinit();
-    try bindings.process_key_event('j', .{ .key = 'j' });
-    try bindings.process_key_event('k', .{ .key = 'k' });
-    try bindings.process_key_event('g', .{ .key = 'g' });
-    try bindings.process_key_event('i', .{ .key = 'i' });
-    try bindings.process_key_event(0, .{ .key = 'i', .modifiers = input.mod.ctrl });
+    _ = try bindings.process_key_event('j', .{ .key = 'j' });
+    _ = try bindings.process_key_event('k', .{ .key = 'k' });
+    _ = try bindings.process_key_event('g', .{ .key = 'g' });
+    _ = try bindings.process_key_event('i', .{ .key = 'i' });
+    _ = try bindings.process_key_event(0, .{ .key = 'i', .modifiers = input.mod.ctrl });
 }
