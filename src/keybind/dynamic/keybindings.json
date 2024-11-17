@@ -31,7 +31,7 @@
                 ["ctrl+g", "goto"],
                 ["ctrl+d", "add_cursor_next_match"],
                 ["ctrl+a", "select_all"],
-                ["ctrl+i", "insert_bytes", "\t"],
+                ["ctrl+i", "insert_chars", "\t"],
                 ["ctrl+/", "toggle_comment"],
                 ["ctrl+enter", "smart_insert_line_after"],
                 ["ctrl+space", "completion"],
