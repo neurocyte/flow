@@ -409,8 +409,9 @@ fn active_event_handler(self: *Self) ?EventHandler {
 
 fn dispatch_flush_input_event(self: *Self) !void {
     var buf: [32]u8 = undefined;
-    if (self.active_event_handler()) |eh|
-        try eh.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
+    const mode = self.input_mode orelse return;
+    try mode.input_handler.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
+    if (mode.event_handler) |eh| try eh.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
 }
 
 fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
