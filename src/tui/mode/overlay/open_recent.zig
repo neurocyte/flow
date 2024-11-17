@@ -60,7 +60,9 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     try mv.floating_views.add(self.modal.widget());
     try mv.floating_views.add(self.menu.container_widget);
     return .{
-        .input_handler = try keybind.mode.overlay.palette.create(allocator, .{}),
+        .input_handler = try keybind.mode.overlay.palette.create(allocator, .{
+            .insert_command = "overlay_insert_bytes",
+        }),
         .event_handler = EventHandler.to_owned(self),
         .name = "󰈞 open recent",
     };
@@ -307,6 +309,14 @@ const cmds = struct {
         self.insert_code_point(egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     pub const overlay_insert_code_point_meta = .{ .interactive = false };
+
+    pub fn overlay_insert_bytes(self: *Self, ctx: Ctx) Result {
+        var bytes: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&bytes)}))
+            return error.InvalidArgument;
+        self.insert_bytes(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const overlay_insert_bytes_meta = .{ .interactive = false };
 
     pub fn overlay_release_control(self: *Self, _: Ctx) Result {
         if (self.menu.selected orelse 0 > 0) return self.cmd("palette_menu_activate", .{});
