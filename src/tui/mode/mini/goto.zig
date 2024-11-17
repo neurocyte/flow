@@ -34,7 +34,9 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
         try self.commands.init(self);
         return .{
             .{
-                .input_handler = try keybind.mode.mini.goto.create(allocator, .{}),
+                .input_handler = try keybind.mode.mini.goto.create(allocator, .{
+                    .insert_command = "mini_mode_insert_bytes",
+                }),
                 .event_handler = EventHandler.to_owned(self),
             },
             .{
@@ -67,6 +69,23 @@ fn update_mini_mode_text(self: *Self) void {
 
 fn goto(self: *Self) void {
     command.executeName("goto_line", command.fmt(.{self.input orelse self.start})) catch {};
+}
+
+fn insert_char(self: *Self, char: u8) void {
+    switch (char) {
+        '0' => {
+            if (self.input) |linenum| self.input = linenum * 10;
+        },
+        '1'...'9' => {
+            const digit: usize = @intCast(char - '0');
+            self.input = if (self.input) |x| x * 10 + digit else digit;
+        },
+        else => {},
+    }
+}
+
+fn insert_bytes(self: *Self, bytes: []const u8) void {
+    for (bytes) |c| self.insert_char(c);
 }
 
 const cmds = struct {
@@ -103,17 +122,21 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&keypress)}))
             return error.InvalidArgument;
         switch (keypress) {
-            '0' => {
-                if (self.input) |linenum| self.input = linenum * 10;
-            },
-            '1'...'9' => {
-                const digit: usize = @intCast(keypress - '0');
-                self.input = if (self.input) |x| x * 10 + digit else digit;
-            },
+            '0'...'9' => self.insert_char(@intCast(keypress)),
             else => {},
         }
         self.update_mini_mode_text();
         self.goto();
     }
     pub const mini_mode_insert_code_point_meta = .{ .interactive = false };
+
+    pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
+        var bytes: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&bytes)}))
+            return error.InvalidArgument;
+        self.insert_bytes(bytes);
+        self.update_mini_mode_text();
+        self.goto();
+    }
+    pub const mini_mode_insert_bytes_meta = .{ .interactive = false };
 };

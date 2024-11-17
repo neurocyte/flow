@@ -242,6 +242,7 @@
             "on_match_failure": "insert",
             "bindings": [
                 ["ctrl+q", "quit"],
+                ["ctrl+v", "system_paste"],
                 ["ctrl+u", "mini_mode_reset"],
                 ["ctrl+g", "mini_mode_cancel"],
                 ["ctrl+c", "mini_mode_cancel"],
@@ -250,17 +251,7 @@
 
                 ["escape", "mini_mode_cancel"],
                 ["enter", "exit_mini_mode"],
-                ["backspace", "mini_mode_delete_backwards"],
-                ["0", "mini_mode_insert_code_point", 0],
-                ["1", "mini_mode_insert_code_point", 1],
-                ["2", "mini_mode_insert_code_point", 2],
-                ["3", "mini_mode_insert_code_point", 3],
-                ["4", "mini_mode_insert_code_point", 4],
-                ["5", "mini_mode_insert_code_point", 5],
-                ["6", "mini_mode_insert_code_point", 6],
-                ["7", "mini_mode_insert_code_point", 7],
-                ["8", "mini_mode_insert_code_point", 8],
-                ["9", "mini_mode_insert_code_point", 9]
+                ["backspace", "mini_mode_delete_backwards"]
             ]
         },
         "mini/move_to_char": {
