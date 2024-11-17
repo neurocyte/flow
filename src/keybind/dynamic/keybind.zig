@@ -145,6 +145,7 @@ const BindingSet = struct {
     namespace_name: []const u8,
     mode_name: []const u8,
     insert_command: []const u8,
+    insert_command_id: ?command.ID = null,
 
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
@@ -307,13 +308,10 @@ const BindingSet = struct {
     }
 
     fn flush(self: *@This()) !void {
-        const Static = struct {
-            var insert_chars_id: ?command.ID = null;
-        };
         if (self.input_buffer.items.len > 0) {
             defer self.input_buffer.clearRetainingCapacity();
-            const id = Static.insert_chars_id orelse
-                command.get_id_cache(self.insert_command, &Static.insert_chars_id) orelse {
+            const id = self.insert_command_id orelse
+                command.get_id_cache(self.insert_command, &self.insert_command_id) orelse {
                 return tp.exit_error(error.InputTargetNotFound, null);
             };
             if (!builtin.is_test) {
