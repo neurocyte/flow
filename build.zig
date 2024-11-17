@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
-    const optimize_deps = b.option(bool, "optimize_deps", "Enable optimization for dependecies (default: yes)") orelse true;
     const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
     const strip = b.option(bool, "strip", "Disable debug information (default: no)") orelse false;
     const dynamic_keybind = b.option(bool, "dynamic_keybind", "Build with dynamic keybinding support (default: no) (EXPERIMENTAL)") orelse false;
@@ -12,7 +11,6 @@ pub fn build(b: *std.Build) void {
 
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
-    options.addOption(bool, "optimize_deps", optimize_deps);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
     options.addOption(bool, "strip", strip);
     options.addOption(bool, "dynamic_keybind", dynamic_keybind);
@@ -20,10 +18,7 @@ pub fn build(b: *std.Build) void {
     const options_mod = options.createModule();
 
     const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
-    // std.debug.print("target abi: {s}\n", .{@tagName(target.result.abi)});
     const optimize = b.standardOptimizeOption(.{});
-
-    const dependency_optimize = if (optimize_deps) .ReleaseFast else optimize;
 
     std.fs.cwd().makeDir(".cache") catch |e| switch (e) {
         error.PathAlreadyExists => {},
@@ -46,28 +41,28 @@ pub fn build(b: *std.Build) void {
 
     const vaxis_dep = b.dependency("vaxis", .{
         .target = target,
-        .optimize = dependency_optimize,
+        .optimize = optimize,
     });
     const vaxis_mod = vaxis_dep.module("vaxis");
 
     const flags_dep = b.dependency("flags", .{
         .target = target,
-        .optimize = dependency_optimize,
+        .optimize = optimize,
     });
 
     const dizzy_dep = b.dependency("dizzy", .{
         .target = target,
-        .optimize = dependency_optimize,
+        .optimize = optimize,
     });
 
     const fuzzig_dep = b.dependency("fuzzig", .{
         .target = target,
-        .optimize = dependency_optimize,
+        .optimize = optimize,
     });
 
     const tracy_dep = if (tracy_enabled) b.dependency("tracy", .{
         .target = target,
-        .optimize = dependency_optimize,
+        .optimize = optimize,
     }) else undefined;
     const tracy_mod = if (tracy_enabled) tracy_dep.module("tracy") else b.createModule(.{
         .root_source_file = b.path("src/tracy_noop.zig"),
@@ -75,12 +70,12 @@ pub fn build(b: *std.Build) void {
 
     const zg_dep = vaxis_dep.builder.dependency("zg", .{
         .target = target,
-        .optimize = dependency_optimize,
+        .optimize = optimize,
     });
 
     const zeit_dep = b.dependency("zeit", .{
         .target = target,
-        .optimize = dependency_optimize,
+        .optimize = optimize,
     });
     const zeit_mod = zeit_dep.module("zeit");
 
@@ -88,14 +83,14 @@ pub fn build(b: *std.Build) void {
 
     const syntax_dep = b.dependency("syntax", .{
         .target = target,
-        .optimize = dependency_optimize,
+        .optimize = optimize,
         .use_tree_sitter = use_tree_sitter,
     });
     const syntax_mod = syntax_dep.module("syntax");
 
     const thespian_dep = b.dependency("thespian", .{
         .target = target,
-        .optimize = dependency_optimize,
+        .optimize = optimize,
         .enable_tracy = tracy_enabled,
     });
 
