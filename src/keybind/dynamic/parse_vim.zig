@@ -8,7 +8,7 @@ fn peek(str: []const u8, i: usize) error{OutOfBounds}!u8 {
     } else return error.OutOfBounds;
 }
 
-const ParseError = error{
+pub const ParseError = error{
     OutOfMemory,
     OutOfBounds,
     InvalidEscapeSequenceStart,

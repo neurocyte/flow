@@ -215,36 +215,45 @@ const BindingSet = struct {
         }
     }
 
-    fn load_set_from_json(self: *BindingSet, mode_bindings: std.json.Value) !void {
+    fn load_set_from_json(self: *BindingSet, mode_bindings: std.json.Value) (parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!void {
         const JsonConfig = struct {
-            bindings: []const []const []const u8,
+            bindings: []const []const std.json.Value,
             syntax: KeySyntax,
             on_match_failure: OnMatchFailure,
         };
-        const parsed = try std.json.parseFromValue(JsonConfig, self.allocator, mode_bindings, .{});
+        const parsed = try std.json.parseFromValue(JsonConfig, self.allocator, mode_bindings, .{
+            .ignore_unknown_fields = true,
+        });
         defer parsed.deinit();
         self.syntax = parsed.value.syntax;
         self.on_match_failure = parsed.value.on_match_failure;
-        for (parsed.value.bindings) |entry| {
+        bindings: for (parsed.value.bindings) |entry| {
             var state: enum { key_event, command, args } = .key_event;
             var keys: ?[]KeyEvent = null;
             var command_: ?[]const u8 = null;
-            var args = std.ArrayListUnmanaged([]const u8){};
+            var args = std.ArrayListUnmanaged(std.json.Value){};
             defer {
                 if (keys) |p| self.allocator.free(p);
                 if (command_) |p| self.allocator.free(p);
-                for (args.items) |p| self.allocator.free(p);
                 args.deinit(self.allocator);
             }
             for (entry) |token| {
                 switch (state) {
                     .key_event => {
+                        if (token != .string) {
+                            self.logger.print_err("keybind.load", "ERROR: invalid binding key token {any} in '{s}' mode '{s}' ", .{
+                                token,
+                                self.namespace_name,
+                                self.mode_name,
+                            });
+                            continue :bindings;
+                        }
                         keys = switch (self.syntax) {
-                            .flow => parse_flow.parse_key_events(self.allocator, token) catch |e| {
+                            .flow => parse_flow.parse_key_events(self.allocator, token.string) catch |e| {
                                 self.logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
                                 break;
                             },
-                            .vim => parse_vim.parse_key_events(self.allocator, token) catch |e| {
+                            .vim => parse_vim.parse_key_events(self.allocator, token.string) catch |e| {
                                 self.logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
                                 break;
                             },
@@ -252,11 +261,19 @@ const BindingSet = struct {
                         state = .command;
                     },
                     .command => {
-                        command_ = try self.allocator.dupe(u8, token);
+                        if (token != .string) {
+                            self.logger.print_err("keybind.load", "ERROR: invalid binding command token {any} in '{s}' mode '{s}' ", .{
+                                token,
+                                self.namespace_name,
+                                self.mode_name,
+                            });
+                            continue :bindings;
+                        }
+                        command_ = try self.allocator.dupe(u8, token.string);
                         state = .args;
                     },
                     .args => {
-                        try args.append(self.allocator, try self.allocator.dupe(u8, token));
+                        try args.append(self.allocator, token);
                     },
                 }
             }
@@ -268,7 +285,7 @@ const BindingSet = struct {
             defer args_cbor.deinit(self.allocator);
             const writer = args_cbor.writer(self.allocator);
             try cbor.writeArrayHeader(writer, args.items.len);
-            for (args.items) |arg| try cbor.writeValue(writer, arg);
+            for (args.items) |arg| try cbor.writeJsonValue(writer, arg);
 
             try self.bindings.append(.{
                 .keys = keys.?,
