@@ -349,11 +349,11 @@ test "get_from_pos" {
     try std.testing.expectEqualDeep(result1[0..line0.len], line0);
 
     const result2 = buffer.root.get_from_pos(.{ .row = 1, .col = 5 }, &result_buf, metrics());
-    try std.testing.expectEqualDeep(result2[0..line1.len - 5], line1[5..]);
+    try std.testing.expectEqualDeep(result2[0 .. line1.len - 5], line1[5..]);
 
     _, _, const root = try buffer.root.insert_chars(1, 3, " ", buffer.allocator, metrics());
     buffer.update(root);
 
     const result3 = buffer.root.get_from_pos(.{ .row = 1, .col = 5 }, &result_buf, metrics());
-    try std.testing.expectEqualDeep(result3[0..line1.len - 4], line1[4..]);
+    try std.testing.expectEqualDeep(result3[0 .. line1.len - 4], line1[4..]);
 }

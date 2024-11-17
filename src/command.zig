@@ -2,7 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const log = @import("log");
 
-pub var context_check: ?*const fn() void = null;
+pub var context_check: ?*const fn () void = null;
 
 pub const ID = usize;
 pub const ID_unknown = std.math.maxInt(ID);
@@ -98,7 +98,7 @@ pub fn removeCommand(id: ID) void {
 }
 
 pub fn execute(id: ID, ctx: Context) tp.result {
-    if(context_check) |check| check();
+    if (context_check) |check| check();
     if (id >= commands.items.len)
         return tp.exit_fmt("CommandNotFound: {d}", .{id});
     const cmd = commands.items[id];

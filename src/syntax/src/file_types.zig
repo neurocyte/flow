@@ -113,10 +113,10 @@ pub const gitcommit = .{
 pub const gleam = .{
     .color = 0xffaff3,
     .icon = "󰦥",
-    .extensions = .{ "gleam" },
+    .extensions = .{"gleam"},
     .comment = "//",
-    .language_server = .{"gleam", "lsp"},
-    .formatter = .{"gleam", "format", "--stdin"},
+    .language_server = .{ "gleam", "lsp" },
+    .formatter = .{ "gleam", "format", "--stdin" },
 };
 
 pub const go = .{

@@ -1081,7 +1081,7 @@ pub const Editor = struct {
             last_begin: Cursor = Cursor.invalid(),
             fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, _: *const syntax.Node) error{Stop}!void {
                 const sel_ = ctx.pos_cache.range_to_selection(range, ctx.root, ctx.self.metrics) orelse return;
-                
+
                 if (idx > 0) return;
                 if (sel_.begin.eql(ctx.last_begin)) return;
                 ctx.last_begin = sel_.begin;
