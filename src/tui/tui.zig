@@ -564,8 +564,8 @@ pub fn save_config(self: *const Self) !void {
 }
 
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {
-    if (self.mini_mode) |_| cmds.exit_mini_mode(self, .{});
-    if (self.input_mode_outer) |_| cmds.exit_overlay_mode(self, .{});
+    if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
+    if (self.input_mode_outer) |_| try cmds.exit_overlay_mode(self, .{});
     self.input_mode_outer = self.input_mode;
     self.input_mode = try mode.create(self.allocator);
     self.refresh_hover();
@@ -674,8 +674,8 @@ const cmds = struct {
             self.delayed_init_input_mode = try self.allocator.dupe(u8, mode);
             return;
         }
-        if (self.mini_mode) |_| exit_mini_mode(self, .{});
-        if (self.input_mode_outer) |_| exit_overlay_mode(self, .{});
+        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode) |*m| {
             m.deinit();
             self.input_mode = null;
@@ -748,7 +748,7 @@ const cmds = struct {
     }
     pub const change_theme_meta = .{ .description = "Select color theme" };
 
-    pub fn exit_overlay_mode(self: *Self, _: Ctx) void {
+    pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
         if (self.input_mode_outer == null) return;
         if (self.input_mode) |*mode| mode.deinit();
         self.input_mode = self.input_mode_outer;
@@ -789,15 +789,15 @@ const cmds = struct {
 
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
         const input_mode, const mini_mode = try mode.create(self.allocator, ctx);
-        if (self.mini_mode) |_| exit_mini_mode(self, .{});
-        if (self.input_mode_outer) |_| exit_overlay_mode(self, .{});
+        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode_outer != null) @panic("exit_overlay_mode failed");
         self.input_mode_outer = self.input_mode;
         self.input_mode = input_mode;
         self.mini_mode = mini_mode;
     }
 
-    pub fn exit_mini_mode(self: *Self, _: Ctx) void {
+    pub fn exit_mini_mode(self: *Self, _: Ctx) Result {
         if (self.mini_mode) |_| {} else return;
         if (self.input_mode) |*mode| mode.deinit();
         self.input_mode = self.input_mode_outer;
