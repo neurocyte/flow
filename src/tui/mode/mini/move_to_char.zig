@@ -43,7 +43,9 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     try self.commands.init(self);
     return .{
         .{
-            .input_handler = try keybind.mode.mini.move_to_char.create(allocator, .{}),
+            .input_handler = try keybind.mode.mini.move_to_char.create(allocator, .{
+                .insert_command = "mini_mode_insert_bytes",
+            }),
             .event_handler = EventHandler.to_owned(self),
         },
         .{
@@ -74,7 +76,7 @@ pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn execute_operation(self: *Self, c: u32) void {
+fn execute_operation(self: *Self, ctx: command.Context) command.Result {
     const cmd = switch (self.direction) {
         .left => switch (self.operation) {
             .move => "move_to_char_left",
@@ -85,10 +87,8 @@ fn execute_operation(self: *Self, c: u32) void {
             .select => "select_to_char_right",
         },
     };
-    var buf: [6]u8 = undefined;
-    const bytes = input.ucs32_to_utf8(&[_]u32{c}, &buf) catch return;
-    command.executeName(cmd, command.fmt(.{buf[0..bytes]})) catch {};
-    command.executeName("exit_mini_mode", .{}) catch {};
+    try command.executeName(cmd, ctx);
+    try command.executeName("exit_mini_mode", .{});
 }
 
 const cmds = struct {
@@ -102,20 +102,17 @@ const cmds = struct {
             return error.InvalidArgument;
         var buf: [6]u8 = undefined;
         const bytes = input.ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidArgument;
-        const cmd = switch (self.direction) {
-            .left => switch (self.operation) {
-                .move => "move_to_char_left",
-                .select => "select_to_char_left",
-            },
-            .right => switch (self.operation) {
-                .move => "move_to_char_right",
-                .select => "select_to_char_right",
-            },
-        };
-        try command.executeName(cmd, command.fmt(.{buf[0..bytes]}));
-        try command.executeName("exit_mini_mode", .{});
+        return self.execute_operation(command.fmt(.{buf[0..bytes]}));
     }
     pub const mini_mode_insert_code_point_meta = .{ .interactive = false };
+
+    pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
+        var bytes: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&bytes)}))
+            return error.InvalidArgument;
+        return self.execute_operation(ctx);
+    }
+    pub const mini_mode_insert_bytes_meta = .{ .interactive = false };
 
     pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
         command.executeName("exit_mini_mode", .{}) catch {};

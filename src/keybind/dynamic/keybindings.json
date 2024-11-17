@@ -258,6 +258,11 @@
             "syntax": "flow",
             "on_match_failure": "insert",
             "bindings": [
+                ["ctrl+g", "mini_mode_cancel"],
+                ["ctrl+c", "mini_mode_cancel"],
+                ["ctrl+l", "scroll_view_center_cycle"],
+                ["escape", "mini_mode_cancel"],
+                ["backspace", "mini_mode_cancel"]
             ]
         },
         "mini/file_browser": {
