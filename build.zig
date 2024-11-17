@@ -2,13 +2,128 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
+    const release = b.option(bool, "package_release", "Build all release targets") orelse false;
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
     const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
-    const strip = b.option(bool, "strip", "Disable debug information (default: no)") orelse false;
+    const strip = b.option(bool, "strip", "Disable debug information (default: no)");
     const dynamic_keybind = b.option(bool, "dynamic_keybind", "Build with dynamic keybinding support (default: no) (EXPERIMENTAL)") orelse false;
     const use_llvm = b.option(bool, "use_llvm", "Enable llvm backend (default: none)");
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
 
+    const run_step = b.step("run", "Run the app");
+    const check_step = b.step("check", "Check the app");
+    const test_step = b.step("test", "Run unit tests");
+    const lint_step = b.step("lint", "Run lints");
+
+    return (if (release) &build_release else &build_development)(
+        b,
+        run_step,
+        check_step,
+        test_step,
+        lint_step,
+        tracy_enabled,
+        use_tree_sitter,
+        strip,
+        dynamic_keybind,
+        use_llvm,
+        pie,
+    );
+}
+
+fn build_development(
+    b: *std.Build,
+    run_step: *std.Build.Step,
+    check_step: *std.Build.Step,
+    test_step: *std.Build.Step,
+    lint_step: *std.Build.Step,
+    tracy_enabled: bool,
+    use_tree_sitter: bool,
+    strip: ?bool,
+    dynamic_keybind: bool,
+    use_llvm: ?bool,
+    pie: ?bool,
+) void {
+    const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
+    const optimize = b.standardOptimizeOption(.{});
+
+    return build_exe(
+        b,
+        run_step,
+        check_step,
+        test_step,
+        lint_step,
+        target,
+        optimize,
+        .{},
+        tracy_enabled,
+        use_tree_sitter,
+        strip orelse false,
+        dynamic_keybind,
+        use_llvm,
+        pie,
+    );
+}
+
+fn build_release(
+    b: *std.Build,
+    run_step: *std.Build.Step,
+    check_step: *std.Build.Step,
+    test_step: *std.Build.Step,
+    lint_step: *std.Build.Step,
+    tracy_enabled: bool,
+    use_tree_sitter: bool,
+    strip: ?bool,
+    dynamic_keybind: bool,
+    use_llvm: ?bool,
+    pie: ?bool,
+) void {
+    const targets: []const std.Target.Query = &.{
+        .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
+        .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
+        .{ .cpu_arch = .x86_64, .os_tag = .macos },
+        .{ .cpu_arch = .aarch64, .os_tag = .macos },
+        .{ .cpu_arch = .x86_64, .os_tag = .windows },
+        .{ .cpu_arch = .aarch64, .os_tag = .windows },
+    };
+    const optimize = .ReleaseSafe;
+
+    for (targets) |t| {
+        const target = b.resolveTargetQuery(t);
+        build_exe(
+            b,
+            run_step,
+            check_step,
+            test_step,
+            lint_step,
+            target,
+            optimize,
+            .{ .dest_dir = .{ .override = .{ .custom = t.zigTriple(b.allocator) catch unreachable } } },
+            tracy_enabled,
+            use_tree_sitter,
+            strip orelse true,
+            dynamic_keybind,
+            use_llvm,
+            pie,
+        );
+    }
+}
+
+pub fn build_exe(
+    b: *std.Build,
+    run_step: *std.Build.Step,
+    check_step: *std.Build.Step,
+    test_step: *std.Build.Step,
+    lint_step: *std.Build.Step,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    exe_install_options: std.Build.Step.InstallArtifact.Options,
+    tracy_enabled: bool,
+    use_tree_sitter: bool,
+    strip: bool,
+    dynamic_keybind: bool,
+    use_llvm: ?bool,
+    pie: ?bool,
+) void {
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
@@ -16,9 +131,6 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "dynamic_keybind", dynamic_keybind);
 
     const options_mod = options.createModule();
-
-    const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
-    const optimize = b.standardOptimizeOption(.{});
 
     std.fs.cwd().makeDir(".cache") catch |e| switch (e) {
         error.PathAlreadyExists => {},
@@ -304,7 +416,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("input", input_mod);
     exe.root_module.addImport("syntax", syntax_mod);
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
-    b.installArtifact(exe);
+    const exe_install = b.addInstallArtifact(exe, exe_install_options);
+    b.getInstallStep().dependOn(&exe_install.step);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -312,7 +425,6 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
     const check_exe = b.addExecutable(.{
@@ -334,8 +446,7 @@ pub fn build(b: *std.Build) void {
     check_exe.root_module.addImport("input", input_mod);
     check_exe.root_module.addImport("syntax", syntax_mod);
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
-    const check = b.step("check", "Check the app");
-    check.dependOn(&check_exe.step);
+    check_step.dependOn(&check_exe.step);
 
     const tests = b.addTest(.{
         .root_source_file = b.path("test/tests.zig"),
@@ -355,19 +466,16 @@ pub fn build(b: *std.Build) void {
 
     const test_run_cmd = b.addRunArtifact(tests);
 
-    const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run_cmd.step);
     test_step.dependOn(&keybind_test_run_cmd.step);
-
-    const lints_step = b.step("lint", "Run lints");
 
     const lints = b.addFmt(.{
         .paths = &.{ "src", "test", "build.zig" },
         .check = true,
     });
 
-    lints_step.dependOn(&lints.step);
-    // b.default_step.dependOn(lints_step);
+    lint_step.dependOn(&lints.step);
+    // b.default_step.dependOn(lint_step);
 }
 
 fn gen_version_info(b: *std.Build, writer: anytype) !void {
