@@ -36,7 +36,7 @@ fn map_press(keypress: input.Key, egc: input.Key, modifiers: input.Mods) !void {
             'U' => command.executeName("mini_mode_reset", .{}),
             'G' => command.executeName("mini_mode_cancel", .{}),
             'C' => command.executeName("mini_mode_cancel", .{}),
-            'L' => command.executeName("scroll_view_center", .{}),
+            'L' => command.executeName("scroll_view_center_cycle", .{}),
             'I' => command.executeName("mini_mode_insert_bytes", command.fmt(.{"\t"})),
             input.key.space => command.executeName("mini_mode_cancel", .{}),
             input.key.backspace => command.executeName("mini_mode_delete_to_previous_path_segment", .{}),

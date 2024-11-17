@@ -33,7 +33,7 @@ fn map_press(keypress: input.Key, modifiers: input.Mods) tp.result {
             'U' => command.executeName("mini_mode_reset", .{}),
             'G' => command.executeName("mini_mode_cancel", .{}),
             'C' => command.executeName("mini_mode_cancel", .{}),
-            'L' => command.executeName("scroll_view_center", .{}),
+            'L' => command.executeName("scroll_view_center_cycle", .{}),
             input.key.space => command.executeName("mini_mode_cancel", .{}),
             else => {},
         },

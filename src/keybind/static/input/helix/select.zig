@@ -489,15 +489,6 @@ fn cmd_count(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
         try command.executeName(name_, ctx);
 }
 
-fn cmd_cycle3(self: *Self, name1: []const u8, name2: []const u8, name3: []const u8, ctx: command.Context) tp.result {
-    return if (std.mem.eql(u8, self.last_cmd, name2))
-        self.cmd(name3, ctx)
-    else if (std.mem.eql(u8, self.last_cmd, name1))
-        self.cmd(name2, ctx)
-    else
-        self.cmd(name1, ctx);
-}
-
 fn cmd_async(self: *Self, name_: []const u8) tp.result {
     self.last_cmd = name_;
     return tp.self_pid().send(.{ "cmd", name_ });
@@ -600,9 +591,7 @@ pub const hints = keybind.KeybindHints.initComptime(.{
     .{ "quit_without_saving", "C-S-q" },
     .{ "redo", "C-S-z, C-y" },
     .{ "save_file", "C-s" },
-    .{ "scroll_view_bottom", "C-l, z z" },
-    .{ "scroll_view_center", "C-l, z z" },
-    .{ "scroll_view_top", "C-l, z z" },
+    .{ "scroll_view_center_cycle", "C-l, z z" },
     .{ "select_all", "C-a" },
     .{ "select_buffer_begin", "C-S-home" },
     .{ "select_buffer_end", "C-S-end" },

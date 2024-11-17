@@ -36,7 +36,7 @@ fn map_press(keypress: input.Key, egc: input.Key, modifiers: input.Mods) !void {
             'U' => command.executeName("mini_mode_reset", .{}),
             'G' => command.executeName("mini_mode_cancel", .{}),
             'C' => command.executeName("mini_mode_cancel", .{}),
-            'L' => command.executeName("scroll_view_center", .{}),
+            'L' => command.executeName("scroll_view_center_cycle", .{}),
             'F' => command.executeName("goto_next_match", .{}),
             'N' => command.executeName("goto_next_match", .{}),
             'P' => command.executeName("goto_prev_match", .{}),

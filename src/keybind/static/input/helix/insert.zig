@@ -79,7 +79,7 @@ fn map_press(self: *Self, keypress: input.Key, egc: input.Key, modifiers: input.
             'Q' => self.cmd("quit", .{}),
             'W' => self.cmd("close_file", .{}),
             'S' => self.cmd("save_file", .{}),
-            'L' => self.cmd_cycle3("scroll_view_center", "scroll_view_top", "scroll_view_bottom", .{}),
+            'L' => self.cmd("scroll_view_center_cycle", .{}),
             'N' => self.cmd("goto_next_match", .{}),
             'P' => self.cmd("goto_prev_match", .{}),
             'B' => self.cmd("move_to_char", command.fmt(.{false})),
@@ -270,15 +270,6 @@ fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
     try self.flush_input();
     self.last_cmd = name_;
     try command.executeName(name_, ctx);
-}
-
-fn cmd_cycle3(self: *Self, name1: []const u8, name2: []const u8, name3: []const u8, ctx: command.Context) tp.result {
-    return if (std.mem.eql(u8, self.last_cmd, name2))
-        self.cmd(name3, ctx)
-    else if (std.mem.eql(u8, self.last_cmd, name1))
-        self.cmd(name2, ctx)
-    else
-        self.cmd(name1, ctx);
 }
 
 fn cmd_async(self: *Self, name_: []const u8) tp.result {
