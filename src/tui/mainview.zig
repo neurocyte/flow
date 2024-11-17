@@ -7,6 +7,7 @@ const root = @import("root");
 const location_history = @import("location_history");
 const project_manager = @import("project_manager");
 const log = @import("log");
+const builtin = @import("builtin");
 
 const Plane = @import("renderer").Plane;
 const input = @import("input");
@@ -543,6 +544,13 @@ const cmds = struct {
         self.show_file_async_and_free(file_path orelse return error.Stop);
     }
     pub const open_previous_file_meta = .{ .description = "Open the previous file" };
+
+    pub fn system_paste(_: *Self, _: Ctx) Result {
+        if (builtin.os.tag == .windows)
+            return command.executeName("paste", .{}) catch {};
+        tui.current().rdr.request_system_clipboard();
+    }
+    pub const system_paste_meta = .{ .description = "Paste from system clipboard" };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {

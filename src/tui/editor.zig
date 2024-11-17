@@ -2098,12 +2098,6 @@ pub const Editor = struct {
     }
     pub const paste_meta = .{ .description = "Paste from internal clipboard" };
 
-    pub fn system_paste(self: *Self, _: Context) Result {
-        if (builtin.os.tag == .windows) return self.paste(.{});
-        tui.current().rdr.request_system_clipboard();
-    }
-    pub const system_paste_meta = .{ .description = "Paste from system clipboard" };
-
     pub fn delete_forward(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         const root = try self.delete_to(move_cursor_right, b.root, b.allocator);
