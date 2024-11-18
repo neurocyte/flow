@@ -6,7 +6,6 @@ pub fn build(b: *std.Build) void {
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
     const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
-    const dynamic_keybind = b.option(bool, "dynamic_keybind", "Build with dynamic keybinding support (default: no) (EXPERIMENTAL)") orelse false;
     const use_llvm = b.option(bool, "use_llvm", "Enable llvm backend (default: none)");
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
 
@@ -24,7 +23,6 @@ pub fn build(b: *std.Build) void {
         tracy_enabled,
         use_tree_sitter,
         strip,
-        dynamic_keybind,
         use_llvm,
         pie,
     );
@@ -39,7 +37,6 @@ fn build_development(
     tracy_enabled: bool,
     use_tree_sitter: bool,
     strip: ?bool,
-    dynamic_keybind: bool,
     use_llvm: ?bool,
     pie: ?bool,
 ) void {
@@ -58,7 +55,6 @@ fn build_development(
         tracy_enabled,
         use_tree_sitter,
         strip orelse false,
-        dynamic_keybind,
         use_llvm,
         pie,
     );
@@ -73,7 +69,6 @@ fn build_release(
     tracy_enabled: bool,
     use_tree_sitter: bool,
     strip: ?bool,
-    dynamic_keybind: bool,
     use_llvm: ?bool,
     pie: ?bool,
 ) void {
@@ -113,7 +108,6 @@ fn build_release(
             tracy_enabled,
             use_tree_sitter,
             strip orelse true,
-            dynamic_keybind,
             use_llvm,
             pie,
         );
@@ -132,7 +126,6 @@ pub fn build_exe(
     tracy_enabled: bool,
     use_tree_sitter: bool,
     strip: bool,
-    dynamic_keybind: bool,
     use_llvm: ?bool,
     pie: ?bool,
 ) void {
@@ -140,7 +133,6 @@ pub fn build_exe(
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
     options.addOption(bool, "strip", strip);
-    options.addOption(bool, "dynamic_keybind", dynamic_keybind);
 
     const options_mod = options.createModule();
 
@@ -286,18 +278,8 @@ pub fn build_exe(
         },
     });
 
-    const keybind_static_mod = b.createModule(.{
-        .root_source_file = b.path("src/keybind/static/keybind.zig"),
-        .imports = &.{
-            .{ .name = "cbor", .module = cbor_mod },
-            .{ .name = "command", .module = command_mod },
-            .{ .name = "EventHandler", .module = EventHandler_mod },
-            .{ .name = "input", .module = input_mod },
-            .{ .name = "thespian", .module = thespian_mod },
-        },
-    });
-    const keybind_dynamic_mod = b.createModule(.{
-        .root_source_file = b.path("src/keybind/dynamic/keybind.zig"),
+    const keybind_mod = b.createModule(.{
+        .root_source_file = b.path("src/keybind/keybind.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "command", .module = command_mod },
@@ -307,11 +289,10 @@ pub fn build_exe(
             .{ .name = "log", .module = log_mod },
         },
     });
-    const keybind_mod = if (dynamic_keybind) keybind_dynamic_mod else keybind_static_mod;
 
     const keybind_test_run_cmd = blk: {
         const tests = b.addTest(.{
-            .root_source_file = b.path("src/keybind/dynamic/keybind.zig"),
+            .root_source_file = b.path("src/keybind/keybind.zig"),
             .target = target,
             .optimize = optimize,
         });
