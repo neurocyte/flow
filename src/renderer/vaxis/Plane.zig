@@ -374,7 +374,22 @@ inline fn set_font_style(style: *vaxis.Cell.Style, fs: FontStyle) void {
     }
 }
 
+inline fn is_control_code(c: u8) bool {
+    return switch (c) {
+        0...8, 10...31 => true,
+        else => false,
+    };
+}
+
 pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *c_int, abs_col: usize, tab_width: usize) usize {
+    if (egcs.len == 0) {
+        colcount.* = 0;
+        return 0;
+    }
+    if (is_control_code(egcs[0])) {
+        colcount.* = 1;
+        return 1;
+    }
     if (egcs[0] == '\t') {
         colcount.* = @intCast(tab_width - (abs_col % tab_width));
         return 1;
