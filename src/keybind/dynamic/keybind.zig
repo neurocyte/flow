@@ -98,6 +98,7 @@ const Binding = struct {
     keys: []KeyEvent,
     command: []const u8,
     args: []const u8,
+    command_id: ?command.ID = null,
 
     fn deinit(self: *const @This(), allocator: std.mem.Allocator) void {
         allocator.free(self.keys);
@@ -109,8 +110,12 @@ const Binding = struct {
         return self.keys.items.len;
     }
 
-    fn execute(self: @This()) !void {
-        try command.executeName(self.command, .{ .args = .{ .buf = self.args } });
+    fn execute(self: *@This()) !void {
+        const id = self.command_id orelse
+            command.get_id_cache(self.command, &self.command_id) orelse {
+            return tp.exit_error(error.InputTargetNotFound, null);
+        };
+        try command.execute(id, .{ .args = .{ .buf = self.args } });
     }
 
     const MatchResult = enum { match_impossible, match_possible, matched };
