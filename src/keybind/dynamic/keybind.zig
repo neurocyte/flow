@@ -1,4 +1,3 @@
-Couldn't get a file descriptor referring to the console.
 //TODO figure out how keybindings should be configured
 
 //TODO figure out how to handle bindings that can take a numerical prefix
