@@ -79,7 +79,9 @@ fn build_release(
 ) void {
     const targets: []const std.Target.Query = &.{
         .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
+        .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl },
         .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
+        .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .musleabihf },
         .{ .cpu_arch = .x86_64, .os_tag = .macos },
         .{ .cpu_arch = .aarch64, .os_tag = .macos },
         .{ .cpu_arch = .x86_64, .os_tag = .windows },
