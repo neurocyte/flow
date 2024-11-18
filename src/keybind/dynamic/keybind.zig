@@ -206,6 +206,11 @@ const BindingSet = struct {
     }
 
     fn load_json(self: *@This(), json_string: []const u8, namespace_name: []const u8, mode_name: []const u8) !void {
+        defer self.bindings.append(.{
+            .keys = self.allocator.dupe(KeyEvent, &[_]KeyEvent{.{ .key = input.key.f2 }}) catch @panic("failed to add toggle_input_mode fallback"),
+            .command = self.allocator.dupe(u8, "toggle_input_mode") catch @panic("failed to add toggle_input_mode fallback"),
+            .args = "",
+        }) catch {};
         const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, json_string, .{});
         defer parsed.deinit();
         if (parsed.value != .object) return error.NotAnObject;
