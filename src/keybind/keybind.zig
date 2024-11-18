@@ -119,7 +119,7 @@ const Binding = struct {
     fn execute(self: *@This()) !void {
         const id = self.command_id orelse
             command.get_id_cache(self.command, &self.command_id) orelse {
-            return tp.exit_error(error.InputTargetNotFound, null);
+            return tp.exit_fmt("CommandNotFound: {s}", .{self.command});
         };
         try command.execute(id, .{ .args = .{ .buf = self.args } });
     }
