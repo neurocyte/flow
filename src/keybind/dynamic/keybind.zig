@@ -139,7 +139,8 @@ const Hint = struct {
 //A Collection of keybindings
 const BindingSet = struct {
     allocator: std.mem.Allocator,
-    bindings: std.ArrayList(Binding),
+    press: std.ArrayList(Binding),
+    release: std.ArrayList(Binding),
     syntax: KeySyntax = .flow,
     on_match_failure: OnMatchFailure = .ignore,
     current_sequence: std.ArrayList(KeyEvent),
@@ -183,7 +184,8 @@ const BindingSet = struct {
             .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
             .last_key_event_timestamp_ms = std.time.milliTimestamp(),
             .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
-            .bindings = std.ArrayList(Binding).init(allocator),
+            .press = std.ArrayList(Binding).init(allocator),
+            .release = std.ArrayList(Binding).init(allocator),
             .logger = if (!builtin.is_test) log.logger("keybind") else undefined,
             .namespace_name = try allocator.dupe(u8, namespace_name),
             .mode_name = try allocator.dupe(u8, mode_name),
@@ -194,8 +196,10 @@ const BindingSet = struct {
     }
 
     fn deinit(self: *const BindingSet) void {
-        for (self.bindings.items) |binding| binding.deinit(self.allocator);
-        self.bindings.deinit();
+        for (self.press.items) |binding| binding.deinit(self.allocator);
+        self.press.deinit();
+        for (self.release.items) |binding| binding.deinit(self.allocator);
+        self.release.deinit();
         self.current_sequence.deinit();
         self.current_sequence_egc.deinit();
         self.input_buffer.deinit();
@@ -206,7 +210,7 @@ const BindingSet = struct {
     }
 
     fn load_json(self: *@This(), json_string: []const u8, namespace_name: []const u8, mode_name: []const u8) !void {
-        defer self.bindings.append(.{
+        defer self.press.append(.{
             .keys = self.allocator.dupe(KeyEvent, &[_]KeyEvent{.{ .key = input.key.f2 }}) catch @panic("failed to add toggle_input_mode fallback"),
             .command = self.allocator.dupe(u8, "toggle_input_mode") catch @panic("failed to add toggle_input_mode fallback"),
             .args = "",
@@ -228,7 +232,8 @@ const BindingSet = struct {
 
     fn load_set_from_json(self: *BindingSet, mode_bindings: std.json.Value) (parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!void {
         const JsonConfig = struct {
-            bindings: []const []const std.json.Value,
+            press: []const []const std.json.Value = &[_][]std.json.Value{},
+            release: []const []const std.json.Value = &[_][]std.json.Value{},
             syntax: KeySyntax = .flow,
             on_match_failure: OnMatchFailure = .insert,
         };
@@ -238,7 +243,12 @@ const BindingSet = struct {
         defer parsed.deinit();
         self.syntax = parsed.value.syntax;
         self.on_match_failure = parsed.value.on_match_failure;
-        bindings: for (parsed.value.bindings) |entry| {
+        try self.load_bindings_from_json(&self.press, input.event.press, parsed.value.press);
+        try self.load_bindings_from_json(&self.release, input.event.release, parsed.value.release);
+    }
+
+    fn load_bindings_from_json(self: *BindingSet, dest: *std.ArrayList(Binding), event: input.Event, bindings: []const []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
+        bindings: for (bindings) |entry| {
             var state: enum { key_event, command, args } = .key_event;
             var keys: ?[]KeyEvent = null;
             var command_: ?[]const u8 = null;
@@ -260,11 +270,11 @@ const BindingSet = struct {
                             continue :bindings;
                         }
                         keys = switch (self.syntax) {
-                            .flow => parse_flow.parse_key_events(self.allocator, token.string) catch |e| {
+                            .flow => parse_flow.parse_key_events(self.allocator, event, token.string) catch |e| {
                                 self.logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
                                 break;
                             },
-                            .vim => parse_vim.parse_key_events(self.allocator, token.string) catch |e| {
+                            .vim => parse_vim.parse_key_events(self.allocator, event, token.string) catch |e| {
                                 self.logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
                                 break;
                             },
@@ -298,7 +308,7 @@ const BindingSet = struct {
             try cbor.writeArrayHeader(writer, args.items.len);
             for (args.items) |arg| try cbor.writeJsonValue(writer, arg);
 
-            try self.bindings.append(.{
+            try dest.append(.{
                 .keys = keys.?,
                 .command = command_.?,
                 .args = try args_cbor.toOwnedSlice(self.allocator),
@@ -363,10 +373,18 @@ const BindingSet = struct {
     }
 
     //register a key press and try to match it with a binding
-    fn process_key_event(self: *BindingSet, egc: input.Key, event: KeyEvent) !?*Binding {
+    fn process_key_event(self: *BindingSet, egc: input.Key, event_: KeyEvent) !?*Binding {
+        var event = event_;
 
-        //hacky fix since we are ignoring repeats and keyups right now
-        if (event.event != input.event.press) return null;
+        //ignore modifiers for modifier key events
+        event.modifiers = switch (event.key) {
+            input.key.left_control, input.key.right_control => 0,
+            input.key.left_alt, input.key.right_alt => 0,
+            else => event.modifiers,
+        };
+
+        if (event.event == input.event.release)
+            return self.process_key_release_event(event);
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
@@ -382,7 +400,8 @@ const BindingSet = struct {
             try self.current_sequence_egc.appendSlice(buf[0..bytes]);
 
         var all_matches_impossible = true;
-        for (self.bindings.items) |*binding| {
+
+        for (self.press.items) |*binding| {
             switch (binding.match(self.current_sequence.items)) {
                 .matched => {
                     self.current_sequence.clearRetainingCapacity();
@@ -397,6 +416,17 @@ const BindingSet = struct {
         }
         if (all_matches_impossible) {
             try self.terminate_sequence(.match_impossible, egc, event);
+        }
+        return null;
+    }
+
+    fn process_key_release_event(self: *BindingSet, event: KeyEvent) !?*Binding {
+        for (self.release.items) |*binding| {
+            switch (binding.match(&[_]KeyEvent{event})) {
+                .matched => return binding,
+                .match_possible => {},
+                .match_impossible => {},
+            }
         }
         return null;
     }

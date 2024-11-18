@@ -18,15 +18,15 @@ fn parse_error(comptime format: anytype, args: anytype) ParseError {
     return error.InvalidFormat;
 }
 
-pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseError![]KeyEvent {
+pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: []const u8) ParseError![]input.KeyEvent {
     parse_error_reset();
     if (str.len == 0) return parse_error("empty", .{});
-    var result_events = std.ArrayList(KeyEvent).init(allocator);
-    var iter_events = std.mem.tokenizeScalar(u8, str, '>');
-    while (iter_events.next()) |event| {
+    var result_events = std.ArrayList(input.KeyEvent).init(allocator);
+    var iter_sequence = std.mem.tokenizeScalar(u8, str, '>');
+    while (iter_sequence.next()) |item| {
         var key: ?input.Key = null;
         var mods = input.ModSet{};
-        var iter = std.mem.tokenizeScalar(u8, event, '+');
+        var iter = std.mem.tokenizeScalar(u8, item, '+');
         loop: while (iter.next()) |part| {
             if (part.len == 0) return parse_error("empty part in '{s}'", .{str});
             const modsInfo = @typeInfo(input.ModSet).Struct;
@@ -65,7 +65,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             if (key == null) return parse_error("unknown key '{s}' in '{s}'", .{ part, str });
         }
         if (key) |k|
-            try result_events.append(.{ .key = k, .modifiers = @bitCast(mods) })
+            try result_events.append(.{ .event = event, .key = k, .modifiers = @bitCast(mods) })
         else
             return parse_error("no key defined in '{s}'", .{str});
     }

@@ -43,7 +43,7 @@ fn parse_error(e: ParseError, comptime format: anytype, args: anytype) ParseErro
     return e;
 }
 
-pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseError![]KeyEvent {
+pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: []const u8) ParseError![]input.KeyEvent {
     parse_error_reset();
     const State = enum {
         base,
@@ -66,7 +66,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
     var state: State = .base;
     var function_key_number: u8 = 0;
     var modifiers: input.Mods = 0;
-    var result = std.ArrayList(KeyEvent).init(allocator);
+    var result = std.ArrayList(input.KeyEvent).init(allocator);
     defer result.deinit();
 
     var i: usize = 0;
@@ -79,7 +79,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                         i += 1;
                     },
                     'a'...'z', '\\', '[', ']', '/', '`', '-', '=', ';', '0'...'9' => {
-                        try result.append(.{ .key = str[i] });
+                        try result.append(.{ .event = event, .key = str[i] });
                         i += 1;
                     },
                     else => return parse_error(error.InvalidInitialCharacter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
@@ -150,7 +150,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .cr => {
                 if (std.mem.indexOf(u8, str[i..], "CR") == 0) {
-                    try result.append(.{ .key = input.key.enter, .modifiers = modifiers });
+                    try result.append(.{ .event = event, .key = input.key.enter, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -158,7 +158,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .space => {
                 if (std.mem.indexOf(u8, str[i..], "Space") == 0) {
-                    try result.append(.{ .key = input.key.space, .modifiers = modifiers });
+                    try result.append(.{ .event = event, .key = input.key.space, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
@@ -166,7 +166,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .del => {
                 if (std.mem.indexOf(u8, str[i..], "Del") == 0) {
-                    try result.append(.{ .key = input.key.delete, .modifiers = modifiers });
+                    try result.append(.{ .event = event, .key = input.key.delete, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -174,7 +174,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .tab => {
                 if (std.mem.indexOf(u8, str[i..], "Tab") == 0) {
-                    try result.append(.{ .key = input.key.tab, .modifiers = modifiers });
+                    try result.append(.{ .event = event, .key = input.key.tab, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -182,7 +182,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .up => {
                 if (std.mem.indexOf(u8, str[i..], "Up") == 0) {
-                    try result.append(.{ .key = input.key.up, .modifiers = modifiers });
+                    try result.append(.{ .event = event, .key = input.key.up, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -190,7 +190,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .esc => {
                 if (std.mem.indexOf(u8, str[i..], "Esc") == 0) {
-                    try result.append(.{ .key = input.key.escape, .modifiers = modifiers });
+                    try result.append(.{ .event = event, .key = input.key.escape, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -198,7 +198,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .down => {
                 if (std.mem.indexOf(u8, str[i..], "Down") == 0) {
-                    try result.append(.{ .key = input.key.down, .modifiers = modifiers });
+                    try result.append(.{ .event = event, .key = input.key.down, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -206,7 +206,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .left => {
                 if (std.mem.indexOf(u8, str[i..], "Left") == 0) {
-                    try result.append(.{ .key = input.key.left, .modifiers = modifiers });
+                    try result.append(.{ .event = event, .key = input.key.left, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -214,7 +214,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .right => {
                 if (std.mem.indexOf(u8, str[i..], "Right") == 0) {
-                    try result.append(.{ .key = input.key.right, .modifiers = modifiers });
+                    try result.append(.{ .event = event, .key = input.key.right, .modifiers = modifiers });
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
@@ -231,7 +231,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                     },
                     '>' => {
                         const function_key = input.key.f1 - 1 + function_key_number;
-                        try result.append(.{ .key = function_key, .modifiers = modifiers });
+                        try result.append(.{ .event = event, .key = function_key, .modifiers = modifiers });
                         modifiers = 0;
                         function_key_number = 0;
                         state = .base;
@@ -252,7 +252,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             .char_or_key_or_modifier => {
                 switch (str[i]) {
                     'a'...'z', ';', '0'...'9' => {
-                        try result.append(.{ .key = str[i], .modifiers = modifiers });
+                        try result.append(.{ .event = event, .key = str[i], .modifiers = modifiers });
                         modifiers = 0;
                         state = .escape_sequence_end;
                         i += 1;

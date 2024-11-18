@@ -410,6 +410,11 @@ pub fn Create(options: type) type {
             }
             pub const palette_menu_activate_meta = .{ .interactive = false };
 
+            pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
+                if (self.menu.selected orelse 0 > 0) self.menu.activate_selected();
+            }
+            pub const palette_menu_activate_quick_meta = .{ .interactive = false };
+
             pub fn palette_menu_cancel(self: *Self, _: Ctx) Result {
                 if (@hasDecl(options, "cancel")) try options.cancel(self);
                 try self.cmd("exit_overlay_mode", .{});

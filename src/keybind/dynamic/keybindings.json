@@ -1,7 +1,7 @@
 {
     "flow": {
         "normal": {
-            "bindings": [
+            "press": [
                 ["ctrl+e", "open_recent"],
                 ["ctrl+r", "open_recent_project"],
                 ["ctrl+j", "toggle_panel"],
@@ -139,12 +139,23 @@
                 ["end", "move_end"],
                 ["page_up", "move_page_up"],
                 ["page_down", "move_page_down"],
-                ["tab", "indent"]
+                ["tab", "indent"],
+
+                ["left_control", "enable_fast_scroll"],
+                ["right_control", "enable_fast_scroll"],
+                ["left_alt", "enable_jump_mode"],
+                ["right_alt", "enable_jump_mode"]
+            ],
+            "release": [
+                ["left_control", "disable_fast_scroll"],
+                ["right_control", "disable_fast_scroll"],
+                ["left_alt", "disable_jump_mode"],
+                ["right_alt", "disable_jump_mode"]
             ]
         },
         "home": {
             "on_match_failure": "ignore",
-            "bindings": [
+            "press": [
                 ["ctrl+f>ctrl+f>ctrl+f>ctrl+f>ctrl+f", "home_sheeran"],
                 ["ctrl+j", "toggle_panel"],
                 ["ctrl+q", "quit"],
@@ -185,7 +196,7 @@
             ]
         },
         "palette": {
-            "bindings": [
+            "press": [
                 ["ctrl+j", "toggle_panel"],
                 ["ctrl+q", "quit"],
                 ["ctrl+w", "close_file"],
@@ -230,10 +241,14 @@
                 ["page_down", "palette_menu_pagedown"],
                 ["enter", "palette_menu_activate"],
                 ["backspace", "overlay_delete_backwards"]
+            ],
+            "release": [
+                ["left_control", "palette_menu_activate_quick"],
+                ["right_control", "palette_menu_activate_quick"]
             ]
         },
         "mini/goto": {
-            "bindings": [
+            "press": [
                 ["ctrl+q", "quit"],
                 ["ctrl+v", "system_paste"],
                 ["ctrl+u", "mini_mode_reset"],
@@ -248,7 +263,7 @@
             ]
         },
         "mini/move_to_char": {
-            "bindings": [
+            "press": [
                 ["ctrl+g", "mini_mode_cancel"],
                 ["ctrl+c", "mini_mode_cancel"],
                 ["ctrl+l", "scroll_view_center_cycle"],
@@ -257,7 +272,7 @@
             ]
         },
         "mini/file_browser": {
-            "bindings": [
+            "press": [
                 ["ctrl+q", "quit"],
                 ["ctrl+v", "system_paste"],
                 ["ctrl+u", "mini_mode_reset"],
@@ -284,7 +299,7 @@
             ]
         },
         "mini/find_in_files": {
-            "bindings": [
+            "press": [
                 ["ctrl+q", "quit"],
                 ["ctrl+v", "system_paste"],
                 ["ctrl+u", "mini_mode_reset"],
@@ -319,7 +334,7 @@
             ]
         },
         "mini/find": {
-            "bindings": [
+            "press": [
                 ["ctrl+q", "quit"],
                 ["ctrl+v", "system_paste"],
                 ["ctrl+u", "mini_mode_reset"],
@@ -358,7 +373,7 @@
         "normal": {
             "syntax": "vim",
             "on_match_failure": "ignore",
-            "bindings": [
+            "press": [
                 ["j", "move_down"],
                 ["k", "move_up"],
                 ["l", "move_right_vim"],
@@ -395,7 +410,7 @@
         },
         "insert": {
             "syntax": "vim",
-            "bindings": [
+            "press": [
                 ["jk", "enter_mode", "normal"],
                 ["<Esc>", "enter_mode", "normal"]
             ]
@@ -404,7 +419,7 @@
     "emacs" : {
         "base": {
             "syntax": "vim",
-            "bindings": [
+            "press": [
                 ["<C-a>", "cursor_line_start"],
                 ["<C-e>", "cursor_line_end"],
                 ["<C-b>", "cursor_left"],
