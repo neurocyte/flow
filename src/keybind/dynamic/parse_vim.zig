@@ -70,7 +70,6 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
         down,
         left,
         right,
-
         home,
         end,
         insert,
