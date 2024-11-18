@@ -17,7 +17,6 @@ pub const ParseError = error{
     InvalidStartOfShiftBinding,
     InvalidStartOfDelBinding,
     InvalidStartOfHomeBinding,
-    InvalidStartOfUpBinding,
     InvalidCRBinding,
     InvalidSpaceBinding,
     InvalidDelBinding,
@@ -141,10 +140,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                         state = .tab;
                     },
                     'U' => {
-                        state = switch (try peek(str, i)) {
-                            'p' => .up,
-                            else => return parse_error(error.InvalidStartOfUpBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                        };
+                        state = .up;
                     },
                     'L' => {
                         state = .left;
