@@ -219,8 +219,8 @@ const BindingSet = struct {
     fn load_set_from_json(self: *BindingSet, mode_bindings: std.json.Value) (parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!void {
         const JsonConfig = struct {
             bindings: []const []const std.json.Value,
-            syntax: KeySyntax,
-            on_match_failure: OnMatchFailure,
+            syntax: KeySyntax = .flow,
+            on_match_failure: OnMatchFailure = .insert,
         };
         const parsed = try std.json.parseFromValue(JsonConfig, self.allocator, mode_bindings, .{
             .ignore_unknown_fields = true,

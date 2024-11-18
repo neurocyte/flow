@@ -1,8 +1,6 @@
 {
     "flow": {
         "normal": {
-            "syntax": "flow",
-            "on_match_failure": "insert",
             "bindings": [
                 ["ctrl+e", "open_recent"],
                 ["ctrl+r", "open_recent_project"],
@@ -145,7 +143,6 @@
             ]
         },
         "home": {
-            "syntax": "flow",
             "on_match_failure": "ignore",
             "bindings": [
                 ["ctrl+f>ctrl+f>ctrl+f>ctrl+f>ctrl+f", "home_sheeran"],
@@ -188,8 +185,6 @@
             ]
         },
         "palette": {
-            "syntax": "flow",
-            "on_match_failure": "insert",
             "bindings": [
                 ["ctrl+j", "toggle_panel"],
                 ["ctrl+q", "quit"],
@@ -238,8 +233,6 @@
             ]
         },
         "mini/goto": {
-            "syntax": "flow",
-            "on_match_failure": "insert",
             "bindings": [
                 ["ctrl+q", "quit"],
                 ["ctrl+v", "system_paste"],
@@ -255,8 +248,6 @@
             ]
         },
         "mini/move_to_char": {
-            "syntax": "flow",
-            "on_match_failure": "insert",
             "bindings": [
                 ["ctrl+g", "mini_mode_cancel"],
                 ["ctrl+c", "mini_mode_cancel"],
@@ -266,8 +257,6 @@
             ]
         },
         "mini/file_browser": {
-            "syntax": "flow",
-            "on_match_failure": "insert",
             "bindings": [
                 ["ctrl+q", "quit"],
                 ["ctrl+v", "system_paste"],
@@ -295,8 +284,6 @@
             ]
         },
         "mini/find_in_files": {
-            "syntax": "flow",
-            "on_match_failure": "insert",
             "bindings": [
                 ["ctrl+q", "quit"],
                 ["ctrl+v", "system_paste"],
@@ -332,8 +319,6 @@
             ]
         },
         "mini/find": {
-            "syntax": "flow",
-            "on_match_failure": "insert",
             "bindings": [
                 ["ctrl+q", "quit"],
                 ["ctrl+v", "system_paste"],
@@ -410,7 +395,6 @@
         },
         "insert": {
             "syntax": "vim",
-            "on_match_failure": "insert",
             "bindings": [
                 ["jk", "enter_mode", "normal"],
                 ["<Esc>", "enter_mode", "normal"]
@@ -420,7 +404,6 @@
     "emacs" : {
         "base": {
             "syntax": "vim",
-            "on_match_failure": "insert",
             "bindings": [
                 ["<C-a>", "cursor_line_start"],
                 ["<C-e>", "cursor_line_end"],
