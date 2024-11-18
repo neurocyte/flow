@@ -43,6 +43,13 @@ pub const mode = struct {
     };
 };
 
+const builtin_keybinds = std.static_string_map.StaticStringMap([]const u8).initComptime(.{
+    .{ "flow", @embedFile("builtin/flow.json") },
+    .{ "vim", @embedFile("builtin/vim.json") },
+    .{ "helix", @embedFile("builtin/helix.json") },
+    .{ "emacs", @embedFile("builtin/emacs.json") },
+});
+
 fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
     return struct {
         allocator: std.mem.Allocator,
@@ -54,7 +61,6 @@ fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
                 .allocator = allocator,
                 .bindings = try BindingSet.init(
                     allocator,
-                    @embedFile("keybindings.json"),
                     namespace_name,
                     mode_name,
                     if (@hasField(@TypeOf(opts), "insert_command"))
@@ -177,7 +183,7 @@ const BindingSet = struct {
         }
     }
 
-    fn init(allocator: std.mem.Allocator, json_string: []const u8, namespace_name: []const u8, mode_name: []const u8, insert_command: []const u8) !@This() {
+    fn init(allocator: std.mem.Allocator, namespace_name: []const u8, mode_name: []const u8, insert_command: []const u8) !@This() {
         var self: @This() = .{
             .allocator = allocator,
             .current_sequence = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
@@ -191,7 +197,7 @@ const BindingSet = struct {
             .mode_name = try allocator.dupe(u8, mode_name),
             .insert_command = try allocator.dupe(u8, insert_command),
         };
-        try self.load_json(json_string, namespace_name, mode_name);
+        try self.load_json(namespace_name, mode_name);
         return self;
     }
 
@@ -209,24 +215,20 @@ const BindingSet = struct {
         self.allocator.free(self.insert_command);
     }
 
-    fn load_json(self: *@This(), json_string: []const u8, namespace_name: []const u8, mode_name: []const u8) !void {
+    fn load_json(self: *@This(), namespace_name: []const u8, mode_name: []const u8) !void {
         defer self.press.append(.{
             .keys = self.allocator.dupe(KeyEvent, &[_]KeyEvent{.{ .key = input.key.f2 }}) catch @panic("failed to add toggle_input_mode fallback"),
             .command = self.allocator.dupe(u8, "toggle_input_mode") catch @panic("failed to add toggle_input_mode fallback"),
             .args = "",
         }) catch {};
+        const json_string: []const u8 = builtin_keybinds.get(namespace_name) orelse return error.NotFound;
         const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, json_string, .{});
         defer parsed.deinit();
         if (parsed.value != .object) return error.NotAnObject;
-        var namespaces = parsed.value.object.iterator();
-        while (namespaces.next()) |*namespace_entry| {
-            if (namespace_entry.value_ptr.* != .object) return error.NotAnObject;
-            if (!std.mem.eql(u8, namespace_entry.key_ptr.*, namespace_name)) continue;
-            var modes = namespace_entry.value_ptr.object.iterator();
-            while (modes.next()) |mode_entry| {
-                if (!std.mem.eql(u8, mode_entry.key_ptr.*, mode_name)) continue;
-                try self.load_set_from_json(mode_entry.value_ptr.*);
-            }
+        var modes = parsed.value.object.iterator();
+        while (modes.next()) |mode_entry| {
+            if (!std.mem.eql(u8, mode_entry.key_ptr.*, mode_name)) continue;
+            try self.load_set_from_json(mode_entry.value_ptr.*);
         }
     }
 

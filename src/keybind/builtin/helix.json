@@ -1,0 +1,39 @@
+{
+    "normal": {
+        "syntax": "vim",
+        "on_match_failure": "ignore",
+        "press": [
+            ["j", "move_down"],
+            ["k", "move_up"],
+            ["l", "move_right_vim"],
+            ["h", "move_left"],
+            ["<Space>", "move_right_vim"],
+            ["i", "enter_mode", "insert"],
+            ["v", "enter_mode", "visual"],
+            ["/", "find"],
+            ["n", "goto_next_match"],
+            ["0", "move_begin"],
+            ["<S-4>", "move_end"],
+            [";", "open_command_palette"],
+            ["<S-;>", "open_command_palette"],
+            ["p", "paste"],
+            ["gd", "goto_definition"],
+            ["gi", "goto_implementation"],
+            ["gy", "goto_type_definition"],
+            ["gg", "move_buffer_begin"],
+            ["g<S-d>", "goto_declaration"],
+            ["<S-g>", "move_buffer_end"],
+            ["d<S-4>", "delete_to_end"],
+            ["d4", "delete_to_end"],
+            ["<C-u>", "cursor_half_page_up"],
+            ["<C-d>", "cursor_half_page_down"]
+        ]
+    },
+    "insert": {
+        "syntax": "vim",
+        "press": [
+            ["jk", "enter_mode", "normal"],
+            ["<Esc>", "enter_mode", "normal"]
+        ]
+    } 
+}

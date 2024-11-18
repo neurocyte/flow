@@ -1,0 +1,17 @@
+{
+    "base": {
+        "syntax": "vim",
+        "press": [
+            ["<C-a>", "cursor_line_start"],
+            ["<C-e>", "cursor_line_end"],
+            ["<C-b>", "cursor_left"],
+            ["<C-f>", "cursor_right"],
+            ["<C-p>", "cursor_up"],
+            ["<C-n>", "cursor_down"],
+            ["<C-x><C-s>", "save"],
+            ["<C-x><C-c>", "quit"],
+            ["<C-x>b", "open_recent_files"],
+            ["<A-x>", "open_command_palette"]
+        ]
+    }
+}
