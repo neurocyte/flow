@@ -516,7 +516,7 @@ const parse_test_cases = .{
 test "parse" {
     const alloc = std.testing.allocator;
     inline for (parse_test_cases) |case| {
-        const parsed = try parse_vim.parse_key_events(alloc, case[0]);
+        const parsed = try parse_vim.parse_key_events(alloc, input.event.press, case[0]);
         defer alloc.free(parsed);
         const expected: []const KeyEvent = case[1];
         const actual: []const KeyEvent = parsed;
@@ -542,10 +542,10 @@ const match_test_cases = .{
 test "match" {
     const alloc = std.testing.allocator;
     inline for (match_test_cases) |case| {
-        const events = try parse_vim.parse_key_events(alloc, case[0]);
+        const events = try parse_vim.parse_key_events(alloc, input.event.press, case[0]);
         defer alloc.free(events);
         const binding: Binding = .{
-            .keys = try parse_vim.parse_key_events(alloc, case[1]),
+            .keys = try parse_vim.parse_key_events(alloc, input.event.press, case[1]),
             .command = undefined,
             .args = undefined,
         };
@@ -557,7 +557,7 @@ test "match" {
 
 test "json" {
     const alloc = std.testing.allocator;
-    var bindings = try BindingSet.init(alloc, @embedFile("keybindings.json"), "vim", "normal", "insert_chars");
+    var bindings = try BindingSet.init(alloc, "vim", "normal", "insert_chars");
     defer bindings.deinit();
     _ = try bindings.process_key_event('j', .{ .key = 'j' });
     _ = try bindings.process_key_event('k', .{ .key = 'k' });
