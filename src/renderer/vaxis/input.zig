@@ -1,6 +1,7 @@
 const vaxis = @import("vaxis");
 
 const utf8Encode = @import("std").unicode.utf8Encode;
+const FormatOptions = @import("std").fmt.FormatOptions;
 
 pub const key = vaxis.Key;
 pub const Key = u21;
@@ -166,3 +167,44 @@ pub const utils = struct {
         };
     }
 };
+
+pub fn event_fmt(evt: Event) struct {
+    event: Event,
+    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        return switch (self.event) {
+            event.press => writer.writeAll("press"),
+            event.repeat => writer.writeAll("repeat"),
+            event.release => writer.writeAll("release"),
+        };
+    }
+} {
+    return .{ .event = evt };
+}
+
+pub fn key_fmt(key_: Key) struct {
+    key: Key,
+    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        var key_string = utils.key_id_string(self.key);
+        var buf: [6]u8 = undefined;
+        if (key_string.len == 0) {
+            const bytes = try ucs32_to_utf8(&[_]u32{self.key}, &buf);
+            key_string = buf[0..bytes];
+        }
+        try writer.writeAll(key_string);
+    }
+} {
+    return .{ .key = key_ };
+}
+
+pub fn mod_fmt(mods: Mods) struct {
+    modifiers: Mods,
+    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        const modset: ModSet = @bitCast(self.modifiers);
+        if (modset.super) try writer.writeAll("super+");
+        if (modset.ctrl) try writer.writeAll("ctrl+");
+        if (modset.alt) try writer.writeAll("alt+");
+        if (modset.shift) try writer.writeAll("shift+");
+    }
+} {
+    return .{ .modifiers = mods };
+}
