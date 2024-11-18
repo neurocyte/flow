@@ -495,11 +495,22 @@ const expectEqual = std.testing.expectEqual;
 const parse_test_cases = .{
     //input, expected
     .{ "j", &.{KeyEvent{ .key = 'j' }} },
+    .{ "J", &.{KeyEvent{ .key = 'j', .modifiers = input.mod.shift }} },
     .{ "jk", &.{ KeyEvent{ .key = 'j' }, KeyEvent{ .key = 'k' } } },
     .{ "<Space>", &.{KeyEvent{ .key = input.key.space }} },
     .{ "<C-x><C-c>", &.{ KeyEvent{ .key = 'x', .modifiers = input.mod.ctrl }, KeyEvent{ .key = 'c', .modifiers = input.mod.ctrl } } },
     .{ "<A-x><Tab>", &.{ KeyEvent{ .key = 'x', .modifiers = input.mod.alt }, KeyEvent{ .key = input.key.tab } } },
-    .{ "<S-A-x><D-Del>", &.{ KeyEvent{ .key = 'x', .modifiers = input.mod.alt | input.mod.shift }, KeyEvent{ .key = input.key.delete, .modifiers = input.mod.super } } },
+    .{ "<S-A-x><D-Del>", &.{
+        KeyEvent{ .key = 'x', .modifiers = input.mod.alt | input.mod.shift },
+        KeyEvent{ .key = input.key.delete, .modifiers = input.mod.super },
+    } },
+    .{ ".", &.{KeyEvent{ .key = '.' }} },
+    .{ ",", &.{KeyEvent{ .key = ',' }} },
+    .{ "`", &.{KeyEvent{ .key = '`' }} },
+    .{ "<S--><Home>", &.{
+        KeyEvent{ .key = '-', .modifiers = input.mod.shift },
+        KeyEvent{ .key = input.key.home },
+    } },
 };
 
 test "parse" {
