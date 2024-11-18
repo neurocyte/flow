@@ -1,6 +1,5 @@
 const std = @import("std");
 const input = @import("input");
-const KeyEvent = @import("KeyEvent.zig");
 
 pub const ParseError = error{
     OutOfMemory,

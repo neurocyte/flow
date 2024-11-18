@@ -1,6 +1,5 @@
 const std = @import("std");
 const input = @import("input");
-const KeyEvent = @import("KeyEvent.zig");
 
 fn peek(str: []const u8, i: usize) error{OutOfBounds}!u8 {
     if (i + 1 < str.len) {

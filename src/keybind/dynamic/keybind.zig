@@ -11,8 +11,8 @@ const log = @import("log");
 const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+const KeyEvent = input.KeyEvent;
 
-const KeyEvent = @import("KeyEvent.zig");
 const parse_flow = @import("parse_flow.zig");
 const parse_vim = @import("parse_vim.zig");
 

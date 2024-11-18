@@ -1,5 +1,6 @@
 const vaxis = @import("vaxis");
 
+const meta = @import("std").meta;
 const utf8Encode = @import("std").unicode.utf8Encode;
 const FormatOptions = @import("std").fmt.FormatOptions;
 
@@ -53,6 +54,20 @@ pub const event = struct {
     pub const press: Event = 1;
     pub const repeat: Event = 2;
     pub const release: Event = 3;
+};
+
+pub const KeyEvent = struct {
+    event: Event = event.press,
+    key: Key = 0,
+    modifiers: Mods = 0,
+
+    pub fn eql(self: @This(), other: @This()) bool {
+        return meta.eql(self, other);
+    }
+
+    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        try writer.print("{}:{}{}", .{ event_fmt(self.event), mod_fmt(self.modifiers), key_fmt(self.key) });
+    }
 };
 
 pub fn ucs32_to_utf8(ucs32: []const u32, utf8: []u8) !usize {
