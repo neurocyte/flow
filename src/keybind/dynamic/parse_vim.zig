@@ -99,13 +99,18 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                     //lowercase characters
                     'a'...'z',
                     '0'...'9',
-                    '`', '-', '=', '[', ']', '\\', ';', '\'', ',', '.', '/',
-                    //uppercase characters except '<' allowed here
-                    'A'...'Z',
-                    ')'...'(',
-                    '~', '_', '+', '{', '}', '|', ':', '"', '>', '?',
-                    => {
+                    '`', '-', '=', '[', ']', '\\', ';', '\'', ',', '.', '/', => {
                         try result.append(.{ .key = str[i] });
+                        i += 1;
+                    },
+                    //uppercase characters allowed here
+                    'A'...'Z',
+
+                    //Should these characters be allowed??
+                    //')'...'(',
+                    //'~', '_', '+', '{', '}', '|', ':', '"', '>', '?',
+                    => {
+                        try result.append(.{ .key = std.ascii.toLower(str[i]), .modifiers = input.mod.shift});
                         i += 1;
                     },
                     else => return parse_error(error.InvalidInitialCharacter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
@@ -147,11 +152,11 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                         state = .tab;
                     },
                     'U' => {
-                        state = switch(try peek(str, i)) {
+                        state = switch (try peek(str, i)) {
                             'p' => .up,
                             'n' => .undo,
                             else => return parse_error(error.InvalidStartOfUpBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                        }
+                        };
                     },
                     'L' => {
                         state = .left;
@@ -170,7 +175,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                             's' => .esc,
                             'o' => .home,
                             else => return parse_error(error.InvalidStartOfEscBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                        }
+                        };
                     },
                     'D' => {
                         switch (try peek(str, i)) {
@@ -191,7 +196,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                             'e' => .help,
                             'o' => .home,
                             else => return parse_error(error.InvalidEscapeSequenceStart, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
-                        }
+                        };
                     },
                     else => return parse_error(error.InvalidStartOfHomeBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 }
