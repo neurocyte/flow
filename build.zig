@@ -87,8 +87,20 @@ fn build_release(
     };
     const optimize = .ReleaseSafe;
 
+    var version = std.ArrayList(u8).init(b.allocator);
+    defer version.deinit();
+    gen_version(b, version.writer()) catch unreachable;
+    const write_file_step = b.addWriteFiles();
+    const version_file = write_file_step.add("version", version.items);
+    b.getInstallStep().dependOn(&b.addInstallFile(version_file, "version").step);
+
     for (targets) |t| {
         const target = b.resolveTargetQuery(t);
+        var triple = std.mem.splitScalar(u8, t.zigTriple(b.allocator) catch unreachable, '-');
+        const arch = triple.next() orelse unreachable;
+        const os = triple.next() orelse unreachable;
+        const target_path = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch }) catch unreachable;
+
         build_exe(
             b,
             run_step,
@@ -97,7 +109,7 @@ fn build_release(
             lint_step,
             target,
             optimize,
-            .{ .dest_dir = .{ .override = .{ .custom = t.zigTriple(b.allocator) catch unreachable } } },
+            .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
             tracy_enabled,
             use_tree_sitter,
             strip orelse true,
@@ -505,4 +517,15 @@ fn gen_version_info(b: *std.Build, writer: anytype) !void {
 
     if (diff.len > 0)
         try writer.print("\nwith the following uncommited changes:\n\n{s}\n", .{diff});
+}
+
+fn gen_version(b: *std.Build, writer: anytype) !void {
+    var code: u8 = 0;
+
+    const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags" }, &code, .Ignore);
+    const diff_ = try b.runAllowFail(&[_][]const u8{ "git", "diff", "--stat", "--patch", "HEAD" }, &code, .Ignore);
+    const diff = std.mem.trimRight(u8, diff_, "\r\n ");
+    const version = std.mem.trimRight(u8, describe, "\r\n ");
+
+    try writer.print("{s}{s}", .{ version, if (diff.len > 0) "-dirty" else "" });
 }

@@ -1,0 +1,45 @@
+#!/bin/bash
+set -e
+
+BASEDIR="$(cd "$(dirname "$0")/.." && pwd)"
+APPNAME="$(basename "$BASEDIR")"
+
+cd "$BASEDIR"
+
+if [ -e "release" ]; then
+    echo directory \"release\" already exists
+    exit 1
+fi
+
+echo building...
+
+./zig build -Dpackage_release --prefix release/build
+
+cd release/build
+
+VERSION=$(/bin/cat version)
+TARGETS=$(/bin/ls)
+
+for target in $TARGETS; do
+    if [ -d "$target" ]; then
+        cd "$target"
+        echo packing "$target"...
+        tar -czf "../../${APPNAME}-${VERSION}-${target}.tar.gz" -- *
+        cd ..
+    fi
+done
+
+cd ..
+rm -r build
+
+TARFILES=$(/bin/ls)
+
+for tarfile in $TARFILES; do
+    echo signing "$tarfile"...
+    gpg --local-user 4E6CF7234FFC4E14531074F98EB1E1BB660E3FB9 --detach-sig "$tarfile"
+done
+
+echo "done making release $VERSION"
+echo
+
+/bin/ls -lah
