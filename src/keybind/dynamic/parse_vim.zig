@@ -16,6 +16,9 @@ pub const ParseError = error{
     InvalidStartOfControlBinding,
     InvalidStartOfShiftBinding,
     InvalidStartOfDeleteBinding,
+    InvalidStartOfUpBinding,
+    InvalidStartOfEscBinding,
+    InvalidStartOfHomeBinding,
     InvalidCRBinding,
     InvalidSpaceBinding,
     InvalidDeleteBinding,
@@ -30,6 +33,12 @@ pub const ParseError = error{
     InvalidEscapeSequenceDelimiter,
     InvalidModifier,
     InvalidEscapeSequenceEnd,
+    InvalidHomeBinding,
+    InvalidHelpBinding,
+    InvalidEndBinding,
+    InvalidUndoBinding,
+    InvalidBSBinding,
+    InvalidInsertBinding,
 };
 
 var parse_error_buf: [256]u8 = undefined;
@@ -63,6 +72,13 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
         down,
         left,
         right,
+
+        home,
+        end,
+        insert,
+        bs,
+        undo,
+        help,
     };
     var state: State = .base;
     var function_key_number: u8 = 0;
@@ -73,19 +89,29 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
     var i: usize = 0;
     while (i < str.len) {
         switch (state) {
+            // zig fmt: off
             .base => {
                 switch (str[i]) {
                     '<' => {
                         state = .escape_sequence_start;
                         i += 1;
                     },
-                    'a'...'z', '\\', '[', ']', '/', '`', '-', '=', ';', '0'...'9' => {
+                    //lowercase characters
+                    'a'...'z',
+                    '0'...'9',
+                    '`', '-', '=', '[', ']', '\\', ';', '\'', ',', '.', '/',
+                    //uppercase characters except '<' allowed here
+                    'A'...'Z',
+                    ')'...'(',
+                    '~', '_', '+', '{', '}', '|', ':', '"', '>', '?',
+                    => {
                         try result.append(.{ .key = str[i] });
                         i += 1;
                     },
                     else => return parse_error(error.InvalidInitialCharacter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 }
             },
+            // zig fmt: on
             .escape_sequence_start => {
                 switch (str[i]) {
                     'A' => {
@@ -121,7 +147,11 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                         state = .tab;
                     },
                     'U' => {
-                        state = .up;
+                        state = switch(try peek(str, i)) {
+                            'p' => .up,
+                            'n' => .undo,
+                            else => return parse_error(error.InvalidStartOfUpBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
+                        }
                     },
                     'L' => {
                         state = .left;
@@ -129,8 +159,18 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                     'R' => {
                         state = .right;
                     },
+                    'I' => {
+                        state = .insert;
+                    },
+                    'B' => {
+                        state = .bs;
+                    },
                     'E' => {
-                        state = .esc;
+                        state = switch (try peek(str, i)) {
+                            's' => .esc,
+                            'o' => .home,
+                            else => return parse_error(error.InvalidStartOfEscBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
+                        }
                     },
                     'D' => {
                         switch (try peek(str, i)) {
@@ -143,11 +183,66 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                             'e' => {
                                 state = .del;
                             },
-                            else => return parse_error(error.InvalidStartOfDeleteBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
+                            else => return parse_error(error.InvalidStartOfDelBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                         }
                     },
-                    else => return parse_error(error.InvalidEscapeSequenceStart, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
+                    'H' => {
+                        state = switch (try peek(str, i)) {
+                            'e' => .help,
+                            'o' => .home,
+                            else => return parse_error(error.InvalidEscapeSequenceStart, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
+                        }
+                    },
+                    else => return parse_error(error.InvalidStartOfHomeBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 }
+            },
+            .insert => {
+                if (std.mem.indexOf(u8, str[i..], "Insert") == 0) {
+                    try result.append(.{ .key = input.key.insert, .modifiers = modifiers });
+                    modifiers = 0;
+                    state = .escape_sequence_end;
+                    i += 4;
+                } else return parse_error(error.InvalidInsertBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
+            },
+            .undo => {
+                if (std.mem.indexOf(u8, str[i..], "Undo") == 0) {
+                    try result.append(.{ .key = input.key.undo, .modifiers = modifiers });
+                    modifiers = 0;
+                    state = .escape_sequence_end;
+                    i += 4;
+                } else return parse_error(error.InvalidUndoBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
+            },
+            .end => {
+                if (std.mem.indexOf(u8, str[i..], "End") == 0) {
+                    try result.append(.{ .key = input.key.end, .modifiers = modifiers });
+                    modifiers = 0;
+                    state = .escape_sequence_end;
+                    i += 3;
+                } else return parse_error(error.InvalidEndBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
+            },
+            .help => {
+                if (std.mem.indexOf(u8, str[i..], "Help") == 0) {
+                    try result.append(.{ .key = input.key.help, .modifiers = modifiers });
+                    modifiers = 0;
+                    state = .escape_sequence_end;
+                    i += 4;
+                } else return parse_error(error.InvalidHelpBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
+            },
+            .home => {
+                if (std.mem.indexOf(u8, str[i..], "Home") == 0) {
+                    try result.append(.{ .key = input.key.home, .modifiers = modifiers });
+                    modifiers = 0;
+                    state = .escape_sequence_end;
+                    i += 4;
+                } else return parse_error(error.InvalidHomeBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
+            },
+            .bs => {
+                if (std.mem.indexOf(u8, str[i..], "BS") == 0) {
+                    try result.append(.{ .key = input.key.backspace, .modifiers = modifiers });
+                    modifiers = 0;
+                    state = .escape_sequence_end;
+                    i += 2;
+                } else return parse_error(error.InvalidBSBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .cr => {
                 if (std.mem.indexOf(u8, str[i..], "CR") == 0) {
@@ -250,9 +345,14 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                     else => return parse_error(error.InvalidEscapeSequenceDelimiter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
                 }
             },
+            // zig fmt: off
             .char_or_key_or_modifier => {
                 switch (str[i]) {
-                    'a'...'z', ';', '0'...'9' => {
+                    //lowercase characters only inside the escape sequence
+                    'a'...'z',
+                    '0'...'9',
+                    '`', '-', '=', '[', ']', '\\', ';', '\'', ',', '.', '/',
+                     => {
                         try result.append(.{ .key = str[i], .modifiers = modifiers });
                         modifiers = 0;
                         state = .escape_sequence_end;
@@ -263,6 +363,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                     },
                 }
             },
+            // zig fmt: on
             .modifier => {
                 modifiers |= switch (str[i]) {
                     'A' => input.mod.alt,
