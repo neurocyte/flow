@@ -816,6 +816,14 @@ const cmds = struct {
         self.logger.print("restart flow to use changed key bindings", .{});
     }
     pub const open_keybind_config_meta = .{ .description = "Edit key bindings" };
+
+    pub fn run_async(_: *Self, ctx: Ctx) Result {
+        var cmd: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&cmd)}))
+            return tp.exit_error(error.InvalidArgument, null);
+        try tp.self_pid().send(.{ "cmd", cmd, .{} });        
+    }
+    pub const run_async_meta = .{ .interactive = false };
 };
 
 pub const MiniMode = struct {
