@@ -55,7 +55,7 @@ fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
         allocator: std.mem.Allocator,
         bindings: BindingSet,
 
-        pub fn create(allocator: std.mem.Allocator, opts: anytype) !EventHandler {
+        pub fn create(allocator: std.mem.Allocator, opts: anytype) !struct { EventHandler, *const KeybindHints } {
             const self: *@This() = try allocator.create(@This());
             self.* = .{
                 .allocator = allocator,
@@ -69,7 +69,7 @@ fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
                         "insert_chars",
                 ),
             };
-            return EventHandler.to_owned(self);
+            return .{ EventHandler.to_owned(self), self.bindings.hints() };
         }
         pub fn deinit(self: *@This()) void {
             self.bindings.deinit();
@@ -78,7 +78,6 @@ fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
         pub fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             return self.bindings.receive(from, m);
         }
-        pub const hints = KeybindHints.initComptime(.{});
     };
 }
 
@@ -88,7 +87,7 @@ pub const Mode = struct {
 
     name: []const u8 = "",
     line_numbers: enum { absolute, relative } = .absolute,
-    keybind_hints: ?*const KeybindHints = null,
+    keybind_hints: *const KeybindHints,
     cursor_shape: CursorShape = .block,
 
     pub fn deinit(self: *Mode) void {
@@ -96,8 +95,6 @@ pub const Mode = struct {
         if (self.event_handler) |eh| eh.deinit();
     }
 };
-
-pub const KeybindHints = std.static_string_map.StaticStringMap([]const u8);
 
 //An association of an command with a triggering key chord
 const Binding = struct {
@@ -136,11 +133,7 @@ const Binding = struct {
     }
 };
 
-const Hint = struct {
-    keys: []const u8,
-    command: []const u8,
-    description: []const u8,
-};
+pub const KeybindHints = std.StringHashMap([]u8);
 
 //A Collection of keybindings
 const BindingSet = struct {
@@ -158,28 +151,44 @@ const BindingSet = struct {
     mode_name: []const u8,
     insert_command: []const u8,
     insert_command_id: ?command.ID = null,
+    hints_map: ?KeybindHints = null,
 
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
 
-    fn hints(self: *@This()) ![]const Hint {
-        if (self.hints == null) {
-            self.hints = try std.ArrayList(Hint).init(self.allocator);
-        }
+    fn hints(self: *@This()) *const KeybindHints {
+        if (self.hints_map) |*hints_map| return hints_map;
 
-        if (self.hints.?.len == self.bindings.items.len) {
-            return self.hints.?.items;
-        } else {
-            self.hints.?.clearRetainingCapacity();
-            for (self.bindings.items) |binding| {
-                const hint: Hint = .{
-                    .keys = binding.KeyEvent.toString(self.allocator),
-                    .command = binding.command,
-                    .description = "", //TODO lookup command description here
-                };
-                try self.hints.?.append(hint);
+        self.hints_map = KeybindHints.init(self.allocator);
+        self.build_hints() catch {};
+        return &self.hints_map.?;
+    }
+
+    fn build_hints(self: *@This()) !void {
+        const hints_map = &self.hints_map.?;
+
+        for (self.press.items) |binding| {
+            var hint = if (hints_map.get(binding.command)) |previous|
+                std.ArrayList(u8).fromOwnedSlice(self.allocator, previous)
+            else
+                std.ArrayList(u8).init(self.allocator);
+            defer hint.deinit();
+            const writer = hint.writer();
+            if (hint.items.len > 0) try writer.writeAll(", ");
+            const count = binding.keys.len;
+            for (binding.keys, 0..) |key_, n| {
+                var key = key_;
+                key.event = 0;
+                switch (self.syntax) {
+                    // .flow => {
+                    else => {
+                        try writer.print("{}", .{key});
+                        if (n < count - 1)
+                            try writer.writeAll(" ");
+                    },
+                }
             }
-            return self.hints.?.items;
+            try hints_map.put(binding.command, try hint.toOwnedSlice());
         }
     }
 
@@ -201,7 +210,12 @@ const BindingSet = struct {
         return self;
     }
 
-    fn deinit(self: *const BindingSet) void {
+    fn deinit(self: *BindingSet) void {
+        if (self.hints_map) |*h| {
+            var i = h.iterator();
+            while (i.next()) |p| self.allocator.free(p.value_ptr.*);
+            h.deinit();
+        }
         for (self.press.items) |binding| binding.deinit(self.allocator);
         self.press.deinit();
         for (self.release.items) |binding| binding.deinit(self.allocator);

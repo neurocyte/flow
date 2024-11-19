@@ -572,11 +572,12 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     self.refresh_hover();
 }
 
-fn static_mode(self: *Self, mode: anytype, name: []const u8, opts: anytype) !Mode {
+fn get_input_mode(self: *Self, mode: anytype, name: []const u8, opts: anytype) !Mode {
+    const input_handler, const keybind_hints = try mode.create(self.allocator, opts);
     return .{
-        .input_handler = try mode.create(self.allocator, opts),
+        .input_handler = input_handler,
+        .keybind_hints = keybind_hints,
         .name = name,
-        .keybind_hints = &mode.hints,
         .line_numbers = if (@hasField(@TypeOf(opts), "line_numbers_relative"))
             if (opts.line_numbers_relative)
                 .relative
@@ -682,43 +683,43 @@ const cmds = struct {
             self.input_mode = null;
         }
         self.input_mode = if (std.mem.eql(u8, mode, "vim/normal"))
-            try self.static_mode(keybind.mode.input.vim.normal, "NORMAL", .{
+            try self.get_input_mode(keybind.mode.input.vim.normal, "NORMAL", .{
                 .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
                 .cursor_shape = .block,
             })
         else if (std.mem.eql(u8, mode, "vim/insert"))
-            try self.static_mode(keybind.mode.input.vim.insert, "INSERT", .{
+            try self.get_input_mode(keybind.mode.input.vim.insert, "INSERT", .{
                 .enable_chording = self.config.vim_insert_chording_keybindings,
                 .line_numbers_relative = self.config.vim_insert_gutter_line_numbers_relative,
                 .cursor_shape = .beam,
             })
         else if (std.mem.eql(u8, mode, "vim/visual"))
-            try self.static_mode(keybind.mode.input.vim.visual, "VISUAL", .{
+            try self.get_input_mode(keybind.mode.input.vim.visual, "VISUAL", .{
                 .line_numbers_relative = self.config.vim_visual_gutter_line_numbers_relative,
                 .cursor_shape = .underline,
             })
         else if (std.mem.eql(u8, mode, "helix/normal"))
-            try self.static_mode(keybind.mode.input.helix.normal, "NOR", .{
+            try self.get_input_mode(keybind.mode.input.helix.normal, "NOR", .{
                 .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
                 .cursor_shape = .block,
             })
         else if (std.mem.eql(u8, mode, "helix/insert"))
-            try self.static_mode(keybind.mode.input.helix.insert, "INS", .{
+            try self.get_input_mode(keybind.mode.input.helix.insert, "INS", .{
                 .line_numbers_relative = self.config.vim_insert_gutter_line_numbers_relative,
                 .cursor_shape = .beam,
             })
         else if (std.mem.eql(u8, mode, "helix/select"))
-            try self.static_mode(keybind.mode.input.helix.visual, "SEL", .{
+            try self.get_input_mode(keybind.mode.input.helix.visual, "SEL", .{
                 .line_numbers_relative = self.config.vim_visual_gutter_line_numbers_relative,
                 .cursor_shape = .block,
             })
         else if (std.mem.eql(u8, mode, "flow"))
-            try self.static_mode(keybind.mode.input.flow, "flow", .{})
+            try self.get_input_mode(keybind.mode.input.flow, "flow", .{})
         else if (std.mem.eql(u8, mode, "home"))
-            try self.static_mode(keybind.mode.input.home, "flow", .{})
+            try self.get_input_mode(keybind.mode.input.home, "flow", .{})
         else ret: {
             self.logger.print("unknown mode {s}", .{mode});
-            break :ret try self.static_mode(keybind.mode.input.flow, "flow", .{});
+            break :ret try self.get_input_mode(keybind.mode.input.flow, "flow", .{});
         };
         // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }

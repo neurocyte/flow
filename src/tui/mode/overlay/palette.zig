@@ -71,8 +71,9 @@ pub fn Create(options: type) type {
             };
             self.menu.scrollbar.?.style_factory = scrollbar_style;
             if (self.hints) |hints| {
-                for (hints.values()) |val|
-                    self.longest_hint = @max(self.longest_hint, val.len);
+                var iter = hints.iterator();
+                while (iter.next()) |p|
+                    self.longest_hint = @max(self.longest_hint, p.value_ptr.len);
             }
             try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
@@ -81,11 +82,13 @@ pub fn Create(options: type) type {
             try self.start_query();
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
+            const input_handler, const keybind_hints = try keybind.mode.overlay.palette.create(allocator, .{
+                .insert_command = "overlay_insert_bytes",
+            });
             return .{
-                .input_handler = try keybind.mode.overlay.palette.create(allocator, .{
-                    .insert_command = "overlay_insert_bytes",
-                }),
+                .input_handler = input_handler,
                 .event_handler = EventHandler.to_owned(self),
+                .keybind_hints = keybind_hints,
                 .name = options.name,
             };
         }

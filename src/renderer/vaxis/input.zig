@@ -66,7 +66,10 @@ pub const KeyEvent = struct {
     }
 
     pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
-        try writer.print("{}:{}{}", .{ event_fmt(self.event), mod_fmt(self.modifiers), key_fmt(self.key) });
+        return if (self.event > 0)
+            writer.print("{}:{}{}", .{ event_fmt(self.event), mod_fmt(self.modifiers), key_fmt(self.key) })
+        else
+            writer.print("{}{}", .{ mod_fmt(self.modifiers), key_fmt(self.key) });
     }
 };
 
@@ -190,6 +193,7 @@ pub fn event_fmt(evt: Event) struct {
             event.press => writer.writeAll("press"),
             event.repeat => writer.writeAll("repeat"),
             event.release => writer.writeAll("release"),
+            else => {},
         };
     }
 } {

@@ -48,12 +48,14 @@ pub fn Create(options: type) type {
             try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
+            const input_handler, const keybind_hints = try keybind.mode.mini.file_browser.create(allocator, .{
+                .insert_command = "mini_mode_insert_bytes",
+            });
             return .{
                 .{
-                    .input_handler = try keybind.mode.mini.file_browser.create(allocator, .{
-                        .insert_command = "mini_mode_insert_bytes",
-                    }),
+                    .input_handler = input_handler,
                     .event_handler = EventHandler.to_owned(self),
+                    .keybind_hints = keybind_hints,
                 },
                 .{
                     .name = options.name(self),

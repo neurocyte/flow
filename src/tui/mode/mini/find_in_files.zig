@@ -38,12 +38,14 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
             @memcpy(self.buf[0..text.len], text);
             self.input = self.buf[0..text.len];
         };
+        const input_handler, const keybind_hints = try keybind.mode.mini.find_in_files.create(allocator, .{
+            .insert_command = "mini_mode_insert_bytes",
+        });
         return .{
             .{
-                .input_handler = try keybind.mode.mini.find_in_files.create(allocator, .{
-                    .insert_command = "mini_mode_insert_bytes",
-                }),
+                .input_handler = input_handler,
                 .event_handler = EventHandler.to_owned(self),
+                .keybind_hints = keybind_hints,
             },
             .{
                 .name = name,
