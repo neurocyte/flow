@@ -438,6 +438,20 @@ fn write_json_file(comptime T: type, data: T, allocator: std.mem.Allocator, file
     try cbor.JsonStream(std.fs.File).jsonWriteValue(&s, &iter);
 }
 
+pub fn read_keybind_namespace(allocator: std.mem.Allocator, namespace_name: []const u8) ?[]const u8 {
+    const file_name = get_keybind_namespace_file_name(namespace_name) catch return null;
+    var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
+    defer file.close();
+    return file.readToEndAlloc(allocator, 64 * 1024) catch null;
+}
+
+pub fn write_keybind_namespace(namespace_name: []const u8, content: []const u8) !void {
+    const file_name = try get_keybind_namespace_file_name(namespace_name);
+    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
+    defer file.close();
+    return file.writeAll(content);
+}
+
 pub fn get_config_dir() ![]const u8 {
     return get_app_config_dir(application_name);
 }
@@ -478,6 +492,10 @@ fn get_app_config_dir(appname: []const u8) ![]const u8 {
         error.PathAlreadyExists => {},
         else => return e,
     };
+
+    var keybind_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&keybind_dir_buffer, "{s}/{s}", .{ config_dir, keybind_dir })) catch {};
+
     return config_dir;
 }
 
@@ -602,6 +620,15 @@ pub fn get_restore_file_name() ![]const u8 {
         try std.fmt.bufPrint(&local.restore_file_buffer, "{s}/{s}", .{ try get_app_cache_dir(application_name), restore_file_name });
     local.restore_file = restore_file;
     return restore_file;
+}
+
+const keybind_dir = "keys";
+
+pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
+    const local = struct {
+        var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    };
+    return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}/{s}.json", .{ try get_app_config_dir(application_name), keybind_dir, namespace_name });
 }
 
 fn restart() noreturn {

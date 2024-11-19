@@ -7,6 +7,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const builtin = @import("builtin");
 const log = @import("log");
+const root = @import("root");
 
 const input = @import("input");
 const command = @import("command");
@@ -235,7 +236,12 @@ const BindingSet = struct {
             .command = self.allocator.dupe(u8, "toggle_input_mode") catch @panic("failed to add toggle_input_mode fallback"),
             .args = "",
         }) catch {};
-        const json_string: []const u8 = builtin_keybinds.get(namespace_name) orelse return error.NotFound;
+        var free_json_string = true;
+        const json_string = root.read_keybind_namespace(self.allocator, namespace_name) orelse blk: {
+            free_json_string = false;
+            break :blk builtin_keybinds.get(namespace_name) orelse return error.NotFound;
+        };
+        defer if (free_json_string) self.allocator.free(json_string);
         const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, json_string, .{});
         defer parsed.deinit();
         if (parsed.value != .object) return error.NotAnObject;
@@ -503,6 +509,18 @@ pub const CursorShape = enum {
     beam_blink,
     beam,
 };
+
+pub fn get_or_create_namespace_config_file(allocator: std.mem.Allocator, namespace_name: []const u8) ![]const u8 {
+    if (root.read_keybind_namespace(allocator, namespace_name)) |content| {
+        allocator.free(content);
+    } else {
+        try root.write_keybind_namespace(
+            namespace_name,
+            builtin_keybinds.get(namespace_name) orelse builtin_keybinds.get("flow").?,
+        );
+    }
+    return try root.get_keybind_namespace_file_name(namespace_name);
+}
 
 const expectEqual = std.testing.expectEqual;
 

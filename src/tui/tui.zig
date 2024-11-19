@@ -807,6 +807,15 @@ const cmds = struct {
         self.mini_mode = null;
     }
     pub const exit_mini_mode_meta = .{ .interactive = false };
+
+    pub fn open_keybind_config(self: *Self, _: Ctx) Result {
+        var mode_parts = std.mem.splitScalar(u8, self.config.input_mode, '/');
+        const namespace_name = mode_parts.first();
+        const file_name = try keybind.get_or_create_namespace_config_file(self.allocator, namespace_name);
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+        self.logger.print("restart flow to use changed key bindings", .{});
+    }
+    pub const open_keybind_config_meta = .{ .description = "Edit key bindings" };
 };
 
 pub const MiniMode = struct {

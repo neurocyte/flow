@@ -175,6 +175,7 @@
             ["r", "open_recent_project"],
             ["p", "open_command_palette"],
             ["c", "open_config"],
+            ["k", "open_keybind_config"],
             ["t", "change_theme"],
             ["q", "quit"],
             ["f1", "open_help"],

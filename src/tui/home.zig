@@ -40,6 +40,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     try self.menu.add_item_with_handler("Open recent project ········ :r", menu_action_open_recent_project);
     try self.menu.add_item_with_handler("Show/Run commands ·········· :p", menu_action_show_commands);
     try self.menu.add_item_with_handler("Open config file ··········· :c", menu_action_open_config);
+    try self.menu.add_item_with_handler("Open key bindings file ····· :k", menu_action_open_keybind_config);
     try self.menu.add_item_with_handler("Change theme ··············· :t", menu_action_change_theme);
     try self.menu.add_item_with_handler("Quit/Close ················· :q", menu_action_quit);
     self.menu.resize(.{ .y = 15, .x = 9, .w = 32 });
@@ -123,6 +124,10 @@ fn menu_action_show_commands(_: **Menu.State(*Self), _: *Button.State(*Menu.Stat
 
 fn menu_action_open_config(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
     command.executeName("open_config", .{}) catch {};
+}
+
+fn menu_action_open_keybind_config(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+    command.executeName("open_keybind_config", .{}) catch {};
 }
 
 fn menu_action_change_theme(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
