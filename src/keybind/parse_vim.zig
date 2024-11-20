@@ -15,6 +15,7 @@ pub const ParseError = error{
     InvalidStartOfControlBinding,
     InvalidStartOfShiftBinding,
     InvalidStartOfDelBinding,
+    InvalidStartOfEscBinding,
     InvalidStartOfHomeBinding,
     InvalidCRBinding,
     InvalidSpaceBinding,
@@ -117,7 +118,11 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
                             '-' => {
                                 state = .modifier;
                             },
-                            else => return parse_error(error.InvalidStartOfControlBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
+                            else => return parse_error(
+                                error.InvalidStartOfControlBinding,
+                                "str: {s}, i: {} c: {c}",
+                                .{ str, i, str[i] },
+                            ),
                         }
                     },
                     'S' => {
@@ -128,7 +133,11 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
                             'p' => {
                                 state = .space;
                             },
-                            else => return parse_error(error.InvalidStartOfShiftBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
+                            else => return parse_error(
+                                error.InvalidStartOfShiftBinding,
+                                "str: {s}, i: {} c: {c}",
+                                .{ str, i, str[i] },
+                            ),
                         }
                     },
                     'F' => {
@@ -154,7 +163,15 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
                         state = .bs;
                     },
                     'E' => {
-                        state = .esc;
+                        state = switch (try peek(str, i)) {
+                            's' => .esc,
+                            'n' => .end,
+                            else => return parse_error(
+                                error.InvalidStartOfEscBinding,
+                                "str: {s}, i: {} c: {c}",
+                                .{ str, i, str[i] },
+                            ),
+                        };
                     },
                     'D' => {
                         switch (try peek(str, i)) {
@@ -167,13 +184,21 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
                             'e' => {
                                 state = .del;
                             },
-                            else => return parse_error(error.InvalidStartOfDelBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
+                            else => return parse_error(
+                                error.InvalidStartOfDelBinding,
+                                "str: {s}, i: {} c: {c}",
+                                .{ str, i, str[i] },
+                            ),
                         }
                     },
                     'H' => {
                         state = .home;
                     },
-                    else => return parse_error(error.InvalidStartOfHomeBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
+                    else => return parse_error(
+                        error.InvalidStartOfHomeBinding,
+                        "str: {s}, i: {} c: {c}",
+                        .{ str, i, str[i] },
+                    ),
                 }
             },
             .insert => {
