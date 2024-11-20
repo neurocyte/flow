@@ -628,6 +628,11 @@ pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
     const local = struct {
         var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
+    const a = std.heap.c_allocator;
+    if (std.process.getEnvVarOwned(a, "FLOW_KEYS_DIR") catch null) |dir| {
+        defer a.free(dir);
+        return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}.json", .{ dir, namespace_name });
+    }
     return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}/{s}.json", .{ try get_app_config_dir(application_name), keybind_dir, namespace_name });
 }
 
