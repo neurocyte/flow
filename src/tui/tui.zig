@@ -1,5 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
+const cbor = @import("cbor");
 const log = @import("log");
 const config = @import("config");
 const project_manager = @import("project_manager");
@@ -817,11 +818,44 @@ const cmds = struct {
     }
     pub const open_keybind_config_meta = .{ .description = "Edit key bindings" };
 
-    pub fn run_async(_: *Self, ctx: Ctx) Result {
-        var cmd: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&cmd)}))
+    pub fn run_async(self: *Self, ctx: Ctx) Result {
+        var iter = ctx.args.buf;
+        var len = try cbor.decodeArrayHeader(&iter);
+        if (len < 1)
             return tp.exit_error(error.InvalidArgument, null);
-        try tp.self_pid().send(.{ "cmd", cmd, .{} });        
+
+        var cmd: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, cbor.extract(&cmd)))
+            return tp.exit_error(error.InvalidArgument, null);
+        len -= 1;
+
+        var args = std.ArrayList([]const u8).init(self.allocator);
+        defer args.deinit();
+        while (len > 0) : (len -= 1) {
+            var arg: []const u8 = undefined;
+            if (try cbor.matchValue(&iter, cbor.extract_cbor(&arg))) {
+                try args.append(arg);
+            } else return tp.exit_error(error.InvalidArgument, null);
+        }
+
+        var args_cb = std.ArrayList(u8).init(self.allocator);
+        defer args_cb.deinit();
+        {
+            const writer = args_cb.writer();
+            try cbor.writeArrayHeader(writer, args.items.len);
+            for (args.items) |arg| try writer.writeAll(arg);
+        }
+
+        var msg_cb = std.ArrayList(u8).init(self.allocator);
+        defer msg_cb.deinit();
+        {
+            const writer = msg_cb.writer();
+            try cbor.writeArrayHeader(writer, 3);
+            try cbor.writeValue(writer, "cmd");
+            try cbor.writeValue(writer, cmd);
+            try writer.writeAll(args_cb.items);
+        }
+        try tp.self_pid().send_raw(.{ .buf = msg_cb.items });
     }
     pub const run_async_meta = .{ .interactive = false };
 };
