@@ -64,6 +64,7 @@ pub fn main() anyerror!void {
             .no_syntax = "Disable syntax highlighting",
             .syntax_report_timing = "Report syntax highlighting time",
             .exec = "Execute a command on startup",
+            .literal = "Disable :LINE and +LINE syntax",
             .version = "Show build version and exit",
         };
 
@@ -74,6 +75,7 @@ pub fn main() anyerror!void {
             .trace_level = 't',
             .language = 'l',
             .exec = 'e',
+            .literal = 'L',
             .version = 'v',
         };
 
@@ -92,6 +94,7 @@ pub fn main() anyerror!void {
         no_syntax: bool,
         syntax_report_timing: bool,
         exec: ?[]const u8,
+        literal: bool,
         version: bool,
     };
 
@@ -211,7 +214,7 @@ pub fn main() anyerror!void {
     for (positional_args.items) |arg| {
         if (arg.len == 0) continue;
 
-        if (arg[0] == '+') {
+        if (!args.literal and arg[0] == '+') {
             const line = try std.fmt.parseInt(usize, arg[1..], 10);
             if (prev) |p| {
                 p.line = line;
@@ -228,18 +231,22 @@ pub fn main() anyerror!void {
             curr.line = line;
             line_next = null;
         }
-        var it = std.mem.splitScalar(u8, arg, ':');
-        curr.file = it.first();
-        if (it.next()) |line_|
-            curr.line = std.fmt.parseInt(usize, line_, 10) catch blk: {
-                curr.file = arg;
-                break :blk null;
-            };
-        if (curr.line) |_| {
-            if (it.next()) |col_|
-                curr.column = std.fmt.parseInt(usize, col_, 10) catch null;
-            if (it.next()) |col_|
-                curr.end_column = std.fmt.parseInt(usize, col_, 10) catch null;
+        if (!args.literal) {
+            var it = std.mem.splitScalar(u8, arg, ':');
+            curr.file = it.first();
+            if (it.next()) |line_|
+                curr.line = std.fmt.parseInt(usize, line_, 10) catch blk: {
+                    curr.file = arg;
+                    break :blk null;
+                };
+            if (curr.line) |_| {
+                if (it.next()) |col_|
+                    curr.column = std.fmt.parseInt(usize, col_, 10) catch null;
+                if (it.next()) |col_|
+                    curr.end_column = std.fmt.parseInt(usize, col_, 10) catch null;
+            }
+        } else {
+            curr.file = arg;
         }
     }
 
