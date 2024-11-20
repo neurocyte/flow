@@ -8,8 +8,8 @@
             ["l", "move_right_vim"],
             ["h", "move_left"],
             ["<Space>", "move_right_vim"],
-            ["i", "enter_mode", "insert"],
-            ["v", "enter_mode", "visual"],
+            ["i", "enter_mode", "vim/insert"],
+            ["v", "enter_mode", "vim/visual"],
             ["/", "find"],
             ["n", "goto_next_match"],
             ["0", "move_begin"],
@@ -32,8 +32,8 @@
     "insert": {
         "syntax": "vim",
         "press": [
-            ["jk", "enter_mode", "normal"],
-            ["<Esc>", "enter_mode", "normal"]
+            ["jk", "enter_mode", "vim/normal"],
+            ["<Esc>", "enter_mode", "vim/normal"]
         ]
     } 
 }

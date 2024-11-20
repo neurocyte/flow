@@ -119,7 +119,9 @@ const Binding = struct {
             command.get_id_cache(self.command, &self.command_id) orelse {
             return tp.exit_fmt("CommandNotFound: {s}", .{self.command});
         };
-        try command.execute(id, .{ .args = .{ .buf = self.args } });
+        var buf: [2048]u8 = undefined;
+        @memcpy(buf[0..self.args.len], self.args);
+        try command.execute(id, .{ .args = .{ .buf = buf[0..self.args.len] } });
     }
 
     const MatchResult = enum { match_impossible, match_possible, matched };
