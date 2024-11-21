@@ -111,6 +111,7 @@
             ["shift+backspace", "delete_backward"],
             ["shift+tab", "unindent"],
             ["f2", "toggle_input_mode"],
+            ["ctrl+f2", "insert_command_name"],
             ["f3", "goto_next_match"],
             ["f15", "goto_prev_match"],
             ["f5", "toggle_inspector_view"],

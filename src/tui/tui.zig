@@ -736,6 +736,11 @@ const cmds = struct {
     }
     pub const open_command_palette_meta = .{};
 
+    pub fn insert_command_name(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type);
+    }
+    pub const insert_command_name_meta = .{ .description = "Insert command name" };
+
     pub fn open_recent(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
     }
