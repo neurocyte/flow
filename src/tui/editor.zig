@@ -3592,7 +3592,7 @@ pub const Editor = struct {
 
     pub fn goto_next_diagnostic(self: *Self, _: Context) Result {
         if (self.diagnostics.items.len == 0) {
-            if (command.getId("goto_next_file")) |id|
+            if (command.get_id("goto_next_file")) |id|
                 return command.execute(id, .{});
             return;
         }
@@ -3608,7 +3608,7 @@ pub const Editor = struct {
 
     pub fn goto_prev_diagnostic(self: *Self, _: Context) Result {
         if (self.diagnostics.items.len == 0) {
-            if (command.getId("goto_prev_file")) |id|
+            if (command.get_id("goto_prev_file")) |id|
                 return command.execute(id, .{});
             return;
         }

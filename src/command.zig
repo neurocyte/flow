@@ -118,13 +118,18 @@ pub fn execute(id: ID, ctx: Context) tp.result {
     }
 }
 
-pub fn getId(name: []const u8) ?ID {
+pub fn get_id(name: []const u8) ?ID {
     for (commands.items) |cmd| {
         if (cmd) |p|
             if (std.mem.eql(u8, p.name, name))
                 return p.id;
     }
     return null;
+}
+
+pub fn get_name(id: ID) ?[]const u8 {
+    if (id >= commands.items.len) return null;
+    return (commands.items[id] orelse return null).name;
 }
 
 pub fn get_id_cache(name: []const u8, id: *?ID) ?ID {
@@ -145,7 +150,7 @@ const suppressed_errors = .{
 };
 
 pub fn executeName(name: []const u8, ctx: Context) tp.result {
-    const id = getId(name);
+    const id = get_id(name);
     if (id) |id_| return execute(id_, ctx);
     inline for (suppressed_errors) |err| if (std.mem.eql(u8, err, name)) return;
     return tp.exit_fmt("CommandNotFound: {s}", .{name});

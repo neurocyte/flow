@@ -120,7 +120,7 @@ pub fn restore_state(palette: *Type) !void {
         error.TooShort => return,
         else => return e,
     }) {
-        const id = command.getId(name_) orelse continue;
+        const id = command.get_id(name_) orelse continue;
         set_used_time(palette, id, used_time);
     }
 }
