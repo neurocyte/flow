@@ -325,7 +325,7 @@ const Binding = struct {
 
 pub const KeybindHints = std.StringHashMapUnmanaged([]u8);
 
-const max_key_sequence_time_interval = 750;
+const max_key_sequence_time_interval = 1500;
 const max_input_buffer_size = 4096;
 
 var globals: struct {
@@ -678,6 +678,8 @@ const match_test_cases = .{
     .{ "<C-x><C-c>", "<C-x><C-c>", .matched },
     .{ "<C-x><A-a>", "<C-x><A-a><Tab>", .match_possible },
     .{ "<C-o>", "<C-o>", .matched },
+    .{ "<S-'><S-->dd", "<S-'><S-->dd", .matched },
+    .{ "<S-'><S-->dd", "<S-'><S-->da", .match_impossible },
 };
 
 test "match" {

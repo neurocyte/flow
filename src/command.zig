@@ -43,7 +43,9 @@ pub fn Closure(comptime T: type) type {
         f: FunT,
         data: T,
 
+        ///The type signature of commands
         const FunT: type = *const fn (T, ctx: Context) Result;
+
         const Self = @This();
 
         pub fn init(f: FunT, data: T, name: []const u8, meta: Metadata) Self {
