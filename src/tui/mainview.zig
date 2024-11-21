@@ -237,7 +237,7 @@ const cmds = struct {
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
-    pub const open_project_cwd_meta = .{ .interactive = false };
+    pub const open_project_cwd_meta = .{};
 
     pub fn open_project_dir(self: *Self, ctx: Ctx) Result {
         var project_dir: []const u8 = undefined;
@@ -249,7 +249,7 @@ const cmds = struct {
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
-    pub const open_project_dir_meta = .{ .interactive = false };
+    pub const open_project_dir_meta = .{ .arguments = &.{.string} };
 
     pub fn change_project(self: *Self, ctx: Ctx) Result {
         var project_dir: []const u8 = undefined;
@@ -275,7 +275,7 @@ const cmds = struct {
         if (try project_manager.request_most_recent_file(self.allocator)) |file_path|
             self.show_file_async_and_free(file_path);
     }
-    pub const change_project_meta = .{ .interactive = false };
+    pub const change_project_meta = .{ .arguments = &.{.string} };
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
@@ -346,7 +346,7 @@ const cmds = struct {
         }
         tui.need_render();
     }
-    pub const navigate_meta = .{ .interactive = false };
+    pub const navigate_meta = .{ .arguments = &.{.object} };
 
     pub fn open_help(self: *Self, _: Ctx) Result {
         tui.reset_drag_context();
@@ -370,7 +370,7 @@ const cmds = struct {
         try self.read_restore_info();
         tui.need_render();
     }
-    pub const restore_session_meta = .{ .interactive = false };
+    pub const restore_session_meta = .{};
 
     pub fn toggle_panel(self: *Self, _: Ctx) Result {
         if (self.is_panel_view_showing(logview))
@@ -387,7 +387,7 @@ const cmds = struct {
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, false);
     }
-    pub const toggle_logview_meta = .{ .interactive = false };
+    pub const toggle_logview_meta = .{};
 
     pub fn show_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, true);
@@ -407,7 +407,7 @@ const cmds = struct {
     pub fn show_inspector_view(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(@import("inspector_view.zig"), true);
     }
-    pub const show_inspector_view_meta = .{ .interactive = false };
+    pub const show_inspector_view_meta = .{};
 
     pub fn jump_back(self: *Self, _: Ctx) Result {
         try self.location_history.back(location_jump);
@@ -422,7 +422,7 @@ const cmds = struct {
     pub fn show_home(self: *Self, _: Ctx) Result {
         return self.create_home();
     }
-    pub const show_home_meta = .{ .interactive = false };
+    pub const show_home_meta = .{};
 
     pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
         const tui_ = tui.current();
@@ -506,7 +506,7 @@ const cmds = struct {
                 ed.Diagnostic.to_severity(severity),
             );
     }
-    pub const add_diagnostic_meta = .{ .interactive = false };
+    pub const add_diagnostic_meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
 
     pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
@@ -519,7 +519,7 @@ const cmds = struct {
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false);
     }
-    pub const clear_diagnostics_meta = .{ .interactive = false };
+    pub const clear_diagnostics_meta = .{ .arguments = &.{.string} };
 
     pub fn show_diagnostics(self: *Self, _: Ctx) Result {
         const editor = self.editor orelse return;

@@ -277,27 +277,27 @@ const cmds = struct {
     pub fn palette_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
-    pub const palette_menu_down_meta = .{ .interactive = false };
+    pub const palette_menu_down_meta = .{};
 
     pub fn palette_menu_up(self: *Self, _: Ctx) Result {
         self.menu.select_up();
     }
-    pub const palette_menu_up_meta = .{ .interactive = false };
+    pub const palette_menu_up_meta = .{};
 
     pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
     }
-    pub const palette_menu_activate_meta = .{ .interactive = false };
+    pub const palette_menu_activate_meta = .{};
 
     pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
         if (self.menu.selected orelse 0 > 0) self.menu.activate_selected();
     }
-    pub const palette_menu_activate_quick_meta = .{ .interactive = false };
+    pub const palette_menu_activate_quick_meta = .{};
 
     pub fn palette_menu_cancel(self: *Self, _: Ctx) Result {
         try self.cmd("exit_overlay_mode", .{});
     }
-    pub const palette_menu_cancel_meta = .{ .interactive = false };
+    pub const palette_menu_cancel_meta = .{};
 
     pub fn overlay_delete_word_left(self: *Self, _: Ctx) Result {
         self.delete_word() catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -315,7 +315,7 @@ const cmds = struct {
             return error.InvalidArgument;
         self.insert_code_point(egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
-    pub const overlay_insert_code_point_meta = .{ .interactive = false };
+    pub const overlay_insert_code_point_meta = .{ .arguments = &.{.integer} };
 
     pub fn overlay_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
@@ -323,20 +323,20 @@ const cmds = struct {
             return error.InvalidArgument;
         self.insert_bytes(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
-    pub const overlay_insert_bytes_meta = .{ .interactive = false };
+    pub const overlay_insert_bytes_meta = .{ .arguments = &.{.string} };
 
     pub fn overlay_release_control(self: *Self, _: Ctx) Result {
         if (self.menu.selected orelse 0 > 0) return self.cmd("palette_menu_activate", .{});
     }
-    pub const overlay_release_control_meta = .{ .interactive = false };
+    pub const overlay_release_control_meta = .{};
 
     pub fn overlay_toggle_panel(self: *Self, _: Ctx) Result {
         return self.cmd_async("toggle_panel");
     }
-    pub const overlay_toggle_panel_meta = .{ .interactive = false };
+    pub const overlay_toggle_panel_meta = .{};
 
     pub fn overlay_toggle_inputview(self: *Self, _: Ctx) Result {
         return self.cmd_async("toggle_inputview");
     }
-    pub const overlay_toggle_inputview_meta = .{ .interactive = false };
+    pub const overlay_toggle_inputview_meta = .{};
 };

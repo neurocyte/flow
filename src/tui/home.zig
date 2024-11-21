@@ -202,17 +202,17 @@ const cmds = struct {
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
-    pub const home_menu_down_meta = .{ .interactive = false };
+    pub const home_menu_down_meta = .{};
 
     pub fn home_menu_up(self: *Self, _: Ctx) Result {
         self.menu.select_up();
     }
-    pub const home_menu_up_meta = .{ .interactive = false };
+    pub const home_menu_up_meta = .{};
 
     pub fn home_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
     }
-    pub const home_menu_activate_meta = .{ .interactive = false };
+    pub const home_menu_activate_meta = .{};
 
     pub fn home_sheeran(self: *Self, _: Ctx) Result {
         self.fire = if (self.fire) |*fire| ret: {
@@ -220,7 +220,7 @@ const cmds = struct {
             break :ret null;
         } else try Fire.init(self.allocator, self.plane);
     }
-    pub const home_sheeran_meta = .{ .interactive = false };
+    pub const home_sheeran_meta = .{};
 };
 
 const Fire = struct {

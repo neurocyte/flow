@@ -298,5 +298,5 @@ const cmds = struct {
         if (self.menu.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
         self.menu.activate_selected();
     }
-    pub const goto_selected_file_meta = .{ .interactive = false };
+    pub const goto_selected_file_meta = .{};
 };

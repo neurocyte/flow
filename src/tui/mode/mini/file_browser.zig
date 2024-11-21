@@ -315,7 +315,7 @@ pub fn Create(options: type) type {
                 try self.file_path.appendSlice(buf[0..bytes]);
                 self.update_mini_mode_text();
             }
-            pub const mini_mode_insert_code_point_meta = .{ .interactive = false };
+            pub const mini_mode_insert_code_point_meta = .{ .arguments = &.{.integer} };
 
             pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
                 var bytes: []const u8 = undefined;
@@ -325,7 +325,7 @@ pub fn Create(options: type) type {
                 try self.file_path.appendSlice(bytes);
                 self.update_mini_mode_text();
             }
-            pub const mini_mode_insert_bytes_meta = .{ .interactive = false };
+            pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };
 
             pub fn mini_mode_select(self: *Self, _: Ctx) Result {
                 options.select(self);

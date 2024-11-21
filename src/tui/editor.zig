@@ -1826,7 +1826,7 @@ pub const Editor = struct {
             return error.InvalidArgument;
         return self.primary_drag(y, x);
     }
-    pub const drag_to_meta = .{ .interactive = false };
+    pub const drag_to_meta = .{ .arguments = &.{ .integer, .integer } };
 
     pub fn secondary_click(self: *Self, y: c_int, x: c_int) !void {
         return self.primary_drag(y, x);
@@ -1920,7 +1920,7 @@ pub const Editor = struct {
         else
             self.scroll_up();
     }
-    pub const scroll_up_pageup_meta = .{ .interactive = false };
+    pub const scroll_up_pageup_meta = .{};
 
     pub fn scroll_down_pagedown(self: *Self, _: Context) Result {
         if (self.fast_scroll)
@@ -1928,7 +1928,7 @@ pub const Editor = struct {
         else
             self.scroll_down();
     }
-    pub const scroll_down_pagedown_meta = .{ .interactive = false };
+    pub const scroll_down_pagedown_meta = .{};
 
     pub fn scroll_to(self: *Self, row: usize) void {
         self.update_scroll_dest_abs(row);
@@ -1959,12 +1959,12 @@ pub const Editor = struct {
     pub fn scroll_view_top(self: *Self, _: Context) Result {
         return self.scroll_view_offset(scroll_cursor_min_border_distance);
     }
-    pub const scroll_view_top_meta = .{ .interactive = false };
+    pub const scroll_view_top_meta = .{};
 
     pub fn scroll_view_bottom(self: *Self, _: Context) Result {
         return self.scroll_view_offset(if (self.view.rows > scroll_cursor_min_border_distance) self.view.rows - scroll_cursor_min_border_distance else 0);
     }
-    pub const scroll_view_bottom_meta = .{ .interactive = false };
+    pub const scroll_view_bottom_meta = .{};
 
     fn set_clipboard(self: *Self, text: []const u8) void {
         if (self.clipboard) |old|
@@ -2317,14 +2317,14 @@ pub const Editor = struct {
         self.with_cursors_const_arg(root, move_cursor_to_char_left, ctx) catch {};
         self.clamp();
     }
-    pub const move_to_char_left_meta = .{ .interactive = false };
+    pub const move_to_char_left_meta = .{ .arguments = &.{.integer} };
 
     pub fn move_to_char_right(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const_arg(root, move_cursor_to_char_right, ctx) catch {};
         self.clamp();
     }
-    pub const move_to_char_right_meta = .{ .interactive = false };
+    pub const move_to_char_right_meta = .{ .arguments = &.{.integer} };
 
     pub fn move_up(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -2543,7 +2543,7 @@ pub const Editor = struct {
         const root = try self.with_cursels_mut(b.root, toggle_cursel_prefix, b.allocator);
         try self.update_buf(root);
     }
-    pub const toggle_prefix_meta = .{ .interactive = false };
+    pub const toggle_prefix_meta = .{ .arguments = &.{.string} };
 
     pub fn toggle_comment(self: *Self, _: Context) Result {
         const comment = if (self.syntax) |syn| syn.file_type.comment else "//";
@@ -2811,14 +2811,14 @@ pub const Editor = struct {
         self.with_selections_const_arg(root, move_cursor_to_char_left, ctx) catch {};
         self.clamp();
     }
-    pub const select_to_char_left_meta = .{ .interactive = false };
+    pub const select_to_char_left_meta = .{ .arguments = &.{.integer} };
 
     pub fn select_to_char_right(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
         self.with_selections_const_arg(root, move_cursor_to_char_right, ctx) catch {};
         self.clamp();
     }
-    pub const select_to_char_right_meta = .{ .interactive = false };
+    pub const select_to_char_right_meta = .{ .arguments = &.{.integer} };
 
     pub fn select_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -2936,7 +2936,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const insert_chars_meta = .{ .interactive = false };
+    pub const insert_chars_meta = .{ .arguments = &.{.string} };
 
     pub fn insert_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -3047,7 +3047,7 @@ pub const Editor = struct {
     pub fn disable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = false;
     }
-    pub const disable_fast_scroll_meta = .{ .interactive = false };
+    pub const disable_fast_scroll_meta = .{};
 
     pub fn enable_jump_mode(self: *Self, _: Context) Result {
         self.jump_mode = true;
@@ -3059,7 +3059,7 @@ pub const Editor = struct {
         self.jump_mode = false;
         tui.current().rdr.request_mouse_cursor_text(true);
     }
-    pub const disable_jump_mode_meta = .{ .interactive = false };
+    pub const disable_jump_mode_meta = .{};
 
     fn update_syntax(self: *Self) !void {
         const root = try self.buf_root();
@@ -3225,7 +3225,7 @@ pub const Editor = struct {
             self.clamp();
         } else return error.InvalidArgument;
     }
-    pub const open_buffer_from_file_meta = .{ .interactive = false };
+    pub const open_buffer_from_file_meta = .{ .arguments = &.{.string} };
 
     pub fn open_scratch_buffer(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
@@ -3235,7 +3235,7 @@ pub const Editor = struct {
             self.clamp();
         } else return error.InvalidArgument;
     }
-    pub const open_scratch_buffer_meta = .{ .interactive = false };
+    pub const open_scratch_buffer_meta = .{ .arguments = &.{ .string, .string } };
 
     pub fn save_file(self: *Self, ctx: Context) Result {
         var then = false;
@@ -3265,7 +3265,7 @@ pub const Editor = struct {
             try self.save_as(file_path);
         } else return error.InvalidArgument;
     }
-    pub const save_file_as_meta = .{ .interactive = false };
+    pub const save_file_as_meta = .{ .arguments = &.{.string} };
 
     pub fn close_file(self: *Self, _: Context) Result {
         self.cancel_all_selections();
@@ -3286,7 +3286,7 @@ pub const Editor = struct {
             self.clamp();
         } else return error.InvalidArgument;
     }
-    pub const find_query_meta = .{ .interactive = false };
+    pub const find_query_meta = .{ .arguments = &.{.string} };
 
     fn find_in(self: *Self, query: []const u8, comptime find_f: ripgrep.FindF, write_buffer: bool) !void {
         const root = try self.buf_root();
@@ -3658,7 +3658,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const goto_line_meta = .{ .interactive = false };
+    pub const goto_line_meta = .{ .arguments = &.{.integer} };
 
     pub fn goto_column(self: *Self, ctx: Context) Result {
         var column: usize = 0;
@@ -3669,7 +3669,7 @@ pub const Editor = struct {
         try primary.cursor.move_to(root, primary.cursor.row, @intCast(if (column < 1) 0 else column - 1), self.metrics);
         self.clamp();
     }
-    pub const goto_column_meta = .{ .interactive = false };
+    pub const goto_column_meta = .{ .arguments = &.{.integer} };
 
     pub fn goto_line_and_column(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
@@ -3710,7 +3710,7 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
         self.need_render();
     }
-    pub const goto_line_and_column_meta = .{ .interactive = false };
+    pub const goto_line_and_column_meta = .{ .arguments = &.{ .integer, .integer } };
 
     pub fn goto_definition(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
@@ -3828,7 +3828,7 @@ pub const Editor = struct {
             return error.InvalidArgument;
         self.get_primary().selection = sel;
     }
-    pub const select_meta = .{ .interactive = false };
+    pub const select_meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
 
     fn get_formatter(self: *Self) ?[]const []const u8 {
         if (self.syntax) |syn| if (syn.file_type.formatter) |fmtr| if (fmtr.len > 0) return fmtr;
@@ -3857,7 +3857,7 @@ pub const Editor = struct {
             return error.InvalidArgument;
         try self.filter_cmd(ctx.args);
     }
-    pub const filter_meta = .{ .interactive = false };
+    pub const filter_meta = .{ .arguments = &.{.string} };
 
     fn filter_cmd(self: *Self, cmd: tp.message) !void {
         if (self.filter) |_| return error.Stop;

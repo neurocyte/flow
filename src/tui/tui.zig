@@ -620,7 +620,7 @@ const cmds = struct {
         self.logger.print("theme: {s}", .{self.theme.description});
         try self.save_config();
     }
-    pub const set_theme_meta = .{ .interactive = false };
+    pub const set_theme_meta = .{ .arguments = &.{.string} };
 
     pub fn theme_next(self: *Self, _: Ctx) Result {
         self.theme = get_next_theme_by_name(self.theme.name);
@@ -724,17 +724,17 @@ const cmds = struct {
         };
         // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
-    pub const enter_mode_meta = .{ .interactive = false };
+    pub const enter_mode_meta = .{ .arguments = &.{.string} };
 
     pub fn enter_mode_default(self: *Self, _: Ctx) Result {
         return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
     }
-    pub const enter_mode_default_meta = .{ .interactive = false };
+    pub const enter_mode_default_meta = .{};
 
     pub fn open_command_palette(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/command_palette.zig").Type);
     }
-    pub const open_command_palette_meta = .{ .interactive = false };
+    pub const open_command_palette_meta = .{};
 
     pub fn open_recent(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
@@ -758,7 +758,7 @@ const cmds = struct {
         self.input_mode_outer = null;
         self.refresh_hover();
     }
-    pub const exit_overlay_mode_meta = .{ .interactive = false };
+    pub const exit_overlay_mode_meta = .{};
 
     pub fn find(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/find.zig"), ctx);
@@ -807,7 +807,7 @@ const cmds = struct {
         self.input_mode_outer = null;
         self.mini_mode = null;
     }
-    pub const exit_mini_mode_meta = .{ .interactive = false };
+    pub const exit_mini_mode_meta = .{};
 
     pub fn open_keybind_config(self: *Self, _: Ctx) Result {
         var mode_parts = std.mem.splitScalar(u8, self.config.input_mode, '/');
@@ -857,7 +857,7 @@ const cmds = struct {
         }
         try tp.self_pid().send_raw(.{ .buf = msg_cb.items });
     }
-    pub const run_async_meta = .{ .interactive = false };
+    pub const run_async_meta = .{};
 };
 
 pub const MiniMode = struct {

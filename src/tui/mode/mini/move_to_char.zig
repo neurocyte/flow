@@ -106,7 +106,7 @@ const cmds = struct {
         const bytes = input.ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidArgument;
         return self.execute_operation(command.fmt(.{buf[0..bytes]}));
     }
-    pub const mini_mode_insert_code_point_meta = .{ .interactive = false };
+    pub const mini_mode_insert_code_point_meta = .{ .arguments = &.{.integer} };
 
     pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
@@ -114,7 +114,7 @@ const cmds = struct {
             return error.InvalidArgument;
         return self.execute_operation(ctx);
     }
-    pub const mini_mode_insert_bytes_meta = .{ .interactive = false };
+    pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };
 
     pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
         command.executeName("exit_mini_mode", .{}) catch {};

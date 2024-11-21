@@ -186,7 +186,7 @@ const cmds = struct {
         self.insert_code_point(egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
         self.update_mini_mode_text();
     }
-    pub const mini_mode_insert_code_point_meta = .{ .interactive = false };
+    pub const mini_mode_insert_code_point_meta = .{ .arguments = &.{.integer} };
 
     pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
@@ -195,7 +195,7 @@ const cmds = struct {
         self.insert_bytes(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
         self.update_mini_mode_text();
     }
-    pub const mini_mode_insert_bytes_meta = .{ .interactive = false };
+    pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };
 
     pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
         _ = self.input.popOrNull();

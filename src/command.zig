@@ -27,7 +27,14 @@ const Vtable = struct {
 
 const Metadata = struct {
     description: []const u8 = &[_]u8{},
-    interactive: bool = true,
+    arguments: []const ArgumentType = &[_]ArgumentType{},
+};
+
+pub const ArgumentType = enum {
+    string,
+    integer,
+    float,
+    object,
 };
 
 pub fn Closure(comptime T: type) type {

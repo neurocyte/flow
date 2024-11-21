@@ -19,7 +19,7 @@ pub const Entry = struct {
 
 pub fn load_entries(palette: *Type) !void {
     for (command.commands.items) |cmd_| if (cmd_) |p| {
-        if (p.meta.interactive)
+        if (p.meta.description.len > 0)
             (try palette.entries.addOne()).* = .{
                 .label = if (p.meta.description.len > 0) p.meta.description else p.name,
                 .name = p.name,

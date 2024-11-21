@@ -130,7 +130,7 @@ const cmds = struct {
         self.update_mini_mode_text();
         self.goto();
     }
-    pub const mini_mode_insert_code_point_meta = .{ .interactive = false };
+    pub const mini_mode_insert_code_point_meta = .{ .arguments = &.{.integer} };
 
     pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
@@ -140,5 +140,5 @@ const cmds = struct {
         self.update_mini_mode_text();
         self.goto();
     }
-    pub const mini_mode_insert_bytes_meta = .{ .interactive = false };
+    pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };
 };
