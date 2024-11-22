@@ -153,8 +153,8 @@ const cmds = struct {
     }
     pub const mini_mode_delete_backwards_meta = .{ .description = "Delete backwards" };
 
-    pub fn paste(self: *Self, ctx: Ctx) Result {
+    pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
         return mini_mode_insert_bytes(self, ctx);
     }
-    pub const paste_meta = .{ .arguments = &.{.string} };
+    pub const mini_mode_paste_meta = .{ .arguments = &.{.string} };
 };

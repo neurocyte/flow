@@ -285,8 +285,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
         try self.dispatch_flush_input_event();
-        try command.executeName("paste", command.fmt(.{text}));
-        return;
+        return if (command.get_id("mini_mode_paste")) |id|
+            command.execute(id, .{})
+        else
+            command.executeName("paste", command.fmt(.{text}));
     }
 
     if (try m.match(.{"render"})) {
