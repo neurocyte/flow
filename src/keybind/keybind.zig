@@ -369,7 +369,6 @@ const BindingSet = struct {
         var keypress: input.Key = 0;
         var egc: input.Key = 0;
         var modifiers: input.Mods = 0;
-        var text: []const u8 = "";
 
         if (try m.match(.{
             "I",
@@ -387,10 +386,6 @@ const BindingSet = struct {
                 try binding.execute();
             }
         } else if (try m.match(.{"F"})) {
-            self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
-        } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-            self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
-            self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
             self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
         }
         return false;

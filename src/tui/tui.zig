@@ -283,9 +283,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
-    if (try m.match(.{ "system_clipboard", tp.string })) {
-        if (self.active_event_handler()) |eh|
-            eh.send(tp.self_pid(), m) catch |e| self.logger.err("clipboard handler", e);
+    if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
+        try self.dispatch_flush_input_event();
+        try command.executeName("paste", command.fmt(.{text}));
         return;
     }
 
