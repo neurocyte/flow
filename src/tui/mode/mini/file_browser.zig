@@ -332,6 +332,11 @@ pub fn Create(options: type) type {
                 self.update_mini_mode_text();
             }
             pub const mini_mode_select_meta = .{ .description = "Select" };
+
+            pub fn paste(self: *Self, ctx: Ctx) Result {
+                return mini_mode_insert_bytes(self, ctx);
+            }
+            pub const paste_meta = .{ .arguments = &.{.string} };
         };
     };
 }

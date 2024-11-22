@@ -339,4 +339,9 @@ const cmds = struct {
         return self.cmd_async("toggle_inputview");
     }
     pub const overlay_toggle_inputview_meta = .{};
+
+    pub fn paste(self: *Self, ctx: Ctx) Result {
+        return overlay_insert_bytes(self, ctx);
+    }
+    pub const paste_meta = .{ .arguments = &.{.string} };
 };
