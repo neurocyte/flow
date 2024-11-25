@@ -157,7 +157,7 @@ pub fn build_exe(
 
     var version_info = std.ArrayList(u8).init(b.allocator);
     defer version_info.deinit();
-    gen_version_info(b, version_info.writer()) catch {
+    gen_version_info(b, target, version_info.writer()) catch {
         version_info.clearAndFree();
         version_info.appendSlice("unknown") catch {};
     };
@@ -492,7 +492,11 @@ pub fn build_exe(
     // b.default_step.dependOn(lint_step);
 }
 
-fn gen_version_info(b: *std.Build, writer: anytype) !void {
+fn gen_version_info(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    writer: anytype,
+) !void {
     var code: u8 = 0;
 
     const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags" }, &code, .Ignore);
@@ -505,10 +509,12 @@ fn gen_version_info(b: *std.Build, writer: anytype) !void {
     const remote = std.mem.trimRight(u8, remote_, "\r\n ");
     const log = std.mem.trimRight(u8, log_, "\r\n ");
     const diff = std.mem.trimRight(u8, diff_, "\r\n ");
+    const target_triple = try target.result.zigTriple(b.allocator);
 
-    try writer.print("Flow Control: a programmer's text editor\n\nversion: {s}{s}\n", .{
+    try writer.print("Flow Control: a programmer's text editor\n\nversion: {s}{s}\ntarget: {s}\n", .{
         version,
         if (diff.len > 0) "-dirty" else "",
+        target_triple,
     });
 
     if (branch.len > 0)
