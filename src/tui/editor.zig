@@ -111,6 +111,21 @@ pub const CurSel = struct {
         return sel;
     }
 
+    fn select_node(self: *Self, node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!void {
+        const range = node.getRange();
+        self.selection = .{
+            .begin = .{
+                .row = range.start_point.row,
+                .col = try root.pos_to_width(range.start_point.row, range.start_point.column, metrics),
+            },
+            .end = .{
+                .row = range.end_point.row,
+                .col = try root.pos_to_width(range.end_point.row, range.end_point.column, metrics),
+            },
+        };
+        self.cursor = self.selection.?.end;
+    }
+
     fn write(self: *const Self, writer: Buffer.MetaWriter) !void {
         try self.cursor.write(writer);
         if (self.selection) |sel| {
@@ -2923,6 +2938,158 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const selections_reverse_meta = .{ .description = "Reverse selection" };
+
+    fn node_at_selection(self: *Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
+        const syn = self.syntax orelse return error.Stop;
+        const node = try syn.node_at_point_range(.{
+            .start_point = .{
+                .row = @intCast(sel.begin.row),
+                .column = @intCast(try root.get_line_width_to_pos(sel.begin.row, sel.begin.col, metrics)),
+            },
+            .end_point = .{
+                .row = @intCast(sel.end.row),
+                .column = @intCast(try root.get_line_width_to_pos(sel.end.row, sel.end.col, metrics)),
+            },
+            .start_byte = 0,
+            .end_byte = 0,
+        });
+        if (node.isNull()) return error.Stop;
+        return node;
+    }
+
+    fn select_node_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+        cursel.selection = null;
+        const sel = cursel.enable_selection().*;
+        return cursel.select_node(try self.node_at_selection(sel, root, metrics), root, metrics);
+    }
+
+    fn expand_selection_to_parent_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+        const sel = cursel.enable_selection().*;
+        const node = try self.node_at_selection(sel, root, metrics);
+        if (node.isNull()) return error.Stop;
+        const parent = node.getParent();
+        if (parent.isNull()) return error.Stop;
+        return cursel.select_node(parent, root, metrics);
+    }
+
+    pub fn expand_selection(self: *Self, _: Context) Result {
+        try self.send_editor_jump_source();
+        const root = try self.buf_root();
+        const cursel = self.get_primary();
+        cursel.check_selection();
+        try if (cursel.selection) |_|
+            self.expand_selection_to_parent_node(root, cursel, self.metrics)
+        else
+            self.select_node_at_cursor(root, cursel, self.metrics);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const expand_selection_meta = .{ .description = "Expand selection to AST parent node" };
+
+    fn shrink_selection_to_child_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+        const sel = cursel.enable_selection().*;
+        const node = try self.node_at_selection(sel, root, metrics);
+        if (node.isNull() or node.getChildCount() == 0) return error.Stop;
+        const child = node.getChild(0);
+        if (child.isNull()) return error.Stop;
+        return cursel.select_node(child, root, metrics);
+    }
+
+    fn shrink_selection_to_named_child_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+        const sel = cursel.enable_selection().*;
+        const node = try self.node_at_selection(sel, root, metrics);
+        if (node.isNull() or node.getNamedChildCount() == 0) return error.Stop;
+        const child = node.getNamedChild(0);
+        if (child.isNull()) return error.Stop;
+        return cursel.select_node(child, root, metrics);
+    }
+
+    pub fn shrink_selection(self: *Self, ctx: Context) Result {
+        var unnamed: bool = false;
+        _ = ctx.args.match(.{tp.extract(&unnamed)}) catch false;
+        try self.send_editor_jump_source();
+        const root = try self.buf_root();
+        const cursel = self.get_primary();
+        cursel.check_selection();
+        if (cursel.selection) |_|
+            try if (unnamed)
+                self.shrink_selection_to_child_node(root, cursel, self.metrics)
+            else
+                self.shrink_selection_to_named_child_node(root, cursel, self.metrics);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const shrink_selection_meta = .{ .description = "Shrink selection to first AST child node" };
+
+    fn select_next_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+        const sel = cursel.enable_selection().*;
+        const node = try self.node_at_selection(sel, root, metrics);
+        if (node.isNull()) return error.Stop;
+        const sibling = syntax.Node.externs.ts_node_next_sibling(node);
+        if (sibling.isNull()) return error.Stop;
+        return cursel.select_node(sibling, root, metrics);
+    }
+
+    fn select_next_named_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+        const sel = cursel.enable_selection().*;
+        const node = try self.node_at_selection(sel, root, metrics);
+        if (node.isNull()) return error.Stop;
+        const sibling = syntax.Node.externs.ts_node_next_named_sibling(node);
+        if (sibling.isNull()) return error.Stop;
+        return cursel.select_node(sibling, root, metrics);
+    }
+
+    pub fn select_next_sibling(self: *Self, ctx: Context) Result {
+        var unnamed: bool = false;
+        _ = ctx.args.match(.{tp.extract(&unnamed)}) catch false;
+        try self.send_editor_jump_source();
+        const root = try self.buf_root();
+        const cursel = self.get_primary();
+        cursel.check_selection();
+        if (cursel.selection) |_|
+            try if (unnamed)
+                self.select_next_sibling_node(root, cursel, self.metrics)
+            else
+                self.select_next_named_sibling_node(root, cursel, self.metrics);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const select_next_sibling_meta = .{ .description = "Move selection to next AST sibling node" };
+
+    fn select_prev_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+        const sel = cursel.enable_selection().*;
+        const node = try self.node_at_selection(sel, root, metrics);
+        if (node.isNull()) return error.Stop;
+        const sibling = syntax.Node.externs.ts_node_prev_sibling(node);
+        if (sibling.isNull()) return error.Stop;
+        return cursel.select_node(sibling, root, metrics);
+    }
+
+    fn select_prev_named_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+        const sel = cursel.enable_selection().*;
+        const node = try self.node_at_selection(sel, root, metrics);
+        if (node.isNull()) return error.Stop;
+        const sibling = syntax.Node.externs.ts_node_prev_named_sibling(node);
+        if (sibling.isNull()) return error.Stop;
+        return cursel.select_node(sibling, root, metrics);
+    }
+
+    pub fn select_prev_sibling(self: *Self, ctx: Context) Result {
+        var unnamed: bool = false;
+        _ = ctx.args.match(.{tp.extract(&unnamed)}) catch false;
+        try self.send_editor_jump_source();
+        const root = try self.buf_root();
+        const cursel = self.get_primary();
+        cursel.check_selection();
+        if (cursel.selection) |_|
+            try if (unnamed)
+                self.select_prev_sibling_node(root, cursel, self.metrics)
+            else
+                self.select_prev_named_sibling_node(root, cursel, self.metrics);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const select_prev_sibling_meta = .{ .description = "Move selection to previous AST sibling node" };
 
     pub fn insert_chars(self: *Self, ctx: Context) Result {
         var chars: []const u8 = undefined;

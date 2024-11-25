@@ -142,6 +142,8 @@ fn map_press(self: *Self, keypress: input.Key, egc: input.Key, modifiers: input.
             'S' => self.cmd("filter", command.fmt(.{"sort"})),
             'V' => self.cmd("paste", .{}),
             'X' => self.cmd("open_command_palette", .{}),
+            input.key.home => self.cmd("select_prev_sibling", .{}),
+            input.key.end => self.cmd("select_next_sibling", .{}),
             input.key.left => self.cmd("jump_back", .{}),
             input.key.right => self.cmd("jump_forward", .{}),
             input.key.up => self.cmd("pull_up", .{}),
