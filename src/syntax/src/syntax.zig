@@ -184,3 +184,9 @@ pub fn highlights_at_point(self: *const Self, ctx: anytype, comptime cb: CallBac
     }
     return;
 }
+
+pub fn node_at_point_range(self: *const Self, range: Range) error{Stop}!treez.Node {
+    const tree = self.tree orelse return error.Stop;
+    const root_node = tree.getRootNode();
+    return treez.Node.externs.ts_node_descendant_for_point_range(root_node, range.start_point, range.end_point);
+}

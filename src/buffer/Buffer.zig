@@ -759,7 +759,7 @@ const Node = union(enum) {
         return if (found) ctx.result else error.NotFound;
     }
 
-    pub fn pos_to_width(self: *const Node, line: usize, pos: usize, metrics_: Metrics) !usize {
+    pub fn pos_to_width(self: *const Node, line: usize, pos: usize, metrics_: Metrics) error{NotFound}!usize {
         const do = struct {
             result: usize = 0,
             pos: usize,

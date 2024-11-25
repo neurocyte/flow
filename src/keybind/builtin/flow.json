@@ -91,6 +91,8 @@
             ["alt+shift+i", "add_cursors_to_line_ends"],
             ["alt+shift+left", "shrink_selection"],
             ["alt+shift+right", "expand_selection"],
+            ["alt+home", "select_prev_sibling"],
+            ["alt+end", "select_next_sibling"],
             ["alt+shift+home", "move_scroll_left"],
             ["alt+shift+end", "move_scroll_right"],
             ["alt+shift+up", "add_cursor_up"],
