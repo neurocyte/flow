@@ -38,6 +38,17 @@ pub const conf = .{
     .parser = fish.parser,
 };
 
+pub const cmake = .{
+    .color = 0x004078,
+    .icon = "",
+    .extensions = .{ "CMakeLists.txt", "cmake", "cmake.in" },
+    .comment = "#",
+    .highlights = "queries/cmake/highlights.scm",
+    .injections = "queries/cmake/injections.scm",
+    .formatter = .{"cmake-format"},
+    .language_server = .{"cmake-language-server"},
+};
+
 pub const cpp = .{
     .color = 0x9c033a,
     .icon = "",

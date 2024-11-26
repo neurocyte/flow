@@ -17,6 +17,7 @@ pub fn build(b: *std.Build) void {
     const imports: []const std.Build.Module.Import = if (use_tree_sitter) &.{
         .{ .name = "build_options", .module = options_mod },
         .{ .name = "treez", .module = tree_sitter_dep.module("treez") },
+        ts_queryfile(b, tree_sitter_dep, "queries/cmake/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-agda/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-bash/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-c-sharp/queries/highlights.scm"),
@@ -74,6 +75,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-ziggy/tree-sitter-ziggy/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-ziggy/tree-sitter-ziggy-schema/queries/highlights.scm"),
 
+        ts_queryfile(b, tree_sitter_dep, "queries/cmake/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-cpp/queries/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-elixir/queries/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-gitcommit/queries/injections.scm"),
