@@ -252,27 +252,22 @@ const Command = struct {
 
 //An association of an command with a triggering key chord
 const Binding = struct {
-    keys: []KeyEvent,
+    key_events: []KeyEvent,
     command: Command,
 
-    fn deinit(self: *const @This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.keys);
-        self.command.deinit(allocator);
-    }
-
     fn len(self: Binding) usize {
-        return self.keys.items.len;
+        return self.key_events.items.len;
     }
 
     const MatchResult = enum { match_impossible, match_possible, matched };
 
-    fn match(self: *const @This(), match_keys: []const KeyEvent) MatchResult {
-        if (self.keys.len == 0) return .match_impossible;
-        for (self.keys, 0..) |key_event, i| {
-            if (match_keys.len <= i) return .match_possible;
-            if (!key_event.eql(match_keys[i])) return .match_impossible;
+    fn match(self: *const @This(), match_key_events: []const KeyEvent) MatchResult {
+        if (self.key_events.len == 0) return .match_impossible;
+        for (self.key_events, 0..) |key_event, i| {
+            if (match_key_events.len <= i) return .match_possible;
+            if (!key_event.eql(match_key_events[i])) return .match_impossible;
         }
-        return if (self.keys.len == match_keys.len) .matched else .match_possible;
+        return if (self.key_events.len == match_key_events.len) .matched else .match_possible;
     }
 };
 
@@ -308,7 +303,7 @@ const BindingSet = struct {
         var self: @This() = .{};
 
         defer self.press.append(allocator, .{
-            .keys = allocator.dupe(KeyEvent, &[_]KeyEvent{.{ .key = input.key.f2 }}) catch @panic("failed to add toggle_input_mode fallback"),
+            .key_events = allocator.dupe(KeyEvent, &[_]KeyEvent{.{ .key = input.key.f2 }}) catch @panic("failed to add toggle_input_mode fallback"),
             .command = .{
                 .command = allocator.dupe(u8, "toggle_input_mode") catch @panic("failed to add toggle_input_mode fallback"),
                 .args = "",
@@ -336,11 +331,11 @@ const BindingSet = struct {
     fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayListUnmanaged(Binding), event: input.Event, bindings: []const []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
         bindings: for (bindings) |entry| {
             var state: enum { key_event, command, args } = .key_event;
-            var keys: ?[]KeyEvent = null;
+            var key_events: ?[]KeyEvent = null;
             var command_: ?[]const u8 = null;
             var args = std.ArrayListUnmanaged(std.json.Value){};
             defer {
-                if (keys) |p| allocator.free(p);
+                if (key_events) |p| allocator.free(p);
                 if (command_) |p| allocator.free(p);
                 args.deinit(allocator);
             }
@@ -353,7 +348,7 @@ const BindingSet = struct {
                             logger.deinit();
                             continue :bindings;
                         }
-                        keys = switch (self.syntax) {
+                        key_events = switch (self.syntax) {
                             .flow => parse_flow.parse_key_events(allocator, event, token.string) catch |e| {
                                 const logger = log.logger("keybind");
                                 logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
@@ -395,13 +390,13 @@ const BindingSet = struct {
             for (args.items) |arg| try cbor.writeJsonValue(writer, arg);
 
             try dest.append(allocator, .{
-                .keys = keys.?,
+                .key_events = key_events.?,
                 .command = .{
                     .command = command_.?,
                     .args = try args_cbor.toOwnedSlice(allocator),
                 },
             });
-            keys = null;
+            key_events = null;
             command_ = null;
         }
     }
@@ -421,8 +416,8 @@ const BindingSet = struct {
             defer hint.deinit();
             const writer = hint.writer();
             if (hint.items.len > 0) try writer.writeAll(", ");
-            const count = binding.keys.len;
-            for (binding.keys, 0..) |key_, n| {
+            const count = binding.key_events.len;
+            for (binding.key_events, 0..) |key_, n| {
                 var key = key_;
                 key.event = 0;
                 switch (self.syntax) {
