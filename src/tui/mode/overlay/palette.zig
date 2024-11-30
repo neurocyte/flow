@@ -82,7 +82,7 @@ pub fn Create(options: type) type {
             try self.start_query();
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
-            const input_handler, const keybind_hints = try keybind.mode.overlay.palette.create(allocator, .{
+            const input_handler, const keybind_hints = try keybind.mode("overlay/palette", allocator, .{
                 .insert_command = "overlay_insert_bytes",
             });
             return .{

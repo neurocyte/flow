@@ -196,7 +196,7 @@
             ["enter", "home_menu_activate"]
         ]
     },
-    "palette": {
+    "overlay/palette": {
         "press": [
             ["ctrl+j", "toggle_panel"],
             ["ctrl+q", "quit"],

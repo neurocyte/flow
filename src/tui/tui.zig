@@ -152,8 +152,16 @@ fn init(allocator: Allocator) !*Self {
 fn init_delayed(self: *Self) !void {
     self.delayed_init_done = true;
     if (self.input_mode) |_| {} else {
+        var mode_parts = std.mem.splitScalar(u8, self.config.input_mode, '/');
+        const namespace_name = mode_parts.first();
+        keybind.set_namespace(namespace_name) catch {
+            self.logger.print_err("keybind", "unknown mode {s}", .{namespace_name});
+            try keybind.set_namespace("flow");
+            self.config.input_mode = "flow";
+            try self.save_config();
+        };
         return cmds.enter_mode(self, command.Context.fmt(.{
-            self.delayed_init_input_mode orelse self.config.input_mode,
+            self.delayed_init_input_mode orelse keybind.default_mode,
         }));
     }
 }
@@ -575,8 +583,8 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     self.refresh_hover();
 }
 
-fn get_input_mode(self: *Self, mode: anytype, name: []const u8, opts: anytype) !Mode {
-    const input_handler, const keybind_hints = try mode.create(self.allocator, opts);
+fn get_input_mode(self: *Self, mode_name: []const u8, name: []const u8, opts: anytype) !Mode {
+    const input_handler, const keybind_hints = try keybind.mode(mode_name, self.allocator, opts);
     return .{
         .input_handler = input_handler,
         .keybind_hints = keybind_hints,
@@ -658,16 +666,18 @@ const cmds = struct {
     pub const toggle_whitespace_mode_meta = .{ .description = "Switch to next whitespace rendering mode" };
 
     pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
+        var it = std.mem.splitScalar(u8, self.config.input_mode, '/');
+        self.config.input_mode = it.first();
         self.config.input_mode = if (std.mem.eql(u8, self.config.input_mode, "flow"))
-            "vim/normal"
-        else if (std.mem.eql(u8, self.config.input_mode, "vim/normal"))
-            "helix/normal"
+            "vim"
+        else if (std.mem.eql(u8, self.config.input_mode, "vim"))
+            "helix"
         else
             "flow";
         try self.save_config();
-        var it = std.mem.splitScalar(u8, self.config.input_mode, '/');
-        self.logger.print("input mode {s}", .{it.first()});
-        return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
+        self.logger.print("input mode {s}", .{self.config.input_mode});
+        try keybind.set_namespace(self.config.input_mode);
+        return enter_mode(self, Ctx.fmt(.{keybind.default_mode}));
     }
     pub const toggle_input_mode_meta = .{ .description = "Switch to next input mode" };
 
@@ -685,51 +695,52 @@ const cmds = struct {
             m.deinit();
             self.input_mode = null;
         }
-        self.input_mode = if (std.mem.eql(u8, mode, "vim/normal"))
-            try self.get_input_mode(keybind.mode.input.vim.normal, "NORMAL", .{
+        const current_namespace = keybind.get_namespace();
+        const is_vim_mode = std.mem.eql(u8, current_namespace, "vim");
+        const is_helix_mode = std.mem.eql(u8, current_namespace, "helix");
+        self.input_mode = if (is_vim_mode and std.mem.eql(u8, mode, "normal"))
+            try self.get_input_mode("normal", "NORMAL", .{
                 .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
                 .cursor_shape = .block,
             })
-        else if (std.mem.eql(u8, mode, "vim/insert"))
-            try self.get_input_mode(keybind.mode.input.vim.insert, "INSERT", .{
+        else if (is_vim_mode and std.mem.eql(u8, mode, "insert"))
+            try self.get_input_mode("insert", "INSERT", .{
                 .enable_chording = self.config.vim_insert_chording_keybindings,
                 .line_numbers_relative = self.config.vim_insert_gutter_line_numbers_relative,
                 .cursor_shape = .beam,
             })
-        else if (std.mem.eql(u8, mode, "vim/visual"))
-            try self.get_input_mode(keybind.mode.input.vim.visual, "VISUAL", .{
+        else if (is_vim_mode and std.mem.eql(u8, mode, "visual"))
+            try self.get_input_mode("visual", "VISUAL", .{
                 .line_numbers_relative = self.config.vim_visual_gutter_line_numbers_relative,
                 .cursor_shape = .underline,
             })
-        else if (std.mem.eql(u8, mode, "helix/normal"))
-            try self.get_input_mode(keybind.mode.input.helix.normal, "NOR", .{
+        else if (is_helix_mode and std.mem.eql(u8, mode, "normal"))
+            try self.get_input_mode("normal", "NOR", .{
                 .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
                 .cursor_shape = .block,
             })
-        else if (std.mem.eql(u8, mode, "helix/insert"))
-            try self.get_input_mode(keybind.mode.input.helix.insert, "INS", .{
+        else if (is_helix_mode and std.mem.eql(u8, mode, "insert"))
+            try self.get_input_mode("insert", "INS", .{
                 .line_numbers_relative = self.config.vim_insert_gutter_line_numbers_relative,
                 .cursor_shape = .beam,
             })
-        else if (std.mem.eql(u8, mode, "helix/select"))
-            try self.get_input_mode(keybind.mode.input.helix.visual, "SEL", .{
+        else if (is_helix_mode and std.mem.eql(u8, mode, "select"))
+            try self.get_input_mode("visual", "SEL", .{
                 .line_numbers_relative = self.config.vim_visual_gutter_line_numbers_relative,
                 .cursor_shape = .block,
             })
-        else if (std.mem.eql(u8, mode, "flow"))
-            try self.get_input_mode(keybind.mode.input.flow, "flow", .{})
-        else if (std.mem.eql(u8, mode, "home"))
-            try self.get_input_mode(keybind.mode.input.home, "flow", .{})
         else ret: {
-            self.logger.print("unknown mode {s}", .{mode});
-            break :ret try self.get_input_mode(keybind.mode.input.flow, "flow", .{});
+            break :ret self.get_input_mode(mode, current_namespace, .{}) catch {
+                self.logger.print("unknown mode {s}", .{mode});
+                break :ret try self.get_input_mode(keybind.default_mode, current_namespace, .{});
+            };
         };
         // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
     pub const enter_mode_meta = .{ .arguments = &.{.string} };
 
     pub fn enter_mode_default(self: *Self, _: Ctx) Result {
-        return enter_mode(self, Ctx.fmt(.{self.config.input_mode}));
+        return enter_mode(self, Ctx.fmt(.{keybind.default_mode}));
     }
     pub const enter_mode_default_meta = .{};
 

@@ -44,7 +44,7 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
             defer self.allocator.free(text);
             try self.input.appendSlice(text);
         }
-        const input_handler, const keybind_hints = try keybind.mode.mini.find.create(allocator, .{
+        const input_handler, const keybind_hints = try keybind.mode("mini/find", allocator, .{
             .insert_command = "mini_mode_insert_bytes",
         });
         return .{

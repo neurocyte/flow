@@ -48,7 +48,7 @@ pub fn Create(options: type) type {
             try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
-            const input_handler, const keybind_hints = try keybind.mode.mini.file_browser.create(allocator, .{
+            const input_handler, const keybind_hints = try keybind.mode("mini/file_browser", allocator, .{
                 .insert_command = "mini_mode_insert_bytes",
             });
             return .{

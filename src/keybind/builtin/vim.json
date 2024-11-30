@@ -14,8 +14,8 @@
             ["l", "move_right_vim"],
             ["h", "move_left"],
             ["<Space>", "move_right_vim"],
-            ["i", "enter_mode", "vim/insert"],
-            ["v", "enter_mode", "vim/visual"],
+            ["i", "enter_mode", "insert"],
+            ["v", "enter_mode", "visual"],
             ["/", "find"],
             ["n", "goto_next_match"],
             ["0", "move_begin"],
@@ -72,17 +72,6 @@
             ["<C-F5>", "toggle_inspector_view"],
             ["<C-F10>", "toggle_whitespace_mode"],
 
-            ["<F2>", "toggle_input_mode"],
-            ["<F3>", "goto_next_match"],
-            ["<F15>", "goto_prev_match"],
-            ["<F5>", "toggle_inspector_view"],
-            ["<F6>", "dump_current_line_tree"],
-            ["<F7>", "dump_current_line"],
-            ["<F9>", "theme_prev"],
-            ["<F10>", "theme_next"],
-            ["<F11>", "toggle_panel"],
-            ["<F12>", "goto_definition"],
-            ["<F34>", "toggle_whitespace_mode"],
             ["<CR>", "smart_insert_line"],
             ["<Del>", "delete_forward"],
             ["<BS>", "delete_backward"]
@@ -91,8 +80,8 @@
     "insert": {
         "syntax": "vim",
         "press": [
-            ["jk", "enter_mode", "vim/normal"],
-            ["<Esc>", "enter_mode", "vim/normal"],
+            ["jk", "enter_mode", "normal"],
+            ["<Esc>", "enter_mode", "normal"],
             ["<Del>", "delete_forward"],
             ["<BS>", "delete_backward"]
         ]

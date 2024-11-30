@@ -1,4 +1,7 @@
 {
+    "settings": {
+        "fallback": "vim"
+    },
     "normal": {
         "syntax": "vim",
         "on_match_failure": "ignore",

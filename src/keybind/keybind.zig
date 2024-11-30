@@ -17,33 +17,6 @@ const KeyEvent = input.KeyEvent;
 const parse_flow = @import("parse_flow.zig");
 const parse_vim = @import("parse_vim.zig");
 
-pub const mode = struct {
-    pub const input = struct {
-        pub const flow = Handler("flow", "normal");
-        pub const home = Handler("flow", "home");
-        pub const vim = struct {
-            pub const normal = Handler("vim", "normal");
-            pub const insert = Handler("vim", "insert");
-            pub const visual = Handler("vim", "visual");
-        };
-        pub const helix = struct {
-            pub const normal = Handler("helix", "normal");
-            pub const insert = Handler("helix", "insert");
-            pub const visual = Handler("helix", "select");
-        };
-    };
-    pub const overlay = struct {
-        pub const palette = Handler("flow", "palette");
-    };
-    pub const mini = struct {
-        pub const goto = Handler("flow", "mini/goto");
-        pub const move_to_char = Handler("flow", "mini/move_to_char");
-        pub const file_browser = Handler("flow", "mini/file_browser");
-        pub const find_in_files = Handler("flow", "mini/find_in_files");
-        pub const find = Handler("flow", "mini/find");
-    };
-};
-
 const builtin_keybinds = std.static_string_map.StaticStringMap([]const u8).initComptime(.{
     .{ "flow", @embedFile("builtin/flow.json") },
     .{ "vim", @embedFile("builtin/vim.json") },
@@ -51,34 +24,39 @@ const builtin_keybinds = std.static_string_map.StaticStringMap([]const u8).initC
     .{ "emacs", @embedFile("builtin/emacs.json") },
 });
 
-fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
-    return struct {
-        allocator: std.mem.Allocator,
-        bindings: *const BindingSet,
-
-        pub fn create(allocator: std.mem.Allocator, opts: anytype) !struct { EventHandler, *const KeybindHints } {
-            const self: *@This() = try allocator.create(@This());
-            self.* = .{
-                .allocator = allocator,
-                .bindings = try get_namespace_mode(
-                    namespace_name,
-                    mode_name,
-                    if (@hasField(@TypeOf(opts), "insert_command"))
-                        opts.insert_command
-                    else
-                        "insert_chars",
-                ),
-            };
-            return .{ EventHandler.to_owned(self), self.bindings.hints() };
-        }
-        pub fn deinit(self: *@This()) void {
-            self.allocator.destroy(self);
-        }
-        pub fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-            return self.bindings.receive(from, m);
-        }
-    };
+pub fn mode(mode_name: []const u8, allocator: std.mem.Allocator, opts: anytype) !struct { EventHandler, *const KeybindHints } {
+    return Handler.create(mode_name, allocator, opts);
 }
+
+pub const default_mode = "normal";
+pub const default_namespace = "flow";
+
+const Handler = struct {
+    allocator: std.mem.Allocator,
+    bindings: *const BindingSet,
+
+    fn create(mode_name: []const u8, allocator: std.mem.Allocator, opts: anytype) !struct { EventHandler, *const KeybindHints } {
+        const self: *@This() = try allocator.create(@This());
+        errdefer allocator.destroy(self);
+        self.* = .{
+            .allocator = allocator,
+            .bindings = try get_mode_binding_set(
+                mode_name,
+                if (@hasField(@TypeOf(opts), "insert_command"))
+                    opts.insert_command
+                else
+                    "insert_chars",
+            ),
+        };
+        return .{ EventHandler.to_owned(self), self.bindings.hints() };
+    }
+    pub fn deinit(self: *@This()) void {
+        self.allocator.destroy(self);
+    }
+    pub fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+        return self.bindings.receive(from, m);
+    }
+};
 
 pub const Mode = struct {
     input_handler: EventHandler,
@@ -97,16 +75,32 @@ pub const Mode = struct {
 
 const NamespaceMap = std.StringHashMapUnmanaged(Namespace);
 
-fn get_namespace_mode(namespace_name: []const u8, mode_name: []const u8, insert_command: []const u8) LoadError!*const BindingSet {
+pub fn get_namespace() []const u8 {
+    return current_namespace().name;
+}
+
+fn current_namespace() *const Namespace {
+    return globals.current_namespace orelse @panic("no keybind namespace set");
+}
+
+fn get_or_load_namespace(namespace_name: []const u8) LoadError!*const Namespace {
     const allocator = globals_allocator;
-    const namespace = globals.namespaces.getPtr(namespace_name) orelse blk: {
+    return globals.namespaces.getPtr(namespace_name) orelse blk: {
         const namespace = try Namespace.load(allocator, namespace_name);
         const result = try globals.namespaces.getOrPut(allocator, try allocator.dupe(u8, namespace_name));
         std.debug.assert(result.found_existing == false);
         result.value_ptr.* = namespace;
         break :blk result.value_ptr;
     };
-    var binding_set = namespace.modes.getPtr(mode_name) orelse {
+}
+
+pub fn set_namespace(namespace_name: []const u8) LoadError!void {
+    globals.current_namespace = try get_or_load_namespace(namespace_name);
+}
+
+fn get_mode_binding_set(mode_name: []const u8, insert_command: []const u8) LoadError!*const BindingSet {
+    const namespace = current_namespace();
+    var binding_set = namespace.get_mode(mode_name) orelse {
         const logger = log.logger("keybind");
         logger.print_err("get_namespace_mode", "ERROR: mode not found: {s}", .{mode_name});
         var iter = namespace.modes.iterator();
@@ -124,7 +118,6 @@ const LoadError = (error{ NotFound, NotAnObject } || std.json.ParseError(std.jso
 const Namespace = struct {
     name: []const u8,
     fallback: ?*const Namespace = null,
-    default_mode: []const u8,
     modes: std.StringHashMapUnmanaged(BindingSet),
 
     init_command: Command = .{},
@@ -144,7 +137,6 @@ const Namespace = struct {
 
         var self: @This() = .{
             .name = try allocator.dupe(u8, namespace_name),
-            .default_mode = "",
             .modes = .{},
         };
         errdefer allocator.free(self.name);
@@ -154,40 +146,61 @@ const Namespace = struct {
             try self.load_settings(allocator, mode_entry.value_ptr.*);
         }
 
+        if (!std.mem.eql(u8, self.name, default_namespace) and self.fallback == null)
+                self.fallback = try get_or_load_namespace(default_namespace);
+
         var modes = parsed.value.object.iterator();
         while (modes.next()) |mode_entry| {
             if (std.mem.eql(u8, mode_entry.key_ptr.*, "settings")) continue;
             try self.load_mode(allocator, mode_entry.key_ptr.*, mode_entry.value_ptr.*);
         }
+
+        if (self.fallback) |fallback| {
+            var iter = fallback.modes.iterator();
+            while (iter.next()) |entry|
+                if (self.get_mode(entry.key_ptr.*) == null)
+                    try self.copy_mode(allocator, entry.key_ptr.*, entry.value_ptr);
+        }
+
+        const logger = log.logger("keybind");
+        logger.print("loaded namespace {s} fallback: {any} default: {s}", .{
+            self.name,
+            self.fallback,
+            default_namespace,
+        });
+        var iter = self.modes.iterator();
+        while (iter.next()) |entry| logger.print("available modes: {s}", .{entry.key_ptr.*});
+        logger.deinit();
+
         return self;
     }
 
-    fn load_settings(self: *@This(), allocator: std.mem.Allocator, settings_value: std.json.Value) (parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!void {
+    fn load_settings(self: *@This(), allocator: std.mem.Allocator, settings_value: std.json.Value) LoadError!void {
         const JsonSettings = struct {
             init_command: []const std.json.Value = &[_]std.json.Value{},
             deinit_command: []const std.json.Value = &[_]std.json.Value{},
-            fallback: []const u8 = "flow",
+            fallback: ?[]const u8 = null,
         };
         const parsed = try std.json.parseFromValue(JsonSettings, allocator, settings_value, .{
             .ignore_unknown_fields = true,
         });
         defer parsed.deinit();
-        // self.fallback = try allocator.dupe(u8, parsed.value.fallback);
+        self.fallback = if (parsed.value.fallback) |fallback| try get_or_load_namespace(fallback) else null;
         try self.init_command.load(allocator, parsed.value.init_command);
         try self.deinit_command.load(allocator, parsed.value.deinit_command);
     }
 
     fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, mode_value: std.json.Value) !void {
-        try self.modes.put(allocator, try allocator.dupe(u8, mode_name), try BindingSet.load(allocator, mode_value));
+        const fallback_mode = if (self.fallback) |fallback| fallback.get_mode(mode_name) orelse fallback.get_mode(default_mode) else null;
+        try self.modes.put(allocator, try allocator.dupe(u8, mode_name), try BindingSet.load(allocator, mode_value, fallback_mode));
     }
 
-    fn get_mode(self: *@This(), mode_name: []const u8) error{}!*BindingSet {
-        for (self.modes.items) |*mode_|
-            if (std.mem.eql(u8, mode_.name, mode_name))
-                return mode_;
-        const mode_ = try self.modes.addOne();
-        mode_.* = try BindingSet.init(self.modes.allocator, mode_name);
-        return mode_;
+    fn copy_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, fallback_mode: *const BindingSet) !void {
+        try self.modes.put(allocator, mode_name, try BindingSet.copy(allocator, fallback_mode));
+    }
+
+    fn get_mode(self: *const @This(), mode_name: []const u8) ?*BindingSet {
+        return self.modes.getPtr(mode_name);
     }
 };
 
@@ -278,6 +291,7 @@ const max_input_buffer_size = 4096;
 
 var globals: struct {
     namespaces: NamespaceMap = .{},
+    current_namespace: ?*const Namespace = null,
     input_buffer: std.ArrayListUnmanaged(u8) = .{},
     insert_command: []const u8 = "",
     insert_command_id: ?command.ID = null,
@@ -299,16 +313,8 @@ const BindingSet = struct {
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
 
-    fn load(allocator: std.mem.Allocator, mode_bindings: std.json.Value) (error{OutOfMemory} || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
+    fn load(allocator: std.mem.Allocator, mode_bindings: std.json.Value, fallback: ?*const BindingSet) (error{OutOfMemory} || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
         var self: @This() = .{};
-
-        defer self.press.append(allocator, .{
-            .key_events = allocator.dupe(KeyEvent, &[_]KeyEvent{.{ .key = input.key.f2 }}) catch @panic("failed to add toggle_input_mode fallback"),
-            .command = .{
-                .command = allocator.dupe(u8, "toggle_input_mode") catch @panic("failed to add toggle_input_mode fallback"),
-                .args = "",
-            },
-        }) catch {};
 
         const JsonConfig = struct {
             press: []const []const std.json.Value = &[_][]std.json.Value{},
@@ -324,6 +330,10 @@ const BindingSet = struct {
         self.on_match_failure = parsed.value.on_match_failure;
         try self.load_event(allocator, &self.press, input.event.press, parsed.value.press);
         try self.load_event(allocator, &self.release, input.event.release, parsed.value.release);
+        if (fallback) |fallback_| {
+            for (fallback_.press.items) |binding| try self.press.append(allocator, binding);
+            for (fallback_.release.items) |binding| try self.release.append(allocator, binding);
+        }
         self.build_hints(allocator) catch {};
         return self;
     }
@@ -399,6 +409,15 @@ const BindingSet = struct {
             key_events = null;
             command_ = null;
         }
+    }
+
+    fn copy(allocator: std.mem.Allocator, fallback: *const BindingSet) error{OutOfMemory}!@This() {
+        var self: @This() = .{};
+        self.on_match_failure = fallback.on_match_failure;
+        for (fallback.press.items) |binding| try self.press.append(allocator, binding);
+        for (fallback.release.items) |binding| try self.release.append(allocator, binding);
+        self.build_hints(allocator) catch {};
+        return self;
     }
 
     fn hints(self: *const @This()) *const KeybindHints {
