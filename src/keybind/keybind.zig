@@ -161,17 +161,6 @@ const Namespace = struct {
                 if (self.get_mode(entry.key_ptr.*) == null)
                     try self.copy_mode(allocator, entry.key_ptr.*, entry.value_ptr);
         }
-
-        const logger = log.logger("keybind");
-        logger.print("loaded namespace {s} fallback: {any} default: {s}", .{
-            self.name,
-            self.fallback,
-            default_namespace,
-        });
-        var iter = self.modes.iterator();
-        while (iter.next()) |entry| logger.print("available modes: {s}", .{entry.key_ptr.*});
-        logger.deinit();
-
         return self;
     }
 
