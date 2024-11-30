@@ -54,14 +54,13 @@ const builtin_keybinds = std.static_string_map.StaticStringMap([]const u8).initC
 fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
     return struct {
         allocator: std.mem.Allocator,
-        bindings: BindingSet,
+        bindings: *const BindingSet,
 
         pub fn create(allocator: std.mem.Allocator, opts: anytype) !struct { EventHandler, *const KeybindHints } {
             const self: *@This() = try allocator.create(@This());
             self.* = .{
                 .allocator = allocator,
-                .bindings = try BindingSet.init(
-                    allocator,
+                .bindings = try get_namespace_mode(
                     namespace_name,
                     mode_name,
                     if (@hasField(@TypeOf(opts), "insert_command"))
@@ -73,7 +72,6 @@ fn Handler(namespace_name: []const u8, mode_name: []const u8) type {
             return .{ EventHandler.to_owned(self), self.bindings.hints() };
         }
         pub fn deinit(self: *@This()) void {
-            self.bindings.deinit();
             self.allocator.destroy(self);
         }
         pub fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -97,21 +95,117 @@ pub const Mode = struct {
     }
 };
 
-//An association of an command with a triggering key chord
-const Binding = struct {
-    keys: []KeyEvent,
-    command: []const u8,
-    args: []const u8,
-    command_id: ?command.ID = null,
+const NamespaceMap = std.StringHashMapUnmanaged(Namespace);
 
-    fn deinit(self: *const @This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.keys);
-        allocator.free(self.command);
-        allocator.free(self.args);
+fn get_namespace_mode(namespace_name: []const u8, mode_name: []const u8, insert_command: []const u8) LoadError!*const BindingSet {
+    const allocator = globals_allocator;
+    const namespace = globals.namespaces.getPtr(namespace_name) orelse blk: {
+        const namespace = try Namespace.load(allocator, namespace_name);
+        const result = try globals.namespaces.getOrPut(allocator, try allocator.dupe(u8, namespace_name));
+        std.debug.assert(result.found_existing == false);
+        result.value_ptr.* = namespace;
+        break :blk result.value_ptr;
+    };
+    var binding_set = namespace.modes.getPtr(mode_name) orelse {
+        const logger = log.logger("keybind");
+        logger.print_err("get_namespace_mode", "ERROR: mode not found: {s}", .{mode_name});
+        var iter = namespace.modes.iterator();
+        while (iter.next()) |entry| logger.print("available modes: {s}", .{entry.key_ptr.*});
+        logger.deinit();
+        return error.NotFound;
+    };
+    binding_set.set_insert_command(insert_command);
+    return binding_set;
+}
+
+const LoadError = (error{ NotFound, NotAnObject } || std.json.ParseError(std.json.Scanner) || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError);
+
+///A collection of modes that represent a switchable editor emulation
+const Namespace = struct {
+    name: []const u8,
+    fallback: ?*const Namespace = null,
+    default_mode: []const u8,
+    modes: std.StringHashMapUnmanaged(BindingSet),
+
+    init_command: Command = .{},
+    deinit_command: Command = .{},
+
+    fn load(allocator: std.mem.Allocator, namespace_name: []const u8) LoadError!Namespace {
+        var free_json_string = true;
+        const json_string = root.read_keybind_namespace(allocator, namespace_name) orelse blk: {
+            free_json_string = false;
+            break :blk builtin_keybinds.get(namespace_name) orelse return error.NotFound;
+        };
+        defer if (free_json_string) allocator.free(json_string);
+
+        const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_string, .{});
+        defer parsed.deinit();
+        if (parsed.value != .object) return error.NotAnObject;
+
+        var self: @This() = .{
+            .name = try allocator.dupe(u8, namespace_name),
+            .default_mode = "",
+            .modes = .{},
+        };
+        errdefer allocator.free(self.name);
+        var config = parsed.value.object.iterator();
+        while (config.next()) |mode_entry| {
+            if (!std.mem.eql(u8, mode_entry.key_ptr.*, "settings")) continue;
+            try self.load_settings(allocator, mode_entry.value_ptr.*);
+        }
+
+        var modes = parsed.value.object.iterator();
+        while (modes.next()) |mode_entry| {
+            if (std.mem.eql(u8, mode_entry.key_ptr.*, "settings")) continue;
+            try self.load_mode(allocator, mode_entry.key_ptr.*, mode_entry.value_ptr.*);
+        }
+        return self;
     }
 
-    fn len(self: Binding) usize {
-        return self.keys.items.len;
+    fn load_settings(self: *@This(), allocator: std.mem.Allocator, settings_value: std.json.Value) (parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!void {
+        const JsonSettings = struct {
+            init_command: []const std.json.Value = &[_]std.json.Value{},
+            deinit_command: []const std.json.Value = &[_]std.json.Value{},
+            fallback: []const u8 = "flow",
+        };
+        const parsed = try std.json.parseFromValue(JsonSettings, allocator, settings_value, .{
+            .ignore_unknown_fields = true,
+        });
+        defer parsed.deinit();
+        // self.fallback = try allocator.dupe(u8, parsed.value.fallback);
+        try self.init_command.load(allocator, parsed.value.init_command);
+        try self.deinit_command.load(allocator, parsed.value.deinit_command);
+    }
+
+    fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, mode_value: std.json.Value) !void {
+        try self.modes.put(allocator, try allocator.dupe(u8, mode_name), try BindingSet.load(allocator, mode_value));
+    }
+
+    fn get_mode(self: *@This(), mode_name: []const u8) error{}!*BindingSet {
+        for (self.modes.items) |*mode_|
+            if (std.mem.eql(u8, mode_.name, mode_name))
+                return mode_;
+        const mode_ = try self.modes.addOne();
+        mode_.* = try BindingSet.init(self.modes.allocator, mode_name);
+        return mode_;
+    }
+};
+
+/// A stored command with arguments
+const Command = struct {
+    command: []const u8 = &[_]u8{},
+    args: []const u8 = &[_]u8{},
+    command_id: ?command.ID = null,
+
+    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        return self.reset(allocator);
+    }
+
+    fn reset(self: *@This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.command);
+        allocator.free(self.args);
+        self.command = &[_]u8{};
+        self.args = &[_]u8{};
     }
 
     fn execute(self: *@This()) !void {
@@ -122,6 +216,52 @@ const Binding = struct {
         var buf: [2048]u8 = undefined;
         @memcpy(buf[0..self.args.len], self.args);
         try command.execute(id, .{ .args = .{ .buf = buf[0..self.args.len] } });
+    }
+
+    fn load(self: *@This(), allocator: std.mem.Allocator, tokens: []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
+        self.reset(allocator);
+        if (tokens.len == 0) return;
+        var state: enum { command, args } = .command;
+        var args = std.ArrayListUnmanaged(std.json.Value){};
+        defer args.deinit(allocator);
+
+        for (tokens) |token| {
+            switch (state) {
+                .command => {
+                    if (token != .string) {
+                        const logger = log.logger("keybind");
+                        logger.print_err("keybind.load", "ERROR: invalid command token {any}", .{token});
+                        logger.deinit();
+                        return error.InvalidFormat;
+                    }
+                    self.command = try allocator.dupe(u8, token.string);
+                    state = .args;
+                },
+                .args => try args.append(allocator, token),
+            }
+        }
+
+        var args_cbor = std.ArrayListUnmanaged(u8){};
+        defer args_cbor.deinit(allocator);
+        const writer = args_cbor.writer(allocator);
+        try cbor.writeArrayHeader(writer, args.items.len);
+        for (args.items) |arg| try cbor.writeJsonValue(writer, arg);
+        self.args = try args_cbor.toOwnedSlice(allocator);
+    }
+};
+
+//An association of an command with a triggering key chord
+const Binding = struct {
+    keys: []KeyEvent,
+    command: Command,
+
+    fn deinit(self: *const @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.keys);
+        self.command.deinit(allocator);
+    }
+
+    fn len(self: Binding) usize {
+        return self.keys.items.len;
     }
 
     const MatchResult = enum { match_impossible, match_possible, matched };
@@ -136,45 +276,148 @@ const Binding = struct {
     }
 };
 
-pub const KeybindHints = std.StringHashMap([]u8);
+pub const KeybindHints = std.StringHashMapUnmanaged([]u8);
+
+const max_key_sequence_time_interval = 750;
+const max_input_buffer_size = 4096;
+
+var globals: struct {
+    namespaces: NamespaceMap = .{},
+    input_buffer: std.ArrayListUnmanaged(u8) = .{},
+    insert_command: []const u8 = "",
+    insert_command_id: ?command.ID = null,
+    last_key_event_timestamp_ms: i64 = 0,
+    current_sequence: std.ArrayListUnmanaged(KeyEvent) = .{},
+    current_sequence_egc: std.ArrayListUnmanaged(u8) = .{},
+} = .{};
+const globals_allocator = std.heap.c_allocator;
 
 //A Collection of keybindings
 const BindingSet = struct {
-    allocator: std.mem.Allocator,
-    press: std.ArrayList(Binding),
-    release: std.ArrayList(Binding),
+    press: std.ArrayListUnmanaged(Binding) = .{},
+    release: std.ArrayListUnmanaged(Binding) = .{},
     syntax: KeySyntax = .flow,
     on_match_failure: OnMatchFailure = .ignore,
-    current_sequence: std.ArrayList(KeyEvent),
-    current_sequence_egc: std.ArrayList(u8),
-    last_key_event_timestamp_ms: i64 = 0,
-    input_buffer: std.ArrayList(u8),
-    logger: log.Logger,
-    namespace_name: []const u8,
-    mode_name: []const u8,
-    insert_command: []const u8,
-    insert_command_id: ?command.ID = null,
-    hints_map: ?KeybindHints = null,
+    insert_command: []const u8 = "",
+    hints_map: KeybindHints = .{},
 
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
 
-    fn hints(self: *@This()) *const KeybindHints {
-        if (self.hints_map) |*hints_map| return hints_map;
+    fn load(allocator: std.mem.Allocator, mode_bindings: std.json.Value) (error{OutOfMemory} || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
+        var self: @This() = .{};
 
-        self.hints_map = KeybindHints.init(self.allocator);
-        self.build_hints() catch {};
-        return &self.hints_map.?;
+        defer self.press.append(allocator, .{
+            .keys = allocator.dupe(KeyEvent, &[_]KeyEvent{.{ .key = input.key.f2 }}) catch @panic("failed to add toggle_input_mode fallback"),
+            .command = .{
+                .command = allocator.dupe(u8, "toggle_input_mode") catch @panic("failed to add toggle_input_mode fallback"),
+                .args = "",
+            },
+        }) catch {};
+
+        const JsonConfig = struct {
+            press: []const []const std.json.Value = &[_][]std.json.Value{},
+            release: []const []const std.json.Value = &[_][]std.json.Value{},
+            syntax: KeySyntax = .flow,
+            on_match_failure: OnMatchFailure = .insert,
+        };
+        const parsed = try std.json.parseFromValue(JsonConfig, allocator, mode_bindings, .{
+            .ignore_unknown_fields = true,
+        });
+        defer parsed.deinit();
+        self.syntax = parsed.value.syntax;
+        self.on_match_failure = parsed.value.on_match_failure;
+        try self.load_event(allocator, &self.press, input.event.press, parsed.value.press);
+        try self.load_event(allocator, &self.release, input.event.release, parsed.value.release);
+        self.build_hints(allocator) catch {};
+        return self;
     }
 
-    fn build_hints(self: *@This()) !void {
-        const hints_map = &self.hints_map.?;
+    fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayListUnmanaged(Binding), event: input.Event, bindings: []const []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
+        bindings: for (bindings) |entry| {
+            var state: enum { key_event, command, args } = .key_event;
+            var keys: ?[]KeyEvent = null;
+            var command_: ?[]const u8 = null;
+            var args = std.ArrayListUnmanaged(std.json.Value){};
+            defer {
+                if (keys) |p| allocator.free(p);
+                if (command_) |p| allocator.free(p);
+                args.deinit(allocator);
+            }
+            for (entry) |token| {
+                switch (state) {
+                    .key_event => {
+                        if (token != .string) {
+                            const logger = log.logger("keybind");
+                            logger.print_err("keybind.load", "ERROR: invalid binding key token {any}", .{token});
+                            logger.deinit();
+                            continue :bindings;
+                        }
+                        keys = switch (self.syntax) {
+                            .flow => parse_flow.parse_key_events(allocator, event, token.string) catch |e| {
+                                const logger = log.logger("keybind");
+                                logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
+                                logger.deinit();
+                                break;
+                            },
+                            .vim => parse_vim.parse_key_events(allocator, event, token.string) catch |e| {
+                                const logger = log.logger("keybind");
+                                logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
+                                logger.deinit();
+                                break;
+                            },
+                        };
+                        state = .command;
+                    },
+                    .command => {
+                        if (token != .string) {
+                            const logger = log.logger("keybind");
+                            logger.print_err("keybind.load", "ERROR: invalid binding command token {any}", .{token});
+                            logger.deinit();
+                            continue :bindings;
+                        }
+                        command_ = try allocator.dupe(u8, token.string);
+                        state = .args;
+                    },
+                    .args => {
+                        try args.append(allocator, token);
+                    },
+                }
+            }
+            if (state != .args) {
+                if (builtin.is_test) @panic("invalid state");
+                continue;
+            }
+            var args_cbor = std.ArrayListUnmanaged(u8){};
+            defer args_cbor.deinit(allocator);
+            const writer = args_cbor.writer(allocator);
+            try cbor.writeArrayHeader(writer, args.items.len);
+            for (args.items) |arg| try cbor.writeJsonValue(writer, arg);
+
+            try dest.append(allocator, .{
+                .keys = keys.?,
+                .command = .{
+                    .command = command_.?,
+                    .args = try args_cbor.toOwnedSlice(allocator),
+                },
+            });
+            keys = null;
+            command_ = null;
+        }
+    }
+
+    fn hints(self: *const @This()) *const KeybindHints {
+        return &self.hints_map;
+    }
+
+    fn build_hints(self: *@This(), allocator: std.mem.Allocator) !void {
+        const hints_map = &self.hints_map;
 
         for (self.press.items) |binding| {
-            var hint = if (hints_map.get(binding.command)) |previous|
-                std.ArrayList(u8).fromOwnedSlice(self.allocator, previous)
+            var hint = if (hints_map.get(binding.command.command)) |previous|
+                std.ArrayList(u8).fromOwnedSlice(allocator, previous)
             else
-                std.ArrayList(u8).init(self.allocator);
+                std.ArrayList(u8).init(allocator);
             defer hint.deinit();
             const writer = hint.writer();
             if (hint.items.len > 0) try writer.writeAll(", ");
@@ -191,180 +434,38 @@ const BindingSet = struct {
                     },
                 }
             }
-            try hints_map.put(binding.command, try hint.toOwnedSlice());
+            try hints_map.put(allocator, binding.command.command, try hint.toOwnedSlice());
         }
     }
 
-    fn init(allocator: std.mem.Allocator, namespace_name: []const u8, mode_name: []const u8, insert_command: []const u8) !@This() {
-        var self: @This() = .{
-            .allocator = allocator,
-            .current_sequence = try std.ArrayList(KeyEvent).initCapacity(allocator, 16),
-            .current_sequence_egc = try std.ArrayList(u8).initCapacity(allocator, 16),
-            .last_key_event_timestamp_ms = std.time.milliTimestamp(),
-            .input_buffer = try std.ArrayList(u8).initCapacity(allocator, 16),
-            .press = std.ArrayList(Binding).init(allocator),
-            .release = std.ArrayList(Binding).init(allocator),
-            .logger = if (!builtin.is_test) log.logger("keybind") else undefined,
-            .namespace_name = try allocator.dupe(u8, namespace_name),
-            .mode_name = try allocator.dupe(u8, mode_name),
-            .insert_command = try allocator.dupe(u8, insert_command),
-        };
-        try self.load_json(namespace_name, mode_name);
-        return self;
+    fn set_insert_command(self: *@This(), insert_command: []const u8) void {
+        self.insert_command = insert_command;
     }
 
-    fn deinit(self: *BindingSet) void {
-        if (self.hints_map) |*h| {
-            var i = h.iterator();
-            while (i.next()) |p| self.allocator.free(p.value_ptr.*);
-            h.deinit();
-        }
-        for (self.press.items) |binding| binding.deinit(self.allocator);
-        self.press.deinit();
-        for (self.release.items) |binding| binding.deinit(self.allocator);
-        self.release.deinit();
-        self.current_sequence.deinit();
-        self.current_sequence_egc.deinit();
-        self.input_buffer.deinit();
-        if (!builtin.is_test) self.logger.deinit();
-        self.allocator.free(self.namespace_name);
-        self.allocator.free(self.mode_name);
-        self.allocator.free(self.insert_command);
-    }
-
-    fn load_json(self: *@This(), namespace_name: []const u8, mode_name: []const u8) !void {
-        defer self.press.append(.{
-            .keys = self.allocator.dupe(KeyEvent, &[_]KeyEvent{.{ .key = input.key.f2 }}) catch @panic("failed to add toggle_input_mode fallback"),
-            .command = self.allocator.dupe(u8, "toggle_input_mode") catch @panic("failed to add toggle_input_mode fallback"),
-            .args = "",
-        }) catch {};
-        var free_json_string = true;
-        const json_string = root.read_keybind_namespace(self.allocator, namespace_name) orelse blk: {
-            free_json_string = false;
-            break :blk builtin_keybinds.get(namespace_name) orelse return error.NotFound;
-        };
-        defer if (free_json_string) self.allocator.free(json_string);
-        const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, json_string, .{});
-        defer parsed.deinit();
-        if (parsed.value != .object) return error.NotAnObject;
-        var modes = parsed.value.object.iterator();
-        while (modes.next()) |mode_entry| {
-            if (!std.mem.eql(u8, mode_entry.key_ptr.*, mode_name)) continue;
-            try self.load_set_from_json(mode_entry.value_ptr.*);
-        }
-    }
-
-    fn load_set_from_json(self: *BindingSet, mode_bindings: std.json.Value) (parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!void {
-        const JsonConfig = struct {
-            press: []const []const std.json.Value = &[_][]std.json.Value{},
-            release: []const []const std.json.Value = &[_][]std.json.Value{},
-            syntax: KeySyntax = .flow,
-            on_match_failure: OnMatchFailure = .insert,
-        };
-        const parsed = try std.json.parseFromValue(JsonConfig, self.allocator, mode_bindings, .{
-            .ignore_unknown_fields = true,
-        });
-        defer parsed.deinit();
-        self.syntax = parsed.value.syntax;
-        self.on_match_failure = parsed.value.on_match_failure;
-        try self.load_bindings_from_json(&self.press, input.event.press, parsed.value.press);
-        try self.load_bindings_from_json(&self.release, input.event.release, parsed.value.release);
-    }
-
-    fn load_bindings_from_json(self: *BindingSet, dest: *std.ArrayList(Binding), event: input.Event, bindings: []const []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
-        bindings: for (bindings) |entry| {
-            var state: enum { key_event, command, args } = .key_event;
-            var keys: ?[]KeyEvent = null;
-            var command_: ?[]const u8 = null;
-            var args = std.ArrayListUnmanaged(std.json.Value){};
-            defer {
-                if (keys) |p| self.allocator.free(p);
-                if (command_) |p| self.allocator.free(p);
-                args.deinit(self.allocator);
-            }
-            for (entry) |token| {
-                switch (state) {
-                    .key_event => {
-                        if (token != .string) {
-                            self.logger.print_err("keybind.load", "ERROR: invalid binding key token {any} in '{s}' mode '{s}' ", .{
-                                token,
-                                self.namespace_name,
-                                self.mode_name,
-                            });
-                            continue :bindings;
-                        }
-                        keys = switch (self.syntax) {
-                            .flow => parse_flow.parse_key_events(self.allocator, event, token.string) catch |e| {
-                                self.logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
-                                break;
-                            },
-                            .vim => parse_vim.parse_key_events(self.allocator, event, token.string) catch |e| {
-                                self.logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
-                                break;
-                            },
-                        };
-                        state = .command;
-                    },
-                    .command => {
-                        if (token != .string) {
-                            self.logger.print_err("keybind.load", "ERROR: invalid binding command token {any} in '{s}' mode '{s}' ", .{
-                                token,
-                                self.namespace_name,
-                                self.mode_name,
-                            });
-                            continue :bindings;
-                        }
-                        command_ = try self.allocator.dupe(u8, token.string);
-                        state = .args;
-                    },
-                    .args => {
-                        try args.append(self.allocator, token);
-                    },
-                }
-            }
-            if (state != .args) {
-                if (builtin.is_test) @panic("invalid state in load_set_from_json");
-                continue;
-            }
-            var args_cbor = std.ArrayListUnmanaged(u8){};
-            defer args_cbor.deinit(self.allocator);
-            const writer = args_cbor.writer(self.allocator);
-            try cbor.writeArrayHeader(writer, args.items.len);
-            for (args.items) |arg| try cbor.writeJsonValue(writer, arg);
-
-            try dest.append(.{
-                .keys = keys.?,
-                .command = command_.?,
-                .args = try args_cbor.toOwnedSlice(self.allocator),
-            });
-            keys = null;
-            command_ = null;
-        }
-    }
-
-    const max_key_sequence_time_interval = 750;
-    const max_input_buffer_size = 1024;
-
-    fn insert_bytes(self: *@This(), bytes: []const u8) !void {
-        if (self.input_buffer.items.len + 4 > max_input_buffer_size)
+    fn insert_bytes(self: *const @This(), bytes: []const u8) !void {
+        if (globals.input_buffer.items.len + 4 > max_input_buffer_size)
             try self.flush();
-        try self.input_buffer.appendSlice(bytes);
+        try globals.input_buffer.appendSlice(globals_allocator, bytes);
     }
 
-    fn flush(self: *@This()) !void {
-        if (self.input_buffer.items.len > 0) {
-            defer self.input_buffer.clearRetainingCapacity();
-            const id = self.insert_command_id orelse
-                command.get_id_cache(self.insert_command, &self.insert_command_id) orelse {
+    fn flush(self: *const @This()) !void {
+        if (globals.input_buffer.items.len > 0) {
+            defer globals.input_buffer.clearRetainingCapacity();
+            if (!std.mem.eql(u8, self.insert_command, globals.insert_command)) {
+                globals.insert_command = self.insert_command;
+                globals.insert_command_id = null;
+            }
+            const id = globals.insert_command_id orelse
+                command.get_id_cache(globals.insert_command, &globals.insert_command_id) orelse {
                 return tp.exit_error(error.InputTargetNotFound, null);
             };
             if (!builtin.is_test) {
-                try command.execute(id, command.fmt(.{self.input_buffer.items}));
+                try command.execute(id, command.fmt(.{globals.input_buffer.items}));
             }
         }
     }
 
-    fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    fn receive(self: *const @This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         var event: input.Event = 0;
         var keypress: input.Key = 0;
         var egc: input.Key = 0;
@@ -383,7 +484,7 @@ const BindingSet = struct {
                 .key = keypress,
                 .modifiers = modifiers,
             }) catch |e| return tp.exit_error(e, @errorReturnTrace())) |binding| {
-                try binding.execute();
+                try binding.command.execute();
             }
         } else if (try m.match(.{"F"})) {
             self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -392,7 +493,7 @@ const BindingSet = struct {
     }
 
     //register a key press and try to match it with a binding
-    fn process_key_event(self: *BindingSet, egc: input.Key, event_: KeyEvent) !?*Binding {
+    fn process_key_event(self: *const @This(), egc: input.Key, event_: KeyEvent) !?*Binding {
         var event = event_;
 
         //ignore modifiers for modifier key events
@@ -407,24 +508,24 @@ const BindingSet = struct {
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
-        if (self.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
+        if (globals.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
             try self.terminate_sequence(.timeout, egc, event);
         }
-        self.last_key_event_timestamp_ms = timestamp;
+        globals.last_key_event_timestamp_ms = timestamp;
 
-        try self.current_sequence.append(event);
+        try globals.current_sequence.append(globals_allocator, event);
         var buf: [6]u8 = undefined;
         const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
         if (!input.is_non_input_key(event.key))
-            try self.current_sequence_egc.appendSlice(buf[0..bytes]);
+            try globals.current_sequence_egc.appendSlice(globals_allocator, buf[0..bytes]);
 
         var all_matches_impossible = true;
 
         for (self.press.items) |*binding| {
-            switch (binding.match(self.current_sequence.items)) {
+            switch (binding.match(globals.current_sequence.items)) {
                 .matched => {
-                    self.current_sequence.clearRetainingCapacity();
-                    self.current_sequence_egc.clearRetainingCapacity();
+                    globals.current_sequence.clearRetainingCapacity();
+                    globals.current_sequence_egc.clearRetainingCapacity();
                     return binding;
                 },
                 .match_possible => {
@@ -439,7 +540,7 @@ const BindingSet = struct {
         return null;
     }
 
-    fn process_key_release_event(self: *BindingSet, event: KeyEvent) !?*Binding {
+    fn process_key_release_event(self: *const @This(), event: KeyEvent) !?*Binding {
         for (self.release.items) |*binding| {
             switch (binding.match(&[_]KeyEvent{event})) {
                 .matched => return binding,
@@ -451,49 +552,21 @@ const BindingSet = struct {
     }
 
     const AbortType = enum { timeout, match_impossible };
-    fn terminate_sequence(self: *@This(), abort_type: AbortType, egc: input.Key, key_event: KeyEvent) anyerror!void {
+    fn terminate_sequence(self: *const @This(), abort_type: AbortType, egc: input.Key, key_event: KeyEvent) anyerror!void {
         _ = egc;
         _ = key_event;
         if (abort_type == .match_impossible) {
             switch (self.on_match_failure) {
-                .insert => try self.insert_bytes(self.current_sequence_egc.items),
+                .insert => try self.insert_bytes(globals.current_sequence_egc.items),
                 .ignore => {},
             }
-            self.current_sequence.clearRetainingCapacity();
-            self.current_sequence_egc.clearRetainingCapacity();
+            globals.current_sequence.clearRetainingCapacity();
+            globals.current_sequence_egc.clearRetainingCapacity();
         } else if (abort_type == .timeout) {
-            try self.insert_bytes(self.current_sequence_egc.items);
-            self.current_sequence_egc.clearRetainingCapacity();
-            self.current_sequence.clearRetainingCapacity();
+            try self.insert_bytes(globals.current_sequence_egc.items);
+            globals.current_sequence_egc.clearRetainingCapacity();
+            globals.current_sequence.clearRetainingCapacity();
         }
-    }
-};
-
-//A collection of various modes under a single namespace, such as "vim" or "emacs"
-const Namespace = struct {
-    name: []const u8,
-    modes: std.ArrayList(BindingSet),
-
-    fn init(allocator: std.mem.Allocator, name: []const u8) !Namespace {
-        return .{
-            .name = try allocator.dupe(u8, name),
-            .modes = std.ArrayList(BindingSet).init(allocator),
-        };
-    }
-
-    fn deinit(self: *@This()) void {
-        self.modes.allocator.free(self.name);
-        for (self.modes.items) |*mode_| mode_.deinit();
-        self.modes.deinit();
-    }
-
-    fn get_mode(self: *@This(), mode_name: []const u8) !*BindingSet {
-        for (self.modes.items) |*mode_|
-            if (std.mem.eql(u8, mode_.name, mode_name))
-                return mode_;
-        const mode_ = try self.modes.addOne();
-        mode_.* = try BindingSet.init(self.modes.allocator, mode_name);
-        return mode_;
     }
 };
 
@@ -575,8 +648,7 @@ test "match" {
         defer alloc.free(events);
         const binding: Binding = .{
             .keys = try parse_vim.parse_key_events(alloc, input.event.press, case[1]),
-            .command = undefined,
-            .args = undefined,
+            .command = .{},
         };
         defer alloc.free(binding.keys);
 
@@ -585,9 +657,7 @@ test "match" {
 }
 
 test "json" {
-    const alloc = std.testing.allocator;
-    var bindings = try BindingSet.init(alloc, "vim", "normal", "insert_chars");
-    defer bindings.deinit();
+    var bindings: BindingSet = .{};
     _ = try bindings.process_key_event('j', .{ .key = 'j' });
     _ = try bindings.process_key_event('k', .{ .key = 'k' });
     _ = try bindings.process_key_event('g', .{ .key = 'g' });
