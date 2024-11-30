@@ -35,7 +35,7 @@ const scroll_step_small = 3;
 const scroll_cursor_min_border_distance = 5;
 
 const double_click_time_ms = 350;
-const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
+const syntax_full_reparse_timeout = 250; // ms
 
 pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_000 else 100_000;
 pub const max_match_lines = 15;
@@ -266,6 +266,8 @@ pub const Editor = struct {
     syntax_report_timing: bool = false,
     syntax_refresh_full: bool = false,
     syntax_last_rendered_root: ?Buffer.Root = null,
+    syntax_last_rendered_type: enum { full, incremental, none } = .none,
+    syntax_full_reparse_timer: ?tp.Cancellable = null,
     syntax_incremental_reparse: bool = false,
 
     style_cache: ?StyleCache = null,
@@ -369,6 +371,7 @@ pub const Editor = struct {
     }
 
     fn deinit(self: *Self) void {
+        self.syntax_cancel_full_reparse_timer();
         for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
         self.diagnostics.deinit();
         if (self.syntax) |syn| syn.destroy();
@@ -3233,7 +3236,6 @@ pub const Editor = struct {
         const eol_mode = try self.buf_eol_mode();
         if (self.syntax_last_rendered_root == root)
             return;
-        var kind: enum { full, incremental, none } = .none;
         var edit_count: usize = 0;
         const start_time = std.time.milliTimestamp();
         if (self.syntax) |syn| {
@@ -3268,7 +3270,7 @@ pub const Editor = struct {
                     defer frame.deinit();
                     try syn.refresh_full(content);
                 }
-                kind = .full;
+                self.syntax_last_rendered_type = .full;
                 self.syntax_last_rendered_root = root;
                 self.syntax_refresh_full = false;
             } else {
@@ -3296,8 +3298,8 @@ pub const Editor = struct {
                         defer frame.deinit();
                         try syn.refresh_from_string(content);
                     }
+                    self.syntax_last_rendered_type = .incremental;
                     self.syntax_last_rendered_root = root;
-                    kind = .incremental;
                 }
             }
         } else {
@@ -3318,11 +3320,12 @@ pub const Editor = struct {
             }
         }
         const end_time = std.time.milliTimestamp();
-        if (kind == .full or kind == .incremental) {
+        if (self.syntax_last_rendered_type == .full) self.syntax_cancel_full_reparse_timer();
+        if (self.syntax_last_rendered_type == .incremental) self.syntax_update_full_reparse_timer();
+        if (self.syntax_last_rendered_type == .full or self.syntax_last_rendered_type == .incremental) {
             const update_time = end_time - start_time;
-            self.syntax_incremental_reparse = end_time - start_time > syntax_full_reparse_time_limit;
             if (self.syntax_report_timing)
-                self.logger.print("syntax update {s} time: {d}ms ({d} edits)", .{ @tagName(kind), update_time, edit_count });
+                self.logger.print("syntax update {s} time: {d}ms ({d} edits)", .{ @tagName(self.syntax_last_rendered_type), update_time, edit_count });
         }
     }
 
@@ -3349,6 +3352,30 @@ pub const Editor = struct {
 
     fn reset_syntax(self: *Self) void {
         if (self.syntax) |_| self.syntax_refresh_full = true;
+    }
+
+    fn syntax_update_full_reparse_timer(self: *Self) void {
+        const delay = std.time.us_per_ms * @as(u64, syntax_full_reparse_timeout);
+        self.syntax_cancel_full_reparse_timer();
+        self.syntax_full_reparse_timer = tp.self_pid().delay_send_cancellable(
+            self.allocator,
+            "editor.syntax_full_reparse_timer",
+            delay,
+            .{"FULL_REPARSE"},
+        ) catch return;
+    }
+
+    fn syntax_cancel_full_reparse_timer(self: *Self) void {
+        if (self.syntax_full_reparse_timer) |*t| {
+            t.cancel() catch {};
+            t.deinit();
+            self.syntax_full_reparse_timer = null;
+        }
+    }
+
+    fn syntax_trigger_full_reparse_timer(self: *Self) void {
+        self.syntax_cancel_full_reparse_timer();
+        self.logger.print("syntax starting full reparse", .{});
     }
 
     pub fn dump_current_line(self: *Self, _: Context) Result {
@@ -4378,6 +4405,8 @@ pub const EditorWidget = struct {
                 try self.editor.hover_at_abs(@intCast(self.hover_y), @intCast(self.hover_x));
         } else if (try m.match(.{ "whitespace_mode", tp.extract(&bytes) })) {
             self.editor.render_whitespace = Editor.from_whitespace_mode(bytes);
+        } else if (try m.match(.{"FULL_REPARSE"})) {
+            self.editor.syntax_trigger_full_reparse_timer();
         } else {
             return false;
         }
