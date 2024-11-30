@@ -1,4 +1,8 @@
 {
+    "settings": {
+        "init_command": ["enter_flow_mode"],
+        "deinit_command": ["exit_flow_mode"]
+    },
     "normal": {
         "press": [
             ["ctrl+e", "open_recent"],
