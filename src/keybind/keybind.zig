@@ -95,7 +95,21 @@ fn get_or_load_namespace(namespace_name: []const u8) LoadError!*const Namespace 
 }
 
 pub fn set_namespace(namespace_name: []const u8) LoadError!void {
-    globals.current_namespace = try get_or_load_namespace(namespace_name);
+    const new_namespace = try get_or_load_namespace(namespace_name);
+    if (globals.current_namespace) |old_namespace|
+        if (old_namespace.deinit_command) |deinit|
+            deinit.execute_const() catch |e| {
+                const logger = log.logger("keybind");
+                logger.print_err("deinit_command", "ERROR: {s} {s}", .{ deinit.command, @errorName(e) });
+                logger.deinit();
+            };
+    globals.current_namespace = new_namespace;
+    if (new_namespace.init_command) |init|
+        init.execute_const() catch |e| {
+            const logger = log.logger("keybind");
+            logger.print_err("init_command", "ERROR: {s} {s}", .{ init.command, @errorName(e) });
+            logger.deinit();
+        };
 }
 
 fn get_mode_binding_set(mode_name: []const u8, insert_command: []const u8) LoadError!*const BindingSet {
@@ -120,8 +134,8 @@ const Namespace = struct {
     fallback: ?*const Namespace = null,
     modes: std.StringHashMapUnmanaged(BindingSet),
 
-    init_command: Command = .{},
-    deinit_command: Command = .{},
+    init_command: ?Command = null,
+    deinit_command: ?Command = null,
 
     fn load(allocator: std.mem.Allocator, namespace_name: []const u8) LoadError!Namespace {
         var free_json_string = true;
@@ -147,7 +161,7 @@ const Namespace = struct {
         }
 
         if (!std.mem.eql(u8, self.name, default_namespace) and self.fallback == null)
-                self.fallback = try get_or_load_namespace(default_namespace);
+            self.fallback = try get_or_load_namespace(default_namespace);
 
         var modes = parsed.value.object.iterator();
         while (modes.next()) |mode_entry| {
@@ -166,8 +180,8 @@ const Namespace = struct {
 
     fn load_settings(self: *@This(), allocator: std.mem.Allocator, settings_value: std.json.Value) LoadError!void {
         const JsonSettings = struct {
-            init_command: []const std.json.Value = &[_]std.json.Value{},
-            deinit_command: []const std.json.Value = &[_]std.json.Value{},
+            init_command: ?[]const std.json.Value = null,
+            deinit_command: ?[]const std.json.Value = null,
             fallback: ?[]const u8 = null,
         };
         const parsed = try std.json.parseFromValue(JsonSettings, allocator, settings_value, .{
@@ -175,8 +189,8 @@ const Namespace = struct {
         });
         defer parsed.deinit();
         self.fallback = if (parsed.value.fallback) |fallback| try get_or_load_namespace(fallback) else null;
-        try self.init_command.load(allocator, parsed.value.init_command);
-        try self.deinit_command.load(allocator, parsed.value.deinit_command);
+        if (parsed.value.init_command) |cmd| self.init_command = try Command.load(allocator, cmd);
+        if (parsed.value.deinit_command) |cmd| self.deinit_command = try Command.load(allocator, cmd);
     }
 
     fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, mode_value: std.json.Value) !void {
@@ -195,20 +209,9 @@ const Namespace = struct {
 
 /// A stored command with arguments
 const Command = struct {
-    command: []const u8 = &[_]u8{},
-    args: []const u8 = &[_]u8{},
+    command: []const u8,
+    args: []const u8,
     command_id: ?command.ID = null,
-
-    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        return self.reset(allocator);
-    }
-
-    fn reset(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.command);
-        allocator.free(self.args);
-        self.command = &[_]u8{};
-        self.args = &[_]u8{};
-    }
 
     fn execute(self: *@This()) !void {
         const id = self.command_id orelse
@@ -220,12 +223,18 @@ const Command = struct {
         try command.execute(id, .{ .args = .{ .buf = buf[0..self.args.len] } });
     }
 
-    fn load(self: *@This(), allocator: std.mem.Allocator, tokens: []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
-        self.reset(allocator);
-        if (tokens.len == 0) return;
+    fn execute_const(self: *const @This()) !void {
+        var buf: [2048]u8 = undefined;
+        @memcpy(buf[0..self.args.len], self.args);
+        try command.executeName(self.command, .{ .args = .{ .buf = buf[0..self.args.len] } });
+    }
+
+    fn load(allocator: std.mem.Allocator, tokens: []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!Command {
+        if (tokens.len == 0) return error.InvalidFormat;
         var state: enum { command, args } = .command;
         var args = std.ArrayListUnmanaged(std.json.Value){};
         defer args.deinit(allocator);
+        var command_: []const u8 = &[_]u8{};
 
         for (tokens) |token| {
             switch (state) {
@@ -236,7 +245,7 @@ const Command = struct {
                         logger.deinit();
                         return error.InvalidFormat;
                     }
-                    self.command = try allocator.dupe(u8, token.string);
+                    command_ = try allocator.dupe(u8, token.string);
                     state = .args;
                 },
                 .args => try args.append(allocator, token),
@@ -248,7 +257,10 @@ const Command = struct {
         const writer = args_cbor.writer(allocator);
         try cbor.writeArrayHeader(writer, args.items.len);
         for (args.items) |arg| try cbor.writeJsonValue(writer, arg);
-        self.args = try args_cbor.toOwnedSlice(allocator);
+        return .{
+            .command = command_,
+            .args = try args_cbor.toOwnedSlice(allocator),
+        };
     }
 };
 
