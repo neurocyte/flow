@@ -876,6 +876,26 @@ const cmds = struct {
         try tp.self_pid().send_raw(.{ .buf = msg_cb.items });
     }
     pub const run_async_meta = .{};
+
+    pub fn enter_vim_mode(_: *Self, _: Ctx) Result {
+        try @import("mode/vim.zig").init();
+    }
+    pub const enter_vim_mode_meta = .{};
+
+    pub fn exit_vim_mode(_: *Self, _: Ctx) Result {
+        @import("mode/vim.zig").deinit();
+    }
+    pub const exit_vim_mode_meta = .{};
+
+    pub fn enter_helix_mode(_: *Self, _: Ctx) Result {
+        try @import("mode/helix.zig").init();
+    }
+    pub const enter_helix_mode_meta = .{};
+
+    pub fn exit_helix_mode(_: *Self, _: Ctx) Result {
+        @import("mode/helix.zig").deinit();
+    }
+    pub const exit_helix_mode_meta = .{};
 };
 
 pub const MiniMode = struct {
