@@ -668,12 +668,19 @@ const cmds = struct {
     pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
         var it = std.mem.splitScalar(u8, self.config.input_mode, '/');
         self.config.input_mode = it.first();
-        self.config.input_mode = if (std.mem.eql(u8, self.config.input_mode, "flow"))
-            "vim"
-        else if (std.mem.eql(u8, self.config.input_mode, "vim"))
-            "helix"
-        else
-            "flow";
+
+        const namespaces = keybind.get_namespaces(self.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        defer {
+            for (namespaces) |namespace| self.allocator.free(namespace);
+            self.allocator.free(namespaces);
+        }
+        var found = false;
+        self.config.input_mode = blk: for (namespaces) |namespace| {
+            if (found) break :blk try self.allocator.dupe(u8, namespace);
+            if (std.mem.eql(u8, namespace, self.config.input_mode))
+                found = true;
+        } else try self.allocator.dupe(u8, namespaces[0]);
+
         try self.save_config();
         self.logger.print("input mode {s}", .{self.config.input_mode});
         try keybind.set_namespace(self.config.input_mode);

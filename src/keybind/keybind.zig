@@ -75,6 +75,30 @@ pub const Mode = struct {
 
 const NamespaceMap = std.StringHashMapUnmanaged(Namespace);
 
+pub fn get_namespaces(allocator: std.mem.Allocator) ![]const []const u8 {
+    const namespaces = try root.list_keybind_namespaces(allocator);
+    defer {
+        for (namespaces) |namespace| allocator.free(namespace);
+        allocator.free(namespaces);
+    }
+    var result = std.ArrayList([]const u8).init(allocator);
+    try result.append(try allocator.dupe(u8, "flow"));
+    try result.append(try allocator.dupe(u8, "emacs"));
+    try result.append(try allocator.dupe(u8, "vim"));
+    try result.append(try allocator.dupe(u8, "helix"));
+    for (namespaces) |namespace| {
+        var exists = false;
+        for (result.items) |existing|
+            if (std.mem.eql(u8, namespace, existing)) {
+                exists = true;
+                break;
+            };
+        if (!exists)
+            try result.append(try allocator.dupe(u8, namespace));
+    }
+    return result.toOwnedSlice();
+}
+
 pub fn get_namespace() []const u8 {
     return current_namespace().name;
 }

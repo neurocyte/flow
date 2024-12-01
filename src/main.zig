@@ -459,6 +459,20 @@ pub fn write_keybind_namespace(namespace_name: []const u8, content: []const u8) 
     return file.writeAll(content);
 }
 
+pub fn list_keybind_namespaces(allocator: std.mem.Allocator) ![]const []const u8 {
+    var dir = try std.fs.openDirAbsolute(try get_keybind_namespaces_directory(), .{ .iterate = true });
+    defer dir.close();
+    var result = std.ArrayList([]const u8).init(allocator);
+    var iter = dir.iterateAssumeFirstIteration();
+    while (try iter.next()) |entry| {
+        switch (entry.kind) {
+            .file, .sym_link => try result.append(try allocator.dupe(u8, std.fs.path.stem(entry.name))),
+            else => continue,
+        }
+    }
+    return result.toOwnedSlice();
+}
+
 pub fn get_config_dir() ![]const u8 {
     return get_app_config_dir(application_name);
 }
@@ -631,16 +645,24 @@ pub fn get_restore_file_name() ![]const u8 {
 
 const keybind_dir = "keys";
 
-pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
+pub fn get_keybind_namespaces_directory() ![]const u8 {
     const local = struct {
-        var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
     const a = std.heap.c_allocator;
     if (std.process.getEnvVarOwned(a, "FLOW_KEYS_DIR") catch null) |dir| {
         defer a.free(dir);
-        return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}.json", .{ dir, namespace_name });
+        return try std.fmt.bufPrint(&local.dir_buffer, "{s}/", .{dir});
     }
-    return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}/{s}.json", .{ try get_app_config_dir(application_name), keybind_dir, namespace_name });
+    return try std.fmt.bufPrint(&local.dir_buffer, "{s}/{s}/", .{ try get_app_config_dir(application_name), keybind_dir });
+}
+
+pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
+    const dir = try get_keybind_namespaces_directory();
+    const local = struct {
+        var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    };
+    return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}.json", .{ dir, namespace_name });
 }
 
 fn restart() noreturn {
