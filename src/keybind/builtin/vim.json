@@ -1,4 +1,8 @@
 {
+    "settings": {
+        "init_command": ["enter_vim_mode"],
+        "deinit_command": ["exit_vim_mode"]
+    },
     "normal": {
         "syntax": "vim",
         "on_match_failure": "ignore",
