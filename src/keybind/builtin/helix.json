@@ -2,7 +2,7 @@
     "settings": {
         "init_command": ["enter_helix_mode"],
         "deinit_command": ["exit_helix_mode"],
-        "fallback": "vim"
+        "inherit": "vim"
     },
     "normal": {
         "syntax": "vim",

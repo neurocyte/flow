@@ -206,13 +206,13 @@ const Namespace = struct {
         const JsonSettings = struct {
             init_command: ?[]const std.json.Value = null,
             deinit_command: ?[]const std.json.Value = null,
-            fallback: ?[]const u8 = null,
+            inherit: ?[]const u8 = null,
         };
         const parsed = try std.json.parseFromValue(JsonSettings, allocator, settings_value, .{
             .ignore_unknown_fields = true,
         });
         defer parsed.deinit();
-        self.fallback = if (parsed.value.fallback) |fallback| try get_or_load_namespace(fallback) else null;
+        self.fallback = if (parsed.value.inherit) |fallback| try get_or_load_namespace(fallback) else null;
         if (parsed.value.init_command) |cmd| self.init_command = try Command.load(allocator, cmd);
         if (parsed.value.deinit_command) |cmd| self.deinit_command = try Command.load(allocator, cmd);
     }
