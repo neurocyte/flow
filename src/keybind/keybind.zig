@@ -341,74 +341,34 @@ const BindingSet = struct {
 
     fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayListUnmanaged(Binding), event: input.Event, bindings: []const []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
         bindings: for (bindings) |entry| {
-            var state: enum { key_event, command, args } = .key_event;
-            var key_events: ?[]KeyEvent = null;
-            var command_: ?[]const u8 = null;
-            var args = std.ArrayListUnmanaged(std.json.Value){};
-            defer {
-                if (key_events) |p| allocator.free(p);
-                if (command_) |p| allocator.free(p);
-                args.deinit(allocator);
+            const token = entry[0];
+            if (token != .string) {
+                const logger = log.logger("keybind");
+                logger.print_err("keybind.load", "ERROR: invalid binding key token {any}", .{token});
+                logger.deinit();
+                continue :bindings;
             }
-            for (entry) |token| {
-                switch (state) {
-                    .key_event => {
-                        if (token != .string) {
-                            const logger = log.logger("keybind");
-                            logger.print_err("keybind.load", "ERROR: invalid binding key token {any}", .{token});
-                            logger.deinit();
-                            continue :bindings;
-                        }
-                        key_events = switch (self.syntax) {
-                            .flow => parse_flow.parse_key_events(allocator, event, token.string) catch |e| {
-                                const logger = log.logger("keybind");
-                                logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
-                                logger.deinit();
-                                break;
-                            },
-                            .vim => parse_vim.parse_key_events(allocator, event, token.string) catch |e| {
-                                const logger = log.logger("keybind");
-                                logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
-                                logger.deinit();
-                                break;
-                            },
-                        };
-                        state = .command;
-                    },
-                    .command => {
-                        if (token != .string) {
-                            const logger = log.logger("keybind");
-                            logger.print_err("keybind.load", "ERROR: invalid binding command token {any}", .{token});
-                            logger.deinit();
-                            continue :bindings;
-                        }
-                        command_ = try allocator.dupe(u8, token.string);
-                        state = .args;
-                    },
-                    .args => {
-                        try args.append(allocator, token);
-                    },
-                }
-            }
-            if (state != .args) {
-                if (builtin.is_test) @panic("invalid state");
-                continue;
-            }
-            var args_cbor = std.ArrayListUnmanaged(u8){};
-            defer args_cbor.deinit(allocator);
-            const writer = args_cbor.writer(allocator);
-            try cbor.writeArrayHeader(writer, args.items.len);
-            for (args.items) |arg| try cbor.writeJsonValue(writer, arg);
+
+            const key_events = switch (self.syntax) {
+                .flow => parse_flow.parse_key_events(allocator, event, token.string) catch |e| {
+                    const logger = log.logger("keybind");
+                    logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
+                    logger.deinit();
+                    break;
+                },
+                .vim => parse_vim.parse_key_events(allocator, event, token.string) catch |e| {
+                    const logger = log.logger("keybind");
+                    logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
+                    logger.deinit();
+                    break;
+                },
+            };
+            errdefer allocator.free(key_events);
 
             try dest.append(allocator, .{
-                .key_events = key_events.?,
-                .command = .{
-                    .command = command_.?,
-                    .args = try args_cbor.toOwnedSlice(allocator),
-                },
+                .key_events = key_events,
+                .command = try Command.load(allocator, entry[1..]),
             });
-            key_events = null;
-            command_ = null;
         }
     }
 
