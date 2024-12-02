@@ -137,7 +137,9 @@ fn update_clear_timer(self: *Self) !void {
 fn set(self: *Self, msg: []const u8, level: Level) !void {
     if (@intFromEnum(level) < @intFromEnum(self.level)) return;
     self.msg.clearRetainingCapacity();
-    try self.msg.appendSlice(msg);
+    var iter = std.mem.splitScalar(u8, msg, '\n');
+    const line1 = iter.next() orelse msg;
+    try self.msg.appendSlice(line1);
     self.level = level;
     Widget.need_render();
     try self.update_clear_timer();
