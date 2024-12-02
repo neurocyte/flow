@@ -106,6 +106,13 @@ pub const fish = .{
     .highlights = "tree-sitter-fish/queries/highlights.scm",
 };
 
+pub const odin = .{
+    .extensions = .{"odin"},
+    .comment = "//",
+    .parser = @import("file_type.zig").Parser("odin"),
+    .highlights = "tree-sitter-odin/queries/highlights.scm",
+};
+
 pub const @"git-rebase" = .{
     .color = 0xf34f29,
     .icon = "",
