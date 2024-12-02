@@ -584,7 +584,10 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
 }
 
 fn get_input_mode(self: *Self, mode_name: []const u8, name: []const u8, opts: anytype) !Mode {
-    const input_handler, const keybind_hints = try keybind.mode(mode_name, self.allocator, opts);
+    const input_handler, const keybind_hints = keybind.mode(mode_name, self.allocator, opts) catch |e| switch (e) {
+        error.NotFound => return error.Stop,
+        else => return e,
+    };
     return .{
         .input_handler = input_handler,
         .keybind_hints = keybind_hints,
@@ -696,16 +699,11 @@ const cmds = struct {
             self.delayed_init_input_mode = try self.allocator.dupe(u8, mode);
             return;
         }
-        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
-        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
-        if (self.input_mode) |*m| {
-            m.deinit();
-            self.input_mode = null;
-        }
+
         const current_namespace = keybind.get_namespace();
         const is_vim_mode = std.mem.eql(u8, current_namespace, "vim");
         const is_helix_mode = std.mem.eql(u8, current_namespace, "helix");
-        self.input_mode = if (is_vim_mode and std.mem.eql(u8, mode, "normal"))
+        var new_mode = if (is_vim_mode and std.mem.eql(u8, mode, "normal"))
             try self.get_input_mode("normal", "NORMAL", .{
                 .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
                 .cursor_shape = .block,
@@ -742,6 +740,15 @@ const cmds = struct {
                 break :ret try self.get_input_mode(keybind.default_mode, current_namespace, .{});
             };
         };
+        errdefer new_mode.deinit();
+
+        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
+        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
+        if (self.input_mode) |*m| {
+            m.deinit();
+            self.input_mode = null;
+        }
+        self.input_mode = new_mode;
         // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
     }
     pub const enter_mode_meta = .{ .arguments = &.{.string} };
