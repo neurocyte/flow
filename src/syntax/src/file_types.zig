@@ -300,6 +300,15 @@ pub const ocaml = .{
     .language_server = .{ "ocamllsp", "--fallback-read-dot-merlin" },
 };
 
+pub const odin = .{
+    .extensions = .{"odin"},
+    .comment = "//",
+    .parser = @import("file_type.zig").Parser("odin"),
+    .injections = "tree-sitter-odin/queries/injections.scm",
+    .language_server = .{ "ols" },
+    .formatter = .{ "odinfmt", "-stdin" },
+};
+
 pub const openscad = .{
     .color = 0x000000,
     .icon = "󰻫",
