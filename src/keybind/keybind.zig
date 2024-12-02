@@ -272,7 +272,21 @@ const Command = struct {
                     command_ = try allocator.dupe(u8, token.string);
                     state = .args;
                 },
-                .args => try args.append(allocator, token),
+                .args => {
+                    switch (token) {
+                        .string, .integer, .float, .bool => {},
+                        else => {
+                            var json = std.ArrayList(u8).init(allocator);
+                            defer json.deinit();
+                            std.json.stringify(token, .{}, json.writer()) catch {};
+                            const logger = log.logger("keybind");
+                            logger.print_err("keybind.load", "ERROR: invalid command argument '{s}'", .{json.items});
+                            logger.deinit();
+                            return error.InvalidFormat;
+                        },
+                    }
+                    try args.append(allocator, token);
+                },
             }
         }
 
@@ -291,7 +305,7 @@ const Command = struct {
 //An association of an command with a triggering key chord
 const Binding = struct {
     key_events: []KeyEvent,
-    command: Command,
+    commands: []Command,
 
     fn len(self: Binding) usize {
         return self.key_events.items.len;
@@ -365,22 +379,28 @@ const BindingSet = struct {
 
     fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayListUnmanaged(Binding), event: input.Event, bindings: []const []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
         bindings: for (bindings) |entry| {
-            const token = entry[0];
-            if (token != .string) {
+            if (entry.len < 2) {
                 const logger = log.logger("keybind");
-                logger.print_err("keybind.load", "ERROR: invalid binding key token {any}", .{token});
+                logger.print_err("keybind.load", "ERROR: invalid binding definition {any}", .{entry});
+                logger.deinit();
+                continue :bindings;
+            }
+            const keys = entry[0];
+            if (keys != .string) {
+                const logger = log.logger("keybind");
+                logger.print_err("keybind.load", "ERROR: invalid binding key definition {any}", .{keys});
                 logger.deinit();
                 continue :bindings;
             }
 
             const key_events = switch (self.syntax) {
-                .flow => parse_flow.parse_key_events(allocator, event, token.string) catch |e| {
+                .flow => parse_flow.parse_key_events(allocator, event, keys.string) catch |e| {
                     const logger = log.logger("keybind");
                     logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
                     logger.deinit();
                     break;
                 },
-                .vim => parse_vim.parse_key_events(allocator, event, token.string) catch |e| {
+                .vim => parse_vim.parse_key_events(allocator, event, keys.string) catch |e| {
                     const logger = log.logger("keybind");
                     logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
                     logger.deinit();
@@ -389,9 +409,28 @@ const BindingSet = struct {
             };
             errdefer allocator.free(key_events);
 
+            const cmd = entry[1];
+            var cmds = std.ArrayList(Command).init(allocator);
+            defer cmds.deinit();
+            if (cmd == .string) {
+                try cmds.append(try Command.load(allocator, entry[1..]));
+            } else {
+                for (entry[1..]) |cmd_entry| {
+                    if (cmd_entry != .array) {
+                        var json = std.ArrayList(u8).init(allocator);
+                        defer json.deinit();
+                        std.json.stringify(cmd_entry, .{}, json.writer()) catch {};
+                        const logger = log.logger("keybind");
+                        logger.print_err("keybind.load", "ERROR: invalid command definition {s}", .{json.items});
+                        logger.deinit();
+                        continue :bindings;
+                    }
+                    try cmds.append(try Command.load(allocator, cmd_entry.array.items));
+                }
+            }
             try dest.append(allocator, .{
                 .key_events = key_events,
-                .command = try Command.load(allocator, entry[1..]),
+                .commands = try cmds.toOwnedSlice(),
             });
         }
     }
@@ -413,7 +452,8 @@ const BindingSet = struct {
         const hints_map = &self.hints_map;
 
         for (self.press.items) |binding| {
-            var hint = if (hints_map.get(binding.command.command)) |previous|
+            const cmd = binding.commands[0].command;
+            var hint = if (hints_map.get(cmd)) |previous|
                 std.ArrayList(u8).fromOwnedSlice(allocator, previous)
             else
                 std.ArrayList(u8).init(allocator);
@@ -433,7 +473,7 @@ const BindingSet = struct {
                     },
                 }
             }
-            try hints_map.put(allocator, binding.command.command, try hint.toOwnedSlice());
+            try hints_map.put(allocator, cmd, try hint.toOwnedSlice());
         }
     }
 
@@ -483,7 +523,7 @@ const BindingSet = struct {
                 .key = keypress,
                 .modifiers = modifiers,
             }) catch |e| return tp.exit_error(e, @errorReturnTrace())) |binding| {
-                try binding.command.execute();
+                for (binding.commands) |*cmd| try cmd.execute();
             }
         } else if (try m.match(.{"F"})) {
             self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
