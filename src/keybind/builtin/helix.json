@@ -5,6 +5,9 @@
     },
     "normal": {
         "on_match_failure": "ignore",
+        "name": "NOR",
+        "line_numbers": "relative",
+        "cursor": "block",
         "press": [
             ["ctrl+b", "move_scroll_page_up"],
             ["ctrl+f", "move_scroll_page_down"],
@@ -232,6 +235,9 @@
         ]
     },
     "insert": {
+        "name": "INS",
+        "line_numbers": "absolute",
+        "cursor": "beam",
         "press": [
             ["ctrl+u", "move_scroll_page_up"],
             ["ctrl+d", "move_scroll_page_down"],
@@ -242,6 +248,9 @@
         ]
     },
     "select": {
+        "name": "SEL",
+        "line_numbers": "relative",
+        "cursor": "block",
         "press": [
             ["ctrl+b", "move_scroll_page_up"],
             ["ctrl+f", "move_scroll_page_down"],

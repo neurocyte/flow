@@ -59,15 +59,12 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = max_menu_width() + 2 });
     try mv.floating_views.add(self.modal.widget());
     try mv.floating_views.add(self.menu.container_widget);
-    const input_handler, const keybind_hints = try keybind.mode("overlay/palette", allocator, .{
+    var mode = try keybind.mode("overlay/palette", allocator, .{
         .insert_command = "overlay_insert_bytes",
     });
-    return .{
-        .input_handler = input_handler,
-        .event_handler = EventHandler.to_owned(self),
-        .keybind_hints = keybind_hints,
-        .name = "󰈞 open recent",
-    };
+    mode.event_handler = EventHandler.to_owned(self);
+    mode.name = "󰈞 open recent";
+    return mode;
 }
 
 pub fn deinit(self: *Self) void {

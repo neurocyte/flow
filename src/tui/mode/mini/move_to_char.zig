@@ -41,19 +41,11 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
         .operation = if (select) .select else .move,
     };
     try self.commands.init(self);
-    const input_handler, const keybind_hints = try keybind.mode("mini/move_to_char", allocator, .{
+    var mode = try keybind.mode("mini/move_to_char", allocator, .{
         .insert_command = "mini_mode_insert_bytes",
     });
-    return .{
-        .{
-            .input_handler = input_handler,
-            .event_handler = EventHandler.to_owned(self),
-            .keybind_hints = keybind_hints,
-        },
-        .{
-            .name = self.name(),
-        },
-    };
+    mode.event_handler = EventHandler.to_owned(self);
+    return .{ mode, .{ .name = self.name() } };
 }
 
 pub fn deinit(self: *Self) void {

@@ -24,8 +24,11 @@ const builtin_keybinds = std.static_string_map.StaticStringMap([]const u8).initC
     .{ "emacs", @embedFile("builtin/emacs.json") },
 });
 
-pub fn mode(mode_name: []const u8, allocator: std.mem.Allocator, opts: anytype) !struct { EventHandler, *const KeybindHints } {
-    return Handler.create(mode_name, allocator, opts);
+pub fn mode(mode_name: []const u8, allocator: std.mem.Allocator, opts: anytype) !Mode {
+    return Handler.create(mode_name, allocator, opts) catch |e| switch (e) {
+        error.NotFound => return error.Stop,
+        else => return e,
+    };
 }
 
 pub const default_mode = "normal";
@@ -35,7 +38,7 @@ const Handler = struct {
     allocator: std.mem.Allocator,
     bindings: *const BindingSet,
 
-    fn create(mode_name: []const u8, allocator: std.mem.Allocator, opts: anytype) !struct { EventHandler, *const KeybindHints } {
+    fn create(mode_name: []const u8, allocator: std.mem.Allocator, opts: anytype) !Mode {
         const self: *@This() = try allocator.create(@This());
         errdefer allocator.destroy(self);
         self.* = .{
@@ -48,7 +51,13 @@ const Handler = struct {
                     "insert_chars",
             ),
         };
-        return .{ EventHandler.to_owned(self), self.bindings.hints() };
+        return .{
+            .input_handler = EventHandler.to_owned(self),
+            .keybind_hints = self.bindings.hints(),
+            .name = self.bindings.name,
+            .line_numbers = self.bindings.line_numbers,
+            .cursor_shape = self.bindings.cursor_shape,
+        };
     }
     pub fn deinit(self: *@This()) void {
         self.allocator.destroy(self);
@@ -63,7 +72,7 @@ pub const Mode = struct {
     event_handler: ?EventHandler = null,
 
     name: []const u8 = "",
-    line_numbers: enum { absolute, relative } = .absolute,
+    line_numbers: LineNumbers = .absolute,
     keybind_hints: *const KeybindHints,
     cursor_shape: CursorShape = .block,
 
@@ -110,9 +119,6 @@ fn current_namespace() *const Namespace {
 fn get_or_load_namespace(namespace_name: []const u8) LoadError!*const Namespace {
     const allocator = globals_allocator;
     return globals.namespaces.getPtr(namespace_name) orelse blk: {
-        const logger = log.logger("keybind");
-        logger.print("loading namespace '{s}'", .{namespace_name});
-        defer logger.deinit();
         const namespace = try Namespace.load(allocator, namespace_name);
         const result = try globals.namespaces.getOrPut(allocator, try allocator.dupe(u8, namespace_name));
         std.debug.assert(result.found_existing == false);
@@ -222,7 +228,7 @@ const Namespace = struct {
 
     fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, mode_value: std.json.Value) !void {
         const fallback_mode = if (self.fallback) |fallback| fallback.get_mode(mode_name) orelse fallback.get_mode(default_mode) else null;
-        try self.modes.put(allocator, try allocator.dupe(u8, mode_name), try BindingSet.load(allocator, mode_value, fallback_mode));
+        try self.modes.put(allocator, try allocator.dupe(u8, mode_name), try BindingSet.load(allocator, self.name, mode_value, fallback_mode));
     }
 
     fn copy_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, fallback_mode: *const BindingSet) !void {
@@ -349,20 +355,26 @@ const BindingSet = struct {
     release: std.ArrayListUnmanaged(Binding) = .{},
     syntax: KeySyntax = .flow,
     on_match_failure: OnMatchFailure = .ignore,
+    name: []const u8,
+    line_numbers: LineNumbers = .absolute,
+    cursor_shape: CursorShape = .block,
     insert_command: []const u8 = "",
     hints_map: KeybindHints = .{},
 
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
 
-    fn load(allocator: std.mem.Allocator, mode_bindings: std.json.Value, fallback: ?*const BindingSet) (error{OutOfMemory} || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
-        var self: @This() = .{};
+    fn load(allocator: std.mem.Allocator, namespace_name: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet) (error{OutOfMemory} || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
+        var self: @This() = .{ .name = undefined };
 
         const JsonConfig = struct {
             press: []const []const std.json.Value = &[_][]std.json.Value{},
             release: []const []const std.json.Value = &[_][]std.json.Value{},
             syntax: KeySyntax = .flow,
             on_match_failure: OnMatchFailure = .insert,
+            name: ?[]const u8 = null,
+            line_numbers: LineNumbers = .absolute,
+            cursor: CursorShape = .block,
         };
         const parsed = try std.json.parseFromValue(JsonConfig, allocator, mode_bindings, .{
             .ignore_unknown_fields = true,
@@ -370,6 +382,9 @@ const BindingSet = struct {
         defer parsed.deinit();
         self.syntax = parsed.value.syntax;
         self.on_match_failure = parsed.value.on_match_failure;
+        self.name = try allocator.dupe(u8, parsed.value.name orelse namespace_name);
+        self.line_numbers = parsed.value.line_numbers;
+        self.cursor_shape = parsed.value.cursor;
         try self.load_event(allocator, &self.press, input.event.press, parsed.value.press);
         try self.load_event(allocator, &self.release, input.event.release, parsed.value.release);
         if (fallback) |fallback_| {
@@ -439,7 +454,7 @@ const BindingSet = struct {
     }
 
     fn copy(allocator: std.mem.Allocator, fallback: *const BindingSet) error{OutOfMemory}!@This() {
-        var self: @This() = .{};
+        var self: @This() = .{ .name = fallback.name };
         self.on_match_failure = fallback.on_match_failure;
         for (fallback.press.items) |binding| try self.press.append(allocator, binding);
         for (fallback.release.items) |binding| try self.release.append(allocator, binding);
@@ -622,6 +637,11 @@ const BindingSet = struct {
             globals.current_sequence.clearRetainingCapacity();
         }
     }
+};
+
+pub const LineNumbers = enum {
+    absolute,
+    relative,
 };
 
 pub const CursorShape = enum {

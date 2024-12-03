@@ -583,24 +583,8 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     self.refresh_hover();
 }
 
-fn get_input_mode(self: *Self, mode_name: []const u8, name: []const u8, opts: anytype) !Mode {
-    const input_handler, const keybind_hints = keybind.mode(mode_name, self.allocator, opts) catch |e| switch (e) {
-        error.NotFound => return error.Stop,
-        else => return e,
-    };
-    return .{
-        .input_handler = input_handler,
-        .keybind_hints = keybind_hints,
-        .name = name,
-        .line_numbers = if (@hasField(@TypeOf(opts), "line_numbers_relative"))
-            if (opts.line_numbers_relative)
-                .relative
-            else
-                .absolute
-        else
-            .absolute,
-        .cursor_shape = if (@hasField(@TypeOf(opts), "cursor_shape")) opts.cursor_shape else .block,
-    };
+fn get_input_mode(self: *Self, mode_name: []const u8) !Mode {
+    return keybind.mode(mode_name, self.allocator, .{});
 }
 
 const cmds = struct {
@@ -700,44 +684,9 @@ const cmds = struct {
             return;
         }
 
-        const current_namespace = keybind.get_namespace();
-        const is_vim_mode = std.mem.eql(u8, current_namespace, "vim");
-        const is_helix_mode = std.mem.eql(u8, current_namespace, "helix");
-        var new_mode = if (is_vim_mode and std.mem.eql(u8, mode, "normal"))
-            try self.get_input_mode("normal", "NORMAL", .{
-                .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
-                .cursor_shape = .block,
-            })
-        else if (is_vim_mode and std.mem.eql(u8, mode, "insert"))
-            try self.get_input_mode("insert", "INSERT", .{
-                .line_numbers_relative = self.config.vim_insert_gutter_line_numbers_relative,
-                .cursor_shape = .beam,
-            })
-        else if (is_vim_mode and std.mem.eql(u8, mode, "visual"))
-            try self.get_input_mode("visual", "VISUAL", .{
-                .line_numbers_relative = self.config.vim_visual_gutter_line_numbers_relative,
-                .cursor_shape = .underline,
-            })
-        else if (is_helix_mode and std.mem.eql(u8, mode, "normal"))
-            try self.get_input_mode("normal", "NOR", .{
-                .line_numbers_relative = self.config.vim_normal_gutter_line_numbers_relative,
-                .cursor_shape = .block,
-            })
-        else if (is_helix_mode and std.mem.eql(u8, mode, "insert"))
-            try self.get_input_mode("insert", "INS", .{
-                .line_numbers_relative = self.config.vim_insert_gutter_line_numbers_relative,
-                .cursor_shape = .beam,
-            })
-        else if (is_helix_mode and std.mem.eql(u8, mode, "select"))
-            try self.get_input_mode("visual", "SEL", .{
-                .line_numbers_relative = self.config.vim_visual_gutter_line_numbers_relative,
-                .cursor_shape = .block,
-            })
-        else ret: {
-            break :ret self.get_input_mode(mode, current_namespace, .{}) catch {
-                self.logger.print("unknown mode {s}", .{mode});
-                break :ret try self.get_input_mode(keybind.default_mode, current_namespace, .{});
-            };
+        var new_mode = self.get_input_mode(mode) catch ret: {
+            self.logger.print("unknown mode {s}", .{mode});
+            break :ret try self.get_input_mode(keybind.default_mode);
         };
         errdefer new_mode.deinit();
 

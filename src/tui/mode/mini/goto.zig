@@ -32,19 +32,11 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
             .start = editor.get_primary().cursor.row + 1,
         };
         try self.commands.init(self);
-        const input_handler, const keybind_hints = try keybind.mode("mini/goto", allocator, .{
+        var mode = try keybind.mode("mini/goto", allocator, .{
             .insert_command = "mini_mode_insert_bytes",
         });
-        return .{
-            .{
-                .input_handler = input_handler,
-                .event_handler = EventHandler.to_owned(self),
-                .keybind_hints = keybind_hints,
-            },
-            .{
-                .name = name,
-            },
-        };
+        mode.event_handler = EventHandler.to_owned(self);
+        return .{ mode, .{ .name = name } };
     };
     return error.NotFound;
 }
