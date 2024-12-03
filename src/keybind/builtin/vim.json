@@ -73,7 +73,7 @@
         "line_numbers": "relative",
         "cursor": "underline",
         "press": [
-            ["<Esc>", "enter_mode", "normal"],
+            ["<Esc>", "enter_mode", "normal"]
         ]
     },
     "insert": {
