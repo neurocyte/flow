@@ -710,7 +710,6 @@ const cmds = struct {
             })
         else if (is_vim_mode and std.mem.eql(u8, mode, "insert"))
             try self.get_input_mode("insert", "INSERT", .{
-                .enable_chording = self.config.vim_insert_chording_keybindings,
                 .line_numbers_relative = self.config.vim_insert_gutter_line_numbers_relative,
                 .cursor_shape = .beam,
             })
