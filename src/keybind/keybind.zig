@@ -110,6 +110,9 @@ fn current_namespace() *const Namespace {
 fn get_or_load_namespace(namespace_name: []const u8) LoadError!*const Namespace {
     const allocator = globals_allocator;
     return globals.namespaces.getPtr(namespace_name) orelse blk: {
+        const logger = log.logger("keybind");
+        logger.print("loading namespace '{s}'", .{namespace_name});
+        defer logger.deinit();
         const namespace = try Namespace.load(allocator, namespace_name);
         const result = try globals.namespaces.getOrPut(allocator, try allocator.dupe(u8, namespace_name));
         std.debug.assert(result.found_existing == false);
@@ -370,8 +373,8 @@ const BindingSet = struct {
         try self.load_event(allocator, &self.press, input.event.press, parsed.value.press);
         try self.load_event(allocator, &self.release, input.event.release, parsed.value.release);
         if (fallback) |fallback_| {
-            for (fallback_.press.items) |binding| try self.press.append(allocator, binding);
-            for (fallback_.release.items) |binding| try self.release.append(allocator, binding);
+            for (fallback_.press.items) |binding| try append_if_not_match(allocator, &self.press, binding);
+            for (fallback_.release.items) |binding| try append_if_not_match(allocator, &self.release, binding);
         }
         self.build_hints(allocator) catch {};
         return self;
@@ -442,6 +445,18 @@ const BindingSet = struct {
         for (fallback.release.items) |binding| try self.release.append(allocator, binding);
         self.build_hints(allocator) catch {};
         return self;
+    }
+
+    fn append_if_not_match(
+        allocator: std.mem.Allocator,
+        dest: *std.ArrayListUnmanaged(Binding),
+        new_binding: Binding,
+    ) error{OutOfMemory}!void {
+        for (dest.items) |*binding| switch (binding.match(new_binding.key_events)) {
+            .matched, .match_possible => return,
+            .match_impossible => {},
+        };
+        try dest.append(allocator, new_binding);
     }
 
     fn hints(self: *const @This()) *const KeybindHints {
