@@ -185,6 +185,7 @@
             ["t", "change_theme"],
             ["q", "quit"],
             ["f1", "open_help"],
+            ["f2", "toggle_input_mode"],
             ["f6", "open_config"],
             ["f9", "theme_prev"],
             ["f10", "theme_next"],
