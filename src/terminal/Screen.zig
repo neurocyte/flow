@@ -95,7 +95,7 @@ csi_u_flags: vaxis.Key.KittyFlags = @bitCast(@as(u5, 0)),
 /// sets each cell to the default cell
 pub fn init(alloc: std.mem.Allocator, w: u16, h: u16) !Screen {
     var screen = Screen{
-        .buf = try alloc.alloc(Cell, w * h),
+        .buf = try alloc.alloc(Cell, @as(usize, @intCast(w)) * h),
         .scrolling_region = .{
             .top = 0,
             .bottom = h - 1,
