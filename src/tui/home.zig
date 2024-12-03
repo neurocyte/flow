@@ -233,12 +233,12 @@ const Fire = struct {
     //scope cache - spread fire
     spread_px: u8 = 0,
     spread_rnd_idx: u8 = 0,
-    spread_dst: u16 = 0,
+    spread_dst: usize = 0,
 
     FIRE_H: u16,
     FIRE_W: u16,
-    FIRE_SZ: u16,
-    FIRE_LAST_ROW: u16,
+    FIRE_SZ: usize,
+    FIRE_LAST_ROW: usize,
 
     screen_buf: []u8,
 
@@ -259,12 +259,12 @@ const Fire = struct {
             }),
             .FIRE_H = FIRE_H,
             .FIRE_W = FIRE_W,
-            .FIRE_SZ = FIRE_H * FIRE_W,
-            .FIRE_LAST_ROW = (FIRE_H - 1) * FIRE_W,
-            .screen_buf = try allocator.alloc(u8, FIRE_H * FIRE_W),
+            .FIRE_SZ = @as(usize, @intCast(FIRE_H)) * FIRE_W,
+            .FIRE_LAST_ROW = @as(usize, @intCast(FIRE_H - 1)) * FIRE_W,
+            .screen_buf = try allocator.alloc(u8, @as(usize, @intCast(FIRE_H)) * FIRE_W),
         };
 
-        var buf_idx: u16 = 0;
+        var buf_idx: usize = 0;
         while (buf_idx < self.FIRE_SZ) : (buf_idx += 1) {
             self.screen_buf[buf_idx] = fire_black;
         }
@@ -294,7 +294,7 @@ const Fire = struct {
         while (doFire_x < self.FIRE_W) : (doFire_x += 1) {
             var doFire_y: u16 = 0;
             while (doFire_y < self.FIRE_H) : (doFire_y += 1) {
-                const doFire_idx: u16 = doFire_y * self.FIRE_W + doFire_x;
+                const doFire_idx = @as(usize, @intCast(doFire_y)) * self.FIRE_W + doFire_x;
 
                 //spread fire
                 self.spread_px = self.screen_buf[doFire_idx];
@@ -333,8 +333,8 @@ const Fire = struct {
                 //each character rendered is actually to rows of 'pixels'
                 // - "hi" (current px row => fg char)
                 // - "low" (next row => bg color)
-                const px_hi = self.screen_buf[frame_y * self.FIRE_W + frame_x];
-                const px_lo = self.screen_buf[(frame_y + 1) * self.FIRE_W + frame_x];
+                const px_hi = self.screen_buf[@as(usize, @intCast(frame_y)) * self.FIRE_W + frame_x];
+                const px_lo = self.screen_buf[@as(usize, @intCast(frame_y + 1)) * self.FIRE_W + frame_x];
 
                 self.plane.set_fg_palindex(fire_palette[px_hi]) catch {};
                 self.plane.set_bg_palindex(fire_palette[px_lo]) catch {};
