@@ -339,6 +339,7 @@ pub const Editor = struct {
                 return error.RestoryFindHistory;
             self.push_find_history(value);
         }
+        self.clamp();
     }
 
     fn init(self: *Self, allocator: Allocator, n: Plane) void {
