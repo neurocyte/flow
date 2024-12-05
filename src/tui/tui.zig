@@ -141,12 +141,12 @@ fn init(allocator: Allocator) !*Self {
     self.set_terminal_style();
     try self.rdr.render();
     try self.save_config();
+    try self.init_input_namespace();
     if (tp.env.get().is("restore-session")) {
         command.executeName("restore_session", .{}) catch |e| self.logger.err("restore_session", e);
         self.logger.print("session restored", .{});
     }
     need_render();
-    try self.init_input_namespace();
     return self;
 }
 
