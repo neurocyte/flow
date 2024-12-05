@@ -186,6 +186,7 @@
             ["q", "quit"],
             ["f1", "open_help"],
             ["f2", "toggle_input_mode"],
+            ["ctrl+f2", "insert_command_name"],
             ["f6", "open_config"],
             ["f9", "theme_prev"],
             ["f10", "theme_next"],
