@@ -18,13 +18,30 @@ parent: Plane,
 fire: ?Fire = null,
 commands: Commands = undefined,
 menu: *Menu.State(*Self),
+menu_w: usize = 0,
+max_desc_len: usize = 0,
 
 const Self = @This();
+
+const menu_commands = &[_][]const u8{
+    "open_help",
+    "open_file",
+    "open_recent",
+    "open_recent_project",
+    "open_command_palette",
+    "open_config",
+    "open_keybind_config",
+    "change_theme",
+    "quit",
+};
 
 pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     const self: *Self = try allocator.create(Self);
     var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
     errdefer n.deinit();
+
+    command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
+    const keybind_mode = tui.get_keybind_mode() orelse @panic("no active keybind mode");
 
     const w = Widget.to(self);
     self.* = .{
@@ -34,17 +51,9 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .menu = try Menu.create(*Self, allocator, w, .{ .ctx = self, .on_render = menu_on_render }),
     };
     try self.commands.init(self);
-    try self.menu.add_item_with_handler("Help ······················· :h", menu_action_help);
-    try self.menu.add_item_with_handler("Open file ·················· :o", menu_action_open_file);
-    try self.menu.add_item_with_handler("Open recent file ··········· :e", menu_action_open_recent_file);
-    try self.menu.add_item_with_handler("Open recent project ········ :r", menu_action_open_recent_project);
-    try self.menu.add_item_with_handler("Show/Run commands ·········· :p", menu_action_show_commands);
-    try self.menu.add_item_with_handler("Open config file ··········· :c", menu_action_open_config);
-    try self.menu.add_item_with_handler("Open key bindings file ····· :k", menu_action_open_keybind_config);
-    try self.menu.add_item_with_handler("Change theme ··············· :t", menu_action_change_theme);
-    try self.menu.add_item_with_handler("Quit/Close ················· :q", menu_action_quit);
-    self.menu.resize(.{ .y = 15, .x = 9, .w = 32 });
-    command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
+    self.get_max_desc_len(keybind_mode.keybind_hints);
+    inline for (menu_commands) |command_name| try self.add_menu_command(command_name, self.menu, keybind_mode.keybind_hints);
+    self.menu.resize(.{ .y = 15, .x = 9, .w = self.menu_w });
     return w;
 }
 
@@ -54,6 +63,34 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.plane.deinit();
     if (self.fire) |*fire| fire.deinit();
     allocator.destroy(self);
+}
+
+fn get_max_desc_len(self: *Self, hints_map: anytype) void {
+    inline for (menu_commands) |command_name| {
+        const id = command.get_id(command_name) orelse @panic(command_name ++ " is not defined");
+        const description = command.get_description(id) orelse @panic(command_name ++ " has no description");
+        var hints = std.mem.splitScalar(u8, hints_map.get(command_name) orelse "", ',');
+        const hint = hints.first();
+        self.max_desc_len = @max(self.max_desc_len, description.len + hint.len + 5);
+    }
+}
+
+fn add_menu_command(self: *Self, comptime command_name: []const u8, menu: anytype, hints_map: anytype) !void {
+    const id = command.get_id(command_name) orelse @panic(command_name ++ " is not defined");
+    const description = command.get_description(id) orelse @panic(command_name ++ " has no description");
+    var hints = std.mem.splitScalar(u8, hints_map.get(command_name) orelse "", ',');
+    const hint = hints.first();
+    const label_len = description.len + hint.len;
+    var buf: [64]u8 = undefined;
+    var fis = std.io.fixedBufferStream(&buf);
+    const writer = fis.writer();
+    try writer.print("{s} ..", .{description});
+    for (0..(self.max_desc_len - label_len - 5)) |_|
+        try writer.print(".", .{});
+    try writer.print(" :{s}", .{hint});
+    const label = fis.getWritten();
+    try menu.add_item_with_handler(label, menu_action(command_name));
+    self.menu_w = @max(self.menu_w, label.len + 1);
 }
 
 pub fn update(self: *Self) void {
@@ -102,40 +139,12 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     return false;
 }
 
-fn menu_action_help(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("open_help", .{}) catch {};
-}
-
-fn menu_action_open_file(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("open_file", .{}) catch {};
-}
-
-fn menu_action_open_recent_file(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("open_recent", .{}) catch {};
-}
-
-fn menu_action_open_recent_project(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("open_recent_project", .{}) catch {};
-}
-
-fn menu_action_show_commands(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("open_command_palette", .{}) catch {};
-}
-
-fn menu_action_open_config(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("open_config", .{}) catch {};
-}
-
-fn menu_action_open_keybind_config(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("open_keybind_config", .{}) catch {};
-}
-
-fn menu_action_change_theme(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("change_theme", .{}) catch {};
-}
-
-fn menu_action_quit(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    command.executeName("quit", .{}) catch {};
+fn menu_action(comptime command_name: []const u8) *const fn (_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+    return struct {
+        fn action(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+            command.executeName(command_name, .{}) catch {};
+        }
+    }.action;
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -154,7 +163,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.cursor_move_yx(10, 8) catch return false;
         fonts.print_string_medium(&self.plane, root.application_subtext, style_subtext) catch return false;
 
-        self.menu.resize(.{ .y = 15, .x = 10, .w = 32 });
+        self.menu.resize(.{ .y = 15, .x = 10, .w = self.menu_w });
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
         self.plane.cursor_move_yx(2, 4) catch return false;
         fonts.print_string_medium(&self.plane, root.application_title, style_title) catch return false;
@@ -164,7 +173,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         _ = self.plane.print(root.application_subtext, .{}) catch {};
         self.plane.set_style(theme.editor);
 
-        self.menu.resize(.{ .y = 9, .x = 8, .w = 32 });
+        self.menu.resize(.{ .y = 9, .x = 8, .w = self.menu_w });
     } else {
         self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(1, 4) catch return false;
@@ -176,7 +185,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.set_style(theme.editor);
 
         const x = @min(self.plane.dim_x() -| 32, 8);
-        self.menu.resize(.{ .y = 5, .x = x, .w = 32 });
+        self.menu.resize(.{ .y = 5, .x = x, .w = self.menu_w });
     }
     const more = self.menu.render(theme);
 

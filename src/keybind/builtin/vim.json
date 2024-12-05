@@ -88,5 +88,17 @@
             ["<BS>", "delete_backward"],
             ["<CR>", "insert_line_after"]
         ]
-    } 
+    }, 
+    "home": {
+        "syntax": "vim",
+        "on_match_failure": "ignore",
+        "press": [
+            [";", "open_command_palette"],
+            ["<S-;>", "open_command_palette"],
+            ["b", "open_keybind_config"],
+            ["j", "home_menu_down"],
+            ["k", "home_menu_up"],
+            ["<Space>", "home_menu_activate"]
+        ]
+    }
 }

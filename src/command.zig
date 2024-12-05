@@ -145,6 +145,16 @@ pub fn get_id_cache(name: []const u8, id: *?ID) ?ID {
     return null;
 }
 
+pub fn get_description(id: ID) ?[]const u8 {
+    if (id >= commands.items.len) return null;
+    return (commands.items[id] orelse return null).meta.description;
+}
+
+pub fn get_arguments(id: ID) ?[]const ArgumentType {
+    if (id >= commands.items.len) return null;
+    return (commands.items[id] orelse return null).meta.arguments;
+}
+
 const suppressed_errors = .{
     "enable_fast_scroll",
     "disable_fast_scroll",

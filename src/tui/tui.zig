@@ -31,7 +31,7 @@ mainview: Widget,
 message_filters: MessageFilter.List,
 input_mode: ?Mode = null,
 delayed_init_done: bool = false,
-delayed_init_input_mode: ?[]const u8 = null,
+delayed_init_input_mode: ?Mode = null,
 input_mode_outer: ?Mode = null,
 input_listeners: EventHandler.List,
 keyboard_focus: ?Widget = null,
@@ -146,23 +146,30 @@ fn init(allocator: Allocator) !*Self {
         self.logger.print("session restored", .{});
     }
     need_render();
+    try self.init_input_namespace();
     return self;
+}
+
+fn init_input_namespace(self: *Self) !void {
+    var mode_parts = std.mem.splitScalar(u8, self.config.input_mode, '/');
+    const namespace_name = mode_parts.first();
+    keybind.set_namespace(namespace_name) catch {
+        self.logger.print_err("keybind", "unknown mode {s}", .{namespace_name});
+        try keybind.set_namespace("flow");
+        self.config.input_mode = "flow";
+        try self.save_config();
+    };
 }
 
 fn init_delayed(self: *Self) !void {
     self.delayed_init_done = true;
     if (self.input_mode) |_| {} else {
-        var mode_parts = std.mem.splitScalar(u8, self.config.input_mode, '/');
-        const namespace_name = mode_parts.first();
-        keybind.set_namespace(namespace_name) catch {
-            self.logger.print_err("keybind", "unknown mode {s}", .{namespace_name});
-            try keybind.set_namespace("flow");
-            self.config.input_mode = "flow";
-            try self.save_config();
-        };
-        return cmds.enter_mode(self, command.Context.fmt(.{
-            self.delayed_init_input_mode orelse keybind.default_mode,
-        }));
+        if (self.delayed_init_input_mode) |delayed_init_input_mode| {
+            try enter_input_mode(self, delayed_init_input_mode);
+            self.delayed_init_input_mode = null;
+        } else {
+            try cmds.enter_mode(self, command.Context.fmt(.{keybind.default_mode}));
+        }
     }
 }
 
@@ -181,7 +188,10 @@ fn deinit(self: *Self) void {
         m.deinit();
         self.input_mode = null;
     }
-    if (self.delayed_init_input_mode) |mode| self.allocator.free(mode);
+    if (self.delayed_init_input_mode) |*m| {
+        m.deinit();
+        self.delayed_init_input_mode = null;
+    }
     self.commands.deinit();
     self.mainview.deinit(self.allocator);
     self.message_filters.deinit();
@@ -587,6 +597,16 @@ fn get_input_mode(self: *Self, mode_name: []const u8) !Mode {
     return keybind.mode(mode_name, self.allocator, .{});
 }
 
+fn enter_input_mode(self: *Self, new_mode: Mode, mode_name: []const u8) command.Result {
+    if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
+    if (self.input_mode_outer) |_| try cmds.exit_overlay_mode(self, .{});
+    if (self.input_mode) |*m| {
+        m.deinit();
+        self.input_mode = null;
+    }
+    self.input_mode = new_mode;
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
@@ -679,10 +699,6 @@ const cmds = struct {
         var mode: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&mode)}))
             return tp.exit_error(error.InvalidArgument, null);
-        if (!self.delayed_init_done) {
-            self.delayed_init_input_mode = try self.allocator.dupe(u8, mode);
-            return;
-        }
 
         var new_mode = self.get_input_mode(mode) catch ret: {
             self.logger.print("unknown mode {s}", .{mode});
@@ -690,14 +706,11 @@ const cmds = struct {
         };
         errdefer new_mode.deinit();
 
-        if (self.mini_mode) |_| try exit_mini_mode(self, .{});
-        if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
-        if (self.input_mode) |*m| {
-            m.deinit();
-            self.input_mode = null;
+        if (!self.delayed_init_done) {
+            self.delayed_init_input_mode = new_mode;
+            return;
         }
-        self.input_mode = new_mode;
-        // self.logger.print("input mode: {s}", .{(self.input_mode orelse return).description});
+        return self.enter_input_mode(new_mode);
     }
     pub const enter_mode_meta = .{ .arguments = &.{.string} };
 
@@ -709,7 +722,7 @@ const cmds = struct {
     pub fn open_command_palette(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/command_palette.zig").Type);
     }
-    pub const open_command_palette_meta = .{};
+    pub const open_command_palette_meta = .{ .description = "Show/Run commands" };
 
     pub fn insert_command_name(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type);
@@ -886,6 +899,11 @@ pub fn get_mode() []const u8 {
         m.name
     else
         "INI";
+}
+
+pub fn get_keybind_mode() ?Mode {
+    const self = current();
+    return self.input_mode orelse self.delayed_init_input_mode;
 }
 
 pub fn reset_drag_context() void {
