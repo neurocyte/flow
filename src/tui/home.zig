@@ -116,7 +116,8 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 }
 
 fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
-    const style_base = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor;
+    const style_base = theme.editor;
+    const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else style_base;
     if (button.active or button.hover or selected) {
         button.plane.set_base_style(style_base);
         button.plane.erase();
@@ -124,8 +125,13 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
         button.plane.set_base_style_bg_transparent(" ", style_base);
     }
     button.plane.home();
-    const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else style_base;
-    const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
+    button.plane.set_style(style_label);
+    if (button.active or button.hover or selected) {
+        _ = button.plane.fill_width(" ", .{}) catch {};
+        button.plane.home();
+    }
+    const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else style_label;
+    const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
     const sep = std.mem.indexOfScalar(u8, button.opts.label, ':') orelse button.opts.label.len;
     if (button.active or button.hover or selected) {
         button.plane.set_style(style_text);
