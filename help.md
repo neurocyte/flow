@@ -53,6 +53,22 @@ keybinding file from the configuration `keys` directory to revert the mode
 to it's built-in definition (if there is one). Changes to keybinding files
 will take effect on restart.
 
+Keybinding modes may inherit all non-conflicting keybindings from another mode
+by adding an `inherit` option to the `settings` section of the keybind file
+like this:
+
+```json
+{
+    "settings": {
+        "inherit": "vim",
+    },
+    "normal": {
+    ...
+```
+
+This allows you to make only minor additions/changes to an existing builtin
+mode without copying the whole mode and is easier to keep up-to-date.
+
 ## Flow mode
 
 The default input mode, called just flow, is based on common GUI
