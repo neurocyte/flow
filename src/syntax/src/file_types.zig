@@ -343,7 +343,7 @@ pub const purescript = .{
 pub const python = .{
     .color = 0xffd845,
     .icon = "󰌠",
-    .extensions = .{"py"},
+    .extensions = .{"py", "pyi"},
     .comment = "#",
     .first_line_matches = .{ .prefix = "#!", .content = "python" },
     .language_server = .{"pylsp"},
