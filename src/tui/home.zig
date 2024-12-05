@@ -33,6 +33,7 @@ const menu_commands = &[_][]const u8{
     "open_command_palette",
     "open_config",
     "open_keybind_config",
+    "toggle_input_mode",
     "change_theme",
     "quit",
 };
