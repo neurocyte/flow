@@ -103,6 +103,17 @@ Show supported language names with `--list-languages`.
 
 See `flow --help` for the full list of command line options.
 
+# Key bindings and commands
+
+Press `F2` to switch the current keybinding mode. (flow, vim, emacs, etc.)
+Press `ctrl+shift+p` or `alt+x` to show the command palette.
+Press `ctrl+F2` to see a full list of all current keybindings and commands.
+
+Run the `Edit keybindings` command to save the current keybinding mode to a
+file and open it for editing. Save your customized keybinds under a new name
+in the same directory to create an entirely new keybinding mode. Keybinding
+changes will take effect on restart.
+
 # Terminal configuration
 
 Kitty, Ghostty and most other terminals have default keybindings that conflict
@@ -124,6 +135,7 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 - first class mouse support (yes, even with a scrollbar that actually works properly!) (Windows included)
 - vscode compatible keybindings (thanks to kitty keyboard protocol)
 - vim compatible keybindings (the standard vimtutor bindings, more on request)
+- user configurable keybindings
 - excellent unicode support including 2027 mode
 - hybrid rope/piece-table buffer for fast loading, saving and editing with hundreds of cursors
 - theme support (compatible with vscode themes via the flow-themes project)

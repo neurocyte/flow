@@ -17,8 +17,8 @@ individually.
 
 ## Searching
 
-Press Ctrl-f to search this help file. Type a search term and press 
-Ctrl-n/Ctrl-p or F3/Shift-F3 to jump through the matches. Press Enter
+Press ctrl+f to search this help file. Type a search term and press 
+ctrl+n/ctrl+p or f3/shift+f3 to jump through the matches. Press Enter
 to exit find mode at the current match or Escape to return to your
 starting point.
 
@@ -28,9 +28,30 @@ Flow Control supports multiple input modes that may be changed
 interactively at runtime. The current input mode (and some other
 settings) is persisted in the configuration file automatically.
 
-- F2 => Cycle major input modes (flow, vim, ...)
+- f2 => Cycle major input modes (flow, vim, ...)
 
 The current input mode is displayed in the at the left side of the statusbar.
+
+- ctrl+shift+p or alt+x => Show the command palette
+
+The command palette allows you to fuzzy search and select commands to run. It
+also shows any available keybind that may be used to run the command without
+opening the palette.
+
+- ctrl+f2 => Show all available commands and keybinds
+ 
+This shows all currently available commands. Including commands that are
+normally only executed via a keybinding. Selecting a command in this view
+will insert the command name into the current document instead of executing
+it. This is very useful for editing keybinding definition files.
+
+Run the `Edit keybindings` command to save the current keybinding mode to a
+file in the configuration `keys` directory and open it for editing. Save your
+customized keybinds under a new name in the same directory to create an
+entirely new keybinding mode that can be selected with `f2`. Delete the
+keybinding file from the configuration `keys` directory to revert the mode
+to it's built-in definition (if there is one). Changes to keybinding files
+will take effect on restart.
 
 ## Flow mode
 
@@ -40,253 +61,55 @@ also takes some inspiration from Emacs and others. This mode focuses
 on powerful multi cursor support with a find -> select -> modify 
 cycle style of editing.
 
-### Navigation Commands
+See the `ctrl+f2` palette when flow mode is selected to see the full
+list of keybindings for this mode.
 
-- Up, Down, Left, Right =>
-        Move the cursor
+## Vim mode
 
-- Home, End =>
-        Move to the beginning/end of the line
+The vim modes, shown as NORMAL, INSERT or VISUAL in the status bar,
+follow the basic modal editing style of vim. The basics follow vim
+closely, but more advanced vim functions (e.g. macrosand registers)
+are not supported (yet). Keybindings from flow mode that do not conflict
+with vim keybindings also work in vim mode.
 
-- PageUp, PageDown =>
-        Move up/down one screen
+(work in progress)
 
-- Ctrl-Left, Ctrl-Right, Alt-b, Alt-f =>
-        Move the cursor word wise
+### Mouse Commands
 
-- Ctrl-Home, Ctrl-End =>
-        Move to the beginning/end of the file
+Mouse commands are not rebindable and are not listed in the command palette.
 
-- Alt-Left, Alt-Right, MouseBack, MouseForward =>
-        Jump to previous/next location in the location history
-
-- Ctrl-f =>
-        Enter find mode
-
-- Ctrl-g =>
-        Enter goto line mode
-
-- Ctrl-t, Ctrl-b =>
-        Enter move to next/previous character mode
-
-- Ctrl-n, Ctrl-p, F3, Shift-F3 =>
-        Goto next/previous match
-
-- Ctrl-l =>
-        Scroll cursor to center of screen. Press again to cycle the cursor to
-        the top/bottom/center of the screen
-
-- MouseLeft =>
+- Left Click =>
         Clear all cursors and selections and the place cursor at the mouse pointer
 
-- MouseWheel =>
-        Scroll
-        
-- Ctrl-MouseWheel =>
-        Fast scroll
-
-### Selection Commands
-
-- Shift-Left, Shift-Right =>
-        Add next character to selection
-
-- Ctrl-Shift-Left, Ctrl-Shift-Right =>
-        Add next word to selection
-
-- Shift-Up, Shift-Down =>
-        Add next line to selection
-
-- Ctrl-Shift-Up, Ctrl-Shift-Down =>
-        Add next line to selection and scroll
-
-- Shift-Home, Shift-End =>
-        Add begging/end of line to selection
-
-- Ctrl-Shift-Home, Ctrl-Shift-End =>
-        Add begging/end of file to selection
-
-- Shift-PageUp, Shift-PageDown =>
-        Add next screen to selection
-
-- Ctrl-a =>
-        Select entire file
-
-- Ctrl-d =>
-        Select word under cursor, or add cursor at next match
-        (see Multi Cursor Commands)
-
-- Ctrl-Shift-Space =>
-        Reverse selection direction
-
-- Double-MouseLeft =>
+- Double Left Click =>
         Select word at mouse pointer
 
-- Triple-MouseLeft =>
+- Triple Left Click =>
         Select line at mouse pointer
 
-- Drag-MouseLeft =>
+- Drag Left Click =>
         Extend selection to mouse pointer
 
-- MouseRight =>
-        Extend selection to mouse pointer
-
-### Multi Cursor Commands
-
-- Ctrl-d =>
-        Add cursor at next match (either find match, or auto match)
-
-- Alt-Shift-Down, Alt-Shift-Up =>
-        Add cursor on the previous/next line
-
-- Ctrl-Shift-l =>
-        Add cursors to all matches
-
-- Shift-Alt-i =>
-        Add cursors to line ends
-
-- Ctrl-MouseLeft =>
+- Ctrl + Left Click =>
         Add cursor at mouse click
 
-- Ctrl-u =>
-        Remove last added cursor (pop)
-
-- Ctrl-k -> Ctrl-d =>
-        Move primary cursor to next match (skip)
-
-- Escape =>
-        Remove all cursors and selections
-
-### Editing Commands
-
-- Ctrl-Enter, Ctrl-Shift-Enter =>
-        Insert new line after/before current line
-
-- Ctrl-Backspace, Ctrl-Delete =>
-        Delete word left/right
-
-- Ctrl-k -> Ctrl-u =>
-        Delete to beginning of line
-
-- Ctrl-k -> Ctrl-k =>
-        Delete to end of line
-
-- Ctrl-Shift-d, Alt-Shift-d =>
-        Duplicate current line or selection down/up
-
-- Alt-Down, Alt-Up =>
-        Pull current line or selection down/up
-
-- Ctrl-c =>
-        Copy selected text
-
-- Ctrl-x =>
-        Cut selected text, or line if there is no selection
-
-- Ctrl-v =>
-        Paste previously copied/cut text
-
-- Ctrl-z =>
-        Undo last change
-
-- Ctrl-Shift-z, Ctrl-y =>
-        Redo last undone change
-
-- Tab, Shift-Tab =>
-        Indent/Unindent line
-
-- Ctrl-/ =>
-        Toggle comment prefix in line
-
-- Alt-s =>
-        Sort file or selection
-
-- Alt-Shift-f =>
-        Reformat file or selection
-
-- Alt-u, Alt-l =>
-        Convert the selection or word at cursor to upper/lower case
-
-### File Commands
-
-- Ctrl-s =>
-        Save file
-
-- Ctrl-Shift-s =>
-        Save file as
-
-- Ctrl-o =>
-        Open file
-
-- Ctrl-e =>
-        Open recent file. Repeat for quick select
-
-- Ctrl-q =>
-        Exit
-
-- Ctrl-Shift-q =>
-        Force exit without saving
-
-- Ctrl-Shift-r =>
-        Restart Flow Control/reload file
-
-### Configuration Commands
-
-- F9 =>
-        Select previous theme
-
-- F10 =>
-        Select next theme
-
-- Ctrl-F10 =>
-        Toggle visible whitespace mode
-
-- Alt-F10 =>
-        Change gutter mode
-
-### Language Server Commands
-
-- Alt-n, Alt-p
-        Goto the next/previous diagnostic, or if the matching files list is open,
-        goto the next/previous matching file position.
-
-- F12 =>
-        Goto definition of symbol at cursor
-
-- Alt-MouseLeft =>
+- Alt + Left Click =>
         Goto definition of symbol at click
-
-- Ctrl-k -> Ctrl-i =>
-        Show information about the symbol at the cursor (hover)
 
 - hold Alt =>
         Enable jump/hover mouse mode
 
-### Debugging Commands
+- Right Click =>
+        Extend selection to mouse pointer
 
-- F5, Ctrl-Shift-i =>
-        Toggle inspector view
+- Back Button, Forward Button =>
+        Jump to previous/next location in the location history
 
-- F6 =>
-        Dump buffer AST for current line to log view
-
-- F7 =>
-        Dump current line to log view
-
-- F11, Ctrl-J =>
-        Toggle panel view (defaults to log view)
-
-- Ctrl-Shift-/ =>
-        Dump current widget tree to log view
-
-## Vim mode
-
-The vim mode, called NOR or INS, follows the basic modal editing
-style of vim. Normal and insert mode basics follow vim closely,
-but more advanced vim functions (e.g. macros and registers) are
-not supported yet. Keybindings from flow mode that do not
-conflict with common vim keybindings also work in vim mode.
-
-(work in progress)
+- Scroll Wheel =>
+        Scroll
+        
+- Ctrl + Scroll Wheel =>
+        Fast scroll
 
 ## Configuration
 
@@ -301,10 +124,6 @@ Flow Control is started and looks similar to this:
     "frame_rate": 60,
     "theme": "default",
     "input_mode": "flow",
-    "modestate_show": true,
-    "selectionstate_show": true,
-    "modstate_show": false,
-    "keystate_show": false,
     "gutter_line_numbers": true,
     "gutter_line_numbers_relative": false,
     "enable_terminal_cursor": false,
@@ -323,8 +142,6 @@ persisted when changed interactively with keybindings.
 
 `frame_rate` can be tuned to control the maximum number
 of frames rendered.
-
-`*state_show` toggle various parts of the statusbar.
 
 `animation_max_lag` controls the maximum amount of time allowed
 for rendering scrolling animations. Set to 0 to disable scrolling
