@@ -9,6 +9,7 @@ const Button = @import("Button.zig");
 const Menu = @import("Menu.zig");
 const tui = @import("tui.zig");
 const command = @import("command");
+const keybind = @import("keybind");
 
 const fonts = @import("fonts.zig");
 
@@ -20,6 +21,7 @@ commands: Commands = undefined,
 menu: *Menu.State(*Self),
 menu_w: usize = 0,
 max_desc_len: usize = 0,
+input_namespace: []const u8,
 
 const Self = @This();
 
@@ -49,6 +51,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .parent = parent.plane.*,
         .plane = n,
         .menu = try Menu.create(*Self, allocator, w, .{ .ctx = self, .on_render = menu_on_render }),
+        .input_namespace = keybind.get_namespace(),
     };
     try self.commands.init(self);
     self.get_max_desc_len(keybind_mode.keybind_hints);
@@ -148,6 +151,8 @@ fn menu_action(comptime command_name: []const u8) *const fn (_: **Menu.State(*Se
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    if (!std.mem.eql(u8, self.input_namespace, keybind.get_namespace()))
+        tp.self_pid().send(.{ "cmd", "show_home" }) catch {};
     self.plane.set_base_style(theme.editor);
     self.plane.erase();
     self.plane.home();

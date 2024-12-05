@@ -687,9 +687,14 @@ fn show_home_async(_: *Self) void {
 fn create_home(self: *Self) !void {
     tui.reset_drag_context();
     if (self.editor) |_| return;
-    var home_widget = try home.create(self.allocator, Widget.to(self));
-    errdefer home_widget.deinit(self.allocator);
-    self.widgets.replace(self.view_widget_idx, home_widget);
+    self.widgets.replace(
+        self.view_widget_idx,
+        try Widget.empty(self.allocator, self.widgets_widget.plane.*, .dynamic),
+    );
+    self.widgets.replace(
+        self.view_widget_idx,
+        try home.create(self.allocator, Widget.to(self)),
+    );
     tui.current().resize();
 }
 
