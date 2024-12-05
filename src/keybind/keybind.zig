@@ -52,8 +52,10 @@ const Handler = struct {
             ),
         };
         return .{
+            .allocator = allocator,
             .input_handler = EventHandler.to_owned(self),
             .keybind_hints = self.bindings.hints(),
+            .mode = try allocator.dupe(u8, mode_name),
             .name = self.bindings.name,
             .line_numbers = self.bindings.line_numbers,
             .cursor_shape = self.bindings.cursor_shape,
@@ -68,15 +70,18 @@ const Handler = struct {
 };
 
 pub const Mode = struct {
+    allocator: std.mem.Allocator,
     input_handler: EventHandler,
     event_handler: ?EventHandler = null,
 
+    mode: []const u8,
     name: []const u8 = "",
     line_numbers: LineNumbers = .absolute,
     keybind_hints: *const KeybindHints,
     cursor_shape: CursorShape = .block,
 
     pub fn deinit(self: *Mode) void {
+        self.allocator.free(self.mode);
         self.input_handler.deinit();
         if (self.event_handler) |eh| eh.deinit();
     }

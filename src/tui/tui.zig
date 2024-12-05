@@ -597,7 +597,7 @@ fn get_input_mode(self: *Self, mode_name: []const u8) !Mode {
     return keybind.mode(mode_name, self.allocator, .{});
 }
 
-fn enter_input_mode(self: *Self, new_mode: Mode, mode_name: []const u8) command.Result {
+fn enter_input_mode(self: *Self, new_mode: Mode) command.Result {
     if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
     if (self.input_mode_outer) |_| try cmds.exit_overlay_mode(self, .{});
     if (self.input_mode) |*m| {
@@ -606,6 +606,21 @@ fn enter_input_mode(self: *Self, new_mode: Mode, mode_name: []const u8) command.
     }
     self.input_mode = new_mode;
 }
+
+fn refresh_input_mode(self: *Self) command.Result {
+    const mode = (self.input_mode orelse return).mode;
+    var new_mode = self.get_input_mode(mode) catch ret: {
+        self.logger.print("unknown mode {s}", .{mode});
+        break :ret try self.get_input_mode(keybind.default_mode);
+    };
+    errdefer new_mode.deinit();
+    if (self.input_mode) |*m| {
+        m.deinit();
+        self.input_mode = null;
+    }
+    self.input_mode = new_mode;
+}
+pub const enter_mode_meta = .{ .arguments = &.{.string} };
 
 const cmds = struct {
     pub const Target = Self;
@@ -691,7 +706,7 @@ const cmds = struct {
         try self.save_config();
         self.logger.print("input mode {s}", .{self.config.input_mode});
         try keybind.set_namespace(self.config.input_mode);
-        return enter_mode(self, Ctx.fmt(.{keybind.default_mode}));
+        return self.refresh_input_mode();
     }
     pub const toggle_input_mode_meta = .{ .description = "Switch to next input mode" };
 
