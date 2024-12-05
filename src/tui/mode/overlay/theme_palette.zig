@@ -24,12 +24,18 @@ pub const Match = struct {
 
 var previous_theme: ?[]const u8 = null;
 pub fn load_entries(palette: *Type) !void {
+    var idx: usize = 0;
     previous_theme = tui.current().theme.name;
-    for (Widget.themes) |theme|
+    for (Widget.themes) |theme| {
+        idx += 1;
         (try palette.entries.addOne()).* = .{
             .label = theme.description,
             .name = theme.name,
         };
+        if (previous_theme) |theme_name| if (std.mem.eql(u8, theme.name, theme_name)) {
+            palette.initial_selected = idx;
+        };
+    }
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
@@ -49,6 +55,8 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &description_) catch false)) return;
     if (!(cbor.matchString(&iter, &name_) catch false)) return;
+    if (previous_theme) |prev| if (std.mem.eql(u8, prev, name_))
+        return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("theme_palette", e);
     tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| menu.*.opts.ctx.logger.err("theme_palette", e);
 }

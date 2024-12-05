@@ -34,6 +34,7 @@ pub fn Create(options: type) type {
         entries: std.ArrayList(Entry) = undefined,
         hints: ?*const tui.KeybindHints = null,
         longest_hint: usize = 0,
+        initial_selected: ?usize = null,
 
         items: usize = 0,
         view_rows: usize,
@@ -79,9 +80,10 @@ pub fn Create(options: type) type {
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             try self.commands.init(self);
-            try self.start_query();
+            try self.start_query(0);
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
+            if (self.initial_selected) |idx| self.select(idx);
             var mode = try keybind.mode("overlay/palette", allocator, .{
                 .insert_command = "overlay_insert_bytes",
             });
@@ -159,7 +161,7 @@ pub fn Create(options: type) type {
 
         fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
             self.do_resize();
-            self.start_query() catch {};
+            self.start_query(0) catch {};
         }
 
         fn do_resize(self: *Self) void {
@@ -180,7 +182,7 @@ pub fn Create(options: type) type {
 
         fn on_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
             if (try m.match(.{ "scroll_to", tp.extract(&self.view_pos) })) {
-                self.start_query() catch |e| return tp.exit_error(e, @errorReturnTrace());
+                self.start_query(0) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
         }
 
@@ -196,7 +198,7 @@ pub fn Create(options: type) type {
                 self.view_pos -= Menu.scroll_lines;
             }
             self.update_scrollbar();
-            self.start_query() catch {};
+            self.start_query(0) catch {};
         }
 
         fn mouse_click_button5(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
@@ -204,7 +206,7 @@ pub fn Create(options: type) type {
             if (self.view_pos < @max(self.total_items, self.view_rows) - self.view_rows)
                 self.view_pos += Menu.scroll_lines;
             self.update_scrollbar();
-            self.start_query() catch {};
+            self.start_query(0) catch {};
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -216,7 +218,7 @@ pub fn Create(options: type) type {
             return false;
         }
 
-        fn start_query(self: *Self) !void {
+        fn start_query(self: *Self, n: usize) !void {
             self.items = 0;
             self.menu.reset_items();
             self.menu.selected = null;
@@ -237,6 +239,9 @@ pub fn Create(options: type) type {
                 _ = try self.query_entries(self.inputbox.text.items);
             }
             self.menu.select_down();
+            var i = n;
+            while (i > 0) : (i -= 1)
+                self.menu.select_down();
             self.do_resize();
             tui.current().refresh_hover();
             self.selection_updated();
@@ -300,7 +305,7 @@ pub fn Create(options: type) type {
             }
             self.inputbox.cursor = self.inputbox.text.items.len;
             self.view_pos = 0;
-            return self.start_query();
+            return self.start_query(0);
         }
 
         fn delete_code_point(self: *Self) !void {
@@ -309,7 +314,7 @@ pub fn Create(options: type) type {
                 self.inputbox.cursor = self.inputbox.text.items.len;
             }
             self.view_pos = 0;
-            return self.start_query();
+            return self.start_query(0);
         }
 
         fn insert_code_point(self: *Self, c: u32) !void {
@@ -318,14 +323,14 @@ pub fn Create(options: type) type {
             try self.inputbox.text.appendSlice(buf[0..bytes]);
             self.inputbox.cursor = self.inputbox.text.items.len;
             self.view_pos = 0;
-            return self.start_query();
+            return self.start_query(0);
         }
 
         fn insert_bytes(self: *Self, bytes: []const u8) !void {
             try self.inputbox.text.appendSlice(bytes);
             self.inputbox.cursor = self.inputbox.text.items.len;
             self.view_pos = 0;
-            return self.start_query();
+            return self.start_query(0);
         }
 
         fn cmd(_: *Self, name_: []const u8, ctx: command.Context) tp.result {
@@ -345,6 +350,20 @@ pub fn Create(options: type) type {
                 options.updated(self, self.menu.get_selected()) catch {};
         }
 
+        fn select(self: *Self, idx: usize) void {
+            if (self.total_items < self.view_rows) {
+                self.view_pos = 0;
+            } else if (idx > self.total_items - self.view_rows) {
+                self.view_pos = self.total_items - self.view_rows;
+            } else if (idx > self.view_rows / 2) {
+                self.view_pos = idx - self.view_rows / 2;
+            } else {
+                self.view_pos = 0;
+            }
+            self.update_scrollbar();
+            self.start_query(idx - self.view_pos - 1) catch {};
+        }
+
         const cmds = struct {
             pub const Target = Self;
             const Ctx = command.Context;
@@ -356,7 +375,7 @@ pub fn Create(options: type) type {
                         self.view_pos + self.view_rows < self.total_items)
                     {
                         self.view_pos += 1;
-                        try self.start_query();
+                        try self.start_query(0);
                         self.menu.select_last();
                         self.selection_updated();
                         return;
@@ -371,7 +390,7 @@ pub fn Create(options: type) type {
                 if (self.menu.selected) |selected| {
                     if (selected == 0 and self.view_pos > 0) {
                         self.view_pos -= 1;
-                        try self.start_query();
+                        try self.start_query(0);
                         self.menu.select_first();
                         self.selection_updated();
                         return;
@@ -388,7 +407,7 @@ pub fn Create(options: type) type {
                     if (self.view_pos > self.total_items - self.view_rows)
                         self.view_pos = self.total_items - self.view_rows;
                 }
-                try self.start_query();
+                try self.start_query(0);
                 self.menu.select_last();
                 self.selection_updated();
             }
@@ -399,7 +418,7 @@ pub fn Create(options: type) type {
                     self.view_pos -= self.view_rows
                 else
                     self.view_pos = 0;
-                try self.start_query();
+                try self.start_query(0);
                 self.menu.select_first();
                 self.selection_updated();
             }
