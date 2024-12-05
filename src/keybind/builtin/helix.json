@@ -266,7 +266,6 @@
             ["ctrl+a", "increment"],
             ["ctrl+x", "decrement"],
 
-            ["ctrl+shift+p", "open_command_palette"],
             ["ctrl+shift+6", "open_previous_file"],
 
             ["alt+.", "repeat_last_motion"],
@@ -299,8 +298,6 @@
             ["alt+u", "undo"],
     
             ["alt+,", "remove_primary_selection"],
-
-            ["alt+shift+p", "open_command_palette"],
     
             ["alt+shift+c", "copy_selection_on_next_line"],
     
@@ -505,6 +502,17 @@
             ["7", "add_count", 7],
             ["8", "add_count", 8],
             ["9", "add_count", 9]
+        ]
+    }, 
+    "home": {
+        "on_match_failure": "ignore",
+        "press": [
+            [";", "open_command_palette"],
+            ["shift+;", "open_command_palette"],
+            ["b", "open_keybind_config"],
+            ["j", "home_menu_down"],
+            ["k", "home_menu_up"],
+            ["space", "home_menu_activate"]
         ]
     } 
 }
