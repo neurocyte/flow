@@ -447,11 +447,6 @@ pub fn Create(options: type) type {
             }
             pub const overlay_insert_bytes_meta = .{ .arguments = &.{.string} };
 
-            pub fn overlay_release_control(self: *Self, _: Ctx) Result {
-                if (self.menu.selected orelse 0 > 0) return self.cmd("palette_menu_activate", .{});
-            }
-            pub const overlay_release_control_meta = .{};
-
             pub fn overlay_toggle_panel(self: *Self, _: Ctx) Result {
                 return self.cmd_async("toggle_panel");
             }
