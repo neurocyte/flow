@@ -5,12 +5,24 @@
             ["ctrl+e", "move_end"],
             ["ctrl+b", "move_left"],
             ["ctrl+f", "move_right"],
+            ["ctrl+s", "find"],
             ["ctrl+p", "move_up"],
             ["ctrl+n", "move_down"],
+            ["ctrl+x>ctrl+f", "open_file"],
+            ["ctrl+x>ctrl+c", "quit"],
             ["ctrl+x>ctrl+s", "save"],
             ["ctrl+x>ctrl+c", "quit"],
             ["ctrl+x>b", "open_recent"],
             ["alt+x", "open_command_palette"]
+        ]
+    }, 
+    "home": {
+        "on_match_failure": "ignore",
+        "press": [
+            ["ctrl+h>ctrl+a", "open_help"],
+            ["ctrl+x>ctrl+f", "open_file"],
+            ["alt+x", "open_command_palette"],
+            ["ctrl+x>ctrl+c", "quit"]
         ]
     }
 }
