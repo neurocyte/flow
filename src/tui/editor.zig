@@ -2638,6 +2638,10 @@ pub const Editor = struct {
 
     pub fn unindent(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
+        errdefer blk: {
+            self.cursels.clearAndFree();
+            self.cursels = self.cursels_saved.clone() catch break :blk;
+        }
         const root = try self.with_cursels_mut(b.root, unindent_cursel, b.allocator);
         try self.update_buf(root);
     }
