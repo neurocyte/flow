@@ -4,6 +4,7 @@ const thespian = @import("thespian");
 const flags = @import("flags");
 const builtin = @import("builtin");
 
+const bin_path = @import("bin_path.zig");
 const list_languages = @import("list_languages.zig");
 
 const c = @cImport({
@@ -666,12 +667,21 @@ pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
 }
 
 fn restart() noreturn {
+    var executable: [:0]const u8 = std.mem.span(std.os.argv[0]);
+    var is_basename = true;
+    for (executable) |char| if (std.fs.path.isSep(char)) {
+        is_basename = false;
+    };
+    if (is_basename) {
+        const a = std.heap.c_allocator;
+        executable = bin_path.find_binary_in_path(a, executable) catch executable orelse executable;
+    }
     const argv = [_]?[*:0]const u8{
-        std.os.argv[0],
+        executable,
         "--restore-session",
         null,
     };
-    const ret = std.c.execve(std.os.argv[0], @ptrCast(&argv), @ptrCast(std.os.environ));
+    const ret = std.c.execve(executable, @ptrCast(&argv), @ptrCast(std.os.environ));
     std.io.getStdErr().writer().print("\nrestart failed: {d}", .{ret}) catch {};
     exit(234);
 }
