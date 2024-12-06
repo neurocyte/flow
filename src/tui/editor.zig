@@ -2580,14 +2580,17 @@ pub const Editor = struct {
     }
 
     fn indent_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
-        if (cursel.selection) |sel_| {
+        if (cursel.selection) |*sel_| {
             var root = root_;
-            var sel = sel_;
+            var sel = sel_.*;
+            const sel_from_start = sel_.begin.col == 0;
             sel.normalize();
             while (sel.begin.row < sel.end.row) : (sel.begin.row += 1)
                 root = try self.indent_cursor(root, sel.begin, allocator);
             if (sel.end.col > 0)
                 root = try self.indent_cursor(root, sel.end, allocator);
+            if (sel_from_start)
+                sel_.begin.col = 0;
             return root;
         } else return try self.indent_cursor(root_, cursel.cursor, allocator);
     }
