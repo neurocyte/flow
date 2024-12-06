@@ -2575,7 +2575,7 @@ pub const Editor = struct {
         var cursel: CurSel = .{};
         cursel.cursor = cursor;
         const cols = self.indent_size - find_first_non_ws(root, cursel.cursor.row, self.metrics) % self.indent_size;
-        try smart_move_cursor_begin(root, &cursel.cursor, self.metrics);
+        try move_cursor_begin(root, &cursel.cursor, self.metrics);
         return self.insert(root, &cursel, space[0..cols], allocator) catch return error.Stop;
     }
 
