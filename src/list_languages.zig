@@ -2,6 +2,8 @@ const std = @import("std");
 const syntax = @import("syntax");
 const builtin = @import("builtin");
 
+const bin_path = @import("bin_path.zig");
+
 const checkmark_width = if (builtin.os.tag != .windows) 2 else 3;
 
 const success_mark = if (builtin.os.tag != .windows) "✓ " else "[y]";
@@ -28,24 +30,17 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tt
     try tty_config.setColor(writer, .reset);
     try writer.writeAll("\n");
 
-    const bin_paths = std.process.getEnvVarOwned(allocator, "PATH") catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.EnvironmentVariableNotFound, error.InvalidWtf8 => &.{},
-    };
-
-    defer allocator.free(bin_paths);
-
     for (syntax.FileType.file_types) |file_type| {
         try write_string(writer, file_type.name, max_language_len + 1);
         try write_segmented(writer, file_type.extensions, ",", max_extensions_len + 1, tty_config);
 
         if (file_type.language_server) |language_server|
-            try write_checkmark(writer, try can_execute(allocator, bin_paths, language_server[0]), tty_config);
+            try write_checkmark(writer, can_execute(allocator, language_server[0]), tty_config);
 
         try write_segmented(writer, file_type.language_server, " ", max_langserver_len + 1, tty_config);
 
         if (file_type.formatter) |formatter|
-            try write_checkmark(writer, try can_execute(allocator, bin_paths, formatter[0]), tty_config);
+            try write_checkmark(writer, can_execute(allocator, formatter[0]), tty_config);
 
         try write_segmented(writer, file_type.formatter, " ", max_formatter_len, tty_config);
         try writer.writeAll("\n");
@@ -99,45 +94,8 @@ fn write_padding(writer: anytype, len: usize, pad_len: usize) !void {
     for (0..pad_len - len) |_| try writer.writeAll(" ");
 }
 
-const can_execute = switch (builtin.os.tag) {
-    .windows => can_execute_windows,
-    else => can_execute_posix,
-};
-
-fn can_execute_posix(allocator: std.mem.Allocator, bin_paths: []const u8, file_path: []const u8) std.mem.Allocator.Error!bool {
-    if (!std.process.can_spawn) return false;
-
-    var bin_path_iterator = std.mem.splitScalar(u8, bin_paths, std.fs.path.delimiter);
-
-    while (bin_path_iterator.next()) |bin_path| {
-        const resolved_file_path = try std.fs.path.resolve(allocator, &.{ bin_path, file_path });
-        defer allocator.free(resolved_file_path);
-
-        std.posix.access(resolved_file_path, std.posix.X_OK) catch continue;
-
-        return true;
-    }
-
-    return false;
-}
-
-fn can_execute_windows(allocator: std.mem.Allocator, bin_paths: []const u8, file_path_: []const u8) std.mem.Allocator.Error!bool {
-    var path = std.ArrayList(u8).init(allocator);
-    try path.appendSlice(file_path_);
-    try path.appendSlice(".exe");
-    const file_path = try path.toOwnedSlice();
-    defer allocator.free(file_path);
-
-    var bin_path_iterator = std.mem.splitScalar(u8, bin_paths, std.fs.path.delimiter);
-
-    while (bin_path_iterator.next()) |bin_path| {
-        if (!std.fs.path.isAbsolute(bin_path)) continue;
-        var dir = std.fs.openDirAbsolute(bin_path, .{}) catch continue;
-        defer dir.close();
-
-        _ = dir.statFile(file_path) catch continue;
-        return true;
-    }
-
-    return false;
+fn can_execute(allocator: std.mem.Allocator, binary_name: []const u8) bool {
+    const resolved_binary_path = bin_path.find_binary_in_path(allocator, binary_name) catch return false;
+    defer if (resolved_binary_path) |path| allocator.free(path);
+    return resolved_binary_path != null;
 }
