@@ -161,15 +161,22 @@ const Process = struct {
 
     fn handle_terminated(self: *Process) !void {
         const output = try self.output.toOwnedSlice();
+        var count: usize = 0;
         var it = std.mem.splitScalar(u8, output, '\n');
         while (it.next()) |json| {
             if (json.len == 0) continue;
             var msg_buf: [tp.max_message_size]u8 = undefined;
             const msg: tp.message = .{ .buf = try cbor.fromJson(json, &msg_buf) };
             try self.dispatch(msg);
+            count += 1;
+            if (count > 1000) break;
         }
         try self.parent.send(.{ self.tag, "done" });
-        self.logger.print("found {d} matches", .{self.match_count});
+        if (count > 1000) {
+            self.logger.print("found more than {d} matches", .{self.match_count});
+        } else {
+            self.logger.print("found {d} matches", .{self.match_count});
+        }
     }
 
     fn dispatch(self: *Process, m: tp.message) !void {
