@@ -728,17 +728,17 @@ test "match" {
         const events = try parse_vim.parse_key_events(alloc, input.event.press, case[0]);
         defer alloc.free(events);
         const binding: Binding = .{
-            .keys = try parse_vim.parse_key_events(alloc, input.event.press, case[1]),
-            .command = .{},
+            .key_events = try parse_vim.parse_key_events(alloc, input.event.press, case[1]),
+            .commands = &[_]Command{},
         };
-        defer alloc.free(binding.keys);
+        defer alloc.free(binding.key_events);
 
         try expectEqual(case[2], binding.match(events));
     }
 }
 
 test "json" {
-    var bindings: BindingSet = .{};
+    var bindings: BindingSet = .{ .name = "test" };
     _ = try bindings.process_key_event('j', .{ .key = 'j' });
     _ = try bindings.process_key_event('k', .{ .key = 'k' });
     _ = try bindings.process_key_event('g', .{ .key = 'g' });
