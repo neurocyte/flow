@@ -2602,15 +2602,10 @@ pub const Editor = struct {
     }
     pub const indent_meta = .{ .description = "Indent current line" };
 
-    fn unindent_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, cursor: Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
-        const saved = cursel.*;
+    fn unindent_cursor(self: *Self, root: Buffer.Root, cursor: *Cursor, cursor_protect: ?*Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
         var newroot = root;
-        defer {
-            cursel.* = saved;
-            cursel.cursor.clamp_to_buffer(newroot, self.metrics);
-        }
-        cursel.selection = null;
-        cursel.cursor = cursor;
+        var cursel: CurSel = .{};
+        cursel.cursor = cursor.*;
         const first = find_first_non_ws(root, cursel.cursor.row, self.metrics);
         if (first == 0) return error.Stop;
         const off = first % self.indent_size;
@@ -2618,8 +2613,16 @@ pub const Editor = struct {
         const sel = cursel.enable_selection();
         sel.begin.move_begin();
         try sel.end.move_to(root, sel.end.row, cols, self.metrics);
-        if (cursel.cursor.col < cols) try cursel.cursor.move_to(root, cursel.cursor.row, cols, self.metrics);
-        newroot = try self.delete_selection(root, cursel, allocator);
+        var saved = false;
+        if (cursor_protect) |cp| if (cp.row == cursor.row and cp.col < cols) {
+            cp.col = cols + 1;
+            saved = true;
+        };
+        newroot = try self.delete_selection(root, &cursel, allocator);
+        if (cursor_protect) |cp| if (saved) {
+            try cp.move_to(root, cp.row, 0, self.metrics);
+            cp.clamp_to_buffer(newroot, self.metrics);
+        };
         return newroot;
     }
 
@@ -2629,20 +2632,25 @@ pub const Editor = struct {
             var sel = sel_;
             sel.normalize();
             while (sel.begin.row < sel.end.row) : (sel.begin.row += 1)
-                root = try self.unindent_cursor(root, cursel, sel.begin, allocator);
+                root = try self.unindent_cursor(root, &sel.begin, &cursel.cursor, allocator);
             if (sel.end.col > 0)
-                root = try self.unindent_cursor(root, cursel, sel.end, allocator);
+                root = try self.unindent_cursor(root, &sel.end, &cursel.cursor, allocator);
             return root;
-        } else return self.unindent_cursor(root_, cursel, cursel.cursor, allocator);
+        } else return self.unindent_cursor(root_, &cursel.cursor, &cursel.cursor, allocator);
+    }
+
+    fn restore_cursels(self: *Self) void {
+        self.cursels.clearAndFree();
+        self.cursels = self.cursels_saved.clone() catch return;
     }
 
     pub fn unindent(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        errdefer blk: {
-            self.cursels.clearAndFree();
-            self.cursels = self.cursels_saved.clone() catch break :blk;
-        }
+        errdefer self.restore_cursels();
+        const cursor_count = self.cursels.items.len;
         const root = try self.with_cursels_mut(b.root, unindent_cursel, b.allocator);
+        if (self.cursels.items.len != cursor_count)
+            self.restore_cursels();
         try self.update_buf(root);
     }
     pub const unindent_meta = .{ .description = "Unindent current line" };
