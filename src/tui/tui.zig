@@ -551,7 +551,7 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
 fn update_hover(self: *Self, y: c_int, x: c_int) !?*Widget {
     self.last_hover_y = y;
     self.last_hover_x = x;
-    if (y > 0 and x > 0) if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
+    if (y >= 0 and x >= 0) if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
         if (if (self.hover_focus) |h| h != w else true) {
             var buf: [256]u8 = undefined;
             if (self.hover_focus) |h| {
