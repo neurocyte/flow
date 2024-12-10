@@ -1,9 +1,11 @@
 pub const agda = .{
+    .description = "Agda",
     .extensions = .{"agda"},
     .comment = "--",
 };
 
 pub const bash = .{
+    .description = "Bash",
     .color = 0x3e474a,
     .icon = "󱆃",
     .extensions = .{ "sh", "bash", ".profile" },
@@ -14,6 +16,7 @@ pub const bash = .{
 };
 
 pub const c = .{
+    .description = "C",
     .icon = "",
     .extensions = .{"c"},
     .comment = "//",
@@ -22,6 +25,7 @@ pub const c = .{
 };
 
 pub const @"c-sharp" = .{
+    .description = "C#",
     .color = 0x68217a,
     .icon = "󰌛",
     .extensions = .{"cs"},
@@ -30,6 +34,7 @@ pub const @"c-sharp" = .{
 };
 
 pub const conf = .{
+    .description = "Config",
     .color = 0x000000,
     .icon = "",
     .extensions = .{ "conf", "config", ".gitconfig" },
@@ -39,6 +44,7 @@ pub const conf = .{
 };
 
 pub const cmake = .{
+    .description = "CMake",
     .color = 0x004078,
     .icon = "",
     .extensions = .{ "CMakeLists.txt", "cmake", "cmake.in" },
@@ -50,6 +56,7 @@ pub const cmake = .{
 };
 
 pub const cpp = .{
+    .description = "C++",
     .color = 0x9c033a,
     .icon = "",
     .extensions = .{ "cc", "cpp", "cxx", "hpp", "hxx", "h", "ipp", "ixx" },
@@ -64,6 +71,7 @@ pub const cpp = .{
 };
 
 pub const css = .{
+    .description = "CSS",
     .color = 0x3d8fc6,
     .icon = "󰌜",
     .extensions = .{"css"},
@@ -71,11 +79,13 @@ pub const css = .{
 };
 
 pub const diff = .{
+    .description = "Diff",
     .extensions = .{ "diff", "patch" },
     .comment = "#",
 };
 
 pub const dockerfile = .{
+    .description = "Docker",
     .color = 0x019bc6,
     .icon = "",
     .extensions = .{ "Dockerfile", "dockerfile", "docker", "Containerfile", "container" },
@@ -83,6 +93,7 @@ pub const dockerfile = .{
 };
 
 pub const dtd = .{
+    .description = "DTD",
     .icon = "󰗀",
     .extensions = .{"dtd"},
     .comment = "<!--",
@@ -90,6 +101,7 @@ pub const dtd = .{
 };
 
 pub const elixir = .{
+    .description = "Elixir",
     .color = 0x4e2a8e,
     .icon = "",
     .extensions = .{ "ex", "exs" },
@@ -100,6 +112,7 @@ pub const elixir = .{
 };
 
 pub const fish = .{
+    .description = "Fish",
     .extensions = .{"fish"},
     .comment = "#",
     .parser = @import("file_type.zig").Parser("fish"),
@@ -107,6 +120,7 @@ pub const fish = .{
 };
 
 pub const @"git-rebase" = .{
+    .description = "Git (rebase)",
     .color = 0xf34f29,
     .icon = "",
     .extensions = .{"git-rebase-todo"},
@@ -114,6 +128,7 @@ pub const @"git-rebase" = .{
 };
 
 pub const gitcommit = .{
+    .description = "Git (commit)",
     .color = 0xf34f29,
     .icon = "",
     .extensions = .{"COMMIT_EDITMSG"},
@@ -122,6 +137,7 @@ pub const gitcommit = .{
 };
 
 pub const gleam = .{
+    .description = "Gleam",
     .color = 0xffaff3,
     .icon = "󰦥",
     .extensions = .{"gleam"},
@@ -131,6 +147,7 @@ pub const gleam = .{
 };
 
 pub const go = .{
+    .description = "Go",
     .color = 0x00acd7,
     .icon = "󰟓",
     .extensions = .{"go"},
@@ -140,11 +157,13 @@ pub const go = .{
 };
 
 pub const hare = .{
+    .description = "Hare",
     .extensions = .{"ha"},
     .comment = "//",
 };
 
 pub const haskell = .{
+    .description = "Haskell",
     .color = 0x5E5185,
     .icon = "󰲒",
     .extensions = .{"hs"},
@@ -153,6 +172,7 @@ pub const haskell = .{
 };
 
 pub const html = .{
+    .description = "HTML",
     .color = 0xe54d26,
     .icon = "󰌝",
     .extensions = .{"html"},
@@ -163,6 +183,7 @@ pub const html = .{
 };
 
 pub const superhtml = .{
+    .description = "SuperHTML",
     .color = 0xe54d26,
     .icon = "󰌝",
     .extensions = .{"shtml"},
@@ -174,6 +195,7 @@ pub const superhtml = .{
 };
 
 pub const java = .{
+    .description = "Java",
     .color = 0xEA2D2E,
     .icon = "",
     .extensions = .{"java"},
@@ -181,6 +203,7 @@ pub const java = .{
 };
 
 pub const javascript = .{
+    .description = "JavaScript",
     .color = 0xf0db4f,
     .icon = "󰌞",
     .extensions = .{"js"},
@@ -190,6 +213,7 @@ pub const javascript = .{
 };
 
 pub const json = .{
+    .description = "JSON",
     .extensions = .{"json"},
     .comment = "//",
     .language_server = .{ "deno", "lsp" },
@@ -197,6 +221,7 @@ pub const json = .{
 };
 
 pub const julia = .{
+    .description = "Julia",
     .color = 0x4D64AE,
     .icon = "",
     .extensions = .{"jl"},
@@ -205,6 +230,7 @@ pub const julia = .{
 };
 
 pub const kdl = .{
+    .description = "KDL",
     .color = 0x000000,
     .icon = "",
     .extensions = .{"kdl"},
@@ -212,6 +238,7 @@ pub const kdl = .{
 };
 
 pub const lua = .{
+    .description = "Lua",
     .color = 0x02027d,
     .icon = "󰢱",
     .extensions = .{"lua"},
@@ -222,11 +249,13 @@ pub const lua = .{
 };
 
 pub const make = .{
+    .description = "Make",
     .extensions = .{ "makefile", "Makefile", "MAKEFILE", "GNUmakefile", "mk", "mak", "dsp" },
     .comment = "#",
 };
 
 pub const markdown = .{
+    .description = "Markdown",
     .color = 0x000000,
     .icon = "󰍔",
     .extensions = .{"md"},
@@ -237,6 +266,7 @@ pub const markdown = .{
 };
 
 pub const @"markdown-inline" = .{
+    .description = "Markdown (inline)",
     .color = 0x000000,
     .icon = "󰍔",
     .extensions = .{},
@@ -246,12 +276,14 @@ pub const @"markdown-inline" = .{
 };
 
 pub const nasm = .{
+    .description = "Assembly Language (nasm)",
     .extensions = .{ "asm", "nasm" },
     .comment = "#",
     .injections = "tree-sitter-nasm/queries/injections.scm",
 };
 
 pub const nim = .{
+    .description = "Nim",
     .color = 0xffe953,
     .icon = "",
     .extensions = .{"nim"},
@@ -260,6 +292,7 @@ pub const nim = .{
 };
 
 pub const nimble = .{
+    .description = "Nimble (nim)",
     .color = 0xffe953,
     .icon = "",
     .extensions = .{"nimble"},
@@ -269,11 +302,13 @@ pub const nimble = .{
 };
 
 pub const ninja = .{
+    .description = "Ninja",
     .extensions = .{"ninja"},
     .comment = "#",
 };
 
 pub const nix = .{
+    .description = "Nix",
     .color = 0x5277C3,
     .icon = "󱄅",
     .extensions = .{"nix"},
@@ -282,6 +317,7 @@ pub const nix = .{
 };
 
 pub const nu = .{
+    .description = "Nushell",
     .color = 0x3AA675,
     .icon = ">",
     .extensions = .{ "nu", "nushell" },
@@ -292,6 +328,7 @@ pub const nu = .{
 };
 
 pub const ocaml = .{
+    .description = "OCaml",
     .color = 0xF18803,
     .icon = "",
     .extensions = .{ "ml", "mli" },
@@ -301,15 +338,17 @@ pub const ocaml = .{
 };
 
 pub const odin = .{
+    .description = "Odin",
     .extensions = .{"odin"},
     .comment = "//",
     .parser = @import("file_type.zig").Parser("odin"),
     .injections = "tree-sitter-odin/queries/injections.scm",
-    .language_server = .{ "ols" },
+    .language_server = .{"ols"},
     .formatter = .{ "odinfmt", "-stdin" },
 };
 
 pub const openscad = .{
+    .description = "OpenSCAD",
     .color = 0x000000,
     .icon = "󰻫",
     .extensions = .{"scad"},
@@ -319,12 +358,14 @@ pub const openscad = .{
 };
 
 pub const org = .{
+    .description = "Org Mode",
     .icon = "",
     .extensions = .{"org"},
     .comment = "#",
 };
 
 pub const php = .{
+    .description = "PHP",
     .color = 0x6181b6,
     .icon = "󰌟",
     .extensions = .{"php"},
@@ -333,6 +374,7 @@ pub const php = .{
 };
 
 pub const purescript = .{
+    .description = "PureScript",
     .color = 0x14161a,
     .icon = "",
     .extensions = .{"purs"},
@@ -341,20 +383,23 @@ pub const purescript = .{
 };
 
 pub const python = .{
+    .description = "Python",
     .color = 0xffd845,
     .icon = "󰌠",
-    .extensions = .{"py", "pyi"},
+    .extensions = .{ "py", "pyi" },
     .comment = "#",
     .first_line_matches = .{ .prefix = "#!", .content = "python" },
     .language_server = .{"pylsp"},
 };
 
 pub const regex = .{
+    .description = "Regular expression",
     .extensions = .{},
     .comment = "#",
 };
 
 pub const ruby = .{
+    .description = "Ruby",
     .color = 0xd91404,
     .icon = "󰴭",
     .extensions = .{"rb"},
@@ -363,6 +408,7 @@ pub const ruby = .{
 };
 
 pub const rust = .{
+    .description = "Rust",
     .color = 0x000000,
     .icon = "󱘗",
     .extensions = .{"rs"},
@@ -372,16 +418,19 @@ pub const rust = .{
 };
 
 pub const scheme = .{
+    .description = "Scheme",
     .extensions = .{ "scm", "ss", "el" },
     .comment = ";",
 };
 
 pub const @"ssh-config" = .{
+    .description = "SSH config",
     .extensions = .{".ssh/config"},
     .comment = "#",
 };
 
 pub const swift = .{
+    .description = "Swift",
     .color = 0xf05138,
     .icon = "󰛥",
     .extensions = .{ "swift", "swiftinterface" },
@@ -391,6 +440,7 @@ pub const swift = .{
 };
 
 pub const toml = .{
+    .description = "TOML",
     .extensions = .{ "toml", "ini" },
     .comment = "#",
     .highlights = "tree-sitter-toml/queries/highlights.scm",
@@ -398,6 +448,7 @@ pub const toml = .{
 };
 
 pub const typescript = .{
+    .description = "TypeScript",
     .color = 0x007acc,
     .icon = "󰛦",
     .extensions = .{ "ts", "tsx" },
@@ -406,6 +457,7 @@ pub const typescript = .{
 };
 
 pub const typst = .{
+    .description = "Typst",
     .color = 0x23b6bc,
     .icon = "t",
     .extensions = .{ "typst", "typ" },
@@ -416,6 +468,7 @@ pub const typst = .{
 };
 
 pub const vim = .{
+    .description = "Vimscript",
     .color = 0x007f00,
     .icon = "",
     .extensions = .{"vim"},
@@ -425,6 +478,7 @@ pub const vim = .{
 };
 
 pub const xml = .{
+    .description = "XML",
     .icon = "󰗀",
     .extensions = .{"xml"},
     .comment = "<!--",
@@ -434,6 +488,7 @@ pub const xml = .{
 };
 
 pub const yaml = .{
+    .description = "YAML",
     .color = 0x000000,
     .icon = "",
     .extensions = .{ "yaml", "yml" },
@@ -441,6 +496,7 @@ pub const yaml = .{
 };
 
 pub const zig = .{
+    .description = "Zig",
     .color = 0xf7a41d,
     .icon = "",
     .extensions = .{ "zig", "zon" },
@@ -451,6 +507,7 @@ pub const zig = .{
 };
 
 pub const ziggy = .{
+    .description = "Ziggy",
     .color = 0xf7a41d,
     .icon = "",
     .extensions = .{ "ziggy", "zgy" },
@@ -459,6 +516,7 @@ pub const ziggy = .{
 };
 
 pub const @"ziggy-schema" = .{
+    .description = "Ziggy (schema)",
     .color = 0xf7a41d,
     .icon = "",
     .extensions = .{ "ziggy-schema", "zyg-schema" },
