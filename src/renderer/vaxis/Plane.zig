@@ -244,7 +244,7 @@ pub fn cell_init(self: Plane) Cell {
     return .{ .cell = .{ .style = self.style } };
 }
 
-pub fn cell_load(self: *Plane, cell: *Cell, gcluster: [:0]const u8) !usize {
+pub fn cell_load(self: *Plane, cell: *Cell, gcluster: []const u8) !usize {
     var cols: c_int = 0;
     const bytes = self.egc_length(gcluster, &cols, 0, 1);
     cell.cell.char.grapheme = self.cache.put(gcluster[0..bytes]);
