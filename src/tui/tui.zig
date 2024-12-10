@@ -759,6 +759,11 @@ const cmds = struct {
     }
     pub const change_theme_meta = .{ .description = "Select color theme" };
 
+    pub fn change_file_type(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/file_type_palette.zig").Type);
+    }
+    pub const change_file_type_meta = .{ .description = "Change file type" };
+
     pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
         if (self.input_mode_outer == null) return;
         if (self.input_mode) |*mode| mode.deinit();

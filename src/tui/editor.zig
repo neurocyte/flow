@@ -4282,6 +4282,39 @@ pub const Editor = struct {
         self.syntax_report_timing = !self.syntax_report_timing;
     }
     pub const toggle_syntax_timing_meta = .{ .description = "Toggle tree-sitter timing reports" };
+
+    pub fn set_file_type(self: *Self, ctx: Context) Result {
+        var file_type: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&file_type)}))
+            return error.InvalidArgument;
+
+        if (self.syntax) |syn| syn.destroy();
+        self.syntax_last_rendered_root = null;
+        self.syntax_refresh_full = true;
+        self.syntax_incremental_reparse = false;
+
+        self.syntax = syntax: {
+            var content = std.ArrayList(u8).init(self.allocator);
+            defer content.deinit();
+            const root = try self.buf_root();
+            try root.store(content.writer(), try self.buf_eol_mode());
+            const syn = syntax.create_file_type(self.allocator, file_type) catch null;
+            if (syn) |syn_| if (self.file_path) |file_path|
+                project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch |e|
+                    self.logger.print("project_manager.did_open failed: {any}", .{e});
+            break :syntax syn;
+        };
+        self.syntax_no_render = tp.env.get().is("no-syntax");
+        self.syntax_report_timing = tp.env.get().is("syntax-report-timing");
+
+        const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
+        const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";
+        const ftc = if (self.syntax) |syn| syn.file_type.color else 0x000000;
+        const file_exists = if (self.buffer) |b| b.file_exists else false;
+        try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc);
+        self.logger.print("file type {s}", .{file_type});
+    }
+    pub const set_file_type_meta = .{ .arguments = &.{.string} };
 };
 
 pub fn create(allocator: Allocator, parent: Widget) !Widget {

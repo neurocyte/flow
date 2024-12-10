@@ -54,7 +54,7 @@ pub fn Create(options: type) type {
                 .modal = try ModalBackground.create(*Self, allocator, tui.current().mainview, .{ .ctx = self }),
                 .menu = try Menu.create(*Self, allocator, tui.current().mainview, .{
                     .ctx = self,
-                    .on_render = on_render_menu,
+                    .on_render = if (@hasDecl(options, "on_render_menu")) options.on_render_menu else on_render_menu,
                     .on_resize = on_resize_menu,
                     .on_scroll = EventHandler.bind(self, Self.on_scroll),
                     .on_click4 = mouse_click_button4,
