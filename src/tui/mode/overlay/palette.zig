@@ -32,7 +32,6 @@ pub fn Create(options: type) type {
         longest: usize = 0,
         commands: command.Collection(cmds) = undefined,
         entries: std.ArrayList(Entry) = undefined,
-        hints: ?*const tui.KeybindHints = null,
         longest_hint: usize = 0,
         initial_selected: ?usize = null,
 
@@ -66,17 +65,11 @@ pub fn Create(options: type) type {
                     .ctx = self,
                     .label = options.label,
                 }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
-                .hints = if (tui.current().input_mode) |m| m.keybind_hints else null,
                 .view_rows = get_view_rows(tui.current().screen()),
                 .entries = std.ArrayList(Entry).init(allocator),
             };
             self.menu.scrollbar.?.style_factory = scrollbar_style;
-            if (self.hints) |hints| {
-                var iter = hints.iterator();
-                while (iter.next()) |p|
-                    self.longest_hint = @max(self.longest_hint, p.value_ptr.len);
-            }
-            try options.load_entries(self);
+            self.longest_hint = try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             try self.commands.init(self);

@@ -23,7 +23,9 @@ pub const Match = struct {
 };
 
 var previous_theme: ?[]const u8 = null;
-pub fn load_entries(palette: *Type) !void {
+
+pub fn load_entries(palette: *Type) !usize {
+    var longest_hint: usize = 0;
     var idx: usize = 0;
     previous_theme = tui.current().theme.name;
     for (Widget.themes) |theme| {
@@ -35,7 +37,9 @@ pub fn load_entries(palette: *Type) !void {
         if (previous_theme) |theme_name| if (std.mem.eql(u8, theme.name, theme_name)) {
             palette.initial_selected = idx;
         };
+        longest_hint = @max(longest_hint, theme.name.len);                                                            
     }
+    return longest_hint;
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {

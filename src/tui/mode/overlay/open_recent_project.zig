@@ -24,7 +24,7 @@ pub fn deinit(palette: *Type) void {
         palette.allocator.free(entry.label);
 }
 
-pub fn load_entries(palette: *Type) !void {
+pub fn load_entries(palette: *Type) !usize {
     const rsp = try project_manager.request_recent_projects(palette.allocator);
     defer palette.allocator.free(rsp.buf);
     var iter: []const u8 = rsp.buf;
@@ -35,6 +35,7 @@ pub fn load_entries(palette: *Type) !void {
             (try palette.entries.addOne()).* = .{ .label = try palette.allocator.dupe(u8, name_) };
         } else return error.InvalidMessageField;
     }
+    return 1;
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {

@@ -4,6 +4,7 @@ const tp = @import("thespian");
 const root = @import("root");
 const command = @import("command");
 
+const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
 
 pub const label = "Search commands";
@@ -12,6 +13,7 @@ pub const description = "command";
 
 pub const Entry = struct {
     label: []const u8,
+    hint: []const u8,
     id: command.ID,
 };
 
@@ -20,7 +22,9 @@ pub fn deinit(palette: *Type) void {
         palette.allocator.free(entry.label);
 }
 
-pub fn load_entries(palette: *Type) !void {
+pub fn load_entries(palette: *Type) !usize {
+    const hints = if (tui.current().input_mode) |m| m.keybind_hints else @panic("no keybind hints");
+    var longest_hint: usize = 0;
     for (command.commands.items) |cmd_| if (cmd_) |p| {
         var label_ = std.ArrayList(u8).init(palette.allocator);
         const writer = label_.writer();
@@ -40,11 +44,16 @@ pub fn load_entries(palette: *Type) !void {
             try writer.writeAll("}");
         }
 
+        const hint = hints.get(p.name) orelse "";
+        longest_hint = @max(longest_hint, hint.len);
+
         (try palette.entries.addOne()).* = .{
             .label = try label_.toOwnedSlice(),
+            .hint = hint,
             .id = p.id,
         };
     };
+    return longest_hint;
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
@@ -52,7 +61,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     defer value.deinit();
     const writer = value.writer();
     try cbor.writeValue(writer, entry.label);
-    try cbor.writeValue(writer, if (palette.hints) |hints| hints.get(command.get_name(entry.id) orelse "") orelse "" else "");
+    try cbor.writeValue(writer, entry.hint);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
     try cbor.writeValue(writer, entry.id);
     try palette.menu.add_item_with_handler(value.items, select);

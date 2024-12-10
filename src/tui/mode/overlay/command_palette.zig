@@ -4,6 +4,7 @@ const tp = @import("thespian");
 const root = @import("root");
 const command = @import("command");
 
+const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
 
 pub const label = "Search commands";
@@ -13,20 +14,28 @@ pub const description = "command";
 pub const Entry = struct {
     label: []const u8,
     name: []const u8,
+    hint: []const u8,
     id: command.ID,
     used_time: i64,
 };
 
-pub fn load_entries(palette: *Type) !void {
+pub fn load_entries(palette: *Type) !usize {
+    const hints = if (tui.current().input_mode) |m| m.keybind_hints else @panic("no keybind hints");
+    var longest_hint: usize = 0;
     for (command.commands.items) |cmd_| if (cmd_) |p| {
-        if (p.meta.description.len > 0)
+        if (p.meta.description.len > 0) {
+            const hint = hints.get(p.name) orelse "";
+            longest_hint = @max(longest_hint, hint.len);
             (try palette.entries.addOne()).* = .{
                 .label = if (p.meta.description.len > 0) p.meta.description else p.name,
                 .name = p.name,
+                .hint = hint,
                 .id = p.id,
                 .used_time = 0,
             };
+        }
     };
+    return longest_hint;
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
@@ -34,7 +43,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     defer value.deinit();
     const writer = value.writer();
     try cbor.writeValue(writer, entry.label);
-    try cbor.writeValue(writer, if (palette.hints) |hints| hints.get(entry.name) orelse "" else "");
+    try cbor.writeValue(writer, entry.hint);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
     try cbor.writeValue(writer, entry.id);
     try palette.menu.add_item_with_handler(value.items, select);
