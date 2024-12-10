@@ -430,6 +430,7 @@ pub const xml = .{
     .comment = "<!--",
     .highlights = "tree-sitter-xml/queries/xml/highlights.scm",
     .first_line_matches = .{ .prefix = "<?xml " },
+    .formatter = .{ "xmllint", "--format", "-" },
 };
 
 pub const yaml = .{
