@@ -908,6 +908,18 @@ pub fn current() *Self {
     return instance_ orelse @panic("tui call out of context");
 }
 
+pub fn get_active_editor() ?*@import("editor.zig").Editor {
+    if (current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_active_editor()) |editor|
+        return editor;
+    return null;
+}
+
+pub fn get_active_selection(allocator: std.mem.Allocator) ?[]u8 {
+    const editor = get_active_editor() orelse return null;
+    const sel = editor.get_primary().selection orelse return null;
+    return editor.get_selection(sel, allocator) catch null;
+}
+
 fn context_check() void {
     if (instance_ == null) @panic("tui call out of context");
 }

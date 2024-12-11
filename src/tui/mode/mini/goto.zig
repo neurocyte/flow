@@ -8,7 +8,6 @@ const command = @import("command");
 const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
-const mainview = @import("../../mainview.zig");
 
 const Allocator = @import("std").mem.Allocator;
 const fmt = @import("std").fmt;
@@ -26,19 +25,17 @@ commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
     const self: *Self = try allocator.create(Self);
-    if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
-        self.* = .{
-            .allocator = allocator,
-            .start = editor.get_primary().cursor.row + 1,
-        };
-        try self.commands.init(self);
-        var mode = try keybind.mode("mini/goto", allocator, .{
-            .insert_command = "mini_mode_insert_bytes",
-        });
-        mode.event_handler = EventHandler.to_owned(self);
-        return .{ mode, .{ .name = name } };
+    const editor = tui.get_active_editor() orelse return error.NotFound;
+    self.* = .{
+        .allocator = allocator,
+        .start = editor.get_primary().cursor.row + 1,
     };
-    return error.NotFound;
+    try self.commands.init(self);
+    var mode = try keybind.mode("mini/goto", allocator, .{
+        .insert_command = "mini_mode_insert_bytes",
+    });
+    mode.event_handler = EventHandler.to_owned(self);
+    return .{ mode, .{ .name = name } };
 }
 
 pub fn deinit(self: *Self) void {

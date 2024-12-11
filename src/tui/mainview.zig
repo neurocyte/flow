@@ -37,8 +37,8 @@ floating_views: WidgetStack,
 commands: Commands = undefined,
 top_bar: ?*Widget = null,
 bottom_bar: ?*Widget = null,
-editor: ?*ed.Editor = null,
-view_widget_idx: usize,
+active_editor: ?usize = null,
+editors: std.ArrayListUnmanaged(*ed.Editor) = .{},
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history: location_history,
@@ -215,14 +215,25 @@ fn toggle_view(self: *Self, view: anytype) !void {
     tui.current().resize();
 }
 
+fn check_all_not_dirty(self: *const Self) command.Result {
+    for (self.editors.items) |editor|
+        if (editor.is_dirty())
+            return tp.exit("unsaved changes");
+}
+
+fn check_active_not_dirty(self: *const Self) command.Result {
+    if (self.active_editor) |idx|
+        if (self.editors.items[idx].is_dirty())
+            return tp.exit("unsaved changes");
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
     const Result = command.Result;
 
     pub fn quit(self: *Self, _: Ctx) Result {
-        if (self.editor) |editor| if (editor.is_dirty())
-            return tp.exit("unsaved changes");
+        try self.check_all_not_dirty();
         try tp.self_pid().send("quit");
     }
     pub const quit_meta = .{ .description = "Quit (exit) Flow Control" };
@@ -255,15 +266,12 @@ const cmds = struct {
         var project_dir: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
-        if (self.editor) |editor| {
-            if (editor.is_dirty())
-                return tp.exit("unsaved changes");
-            self.clear_file_stack();
+        try self.check_all_not_dirty();
+        for (self.editors.items) |editor| {
             editor.clear_diagnostics();
             try editor.close_file(.{});
-        } else {
-            self.clear_file_stack();
         }
+        self.clear_file_stack();
         self.clear_find_in_files_results(.diagnostics);
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false);
@@ -319,14 +327,11 @@ const cmds = struct {
         }
 
         const f = project_manager.normalize_file_path(file orelse return);
-        const same_file = if (self.editor) |editor| if (editor.file_path) |fp|
-            std.mem.eql(u8, fp, f)
-        else
-            false else false;
+        const same_file = if (self.get_active_file_path()) |fp| std.mem.eql(u8, fp, f) else false;
 
         if (!same_file) {
-            if (self.editor) |editor| {
-                if (editor.is_dirty()) return tp.exit("unsaved changes");
+            if (self.get_active_editor()) |editor| {
+                try self.check_active_not_dirty();
                 editor.send_editor_jump_source() catch {};
             }
             try self.create_editor();
@@ -492,7 +497,7 @@ const cmds = struct {
             tp.extract(&sel.end.col),
         })) return error.InvalidArgument;
         file_path = project_manager.normalize_file_path(file_path);
-        if (self.editor) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
             try editor.add_diagnostic(file_path, source, code, message, severity, sel)
         else
             try self.add_find_in_files_result(
@@ -512,7 +517,7 @@ const cmds = struct {
         var file_path: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidArgument;
         file_path = project_manager.normalize_file_path(file_path);
-        if (self.editor) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
             editor.clear_diagnostics();
 
         self.clear_find_in_files_results(.diagnostics);
@@ -522,7 +527,7 @@ const cmds = struct {
     pub const clear_diagnostics_meta = .{ .arguments = &.{.string} };
 
     pub fn show_diagnostics(self: *Self, _: Ctx) Result {
-        const editor = self.editor orelse return;
+        const editor = self.get_active_editor() orelse return;
         self.clear_find_in_files_results(.diagnostics);
         for (editor.diagnostics.items) |diagnostic| {
             try self.add_find_in_files_result(
@@ -565,7 +570,7 @@ const cmds = struct {
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    const editor = if (self.editor) |editor_| editor_ else return;
+    const editor = self.get_active_editor() orelse return;
     var sel: ed.Selection = undefined;
 
     if (try m.match(.{ "E", "location", tp.more }))
@@ -576,7 +581,7 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
             self.show_file_async_and_free(file_path)
         else
             self.show_home_async();
-        self.editor = null;
+        self.active_editor = null;
         return;
     }
 
@@ -601,7 +606,7 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
 pub fn location_update(self: *Self, m: tp.message) tp.result {
     var row: usize = 0;
     var col: usize = 0;
-    const file_path = (self.editor orelse return).file_path orelse return;
+    const file_path = self.get_active_file_path() orelse return;
 
     if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col) })) {
         if (row == 0 and col == 0) return;
@@ -646,8 +651,12 @@ fn store_last_match_text(self: *Self, text: ?[]const u8) void {
     self.last_match_text = text;
 }
 
-pub fn get_editor(self: *Self) ?*ed.Editor {
-    return self.editor;
+pub fn get_active_editor(self: *Self) ?*ed.Editor {
+    return self.editors.items[self.active_editor orelse return null];
+}
+
+pub fn get_active_file_path(self: *Self) ?[]const u8 {
+    return if (self.get_active_editor()) |editor| editor.file_path orelse null else null;
 }
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
@@ -702,29 +711,27 @@ fn create_home(self: *Self) !void {
 }
 
 fn write_restore_info(self: *Self) void {
-    if (self.editor) |editor| {
-        var sfa = std.heap.stackFallback(512, self.allocator);
-        const a = sfa.get();
-        var meta = std.ArrayList(u8).init(a);
-        editor.write_state(meta.writer()) catch return;
-        const file_name = root.get_restore_file_name() catch return;
-        var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch return;
-        defer file.close();
-        file.writeAll(meta.items) catch return;
-    }
+    const editor = self.get_active_editor() orelse return;
+    var sfa = std.heap.stackFallback(512, self.allocator);
+    const a = sfa.get();
+    var meta = std.ArrayList(u8).init(a);
+    editor.write_state(meta.writer()) catch return;
+    const file_name = root.get_restore_file_name() catch return;
+    var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch return;
+    defer file.close();
+    file.writeAll(meta.items) catch return;
 }
 
 fn read_restore_info(self: *Self) !void {
-    if (self.editor) |editor| {
-        const file_name = try root.get_restore_file_name();
-        const file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
-        defer file.close();
-        const stat = try file.stat();
-        var buf = try self.allocator.alloc(u8, @intCast(stat.size));
-        defer self.allocator.free(buf);
-        const size = try file.readAll(buf);
-        try editor.extract_state(buf[0..size]);
-    }
+    const editor = self.get_active_editor() orelse return;
+    const file_name = try root.get_restore_file_name();
+    const file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
+    defer file.close();
+    const stat = try file.stat();
+    var buf = try self.allocator.alloc(u8, @intCast(stat.size));
+    defer self.allocator.free(buf);
+    const size = try file.readAll(buf);
+    try editor.extract_state(buf[0..size]);
 }
 
 fn push_file_stack(self: *Self, file_path: []const u8) !void {
@@ -800,7 +807,7 @@ fn add_info_content(
     info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace());
 
     const match: ed.Match = .{ .begin = .{ .row = begin_line, .col = begin_pos }, .end = .{ .row = end_line, .col = end_pos } };
-    if (self.editor) |editor|
+    if (self.get_active_editor()) |editor|
         switch (editor.matches.items.len) {
             0 => {
                 (editor.matches.addOne() catch return).* = match;

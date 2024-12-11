@@ -5,7 +5,6 @@ const syntax = @import("syntax");
 
 const Widget = @import("../../Widget.zig");
 const tui = @import("../../tui.zig");
-const mainview = @import("../../mainview.zig");
 
 pub const Type = @import("palette.zig").Create(@This());
 
@@ -32,9 +31,9 @@ pub fn load_entries(palette: *Type) !usize {
     var longest_hint: usize = 0;
     var idx: usize = 0;
     previous_file_type = blk: {
-        if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
-            if (editor.syntax) |editor_syntax| break :blk editor_syntax.file_type.name;
-        };
+        if (tui.get_active_editor()) |editor|
+            if (editor.syntax) |editor_syntax|
+                break :blk editor_syntax.file_type.name;
         break :blk null;
     };
 

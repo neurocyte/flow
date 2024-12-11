@@ -6,7 +6,6 @@ const command = @import("command");
 const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
-const mainview = @import("../../mainview.zig");
 const ed = @import("../../editor.zig");
 
 const Allocator = @import("std").mem.Allocator;
@@ -28,29 +27,27 @@ history_pos: ?usize = null,
 commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
-    if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
-        const self: *Self = try allocator.create(Self);
-        self.* = .{
-            .allocator = allocator,
-            .input = ArrayList(u8).init(allocator),
-            .last_input = ArrayList(u8).init(allocator),
-            .start_view = editor.view,
-            .start_cursor = editor.get_primary().cursor,
-            .editor = editor,
-        };
-        try self.commands.init(self);
-        if (editor.get_primary().selection) |sel| ret: {
-            const text = editor.get_selection(sel, self.allocator) catch break :ret;
-            defer self.allocator.free(text);
-            try self.input.appendSlice(text);
-        }
-        var mode = try keybind.mode("mini/find", allocator, .{
-            .insert_command = "mini_mode_insert_bytes",
-        });
-        mode.event_handler = EventHandler.to_owned(self);
-        return .{ mode, .{ .name = name } };
+    const editor = tui.get_active_editor() orelse return error.NotFound;
+    const self: *Self = try allocator.create(Self);
+    self.* = .{
+        .allocator = allocator,
+        .input = ArrayList(u8).init(allocator),
+        .last_input = ArrayList(u8).init(allocator),
+        .start_view = editor.view,
+        .start_cursor = editor.get_primary().cursor,
+        .editor = editor,
     };
-    return error.NotFound;
+    try self.commands.init(self);
+    if (editor.get_primary().selection) |sel| ret: {
+        const text = editor.get_selection(sel, self.allocator) catch break :ret;
+        defer self.allocator.free(text);
+        try self.input.appendSlice(text);
+    }
+    var mode = try keybind.mode("mini/find", allocator, .{
+        .insert_command = "mini_mode_insert_bytes",
+    });
+    mode.event_handler = EventHandler.to_owned(self);
+    return .{ mode, .{ .name = name } };
 }
 
 pub fn deinit(self: *Self) void {

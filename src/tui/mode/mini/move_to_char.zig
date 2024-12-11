@@ -6,7 +6,6 @@ const command = @import("command");
 const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
-const mainview = @import("../../mainview.zig");
 
 const Allocator = @import("std").mem.Allocator;
 
@@ -32,7 +31,7 @@ const Operation = enum {
 
 pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
     var right: bool = true;
-    const select = if (tui.current().mainview.dynamic_cast(mainview)) |mv| if (mv.get_editor()) |editor| if (editor.get_primary().selection) |_| true else false else false else false;
+    const select = if (tui.get_active_editor()) |editor| if (editor.get_primary().selection) |_| true else false else false;
     _ = ctx.args.match(.{tp.extract(&right)}) catch return error.InvalidArgument;
     const self: *Self = try allocator.create(Self);
     self.* = .{

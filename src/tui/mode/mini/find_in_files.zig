@@ -6,7 +6,6 @@ const command = @import("command");
 const EventHandler = @import("EventHandler");
 
 const tui = @import("../../tui.zig");
-const mainview = @import("../../mainview.zig");
 
 const Allocator = @import("std").mem.Allocator;
 const eql = @import("std").mem.eql;
@@ -21,30 +20,22 @@ buf: [1024]u8 = undefined,
 input: []u8 = "",
 last_buf: [1024]u8 = undefined,
 last_input: []u8 = "",
-mainview: *mainview,
 commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
     const self: *Self = try allocator.create(Self);
-    if (tui.current().mainview.dynamic_cast(mainview)) |mv| {
-        self.* = .{
-            .allocator = allocator,
-            .mainview = mv,
-        };
-        try self.commands.init(self);
-        if (mv.get_editor()) |editor| if (editor.get_primary().selection) |sel| ret: {
-            const text = editor.get_selection(sel, self.allocator) catch break :ret;
-            defer self.allocator.free(text);
-            @memcpy(self.buf[0..text.len], text);
-            self.input = self.buf[0..text.len];
-        };
-        var mode = try keybind.mode("mini/find_in_files", allocator, .{
-            .insert_command = "mini_mode_insert_bytes",
-        });
-        mode.event_handler = EventHandler.to_owned(self);
-        return .{ mode, .{ .name = name } };
+    self.* = .{ .allocator = allocator };
+    try self.commands.init(self);
+    if (tui.get_active_selection(self.allocator)) |text| {
+        defer self.allocator.free(text);
+        @memcpy(self.buf[0..text.len], text);
+        self.input = self.buf[0..text.len];
     }
-    return error.NotFound;
+    var mode = try keybind.mode("mini/find_in_files", allocator, .{
+        .insert_command = "mini_mode_insert_bytes",
+    });
+    mode.event_handler = EventHandler.to_owned(self);
+    return .{ mode, .{ .name = name } };
 }
 
 pub fn deinit(self: *Self) void {

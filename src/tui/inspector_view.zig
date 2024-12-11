@@ -11,7 +11,6 @@ const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
-const mainview = @import("mainview.zig");
 const ed = @import("editor.zig");
 
 pub const name = @typeName(Self);
@@ -25,18 +24,15 @@ last_node: usize = 0,
 const Self = @This();
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
-    if (tui.current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_editor()) |editor| {
-        const self: *Self = try allocator.create(Self);
-        self.* = .{
-            .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
-            .editor = editor,
-            .pos_cache = try ed.PosToWidthCache.init(allocator),
-        };
-
-        try editor.handlers.add(EventHandler.bind(self, ed_receive));
-        return Widget.to(self);
+    const editor = tui.get_active_editor() orelse return error.NotFound;
+    const self: *Self = try allocator.create(Self);
+    self.* = .{
+        .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
+        .editor = editor,
+        .pos_cache = try ed.PosToWidthCache.init(allocator),
     };
-    return error.NotFound;
+    try editor.handlers.add(EventHandler.bind(self, ed_receive));
+    return Widget.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
