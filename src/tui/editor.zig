@@ -1993,14 +1993,14 @@ pub const Editor = struct {
         tui.current().rdr.copy_to_system_clipboard(text);
     }
 
-    fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]const u8 {
+    fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]u8 {
         var size: usize = 0;
         _ = try root.get_range(sel, null, &size, null, metrics);
         const buf__ = try text_allocator.alloc(u8, size);
         return (try root.get_range(sel, buf__, null, null, metrics)).?;
     }
 
-    pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) ![]const u8 {
+    pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) ![]u8 {
         return copy_selection(try self.buf_root(), sel, text_allocator, self.metrics);
     }
 
