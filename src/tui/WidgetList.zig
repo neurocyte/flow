@@ -108,6 +108,10 @@ pub fn swap(self: *Self, n: usize, w: Widget) Widget {
     return old.widget;
 }
 
+pub fn delete(self: *Self, n: usize) void {
+    self.widgets.orderedRemove(n).widget.deinit(self.allocator);
+}
+
 pub fn replace(self: *Self, n: usize, w: Widget) void {
     const old = self.swap(n, w);
     old.deinit(self.allocator);
