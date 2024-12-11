@@ -646,16 +646,16 @@ pub fn get_restore_file_name() ![]const u8 {
 
 const keybind_dir = "keys";
 
-pub fn get_keybind_namespaces_directory() ![]const u8 {
+fn get_keybind_namespaces_directory() ![]const u8 {
     const local = struct {
         var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
     const a = std.heap.c_allocator;
     if (std.process.getEnvVarOwned(a, "FLOW_KEYS_DIR") catch null) |dir| {
         defer a.free(dir);
-        return try std.fmt.bufPrint(&local.dir_buffer, "{s}/", .{dir});
+        return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
     }
-    return try std.fmt.bufPrint(&local.dir_buffer, "{s}/{s}/", .{ try get_app_config_dir(application_name), keybind_dir });
+    return try std.fmt.bufPrint(&local.dir_buffer, "{s}/{s}", .{ try get_app_config_dir(application_name), keybind_dir });
 }
 
 pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
