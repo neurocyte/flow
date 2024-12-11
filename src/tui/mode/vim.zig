@@ -111,5 +111,4 @@ const cmds_ = struct {
         //self.clamp();
     }
     pub const delete_line_meta = .{ .description = "Delete the current line without copying" };
-
 };

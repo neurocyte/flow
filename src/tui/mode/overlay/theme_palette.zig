@@ -37,7 +37,7 @@ pub fn load_entries(palette: *Type) !usize {
         if (previous_theme) |theme_name| if (std.mem.eql(u8, theme.name, theme_name)) {
             palette.initial_selected = idx;
         };
-        longest_hint = @max(longest_hint, theme.name.len);                                                            
+        longest_hint = @max(longest_hint, theme.name.len);
     }
     return longest_hint;
 }
