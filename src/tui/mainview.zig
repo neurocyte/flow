@@ -439,6 +439,11 @@ const cmds = struct {
     }
     pub const show_home_meta = .{};
 
+    pub fn add_split(self: *Self, _: Ctx) Result {
+        return self.create_home_split();
+    }
+    pub const add_split_meta = .{};
+
     pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
         const tui_ = tui.current();
         var ln = tui_.config.gutter_line_numbers;
@@ -740,6 +745,12 @@ fn create_home(self: *Self) !void {
     if (self.active_editor) |_| return;
     try self.delete_active_view();
     try self.replace_active_view(try home.create(self.allocator, Widget.to(self)));
+    tui.current().resize();
+}
+
+fn create_home_split(self: *Self) !void {
+    tui.reset_drag_context();
+    try self.add_view(try home.create(self.allocator, Widget.to(self)));
     tui.current().resize();
 }
 
