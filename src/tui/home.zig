@@ -57,7 +57,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     try self.commands.init(self);
     self.get_max_desc_len(keybind_mode.keybind_hints);
     inline for (menu_commands) |command_name| try self.add_menu_command(command_name, self.menu, keybind_mode.keybind_hints);
-    self.menu.resize(.{ .y = 15, .x = 9, .w = self.menu_w });
+    self.position_menu(15, 9);
     return w;
 }
 
@@ -175,7 +175,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.cursor_move_yx(10, 8) catch return false;
         fonts.print_string_medium(&self.plane, root.application_subtext, style_subtext) catch return false;
 
-        self.menu.resize(.{ .y = 15, .x = 10, .w = self.menu_w });
+        self.position_menu(15, 10);
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
         self.plane.cursor_move_yx(2, 4) catch return false;
         fonts.print_string_medium(&self.plane, root.application_title, style_title) catch return false;
@@ -185,7 +185,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         _ = self.plane.print(root.application_subtext, .{}) catch {};
         self.plane.set_style(theme.editor);
 
-        self.menu.resize(.{ .y = 9, .x = 8, .w = self.menu_w });
+        self.position_menu(9, 8);
     } else {
         self.plane.set_style_bg_transparent(style_title);
         self.plane.cursor_move_yx(1, 4) catch return false;
@@ -197,11 +197,16 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.set_style(theme.editor);
 
         const x = @min(self.plane.dim_x() -| 32, 8);
-        self.menu.resize(.{ .y = 5, .x = x, .w = self.menu_w });
+        self.position_menu(5, x);
     }
     const more = self.menu.render(theme);
 
     return more or self.fire != null;
+}
+
+fn position_menu(self: *Self, y: usize, x: usize) void {
+    const box = Widget.Box.from(self.plane);
+    self.menu.resize(.{ .y = box.y + y, .x = box.x + x, .w = self.menu_w });
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
