@@ -39,6 +39,9 @@ top_bar: ?*Widget = null,
 bottom_bar: ?*Widget = null,
 active_editor: ?usize = null,
 editors: std.ArrayListUnmanaged(*ed.Editor) = .{},
+views: *WidgetList,
+views_widget: Widget,
+active_view: ?usize = 0,
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history: location_history,
@@ -63,18 +66,25 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
         .floating_views = WidgetStack.init(allocator),
         .location_history = try location_history.create(),
         .file_stack = std.ArrayList([]const u8).init(allocator),
-        .view_widget_idx = 0,
+        .views = undefined,
+        .views_widget = undefined,
     };
     try self.commands.init(self);
     const w = Widget.to(self);
+
     const widgets = try WidgetList.createV(allocator, w, @typeName(Self), .dynamic);
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
-    if (tui.current().config.top_bar.len > 0) {
+    if (tui.current().config.top_bar.len > 0)
         self.top_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, w, tui.current().config.top_bar, .none, null));
-        self.view_widget_idx += 1;
-    }
-    try widgets.add(try Widget.empty(allocator, self.widgets_widget.plane.*, .dynamic));
+
+    const views = try WidgetList.createH(allocator, self.widgets_widget, @typeName(Self), .dynamic);
+    self.views = views;
+    self.views_widget = views.widget();
+    try views.add(try Widget.empty(allocator, self.views_widget.plane.*, .dynamic));
+
+    try widgets.add(self.views_widget);
+
     if (tui.current().config.bottom_bar.len > 0) {
         self.bottom_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, w, tui.current().config.bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)));
     }
@@ -663,9 +673,35 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
     return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f, &self.widgets_widget) or f(ctx, w);
 }
 
+fn add_editor(self: *Self, p: *ed.Editor) !void {
+    try self.editors.resize(self.allocator, 1);
+    self.editors.items[0] = p;
+    self.active_editor = 0;
+}
+
+fn remove_editor(self: *Self, idx: usize) void {
+    _ = idx;
+    self.editors.clearRetainingCapacity();
+    self.active_editor = null;
+}
+
+fn add_view(self: *Self, widget: Widget) !void {
+    try self.views.add(widget);
+}
+
+fn delete_active_view(self: *Self) !void {
+    const n = self.active_view orelse return;
+    self.views.replace(n, try Widget.empty(self.allocator, self.plane, .dynamic));
+}
+
+fn replace_active_view(self: *Self, widget: Widget) !void {
+    const n = self.active_view orelse return error.NotFound;
+    self.views.replace(n, widget);
+}
+
 fn create_editor(self: *Self) !void {
-    if (self.editor) |editor| if (editor.file_path) |file_path| self.push_file_stack(file_path) catch {};
-    self.widgets.replace(self.view_widget_idx, try Widget.empty(self.allocator, self.plane, .dynamic));
+    if (self.get_active_file_path()) |file_path| self.push_file_stack(file_path) catch {};
+    try self.delete_active_view();
     command.executeName("enter_mode_default", .{}) catch {};
     var editor_widget = try ed.create(self.allocator, Widget.to(self));
     errdefer editor_widget.deinit(self.allocator);
@@ -673,9 +709,12 @@ fn create_editor(self: *Self) !void {
         if (self.top_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
         if (self.bottom_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
         editor.subscribe(EventHandler.bind(self, handle_editor_event)) catch @panic("subscribe unsupported");
-        self.editor = if (editor.dynamic_cast(ed.EditorWidget)) |p| &p.editor else null;
+        if (editor.dynamic_cast(ed.EditorWidget)) |p|
+            try self.add_editor(&p.editor)
+        else
+            self.remove_editor(0);
     } else @panic("mainview editor not found");
-    self.widgets.replace(self.view_widget_idx, editor_widget);
+    try self.replace_active_view(editor_widget);
     tui.current().resize();
 }
 
@@ -698,15 +737,9 @@ fn show_home_async(_: *Self) void {
 
 fn create_home(self: *Self) !void {
     tui.reset_drag_context();
-    if (self.editor) |_| return;
-    self.widgets.replace(
-        self.view_widget_idx,
-        try Widget.empty(self.allocator, self.widgets_widget.plane.*, .dynamic),
-    );
-    self.widgets.replace(
-        self.view_widget_idx,
-        try home.create(self.allocator, Widget.to(self)),
-    );
+    if (self.active_editor) |_| return;
+    try self.delete_active_view();
+    try self.replace_active_view(try home.create(self.allocator, Widget.to(self)));
     tui.current().resize();
 }
 
