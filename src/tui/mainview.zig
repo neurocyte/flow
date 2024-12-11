@@ -551,6 +551,17 @@ const cmds = struct {
         tui.current().rdr.request_system_clipboard();
     }
     pub const system_paste_meta = .{ .description = "Paste from system clipboard" };
+
+    pub fn find_in_files_query(self: *Self, ctx: Ctx) Result {
+        var query: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&query)})) return error.InvalidArgument;
+        log.logger("find").print("finding files...", .{});
+        const find_f = ripgrep.find_in_files;
+        if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
+        var rg = try find_f(self.allocator, query, "FIF");
+        defer rg.deinit();
+    }
+    pub const find_in_files_query_meta = .{ .arguments = &.{.string} };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
@@ -585,14 +596,6 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         }
         return;
     }
-}
-
-pub fn find_in_files(self: *Self, query: []const u8) !void {
-    log.logger("find").print("finding files...", .{});
-    const find_f = ripgrep.find_in_files;
-    if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
-    var rg = try find_f(self.allocator, query, "FIF");
-    defer rg.deinit();
 }
 
 pub fn location_update(self: *Self, m: tp.message) tp.result {

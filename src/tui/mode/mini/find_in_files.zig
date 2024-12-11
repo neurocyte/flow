@@ -86,7 +86,7 @@ fn flush_input(self: *Self) !void {
             return;
         @memcpy(self.last_buf[0..self.input.len], self.input);
         self.last_input = self.last_buf[0..self.input.len];
-        try self.mainview.find_in_files(self.input);
+        try command.executeName("find_in_files_query", command.fmt(.{self.input}));
     }
 }
 
