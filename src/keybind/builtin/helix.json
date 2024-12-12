@@ -86,6 +86,7 @@
 
             ["shift+j", "join_selections"],
 
+            [":", "open_command_palette"],
             ["shift+;", "open_command_palette"],
 
             ["shift+7", "align_selections"],
@@ -352,6 +353,7 @@
     
             ["shift+j", "join_selections"],
     
+            [":", "open_command_palette"],
             ["shift+;", "open_command_palette"],
     
             ["shift+7", "align_selections"],
@@ -507,6 +509,7 @@
     "home": {
         "on_match_failure": "ignore",
         "press": [
+            [":", "open_command_palette"],
             [";", "open_command_palette"],
             ["shift+;", "open_command_palette"],
             ["b", "open_keybind_config"],

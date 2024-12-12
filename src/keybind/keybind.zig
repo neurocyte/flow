@@ -720,6 +720,8 @@ const match_test_cases = .{
     .{ "<C-o>", "<C-o>", .matched },
     .{ "<S-'><S-->dd", "<S-'><S-->dd", .matched },
     .{ "<S-'><S-->dd", "<S-'><S-->da", .match_impossible },
+    .{ ":", ":", .matched },
+    .{ ":", ";", .match_impossible },
 };
 
 test "match" {

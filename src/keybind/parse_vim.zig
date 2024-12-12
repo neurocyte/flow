@@ -92,7 +92,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
                     //lowercase characters
                     'a'...'z',
                     '0'...'9',
-                    '`', '-', '=', '[', ']', '\\', ';', '\'', ',', '.', '/', => {
+                    '`', '-', '=', '[', ']', '\\', ':', ';', '\'', ',', '.', '/', => {
                         try result.append(.{ .key = str[i] });
                         i += 1;
                     },
@@ -340,7 +340,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
                     //lowercase characters only inside the escape sequence
                     'a'...'z',
                     '0'...'9',
-                    '`', '-', '=', '[', ']', '\\', ';', '\'', ',', '.', '/',
+                    '`', '-', '=', '[', ']', '\\', ':', ';', '\'', ',', '.', '/',
                      => {
                         try result.append(.{ .key = str[i], .modifiers = modifiers });
                         modifiers = 0;
