@@ -133,7 +133,9 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else style_label;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
     const sep = std.mem.indexOfScalar(u8, button.opts.label, ':') orelse button.opts.label.len;
-    if (button.active or button.hover or selected) {
+    if (button.active) {
+        button.plane.set_style(style_label);
+    } else if (button.hover or selected) {
         button.plane.set_style(style_text);
     } else {
         button.plane.set_style_bg_transparent(style_text);
