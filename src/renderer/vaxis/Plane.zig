@@ -114,6 +114,12 @@ pub fn home(self: *Plane) void {
     self.col = 0;
 }
 
+pub fn fill(self: *Plane, egc: []const u8) void {
+    for (0..self.dim_y()) |y|
+        for (0..self.dim_x()) |x|
+            self.write_cell(x, y, egc);
+}
+
 pub fn fill_width(self: *Plane, comptime fmt: anytype, args: anytype) !usize {
     var buf: [fmt.len + 4096]u8 = undefined;
     var pos: usize = 0;

@@ -121,8 +121,11 @@ inline fn get_width(self: *Self) usize {
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = "gutter render" });
     defer frame.deinit();
-    self.plane.set_base_style(theme.editor_gutter);
+    self.plane.set_base_style(theme.editor);
     self.plane.erase();
+    self.plane.home();
+    self.plane.set_style(theme.editor_gutter);
+    _ = self.plane.fill(" ");
     if (self.linenum) {
         const relative = self.relative or if (tui.current().input_mode) |mode| mode.line_numbers == .relative else false;
         if (relative)
@@ -160,10 +163,10 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
         if (linenum == self.line + 1) {
-            self.plane.set_style(theme.editor_gutter_active);
+            self.plane.set_style(.{ .fg = theme.editor_gutter_active.fg });
             self.plane.on_styles(style.bold);
         } else {
-            self.plane.set_style(theme.editor_gutter);
+            self.plane.set_style(.{ .fg = theme.editor_gutter.fg });
             self.plane.off_styles(style.bold);
         }
         _ = self.plane.print_aligned_right(@intCast(pos), "{s}", .{std.fmt.bufPrintZ(&buf, "{d} ", .{linenum}) catch return}) catch {};
