@@ -99,7 +99,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
     self.plane.home();
     self.plane.set_style(if (self.hover) theme.statusbar_hover else theme.statusbar);
-    _ = self.plane.fill_width(" ", .{}) catch {};
+    self.plane.fill(" ");
     self.plane.home();
     return if (self.keys[0].id > 0) self.render_active() else self.render_idle();
 }

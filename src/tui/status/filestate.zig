@@ -82,11 +82,11 @@ pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme)
     btn.plane.erase();
     btn.plane.home();
     btn.plane.set_style(style_base);
-    _ = btn.plane.fill_width(" ", .{}) catch {};
+    btn.plane.fill(" ");
     btn.plane.home();
     btn.plane.set_style(style_label);
     if (btn.active) {
-        _ = btn.plane.fill_width(" ", .{}) catch {};
+        btn.plane.fill(" ");
         btn.plane.home();
     }
     if (tui.current().mini_mode) |_|

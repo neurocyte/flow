@@ -44,7 +44,7 @@ pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme)
     btn.plane.erase();
     btn.plane.home();
     btn.plane.set_style(bg_style);
-    _ = btn.plane.fill_width(" ", .{}) catch {};
+    btn.plane.fill(" ");
     btn.plane.home();
     _ = btn.plane.putstr(self.rendered) catch {};
     return false;

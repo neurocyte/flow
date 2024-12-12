@@ -73,7 +73,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
     self.plane.home();
     self.plane.set_style(style_normal);
-    _ = self.plane.fill_width(" ", .{}) catch {};
+    self.plane.fill(" ");
     self.plane.home();
     self.plane.set_style(if (self.level == .err) style_error else style_info);
     _ = self.plane.print(" {s} ", .{self.msg.items}) catch {};

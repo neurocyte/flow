@@ -117,7 +117,7 @@ pub fn Create(options: type) type {
             button.plane.home();
             button.plane.set_style(style_label);
             if (button.active or button.hover or selected) {
-                _ = button.plane.fill_width(" ", .{}) catch {};
+                button.plane.fill(" ");
                 button.plane.home();
             }
             var label: []const u8 = undefined;

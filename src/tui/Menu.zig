@@ -33,7 +33,7 @@ pub fn Options(context: type) type {
             button.plane.home();
             if (button.active or button.hover or selected) {
                 button.plane.set_style(style_label);
-                _ = button.plane.fill_width(" ", .{}) catch {};
+                button.plane.fill(" ");
                 button.plane.home();
             }
             _ = button.plane.print(" {s} ", .{button.opts.label}) catch {};

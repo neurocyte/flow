@@ -47,10 +47,10 @@ pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) b
     self.plane.erase();
     self.plane.home();
     self.plane.set_style(style_base);
-    _ = self.plane.fill_width(" ", .{}) catch {};
+    self.plane.fill(" ");
     self.plane.home();
     self.plane.set_style(style_label);
-    _ = self.plane.fill_width(" ", .{}) catch {};
+    self.plane.fill(" ");
     self.plane.home();
     self.plane.on_styles(style.bold);
     var buf: [31:0]u8 = undefined;

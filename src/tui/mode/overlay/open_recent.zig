@@ -102,7 +102,7 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     button.plane.home();
     button.plane.set_style(style_label);
     if (button.active or button.hover or selected) {
-        _ = button.plane.fill_width(" ", .{}) catch {};
+        button.plane.fill(" ");
         button.plane.home();
     }
     var file_path: []const u8 = undefined;

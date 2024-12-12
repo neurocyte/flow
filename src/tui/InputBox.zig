@@ -27,7 +27,7 @@ pub fn Options(context: type) type {
             self.plane.erase();
             self.plane.home();
             self.plane.set_style(style_label);
-            _ = self.plane.fill_width(" ", .{}) catch {};
+            self.plane.fill(" ");
             self.plane.home();
             if (self.text.items.len > 0) {
                 _ = self.plane.print(" {s} ", .{self.text.items}) catch {};

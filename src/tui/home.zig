@@ -127,7 +127,7 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     button.plane.home();
     button.plane.set_style(style_label);
     if (button.active or button.hover or selected) {
-        _ = button.plane.fill_width(" ", .{}) catch {};
+        button.plane.fill(" ");
         button.plane.home();
     }
     const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else style_label;

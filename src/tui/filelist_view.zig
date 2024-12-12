@@ -155,7 +155,7 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
     button.plane.home();
     button.plane.set_style(style_label);
     if (button.active or button.hover or selected) {
-        _ = button.plane.fill_width(" ", .{}) catch {};
+        button.plane.fill(" ");
         button.plane.home();
     }
     const entry = &self.entries.items[idx];

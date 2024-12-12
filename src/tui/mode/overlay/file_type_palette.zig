@@ -75,7 +75,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.
     button.plane.home();
     button.plane.set_style(style_label);
     if (button.active or button.hover or selected) {
-        _ = button.plane.fill_width(" ", .{}) catch {};
+        button.plane.fill(" ");
         button.plane.home();
     }
 
