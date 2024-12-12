@@ -40,8 +40,11 @@ pub fn layout(self: *Self, _: *Button.State(Self)) Widget.Layout {
 
 pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
     const bg_style = if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar;
-    btn.plane.set_base_style(bg_style);
+    btn.plane.set_base_style(theme.editor);
     btn.plane.erase();
+    btn.plane.home();
+    btn.plane.set_style(bg_style);
+    _ = btn.plane.fill_width(" ", .{}) catch {};
     btn.plane.home();
     _ = btn.plane.putstr(self.rendered) catch {};
     return false;

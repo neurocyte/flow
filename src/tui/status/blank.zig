@@ -35,8 +35,11 @@ pub fn layout(self: *Self) Widget.Layout {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    self.plane.set_base_style(theme.statusbar);
+    self.plane.set_base_style(theme.editor);
     self.plane.erase();
+    self.plane.home();
+    self.plane.set_style(theme.statusbar);
+    _ = self.plane.fill_width(" ", .{}) catch {};
     return false;
 }
 

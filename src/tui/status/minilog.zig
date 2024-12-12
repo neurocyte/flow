@@ -69,8 +69,11 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const style_normal = theme.statusbar;
     const style_info: Widget.Theme.Style = .{ .fg = theme.statusbar.fg, .fs = theme.editor_information.fs };
     const style_error: Widget.Theme.Style = .{ .fg = theme.editor_error.fg, .fs = theme.editor_error.fs };
-    self.plane.set_base_style(style_normal);
+    self.plane.set_base_style(theme.editor);
     self.plane.erase();
+    self.plane.home();
+    self.plane.set_style(style_normal);
+    _ = self.plane.fill_width(" ", .{}) catch {};
     self.plane.home();
     self.plane.set_style(if (self.level == .err) style_error else style_info);
     _ = self.plane.print(" {s} ", .{self.msg.items}) catch {};

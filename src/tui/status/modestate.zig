@@ -43,8 +43,11 @@ fn is_overlay_mode() bool {
 pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) bool {
     const style_base = theme.statusbar;
     const style_label = if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover;
-    self.plane.set_base_style(style_base);
+    self.plane.set_base_style(theme.editor);
     self.plane.erase();
+    self.plane.home();
+    self.plane.set_style(style_base);
+    _ = self.plane.fill_width(" ", .{}) catch {};
     self.plane.home();
     self.plane.set_style(style_label);
     _ = self.plane.fill_width(" ", .{}) catch {};

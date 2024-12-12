@@ -78,8 +78,11 @@ pub fn layout(_: *Self, _: *Button.State(Self)) Widget.Layout {
 pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
     const style_base = theme.statusbar;
     const style_label = if (btn.active) theme.editor_cursor else style_base;
-    btn.plane.set_base_style(style_base);
+    btn.plane.set_base_style(theme.editor);
     btn.plane.erase();
+    btn.plane.home();
+    btn.plane.set_style(style_base);
+    _ = btn.plane.fill_width(" ", .{}) catch {};
     btn.plane.home();
     btn.plane.set_style(style_label);
     if (btn.active) {
