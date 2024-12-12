@@ -27,7 +27,7 @@ const cmds_ = struct {
     pub fn w(_: *void, _: Ctx) Result {
         try cmd("save_file", .{});
     }
-    pub const w_meta = .{ .description = "w (write file)" };
+    pub const w_meta = .{ .description = "w (write/save file)" };
 
     pub fn q(_: *void, _: Ctx) Result {
         try cmd("quit", .{});
@@ -42,7 +42,7 @@ const cmds_ = struct {
     pub fn wq(_: *void, _: Ctx) Result {
         try cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
     }
-    pub const wq_meta = .{ .description = "wq (write file and quit)" };
+    pub const wq_meta = .{ .description = "wq (write/save file and quit)" };
 
     pub fn o(_: *void, _: Ctx) Result {
         try cmd("open_file", .{});
@@ -53,7 +53,7 @@ const cmds_ = struct {
         cmd("save_file", .{}) catch {};
         try cmd("quit_without_saving", .{});
     }
-    pub const @"wq!_meta" = .{ .description = "wq! (write file and quit without saving)" };
+    pub const @"wq!_meta" = .{ .description = "wq! (write/save file and quit without saving)" };
 
     pub fn save_selection(_: *void, _: Ctx) Result {
         const logger = log.logger("helix-mode");
