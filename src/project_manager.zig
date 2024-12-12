@@ -109,7 +109,8 @@ pub fn did_open(file_path: []const u8, file_type: *const FileType, version: usiz
     if (project.len == 0)
         return error.NoProject;
     const text_ptr: usize = if (text.len > 0) @intFromPtr(text.ptr) else 0;
-    return send(.{ "did_open", project, file_path, file_type.name, file_type.language_server, version, text_ptr, text.len });
+    const language_server = file_type.language_server orelse return;
+    return send(.{ "did_open", project, file_path, file_type.name, language_server, version, text_ptr, text.len });
 }
 
 pub fn did_change(file_path: []const u8, version: usize, root_dst: usize, root_src: usize, eol_mode: Buffer.EolMode) (ProjectManagerError || ProjectError)!void {
