@@ -248,6 +248,15 @@ pub const lua = .{
     .language_server = .{"lua-lsp"},
 };
 
+pub const mail = .{
+    .description = "E-Mail",
+    .icon = "󰇮",
+    .extensions = .{ "eml", "mbox" },
+    .comment = ">",
+    .highlights = "tree-sitter-mail/queries/mail/highlights.scm",
+    .first_line_matches = .{ .prefix = "From" },
+};
+
 pub const make = .{
     .description = "Make",
     .extensions = .{ "makefile", "Makefile", "MAKEFILE", "GNUmakefile", "mk", "mak", "dsp" },
