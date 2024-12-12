@@ -358,7 +358,7 @@ pub inline fn reverse_style(self: *Plane) void {
 }
 
 pub inline fn set_style(self: *Plane, style_: Style) void {
-    if (style_.fg) |col| self.style.fg = apply_alpha(self.style_base.fg, col);
+    if (style_.fg) |col| self.style.fg = apply_alpha(self.style_base.bg, col);
     if (style_.bg) |col| self.style.bg = apply_alpha(self.style_base.bg, col);
     if (style_.fs) |fs| set_font_style(&self.style, fs);
     self.transparent = false;
