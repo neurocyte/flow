@@ -593,7 +593,7 @@ const BindingSet = struct {
         try globals.current_sequence.append(globals_allocator, event);
         var buf: [6]u8 = undefined;
         const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
-        if (!input.is_non_input_key(event.key))
+        if ((event.modifiers == 0 or event.modifiers == input.mod.shift) and !input.is_non_input_key(event.key))
             try globals.current_sequence_egc.appendSlice(globals_allocator, buf[0..bytes]);
 
         var all_matches_impossible = true;
