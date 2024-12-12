@@ -575,7 +575,9 @@ const cmds = struct {
     pub fn find_in_files_query(self: *Self, ctx: Ctx) Result {
         var query: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&query)})) return error.InvalidFindInFilesQueryArgument;
-        log.logger("find").print("finding files...", .{});
+        const logger = log.logger("find");
+        defer logger.deinit();
+        logger.print("finding files...", .{});
         const find_f = ripgrep.find_in_files;
         if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
         var rg = try find_f(self.allocator, query, "FIF");
