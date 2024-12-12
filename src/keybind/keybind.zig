@@ -587,6 +587,9 @@ const BindingSet = struct {
         }
         globals.last_key_event_timestamp_ms = timestamp;
 
+        if (globals.current_sequence.items.len > 0 and input.is_modifier(event.key))
+            return null;
+
         try globals.current_sequence.append(globals_allocator, event);
         var buf: [6]u8 = undefined;
         const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
