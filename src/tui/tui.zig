@@ -642,7 +642,7 @@ const cmds = struct {
     pub fn set_theme(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&name)}))
-            return tp.exit_error(error.InvalidArgument, null);
+            return tp.exit_error(error.InvalidSetThemeArgument, null);
         self.theme = get_theme_by_name(name) orelse {
             self.logger.print("theme not found: {s}", .{name});
             return;
@@ -713,7 +713,7 @@ const cmds = struct {
     pub fn enter_mode(self: *Self, ctx: Ctx) Result {
         var mode: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&mode)}))
-            return tp.exit_error(error.InvalidArgument, null);
+            return tp.exit_error(error.InvalidEnterModeArgument, null);
 
         var new_mode = self.get_input_mode(mode) catch ret: {
             self.logger.print("unknown mode {s}", .{mode});
@@ -835,11 +835,11 @@ const cmds = struct {
         var iter = ctx.args.buf;
         var len = try cbor.decodeArrayHeader(&iter);
         if (len < 1)
-            return tp.exit_error(error.InvalidArgument, null);
+            return tp.exit_error(error.InvalidRunAsyncArgument, null);
 
         var cmd: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract(&cmd)))
-            return tp.exit_error(error.InvalidArgument, null);
+            return tp.exit_error(error.InvalidRunAsyncArgument, null);
         len -= 1;
 
         var args = std.ArrayList([]const u8).init(self.allocator);
@@ -848,7 +848,7 @@ const cmds = struct {
             var arg: []const u8 = undefined;
             if (try cbor.matchValue(&iter, cbor.extract_cbor(&arg))) {
                 try args.append(arg);
-            } else return tp.exit_error(error.InvalidArgument, null);
+            } else return tp.exit_error(error.InvalidRunAsyncArgument, null);
         }
 
         var args_cb = std.ArrayList(u8).init(self.allocator);

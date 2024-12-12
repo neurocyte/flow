@@ -32,7 +32,7 @@ const Operation = enum {
 pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
     var right: bool = true;
     const select = if (tui.get_active_editor()) |editor| if (editor.get_primary().selection) |_| true else false else false;
-    _ = ctx.args.match(.{tp.extract(&right)}) catch return error.InvalidArgument;
+    _ = ctx.args.match(.{tp.extract(&right)}) catch return error.InvalidMoveToCharArgument;
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
@@ -92,9 +92,9 @@ const cmds = struct {
     pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
         var code_point: u32 = 0;
         if (!try ctx.args.match(.{tp.extract(&code_point)}))
-            return error.InvalidArgument;
+            return error.InvalidMoveToCharInsertCodePointArgument;
         var buf: [6]u8 = undefined;
-        const bytes = input.ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidArgument;
+        const bytes = input.ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidMoveToCharCodePoint;
         return self.execute_operation(command.fmt(.{buf[0..bytes]}));
     }
     pub const mini_mode_insert_code_point_meta = .{ .arguments = &.{.integer} };
@@ -102,7 +102,7 @@ const cmds = struct {
     pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&bytes)}))
-            return error.InvalidArgument;
+            return error.InvalidMoveToCharInsertBytesArgument;
         return self.execute_operation(ctx);
     }
     pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };

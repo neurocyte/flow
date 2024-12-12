@@ -446,7 +446,7 @@ pub fn Create(options: type) type {
             pub fn overlay_insert_code_point(self: *Self, ctx: Ctx) Result {
                 var egc: u32 = 0;
                 if (!try ctx.args.match(.{tp.extract(&egc)}))
-                    return error.InvalidArgument;
+                    return error.InvalidPaletteInsertCodePointArgument;
                 self.insert_code_point(egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
             pub const overlay_insert_code_point_meta = .{ .arguments = &.{.integer} };
@@ -454,7 +454,7 @@ pub fn Create(options: type) type {
             pub fn overlay_insert_bytes(self: *Self, ctx: Ctx) Result {
                 var bytes: []const u8 = undefined;
                 if (!try ctx.args.match(.{tp.extract(&bytes)}))
-                    return error.InvalidArgument;
+                    return error.InvalidPaletteInsertBytesArgument;
                 self.insert_bytes(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
             pub const overlay_insert_bytes_meta = .{ .arguments = &.{.string} };

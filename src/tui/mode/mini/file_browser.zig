@@ -300,7 +300,7 @@ pub fn Create(options: type) type {
             pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
                 var egc: u32 = 0;
                 if (!try ctx.args.match(.{tp.extract(&egc)}))
-                    return error.InvalidArgument;
+                    return error.InvalidFileBrowserInsertCodePointArgument;
                 self.complete_trigger_count = 0;
                 var buf: [32]u8 = undefined;
                 const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
@@ -312,7 +312,7 @@ pub fn Create(options: type) type {
             pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
                 var bytes: []const u8 = undefined;
                 if (!try ctx.args.match(.{tp.extract(&bytes)}))
-                    return error.InvalidArgument;
+                    return error.InvalidFileBrowserInsertBytesArgument;
                 self.complete_trigger_count = 0;
                 try self.file_path.appendSlice(bytes);
                 self.update_mini_mode_text();

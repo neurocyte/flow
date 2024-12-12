@@ -1843,7 +1843,7 @@ pub const Editor = struct {
         var y: i32 = 0;
         var x: i32 = 0;
         if (!try ctx.args.match(.{ tp.extract(&y), tp.extract(&x) }))
-            return error.InvalidArgument;
+            return error.InvalidDragToArgument;
         return self.primary_drag(y, x);
     }
     pub const drag_to_meta = .{ .arguments = &.{ .integer, .integer } };
@@ -3114,7 +3114,7 @@ pub const Editor = struct {
     pub fn insert_chars(self: *Self, ctx: Context) Result {
         var chars: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&chars)}))
-            return error.InvalidArgument;
+            return error.InvalidInsertCharsArgument;
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
@@ -3410,7 +3410,7 @@ pub const Editor = struct {
         if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
             try self.open(file_path);
             self.clamp();
-        } else return error.InvalidArgument;
+        } else return error.InvalidOpenBufferFromFileArgument;
     }
     pub const open_buffer_from_file_meta = .{ .arguments = &.{.string} };
 
@@ -3420,7 +3420,7 @@ pub const Editor = struct {
         if (ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content) }) catch false) {
             try self.open_scratch(file_path, content);
             self.clamp();
-        } else return error.InvalidArgument;
+        } else return error.InvalidOpenScratchBufferArgument;
     }
     pub const open_scratch_buffer_meta = .{ .arguments = &.{ .string, .string } };
 
@@ -3450,7 +3450,7 @@ pub const Editor = struct {
         var file_path: []const u8 = undefined;
         if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
             try self.save_as(file_path);
-        } else return error.InvalidArgument;
+        } else return error.InvalidSafeFileAsArgument;
     }
     pub const save_file_as_meta = .{ .arguments = &.{.string} };
 
@@ -3471,7 +3471,7 @@ pub const Editor = struct {
         if (ctx.args.match(.{tp.extract(&query)}) catch false) {
             try self.find_in_buffer(query);
             self.clamp();
-        } else return error.InvalidArgument;
+        } else return error.InvalidFindQueryArgument;
     }
     pub const find_query_meta = .{ .arguments = &.{.string} };
 
@@ -3837,7 +3837,7 @@ pub const Editor = struct {
         try self.send_editor_jump_source();
         var line: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&line)}))
-            return error.InvalidArgument;
+            return error.InvalidGotoLineArgument;
         const root = self.buf_root() catch return;
         self.cancel_all_selections();
         const primary = self.get_primary();
@@ -3850,7 +3850,7 @@ pub const Editor = struct {
     pub fn goto_column(self: *Self, ctx: Context) Result {
         var column: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&column)}))
-            return error.InvalidArgument;
+            return error.InvalidGotoColumnArgument;
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
         try primary.cursor.move_to(root, primary.cursor.row, @intCast(if (column < 1) 0 else column - 1), self.metrics);
@@ -3879,7 +3879,7 @@ pub const Editor = struct {
         })) {
             // self.logger.print("goto: l:{d} c:{d} {any}", .{ line, column, sel });
             have_sel = true;
-        } else return error.InvalidArgument;
+        } else return error.InvalidGotoLineAndColumnArgument;
         self.cancel_all_selections();
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
@@ -4012,7 +4012,7 @@ pub const Editor = struct {
     pub fn select(self: *Self, ctx: Context) Result {
         var sel: Selection = .{};
         if (!try ctx.args.match(.{ tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) }))
-            return error.InvalidArgument;
+            return error.InvalidSelectArgument;
         self.get_primary().selection = sel;
     }
     pub const select_meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
@@ -4041,7 +4041,7 @@ pub const Editor = struct {
 
     pub fn filter(self: *Self, ctx: Context) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
-            return error.InvalidArgument;
+            return error.InvalidFilterArgument;
         try self.filter_cmd(ctx.args);
     }
     pub const filter_meta = .{ .arguments = &.{.string} };
@@ -4286,7 +4286,7 @@ pub const Editor = struct {
     pub fn set_file_type(self: *Self, ctx: Context) Result {
         var file_type: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&file_type)}))
-            return error.InvalidArgument;
+            return error.InvalidSetFileTypeArgument;
 
         if (self.syntax) |syn| syn.destroy();
         self.syntax_last_rendered_root = null;

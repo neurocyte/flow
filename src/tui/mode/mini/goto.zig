@@ -111,7 +111,7 @@ const cmds = struct {
     pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
         var keypress: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&keypress)}))
-            return error.InvalidArgument;
+            return error.InvalidGotoInsertCodePointArgument;
         switch (keypress) {
             '0'...'9' => self.insert_char(@intCast(keypress)),
             else => {},
@@ -124,7 +124,7 @@ const cmds = struct {
     pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&bytes)}))
-            return error.InvalidArgument;
+            return error.InvalidGotoInsertBytesArgument;
         self.insert_bytes(bytes);
         self.update_mini_mode_text();
         self.goto();

@@ -311,26 +311,26 @@ const cmds = struct {
             while (len > 0) : (len -= 1) {
                 var field_name: []const u8 = undefined;
                 if (!try cbor.matchString(&iter, &field_name))
-                    return error.InvalidArgument;
+                    return error.InvalidNavigateArgumentFieldName;
                 if (std.mem.eql(u8, field_name, "line")) {
                     if (!try cbor.matchValue(&iter, cbor.extract(&line)))
-                        return error.InvalidArgument;
+                        return error.InvalidNavigateLineArgument;
                 } else if (std.mem.eql(u8, field_name, "column")) {
                     if (!try cbor.matchValue(&iter, cbor.extract(&column)))
-                        return error.InvalidArgument;
+                        return error.InvalidNavigateColumnArgument;
                 } else if (std.mem.eql(u8, field_name, "file")) {
                     if (!try cbor.matchValue(&iter, cbor.extract(&file)))
-                        return error.InvalidArgument;
+                        return error.InvalidNavigateFileArgument;
                 } else if (std.mem.eql(u8, field_name, "goto")) {
                     if (!try cbor.matchValue(&iter, cbor.extract_cbor(&goto_args)))
-                        return error.InvalidArgument;
+                        return error.InvalidNavigateGotoArgument;
                 } else {
                     try cbor.skipValue(&iter);
                 }
             }
         } else |_| if (ctx.args.match(tp.extract(&file_name)) catch false) {
             file = file_name;
-        } else return error.InvalidArgument;
+        } else return error.InvalidNavigateArgument;
 
         if (tp.env.get().str("project").len == 0) {
             try open_project_cwd(self, .{});
@@ -510,7 +510,7 @@ const cmds = struct {
             tp.extract(&sel.begin.col),
             tp.extract(&sel.end.row),
             tp.extract(&sel.end.col),
-        })) return error.InvalidArgument;
+        })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
             try editor.add_diagnostic(file_path, source, code, message, severity, sel)
@@ -530,7 +530,7 @@ const cmds = struct {
 
     pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidArgument;
+        if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidClearDiagnosticsArgument;
         file_path = project_manager.normalize_file_path(file_path);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
             editor.clear_diagnostics();
@@ -574,7 +574,7 @@ const cmds = struct {
 
     pub fn find_in_files_query(self: *Self, ctx: Ctx) Result {
         var query: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&query)})) return error.InvalidArgument;
+        if (!try ctx.args.match(.{tp.extract(&query)})) return error.InvalidFindInFilesQueryArgument;
         log.logger("find").print("finding files...", .{});
         const find_f = ripgrep.find_in_files;
         if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
