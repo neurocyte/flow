@@ -68,9 +68,9 @@ pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) b
 }
 
 fn render_separator(self: *Button.State(void), theme: *const Widget.Theme) void {
-    const statusbar_bg = theme.statusbar.bg orelse theme.editor.bg.?;
-    if (theme.statusbar_hover.bg) |bg| self.plane.set_fg_rgb_alpha(statusbar_bg, bg) catch {};
-    if (theme.statusbar.bg) |bg| self.plane.set_bg_rgb_alpha(statusbar_bg, bg) catch {};
+    self.plane.reverse_style();
+    self.plane.set_base_style(.{ .bg = theme.editor.bg });
+    if (theme.statusbar.bg) |bg| self.plane.set_style(.{ .bg = bg });
     _ = self.plane.putstr("") catch {};
 }
 

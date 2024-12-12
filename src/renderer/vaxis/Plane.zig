@@ -351,6 +351,12 @@ fn apply_alpha_theme(base: ThemeColor, col: ThemeColor) vaxis.Cell.Color {
         .{ .rgb = color.apply_alpha(RGB.from_u24(base.color), RGB.from_u24(col.color), alpha).to_u8s() };
 }
 
+pub inline fn reverse_style(self: *Plane) void {
+    const swap = self.style.fg;
+    self.style.fg = self.style.bg;
+    self.style.bg = swap;
+}
+
 pub inline fn set_style(self: *Plane, style_: Style) void {
     if (style_.fg) |col| self.style.fg = apply_alpha(self.style_base.fg, col);
     if (style_.bg) |col| self.style.bg = apply_alpha(self.style_base.bg, col);
