@@ -1,6 +1,11 @@
 const std = @import("std");
+const log = @import("log");
+const location_history = @import("location_history");
 const command = @import("command");
 const cmd = command.executeName;
+
+const tui = @import("../tui.zig");
+const mainview = @import("../mainview.zig");
 
 var commands: Commands = undefined;
 
@@ -49,4 +54,22 @@ const cmds_ = struct {
         try cmd("quit_without_saving", .{});
     }
     pub const @"wq!_meta" = .{ .description = "wq! (write file and quit without saving)" };
+
+    pub fn save_selection(_: *void, _: Ctx) Result {
+        const logger = log.logger("helix-mode");
+        defer logger.deinit();
+        logger.print("saved location", .{});
+        const mv = tui.current().mainview.dynamic_cast(mainview) orelse return;
+        const file_path = mv.get_active_file_path() orelse return;
+        const primary = (mv.get_active_editor() orelse return).get_primary();
+        const sel: ?location_history.Selection = if (primary.selection) |sel| .{
+            .begin = .{ .row = sel.begin.row, .col = sel.begin.col },
+            .end = .{ .row = sel.end.row, .col = sel.end.col },
+        } else null;
+        mv.location_history.update(file_path, .{
+            .row = primary.cursor.row + 1,
+            .col = primary.cursor.col + 1,
+        }, sel);
+    }
+    pub const save_selection_meta = .{ .description = "Save current selection to location history" };
 };
