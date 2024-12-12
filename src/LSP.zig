@@ -17,7 +17,7 @@ const OutOfMemoryError = error{OutOfMemory};
 const SendError = error{SendFailed};
 const CallError = tp.CallError;
 
-pub fn open(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidArgument } || cbor.Error)!Self {
+pub fn open(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidLspCommand } || cbor.Error)!Self {
     return .{ .allocator = allocator, .pid = try Process.create(allocator, project, cmd) };
 }
 
@@ -70,14 +70,18 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidArgument } || OutOfMemoryError || cbor.Error)!tp.pid {
+    pub fn create(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidLspCommand } || OutOfMemoryError || cbor.Error)!tp.pid {
         var tag: []const u8 = undefined;
         if (try cbor.match(cmd.buf, .{tp.extract(&tag)})) {
             //
         } else if (try cbor.match(cmd.buf, .{ tp.extract(&tag), tp.more })) {
             //
         } else {
-            return error.InvalidArgument;
+            const logger = log.logger("LSP");
+            defer logger.deinit();
+            var buf: [1024]u8 = undefined;
+            logger.print_err("create", "invalid command: {d} {s}", .{ cmd.buf.len, cmd.to_json(&buf) catch "{command too large}" });
+            return error.InvalidLspCommand;
         }
         const self = try allocator.create(Process);
         var sp_tag_ = std.ArrayList(u8).init(allocator);
@@ -197,6 +201,7 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "exit", "error.FileNotFound" })) {
             self.write_log("### LSP not found ###\n", .{});
             const logger = log.logger("LSP");
+            defer logger.deinit();
             var buf: [1024]u8 = undefined;
             logger.print_err("init", "executable not found: {s}", .{self.cmd.to_json(&buf) catch "{command too large}"});
             return error.FileNotFound;
@@ -270,6 +275,7 @@ const Process = struct {
 
     fn handle_terminated(self: *Process, err: []const u8, code: u32) error{ExitNormal}!void {
         const logger = log.logger("LSP");
+        defer logger.deinit();
         logger.print("terminated: {s} {d}", .{ err, code });
         self.write_log("### subprocess terminated {s} {d} ###\n", .{ err, code });
         self.parent.send(.{ sp_tag, self.tag, "done" }) catch {};

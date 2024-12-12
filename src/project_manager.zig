@@ -419,7 +419,7 @@ const Process = struct {
         try request_path_files_async(self.allocator, from, project, max, path);
     }
 
-    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) (ProjectError || InvalidArgumentError || Project.StartLspError || CallError || cbor.Error)!void {
+    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) (ProjectError || Project.StartLspError || CallError || cbor.Error)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_open" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
