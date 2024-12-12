@@ -37,6 +37,10 @@ pub fn is_non_input_key(w: Key) bool {
     };
 }
 
+pub fn is_modifier(w: Key) bool {
+    return key.isModifier(.{ .codepoint = w });
+}
+
 pub const ModSet = vaxis.Key.Modifiers;
 pub const Mods = u8;
 
@@ -167,6 +171,39 @@ pub const utils = struct {
         };
     }
 
+    pub fn key_id_string_short(k: Key) []const u8 {
+        return switch (k) {
+            vaxis.Key.enter => "ret",
+            vaxis.Key.tab => "tab",
+            vaxis.Key.escape => "esc",
+            vaxis.Key.space => "sp",
+            vaxis.Key.backspace => "bs",
+            vaxis.Key.insert => "ins",
+            vaxis.Key.delete => "del",
+            vaxis.Key.left => "←",
+            vaxis.Key.right => "→",
+            vaxis.Key.up => "↑",
+            vaxis.Key.down => "↓",
+            vaxis.Key.page_down => "pgdn",
+            vaxis.Key.page_up => "pgup",
+            vaxis.Key.left_shift => "lshft",
+            vaxis.Key.left_control => "lctrl",
+            vaxis.Key.left_alt => "lalt",
+            vaxis.Key.left_super => "lsuper",
+            vaxis.Key.left_hyper => "lhyper",
+            vaxis.Key.left_meta => "lmeta",
+            vaxis.Key.right_shift => "rshft",
+            vaxis.Key.right_control => "rctrl",
+            vaxis.Key.right_alt => "ralt",
+            vaxis.Key.right_super => "rsuper",
+            vaxis.Key.right_hyper => "rhyper",
+            vaxis.Key.right_meta => "rmeta",
+            vaxis.Key.iso_level_3_shift => "iso3",
+            vaxis.Key.iso_level_5_shift => "iso5",
+            else => key_id_string(k),
+        };
+    }
+
     pub fn button_id_string(m: Mouse) []const u8 {
         return switch (m) {
             mouse.MOTION => "motion",
@@ -186,6 +223,15 @@ pub const utils = struct {
     }
 };
 
+pub fn key_event_short_fmt(ke: KeyEvent) struct {
+    ke: KeyEvent,
+    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        return writer.print("{}{}", .{ mod_short_fmt(self.ke.modifiers), key_short_fmt(self.ke.key) });
+    }
+} {
+    return .{ .ke = ke };
+}
+
 pub fn event_fmt(evt: Event) struct {
     event: Event,
     pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
@@ -193,6 +239,20 @@ pub fn event_fmt(evt: Event) struct {
             event.press => writer.writeAll("press"),
             event.repeat => writer.writeAll("repeat"),
             event.release => writer.writeAll("release"),
+            else => {},
+        };
+    }
+} {
+    return .{ .event = evt };
+}
+
+pub fn event_short_fmt(evt: Event) struct {
+    event: Event,
+    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        return switch (self.event) {
+            event.press => writer.writeAll("P"),
+            event.repeat => writer.writeAll("RP"),
+            event.release => writer.writeAll("R"),
             else => {},
         };
     }
@@ -215,6 +275,21 @@ pub fn key_fmt(key_: Key) struct {
     return .{ .key = key_ };
 }
 
+pub fn key_short_fmt(key_: Key) struct {
+    key: Key,
+    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        var key_string = utils.key_id_string_short(self.key);
+        var buf: [6]u8 = undefined;
+        if (key_string.len == 0) {
+            const bytes = try ucs32_to_utf8(&[_]u32{self.key}, &buf);
+            key_string = buf[0..bytes];
+        }
+        try writer.writeAll(key_string);
+    }
+} {
+    return .{ .key = key_ };
+}
+
 pub fn mod_fmt(mods: Mods) struct {
     modifiers: Mods,
     pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
@@ -223,6 +298,19 @@ pub fn mod_fmt(mods: Mods) struct {
         if (modset.ctrl) try writer.writeAll("ctrl+");
         if (modset.alt) try writer.writeAll("alt+");
         if (modset.shift) try writer.writeAll("shift+");
+    }
+} {
+    return .{ .modifiers = mods };
+}
+
+pub fn mod_short_fmt(mods: Mods) struct {
+    modifiers: Mods,
+    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        const modset: ModSet = @bitCast(self.modifiers);
+        if (modset.super) try writer.writeAll("Super-");
+        if (modset.ctrl) try writer.writeAll("C-");
+        if (modset.alt) try writer.writeAll("A-");
+        if (modset.shift) try writer.writeAll("S-");
     }
 } {
     return .{ .modifiers = mods };

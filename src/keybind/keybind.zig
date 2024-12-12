@@ -674,6 +674,23 @@ pub fn get_or_create_namespace_config_file(allocator: std.mem.Allocator, namespa
     return try root.get_keybind_namespace_file_name(namespace_name);
 }
 
+const KeyEventSequenceFmt = struct {
+    key_events: []const KeyEvent,
+
+    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        for (self.key_events) |key_event|
+            try writer.print(" {}", .{input.key_event_short_fmt(key_event)});
+    }
+};
+
+pub fn key_event_sequence_fmt(key_events: []const KeyEvent) KeyEventSequenceFmt {
+    return .{ .key_events = key_events };
+}
+
+pub fn current_key_event_sequence_fmt() KeyEventSequenceFmt {
+    return .{ .key_events = globals.current_sequence.items };
+}
+
 const expectEqual = std.testing.expectEqual;
 
 const parse_test_cases = .{
