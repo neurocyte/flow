@@ -236,7 +236,7 @@ const Process = struct {
         } else return;
         if (path) |p| {
             const match_text = if (lines) |l|
-                if (l[l.len - 1] == '\n') l[0 .. l.len - 2] else l
+                if (l[l.len - 1] == '\n') l[0 .. l.len - 1] else l
             else
                 "";
             try self.parent.send(.{ self.tag, p, line, begin, line, end, match_text });
