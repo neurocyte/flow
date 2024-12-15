@@ -227,6 +227,7 @@ pub const julia = .{
     .extensions = .{"jl"},
     .comment = "#",
     .language_server = .{ "julia", "-e", "using LanguageServer; runserver()" },
+    .formatter = .{ "julia", "-e", "using JuliaFormatter; print(format_text(read(stdin, String)))" },
 };
 
 pub const kdl = .{
