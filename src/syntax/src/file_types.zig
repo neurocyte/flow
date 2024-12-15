@@ -424,6 +424,7 @@ pub const rust = .{
     .comment = "//",
     .injections = "tree-sitter-rust/queries/injections.scm",
     .language_server = .{"rust-analyzer"},
+    .formatter = .{"rustfmt"},
 };
 
 pub const scheme = .{
