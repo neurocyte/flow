@@ -192,19 +192,14 @@ const Process = struct {
             try self.term();
         } else if (try cbor.match(m.buf, .{ self.sp_tag, "stdout", tp.extract(&bytes) })) {
             try self.handle_output(bytes);
+        } else if (try cbor.match(m.buf, .{ self.sp_tag, "term", "error.FileNotFound", 1 })) {
+            try self.handle_not_found();
         } else if (try cbor.match(m.buf, .{ self.sp_tag, "term", tp.extract(&err), tp.extract(&code) })) {
             try self.handle_terminated(err, code);
         } else if (try cbor.match(m.buf, .{ self.sp_tag, "stderr", tp.extract(&bytes) })) {
             self.write_log("{s}\n", .{bytes});
         } else if (try cbor.match(m.buf, .{ "exit", "normal" })) {
             // self.write_log("### exit normal ###\n", .{});
-        } else if (try cbor.match(m.buf, .{ "exit", "error.FileNotFound" })) {
-            self.write_log("### LSP not found ###\n", .{});
-            const logger = log.logger("LSP");
-            defer logger.deinit();
-            var buf: [1024]u8 = undefined;
-            logger.print_err("init", "executable not found: {s}", .{self.cmd.to_json(&buf) catch "{command too large}"});
-            return error.FileNotFound;
         } else {
             tp.unexpected(m) catch {};
             self.write_log("{s}\n", .{tp.error_text()});
@@ -271,6 +266,15 @@ const Process = struct {
             self.write_log("### RECV error: {any}\n", .{e});
             return e;
         };
+    }
+
+    fn handle_not_found(self: *Process) error{ExitNormal}!void {
+        const logger = log.logger("LSP");
+        defer logger.deinit();
+        logger.print_err("init", "'{s}' executable not found", .{self.tag});
+        self.write_log("### '{s}' executable not found ###\n", .{self.tag});
+        self.parent.send(.{ sp_tag, self.tag, "not found" }) catch {};
+        return error.ExitNormal;
     }
 
     fn handle_terminated(self: *Process, err: []const u8, code: u32) error{ExitNormal}!void {

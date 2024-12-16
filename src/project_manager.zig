@@ -302,6 +302,8 @@ const Process = struct {
             self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract_cbor(&cbor_id), tp.extract_cbor(&params_cb) })) {
             self.dispatch_request(from, project_directory, language_server, method, cbor_id, params_cb) catch |e| return self.logger.err("lsp-handling", e);
+        } else if (try cbor.match(m.buf, .{ "child", tp.extract(&path), "not found" })) {
+            self.logger.print("executable '{s}' not found", .{path});
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&path), "done" })) {
             self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
         } else if (try cbor.match(m.buf, .{ "open", tp.extract(&project_directory) })) {
