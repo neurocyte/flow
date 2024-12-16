@@ -4108,6 +4108,16 @@ pub const Editor = struct {
         }
     }
 
+    fn filter_not_found(self: *Self) !void {
+        defer self.filter_deinit();
+        self.logger.print_err("filter", "executable not found", .{});
+        if (self.need_save_after_filter) |info| {
+            try self.save();
+            if (info.then) |then|
+                return command.executeName(then.cmd, .{ .args = .{ .buf = then.args } });
+        }
+    }
+
     fn filter_done(self: *Self) !void {
         const b = try self.buf_for_update();
         const root = self.buf_root() catch return;
@@ -4413,6 +4423,8 @@ pub const EditorWidget = struct {
             self.editor.filter_stdout(bytes) catch {};
         } else if (try m.match(.{ "filter", "stderr", tp.extract(&bytes) })) {
             try self.editor.filter_error(bytes);
+        } else if (try m.match(.{ "filter", "term", "error.FileNotFound", 1 })) {
+            try self.editor.filter_not_found();
         } else if (try m.match(.{ "filter", "term", tp.more })) {
             try self.editor.filter_done();
         } else if (try m.match(.{ "A", tp.more })) {
