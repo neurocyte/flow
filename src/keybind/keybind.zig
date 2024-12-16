@@ -543,6 +543,7 @@ const BindingSet = struct {
         var event: input.Event = 0;
         var keypress: input.Key = 0;
         var egc: input.Key = 0;
+        var text: []const u8 = "";
         var modifiers: input.Mods = 0;
 
         if (try m.match(.{
@@ -550,10 +551,10 @@ const BindingSet = struct {
             tp.extract(&event),
             tp.extract(&keypress),
             tp.extract(&egc),
-            tp.string,
+            tp.extract(&text),
             tp.extract(&modifiers),
         })) {
-            if (self.process_key_event(egc, .{
+            if (self.process_key_event(egc, text, .{
                 .event = event,
                 .key = keypress,
                 .modifiers = modifiers,
@@ -567,7 +568,7 @@ const BindingSet = struct {
     }
 
     //register a key press and try to match it with a binding
-    fn process_key_event(self: *const @This(), egc: input.Key, event_: KeyEvent) !?*Binding {
+    fn process_key_event(self: *const @This(), egc: input.Key, text: []const u8, event_: KeyEvent) !?*Binding {
         var event = event_;
 
         //ignore modifiers for modifier key events
@@ -583,7 +584,7 @@ const BindingSet = struct {
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
         if (globals.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
-            try self.terminate_sequence(.timeout, egc, event);
+            try self.terminate_sequence(.timeout);
         }
         globals.last_key_event_timestamp_ms = timestamp;
 
@@ -591,10 +592,14 @@ const BindingSet = struct {
             return null;
 
         try globals.current_sequence.append(globals_allocator, event);
-        var buf: [6]u8 = undefined;
-        const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
-        if ((event.modifiers == 0 or event.modifiers == input.mod.shift) and !input.is_non_input_key(event.key))
-            try globals.current_sequence_egc.appendSlice(globals_allocator, buf[0..bytes]);
+        if ((event.modifiers == 0 or event.modifiers == input.mod.shift) and !input.is_non_input_key(event.key)) {
+            var buf: [6]u8 = undefined;
+            const bytes = if (text.len > 0) text else text: {
+                const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
+                break :text buf[0..bytes];
+            };
+            try globals.current_sequence_egc.appendSlice(globals_allocator, bytes);
+        }
 
         var all_matches_impossible = true;
 
@@ -612,7 +617,7 @@ const BindingSet = struct {
             }
         }
         if (all_matches_impossible) {
-            try self.terminate_sequence(.match_impossible, egc, event);
+            try self.terminate_sequence(.match_impossible);
         }
         return null;
     }
@@ -629,9 +634,7 @@ const BindingSet = struct {
     }
 
     const AbortType = enum { timeout, match_impossible };
-    fn terminate_sequence(self: *const @This(), abort_type: AbortType, egc: input.Key, key_event: KeyEvent) anyerror!void {
-        _ = egc;
-        _ = key_event;
+    fn terminate_sequence(self: *const @This(), abort_type: AbortType) anyerror!void {
         if (abort_type == .match_impossible) {
             switch (self.on_match_failure) {
                 .insert => try self.insert_bytes(globals.current_sequence_egc.items),
