@@ -144,7 +144,7 @@ const Process = struct {
         } else if (try m.match(.{ module_name, "stdout", tp.extract(&bytes) })) {
             self.handle_output(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ module_name, "term", tp.more })) {
-            self.handle_terminated() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.handle_terminated(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ module_name, "stderr", tp.extract(&bytes) })) {
             self.logger.print("ERR: {s}", .{bytes});
         } else if (try m.match(.{ "exit", "normal" })) {
@@ -159,7 +159,7 @@ const Process = struct {
         try self.output.appendSlice(bytes);
     }
 
-    fn handle_terminated(self: *Process) !void {
+    fn handle_terminated(self: *Process, m: tp.message) !void {
         const output = try self.output.toOwnedSlice();
         var count: usize = 0;
         var it = std.mem.splitScalar(u8, output, '\n');
@@ -175,7 +175,15 @@ const Process = struct {
         if (count > 1000) {
             self.logger.print("found more than {d} matches", .{self.match_count});
         } else {
-            self.logger.print("found {d} matches", .{self.match_count});
+            var err_msg: []const u8 = undefined;
+            var exit_code: i64 = undefined;
+            if (try m.match(.{ tp.any, tp.any, "exited", 0 })) {
+                self.logger.print("found {d} matches", .{self.match_count});
+            } else if (try m.match(.{ tp.any, tp.any, "error.FileNotFound", 1 })) {
+                self.logger.print_err(ripgrep_binary, "'{s}' executable not found", .{ripgrep_binary});
+            } else if (try m.match(.{ tp.any, tp.any, tp.extract(&err_msg), tp.extract(&exit_code) })) {
+                self.logger.print_err(ripgrep_binary, "terminated {s} exitcode: {d}", .{ err_msg, exit_code });
+            }
         }
     }
 
