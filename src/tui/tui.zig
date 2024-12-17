@@ -586,6 +586,8 @@ pub fn save_config(self: *const Self) !void {
 }
 
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {
+    command.executeName("disable_fast_scroll", .{}) catch {};
+    command.executeName("disable_jump_mode", .{}) catch {};
     if (self.mini_mode) |_| try cmds.exit_mini_mode(self, .{});
     if (self.input_mode_outer) |_| try cmds.exit_overlay_mode(self, .{});
     self.input_mode_outer = self.input_mode;
@@ -804,6 +806,8 @@ const cmds = struct {
     pub const save_as_meta = .{ .description = "Save as" };
 
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
+        command.executeName("disable_fast_scroll", .{}) catch {};
+        command.executeName("disable_jump_mode", .{}) catch {};
         const input_mode, const mini_mode = try mode.create(self.allocator, ctx);
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
