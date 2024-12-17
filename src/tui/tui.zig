@@ -585,8 +585,8 @@ pub fn save_config(self: *const Self) !void {
     try root.write_config(self.config, self.allocator);
 }
 
-pub fn is_mini_or_overlay_enabled(self: *const Self) bool {
-    return !(self.mini_mode == null or self.input_mode_outer == null);
+pub fn is_mainview_focused(self: *const Self) bool {
+    return self.mini_mode == null and self.input_mode_outer == null;
 }
 
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {

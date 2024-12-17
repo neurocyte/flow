@@ -842,38 +842,48 @@ pub const Editor = struct {
         self.render_cursors(theme) catch {};
     }
 
-    fn render_terminal_cursor(self: *const Self, cursor_: *const Cursor) !void {
-        const tui_ = tui.current();
-        if (tui_.is_mini_or_overlay_enabled())
-            return;
-        if (self.screen_cursor(cursor_)) |cursor| {
-            const y, const x = self.plane.rel_yx_to_abs(@intCast(cursor.row), @intCast(cursor.col));
-            const shape = if (tui_.input_mode) |mode|
-                mode.cursor_shape
-            else
-                .block;
-            tui_.rdr.cursor_enable(y, x, tui.translate_cursor_shape(shape)) catch {};
-        } else {
-            tui_.rdr.cursor_disable();
-        }
-    }
-
     fn render_cursors(self: *Self, theme: *const Widget.Theme) !void {
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
-        if (self.cursels.items.len == 1 and self.enable_terminal_cursor)
-            return self.render_terminal_cursor(&self.get_primary().cursor);
-        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            try self.render_cursor(&cursel.cursor, theme);
-        if (self.enable_terminal_cursor)
-            try self.render_terminal_cursor(&self.get_primary().cursor);
+        for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel|
+            try self.render_cursor_secondary(&cursel.cursor, theme);
+        try self.render_cursor_primary(&self.get_primary().cursor, theme);
     }
 
-    fn render_cursor(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme) !void {
+    fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme) !void {
+        const tui_ = tui.current();
+        if (!tui_.is_mainview_focused() or !self.enable_terminal_cursor) {
+            if (self.screen_cursor(cursor)) |pos| {
+                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
+                const style = if (tui_.is_mainview_focused()) theme.editor_cursor else theme.editor_cursor_secondary;
+                self.render_cursor_cell(style);
+            }
+        } else {
+            if (self.screen_cursor(cursor)) |pos| {
+                const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
+                const shape = if (tui_.input_mode) |mode|
+                    mode.cursor_shape
+                else
+                    .block;
+                tui_.rdr.cursor_enable(y, x, tui.translate_cursor_shape(shape)) catch {};
+            } else {
+                tui_.rdr.cursor_disable();
+            }
+        }
+    }
+
+    fn render_cursor_secondary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme) !void {
         if (self.screen_cursor(cursor)) |pos| {
             self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
-            self.render_cursor_cell(theme);
+            self.render_cursor_cell(theme.editor_cursor_secondary);
         }
+    }
+
+    inline fn render_cursor_cell(self: *Self, style: Widget.Theme.Style) void {
+        var cell = self.plane.cell_init();
+        _ = self.plane.at_cursor_cell(&cell) catch return;
+        cell.set_style(style);
+        _ = self.plane.putc(&cell) catch {};
     }
 
     fn render_line_highlight(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme) !void {
@@ -979,13 +989,6 @@ pub const Editor = struct {
         _ = self.plane.at_cursor_cell(&cell) catch return;
         cell.set_style(.{ .fs = .undercurl });
         if (style.fg) |ul_col| cell.set_under_color(ul_col.color);
-        _ = self.plane.putc(&cell) catch {};
-    }
-
-    inline fn render_cursor_cell(self: *Self, theme: *const Widget.Theme) void {
-        var cell = self.plane.cell_init();
-        _ = self.plane.at_cursor_cell(&cell) catch return;
-        cell.set_style(theme.editor_cursor);
         _ = self.plane.putc(&cell) catch {};
     }
 
