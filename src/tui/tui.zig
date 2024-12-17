@@ -585,6 +585,10 @@ pub fn save_config(self: *const Self) !void {
     try root.write_config(self.config, self.allocator);
 }
 
+pub fn is_mini_or_overlay_enabled(self: *const Self) bool {
+    return !(self.mini_mode == null or self.input_mode_outer == null);
+}
+
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     command.executeName("disable_fast_scroll", .{}) catch {};
     command.executeName("disable_jump_mode", .{}) catch {};
@@ -767,6 +771,7 @@ const cmds = struct {
     pub const change_file_type_meta = .{ .description = "Change file type" };
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
+        self.rdr.cursor_disable();
         if (self.input_mode_outer == null) return;
         if (self.input_mode) |*mode| mode.deinit();
         self.input_mode = self.input_mode_outer;
@@ -818,6 +823,7 @@ const cmds = struct {
     }
 
     pub fn exit_mini_mode(self: *Self, _: Ctx) Result {
+        self.rdr.cursor_disable();
         if (self.mini_mode) |_| {} else return;
         if (self.input_mode) |*mode| mode.deinit();
         self.input_mode = self.input_mode_outer;

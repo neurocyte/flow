@@ -843,15 +843,18 @@ pub const Editor = struct {
     }
 
     fn render_terminal_cursor(self: *const Self, cursor_: *const Cursor) !void {
+        const tui_ = tui.current();
+        if (tui_.is_mini_or_overlay_enabled())
+            return;
         if (self.screen_cursor(cursor_)) |cursor| {
             const y, const x = self.plane.rel_yx_to_abs(@intCast(cursor.row), @intCast(cursor.col));
-            const shape = if (tui.current().input_mode) |mode|
+            const shape = if (tui_.input_mode) |mode|
                 mode.cursor_shape
             else
                 .block;
-            tui.current().rdr.cursor_enable(y, x, tui.translate_cursor_shape(shape)) catch {};
+            tui_.rdr.cursor_enable(y, x, tui.translate_cursor_shape(shape)) catch {};
         } else {
-            tui.current().rdr.cursor_disable();
+            tui_.rdr.cursor_disable();
         }
     }
 

@@ -36,11 +36,17 @@ pub fn Options(context: type) type {
             }
             if (self.cursor) |cursor| {
                 const pos: c_int = @intCast(cursor);
-                self.plane.cursor_move_yx(0, pos + 1) catch return false;
-                var cell = self.plane.cell_init();
-                _ = self.plane.at_cursor_cell(&cell) catch return false;
-                cell.set_style(theme.editor_cursor);
-                _ = self.plane.putc(&cell) catch {};
+                const tui_ = tui.current();
+                if (tui_.config.enable_terminal_cursor) {
+                    const y, const x = self.plane.rel_yx_to_abs(0, pos + 1);
+                    tui_.rdr.cursor_enable(y, x, .default) catch {};
+                } else {
+                    self.plane.cursor_move_yx(0, pos + 1) catch return false;
+                    var cell = self.plane.cell_init();
+                    _ = self.plane.at_cursor_cell(&cell) catch return false;
+                    cell.set_style(theme.editor_cursor);
+                    _ = self.plane.putc(&cell) catch {};
+                }
             }
             return false;
         }

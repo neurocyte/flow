@@ -101,15 +101,21 @@ pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme)
 
 fn render_mini_mode(plane: *Plane, theme: *const Widget.Theme) void {
     plane.off_styles(style.italic);
-    const mini_mode = tui.current().mini_mode orelse return;
+    const tui_ = tui.current();
+    const mini_mode = tui_.mini_mode orelse return;
     _ = plane.print(" {s}", .{mini_mode.text}) catch {};
     if (mini_mode.cursor) |cursor| {
         const pos: c_int = @intCast(cursor);
-        plane.cursor_move_yx(0, pos + 1) catch return;
-        var cell = plane.cell_init();
-        _ = plane.at_cursor_cell(&cell) catch return;
-        cell.set_style(theme.editor_cursor);
-        _ = plane.putc(&cell) catch {};
+        if (tui_.config.enable_terminal_cursor) {
+            const y, const x = plane.rel_yx_to_abs(0, pos + 1);
+            tui_.rdr.cursor_enable(y, x, .default) catch {};
+        } else {
+            plane.cursor_move_yx(0, pos + 1) catch return;
+            var cell = plane.cell_init();
+            _ = plane.at_cursor_cell(&cell) catch return;
+            cell.set_style(theme.editor_cursor);
+            _ = plane.putc(&cell) catch {};
+        }
     }
     return;
 }
