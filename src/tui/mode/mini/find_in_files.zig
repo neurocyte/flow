@@ -73,7 +73,7 @@ fn insert_bytes(self: *Self, bytes_: []const u8) !void {
 }
 
 fn start_query(self: *Self) !void {
-    if (self.input.len < 1 or eql(u8, self.input, self.last_input))
+    if (self.input.len < 2 or eql(u8, self.input, self.last_input))
         return;
     @memcpy(self.last_buf[0..self.input.len], self.input);
     self.last_input = self.last_buf[0..self.input.len];
@@ -83,7 +83,7 @@ fn start_query(self: *Self) !void {
 fn update_mini_mode_text(self: *Self) void {
     if (tui.current().mini_mode) |*mini_mode| {
         mini_mode.text = self.input;
-        mini_mode.cursor = self.input.len;
+        mini_mode.cursor = tui.current().stdplane().egc_chunk_width(self.input, 0, 8);
     }
 }
 
@@ -128,9 +128,8 @@ const cmds = struct {
     pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };
 
     pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
-        if (self.input.len > 0) {
-            self.input = self.input[0 .. self.input.len - 1];
-        }
+        self.input = self.input[0 .. self.input.len - tui.current().stdplane().egc_last(self.input).len];
+        self.update_mini_mode_text();
     }
     pub const mini_mode_delete_backwards_meta = .{ .description = "Delete backwards" };
 

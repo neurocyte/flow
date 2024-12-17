@@ -432,6 +432,13 @@ pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize, 
     return colcount;
 }
 
+pub fn egc_last(self: *const Plane, egcs: []const u8) []const u8 {
+    var iter = self.window.screen.unicode.graphemeIterator(egcs);
+    var last: []const u8 = egcs[0..0];
+    while (iter.next()) |grapheme| last = grapheme.bytes(egcs);
+    return last;
+}
+
 pub fn metrics(self: *const Plane, tab_width: usize) Buffer.Metrics {
     return .{
         .ctx = self,
@@ -448,6 +455,12 @@ pub fn metrics(self: *const Plane, tab_width: usize) Buffer.Metrics {
             }
         }.f,
         .tab_width = tab_width,
+        .egc_last = struct {
+            fn f(self_: Buffer.Metrics, egcs: []const u8) []const u8 {
+                const plane: *const Plane = @ptrCast(@alignCast(self_.ctx));
+                return plane.egc_last(egcs);
+            }
+        }.f,
     };
 }
 

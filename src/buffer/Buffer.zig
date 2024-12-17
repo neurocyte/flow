@@ -19,9 +19,12 @@ pub const Metrics = struct {
     ctx: *const anyopaque,
     egc_length: egc_length_func,
     egc_chunk_width: egc_chunk_width_func,
+    egc_last: egc_last_func,
     tab_width: usize,
     pub const egc_length_func = *const fn (self: Metrics, egcs: []const u8, colcount: *c_int, abs_col: usize) usize;
     pub const egc_chunk_width_func = *const fn (self: Metrics, chunk_: []const u8, abs_col_: usize) usize;
+    pub const egc_last_func = *const fn (self: Metrics, egcs: []const u8) []const u8;
+
 };
 
 arena: std.heap.ArenaAllocator,
