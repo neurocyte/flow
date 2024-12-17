@@ -15,10 +15,12 @@ const name = "󰥨 find";
 
 const Commands = command.Collection(cmds);
 
+const max_query_size = 1024;
+
 allocator: Allocator,
-buf: [1024]u8 = undefined,
+buf: [max_query_size]u8 = undefined,
 input: []u8 = "",
-last_buf: [1024]u8 = undefined,
+last_buf: [max_query_size]u8 = undefined,
 last_input: []u8 = "",
 commands: Commands = undefined,
 
@@ -49,7 +51,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     defer self.update_mini_mode_text();
 
     if (try m.match(.{"F"})) {
-        self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.start_query() catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
         self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
@@ -57,28 +59,25 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 }
 
 fn insert_code_point(self: *Self, c: u32) !void {
-    if (self.input.len + 16 > self.buf.len)
-        try self.flush_input();
+    if (self.input.len + 6 >= self.buf.len)
+        return;
     const bytes = try input.ucs32_to_utf8(&[_]u32{c}, self.buf[self.input.len..]);
     self.input = self.buf[0 .. self.input.len + bytes];
 }
 
-fn insert_bytes(self: *Self, bytes: []const u8) !void {
-    if (self.input.len + 16 > self.buf.len)
-        try self.flush_input();
+fn insert_bytes(self: *Self, bytes_: []const u8) !void {
+    const bytes = bytes_[0..@min(self.buf.len - self.input.len, bytes_.len)];
     const newlen = self.input.len + bytes.len;
     @memcpy(self.buf[self.input.len..newlen], bytes);
     self.input = self.buf[0..newlen];
 }
 
-fn flush_input(self: *Self) !void {
-    if (self.input.len > 2) {
-        if (eql(u8, self.input, self.last_input))
-            return;
-        @memcpy(self.last_buf[0..self.input.len], self.input);
-        self.last_input = self.last_buf[0..self.input.len];
-        try command.executeName("find_in_files_query", command.fmt(.{self.input}));
-    }
+fn start_query(self: *Self) !void {
+    if (self.input.len < 1 or eql(u8, self.input, self.last_input))
+        return;
+    @memcpy(self.last_buf[0..self.input.len], self.input);
+    self.last_input = self.last_buf[0..self.input.len];
+    try command.executeName("find_in_files_query", command.fmt(.{self.input}));
 }
 
 fn update_mini_mode_text(self: *Self) void {
@@ -94,7 +93,6 @@ const cmds = struct {
     const Result = command.Result;
 
     pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
-        self.flush_input() catch {};
         self.input = "";
         self.update_mini_mode_text();
     }
