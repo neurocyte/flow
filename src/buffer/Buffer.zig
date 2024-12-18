@@ -175,7 +175,10 @@ pub const Leaf = struct {
             } else {
                 const bytes = metrics.egc_length(metrics, buf, &cols, abs_col);
                 buf = buf[bytes..];
-                pos.* -= bytes;
+                if (pos.* >= bytes)
+                    pos.* -= bytes
+                else
+                    pos.* = 0;
             }
             col += @intCast(cols);
             abs_col += @intCast(cols);
