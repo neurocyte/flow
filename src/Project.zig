@@ -1004,7 +1004,7 @@ fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, projec
                         .snippetSupport = true,
                         .commitCharactersSupport = true,
                         .documentationFormat = .{
-                            "markdown",
+                            // "markdown",
                             "plaintext",
                         },
                         .deprecatedSupport = true,
@@ -1032,12 +1032,18 @@ fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, projec
                 },
                 .hover = .{
                     .dynamicRegistration = true,
-                    .contentFormat = .{ "markdown", "plaintext" },
+                    .contentFormat = .{
+                        // "markdown",
+                        "plaintext",
+                    },
                 },
                 .signatureHelp = .{
                     .dynamicRegistration = true,
                     .signatureInformation = .{
-                        .documentationFormat = .{ "markdown", "plaintext" },
+                        .documentationFormat = .{
+                            // "markdown",
+                            "plaintext",
+                        },
                         .parameterInformation = .{ .labelOffsetSupport = true },
                         .activeParameterSupport = true,
                     },
