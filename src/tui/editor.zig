@@ -831,7 +831,14 @@ pub const Editor = struct {
                 return Buffer.Walker.keep_walking;
             }
         };
-        const hl_row: ?usize = if (tui.current().config.highlight_current_line) self.get_primary().cursor.row else null;
+        const hl_row: ?usize = if (tui.current().config.highlight_current_line) blk: {
+            if (self.get_primary().selection) |_|
+                if (theme.editor_selection.bg) |sel_bg|
+                    if (theme.editor_line_highlight.bg) |hl_bg|
+                        if (sel_bg.color == hl_bg.color and sel_bg.alpha == hl_bg.alpha)
+                            break :blk null;
+            break :blk self.get_primary().cursor.row;
+        } else null;
         var ctx_: ctx = .{ .self = self, .buf_row = self.view.row, .theme = theme, .hl_row = hl_row };
         const root = self.buf_root() catch return;
 
