@@ -32,6 +32,7 @@ file_dirty: bool = false,
 detailed: bool = false,
 file: bool = false,
 eol_mode: Buffer.EolMode = .lf,
+utf8_sanitized: bool = false,
 
 const project_icon = "";
 const Self = @This();
@@ -161,6 +162,11 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void 
         _ = plane.print(" of {d} lines", .{self.lines}) catch {};
         if (self.file_type.len > 0)
             _ = plane.print(" ({s}){s}", .{ self.file_type, eol_mode }) catch {};
+
+        if (self.utf8_sanitized) {
+            plane.set_style(.{ .fg = theme.editor_error.fg.? });
+            _ = plane.putstr(" [UTF-8 sanitized]") catch {};
+        }
     }
     return;
 }
@@ -196,7 +202,7 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         return false;
     if (try m.match(.{ "E", "dirty", tp.extract(&file_dirty) })) {
         self.file_dirty = file_dirty;
-    } else if (try m.match(.{ "E", "eol_mode", tp.extract(&eol_mode) })) {
+    } else if (try m.match(.{ "E", "eol_mode", tp.extract(&eol_mode), tp.extract(&self.utf8_sanitized) })) {
         self.eol_mode = @enumFromInt(eol_mode);
     } else if (try m.match(.{ "E", "save", tp.extract(&file_path) })) {
         @memcpy(self.name_buf[0..file_path.len], file_path);

@@ -37,3 +37,25 @@ pub fn control_code_to_unicode(code: u8) [:0]const u8 {
         else => "",
     };
 }
+
+fn raw_byte_to_utf8(cp: u8, buf: []u8) ![]const u8 {
+    var utf16le: [1]u16 = undefined;
+    const utf16le_as_bytes = std.mem.sliceAsBytes(utf16le[0..]);
+    std.mem.writeInt(u16, utf16le_as_bytes[0..2], cp, .little);
+    return buf[0..try std.unicode.utf16LeToUtf8(buf, &utf16le)];
+}
+
+const std = @import("std");
+
+pub fn utf8_sanitize(allocator: std.mem.Allocator, input: []const u8) error{
+    OutOfMemory,
+    DanglingSurrogateHalf,
+    ExpectedSecondSurrogateHalf,
+    UnexpectedSecondSurrogateHalf,
+}![]u8 {
+    var output: std.ArrayListUnmanaged(u8) = .{};
+    const writer = output.writer(allocator);
+    var buf: [4]u8 = undefined;
+    for (input) |byte| try writer.writeAll(try raw_byte_to_utf8(byte, &buf));
+    return output.toOwnedSlice(allocator);
+}

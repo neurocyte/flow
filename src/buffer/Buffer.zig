@@ -24,7 +24,6 @@ pub const Metrics = struct {
     pub const egc_length_func = *const fn (self: Metrics, egcs: []const u8, colcount: *c_int, abs_col: usize) usize;
     pub const egc_chunk_width_func = *const fn (self: Metrics, chunk_: []const u8, abs_col_: usize) usize;
     pub const egc_last_func = *const fn (self: Metrics, egcs: []const u8) []const u8;
-
 };
 
 arena: std.heap.ArenaAllocator,
@@ -38,6 +37,7 @@ last_save: ?Root = null,
 file_exists: bool = true,
 file_eol_mode: EolMode = .lf,
 last_save_eol_mode: EolMode = .lf,
+file_utf8_sanitized: bool = false,
 
 undo_history: ?*UndoNode = null,
 redo_history: ?*UndoNode = null,
@@ -1064,18 +1064,25 @@ fn new_file(self: *const Self, file_exists: *bool) !Root {
     return Leaf.new(self.allocator, "", true, false);
 }
 
-pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode) !Root {
+pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode, utf8_sanitized: *bool) !Root {
     const lf = '\n';
     const cr = '\r';
     var buf = try self.external_allocator.alloc(u8, size);
     const self_ = @constCast(self);
-    self_.file_buf = buf;
     const read_size = try reader.readAll(buf);
     if (read_size != size)
         return error.BufferUnderrun;
     const final_read = try reader.read(buf);
     if (final_read != 0)
         @panic("unexpected data in final read");
+
+    if (!std.unicode.utf8ValidateSlice(buf)) {
+        const converted = try unicode.utf8_sanitize(self.external_allocator, buf);
+        self.external_allocator.free(buf);
+        buf = converted;
+        utf8_sanitized.* = true;
+    }
+    self_.file_buf = buf;
 
     eol_mode.* = .lf;
     var leaf_count: usize = 1;
@@ -1107,20 +1114,20 @@ pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode)
     return Node.merge_in_place(leaves, self.allocator);
 }
 
-pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode) !Root {
+pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) !Root {
     var stream = std.io.fixedBufferStream(s);
-    return self.load(stream.reader(), s.len, eol_mode);
+    return self.load(stream.reader(), s.len, eol_mode, utf8_sanitized);
 }
 
 pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) !void {
-    self.root = try self.load_from_string(s, &self.file_eol_mode);
+    self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
     self.file_path = try self.allocator.dupe(u8, file_path);
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = false;
 }
 
-pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bool, eol_mode: *EolMode) !Root {
+pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bool, eol_mode: *EolMode, utf8_sanitized: *bool) !Root {
     const file = cwd().openFile(file_path, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return self.new_file(file_exists),
         else => return e,
@@ -1129,17 +1136,19 @@ pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bo
     file_exists.* = true;
     defer file.close();
     const stat = try file.stat();
-    return self.load(file.reader(), @intCast(stat.size), eol_mode);
+    return self.load(file.reader(), @intCast(stat.size), eol_mode, utf8_sanitized);
 }
 
 pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {
     var file_exists: bool = false;
     var eol_mode: EolMode = .lf;
-    self.root = try self.load_from_file(file_path, &file_exists, &eol_mode);
+    var utf8_sanitized: bool = false;
+    self.root = try self.load_from_file(file_path, &file_exists, &eol_mode, &utf8_sanitized);
     self.file_path = try self.allocator.dupe(u8, file_path);
     self.last_save = self.root;
     self.file_exists = file_exists;
     self.file_eol_mode = eol_mode;
+    self.file_utf8_sanitized = utf8_sanitized;
     self.last_save_eol_mode = eol_mode;
 }
 
@@ -1183,6 +1192,7 @@ pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) !void {
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = true;
+    self.file_utf8_sanitized = false;
 }
 
 pub fn is_dirty(self: *const Self) bool {

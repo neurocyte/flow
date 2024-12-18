@@ -224,6 +224,7 @@ pub const Editor = struct {
         bytes: usize = 0,
         chunks: usize = 0,
         eol_mode: Buffer.EolMode = .lf,
+        utf8_sanitized: bool = false,
     } = null,
     matches: Match.List,
     match_token: usize = 0,
@@ -259,6 +260,7 @@ pub const Editor = struct {
         cursels: usize = 0,
         dirty: bool = false,
         eol_mode: Buffer.EolMode = .lf,
+        utf8_sanitized: bool = false,
     } = .{},
 
     syntax: ?*syntax = null,
@@ -414,6 +416,10 @@ pub const Editor = struct {
         return if (self.buffer) |p| p.file_eol_mode else error.Stop;
     }
 
+    fn buf_utf8_sanitized(self: *const Self) !bool {
+        return if (self.buffer) |p| p.file_utf8_sanitized else error.Stop;
+    }
+
     fn buf_a(self: *const Self) !Allocator {
         return if (self.buffer) |p| p.allocator else error.Stop;
     }
@@ -517,6 +523,7 @@ pub const Editor = struct {
         } else return error.SaveNoFileName;
         try self.send_editor_save(self.file_path.?);
         self.last.dirty = false;
+        self.update_event() catch {};
     }
 
     fn save_as(self: *Self, file_path: []const u8) !void {
@@ -525,6 +532,7 @@ pub const Editor = struct {
         self.file_path = try self.allocator.dupe(u8, file_path);
         try self.send_editor_save(self.file_path.?);
         self.last.dirty = false;
+        self.update_event() catch {};
     }
 
     pub fn push_cursor(self: *Self) !void {
@@ -575,10 +583,10 @@ pub const Editor = struct {
 
     fn update_buf(self: *Self, root: Buffer.Root) !void {
         const b = self.buffer orelse return error.Stop;
-        return self.update_buf_and_eol_mode(root, b.file_eol_mode);
+        return self.update_buf_and_eol_mode(root, b.file_eol_mode, b.file_utf8_sanitized);
     }
 
-    fn update_buf_and_eol_mode(self: *Self, root: Buffer.Root, eol_mode: Buffer.EolMode) !void {
+    fn update_buf_and_eol_mode(self: *Self, root: Buffer.Root, eol_mode: Buffer.EolMode, utf8_sanitized: bool) !void {
         const b = self.buffer orelse return error.Stop;
         var sfa = std.heap.stackFallback(512, self.allocator);
         const allocator = sfa.get();
@@ -587,6 +595,7 @@ pub const Editor = struct {
         try b.store_undo(meta);
         b.update(root);
         b.file_eol_mode = eol_mode;
+        b.file_utf8_sanitized = utf8_sanitized;
         try self.send_editor_modified();
     }
 
@@ -1210,13 +1219,14 @@ pub const Editor = struct {
 
         const root: ?Buffer.Root = self.buf_root() catch null;
         const eol_mode = self.buf_eol_mode() catch .lf;
+        const utf8_sanitized = self.buf_utf8_sanitized() catch false;
         if (token_from(self.last.root) != token_from(root)) {
             try self.send_editor_update(self.last.root, root, eol_mode);
             self.lsp_version += 1;
         }
 
-        if (self.last.eol_mode != eol_mode)
-            try self.send_editor_eol_mode(eol_mode);
+        if (self.last.eol_mode != eol_mode or self.last.utf8_sanitized != utf8_sanitized)
+            try self.send_editor_eol_mode(eol_mode, utf8_sanitized);
 
         if (self.last.dirty != dirty)
             try self.send_editor_dirty(dirty);
@@ -1254,6 +1264,7 @@ pub const Editor = struct {
         self.last.dirty = dirty;
         self.last.root = root;
         self.last.eol_mode = eol_mode;
+        self.last.utf8_sanitized = utf8_sanitized;
     }
 
     fn send_editor_pos(self: *const Self, cursor: *const Cursor) !void {
@@ -1333,8 +1344,8 @@ pub const Editor = struct {
             project_manager.did_change(file_path, self.lsp_version, token_from(new_root), token_from(old_root), eol_mode) catch {};
     }
 
-    fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode) !void {
-        _ = try self.handlers.msg(.{ "E", "eol_mode", @intFromEnum(eol_mode) });
+    fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool) !void {
+        _ = try self.handlers.msg(.{ "E", "eol_mode", @intFromEnum(eol_mode), utf8_sanitized });
     }
 
     fn clamp_abs(self: *Self, abs: bool) void {
@@ -4134,7 +4145,7 @@ pub const Editor = struct {
         self.cancel_all_selections();
         self.cancel_all_matches();
         if (state.whole_file) |buf| {
-            state.work_root = try b.load_from_string(buf.items, &state.eol_mode);
+            state.work_root = try b.load_from_string(buf.items, &state.eol_mode, &state.utf8_sanitized);
             state.bytes = buf.items.len;
             state.chunks = 1;
             primary.cursor = state.old_primary.cursor;
@@ -4145,7 +4156,7 @@ pub const Editor = struct {
             if (state.old_primary_reversed) sel.reverse();
             primary.cursor = sel.end;
         }
-        try self.update_buf_and_eol_mode(state.work_root, state.eol_mode);
+        try self.update_buf_and_eol_mode(state.work_root, state.eol_mode, state.utf8_sanitized);
         primary.cursor.clamp_to_buffer(state.work_root, self.metrics);
         self.logger.print("filter: done (bytes:{d} chunks:{d})", .{ state.bytes, state.chunks });
         self.reset_syntax();
