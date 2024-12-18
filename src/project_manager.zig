@@ -485,7 +485,7 @@ const Process = struct {
         return project.references(from, file_path, row, col);
     }
 
-    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.LspOrClientError)!void {
+    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || cbor.Error)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".completion" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;

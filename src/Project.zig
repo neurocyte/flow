@@ -628,7 +628,7 @@ fn send_reference(self: *Self, to: tp.pid_ref, location: []const u8) (ClientErro
     }) catch return error.ClientFailed;
 }
 
-pub fn completion(self: *Self, _: tp.pid_ref, file_path: []const u8, row: usize, col: usize) LspOrClientError!void {
+pub fn completion(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspOrClientError || InvalidMessageError || cbor.Error)!void {
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
@@ -637,6 +637,149 @@ pub fn completion(self: *Self, _: tp.pid_ref, file_path: []const u8, row: usize,
         .position = .{ .line = row, .character = col },
     }) catch return error.LspFailed;
     defer self.allocator.free(response.buf);
+    var result: []const u8 = undefined;
+    if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+        try send_content_msg_empty(from, "hover", file_path, row, col);
+    } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.array })) {
+        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+            try self.send_completion_items(from, file_path, row, col, result, false);
+    } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
+        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+            try self.send_completion_list(from, file_path, row, col, result);
+    }
+}
+
+fn send_completion_list(self: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, result: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = result;
+    var len = cbor.decodeMapHeader(&iter) catch return;
+    var items: []const u8 = "";
+    var is_incomplete: bool = false;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "items")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&items)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "isIncomplete")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&is_incomplete)))) return error.InvalidMessageField;
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    return self.send_completion_items(to, file_path, row, col, items, is_incomplete) catch error.ClientFailed;
+}
+
+fn send_completion_items(self: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, items: []const u8, is_incomplete: bool) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = items;
+    var len = cbor.decodeArrayHeader(&iter) catch return;
+    var item: []const u8 = "";
+    while (len > 0) : (len -= 1) {
+        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidMessageField;
+        self.send_completion_item(to, file_path, row, col, item, if (len > 1) true else is_incomplete) catch return error.ClientFailed;
+    }
+}
+
+fn send_completion_item(_: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, item: []const u8, is_incomplete: bool) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var label: []const u8 = "";
+    var label_detail: []const u8 = "";
+    var label_description: []const u8 = "";
+    var kind: usize = 0;
+    var detail: []const u8 = "";
+    var documentation: []const u8 = "";
+    var documentation_kind: []const u8 = "";
+    var sortText: []const u8 = "";
+    var insertTextFormat: usize = 0;
+    var textEdit_newText: []const u8 = "";
+    var textEdit_insert: ?Range = null;
+    var textEdit_replace: ?Range = null;
+
+    var iter = item;
+    var len = cbor.decodeMapHeader(&iter) catch return;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "label")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&label)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "labelDetails")) {
+            var len_ = cbor.decodeMapHeader(&iter) catch return;
+            while (len_ > 0) : (len_ -= 1) {
+                if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+                if (std.mem.eql(u8, field_name, "detail")) {
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&label_detail)))) return error.InvalidMessageField;
+                } else if (std.mem.eql(u8, field_name, "description")) {
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&label_description)))) return error.InvalidMessageField;
+                } else {
+                    try cbor.skipValue(&iter);
+                }
+            }
+        } else if (std.mem.eql(u8, field_name, "kind")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&kind)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "detail")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "documentation")) {
+            var len_ = cbor.decodeMapHeader(&iter) catch return;
+            while (len_ > 0) : (len_ -= 1) {
+                if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+                if (std.mem.eql(u8, field_name, "kind")) {
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&documentation_kind)))) return error.InvalidMessageField;
+                } else if (std.mem.eql(u8, field_name, "value")) {
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&documentation)))) return error.InvalidMessageField;
+                } else {
+                    try cbor.skipValue(&iter);
+                }
+            }
+        } else if (std.mem.eql(u8, field_name, "sortText")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&sortText)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "insertTextFormat")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&insertTextFormat)))) return error.InvalidMessageField;
+        } else if (std.mem.eql(u8, field_name, "textEdit")) {
+            // var textEdit: []const u8 = ""; // { "newText": "wait_expired(${1:timeout_ns: isize})", "insert": Range, "replace": Range },
+            var len_ = cbor.decodeMapHeader(&iter) catch return;
+            while (len_ > 0) : (len_ -= 1) {
+                if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+                if (std.mem.eql(u8, field_name, "newText")) {
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&textEdit_newText)))) return error.InvalidMessageField;
+                } else if (std.mem.eql(u8, field_name, "insert")) {
+                    var range_: []const u8 = undefined;
+                    if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidMessageField;
+                    textEdit_insert = try read_range(range_);
+                } else if (std.mem.eql(u8, field_name, "replace")) {
+                    var range_: []const u8 = undefined;
+                    if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidMessageField;
+                    textEdit_replace = try read_range(range_);
+                } else {
+                    try cbor.skipValue(&iter);
+                }
+            }
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    const insert = textEdit_insert orelse return error.InvalidMessageField;
+    const replace = textEdit_replace orelse return error.InvalidMessageField;
+    return to.send(.{
+        "completion_item",
+        file_path,
+        row,
+        col,
+        is_incomplete,
+        label,
+        label_detail,
+        label_description,
+        kind,
+        detail,
+        documentation,
+        sortText,
+        insertTextFormat,
+        textEdit_newText,
+        insert.start.line,
+        insert.start.character,
+        insert.end.line,
+        insert.end.character,
+        replace.start.line,
+        replace.start.character,
+        replace.end.line,
+        replace.end.character,
+    }) catch error.ClientFailed;
 }
 
 pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspOrClientError || InvalidMessageError || cbor.Error)!void {
