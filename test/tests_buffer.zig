@@ -192,7 +192,7 @@ test "get_byte_pos" {
     try std.testing.expectEqual(97, try buffer.root.get_byte_pos(.{ .row = 11, .col = 2 }, metrics(), eol_mode));
 }
 
-test "del_chars" {
+test "delete_bytes" {
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -213,12 +213,12 @@ test "del_chars" {
     defer buffer.deinit();
     buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
 
-    buffer.update(try buffer.root.del_chars(3, try buffer.root.line_width(3, metrics()) - 1, 1, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(3, try buffer.root.line_width(3, metrics()) - 1, 1, buffer.allocator, metrics()));
     const line3 = try get_line(buffer, 3);
     defer a.free(line3);
     try std.testing.expect(std.mem.eql(u8, line3, "us"));
 
-    buffer.update(try buffer.root.del_chars(3, 0, 7, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(3, 0, 7, buffer.allocator, metrics()));
     const line3_1 = try get_line(buffer, 3);
     defer a.free(line3_1);
     try std.testing.expect(std.mem.eql(u8, line3_1, "your"));
@@ -227,7 +227,7 @@ test "del_chars" {
     buffer.update(try buffer.root.rebalance(buffer.allocator, buffer.allocator));
     try std.testing.expect(buffer.root.is_balanced());
 
-    buffer.update(try buffer.root.del_chars(0, try buffer.root.line_width(0, metrics()) - 1, 2, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(0, try buffer.root.line_width(0, metrics()) - 1, 2, buffer.allocator, metrics()));
     const line0 = try get_line(buffer, 0);
     defer a.free(line0);
     try std.testing.expect(std.mem.eql(u8, line0, "All youropes"));
@@ -239,7 +239,7 @@ fn check_line(buffer: *const Buffer, line_no: usize, expect: []const u8) !void {
     try std.testing.expect(std.mem.eql(u8, line, expect));
 }
 
-test "del_chars2" {
+test "delete_bytes2" {
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -260,14 +260,14 @@ test "del_chars2" {
     defer buffer.deinit();
     buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
 
-    buffer.update(try buffer.root.del_chars(2, try buffer.root.line_width(2, metrics()) - 3, 6, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(2, try buffer.root.line_width(2, metrics()) - 3, 6, buffer.allocator, metrics()));
 
     try check_line(buffer, 2, "are belong!");
     try check_line(buffer, 3, "All your");
     try check_line(buffer, 4, "ropes");
 }
 
-test "del_chars_with_tab_issue83" {
+test "delete_bytes_with_tab_issue83" {
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -296,7 +296,7 @@ test "del_chars_with_tab_issue83" {
             line4.len + 1;
     };
 
-    buffer.update(try buffer.root.del_chars(2, 0, len, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(2, 0, len, buffer.allocator, metrics()));
 
     const result: []const u8 = try buffer.store_to_string(a, eol_mode);
     defer a.free(result);

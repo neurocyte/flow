@@ -644,10 +644,10 @@ const Node = union(enum) {
         };
         _ = self.get_range(sel, null, &size, null, metrics) catch return error.Stop;
         const pos = try self.get_line_width_to_pos(sel.begin.row, sel.begin.col, metrics);
-        return self.del_chars(sel.begin.row, pos, size, allocator, metrics) catch return error.Stop;
+        return self.delete_bytes(sel.begin.row, pos, size, allocator, metrics) catch return error.Stop;
     }
 
-    pub fn del_chars(self: *const Node, line: usize, pos_: usize, bytes: usize, allocator: Allocator, metrics_: Metrics) !Root {
+    pub fn delete_bytes(self: *const Node, line: usize, pos_: usize, bytes: usize, allocator: Allocator, metrics_: Metrics) !Root {
         const Ctx = struct {
             allocator: Allocator,
             pos: usize,
