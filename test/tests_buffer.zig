@@ -18,6 +18,11 @@ fn metrics() Buffer.Metrics {
                 return chunk_.len;
             }
         }.f,
+        .egc_last = struct {
+            fn f(_: Buffer.Metrics, _: []const u8) []const u8 {
+                @panic("not implemented");
+            }
+        }.f,
         .tab_width = 1,
     };
 }
@@ -66,7 +71,8 @@ fn get_big_doc(eol_mode: *Buffer.EolMode) !*Buffer {
     try gen.reader().readAllArrayList(&doc, std.math.maxInt(usize));
     var buf = try Buffer.create(a);
     var fis = std.io.fixedBufferStream(doc.items);
-    buf.update(try buf.load(fis.reader(), doc.items.len, eol_mode));
+    var sanitized: bool = false;
+    buf.update(try buf.load(fis.reader(), doc.items.len, eol_mode, &sanitized));
     return buf;
 }
 
@@ -86,9 +92,10 @@ test "buffer" {
         \\us!
     ;
     var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
     const buffer = try Buffer.create(a);
     defer buffer.deinit();
-    const root = try buffer.load_from_string(doc, &eol_mode);
+    const root = try buffer.load_from_string(doc, &eol_mode, &sanitized);
 
     try std.testing.expect(root.is_balanced());
     buffer.update(root);
@@ -147,9 +154,10 @@ test "line_len" {
         \\us!
     ;
     var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
     const buffer = try Buffer.create(a);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
 
     try std.testing.expectEqual(try buffer.root.line_width(0, metrics()), 8);
     try std.testing.expectEqual(try buffer.root.line_width(1, metrics()), 5);
@@ -171,9 +179,10 @@ test "get_byte_pos" {
         \\us!
     ;
     var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
     const buffer = try Buffer.create(a);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
 
     try std.testing.expectEqual(0, try buffer.root.get_byte_pos(.{ .row = 0, .col = 0 }, metrics(), eol_mode));
     try std.testing.expectEqual(9, try buffer.root.get_byte_pos(.{ .row = 1, .col = 0 }, metrics(), eol_mode));
@@ -199,9 +208,10 @@ test "del_chars" {
         \\us!
     ;
     var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
     const buffer = try Buffer.create(a);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
 
     buffer.update(try buffer.root.del_chars(3, try buffer.root.line_width(3, metrics()) - 1, 1, buffer.allocator, metrics()));
     const line3 = try get_line(buffer, 3);
@@ -245,9 +255,10 @@ test "del_chars2" {
         \\us!
     ;
     var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
     const buffer = try Buffer.create(a);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
 
     buffer.update(try buffer.root.del_chars(2, try buffer.root.line_width(2, metrics()) - 3, 6, buffer.allocator, metrics()));
 
@@ -261,9 +272,10 @@ test "insert_chars" {
         \\B
     ;
     var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
     const buffer = try Buffer.create(a);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
 
     const line0 = try get_line(buffer, 0);
     defer a.free(line0);

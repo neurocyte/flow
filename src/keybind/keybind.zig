@@ -764,9 +764,9 @@ test "match" {
 
 test "json" {
     var bindings: BindingSet = .{ .name = "test" };
-    _ = try bindings.process_key_event('j', .{ .key = 'j' });
-    _ = try bindings.process_key_event('k', .{ .key = 'k' });
-    _ = try bindings.process_key_event('g', .{ .key = 'g' });
-    _ = try bindings.process_key_event('i', .{ .key = 'i' });
-    _ = try bindings.process_key_event(0, .{ .key = 'i', .modifiers = input.mod.ctrl });
+    _ = try bindings.process_key_event('j', "", .{ .key = 'j' });
+    _ = try bindings.process_key_event('k', "", .{ .key = 'k' });
+    _ = try bindings.process_key_event('g', "", .{ .key = 'g' });
+    _ = try bindings.process_key_event('i', "", .{ .key = 'i' });
+    _ = try bindings.process_key_event(0, "", .{ .key = 'i', .modifiers = input.mod.ctrl });
 }
