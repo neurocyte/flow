@@ -637,90 +637,87 @@ const Node = union(enum) {
         return result orelse "";
     }
 
-    pub fn delete_range(self: *const Node, sel: Selection, allocator: Allocator, size: ?*usize, metrics: Metrics) error{Stop}!Root {
-        var wcwidth: usize = 0;
-        _ = self.get_range(sel, null, size, &wcwidth, metrics) catch return error.Stop;
-        return self.del_chars(sel.begin.row, sel.begin.col, wcwidth, allocator, metrics) catch return error.Stop;
+    pub fn delete_range(self: *const Node, sel: Selection, allocator: Allocator, size_: ?*usize, metrics: Metrics) error{Stop}!Root {
+        var size: usize = 0;
+        defer if (size_) |p| {
+            p.* = size;
+        };
+        _ = self.get_range(sel, null, &size, null, metrics) catch return error.Stop;
+        const pos = try self.get_line_width_to_pos(sel.begin.row, sel.begin.col, metrics);
+        return self.del_chars(sel.begin.row, pos, size, allocator, metrics) catch return error.Stop;
     }
 
-    pub fn del_chars(self: *const Node, line: usize, col: usize, count: usize, allocator: Allocator, metrics_: Metrics) !Root {
+    pub fn del_chars(self: *const Node, line: usize, pos_: usize, bytes: usize, allocator: Allocator, metrics_: Metrics) !Root {
         const Ctx = struct {
             allocator: Allocator,
-            col: usize,
-            abs_col: usize = 0,
-            count: usize,
+            pos: usize,
+            bytes: usize,
             delete_next_bol: bool = false,
-            fn walker(Ctx: *anyopaque, leaf: *const Leaf, metrics: Metrics) WalkerMut {
+            fn walker(Ctx: *anyopaque, leaf: *const Leaf, _: Metrics) WalkerMut {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(Ctx)));
                 var result = WalkerMut.keep_walking;
-                if (ctx.delete_next_bol and ctx.count == 0) {
+                if (ctx.delete_next_bol and ctx.bytes == 0) {
                     result.replace = Leaf.new(ctx.allocator, leaf.buf, false, leaf.eol) catch |e| return .{ .err = e };
                     result.keep_walking = false;
                     ctx.delete_next_bol = false;
                     return result;
                 }
-                const leaf_wcwidth = leaf.width(ctx.abs_col, metrics);
+                const leaf_bytes = leaf.buf.len;
                 const leaf_bol = leaf.bol and !ctx.delete_next_bol;
                 ctx.delete_next_bol = false;
-                const base_col = ctx.abs_col;
-                ctx.abs_col += leaf_wcwidth;
-                if (ctx.col > leaf_wcwidth) {
+                if (ctx.pos > leaf_bytes) {
                     // next node
-                    ctx.col -= leaf_wcwidth;
+                    ctx.pos -= leaf_bytes;
                     if (leaf.eol)
-                        ctx.col -= 1;
+                        ctx.pos -= 1;
                 } else {
                     // this node
-                    if (ctx.col == 0) {
-                        if (ctx.count > leaf_wcwidth) {
-                            ctx.count -= leaf_wcwidth;
+                    if (ctx.pos == 0) {
+                        if (ctx.bytes > leaf_bytes) {
+                            ctx.bytes -= leaf_bytes;
                             result.replace = Leaf.new(ctx.allocator, "", leaf_bol, false) catch |e| return .{ .err = e };
                             if (leaf.eol) {
-                                ctx.count -= 1;
+                                ctx.bytes -= 1;
                                 ctx.delete_next_bol = true;
                             }
-                        } else if (ctx.count == leaf_wcwidth) {
+                        } else if (ctx.bytes == leaf_bytes) {
                             result.replace = Leaf.new(ctx.allocator, "", leaf_bol, leaf.eol) catch |e| return .{ .err = e };
-                            ctx.count = 0;
+                            ctx.bytes = 0;
                         } else {
-                            const pos = leaf.width_to_pos(ctx.count, base_col, metrics) catch |e| return .{ .err = e };
-                            result.replace = Leaf.new(ctx.allocator, leaf.buf[pos..], leaf_bol, leaf.eol) catch |e| return .{ .err = e };
-                            ctx.count = 0;
+                            result.replace = Leaf.new(ctx.allocator, leaf.buf[ctx.bytes..], leaf_bol, leaf.eol) catch |e| return .{ .err = e };
+                            ctx.bytes = 0;
                         }
-                    } else if (ctx.col == leaf_wcwidth) {
+                    } else if (ctx.pos == leaf_bytes) {
                         if (leaf.eol) {
-                            ctx.count -= 1;
+                            ctx.bytes -= 1;
                             result.replace = Leaf.new(ctx.allocator, leaf.buf, leaf_bol, false) catch |e| return .{ .err = e };
                             ctx.delete_next_bol = true;
                         }
-                        ctx.col -= leaf_wcwidth;
+                        ctx.pos -= leaf_bytes;
                     } else {
-                        if (ctx.col + ctx.count >= leaf_wcwidth) {
-                            ctx.count -= leaf_wcwidth - ctx.col;
-                            const pos = leaf.width_to_pos(ctx.col, base_col, metrics) catch |e| return .{ .err = e };
-                            const leaf_eol = if (leaf.eol and ctx.count > 0) leaf_eol: {
-                                ctx.count -= 1;
+                        if (ctx.pos + ctx.bytes >= leaf_bytes) {
+                            ctx.bytes -= leaf_bytes - ctx.pos;
+                            const leaf_eol = if (leaf.eol and ctx.bytes > 0) leaf_eol: {
+                                ctx.bytes -= 1;
                                 ctx.delete_next_bol = true;
                                 break :leaf_eol false;
                             } else leaf.eol;
-                            result.replace = Leaf.new(ctx.allocator, leaf.buf[0..pos], leaf_bol, leaf_eol) catch |e| return .{ .err = e };
-                            ctx.col = 0;
+                            result.replace = Leaf.new(ctx.allocator, leaf.buf[0..ctx.pos], leaf_bol, leaf_eol) catch |e| return .{ .err = e };
+                            ctx.pos = 0;
                         } else {
-                            const pos = leaf.width_to_pos(ctx.col, base_col, metrics) catch |e| return .{ .err = e };
-                            const pos_end = leaf.width_to_pos(ctx.col + ctx.count, base_col, metrics) catch |e| return .{ .err = e };
-                            const left = Leaf.new(ctx.allocator, leaf.buf[0..pos], leaf_bol, false) catch |e| return .{ .err = e };
-                            const right = Leaf.new(ctx.allocator, leaf.buf[pos_end..], false, leaf.eol) catch |e| return .{ .err = e };
+                            const left = Leaf.new(ctx.allocator, leaf.buf[0..ctx.pos], leaf_bol, false) catch |e| return .{ .err = e };
+                            const right = Leaf.new(ctx.allocator, leaf.buf[ctx.pos + ctx.bytes ..], false, leaf.eol) catch |e| return .{ .err = e };
                             result.replace = Node.new(ctx.allocator, left, right) catch |e| return .{ .err = e };
-                            ctx.count = 0;
+                            ctx.bytes = 0;
                         }
                     }
-                    if (ctx.count == 0 and !ctx.delete_next_bol)
+                    if (ctx.bytes == 0 and !ctx.delete_next_bol)
                         result.keep_walking = false;
                 }
                 return result;
             }
         };
-        var ctx: Ctx = .{ .allocator = allocator, .col = col, .count = count };
+        var ctx: Ctx = .{ .allocator = allocator, .pos = pos_, .bytes = bytes };
         const found, const root = try self.walk_from_line_begin(allocator, line, Ctx.walker, &ctx, metrics_);
         return if (found) (root orelse error.Stop) else error.NotFound;
     }

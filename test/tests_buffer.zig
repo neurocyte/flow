@@ -292,7 +292,7 @@ test "del_chars_with_tab_issue83" {
         defer a.free(line3);
         defer a.free(line4);
         break :blk line2.len + 1 +
-            line3.len + 7 + 1 +
+            line3.len + 1 +
             line4.len + 1;
     };
 
