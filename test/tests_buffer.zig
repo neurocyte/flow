@@ -23,7 +23,7 @@ fn metrics() Buffer.Metrics {
                 @panic("not implemented");
             }
         }.f,
-        .tab_width = 1,
+        .tab_width = 8,
     };
 }
 
@@ -265,6 +265,43 @@ test "del_chars2" {
     try check_line(buffer, 2, "are belong!");
     try check_line(buffer, 3, "All your");
     try check_line(buffer, 4, "ropes");
+}
+
+test "del_chars_with_tab_issue83" {
+    const doc: []const u8 =
+        \\All your
+        \\ropes
+        \\are belong to
+        \\\t
+        \\All your
+        \\ropes
+        \\are belong to
+        \\us!
+    ;
+    var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
+    const buffer = try Buffer.create(a);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+
+    const len = blk: {
+        const line2 = try get_line(buffer, 2);
+        const line3 = try get_line(buffer, 3);
+        const line4 = try get_line(buffer, 4);
+        defer a.free(line2);
+        defer a.free(line3);
+        defer a.free(line4);
+        break :blk line2.len + 1 +
+            line3.len + 7 + 1 +
+            line4.len + 1;
+    };
+
+    buffer.update(try buffer.root.del_chars(2, 0, len, buffer.allocator, metrics()));
+
+    const result: []const u8 = try buffer.store_to_string(a, eol_mode);
+    defer a.free(result);
+    // std.debug.print("{s}", .{result});
+    try check_line(buffer, 2, "ropes");
 }
 
 test "insert_chars" {
