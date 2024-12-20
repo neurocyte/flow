@@ -157,7 +157,7 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
                 input.event.press,
                 key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
-                text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
+                text orelse "",
                 @as(u8, @bitCast(key_.mods)),
             });
             if (self.bracketed_paste and self.handle_bracketed_paste_input(cbor_msg) catch |e| return self.handle_bracketed_paste_error(e)) {
@@ -171,7 +171,7 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
                 input.event.release,
                 key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
-                text orelse input.utils.key_id_string(key_.base_layout_codepoint orelse key_.codepoint),
+                text orelse "",
                 @as(u8, @bitCast(key_.mods)),
             });
             if (self.bracketed_paste) {} else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
