@@ -3980,6 +3980,30 @@ pub const Editor = struct {
         return project_manager.hover(file_path, row, pos);
     }
 
+    pub fn add_hover_highlight(self: *Self, match_: Match) void {
+        const root = self.buf_root() catch return;
+        const match: Match = .{
+            .begin = .{
+                .row = match_.begin.row,
+                .col = root.pos_to_width(match_.begin.row, match_.begin.col, self.metrics) catch return,
+            },
+            .end = .{
+                .row = match_.end.row,
+                .col = root.pos_to_width(match_.end.row, match_.end.col, self.metrics) catch return,
+            },
+        };
+        switch (self.matches.items.len) {
+            0 => {
+                (self.matches.addOne() catch return).* = match;
+            },
+            1 => {
+                self.matches.items[0] = match;
+            },
+            else => {},
+        }
+        self.need_render();
+    }
+
     pub fn add_diagnostic(
         self: *Self,
         file_path: []const u8,
