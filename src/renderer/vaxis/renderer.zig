@@ -374,17 +374,17 @@ pub fn cursor_disable(self: *Self) void {
 
 fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !void {
     if (modifiers.ctrl and !self.mods.ctrl and !(keypress == input.key.left_control or keypress == input.key.right_control))
-        try self.send_sync_key(input.event.press, input.key.left_control, "lctrl", modifiers);
+        try self.send_sync_key(input.event.press, input.key.left_control, "", modifiers);
     if (!modifiers.ctrl and self.mods.ctrl and !(keypress == input.key.left_control or keypress == input.key.right_control))
-        try self.send_sync_key(input.event.release, input.key.left_control, "lctrl", modifiers);
+        try self.send_sync_key(input.event.release, input.key.left_control, "", modifiers);
     if (modifiers.alt and !self.mods.alt and !(keypress == input.key.left_alt or keypress == input.key.right_alt))
-        try self.send_sync_key(input.event.press, input.key.left_alt, "lalt", modifiers);
+        try self.send_sync_key(input.event.press, input.key.left_alt, "", modifiers);
     if (!modifiers.alt and self.mods.alt and !(keypress == input.key.left_alt or keypress == input.key.right_alt))
-        try self.send_sync_key(input.event.release, input.key.left_alt, "lalt", modifiers);
+        try self.send_sync_key(input.event.release, input.key.left_alt, "", modifiers);
     if (modifiers.shift and !self.mods.shift and !(keypress == input.key.left_shift or keypress == input.key.right_shift))
-        try self.send_sync_key(input.event.press, input.key.left_shift, "lshift", modifiers);
+        try self.send_sync_key(input.event.press, input.key.left_shift, "", modifiers);
     if (!modifiers.shift and self.mods.shift and !(keypress == input.key.left_shift or keypress == input.key.right_shift))
-        try self.send_sync_key(input.event.release, input.key.left_shift, "lshift", modifiers);
+        try self.send_sync_key(input.event.release, input.key.left_shift, "", modifiers);
     self.mods = modifiers;
 }
 
