@@ -877,7 +877,15 @@ pub const Editor = struct {
         } else {
             if (self.screen_cursor(cursor)) |pos| {
                 const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
-                tui_.rdr.cursor_enable(y, x, tui_.get_cursor_shape()) catch {};
+                const configured_shape = tui_.get_cursor_shape();
+                const cursor_shape = if (self.cursels.items.len > 1) switch (configured_shape) {
+                    .beam => .block,
+                    .beam_blink => .block_blink,
+                    .underline => .block,
+                    .underline_blink => .block_blink,
+                    else => configured_shape,
+                } else configured_shape;
+                tui_.rdr.cursor_enable(y, x, cursor_shape) catch {};
             } else {
                 tui_.rdr.cursor_disable();
             }
