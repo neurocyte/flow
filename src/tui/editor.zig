@@ -3975,7 +3975,9 @@ pub const Editor = struct {
 
     pub fn hover_at(self: *Self, row: usize, col: usize) Result {
         const file_path = self.file_path orelse return;
-        return project_manager.hover(file_path, row, col);
+        const root = self.buf_root() catch return;
+        const pos = root.get_line_width_to_pos(row, col, self.metrics) catch return;
+        return project_manager.hover(file_path, row, pos);
     }
 
     pub fn add_diagnostic(
