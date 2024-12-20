@@ -39,7 +39,7 @@ pub fn Options(context: type) type {
                 const tui_ = tui.current();
                 if (tui_.config.enable_terminal_cursor) {
                     const y, const x = self.plane.rel_yx_to_abs(0, pos + 1);
-                    tui_.rdr.cursor_enable(y, x, .default) catch {};
+                    tui_.rdr.cursor_enable(y, x, tui_.get_cursor_shape()) catch {};
                 } else {
                     self.plane.cursor_move_yx(0, pos + 1) catch return false;
                     var cell = self.plane.cell_init();

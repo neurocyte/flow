@@ -877,11 +877,7 @@ pub const Editor = struct {
         } else {
             if (self.screen_cursor(cursor)) |pos| {
                 const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
-                const shape = if (tui_.input_mode) |mode|
-                    mode.cursor_shape
-                else
-                    .block;
-                tui_.rdr.cursor_enable(y, x, tui.translate_cursor_shape(shape)) catch {};
+                tui_.rdr.cursor_enable(y, x, tui_.get_cursor_shape()) catch {};
             } else {
                 tui_.rdr.cursor_disable();
             }

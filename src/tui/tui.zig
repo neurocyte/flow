@@ -1096,8 +1096,9 @@ fn set_terminal_style(self: *Self) void {
     }
 }
 
-pub fn translate_cursor_shape(in: keybind.CursorShape) renderer.CursorShape {
-    return switch (in) {
+pub fn get_cursor_shape(self: *Self) renderer.CursorShape {
+    const shape = if (self.input_mode) |mode| mode.cursor_shape else .block;
+    return switch (shape) {
         .default => .default,
         .block_blink => .block_blink,
         .block => .block,

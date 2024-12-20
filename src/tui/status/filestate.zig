@@ -109,7 +109,7 @@ fn render_mini_mode(plane: *Plane, theme: *const Widget.Theme) void {
         const pos: c_int = @intCast(cursor);
         if (tui_.config.enable_terminal_cursor) {
             const y, const x = plane.rel_yx_to_abs(0, pos + 1);
-            tui_.rdr.cursor_enable(y, x, .default) catch {};
+            tui_.rdr.cursor_enable(y, x, tui_.get_cursor_shape()) catch {};
         } else {
             plane.cursor_move_yx(0, pos + 1) catch return;
             var cell = plane.cell_init();
