@@ -7,6 +7,7 @@ const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
 const EventHandler = @import("EventHandler");
+const input = @import("input");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
@@ -102,7 +103,37 @@ pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "M", tp.more })) return;
     var buf: [4096]u8 = undefined;
     const json = m.to_json(&buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    self.append(json) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    var result = ArrayList(u8).init(self.allocator);
+    defer result.deinit();
+    const writer = result.writer();
+    writer.writeAll(json) catch |e| return tp.exit_error(e, @errorReturnTrace());
+
+    var event: input.Event = 0;
+    var keypress: input.Key = 0;
+    var egc: input.Key = 0;
+    var text: []const u8 = "";
+    var modifiers: input.Mods = 0;
+    if (try m.match(.{
+        "I",
+        tp.extract(&event),
+        tp.extract(&keypress),
+        tp.extract(&egc),
+        tp.extract(&text),
+        tp.extract(&modifiers),
+    })) {
+        var key_event: input.KeyEvent = .{
+            .event = event,
+            .key = keypress,
+            .modifiers = modifiers,
+        };
+        key_event.modifiers = switch (key_event.key) {
+            input.key.left_control, input.key.right_control => 0,
+            input.key.left_alt, input.key.right_alt => 0,
+            else => key_event.modifiers,
+        };
+        writer.print(" -> {}", .{key_event}) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    self.append(result.items) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 
 pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
