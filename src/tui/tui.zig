@@ -52,6 +52,7 @@ final_exit: []const u8 = "normal",
 render_pending: bool = false,
 keepalive_timer: ?tp.Cancellable = null,
 mouse_idle_timer: ?tp.Cancellable = null,
+default_cursor: keybind.CursorShape = .default,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -118,6 +119,8 @@ fn init(allocator: Allocator) !*Self {
     instance_ = self;
     defer instance_ = null;
 
+    self.default_cursor = std.meta.stringToEnum(keybind.CursorShape, conf.default_cursor) orelse .default;
+    self.config.default_cursor = @tagName(self.default_cursor);
     self.rdr.handler_ctx = self;
     self.rdr.dispatch_input = dispatch_input;
     self.rdr.dispatch_mouse = dispatch_mouse;
@@ -1097,7 +1100,7 @@ fn set_terminal_style(self: *Self) void {
 }
 
 pub fn get_cursor_shape(self: *Self) renderer.CursorShape {
-    const shape = if (self.input_mode) |mode| mode.cursor_shape else .block;
+    const shape = if (self.input_mode) |mode| mode.cursor_shape orelse self.default_cursor else self.default_cursor;
     return switch (shape) {
         .default => .default,
         .block_blink => .block_blink,

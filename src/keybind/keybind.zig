@@ -78,7 +78,7 @@ pub const Mode = struct {
     name: []const u8 = "",
     line_numbers: LineNumbers = .absolute,
     keybind_hints: *const KeybindHints,
-    cursor_shape: CursorShape = .block,
+    cursor_shape: ?CursorShape = null,
 
     pub fn deinit(self: *Mode) void {
         self.allocator.free(self.mode);
@@ -362,7 +362,7 @@ const BindingSet = struct {
     on_match_failure: OnMatchFailure = .ignore,
     name: []const u8,
     line_numbers: LineNumbers = .absolute,
-    cursor_shape: CursorShape = .block,
+    cursor_shape: ?CursorShape = null,
     insert_command: []const u8 = "",
     hints_map: KeybindHints = .{},
 
@@ -379,7 +379,7 @@ const BindingSet = struct {
             on_match_failure: OnMatchFailure = .insert,
             name: ?[]const u8 = null,
             line_numbers: LineNumbers = .absolute,
-            cursor: CursorShape = .block,
+            cursor: ?CursorShape = null,
         };
         const parsed = try std.json.parseFromValue(JsonConfig, allocator, mode_bindings, .{
             .ignore_unknown_fields = true,
