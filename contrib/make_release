@@ -11,6 +11,10 @@ if [ -e "release" ]; then
     exit 1
 fi
 
+echo running tests...
+
+./zig build test
+
 echo building...
 
 ./zig build -Dpackage_release --prefix release/build
