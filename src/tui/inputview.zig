@@ -127,8 +127,10 @@ pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
             .modifiers = modifiers,
         };
         key_event.modifiers = switch (key_event.key) {
-            input.key.left_control, input.key.right_control => 0,
-            input.key.left_alt, input.key.right_alt => 0,
+            input.key.left_super, input.key.right_super => key_event.modifiers & ~input.mod.super,
+            input.key.left_shift, input.key.right_shift => key_event.modifiers & ~input.mod.shift,
+            input.key.left_control, input.key.right_control => key_event.modifiers & ~input.mod.ctrl,
+            input.key.left_alt, input.key.right_alt => key_event.modifiers & ~input.mod.alt,
             else => key_event.modifiers,
         };
         writer.print(" -> {}", .{key_event}) catch |e| return tp.exit_error(e, @errorReturnTrace());
