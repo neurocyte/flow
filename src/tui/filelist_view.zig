@@ -174,16 +174,8 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
         .Warning => button.plane.set_style(style_warning),
         .Error => button.plane.set_style(style_error),
     }
-    _ = button.plane.print("{s}", .{entry.lines}) catch {};
+    _ = button.plane.print("{s}", .{std.fmt.fmtSliceEscapeLower(entry.lines)}) catch {};
     return false;
-}
-
-fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !void {
-    plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
-    var cell = plane.cell_init();
-    _ = plane.at_cursor_cell(&cell) catch return;
-    cell.set_style(style);
-    _ = plane.putc(&cell) catch {};
 }
 
 fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
