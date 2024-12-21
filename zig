@@ -46,7 +46,9 @@ get_zig() {
         mkdir -p "$ZIGDIR"
         cd "$ZIGDIR"
         TARBALL="https://ziglang.org/download/$VERSION/$ZIGVER.tar.xz"
-
+        if echo "$VERSION" | grep '\-dev\.' >&/dev/null; then
+            TARBALL="https://ziglang.org/builds/$ZIGVER.tar.xz"
+        fi
         if [ ! -d "$ZIGVER" ]; then
             curl "$TARBALL" | tar -xJ
         fi
