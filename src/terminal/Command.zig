@@ -69,7 +69,7 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
             },
             .flags = 0,
         };
-        try posix.sigaction(posix.SIG.CHLD, &act, null);
+        posix.sigaction(posix.SIG.CHLD, &act, null);
     }
 
     return;

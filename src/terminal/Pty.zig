@@ -27,10 +27,10 @@ pub fn deinit(self: Pty) void {
 /// sets the size of the pty
 pub fn setSize(self: Pty, ws: Winsize) !void {
     const _ws: posix.winsize = .{
-        .ws_row = @truncate(ws.rows),
-        .ws_col = @truncate(ws.cols),
-        .ws_xpixel = @truncate(ws.x_pixel),
-        .ws_ypixel = @truncate(ws.y_pixel),
+        .row = @truncate(ws.rows),
+        .col = @truncate(ws.cols),
+        .xpixel = @truncate(ws.x_pixel),
+        .ypixel = @truncate(ws.y_pixel),
     };
     if (posix.system.ioctl(self.pty, posix.T.IOCSWINSZ, @intFromPtr(&_ws)) != 0)
         return error.SetWinsizeError;

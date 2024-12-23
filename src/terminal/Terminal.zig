@@ -169,7 +169,7 @@ pub fn spawn(self: *Terminal) !void {
         try self.working_directory.appendSlice(pwd);
     } else {
         const pwd = std.fs.cwd();
-        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buffer: [std.fs.max_path_bytes]u8 = undefined;
         const out_path = try std.os.getFdPath(pwd.fd, &buffer);
         try self.working_directory.appendSlice(out_path);
     }
