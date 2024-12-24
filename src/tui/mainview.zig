@@ -571,8 +571,11 @@ const cmds = struct {
     pub const open_previous_file_meta = .{ .description = "Open the previous file" };
 
     pub fn system_paste(_: *Self, _: Ctx) Result {
-        if (builtin.os.tag == .windows)
-            return command.executeName("paste", .{}) catch {};
+        if (builtin.os.tag == .windows) {
+            const text = try tui.current().rdr.request_windows_clipboard();
+            defer tui.current().rdr.allocator.free(text);
+            return command.executeName("paste", command.fmt(.{text})) catch {};
+        }
         tui.current().rdr.request_system_clipboard();
     }
     pub const system_paste_meta = .{ .description = "Paste from system clipboard" };

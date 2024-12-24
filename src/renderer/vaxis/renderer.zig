@@ -349,6 +349,30 @@ pub fn request_system_clipboard(self: *Self) void {
     self.vx.requestSystemClipboard(self.tty.anyWriter()) catch |e| log.logger(log_name).err("request_system_clipboard", e);
 }
 
+pub fn request_windows_clipboard(self: *Self) ![]u8 {
+    const windows = std.os.windows;
+    const win32 = struct {
+        pub extern "user32" fn OpenClipboard(hWndNewOwner: ?windows.HWND) callconv(windows.WINAPI) windows.BOOL;
+        pub extern "user32" fn CloseClipboard() callconv(windows.WINAPI) windows.BOOL;
+        pub extern "user32" fn SetClipboardData(uFormat: windows.UINT, hMem: windows.HANDLE) callconv(windows.WINAPI) ?windows.HANDLE;
+        pub extern "user32" fn GetClipboardData(uFormat: windows.UINT) callconv(windows.WINAPI) ?windows.HANDLE;
+        pub extern "kernel32" fn GlobalLock(hMem: windows.HANDLE) ?windows.LPVOID;
+        pub extern "kernel32" fn GlobalUnlock(hMem: windows.HANDLE) windows.BOOL;
+        const CF_TEXT = @as(c_int, 1);
+    };
+
+    if (win32.OpenClipboard(null) == 0)
+        return error.OpenClipBoardFailed;
+    defer _ = win32.CloseClipboard();
+
+    const mem = win32.GetClipboardData(win32.CF_TEXT) orelse return error.ClipboardDataRetrievalFailed;
+    const data: [*c]u8 = @ptrCast(win32.GlobalLock(mem) orelse return error.ClipboardDataLockFailed);
+    const text = std.mem.span(data);
+    defer _ = win32.GlobalUnlock(mem);
+
+    return self.allocator.dupe(u8, text);
+}
+
 pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {
     if (push_or_pop) self.vx.setMouseShape(.text) else self.vx.setMouseShape(.default);
 }
