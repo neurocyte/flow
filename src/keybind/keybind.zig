@@ -578,6 +578,10 @@ const BindingSet = struct {
             else => event.modifiers,
         };
 
+        //normalize to lowercase for binding matching (input is done via `text`)
+        if (event.key >= 'A' and event.key <= 'Z')
+            event.key = event.key - 'A' + 'a';
+
         if (event.event == input.event.release)
             return self.process_key_release_event(event);
 
