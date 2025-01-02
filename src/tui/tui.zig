@@ -685,7 +685,15 @@ const cmds = struct {
         self.config.whitespace_mode = if (std.mem.eql(u8, self.config.whitespace_mode, "none"))
             "indent"
         else if (std.mem.eql(u8, self.config.whitespace_mode, "indent"))
+            "leading"
+        else if (std.mem.eql(u8, self.config.whitespace_mode, "leading"))
+            "eol"
+        else if (std.mem.eql(u8, self.config.whitespace_mode, "eol"))
+            "tabs"
+        else if (std.mem.eql(u8, self.config.whitespace_mode, "tabs"))
             "visible"
+        else if (std.mem.eql(u8, self.config.whitespace_mode, "visible"))
+            "full"
         else
             "none";
         try self.save_config();

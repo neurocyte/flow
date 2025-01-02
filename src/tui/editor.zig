@@ -41,6 +41,17 @@ pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_0
 pub const max_match_lines = 15;
 pub const max_match_batch = if (builtin.mode == std.builtin.OptimizeMode.Debug) 100 else 1000;
 
+pub const whitespace = struct {
+    pub const char = struct {
+        pub const visible = "·";
+        pub const blank = " ";
+        pub const indent = "│";
+        pub const eol = "↩"; // alternatives: "$", "⏎", "󰌑", "↲", "⤶", "󱞱", "󱞲", "⤦", "¬", "␤", "❯", "❮"
+        pub const tab_begin = "-";
+        pub const tab_end = ">";
+    };
+};
+
 pub const Match = struct {
     begin: Cursor = Cursor{},
     end: Cursor = Cursor{},
@@ -288,7 +299,7 @@ pub const Editor = struct {
 
     case_data: ?CaseData = null,
 
-    const WhitespaceMode = enum { visible, indent, none };
+    const WhitespaceMode = enum { indent, leading, eol, tabs, visible, full, none };
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
     const Context = command.Context;
@@ -384,10 +395,18 @@ pub const Editor = struct {
     }
 
     fn from_whitespace_mode(whitespace_mode: []const u8) WhitespaceMode {
-        return if (std.mem.eql(u8, whitespace_mode, "visible"))
-            .visible
-        else if (std.mem.eql(u8, whitespace_mode, "indent"))
+        return if (std.mem.eql(u8, whitespace_mode, "indent"))
             .indent
+        else if (std.mem.eql(u8, whitespace_mode, "leading"))
+            .leading
+        else if (std.mem.eql(u8, whitespace_mode, "eol"))
+            .eol
+        else if (std.mem.eql(u8, whitespace_mode, "tabs"))
+            .tabs
+        else if (std.mem.eql(u8, whitespace_mode, "visible"))
+            .visible
+        else if (std.mem.eql(u8, whitespace_mode, "full"))
+            .full
         else
             .none;
     }
@@ -735,15 +754,32 @@ pub const Editor = struct {
         return self.scroll_dest != self.view.row;
     }
 
+    const CellType = enum {
+        empty,
+        character,
+        space,
+        tab,
+        eol,
+        extension,
+    };
+    const CellMapEntry = struct {
+        cell_type: CellType = .empty,
+        cursor: bool = false,
+    };
+    const CellMap = ViewMap(CellMapEntry, .{});
+
     fn render_screen(self: *Self, theme: *const Widget.Theme, cache: *StyleCache) void {
         const ctx = struct {
             self: *Self,
             buf_row: usize,
             buf_col: usize = 0,
+            y: usize = 0,
+            x: usize = 0,
             match_idx: usize = 0,
             theme: *const Widget.Theme,
             hl_row: ?usize,
             leading: bool = true,
+            cell_map: CellMap,
 
             fn walker(ctx_: *anyopaque, leaf: *const Buffer.Leaf, _: Buffer.Metrics) Buffer.Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
@@ -773,7 +809,6 @@ pub const Editor = struct {
                     if (ctx.buf_col >= view.col + view.cols)
                         break;
                     var cell = n.cell_init();
-                    var end_cell: ?Cell = null;
                     const c = &cell;
                     switch (chunk[0]) {
                         0...8, 10...31, 32, 9 => {},
@@ -781,9 +816,14 @@ pub const Editor = struct {
                     }
                     const bytes, const colcount = switch (chunk[0]) {
                         0...8, 10...31 => |code| ctx.self.render_control_code(c, n, code, ctx.theme),
-                        32 => ctx.self.render_space(c, n, ctx.buf_col, ctx.leading, ctx.theme),
-                        9 => ctx.self.render_tab(c, n, ctx.buf_col, ctx.theme, &end_cell),
+                        32 => ctx.self.render_space(c, n),
+                        9 => ctx.self.render_tab(c, n, ctx.buf_col),
                         else => render_egc(c, n, chunk),
+                    };
+                    const cell_map_val: CellType = switch (chunk[0]) {
+                        32 => .space,
+                        9 => .tab,
+                        else => .character,
                     };
                     if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                         self_.render_line_highlight_cell(ctx.theme, c);
@@ -795,11 +835,13 @@ pub const Editor = struct {
                     if (ctx.buf_col < view.col and ctx.buf_col + advanced > view.col)
                         n.cursor_move_rel(0, @intCast(ctx.buf_col + advanced - view.col)) catch {};
                     ctx.buf_col += advanced;
+                    ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = cell_map_val });
+                    ctx.x += advanced;
 
                     while (ctx.buf_col < new_col) {
                         if (ctx.buf_col >= view.col + view.cols)
                             break;
-                        var cell_ = if (end_cell) |ec| if (ctx.buf_col == new_col - 1) ec else c.* else n.cell_init();
+                        var cell_ = n.cell_init();
                         const c_ = &cell_;
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, c_);
@@ -807,6 +849,8 @@ pub const Editor = struct {
                         self_.render_selections(ctx.theme, c_);
                         const advanced_ = n.putc(c_) catch break;
                         ctx.buf_col += advanced_;
+                        ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = .extension });
+                        ctx.x += advanced;
                     }
                     chunk = chunk[bytes..];
                 }
@@ -826,6 +870,9 @@ pub const Editor = struct {
                     n.cursor_move_rel(1, 0) catch |e| return Buffer.Walker{ .err = e };
                     ctx.buf_row += 1;
                     ctx.buf_col = 0;
+                    ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = .eol });
+                    ctx.y += 1;
+                    ctx.x = 0;
                     ctx.leading = true;
                 }
                 return Buffer.Walker.keep_walking;
@@ -839,7 +886,14 @@ pub const Editor = struct {
                             break :blk null;
             break :blk self.get_primary().cursor.row;
         } else null;
-        var ctx_: ctx = .{ .self = self, .buf_row = self.view.row, .theme = theme, .hl_row = hl_row };
+        var ctx_: ctx = .{
+            .self = self,
+            .buf_row = self.view.row,
+            .theme = theme,
+            .hl_row = hl_row,
+            .cell_map = CellMap.init(self.allocator, self.view.rows, self.view.cols) catch @panic("OOM"),
+        };
+        defer ctx_.cell_map.deinit(self.allocator);
         const root = self.buf_root() catch return;
 
         {
@@ -854,28 +908,31 @@ pub const Editor = struct {
             _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_, self.metrics) catch {};
         }
         self.render_syntax(theme, cache, root) catch {};
-        self.render_diagnostics(theme, hl_row) catch {};
-        self.render_cursors(theme) catch {};
+        self.render_cursors(theme, ctx_.cell_map) catch {};
+        self.render_whitespace_map(theme, ctx_.cell_map) catch {};
+        self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
     }
 
-    fn render_cursors(self: *Self, theme: *const Widget.Theme) !void {
+    fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel|
-            try self.render_cursor_secondary(&cursel.cursor, theme);
-        try self.render_cursor_primary(&self.get_primary().cursor, theme);
+            try self.render_cursor_secondary(&cursel.cursor, theme, cell_map);
+        try self.render_cursor_primary(&self.get_primary().cursor, theme, cell_map);
     }
 
-    fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme) !void {
+    fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap) !void {
         const tui_ = tui.current();
         if (!tui_.is_mainview_focused() or !self.enable_terminal_cursor) {
             if (self.screen_cursor(cursor)) |pos| {
+                set_cell_map_cursor(cell_map, pos.row, pos.col);
                 self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
                 const style = if (tui_.is_mainview_focused()) theme.editor_cursor else theme.editor_cursor_secondary;
                 self.render_cursor_cell(style);
             }
         } else {
             if (self.screen_cursor(cursor)) |pos| {
+                set_cell_map_cursor(cell_map, pos.row, pos.col);
                 const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
                 const configured_shape = tui_.get_cursor_shape();
                 const cursor_shape = if (self.cursels.items.len > 1) switch (configured_shape) {
@@ -892,8 +949,9 @@ pub const Editor = struct {
         }
     }
 
-    fn render_cursor_secondary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme) !void {
+    fn render_cursor_secondary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap) !void {
         if (self.screen_cursor(cursor)) |pos| {
+            set_cell_map_cursor(cell_map, pos.row, pos.col);
             self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
             self.render_cursor_cell(theme.editor_cursor_secondary);
         }
@@ -904,6 +962,11 @@ pub const Editor = struct {
         _ = self.plane.at_cursor_cell(&cell) catch return;
         cell.set_style(style);
         _ = self.plane.putc(&cell) catch {};
+    }
+
+    inline fn set_cell_map_cursor(cell_map: CellMap, y: usize, x: usize) void {
+        const cell_type = cell_map.get_yx(y, x).cell_type;
+        cell_map.set_yx(y, x, .{ .cursor = true, .cell_type = cell_type });
     }
 
     fn render_line_highlight(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme) !void {
@@ -954,11 +1017,11 @@ pub const Editor = struct {
             };
     }
 
-    fn render_diagnostics(self: *Self, theme: *const Widget.Theme, hl_row: ?usize) !void {
-        for (self.diagnostics.items) |*diag| self.render_diagnostic(diag, theme, hl_row);
+    fn render_diagnostics(self: *Self, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) !void {
+        for (self.diagnostics.items) |*diag| self.render_diagnostic(diag, theme, hl_row, cell_map);
     }
 
-    fn render_diagnostic(self: *Self, diag: *const Diagnostic, theme: *const Widget.Theme, hl_row: ?usize) void {
+    fn render_diagnostic(self: *Self, diag: *const Diagnostic, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) void {
         const screen_width = self.view.cols;
         const pos = self.screen_cursor(&diag.sel.begin) orelse return;
         var style = switch (diag.get_severity()) {
@@ -980,21 +1043,11 @@ pub const Editor = struct {
                 self.render_diagnostic_cell(style);
             }
         }
-        const space_begin = get_line_end_space_begin(&self.plane, screen_width, pos.row);
-        if (space_begin < screen_width) {
+        var space_begin = screen_width;
+        while (space_begin > 0) : (space_begin -= 1)
+            if (cell_map.get_yx(pos.row, space_begin).cell_type != .empty) break;
+        if (space_begin < screen_width)
             self.render_diagnostic_message(diag.message, pos.row, screen_width - space_begin, style);
-        }
-    }
-
-    fn get_line_end_space_begin(plane: *Plane, screen_width: usize, screen_row: usize) usize {
-        var pos = screen_width;
-        var cell = plane.cell_init();
-        while (pos > 0) : (pos -= 1) {
-            plane.cursor_move_yx(@intCast(screen_row), @intCast(pos - 1)) catch return pos;
-            const cell_egc_bytes = plane.at_cursor_cell(&cell) catch return pos;
-            if (cell_egc_bytes > 0) return pos;
-        }
-        return pos;
     }
 
     fn render_diagnostic_message(self: *Self, message_: []const u8, y: usize, max_space: usize, style: Widget.Theme.Style) void {
@@ -1034,26 +1087,14 @@ pub const Editor = struct {
     }
 
     inline fn render_eol(self: *const Self, n: *Plane, theme: *const Widget.Theme) Cell {
+        const char = whitespace.char;
         var cell = n.cell_init();
         const c = &cell;
         if (self.render_whitespace == .visible) {
             c.set_style(theme.editor_whitespace);
-            //_ = n.cell_load(c, "$") catch {};
-            //_ = n.cell_load(c, " ") catch {};
-            //_ = n.cell_load(c, "⏎") catch {};
-            // _ = n.cell_load(c, "󰌑") catch {};
-            _ = n.cell_load(c, "↩") catch {};
-            //_ = n.cell_load(c, "↲") catch {};
-            //_ = n.cell_load(c, "⤶") catch {};
-            //_ = n.cell_load(c, "󱞱") catch {};
-            //_ = n.cell_load(c, "󱞲") catch {};
-            //_ = n.cell_load(c, "⤦") catch {};
-            //_ = n.cell_load(c, "¬") catch {};
-            //_ = n.cell_load(c, "␤") catch {};
-            //_ = n.cell_load(c, "❯") catch {};
-            //_ = n.cell_load(c, "❮") catch {};
+            _ = n.cell_load(c, char.eol) catch {};
         } else {
-            _ = n.cell_load(c, " ") catch {};
+            _ = n.cell_load(c, char.blank) catch {};
         }
         return cell;
     }
@@ -1065,42 +1106,19 @@ pub const Editor = struct {
         return cell;
     }
 
-    inline fn render_space(self: *const Self, c: *Cell, n: *Plane, buf_col: usize, leading: bool, theme: *const Widget.Theme) struct { usize, usize } {
-        switch (self.render_whitespace) {
-            .visible => {
-                c.set_style(theme.editor_whitespace);
-                _ = n.cell_load(c, "·") catch {};
-            },
-            .indent => {
-                c.set_style(theme.editor_whitespace);
-                _ = n.cell_load(c, if (leading) if (buf_col % self.indent_size == 0) "│" else " " else " ") catch {};
-            },
-            else => {
-                _ = n.cell_load(c, " ") catch {};
-            },
-        }
+    inline fn render_space(self: *const Self, c: *Cell, n: *Plane) struct { usize, usize } {
+        const char = whitespace.char;
+        _ = n.cell_load(c, switch (self.render_whitespace) {
+            .visible => char.visible,
+            else => char.blank,
+        }) catch {};
         return .{ 1, 1 };
     }
 
-    inline fn render_tab(self: *const Self, c: *Cell, n: *Plane, abs_col: usize, theme: *const Widget.Theme, end_cell: *?Cell) struct { usize, usize } {
-        const begin_char = "-";
-        const end_char = ">";
+    inline fn render_tab(self: *const Self, c: *Cell, n: *Plane, abs_col: usize) struct { usize, usize } {
+        const char = whitespace.char;
         const colcount = 1 + self.tab_width - (abs_col % self.tab_width);
-        switch (self.render_whitespace) {
-            .visible => {
-                c.set_style(theme.editor_whitespace);
-                _ = n.cell_load(c, if (colcount == 2) end_char else begin_char) catch {};
-                if (colcount > 1) {
-                    end_cell.* = n.cell_init();
-                    const c_: *Cell = &end_cell.*.?;
-                    _ = n.cell_load(c_, end_char) catch {};
-                    c_.set_style(theme.editor_whitespace);
-                }
-            },
-            else => {
-                _ = n.cell_load(c, " ") catch {};
-            },
-        }
+        _ = n.cell_load(c, char.blank) catch {};
         return .{ 1, colcount };
     }
 
@@ -1175,6 +1193,127 @@ pub const Editor = struct {
             .end_byte = 0,
         };
         return syn.render(&ctx, Ctx.cb, range);
+    }
+
+    fn render_whitespace_map(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
+        const char = whitespace.char;
+        const frame = tracy.initZone(@src(), .{ .name = "editor whitespace map" });
+        defer frame.deinit();
+        for (0..cell_map.rows) |y| {
+            var leading = true;
+            var leading_space = false;
+            var tab_error = false;
+            for (0..cell_map.cols) |x| {
+                const cell_map_entry = cell_map.get_yx(y, x);
+                const cell_type = cell_map_entry.cell_type;
+                const next_cell_map_entry = cell_map.get_yx(y, x + 1);
+                const next_cell_type = next_cell_map_entry.cell_type;
+                switch (cell_type) {
+                    .space => {
+                        leading_space = true;
+                        tab_error = false;
+                    },
+                    .empty, .character, .eol => {
+                        leading = false;
+                        leading_space = false;
+                        tab_error = false;
+                    },
+                    .tab => {
+                        if (leading_space) tab_error = true;
+                    },
+                    else => {},
+                }
+                if (cell_type == .character)
+                    continue;
+                self.plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+                var cell = self.plane.cell_init();
+                _ = self.plane.at_cursor_cell(&cell) catch return;
+                switch (self.render_whitespace) {
+                    .indent => {
+                        if (leading and x % self.indent_size == 0)
+                            cell.cell.char.grapheme = char.indent;
+                    },
+                    .leading => {
+                        if (leading) {
+                            if (get_whitespace_char(cell_type, next_cell_type)) |c|
+                                cell.cell.char.grapheme = c;
+                        }
+                    },
+                    .eol => {
+                        if (cell_type == .eol)
+                            cell.cell.char.grapheme = char.eol;
+                    },
+                    .tabs => {
+                        if (cell_type == .tab or cell_type == .extension) {
+                            if (get_whitespace_char(cell_type, next_cell_type)) |c|
+                                cell.cell.char.grapheme = c;
+                        }
+                    },
+                    .visible => {
+                        if (get_whitespace_char(cell_type, next_cell_type)) |c|
+                            cell.cell.char.grapheme = c;
+                    },
+                    .full => {
+                        cell.cell.char.grapheme = get_whitespace_char(cell_type, next_cell_type) orelse switch (cell_type) {
+                            .eol => char.eol,
+                            .empty => "_",
+                            else => "#",
+                        };
+                    },
+                    else => {},
+                }
+                if (tab_error) {
+                    cell.set_style_fg(theme.editor_error);
+                    if (get_whitespace_char(cell_type, next_cell_type)) |c|
+                        cell.cell.char.grapheme = c;
+                } else {
+                    cell.set_style_fg(theme.editor_whitespace);
+                }
+                _ = self.plane.putc(&cell) catch {};
+            }
+            var eol = cell_map.cols;
+            while (eol > 0) : (eol -= 1)
+                switch (cell_map.get_yx(y, eol).cell_type) {
+                    .empty => continue,
+                    .eol => break,
+                    else => eol = 1,
+                };
+            if (eol > 0) {
+                var trailing = eol;
+                while (trailing > 0) : (trailing -= 1) {
+                    const cell_map_entry = cell_map.get_yx(y, trailing);
+                    switch (cell_map_entry.cell_type) {
+                        .space, .tab, .extension, .eol, .empty => {},
+                        .character => {
+                            trailing += 1;
+                            break;
+                        },
+                    }
+                    if (cell_map_entry.cursor)
+                        break;
+                }
+                for (trailing..eol) |x| {
+                    const cell_type = cell_map.get_yx(y, x).cell_type;
+                    const next_cell_type = cell_map.get_yx(y, x + 1).cell_type;
+                    self.plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+                    var cell = self.plane.cell_init();
+                    _ = self.plane.at_cursor_cell(&cell) catch return;
+                    cell.cell.char.grapheme = get_whitespace_char(cell_type, next_cell_type) orelse continue;
+                    cell.set_style_fg(theme.editor_error);
+                    _ = self.plane.putc(&cell) catch {};
+                }
+            }
+        }
+    }
+
+    fn get_whitespace_char(cell_type: CellType, next_cell_type: CellType) ?[]const u8 {
+        const char = whitespace.char;
+        return switch (cell_type) {
+            .space => char.visible,
+            .tab => if (next_cell_type != .extension) char.tab_end else char.tab_begin,
+            .extension => if (next_cell_type != .extension) char.tab_end else char.tab_begin,
+            else => null,
+        };
     }
 
     fn style_cache_lookup(theme: *const Widget.Theme, cache: *StyleCache, scope: []const u8, id: u32) ?Widget.Theme.Token {
@@ -4645,3 +4784,27 @@ pub const PosToWidthCache = struct {
         return .{ .begin = .{ .row = start.row, .col = start_col }, .end = .{ .row = end.row, .col = end_col } };
     }
 };
+
+fn ViewMap(T: type, default: T) type {
+    return struct {
+        rows: usize,
+        cols: usize,
+        data: []T = &[_]T{},
+        fn init(allocator: std.mem.Allocator, rows: usize, cols: usize) !@This() {
+            const data = try allocator.alloc(T, rows * cols);
+            @memset(data[0 .. rows * cols], default);
+            return .{ .rows = rows, .cols = cols, .data = data };
+        }
+        fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            allocator.free(self.data);
+        }
+        fn set_yx(self: @This(), y: usize, x: usize, value: T) void {
+            if (y >= self.rows or x >= self.cols) return;
+            self.data[y * self.cols + x] = value;
+        }
+        fn get_yx(self: @This(), y: usize, x: usize) T {
+            if (y >= self.rows or x >= self.cols) return default;
+            return self.data[y * self.cols + x];
+        }
+    };
+}
