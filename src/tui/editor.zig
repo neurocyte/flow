@@ -46,7 +46,7 @@ pub const whitespace = struct {
         pub const visible = "·";
         pub const blank = " ";
         pub const indent = "│";
-        pub const eol = "↩"; // alternatives: "$", "⏎", "󰌑", "↲", "⤶", "󱞱", "󱞲", "⤦", "¬", "␤", "❯", "❮"
+        pub const eol = "󰌑"; // alternatives: "$", "⏎", "󰌑", "↩", "↲", "⤶", "󱞱", "󱞲", "⤦", "¬", "␤", "❯", "❮"
         pub const tab_begin = "-";
         pub const tab_end = ">";
     };
