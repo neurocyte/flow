@@ -820,7 +820,7 @@ pub const Editor = struct {
                         9 => ctx.self.render_tab(c, n, ctx.buf_col),
                         else => render_egc(c, n, chunk),
                     };
-                    const cell_map_val: CellType = switch (chunk[0]) {
+                    var cell_map_val: CellType = switch (chunk[0]) {
                         32 => .space,
                         9 => .tab,
                         else => .character,
@@ -830,50 +830,59 @@ pub const Editor = struct {
                     self_.render_matches(&ctx.match_idx, ctx.theme, c);
                     self_.render_selections(ctx.theme, c);
 
-                    const advanced = if (ctx.buf_col >= view.col) n.putc(c) catch break else colcount;
-                    const new_col = ctx.buf_col + colcount - advanced;
-                    if (ctx.buf_col < view.col and ctx.buf_col + advanced > view.col)
-                        n.cursor_move_rel(0, @intCast(ctx.buf_col + advanced - view.col)) catch {};
-                    ctx.buf_col += advanced;
-                    ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = cell_map_val });
-                    ctx.x += advanced;
-
-                    while (ctx.buf_col < new_col) {
-                        if (ctx.buf_col >= view.col + view.cols)
-                            break;
+                    var advance = colcount;
+                    if (ctx.buf_col < view.col) {
+                        advance = if (ctx.buf_col + advance >= view.col)
+                            ctx.buf_col + advance - view.col
+                        else
+                            0;
+                    }
+                    if (ctx.buf_col >= view.col) {
+                        _ = n.putc(c) catch {};
+                        ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = cell_map_val });
+                        if (cell_map_val == .tab) cell_map_val = .extension;
+                        advance -= 1;
+                        ctx.x += 1;
+                        n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x)) catch {};
+                    }
+                    while (advance > 0) : (advance -= 1) {
+                        if (ctx.x >= view.cols) break;
                         var cell_ = n.cell_init();
                         const c_ = &cell_;
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, c_);
                         self_.render_matches(&ctx.match_idx, ctx.theme, c_);
                         self_.render_selections(ctx.theme, c_);
-                        const advanced_ = n.putc(c_) catch break;
-                        ctx.buf_col += advanced_;
-                        ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = .extension });
-                        ctx.x += advanced;
+                        _ = n.putc(c_) catch {};
+                        ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = cell_map_val });
+                        if (cell_map_val == .tab) cell_map_val = .extension;
+                        ctx.x += 1;
+                        n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x)) catch {};
                     }
+                    ctx.buf_col += colcount;
                     chunk = chunk[bytes..];
                 }
 
                 if (leaf.eol) {
-                    var c = ctx.self.render_eol(n, ctx.theme);
-                    if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
-                        self_.render_line_highlight_cell(ctx.theme, &c);
-                    self_.render_matches(&ctx.match_idx, ctx.theme, &c);
-                    self_.render_selections(ctx.theme, &c);
-                    _ = n.putc(&c) catch {};
-                    var term_cell = render_terminator(n, ctx.theme);
-                    if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
-                        self_.render_line_highlight_cell(ctx.theme, &term_cell);
-                    _ = n.putc(&term_cell) catch {};
-                    n.cursor_move_yx(-1, 0) catch |e| return Buffer.Walker{ .err = e };
-                    n.cursor_move_rel(1, 0) catch |e| return Buffer.Walker{ .err = e };
+                    if (ctx.buf_col >= view.col) {
+                        var c = ctx.self.render_eol(n);
+                        if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
+                            self_.render_line_highlight_cell(ctx.theme, &c);
+                        self_.render_matches(&ctx.match_idx, ctx.theme, &c);
+                        self_.render_selections(ctx.theme, &c);
+                        _ = n.putc(&c) catch {};
+                        var term_cell = render_terminator(n, ctx.theme);
+                        if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
+                            self_.render_line_highlight_cell(ctx.theme, &term_cell);
+                        _ = n.putc(&term_cell) catch {};
+                        ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = .eol });
+                    }
                     ctx.buf_row += 1;
                     ctx.buf_col = 0;
-                    ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = .eol });
                     ctx.y += 1;
                     ctx.x = 0;
                     ctx.leading = true;
+                    n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x)) catch {};
                 }
                 return Buffer.Walker.keep_walking;
             }
@@ -1086,16 +1095,11 @@ pub const Editor = struct {
         return .{ 1, 1 };
     }
 
-    inline fn render_eol(self: *const Self, n: *Plane, theme: *const Widget.Theme) Cell {
+    inline fn render_eol(_: *const Self, n: *Plane) Cell {
         const char = whitespace.char;
         var cell = n.cell_init();
         const c = &cell;
-        if (self.render_whitespace == .visible) {
-            c.set_style(theme.editor_whitespace);
-            _ = n.cell_load(c, char.eol) catch {};
-        } else {
-            _ = n.cell_load(c, char.blank) catch {};
-        }
+        _ = n.cell_load(c, char.blank) catch {};
         return cell;
     }
 
@@ -1117,7 +1121,7 @@ pub const Editor = struct {
 
     inline fn render_tab(self: *const Self, c: *Cell, n: *Plane, abs_col: usize) struct { usize, usize } {
         const char = whitespace.char;
-        const colcount = 1 + self.tab_width - (abs_col % self.tab_width);
+        const colcount = self.tab_width - (abs_col % self.tab_width);
         _ = n.cell_load(c, char.blank) catch {};
         return .{ 1, colcount };
     }
