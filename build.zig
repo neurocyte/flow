@@ -482,9 +482,9 @@ fn gen_version_info(
 
     const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags" }, &code, .Ignore);
     const branch_ = try b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", "HEAD" }, &code, .Ignore);
-    const remote_ = try b.runAllowFail(&[_][]const u8{ "git", "config", "remote.origin.url" }, &code, .Ignore);
-    const log_ = try b.runAllowFail(&[_][]const u8{ "git", "log", "--pretty=oneline", "@{u}..." }, &code, .Ignore);
-    const diff_ = try b.runAllowFail(&[_][]const u8{ "git", "diff", "--stat", "--patch", "HEAD" }, &code, .Ignore);
+    const remote_ = b.runAllowFail(&[_][]const u8{ "git", "config", "remote.origin.url" }, &code, .Ignore) catch "(origin not found)";
+    const log_ = b.runAllowFail(&[_][]const u8{ "git", "log", "--pretty=oneline", "@{u}..." }, &code, .Ignore) catch "";
+    const diff_ = b.runAllowFail(&[_][]const u8{ "git", "diff", "--stat", "--patch", "HEAD" }, &code, .Ignore) catch "(git diff failed)";
     const version = std.mem.trimRight(u8, describe, "\r\n ");
     const branch = std.mem.trimRight(u8, branch_, "\r\n ");
     const remote = std.mem.trimRight(u8, remote_, "\r\n ");
