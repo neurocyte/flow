@@ -312,6 +312,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
             command.executeName("paste", command.fmt(.{text}));
     }
 
+    if (try m.match(.{ "system_clipboard", tp.null_ }))
+        return self.logger.err_msg("clipboard", "clipboard request denied or empty");
+
     if (try m.match(.{"render"})) {
         self.render_pending = false;
         if (!self.frame_clock_running)
