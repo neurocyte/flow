@@ -1065,7 +1065,7 @@ pub const Editor = struct {
         self.plane.set_style(style);
         var iter = std.mem.splitScalar(u8, message_, '\n');
         if (iter.next()) |message|
-            _ = self.plane.print_aligned_right(@intCast(y), "{s}", .{message[0..@min(max_space, message.len)]}) catch {};
+            _ = self.plane.print_aligned_right(@intCast(y), " • {s}", .{message[0..@min(max_space - 3, message.len)]}) catch {};
     }
 
     inline fn render_diagnostic_cell(self: *Self, style: Widget.Theme.Style) void {
