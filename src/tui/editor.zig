@@ -2723,6 +2723,7 @@ pub const Editor = struct {
         const new_text = text_manip.toggle_prefix_in_text(self.prefix, text, alloc) catch return error.Stop;
         root = self.insert(root, cursel, new_text, allocator) catch return error.Stop;
         cursel.* = saved;
+        cursel.cursor.clamp_to_buffer(root, self.metrics);
         return root;
     }
 
