@@ -882,7 +882,8 @@ pub const Editor = struct {
                     ctx.y += 1;
                     ctx.x = 0;
                     ctx.leading = true;
-                    n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x)) catch {};
+                    if (ctx.y >= view.rows) return Buffer.Walker.stop;
+                    n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x)) catch return Buffer.Walker.stop;
                 }
                 return Buffer.Walker.keep_walking;
             }
