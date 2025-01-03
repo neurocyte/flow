@@ -89,6 +89,17 @@ pub inline fn dim_x(self: Plane) c_uint {
     return @intCast(self.window.width);
 }
 
+pub fn abs_yx_to_rel_nearest_x(self: Plane, y: c_int, x: c_int, xoffset: c_int) struct { c_int, c_int } {
+    if (self.window.screen.width == 0 or self.window.screen.height == 0) return self.abs_yx_to_rel(y, x);
+    const xextra = self.window.screen.width_pix % self.window.screen.width;
+    const xcell = (self.window.screen.width_pix - xextra) / self.window.screen.width;
+    if (xcell == 0)
+        return self.abs_yx_to_rel(y, x);
+    if (xoffset > xcell / 2)
+        return self.abs_yx_to_rel(y, x + 1);
+    return self.abs_yx_to_rel(y, x);
+}
+
 pub fn abs_yx_to_rel(self: Plane, y: c_int, x: c_int) struct { c_int, c_int } {
     return .{ y - self.abs_y(), x - self.abs_x() };
 }

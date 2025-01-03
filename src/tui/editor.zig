@@ -4687,8 +4687,15 @@ pub const EditorWidget = struct {
         })(self, y, x, ypx, xpx);
     }
 
-    fn mouse_click_button1(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) Result {
-        const y_, const x_ = self.editor.plane.abs_yx_to_rel(y, x);
+    fn mouse_pos_abs(self: *Self, y: c_int, x: c_int, xoffset: c_int) struct { c_int, c_int } {
+        return if (tui.current().is_cursor_beam())
+            self.editor.plane.abs_yx_to_rel_nearest_x(y, x, xoffset)
+        else
+            self.editor.plane.abs_yx_to_rel(y, x);
+    }
+
+    fn mouse_click_button1(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
+        const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
         if (self.last_btn == input.mouse.BUTTON1) {
             const click_time_ms = time.milliTimestamp() - self.last_btn_time_ms;
             if (click_time_ms <= double_click_time_ms) {
@@ -4707,8 +4714,8 @@ pub const EditorWidget = struct {
         return;
     }
 
-    fn mouse_drag_button1(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) Result {
-        const y_, const x_ = self.editor.plane.abs_yx_to_rel(y, x);
+    fn mouse_drag_button1(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
+        const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
         self.editor.primary_drag(y_, x_);
     }
 
@@ -4716,13 +4723,13 @@ pub const EditorWidget = struct {
 
     fn mouse_drag_button2(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {}
 
-    fn mouse_click_button3(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) Result {
-        const y_, const x_ = self.editor.plane.abs_yx_to_rel(y, x);
+    fn mouse_click_button3(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
+        const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
         try self.editor.secondary_click(y_, x_);
     }
 
-    fn mouse_drag_button3(self: *Self, y: c_int, x: c_int, _: c_int, _: c_int) Result {
-        const y_, const x_ = self.editor.plane.abs_yx_to_rel(y, x);
+    fn mouse_drag_button3(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
+        const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
         try self.editor.secondary_drag(y_, x_);
     }
 

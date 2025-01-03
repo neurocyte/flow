@@ -1119,3 +1119,10 @@ pub fn get_cursor_shape(self: *Self) renderer.CursorShape {
         .beam => .beam,
     };
 }
+
+pub fn is_cursor_beam(self: *Self) bool {
+    return switch (self.get_cursor_shape()) {
+        .beam, .beam_blink => true,
+        else => false,
+    };
+}
