@@ -40,6 +40,7 @@ const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
 pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_000 else 100_000;
 pub const max_match_lines = 15;
 pub const max_match_batch = if (builtin.mode == std.builtin.OptimizeMode.Debug) 100 else 1000;
+pub const min_diagnostic_view_len = 5;
 
 pub const whitespace = struct {
     pub const char = struct {
@@ -1056,7 +1057,7 @@ pub const Editor = struct {
         var space_begin = screen_width;
         while (space_begin > 0) : (space_begin -= 1)
             if (cell_map.get_yx(pos.row, space_begin).cell_type != .empty) break;
-        if (space_begin < screen_width)
+        if (screen_width > min_diagnostic_view_len and space_begin < screen_width - min_diagnostic_view_len)
             self.render_diagnostic_message(diag.message, pos.row, screen_width - space_begin, style);
     }
 
