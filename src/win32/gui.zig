@@ -210,6 +210,7 @@ const State = struct {
     maybe_d2d: ?D2d = null,
     erase_bg_done: bool = false,
     text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{},
+    scroll_delta: isize = 0,
 
     // these fields should only be accessed inside the global mutex
     shared_screen_arena: std.heap.ArenaAllocator,
@@ -604,6 +605,43 @@ fn sendMouse(
     }
 }
 
+fn sendMouseWheel(
+    hwnd: win32.HWND,
+    wparam: win32.WPARAM,
+    lparam: win32.LPARAM,
+) void {
+    const point = ddui.pointFromLparam(lparam);
+    const state = stateFromHwnd(hwnd);
+    const dpi = win32.dpiFromHwnd(hwnd);
+    const text_format = state.text_format_editor.getOrCreate(Dpi{ .value = dpi });
+    const cell_size = getCellSize(dpi, text_format);
+    const cell = cellFromPos(cell_size, point.x, point.y);
+    const cell_offset = cellOffsetFromPos(cell_size, point.x, point.y);
+    // const fwKeys = win32.loword(wparam);
+    state.scroll_delta += @as(i16, @bitCast(win32.hiword(wparam)));
+    while (@abs(state.scroll_delta) > win32.WHEEL_DELTA) {
+        const button = blk: {
+            if (state.scroll_delta > 0) {
+                state.scroll_delta -= win32.WHEEL_DELTA;
+                break :blk @intFromEnum(input.mouse.BUTTON4);
+            }
+            state.scroll_delta += win32.WHEEL_DELTA;
+            break :blk @intFromEnum(input.mouse.BUTTON5);
+        };
+
+        state.pid.send(.{
+            "RDR",
+            "B",
+            input.event.press,
+            button,
+            cell.x,
+            cell.y,
+            cell_offset.x,
+            cell_offset.y,
+        }) catch |e| onexit(e);
+    }
+}
+
 fn sendKey(
     hwnd: win32.HWND,
     kind: enum {
@@ -735,6 +773,10 @@ fn WndProc(
         },
         win32.WM_RBUTTONUP => {
             sendMouse(hwnd, .right_up, lparam);
+            return 0;
+        },
+        win32.WM_MOUSEWHEEL => {
+            sendMouseWheel(hwnd, wparam, lparam);
             return 0;
         },
         win32.WM_KEYDOWN => {
