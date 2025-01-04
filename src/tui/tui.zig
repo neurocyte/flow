@@ -92,6 +92,7 @@ fn init(allocator: Allocator) !*Self {
     conf.input_mode = try allocator.dupe(u8, conf.input_mode);
     conf.top_bar = try allocator.dupe(u8, conf.top_bar);
     conf.bottom_bar = try allocator.dupe(u8, conf.bottom_bar);
+    if (build_options.gui) conf.enable_terminal_cursor = false;
 
     const frame_rate: usize = @intCast(tp.env.get().num("frame-rate"));
     if (frame_rate != 0)
