@@ -576,7 +576,7 @@ fn sendMouse(
     const cell_offset = cellOffsetFromPos(cell_size, point.x, point.y);
     switch (kind) {
         .move => state.pid.send(.{
-            "GUI",
+            "RDR",
             "M",
             cell.x,
             cell.y,
@@ -584,7 +584,7 @@ fn sendMouse(
             cell_offset.y,
         }) catch |e| onexit(e),
         else => |b| state.pid.send(.{
-            "GUI",
+            "RDR",
             "B",
             switch (b) {
                 .move => unreachable,
@@ -668,7 +668,7 @@ fn sendKey(
 
     for (char_buf[0..@intCast(unicode_result)]) |codepoint| {
         state.pid.send(.{
-            "GUI",
+            "RDR",
             "I",
             switch (kind) {
                 .press => input.event.press,
@@ -826,7 +826,7 @@ fn WndProc(
             };
             //std.log.info("new size {}x{} {}x{}", .{ new_size.x, new_size.y, new_cell_size.x, new_cell_size.y });
             state.pid.send(.{
-                "GUI",
+                "RDR",
                 "Resize",
                 client_cell_size.x,
                 client_cell_size.y,
