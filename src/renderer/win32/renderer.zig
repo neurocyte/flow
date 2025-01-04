@@ -291,10 +291,68 @@ pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !
     _ = text;
     @panic("todo");
 }
-pub fn set_terminal_title(self: *Self, text: []const u8) void {
-    _ = self;
-    std.log.warn("TODO: set_terminal_title '{s}'", .{text});
+
+fn setEllipsis(str: []u16) void {
+    std.debug.assert(str.len >= 3);
+    str[str.len - 1] = '.';
+    str[str.len - 2] = '.';
+    str[str.len - 3] = '.';
 }
+
+const ConversionSizes = struct {
+    src_len: usize,
+    dst_len: usize,
+};
+fn calcUtf8ToUtf16LeWithMax(utf8: []const u8, max_dst_len: usize) !ConversionSizes {
+    var src_len: usize = 0;
+    var dst_len: usize = 0;
+    while (src_len < utf8.len) {
+        if (dst_len >= max_dst_len) break;
+        const n = try std.unicode.utf8ByteSequenceLength(utf8[src_len]);
+        const next_src_len = src_len + n;
+        const codepoint = try std.unicode.utf8Decode(utf8[src_len..next_src_len]);
+        if (codepoint < 0x10000) {
+            dst_len += 1;
+        } else {
+            if (dst_len + 2 > max_dst_len) break;
+            dst_len += 2;
+        }
+        src_len = next_src_len;
+    }
+    return .{ .src_len = src_len, .dst_len = dst_len };
+}
+
+pub fn set_terminal_title(self: *Self, title_utf8: []const u8) void {
+    _ = self;
+
+    const max_title_wide = 500;
+    const conversion_sizes = calcUtf8ToUtf16LeWithMax(title_utf8, max_title_wide) catch {
+        std.log.err("title is invalid UTF-8", .{});
+        return;
+    };
+
+    var title_wide_buf: [max_title_wide + 1]u16 = undefined;
+    const len = @min(max_title_wide, conversion_sizes.dst_len);
+    title_wide_buf[len] = 0;
+    const title_wide = title_wide_buf[0..len :0];
+
+    const size = std.unicode.utf8ToUtf16Le(title_wide, title_utf8[0..conversion_sizes.src_len]) catch |err| switch (err) {
+        error.InvalidUtf8 => {
+            std.log.err("title is invalid UTF-8", .{});
+            return;
+        },
+    };
+    std.debug.assert(size == conversion_sizes.dst_len);
+    if (conversion_sizes.src_len != title_utf8.len) {
+        setEllipsis(title_wide);
+    }
+    var win32_err: gui.Win32Error = undefined;
+    gui.setWindowTitle(title_wide, &win32_err) catch |err| switch (err) {
+        error.NoWindow => std.log.warn("no window to set the title for", .{}),
+        error.Win32 => std.log.err("{s} failed with {}", .{ win32_err.what, win32_err.code.fmt() }),
+    };
+}
+
 pub fn set_terminal_style(self: *Self, style_: Style) void {
     _ = self;
     _ = style_;

@@ -388,6 +388,24 @@ fn entry(pid: thespian.pid) !void {
     pid.send(.{"quit"}) catch |e| onexit(e);
 }
 
+pub const Win32Error = struct {
+    what: [:0]const u8,
+    code: win32.WIN32_ERROR,
+    pub fn set(self: *Win32Error, what: [:0]const u8, code: win32.WIN32_ERROR) error{Win32} {
+        self.* = .{ .what = what, .code = code };
+        return error.Win32;
+    }
+};
+
+pub fn setWindowTitle(title: [*:0]const u16, err: *Win32Error) error{ NoWindow, Win32 }!void {
+    global.mutex.lock();
+    defer global.mutex.unlock();
+
+    const hwnd = global.hwnd orelse return error.NoWindow;
+    if (0 == win32.SetWindowTextW(hwnd, title))
+        return err.set("SetWindowText", win32.GetLastError());
+}
+
 // returns false if there is no hwnd
 pub fn updateScreen(screen: *const vaxis.Screen) bool {
     global.mutex.lock();
