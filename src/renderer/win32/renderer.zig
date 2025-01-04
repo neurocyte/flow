@@ -383,10 +383,9 @@ pub fn request_system_clipboard(self: *Self) void {
     _ = self;
     @panic("todo");
 }
-pub fn request_windows_clipboard(self: *Self) ![]u8 {
-    _ = self;
-    @panic("todo");
-}
+
+pub const request_windows_clipboard = @import("tuirenderer").request_windows_clipboard;
+
 pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {
     _ = self;
     _ = push_or_pop;
