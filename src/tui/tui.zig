@@ -249,7 +249,10 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 
 fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "RDR", tp.more })) {
-        try self.rdr.process_renderer_event(m.buf);
+        self.rdr.process_renderer_event(m.buf) catch |e| switch (e) {
+            error.UnexpectedRendererEvent => return tp.unexpected(m),
+            else => return e,
+        };
         try self.dispatch_flush_input_event();
         if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
             need_render();

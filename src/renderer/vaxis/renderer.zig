@@ -150,7 +150,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
     var input_: []const u8 = undefined;
     var text_: []const u8 = undefined;
     if (!try cbor.match(msg, .{ "RDR", cbor.extract(&input_), cbor.extract(&text_) }))
-        return error.InvalidRendererEvent;
+        return error.UnexpectedRendererEvent;
     const text = if (text_.len > 0) text_ else null;
     const event = std.mem.bytesAsValue(vaxis.Event, input_);
     switch (event.*) {

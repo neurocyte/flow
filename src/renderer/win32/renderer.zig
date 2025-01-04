@@ -3,7 +3,6 @@ pub const log_name = "renderer";
 
 const std = @import("std");
 const cbor = @import("cbor");
-const thespian = @import("thespian");
 const vaxis = @import("vaxis");
 const Style = @import("theme").Style;
 const Color = @import("theme").Color;
@@ -149,7 +148,7 @@ pub fn leave_alternate_screen(self: *Self) void {
     _ = self;
     @panic("todo");
 }
-pub fn process_renderer_event(self: *Self, m: thespian.message) !void {
+pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
     const Input = struct {
         kind: u8,
         codepoint: u21,
@@ -172,14 +171,14 @@ pub fn process_renderer_event(self: *Self, m: thespian.message) !void {
 
     {
         var args: Input = undefined;
-        if (try m.match(.{
-            thespian.any,
+        if (try cbor.match(msg, .{
+            cbor.any,
             "I",
-            thespian.extract(&args.kind),
-            thespian.extract(&args.codepoint),
-            thespian.extract(&args.shifted_codepoint),
-            thespian.extract(&args.text),
-            thespian.extract(&args.mods),
+            cbor.extract(&args.kind),
+            cbor.extract(&args.codepoint),
+            cbor.extract(&args.shifted_codepoint),
+            cbor.extract(&args.text),
+            cbor.extract(&args.mods),
         })) {
             var buf: [300]u8 = undefined;
             const cbor_msg = fmtmsg(&buf, .{
@@ -197,13 +196,13 @@ pub fn process_renderer_event(self: *Self, m: thespian.message) !void {
 
     {
         var args: Winsize = undefined;
-        if (try m.match(.{
-            thespian.any,
+        if (try cbor.match(msg, .{
+            cbor.any,
             "Resize",
-            thespian.extract(&args.cell_width),
-            thespian.extract(&args.cell_height),
-            thespian.extract(&args.pixel_width),
-            thespian.extract(&args.pixel_height),
+            cbor.extract(&args.cell_width),
+            cbor.extract(&args.cell_height),
+            cbor.extract(&args.pixel_width),
+            cbor.extract(&args.pixel_height),
         })) {
             var drop_writer = DropWriter{};
             self.vx.resize(self.allocator, drop_writer.writer().any(), .{
@@ -222,13 +221,13 @@ pub fn process_renderer_event(self: *Self, m: thespian.message) !void {
     }
     {
         var args: MousePos = undefined;
-        if (try m.match(.{
-            thespian.any,
+        if (try cbor.match(msg, .{
+            cbor.any,
             "M",
-            thespian.extract(&args.col),
-            thespian.extract(&args.row),
-            thespian.extract(&args.xoffset),
-            thespian.extract(&args.yoffset),
+            cbor.extract(&args.col),
+            cbor.extract(&args.row),
+            cbor.extract(&args.xoffset),
+            cbor.extract(&args.yoffset),
         })) {
             var buf: [200]u8 = undefined;
             if (self.dispatch_mouse) |f| f(
@@ -254,15 +253,15 @@ pub fn process_renderer_event(self: *Self, m: thespian.message) !void {
                 id: u8,
             },
         } = undefined;
-        if (try m.match(.{
-            thespian.any,
+        if (try cbor.match(msg, .{
+            cbor.any,
             "B",
-            thespian.extract(&args.button.press),
-            thespian.extract(&args.button.id),
-            thespian.extract(&args.pos.col),
-            thespian.extract(&args.pos.row),
-            thespian.extract(&args.pos.xoffset),
-            thespian.extract(&args.pos.yoffset),
+            cbor.extract(&args.button.press),
+            cbor.extract(&args.button.id),
+            cbor.extract(&args.pos.col),
+            cbor.extract(&args.pos.row),
+            cbor.extract(&args.pos.xoffset),
+            cbor.extract(&args.pos.yoffset),
         })) {
             var buf: [200]u8 = undefined;
             if (self.dispatch_mouse) |f| f(
@@ -283,7 +282,7 @@ pub fn process_renderer_event(self: *Self, m: thespian.message) !void {
             return;
         }
     }
-    return thespian.unexpected(m);
+    return error.UnexpectedRendererEvent;
 }
 
 pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !void {
