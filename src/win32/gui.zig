@@ -673,6 +673,24 @@ fn sendKey(
         .extended = 0 != (lparam & 0x1000000),
     };
 
+    const event = switch (kind) {
+        .press => input.event.press,
+        .release => input.event.release,
+    };
+
+    if (translateVirtualKeyCode(winkey.vk)) |key| {
+        state.pid.send(.{
+            "RDR",
+            "I",
+            event,
+            @as(u21, key),
+            @as(u21, key),
+            "",
+            @as(u8, @bitCast(mods)),
+        }) catch |e| onexit(e);
+        return;
+    }
+
     const max_char_count = 20;
     var char_buf: [max_char_count + 1]u16 = undefined;
     const unicode_result = win32.ToUnicode(
@@ -700,10 +718,7 @@ fn sendKey(
         state.pid.send(.{
             "RDR",
             "I",
-            switch (kind) {
-                .press => input.event.press,
-                .release => input.event.release,
-            },
+            event,
             @as(u21, codepoint),
             // TODO: shifted_codepoint?
             @as(u21, codepoint),
@@ -711,6 +726,90 @@ fn sendKey(
             @as(u8, @bitCast(mods)),
         }) catch |e| onexit(e);
     }
+}
+
+fn translateVirtualKeyCode(vk: u16) ?u16 {
+    return switch (vk) {
+        0x08 => input.key.backspace,
+        0x09 => input.key.tab,
+        0x0D => input.key.enter,
+        0x13 => input.key.pause,
+        0x14 => input.key.caps_lock,
+        0x1B => input.key.escape,
+        0x20 => input.key.space,
+        0x21 => input.key.page_up,
+        0x22 => input.key.page_down,
+        0x23 => input.key.end,
+        0x24 => input.key.home,
+        0x25 => input.key.left,
+        0x26 => input.key.up,
+        0x27 => input.key.right,
+        0x28 => input.key.down,
+        0x2c => input.key.print_screen,
+        0x2d => input.key.insert,
+        0x2e => input.key.delete,
+        0x5b => input.key.left_meta,
+        0x5c => input.key.right_meta,
+        0x60 => input.key.kp_0,
+        0x61 => input.key.kp_1,
+        0x62 => input.key.kp_2,
+        0x63 => input.key.kp_3,
+        0x64 => input.key.kp_4,
+        0x65 => input.key.kp_5,
+        0x66 => input.key.kp_6,
+        0x67 => input.key.kp_7,
+        0x68 => input.key.kp_8,
+        0x69 => input.key.kp_9,
+        0x6a => input.key.kp_multiply,
+        0x6b => input.key.kp_add,
+        0x6c => input.key.kp_separator,
+        0x6d => input.key.kp_subtract,
+        0x6e => input.key.kp_decimal,
+        0x6f => input.key.kp_divide,
+        0x70 => input.key.f1,
+        0x71 => input.key.f2,
+        0x72 => input.key.f3,
+        0x73 => input.key.f4,
+        0x74 => input.key.f5,
+        0x75 => input.key.f6,
+        0x76 => input.key.f8,
+        0x77 => input.key.f8,
+        0x78 => input.key.f9,
+        0x79 => input.key.f10,
+        0x7a => input.key.f11,
+        0x7b => input.key.f12,
+        0x7c => input.key.f13,
+        0x7d => input.key.f14,
+        0x7e => input.key.f15,
+        0x7f => input.key.f16,
+        0x80 => input.key.f17,
+        0x81 => input.key.f18,
+        0x82 => input.key.f19,
+        0x83 => input.key.f20,
+        0x84 => input.key.f21,
+        0x85 => input.key.f22,
+        0x86 => input.key.f23,
+        0x87 => input.key.f24,
+        0x90 => input.key.num_lock,
+        0x91 => input.key.scroll_lock,
+        0xa0 => input.key.left_shift,
+        0x10 => input.key.left_shift,
+        0xa1 => input.key.right_shift,
+        0xa2 => input.key.left_control,
+        0x11 => input.key.left_control,
+        0xa3 => input.key.right_control,
+        0xa4 => input.key.left_alt,
+        0x12 => input.key.left_alt,
+        0xa5 => input.key.right_alt,
+        0xad => input.key.mute_volume,
+        0xae => input.key.lower_volume,
+        0xaf => input.key.raise_volume,
+        0xb0 => input.key.media_track_next,
+        0xb1 => input.key.media_track_previous,
+        0xb2 => input.key.media_stop,
+        0xb3 => input.key.media_play_pause,
+        else => null,
+    };
 }
 
 const WinKey = struct {
