@@ -305,6 +305,7 @@ pub fn build_exe(
                         .{ .name = "input", .module = input_mod },
                         // TODO: we should be able to work without these modules
                         .{ .name = "vaxis", .module = vaxis_mod },
+                        .{ .name = "color", .module = color_mod },
                     },
                 });
                 gui_mod.addIncludePath(b.path("src/win32"));
