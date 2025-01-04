@@ -149,7 +149,7 @@ pub fn leave_alternate_screen(self: *Self) void {
     _ = self;
     @panic("todo");
 }
-pub fn process_gui_event(self: *Self, m: thespian.message) !void {
+pub fn process_renderer_event(self: *Self, m: thespian.message) !void {
     const Input = struct {
         kind: u8,
         codepoint: u21,
@@ -355,9 +355,4 @@ pub fn cursor_enable(self: *Self, y: c_int, x: c_int, shape: CursorShape) !void 
 pub fn cursor_disable(self: *Self) void {
     _ = self;
     //@panic("todo");
-}
-pub fn ucs32_to_utf8(ucs32: []const u32, utf8: []u8) !usize {
-    _ = ucs32;
-    _ = utf8;
-    @panic("todo");
 }

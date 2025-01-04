@@ -146,7 +146,12 @@ pub fn leave_alternate_screen(self: *Self) void {
     self.vx.exitAltScreen() catch {};
 }
 
-pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !void {
+pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
+    var input_: []const u8 = undefined;
+    var text_: []const u8 = undefined;
+    if (!try cbor.match(msg, .{ "RDR", cbor.extract(&input_), cbor.extract(&text_) }))
+        return error.InvalidRendererEvent;
+    const text = if (text_.len > 0) text_ else null;
     const event = std.mem.bytesAsValue(vaxis.Event, input_);
     switch (event.*) {
         .key_press => |key__| {
@@ -493,7 +498,7 @@ const Loop = struct {
             },
             else => {},
         }
-        self.pid.send(.{ "VXS", std.mem.asBytes(&event), text }) catch @panic("send VXS event failed");
+        self.pid.send(.{ "RDR", std.mem.asBytes(&event), text }) catch @panic("send RDR event failed");
         if (free_text)
             self.vaxis.opts.system_clipboard_allocator.?.free(text);
     }

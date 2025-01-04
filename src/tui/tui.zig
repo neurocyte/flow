@@ -248,21 +248,12 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 }
 
 fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
-    var input: []const u8 = undefined;
-    var text: []const u8 = undefined;
-    if (try m.match(.{ "VXS", tp.extract(&input), tp.extract(&text) })) {
-        try self.rdr.process_input_event(input, if (text.len > 0) text else null);
+    if (try m.match(.{ "RDR", tp.more })) {
+        try self.rdr.process_renderer_event(m.buf);
         try self.dispatch_flush_input_event();
         if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
             need_render();
         return;
-    }
-
-    if (build_options.gui) {
-        if (try m.match(.{ "GUI", tp.more })) {
-            try self.rdr.process_gui_event(m);
-            return;
-        }
     }
 
     if (self.message_filters.filter(from, m) catch |e| return self.logger.err("filter", e))
@@ -313,6 +304,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    var text: []const u8 = undefined;
     if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
         try self.dispatch_flush_input_event();
         return if (command.get_id("mini_mode_paste")) |id|
