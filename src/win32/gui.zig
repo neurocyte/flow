@@ -211,7 +211,7 @@ const State = struct {
     erase_bg_done: bool = false,
     text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{},
     scroll_delta: isize = 0,
-    cell_size: XY(i32) = .{ .x = 0, .y = 0 },
+    currently_rendered_cell_size: ?XY(i32) = null,
 
     // these fields should only be accessed inside the global mutex
     shared_screen_arena: std.heap.ArenaAllocator,
@@ -245,6 +245,7 @@ fn paint(
         const color = ddui.rgb8(31, 31, 31);
         d2d.target.ID2D1RenderTarget.Clear(&color);
     }
+
     for (0..screen.height) |y| {
         const row_y = cell_size.y * @as(i32, @intCast(y));
         for (0..screen.width) |x| {
@@ -566,7 +567,10 @@ fn sendMouse(
 ) void {
     const point = ddui.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
-    const cell_size = state.cell_size;
+    const cell_size = state.currently_rendered_cell_size orelse {
+        std.log.info("dropping mouse event that occurred before first render", .{});
+        return;
+    };
     const cell = cellFromPos(cell_size, point.x, point.y);
     const cell_offset = cellOffsetFromPos(cell_size, point.x, point.y);
     switch (kind) {
@@ -606,7 +610,10 @@ fn sendMouseWheel(
 ) void {
     const point = ddui.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
-    const cell_size = state.cell_size;
+    const cell_size = state.currently_rendered_cell_size orelse {
+        std.log.info("dropping mouse whell event that occurred before first render", .{});
+        return;
+    };
     const cell = cellFromPos(cell_size, point.x, point.y);
     const cell_offset = cellOffsetFromPos(cell_size, point.x, point.y);
     // const fwKeys = win32.loword(wparam);
@@ -901,13 +908,16 @@ fn WndProc(
 
                 {
                     const size: win32.D2D_SIZE_U = .{
-                        .width = @intCast(client_size.width),
-                        .height = @intCast(client_size.height),
+                        .width = @intCast(client_size.x),
+                        .height = @intCast(client_size.y),
                     };
                     const hr = state.maybe_d2d.?.target.Resize(&size);
                     if (hr < 0) break :blk HResultError{ .context = "D2dResize", .hr = hr };
                 }
                 state.maybe_d2d.?.target.ID2D1RenderTarget.BeginDraw();
+
+                const text_format_editor = state.text_format_editor.getOrCreate(Dpi{ .value = dpi });
+                state.currently_rendered_cell_size = getCellSize(text_format_editor);
 
                 {
                     global.mutex.lock();
@@ -915,8 +925,8 @@ fn WndProc(
                     paint(
                         &state.maybe_d2d.?,
                         &state.shared_screen,
-                        state.text_format_editor.getOrCreate(Dpi{ .value = dpi }),
-                        state.cell_size,
+                        text_format_editor,
+                        state.currently_rendered_cell_size.?,
                     );
                 }
 
@@ -934,38 +944,36 @@ fn WndProc(
             } else if (err.hr < 0) std.debug.panic("paint error: {}", .{err});
             return 0;
         },
-        win32.WM_SIZE => {
-            const client_pixel_size: XY(u16) = .{
-                .x = win32.loword(lparam),
-                .y = win32.hiword(lparam),
-            };
-
+        win32.WM_DPICHANGED => {
             const dpi = win32.dpiFromHwnd(hwnd);
-            const state = stateFromHwnd(hwnd);
-            if (state.maybe_d2d == null) {
-                var err: HResultError = undefined;
-                state.maybe_d2d = D2d.init(hwnd, &err) catch std.debug.panic(
-                    "D2d.init failed with {}",
-                    .{err},
-                );
+            if (dpi != win32.hiword(wparam)) @panic("unexpected hiword dpi");
+            if (dpi != win32.loword(wparam)) @panic("unexpected loword dpi");
+            const rect: *win32.RECT = @ptrFromInt(@as(usize, @bitCast(lparam)));
+            if (0 == win32.SetWindowPos(
+                hwnd,
+                null, // ignored via NOZORDER
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                .{ .NOZORDER = 1 },
+            )) fatalWin32("SetWindowPos", win32.GetLastError());
+            sendResize(hwnd);
+            return 0;
+        },
+        win32.WM_SIZE,
+        => {
+            const do_sanity_check = true;
+            if (do_sanity_check) {
+                const client_pixel_size: XY(u16) = .{
+                    .x = win32.loword(lparam),
+                    .y = win32.hiword(lparam),
+                };
+                const client_size = getClientSize(hwnd);
+                std.debug.assert(client_pixel_size.x == client_size.x);
+                std.debug.assert(client_pixel_size.y == client_size.y);
             }
-            const single_cell_size = getCellSize(
-                state.text_format_editor.getOrCreate(Dpi{ .value = @intCast(dpi) }),
-            );
-            state.cell_size = single_cell_size;
-            const client_cell_size: XY(u16) = .{
-                .x = @intCast(@divTrunc(client_pixel_size.x, single_cell_size.x)),
-                .y = @intCast(@divTrunc(client_pixel_size.y, single_cell_size.y)),
-            };
-            //std.log.info("new size {}x{} {}x{}", .{ new_size.x, new_size.y, new_cell_size.x, new_cell_size.y });
-            state.pid.send(.{
-                "RDR",
-                "Resize",
-                client_cell_size.x,
-                client_cell_size.y,
-                client_pixel_size.x,
-                client_pixel_size.y,
-            }) catch @panic("pid send failed");
+            sendResize(hwnd);
             return 0;
         },
         win32.WM_DISPLAYCHANGE => {
@@ -1018,6 +1026,40 @@ fn WndProc(
     }
 }
 
+fn sendResize(
+    hwnd: win32.HWND,
+) void {
+    const dpi = win32.dpiFromHwnd(hwnd);
+    const state = stateFromHwnd(hwnd);
+    if (state.maybe_d2d == null) {
+        var err: HResultError = undefined;
+        state.maybe_d2d = D2d.init(hwnd, &err) catch std.debug.panic(
+            "D2d.init failed with {}",
+            .{err},
+        );
+    }
+    const single_cell_size = getCellSize(
+        state.text_format_editor.getOrCreate(Dpi{ .value = @intCast(dpi) }),
+    );
+    const client_pixel_size = getClientSize(hwnd);
+    const client_cell_size: XY(u16) = .{
+        .x = @intCast(@divTrunc(client_pixel_size.x, single_cell_size.x)),
+        .y = @intCast(@divTrunc(client_pixel_size.y, single_cell_size.y)),
+    };
+    std.log.info(
+        "Resize Px={}x{} Cells={}x{}",
+        .{ client_pixel_size.x, client_pixel_size.y, client_cell_size.x, client_cell_size.y },
+    );
+    state.pid.send(.{
+        "RDR",
+        "Resize",
+        client_cell_size.x,
+        client_cell_size.y,
+        client_pixel_size.x,
+        client_pixel_size.y,
+    }) catch @panic("pid send failed");
+}
+
 pub const Rgb8 = struct { r: u8, g: u8, b: u8 };
 fn toColorRef(rgb: Rgb8) u32 {
     return (@as(u32, rgb.r) << 0) | (@as(u32, rgb.g) << 8) | (@as(u32, rgb.b) << 16);
@@ -1031,14 +1073,13 @@ fn fatalHr(what: []const u8, hresult: win32.HRESULT) noreturn {
 fn deleteObject(obj: ?win32.HGDIOBJ) void {
     if (0 == win32.DeleteObject(obj)) fatalWin32("DeleteObject", win32.GetLastError());
 }
-fn getClientSize(hwnd: win32.HWND) win32.D2D_SIZE_U {
+fn getClientSize(hwnd: win32.HWND) XY(i32) {
     var rect: win32.RECT = undefined;
     if (0 == win32.GetClientRect(hwnd, &rect))
         fatalWin32("GetClientRect", win32.GetLastError());
-    return .{
-        .width = @intCast(rect.right - rect.left),
-        .height = @intCast(rect.bottom - rect.top),
-    };
+    std.debug.assert(rect.left == 0);
+    std.debug.assert(rect.top == 0);
+    return .{ .x = rect.right, .y = rect.bottom };
 }
 pub fn XY(comptime T: type) type {
     return struct {
