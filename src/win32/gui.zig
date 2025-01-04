@@ -211,6 +211,7 @@ const State = struct {
     erase_bg_done: bool = false,
     text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{},
     scroll_delta: isize = 0,
+    cell_size: XY(i32) = .{ .x = 0, .y = 0 },
 
     // these fields should only be accessed inside the global mutex
     shared_screen_arena: std.heap.ArenaAllocator,
@@ -236,15 +237,14 @@ fn stateFromHwnd(hwnd: win32.HWND) *State {
 
 fn paint(
     d2d: *const D2d,
-    dpi: u32,
     screen: *const vaxis.Screen,
     text_format_editor: *win32.IDWriteTextFormat,
+    cell_size: XY(i32),
 ) void {
     {
         const color = ddui.rgb8(31, 31, 31);
         d2d.target.ID2D1RenderTarget.Clear(&color);
     }
-    const cell_size = getCellSize(dpi, text_format_editor);
     for (0..screen.height) |y| {
         const row_y = cell_size.y * @as(i32, @intCast(y));
         for (0..screen.width) |x| {
@@ -421,29 +421,25 @@ pub fn updateScreen(screen: *const vaxis.Screen) bool {
 }
 
 fn getCellSize(
-    dpi: u32,
     text_format_editor: *win32.IDWriteTextFormat,
 ) XY(i32) {
     const metrics = getTextFormatMetrics(text_format_editor);
 
-    // TODO: get the actual font metrics
     const font_size = text_format_editor.GetFontSize();
     const pixels_per_design_unit: f32 = font_size / @as(f32, @floatFromInt(metrics.designUnitsPerEm));
 
     const width: f32 = getTextFormatWidth(text_format_editor);
-    const width_scaled: i32 = @intFromFloat(@ceil(win32.scaleDpi(f32, width, dpi)));
 
     const ascent = @as(f32, @floatFromInt(metrics.ascent)) * pixels_per_design_unit;
     const descent = @as(f32, @floatFromInt(metrics.descent)) * pixels_per_design_unit;
     const height: f32 = ascent + descent;
-    const height_scaled: i32 = @intFromFloat(@ceil(win32.scaleDpi(f32, height, dpi)));
     // std.log.info(
-    //     "CellSize font_size={d} size={d}x{d} scaled-size={}x{}",
-    //     .{ font_size, width, height, width_scaled, height_scaled },
+    //     "CellSize font_size={d} size={d}x{d}",
+    //     .{ font_size, width, height },
     // );
     return .{
-        .x = width_scaled,
-        .y = height_scaled,
+        .x = @intFromFloat(width),
+        .y = @intFromFloat(height),
     };
 }
 
@@ -570,9 +566,7 @@ fn sendMouse(
 ) void {
     const point = ddui.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
-    const dpi = win32.dpiFromHwnd(hwnd);
-    const text_format = state.text_format_editor.getOrCreate(Dpi{ .value = dpi });
-    const cell_size = getCellSize(dpi, text_format);
+    const cell_size = state.cell_size;
     const cell = cellFromPos(cell_size, point.x, point.y);
     const cell_offset = cellOffsetFromPos(cell_size, point.x, point.y);
     switch (kind) {
@@ -612,9 +606,7 @@ fn sendMouseWheel(
 ) void {
     const point = ddui.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
-    const dpi = win32.dpiFromHwnd(hwnd);
-    const text_format = state.text_format_editor.getOrCreate(Dpi{ .value = dpi });
-    const cell_size = getCellSize(dpi, text_format);
+    const cell_size = state.cell_size;
     const cell = cellFromPos(cell_size, point.x, point.y);
     const cell_offset = cellOffsetFromPos(cell_size, point.x, point.y);
     // const fwKeys = win32.loword(wparam);
@@ -823,9 +815,9 @@ fn WndProc(
                     defer global.mutex.unlock();
                     paint(
                         &state.maybe_d2d.?,
-                        dpi,
                         &state.shared_screen,
                         state.text_format_editor.getOrCreate(Dpi{ .value = dpi }),
+                        state.cell_size,
                     );
                 }
 
@@ -859,9 +851,9 @@ fn WndProc(
                 );
             }
             const single_cell_size = getCellSize(
-                dpi,
                 state.text_format_editor.getOrCreate(Dpi{ .value = @intCast(dpi) }),
             );
+            state.cell_size = single_cell_size;
             const client_cell_size: XY(u16) = .{
                 .x = @intCast(@divTrunc(client_pixel_size.x, single_cell_size.x)),
                 .y = @intCast(@divTrunc(client_pixel_size.y, single_cell_size.y)),
