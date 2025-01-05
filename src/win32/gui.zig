@@ -1056,6 +1056,7 @@ fn WndProc(
             );
             std.debug.assert(existing == 0);
             std.debug.assert(state == stateFromHwnd(hwnd));
+            sendResize(hwnd);
             return 0;
         },
         win32.WM_DESTROY => {

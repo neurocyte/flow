@@ -106,8 +106,7 @@ pub fn run(self: *Self) !void {
         drop_writer.writer().any(),
         .{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     );
-    self.vx.queueRefresh();
-    //if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"resize"}));
+
     self.thread = try gui.start();
 }
 
