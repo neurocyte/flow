@@ -279,9 +279,12 @@ fn paint(
             const grapheme_len = std.unicode.wtf8ToWtf16Le(&buf_wtf16, cell.char.grapheme) catch |err| switch (err) {
                 error.InvalidWtf8 => @panic("TODO: handle invalid wtf8"),
             };
+            const grapheme = buf_wtf16[0..grapheme_len];
+            if (std.mem.eql(u16, grapheme, &[_]u16{' '}))
+                continue;
             ddui.DrawText(
                 &d2d.target.ID2D1RenderTarget,
-                buf_wtf16[0..grapheme_len],
+                grapheme,
                 text_format_editor,
                 ddui.rectFloatFromInt(cell_rect),
                 d2d.solid(d2dColorFromVAxis(cell.style.fg)),
