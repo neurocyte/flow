@@ -53,43 +53,6 @@ const window_style_ex = win32.WINDOW_EX_STYLE{
 };
 const window_style = win32.WS_OVERLAPPEDWINDOW;
 
-const CellAlignment = enum {
-    // doesn't not align the cell size on the pixel boundary, this can
-    // cause more anti-aliasing than pixel mode in certain situations
-    none,
-    // aligns the cell size up to the next pixel size, means there
-    // will likely be gaps between cells
-    pixel,
-};
-//const cell_alignment = CellAlignment.none;
-const cell_alignment = CellAlignment.pixel;
-const CellUnit = switch (cell_alignment) {
-    .none => f32,
-    .pixel => i32,
-};
-fn cellUnitFrom(value: anytype) CellUnit {
-    return switch (@typeInfo(@TypeOf(value))) {
-        .Int => switch (cell_alignment) {
-            .none => @floatFromInt(value),
-            .pixel => @intCast(value),
-        },
-        else => @compileError("cellUnitFrom " ++ @typeName(@TypeOf(value)) ++ " is not supported"),
-    };
-}
-fn fromCellUnit(comptime T: type, unit: CellUnit) T {
-    return switch (@typeInfo(T)) {
-        .Float => switch (cell_alignment) {
-            .none => @floatCast(unit),
-            .pixel => @floatFromInt(unit),
-        },
-        .Int => switch (cell_alignment) {
-            .none => @intFromFloat(unit),
-            .pixel => @intCast(unit),
-        },
-        else => @compileError("fromCellUnit " ++ @typeName(T) ++ " is not supported"),
-    };
-}
-
 pub fn init() void {
     std.debug.assert(!global.init_called);
     global.init_called = true;
@@ -179,14 +142,14 @@ fn createTextFormatEditor(dpi: Dpi) *win32.IDWriteTextFormat {
     return ddui.createTextFormat(global.dwrite_factory, &err, .{
         .size = win32.scaleDpi(f32, 14, dpi.value),
         .family_name = win32.L("Cascadia Code"),
-        .center_x = switch (cell_alignment) {
-            .none => false,
-            .pixel => true,
-        },
-        .center_y = switch (cell_alignment) {
-            .none => false,
-            .pixel => true,
-        },
+        // the cell size is rounded up to the nearest whole number so the character
+        // will tend to be a bit offset towards the top/left corner unless we center it.
+        // I don't think this will necessarily mess with antialiasing since a monospace
+        // font that is concerned with pixel alignment will probably provide text metrics
+        // that are integer aligned which would make the text/metric sizes the same
+        // and therefore centering a no-op.
+        .center_x = true,
+        .center_y = true,
     }) catch std.debug.panic("{s} failed, hresult=0x{x}", .{ err.context, err.hr });
 }
 
@@ -262,7 +225,7 @@ const State = struct {
     erase_bg_done: bool = false,
     text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{},
     scroll_delta: isize = 0,
-    currently_rendered_cell_size: ?XY(CellUnit) = null,
+    currently_rendered_cell_size: ?XY(i32) = null,
 
     // these fields should only be accessed inside the global mutex
     shared_screen_arena: std.heap.ArenaAllocator,
@@ -290,7 +253,7 @@ fn paint(
     d2d: *const D2d,
     screen: *const vaxis.Screen,
     text_format_editor: *win32.IDWriteTextFormat,
-    cell_size: XY(CellUnit),
+    cell_size: XY(i32),
 ) void {
     {
         const color = ddui.rgb8(31, 31, 31);
@@ -298,20 +261,21 @@ fn paint(
     }
 
     for (0..screen.height) |y| {
-        const row_y: CellUnit = cell_size.y * cellUnitFrom(y);
+        const row_y: i32 = cell_size.y * @as(i32, @intCast(y));
         for (0..screen.width) |x| {
-            const column_x: CellUnit = cell_size.x * cellUnitFrom(x);
+            const column_x: i32 = cell_size.x * @as(i32, @intCast(x));
             const cell_index = screen.width * y + x;
             const cell = &screen.buf[cell_index];
 
-            const cell_rect: win32.D2D_RECT_F = .{
-                .left = fromCellUnit(f32, column_x),
-                .top = fromCellUnit(f32, row_y),
-                .right = fromCellUnit(f32, column_x + cell_size.x),
-                .bottom = fromCellUnit(f32, row_y + cell_size.y),
+            const cell_rect: win32.RECT = .{
+                .left = column_x,
+                .top = row_y,
+                .right = column_x + cell_size.x,
+                .bottom = row_y + cell_size.y,
             };
-            d2d.target.ID2D1RenderTarget.FillRectangle(
-                &cell_rect,
+            ddui.FillRectangle(
+                &d2d.target.ID2D1RenderTarget,
+                cell_rect,
                 d2d.solid(d2dColorFromVAxis(cell.style.bg)),
             );
 
@@ -324,12 +288,11 @@ fn paint(
             const grapheme = buf_wtf16[0..grapheme_len];
             if (std.mem.eql(u16, grapheme, &[_]u16{' '}))
                 continue;
-
             ddui.DrawText(
                 &d2d.target.ID2D1RenderTarget,
                 grapheme,
                 text_format_editor,
-                cell_rect,
+                ddui.rectFloatFromInt(cell_rect),
                 d2d.solid(d2dColorFromVAxis(cell.style.fg)),
                 .{
                     .CLIP = 1,
@@ -495,19 +458,10 @@ pub fn updateScreen(screen: *const vaxis.Screen) bool {
     return true;
 }
 
-fn getCellSize(
-    text_format_editor: *win32.IDWriteTextFormat,
-) XY(CellUnit) {
-    const box_size = getBoxSize(text_format_editor);
-    return switch (cell_alignment) {
-        .none => box_size,
-        .pixel => .{
-            .x = @intFromFloat(@ceil(box_size.x)),
-            .y = @intFromFloat(@ceil(box_size.y)),
-        },
-    };
-}
-fn getBoxSize(text_format: *win32.IDWriteTextFormat) XY(f32) {
+// NOTE: we round the text metric up to the nearest integer which
+//       means our background rectangles will be aligned. We accomodate
+//       for any gap added by doing this by centering the text.
+fn getCellSize(text_format: *win32.IDWriteTextFormat) XY(i32) {
     var text_layout: *win32.IDWriteTextLayout = undefined;
     {
         const hr = global.dwrite_factory.CreateTextLayout(
@@ -527,54 +481,26 @@ fn getBoxSize(text_format: *win32.IDWriteTextFormat) XY(f32) {
         const hr = text_layout.GetMetrics(&metrics);
         if (hr < 0) fatalHr("GetMetrics", hr);
     }
-    switch (cell_alignment) {
-        .none => {
-            // these seem to only be true if centering is disabled
-            std.debug.assert(metrics.left == 0);
-            std.debug.assert(metrics.top == 0);
-            std.debug.assert(metrics.width == metrics.widthIncludingTrailingWhitespace);
-        },
-        .pixel => {},
-    }
     return .{
-        .x = metrics.width,
-        .y = metrics.height,
+        .x = @intFromFloat(@ceil(metrics.width)),
+        .y = @intFromFloat(@ceil(metrics.height)),
     };
 }
 
 const CellPos = struct {
     cell: XY(i32),
     offset: XY(i32),
-    pub fn init(cell_size: XY(CellUnit), x: i32, y: i32) CellPos {
-        switch (cell_alignment) {
-            .none => {
-                const cell_pos: XY(CellUnit) = .{
-                    .x = @as(f32, @floatFromInt(x)) / cell_size.x,
-                    .y = @as(f32, @floatFromInt(y)) / cell_size.y,
-                };
-                const cell: XY(i32) = .{
-                    .x = @intFromFloat(@floor(cell_pos.x)),
-                    .y = @intFromFloat(@floor(cell_pos.y)),
-                };
-                return .{
-                    .cell = cell,
-                    .offset = .{
-                        .x = @intFromFloat(@round(cell_pos.x - @as(f32, @floatFromInt(cell.x)))),
-                        .y = @intFromFloat(@round(cell_pos.y - @as(f32, @floatFromInt(cell.y)))),
-                    },
-                };
+    pub fn init(cell_size: XY(i32), x: i32, y: i32) CellPos {
+        return .{
+            .cell = .{
+                .x = @divTrunc(x, cell_size.x),
+                .y = @divTrunc(y, cell_size.y),
             },
-            .pixel => return .{
-                .cell = .{
-                    .x = @divTrunc(x, cell_size.x),
-                    .y = @divTrunc(y, cell_size.y),
-                },
-                .offset = .{
-                    .x = @mod(x, cell_size.x),
-                    .y = @mod(y, cell_size.y),
-                },
+            .offset = .{
+                .x = @mod(x, cell_size.x),
+                .y = @mod(y, cell_size.y),
             },
-        }
+        };
     }
 };
 
@@ -1140,15 +1066,9 @@ fn sendResize(
         state.text_format_editor.getOrCreate(Dpi{ .value = @intCast(dpi) }),
     );
     const client_pixel_size = getClientSize(hwnd);
-    const client_cell_size: XY(u16) = switch (cell_alignment) {
-        .none => .{
-            .x = @intFromFloat(@floor(@as(f32, @floatFromInt(client_pixel_size.x)) / single_cell_size.x)),
-            .y = @intFromFloat(@floor(@as(f32, @floatFromInt(client_pixel_size.y)) / single_cell_size.y)),
-        },
-        .pixel => .{
-            .x = @intCast(@divTrunc(client_pixel_size.x, single_cell_size.x)),
-            .y = @intCast(@divTrunc(client_pixel_size.y, single_cell_size.y)),
-        },
+    const client_cell_size: XY(u16) = .{
+        .x = @intCast(@divTrunc(client_pixel_size.x, single_cell_size.x)),
+        .y = @intCast(@divTrunc(client_pixel_size.y, single_cell_size.y)),
     };
     std.log.info(
         "Resize Px={}x{} Cells={}x{}",
