@@ -75,7 +75,7 @@ fn build_release(
     strip: ?bool,
     use_llvm: ?bool,
     pie: ?bool,
-    gui: bool,
+    _: bool, //gui
 ) void {
     const targets: []const std.Target.Query = &.{
         .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
@@ -117,8 +117,26 @@ fn build_release(
             strip orelse true,
             use_llvm,
             pie,
-            gui,
+            false, //gui
         );
+
+        if (t.os_tag == .windows)
+            build_exe(
+                b,
+                run_step,
+                check_step,
+                test_step,
+                lint_step,
+                target,
+                optimize,
+                .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
+                tracy_enabled,
+                use_tree_sitter,
+                strip orelse true,
+                use_llvm,
+                pie,
+                true, //gui
+            );
     }
 }
 
