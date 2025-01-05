@@ -725,7 +725,11 @@ fn sendKey(
 
     // don't call ToUnicode if control is down as it does some weird
     // translation (i.e. ctrl+a becomes virtual keycode 1)
-    const unicode_result = if (mods.ctrl) 0 else win32.ToUnicode(
+    const skip_unicode = mods.ctrl or switch (winkey.vk) {
+        @intFromEnum(win32.VK_BACK) => true,
+        else => false,
+    };
+    const unicode_result = if (skip_unicode) 0 else win32.ToUnicode(
         winkey.vk,
         win_key_flags.scan_code,
         &keyboard_state,
