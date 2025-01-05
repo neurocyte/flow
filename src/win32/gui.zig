@@ -386,8 +386,7 @@ fn entry(pid: thespian.pid) !void {
     _ = win32.ShowWindow(hwnd, win32.SW_SHOWNORMAL);
     var msg: win32.MSG = undefined;
     while (win32.GetMessageW(&msg, null, 0, 0) != 0) {
-        // No need for TranslateMessage since we don't use WM_*CHAR messages
-        //_ = win32.TranslateMessage(&msg);
+        _ = win32.TranslateMessage(&msg);
         _ = win32.DispatchMessageW(&msg);
     }
 
@@ -667,6 +666,16 @@ fn sendMouseWheel(
     }
 }
 
+const WinKeyFlags = packed struct(u32) {
+    repeat_count: u16,
+    scan_code: u8,
+    extended: bool,
+    reserved: u4,
+    context: bool,
+    previous: bool,
+    transition: bool,
+};
+
 fn sendKey(
     hwnd: win32.HWND,
     kind: enum {
@@ -699,35 +708,26 @@ fn sendKey(
     // // TODO: Numpad?
     // // TODO: Help?
     // // TODO: Fn?
-    // tn::ModifierFlags mod_flags = (tn::ModifierFlags)mod_flags_u32;
 
     const event = switch (kind) {
         .press => input.event.press,
         .release => input.event.release,
     };
 
-    const winkey = WinKey{
+    const win_key_flags: WinKeyFlags = @bitCast(@as(u32, @intCast(0xffffffff & lparam)));
+    const winkey: WinKey = .{
         .vk = @intCast(0xffff & wparam),
-        .extended = 0 != (lparam & 0x1000000),
+        .extended = win_key_flags.extended,
     };
-    if (winkey.toFlow(mods.shift)) |key| {
-        state.pid.send(.{
-            "RDR",
-            "I",
-            event,
-            @as(u21, key),
-            @as(u21, key),
-            "",
-            @as(u8, @bitCast(mods)),
-        }) catch |e| onexit(e);
-        return;
-    }
 
     const max_char_count = 20;
     var char_buf: [max_char_count + 1]u16 = undefined;
-    const unicode_result = win32.ToUnicode(
+
+    // don't call ToUnicode if control is down as it does some weird
+    // translation (i.e. ctrl+a becomes virtual keycode 1)
+    const unicode_result = if (mods.ctrl) 0 else win32.ToUnicode(
         winkey.vk,
-        @intCast((@as(usize, @bitCast(lparam)) >> 16) & 0xff),
+        win_key_flags.scan_code,
         &keyboard_state,
         @ptrCast(&char_buf),
         max_char_count,
@@ -746,29 +746,62 @@ fn sendKey(
         std.debug.panic("TODO: unicode result is {}", .{unicode_result});
     }
 
-    for (char_buf[0..@intCast(unicode_result)]) |codepoint| {
+    if (unicode_result == 0) {
+        const codepoint = winkey.toCodepoint() orelse {
+            std.log.warn("unknown virtual key {} 0x{0x}", .{winkey});
+            return;
+        };
         state.pid.send(.{
             "RDR",
             "I",
             event,
             @as(u21, codepoint),
-            // TODO: shifted_codepoint?
             @as(u21, codepoint),
-            "", // text?
+            "",
+            @as(u8, @bitCast(mods)),
+        }) catch |e| onexit(e);
+    }
+    for (char_buf[0..@intCast(unicode_result)]) |codepoint| {
+        var utf8_buf: [6]u8 = undefined;
+        const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch {
+            std.log.err("invalid codepoint {}", .{codepoint});
+            continue;
+        };
+        state.pid.send(.{
+            "RDR",
+            "I",
+            event,
+            @as(u21, codepoint),
+            @as(u21, codepoint),
+            utf8_buf[0..utf8_len],
             @as(u8, @bitCast(mods)),
         }) catch |e| onexit(e);
     }
 }
 
+// TODO: move to libvaxis
 const WinKey = struct {
     vk: u16,
     extended: bool,
     pub fn eql(self: WinKey, other: WinKey) bool {
         return self.vk == other.vk and self.extended == other.extended;
     }
-    pub fn toFlow(self: WinKey, shift_down: bool) ?u16 {
+    pub fn format(
+        self: WinKey,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        const e_suffix: []const u8 = if (self.extended) "e" else "";
+        try writer.print("{}{s}", .{ self.vk, e_suffix });
+    }
+    pub fn toCodepoint(self: WinKey) ?u21 {
         if (self.extended) return switch (self.vk) {
             @intFromEnum(win32.VK_RETURN) => input.key.kp_enter,
+            @intFromEnum(win32.VK_CONTROL) => input.key.right_control,
+            @intFromEnum(win32.VK_MENU) => input.key.right_alt,
             @intFromEnum(win32.VK_PRIOR) => input.key.page_up,
             @intFromEnum(win32.VK_NEXT) => input.key.page_down,
             @intFromEnum(win32.VK_END) => input.key.end,
@@ -788,6 +821,10 @@ const WinKey = struct {
             @intFromEnum(win32.VK_BACK) => input.key.backspace,
             @intFromEnum(win32.VK_TAB) => input.key.tab,
             @intFromEnum(win32.VK_RETURN) => input.key.enter,
+            // note: this could be left or right shift
+            @intFromEnum(win32.VK_SHIFT) => input.key.left_shift,
+            @intFromEnum(win32.VK_CONTROL) => input.key.left_control,
+            @intFromEnum(win32.VK_MENU) => input.key.left_alt,
             @intFromEnum(win32.VK_PAUSE) => input.key.pause,
             @intFromEnum(win32.VK_CAPITAL) => input.key.caps_lock,
             @intFromEnum(win32.VK_ESCAPE) => input.key.escape,
@@ -805,7 +842,7 @@ const WinKey = struct {
             @intFromEnum(win32.VK_DELETE) => input.key.kp_delete,
 
             '0'...'9' => |ascii| ascii,
-            'A'...'Z' => |ascii| if (shift_down) ascii else ascii + ('a' - 'A'),
+            'A'...'Z' => |ascii| ascii + ('a' - 'A'),
 
             @intFromEnum(win32.VK_LWIN) => input.key.left_meta,
             @intFromEnum(win32.VK_RWIN) => input.key.right_meta,
@@ -853,13 +890,10 @@ const WinKey = struct {
             @intFromEnum(win32.VK_NUMLOCK) => input.key.num_lock,
             @intFromEnum(win32.VK_SCROLL) => input.key.scroll_lock,
             @intFromEnum(win32.VK_LSHIFT) => input.key.left_shift,
-            //@intFromEnum(win32.VK_10) => input.key.left_shift,
             @intFromEnum(win32.VK_RSHIFT) => input.key.right_shift,
             @intFromEnum(win32.VK_LCONTROL) => input.key.left_control,
-            //@intFromEnum(win32.VK_11) => input.key.left_control,
             @intFromEnum(win32.VK_RCONTROL) => input.key.right_control,
             @intFromEnum(win32.VK_LMENU) => input.key.left_alt,
-            //@intFromEnum(win32.VK_12) => input.key.left_alt,
             @intFromEnum(win32.VK_RMENU) => input.key.right_alt,
             @intFromEnum(win32.VK_VOLUME_MUTE) => input.key.mute_volume,
             @intFromEnum(win32.VK_VOLUME_DOWN) => input.key.lower_volume,
@@ -868,6 +902,18 @@ const WinKey = struct {
             @intFromEnum(win32.VK_MEDIA_PREV_TRACK) => input.key.media_track_previous,
             @intFromEnum(win32.VK_MEDIA_STOP) => input.key.media_stop,
             @intFromEnum(win32.VK_MEDIA_PLAY_PAUSE) => input.key.media_play_pause,
+            @intFromEnum(win32.VK_OEM_1) => ';',
+            @intFromEnum(win32.VK_OEM_PLUS) => '+',
+            @intFromEnum(win32.VK_OEM_COMMA) => ',',
+            @intFromEnum(win32.VK_OEM_MINUS) => '-',
+            @intFromEnum(win32.VK_OEM_PERIOD) => '.',
+            @intFromEnum(win32.VK_OEM_2) => '/',
+            @intFromEnum(win32.VK_OEM_3) => '`',
+            @intFromEnum(win32.VK_OEM_4) => '[',
+            @intFromEnum(win32.VK_OEM_5) => '\\',
+            @intFromEnum(win32.VK_OEM_6) => ']',
+            @intFromEnum(win32.VK_OEM_7) => '\'',
+            @intFromEnum(win32.VK_OEM_102) => '\\',
             else => null,
         };
     }
