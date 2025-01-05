@@ -142,14 +142,6 @@ fn createTextFormatEditor(dpi: Dpi) *win32.IDWriteTextFormat {
     return ddui.createTextFormat(global.dwrite_factory, &err, .{
         .size = win32.scaleDpi(f32, 14, dpi.value),
         .family_name = win32.L("Cascadia Code"),
-        // the cell size is rounded up to the nearest whole number so the character
-        // will tend to be a bit offset towards the top/left corner unless we center it.
-        // I don't think this will necessarily mess with antialiasing since a monospace
-        // font that is concerned with pixel alignment will probably provide text metrics
-        // that are integer aligned which would make the text/metric sizes the same
-        // and therefore centering a no-op.
-        .center_x = true,
-        .center_y = true,
     }) catch std.debug.panic("{s} failed, hresult=0x{x}", .{ err.context, err.hr });
 }
 
