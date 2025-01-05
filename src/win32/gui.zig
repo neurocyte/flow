@@ -53,6 +53,43 @@ const window_style_ex = win32.WINDOW_EX_STYLE{
 };
 const window_style = win32.WS_OVERLAPPEDWINDOW;
 
+const CellAlignment = enum {
+    // doesn't not align the cell size on the pixel boundary, this can
+    // cause more anti-aliasing than pixel mode in certain situations
+    none,
+    // aligns the cell size up to the next pixel size, means there
+    // will likely be gaps between cells
+    pixel,
+};
+//const cell_alignment = CellAlignment.none;
+const cell_alignment = CellAlignment.pixel;
+const CellUnit = switch (cell_alignment) {
+    .none => f32,
+    .pixel => i32,
+};
+fn cellUnitFrom(value: anytype) CellUnit {
+    return switch (@typeInfo(@TypeOf(value))) {
+        .Int => switch (cell_alignment) {
+            .none => @floatFromInt(value),
+            .pixel => @intCast(value),
+        },
+        else => @compileError("cellUnitFrom " ++ @typeName(@TypeOf(value)) ++ " is not supported"),
+    };
+}
+fn fromCellUnit(comptime T: type, unit: CellUnit) T {
+    return switch (@typeInfo(T)) {
+        .Float => switch (cell_alignment) {
+            .none => @floatCast(unit),
+            .pixel => @floatFromInt(unit),
+        },
+        .Int => switch (cell_alignment) {
+            .none => @intFromFloat(unit),
+            .pixel => @intCast(unit),
+        },
+        else => @compileError("fromCellUnit " ++ @typeName(T) ++ " is not supported"),
+    };
+}
+
 pub fn init() void {
     std.debug.assert(!global.init_called);
     global.init_called = true;
@@ -142,8 +179,14 @@ fn createTextFormatEditor(dpi: Dpi) *win32.IDWriteTextFormat {
     return ddui.createTextFormat(global.dwrite_factory, &err, .{
         .size = win32.scaleDpi(f32, 14, dpi.value),
         .family_name = win32.L("Cascadia Code"),
-        .center_x = true,
-        .center_y = true,
+        .center_x = switch (cell_alignment) {
+            .none => false,
+            .pixel => true,
+        },
+        .center_y = switch (cell_alignment) {
+            .none => false,
+            .pixel => true,
+        },
     }) catch std.debug.panic("{s} failed, hresult=0x{x}", .{ err.context, err.hr });
 }
 
@@ -219,7 +262,7 @@ const State = struct {
     erase_bg_done: bool = false,
     text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{},
     scroll_delta: isize = 0,
-    currently_rendered_cell_size: ?XY(i32) = null,
+    currently_rendered_cell_size: ?XY(CellUnit) = null,
 
     // these fields should only be accessed inside the global mutex
     shared_screen_arena: std.heap.ArenaAllocator,
@@ -247,7 +290,7 @@ fn paint(
     d2d: *const D2d,
     screen: *const vaxis.Screen,
     text_format_editor: *win32.IDWriteTextFormat,
-    cell_size: XY(i32),
+    cell_size: XY(CellUnit),
 ) void {
     {
         const color = ddui.rgb8(31, 31, 31);
@@ -255,21 +298,20 @@ fn paint(
     }
 
     for (0..screen.height) |y| {
-        const row_y = cell_size.y * @as(i32, @intCast(y));
+        const row_y: CellUnit = cell_size.y * cellUnitFrom(y);
         for (0..screen.width) |x| {
-            const column_x = cell_size.x * @as(i32, @intCast(x));
+            const column_x: CellUnit = cell_size.x * cellUnitFrom(x);
             const cell_index = screen.width * y + x;
             const cell = &screen.buf[cell_index];
 
-            const cell_rect: win32.RECT = .{
-                .left = column_x,
-                .top = row_y,
-                .right = column_x + cell_size.x,
-                .bottom = row_y + cell_size.y,
+            const cell_rect: win32.D2D_RECT_F = .{
+                .left = fromCellUnit(f32, column_x),
+                .top = fromCellUnit(f32, row_y),
+                .right = fromCellUnit(f32, column_x + cell_size.x),
+                .bottom = fromCellUnit(f32, row_y + cell_size.y),
             };
-            ddui.FillRectangle(
-                &d2d.target.ID2D1RenderTarget,
-                cell_rect,
+            d2d.target.ID2D1RenderTarget.FillRectangle(
+                &cell_rect,
                 d2d.solid(d2dColorFromVAxis(cell.style.bg)),
             );
 
@@ -282,13 +324,17 @@ fn paint(
             const grapheme = buf_wtf16[0..grapheme_len];
             if (std.mem.eql(u16, grapheme, &[_]u16{' '}))
                 continue;
+
             ddui.DrawText(
                 &d2d.target.ID2D1RenderTarget,
                 grapheme,
                 text_format_editor,
-                ddui.rectFloatFromInt(cell_rect),
+                cell_rect,
                 d2d.solid(d2dColorFromVAxis(cell.style.fg)),
-                .{},
+                .{
+                    .CLIP = 1,
+                    .ENABLE_COLOR_FONT = 1,
+                },
                 .NATURAL,
             );
         }
@@ -451,36 +497,23 @@ pub fn updateScreen(screen: *const vaxis.Screen) bool {
 
 fn getCellSize(
     text_format_editor: *win32.IDWriteTextFormat,
-) XY(i32) {
-    const metrics = getTextFormatMetrics(text_format_editor);
-
-    const font_size = text_format_editor.GetFontSize();
-    const pixels_per_design_unit: f32 = font_size / @as(f32, @floatFromInt(metrics.designUnitsPerEm));
-
-    const width: f32 = getTextFormatWidth(text_format_editor);
-
-    const ascent = @as(f32, @floatFromInt(metrics.ascent)) * pixels_per_design_unit;
-    const descent = @as(f32, @floatFromInt(metrics.descent)) * pixels_per_design_unit;
-    const height: f32 = ascent + descent;
-    // std.log.info(
-    //     "CellSize font_size={d} size={d}x{d}",
-    //     .{ font_size, width, height },
-    // );
-    return .{
-        .x = @intFromFloat(width),
-        .y = @intFromFloat(height),
+) XY(CellUnit) {
+    const box_size = getBoxSize(text_format_editor);
+    return switch (cell_alignment) {
+        .none => box_size,
+        .pixel => .{
+            .x = @intFromFloat(@ceil(box_size.x)),
+            .y = @intFromFloat(@ceil(box_size.y)),
+        },
     };
 }
-
-fn getTextFormatWidth(
-    text_format: *win32.IDWriteTextFormat,
-) f32 {
+fn getBoxSize(text_format: *win32.IDWriteTextFormat) XY(f32) {
     var text_layout: *win32.IDWriteTextLayout = undefined;
     {
         const hr = global.dwrite_factory.CreateTextLayout(
-            win32.L("0"),
+            win32.L("█"),
             1,
-            text_format, // Text format
+            text_format,
             std.math.floatMax(f32),
             std.math.floatMax(f32),
             &text_layout,
@@ -494,85 +527,56 @@ fn getTextFormatWidth(
         const hr = text_layout.GetMetrics(&metrics);
         if (hr < 0) fatalHr("GetMetrics", hr);
     }
-    return metrics.width;
-}
-
-fn getTextFormatMetrics(
-    text_format: *win32.IDWriteTextFormat,
-) win32.DWRITE_FONT_METRICS {
-    var collection: *win32.IDWriteFontCollection = undefined;
-
-    {
-        const hr = text_format.GetFontCollection(&collection);
-        if (hr < 0) fatalHr("GetFontCollection", hr);
+    switch (cell_alignment) {
+        .none => {
+            // these seem to only be true if centering is disabled
+            std.debug.assert(metrics.left == 0);
+            std.debug.assert(metrics.top == 0);
+            std.debug.assert(metrics.width == metrics.widthIncludingTrailingWhitespace);
+        },
+        .pixel => {},
     }
-    defer _ = collection.IUnknown.Release();
-
-    const max_family_name_len = 300;
-    var family_name_buf: [max_family_name_len + 1]u16 = undefined;
-    const family_name_len = text_format.GetFontFamilyNameLength();
-    if (family_name_len > max_family_name_len) std.debug.panic(
-        "family name len {} is too big",
-        .{family_name_len},
-    );
-
-    family_name_buf[family_name_len] = 0xff;
-    {
-        const hr = text_format.GetFontFamilyName(@ptrCast(&family_name_buf), max_family_name_len);
-        if (hr < 0) fatalHr("GetFontFamilyName", hr);
-    }
-    std.debug.assert(family_name_buf[family_name_len] == 0);
-
-    var family_index: u32 = undefined;
-
-    {
-        var exists: win32.BOOL = undefined;
-        const hr = collection.FindFamilyName(@ptrCast(&family_name_buf), &family_index, &exists);
-        if (hr < 0) fatalHr("FindFamilyName", hr);
-        if (0 == exists) std.debug.panic(
-            "FontFamily '{}' does not exist?",
-            .{std.unicode.fmtUtf16le(family_name_buf[0..family_name_len])},
-        );
-    }
-
-    var family: *win32.IDWriteFontFamily = undefined;
-
-    {
-        const hr = collection.GetFontFamily(family_index, &family);
-        if (hr < 0) fatalHr("GetFontFamily", hr);
-    }
-    defer _ = family.IUnknown.Release();
-
-    var font: *win32.IDWriteFont = undefined;
-
-    {
-        const hr = family.GetFirstMatchingFont(
-            text_format.GetFontWeight(),
-            text_format.GetFontStretch(),
-            text_format.GetFontStyle(),
-            &font,
-        );
-        if (hr < 0) fatalHr("GetFirstMatchingFont", hr);
-    }
-    defer _ = font.IUnknown.Release();
-
-    var metrics: win32.DWRITE_FONT_METRICS = undefined;
-    font.GetMetrics(&metrics);
-    return metrics;
-}
-
-fn cellFromPos(cell_size: XY(i32), x: i32, y: i32) XY(i32) {
-    return XY(i32){
-        .x = @divTrunc(x, cell_size.x),
-        .y = @divTrunc(y, cell_size.y),
-    };
-}
-fn cellOffsetFromPos(cell_size: XY(i32), x: i32, y: i32) XY(i32) {
     return .{
-        .x = @mod(x, cell_size.x),
-        .y = @mod(y, cell_size.y),
+        .x = metrics.width,
+        .y = metrics.height,
     };
 }
+
+const CellPos = struct {
+    cell: XY(i32),
+    offset: XY(i32),
+    pub fn init(cell_size: XY(CellUnit), x: i32, y: i32) CellPos {
+        switch (cell_alignment) {
+            .none => {
+                const cell_pos: XY(CellUnit) = .{
+                    .x = @as(f32, @floatFromInt(x)) / cell_size.x,
+                    .y = @as(f32, @floatFromInt(y)) / cell_size.y,
+                };
+                const cell: XY(i32) = .{
+                    .x = @intFromFloat(@floor(cell_pos.x)),
+                    .y = @intFromFloat(@floor(cell_pos.y)),
+                };
+                return .{
+                    .cell = cell,
+                    .offset = .{
+                        .x = @intFromFloat(@round(cell_pos.x - @as(f32, @floatFromInt(cell.x)))),
+                        .y = @intFromFloat(@round(cell_pos.y - @as(f32, @floatFromInt(cell.y)))),
+                    },
+                };
+            },
+            .pixel => return .{
+                .cell = .{
+                    .x = @divTrunc(x, cell_size.x),
+                    .y = @divTrunc(y, cell_size.y),
+                },
+                .offset = .{
+                    .x = @mod(x, cell_size.x),
+                    .y = @mod(y, cell_size.y),
+                },
+            },
+        }
+    }
+};
 
 pub fn fmtmsg(buf: []u8, value: anytype) []const u8 {
     var fbs = std.io.fixedBufferStream(buf);
@@ -599,16 +603,15 @@ fn sendMouse(
         std.log.info("dropping mouse event that occurred before first render", .{});
         return;
     };
-    const cell = cellFromPos(cell_size, point.x, point.y);
-    const cell_offset = cellOffsetFromPos(cell_size, point.x, point.y);
+    const cell = CellPos.init(cell_size, point.x, point.y);
     switch (kind) {
         .move => state.pid.send(.{
             "RDR",
             "M",
-            cell.x,
-            cell.y,
-            cell_offset.x,
-            cell_offset.y,
+            cell.cell.x,
+            cell.cell.y,
+            cell.offset.x,
+            cell.offset.y,
         }) catch |e| onexit(e),
         else => |b| state.pid.send(.{
             "RDR",
@@ -623,10 +626,10 @@ fn sendMouse(
                 .left_down, .left_up => @intFromEnum(input.mouse.BUTTON1),
                 .right_down, .right_up => @intFromEnum(input.mouse.BUTTON2),
             },
-            cell.x,
-            cell.y,
-            cell_offset.x,
-            cell_offset.y,
+            cell.cell.x,
+            cell.cell.y,
+            cell.offset.x,
+            cell.offset.y,
         }) catch |e| onexit(e),
     }
 }
@@ -642,8 +645,7 @@ fn sendMouseWheel(
         std.log.info("dropping mouse whell event that occurred before first render", .{});
         return;
     };
-    const cell = cellFromPos(cell_size, point.x, point.y);
-    const cell_offset = cellOffsetFromPos(cell_size, point.x, point.y);
+    const cell = CellPos.init(cell_size, point.x, point.y);
     // const fwKeys = win32.loword(wparam);
     state.scroll_delta += @as(i16, @bitCast(win32.hiword(wparam)));
     while (@abs(state.scroll_delta) > win32.WHEEL_DELTA) {
@@ -661,10 +663,10 @@ fn sendMouseWheel(
             "B",
             input.event.press,
             button,
-            cell.x,
-            cell.y,
-            cell_offset.x,
-            cell_offset.y,
+            cell.cell.x,
+            cell.cell.y,
+            cell.offset.x,
+            cell.offset.y,
         }) catch |e| onexit(e);
     }
 }
@@ -728,7 +730,7 @@ fn sendKey(
 
     // don't call ToUnicode if control is down as it does some weird
     // translation (i.e. ctrl+a becomes virtual keycode 1)
-    const skip_unicode = mods.ctrl or switch (winkey.vk) {
+    const skip_unicode = mods.ctrl or mods.alt or switch (winkey.vk) {
         @intFromEnum(win32.VK_BACK) => true,
         else => false,
     };
@@ -1138,9 +1140,15 @@ fn sendResize(
         state.text_format_editor.getOrCreate(Dpi{ .value = @intCast(dpi) }),
     );
     const client_pixel_size = getClientSize(hwnd);
-    const client_cell_size: XY(u16) = .{
-        .x = @intCast(@divTrunc(client_pixel_size.x, single_cell_size.x)),
-        .y = @intCast(@divTrunc(client_pixel_size.y, single_cell_size.y)),
+    const client_cell_size: XY(u16) = switch (cell_alignment) {
+        .none => .{
+            .x = @intFromFloat(@floor(@as(f32, @floatFromInt(client_pixel_size.x)) / single_cell_size.x)),
+            .y = @intFromFloat(@floor(@as(f32, @floatFromInt(client_pixel_size.y)) / single_cell_size.y)),
+        },
+        .pixel => .{
+            .x = @intCast(@divTrunc(client_pixel_size.x, single_cell_size.x)),
+            .y = @intCast(@divTrunc(client_pixel_size.y, single_cell_size.y)),
+        },
     };
     std.log.info(
         "Resize Px={}x{} Cells={}x{}",
