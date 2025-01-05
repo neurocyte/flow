@@ -142,10 +142,6 @@ pub fn input_fd_blocking(self: Self) i32 {
     return self.tty.fd;
 }
 
-pub fn leave_alternate_screen(self: *Self) void {
-    self.vx.exitAltScreen() catch {};
-}
-
 pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
     var input_: []const u8 = undefined;
     var text_: []const u8 = undefined;

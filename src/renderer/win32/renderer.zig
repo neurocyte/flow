@@ -140,14 +140,7 @@ pub fn stdplane(self: *Self) Plane {
     @memcpy(plane.name_buf[0..name.len], name);
     return plane;
 }
-pub fn input_fd_blocking(self: Self) i32 {
-    _ = self;
-    @panic("todo");
-}
-pub fn leave_alternate_screen(self: *Self) void {
-    _ = self;
-    @panic("todo");
-}
+
 pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
     const Input = struct {
         kind: u8,
@@ -285,13 +278,6 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
     return error.UnexpectedRendererEvent;
 }
 
-pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !void {
-    _ = self;
-    _ = input_;
-    _ = text;
-    @panic("todo");
-}
-
 fn setEllipsis(str: []u16) void {
     std.debug.assert(str.len >= 3);
     str[str.len - 1] = '.';
@@ -374,14 +360,11 @@ pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) vo
     std.log.warn("TODO: set_terminal_working_directory '{s}'", .{absolute_path});
     //self.vx.setTerminalWorkingDirectory(self.tty.anyWriter(), absolute_path) catch {};
 }
+
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
     _ = self;
     _ = text;
-    @panic("todo");
-}
-pub fn request_system_clipboard(self: *Self) void {
-    _ = self;
-    @panic("todo");
+    std.log.warn("TODO: copy_to_system_clipboard", .{});
 }
 
 pub const request_windows_clipboard = @import("tuirenderer").request_windows_clipboard;
