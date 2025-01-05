@@ -2163,7 +2163,12 @@ pub const Editor = struct {
         if (self.clipboard) |old|
             self.allocator.free(old);
         self.clipboard = text;
-        tui.current().rdr.copy_to_system_clipboard(text);
+        if (builtin.os.tag == .windows) {
+            @import("renderer").copy_to_windows_clipboard(text) catch |e|
+                self.logger.print_err("clipboard", "failed to set clipboard: {any}", .{e});
+        } else {
+            tui.current().rdr.copy_to_system_clipboard(text);
+        }
     }
 
     fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]u8 {

@@ -366,6 +366,7 @@ pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
     std.log.warn("TODO: copy_to_system_clipboard", .{});
 }
 
+pub const copy_to_windows_clipboard = @import("tuirenderer").copy_to_windows_clipboard;
 pub const request_windows_clipboard = @import("tuirenderer").request_windows_clipboard;
 
 pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {

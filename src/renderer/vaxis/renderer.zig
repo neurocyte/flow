@@ -350,18 +350,41 @@ pub fn request_system_clipboard(self: *Self) void {
     self.vx.requestSystemClipboard(self.tty.anyWriter()) catch |e| log.logger(log_name).err("request_system_clipboard", e);
 }
 
-pub fn request_windows_clipboard(allocator: std.mem.Allocator) ![]u8 {
+const win32 = struct {
     const windows = std.os.windows;
-    const win32 = struct {
-        pub extern "user32" fn OpenClipboard(hWndNewOwner: ?windows.HWND) callconv(windows.WINAPI) windows.BOOL;
-        pub extern "user32" fn CloseClipboard() callconv(windows.WINAPI) windows.BOOL;
-        pub extern "user32" fn SetClipboardData(uFormat: windows.UINT, hMem: windows.HANDLE) callconv(windows.WINAPI) ?windows.HANDLE;
-        pub extern "user32" fn GetClipboardData(uFormat: windows.UINT) callconv(windows.WINAPI) ?windows.HANDLE;
-        pub extern "kernel32" fn GlobalLock(hMem: windows.HANDLE) ?windows.LPVOID;
-        pub extern "kernel32" fn GlobalUnlock(hMem: windows.HANDLE) windows.BOOL;
-        const CF_TEXT = @as(c_int, 1);
-    };
+    pub extern "user32" fn OpenClipboard(hWndNewOwner: ?windows.HWND) callconv(windows.WINAPI) windows.BOOL;
+    pub extern "user32" fn CloseClipboard() callconv(windows.WINAPI) windows.BOOL;
+    pub extern "user32" fn SetClipboardData(uFormat: windows.UINT, hMem: windows.HANDLE) callconv(windows.WINAPI) ?windows.HANDLE;
+    pub extern "user32" fn GetClipboardData(uFormat: windows.UINT) callconv(windows.WINAPI) ?windows.HANDLE;
+    pub extern "user32" fn EmptyClipboard() windows.BOOL;
+    pub extern "kernel32" fn GlobalAlloc(flags: c_int, size: usize) ?windows.HANDLE;
+    pub extern "kernel32" fn GlobalFree(hMem: windows.HANDLE) windows.BOOL;
+    pub extern "kernel32" fn GlobalLock(hMem: windows.HANDLE) ?windows.LPVOID;
+    pub extern "kernel32" fn GlobalUnlock(hMem: windows.HANDLE) windows.BOOL;
+    const CF_TEXT = @as(c_int, 1);
+    const GMEM_MOVEABLE = @as(c_int, 2);
+};
 
+pub fn copy_to_windows_clipboard(text: []const u8) !void {
+    const mem = win32.GlobalAlloc(win32.GMEM_MOVEABLE, text.len + 1) orelse return error.GlobalAllocFalied;
+    const data: [*c]u8 = @ptrCast(win32.GlobalLock(mem) orelse return error.ClipboardDataLockFailed);
+    @memcpy(data[0..text.len], text);
+    data[text.len] = 0;
+    _ = win32.GlobalUnlock(mem);
+
+    if (win32.OpenClipboard(null) == 0) {
+        _ = win32.GlobalFree(mem);
+        return error.OpenClipBoardFailed;
+    }
+    defer _ = win32.CloseClipboard();
+
+    _ = win32.EmptyClipboard();
+    if (win32.SetClipboardData(win32.CF_TEXT, mem) == null) {
+        _ = win32.GlobalFree(mem);
+    }
+}
+
+pub fn request_windows_clipboard(allocator: std.mem.Allocator) ![]u8 {
     if (win32.OpenClipboard(null) == 0)
         return error.OpenClipBoardFailed;
     defer _ = win32.CloseClipboard();
