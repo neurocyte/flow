@@ -142,11 +142,12 @@ pub fn input_fd_blocking(self: Self) i32 {
     return self.tty.fd;
 }
 
-pub fn leave_alternate_screen(self: *Self) void {
-    self.vx.exitAltScreen() catch {};
-}
-
-pub fn process_input_event(self: *Self, input_: []const u8, text: ?[]const u8) !void {
+pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
+    var input_: []const u8 = undefined;
+    var text_: []const u8 = undefined;
+    if (!try cbor.match(msg, .{ "RDR", cbor.extract(&input_), cbor.extract(&text_) }))
+        return error.UnexpectedRendererEvent;
+    const text = if (text_.len > 0) text_ else null;
     const event = std.mem.bytesAsValue(vaxis.Event, input_);
     switch (event.*) {
         .key_press => |key__| {
@@ -349,7 +350,7 @@ pub fn request_system_clipboard(self: *Self) void {
     self.vx.requestSystemClipboard(self.tty.anyWriter()) catch |e| log.logger(log_name).err("request_system_clipboard", e);
 }
 
-pub fn request_windows_clipboard(self: *Self) ![]u8 {
+pub fn request_windows_clipboard(allocator: std.mem.Allocator) ![]u8 {
     const windows = std.os.windows;
     const win32 = struct {
         pub extern "user32" fn OpenClipboard(hWndNewOwner: ?windows.HWND) callconv(windows.WINAPI) windows.BOOL;
@@ -370,7 +371,7 @@ pub fn request_windows_clipboard(self: *Self) ![]u8 {
     const text = std.mem.span(data);
     defer _ = win32.GlobalUnlock(mem);
 
-    return self.allocator.dupe(u8, text);
+    return allocator.dupe(u8, text);
 }
 
 pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {
@@ -493,7 +494,7 @@ const Loop = struct {
             },
             else => {},
         }
-        self.pid.send(.{ "VXS", std.mem.asBytes(&event), text }) catch @panic("send VXS event failed");
+        self.pid.send(.{ "RDR", std.mem.asBytes(&event), text }) catch @panic("send RDR event failed");
         if (free_text)
             self.vaxis.opts.system_clipboard_allocator.?.free(text);
     }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
@@ -91,6 +92,7 @@ fn init(allocator: Allocator) !*Self {
     conf.input_mode = try allocator.dupe(u8, conf.input_mode);
     conf.top_bar = try allocator.dupe(u8, conf.top_bar);
     conf.bottom_bar = try allocator.dupe(u8, conf.bottom_bar);
+    if (build_options.gui) conf.enable_terminal_cursor = false;
 
     const frame_rate: usize = @intCast(tp.env.get().num("frame-rate"));
     if (frame_rate != 0)
@@ -246,10 +248,11 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
 }
 
 fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
-    var input: []const u8 = undefined;
-    var text: []const u8 = undefined;
-    if (try m.match(.{ "VXS", tp.extract(&input), tp.extract(&text) })) {
-        try self.rdr.process_input_event(input, if (text.len > 0) text else null);
+    if (try m.match(.{ "RDR", tp.more })) {
+        self.rdr.process_renderer_event(m.buf) catch |e| switch (e) {
+            error.UnexpectedRendererEvent => return tp.unexpected(m),
+            else => return e,
+        };
         try self.dispatch_flush_input_event();
         if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
             need_render();
@@ -304,6 +307,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    var text: []const u8 = undefined;
     if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
         try self.dispatch_flush_input_event();
         return if (command.get_id("mini_mode_paste")) |id|
