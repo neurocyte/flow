@@ -440,8 +440,10 @@ pub fn build_exe(
         },
     });
 
+    const exe_name = if (gui) "flow-gui" else "flow";
+
     const exe = b.addExecutable(.{
-        .name = "flow",
+        .name = exe_name,
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -488,7 +490,7 @@ pub fn build_exe(
     run_step.dependOn(&run_cmd.step);
 
     const check_exe = b.addExecutable(.{
-        .name = "flow",
+        .name = exe_name,
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
