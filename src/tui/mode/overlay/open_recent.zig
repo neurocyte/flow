@@ -271,6 +271,11 @@ const cmds = struct {
     const Ctx = command.Context;
     const Result = command.Result;
 
+    pub fn palette_menu_top(self: *Self, _: Ctx) Result {
+        self.menu.select_first();
+    }
+    pub const palette_menu_top_meta = .{};
+
     pub fn palette_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
