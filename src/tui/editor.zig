@@ -821,6 +821,10 @@ pub const Editor = struct {
                         9 => ctx.self.render_tab(c, n, ctx.buf_col),
                         else => render_egc(c, n, chunk),
                     };
+                    if (colcount == 0) {
+                        chunk = chunk[bytes..];
+                        continue;
+                    }
                     var cell_map_val: CellType = switch (chunk[0]) {
                         32 => .space,
                         9 => .tab,
