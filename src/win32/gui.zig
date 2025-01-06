@@ -396,6 +396,9 @@ fn entry(pid: thespian.pid) !void {
 
     const CLASS_NAME = win32.L("Flow");
 
+    const initial_placement = calcWindowPlacement();
+    global.icons = getIcons(initial_placement.dpi);
+
     // we only need to register the window class once per process
     if (global.window_class == 0) {
         const wc = win32.WNDCLASSEXW{
@@ -418,9 +421,6 @@ fn entry(pid: thespian.pid) !void {
             win32.GetLastError(),
         );
     }
-
-    const initial_placement = calcWindowPlacement();
-    global.icons = getIcons(initial_placement.dpi);
 
     var create_args = CreateWindowArgs{
         .allocator = arena_instance.allocator(),
