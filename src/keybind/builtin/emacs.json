@@ -58,7 +58,8 @@
     },
     "overlay/palette": {
         "press": [
-            ["ctrl+a", "palette_menu_top"]
+            ["ctrl+a", "palette_menu_top"],
+            ["ctrl+f", "palette_menu_down"]
         ]
     },
     "mini/file_browser": {
