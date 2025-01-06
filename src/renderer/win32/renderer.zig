@@ -274,6 +274,39 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
             return;
         }
     }
+    {
+        var args: struct {
+            pos: MousePos,
+            button_id: u8,
+        } = undefined;
+        if (try cbor.match(msg, .{
+            cbor.any,
+            "D",
+            cbor.extract(&args.button_id),
+            cbor.extract(&args.pos.col),
+            cbor.extract(&args.pos.row),
+            cbor.extract(&args.pos.xoffset),
+            cbor.extract(&args.pos.yoffset),
+        })) {
+            var buf: [200]u8 = undefined;
+            if (self.dispatch_mouse_drag) |f| f(
+                self.handler_ctx,
+                @intCast(args.pos.row),
+                @intCast(args.pos.col),
+                fmtmsg(&buf, .{
+                    "D",
+                    input.event.press,
+                    args.button_id,
+                    input.utils.button_id_string(@enumFromInt(args.button_id)),
+                    args.pos.col,
+                    args.pos.row,
+                    args.pos.xoffset,
+                    args.pos.yoffset,
+                }),
+            );
+            return;
+        }
+    }
     return error.UnexpectedRendererEvent;
 }
 

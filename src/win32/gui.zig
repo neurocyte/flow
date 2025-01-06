@@ -588,6 +588,16 @@ pub fn fmtmsg(buf: []u8, value: anytype) []const u8 {
     return buf[0..fbs.pos];
 }
 
+const MouseFlags = packed struct(u8) {
+    left_down: bool,
+    right_down: bool,
+    shift_down: bool,
+    control_down: bool,
+    middle_down: bool,
+    xbutton1_down: bool,
+    xbutton2_down: bool,
+    _: bool,
+};
 fn sendMouse(
     hwnd: win32.HWND,
     kind: enum {
@@ -597,6 +607,7 @@ fn sendMouse(
         right_down,
         right_up,
     },
+    wparam: win32.WPARAM,
     lparam: win32.LPARAM,
 ) void {
     const point = ddui.pointFromLparam(lparam);
@@ -607,14 +618,25 @@ fn sendMouse(
     };
     const cell = CellPos.init(cell_size, point.x, point.y);
     switch (kind) {
-        .move => state.pid.send(.{
-            "RDR",
-            "M",
-            cell.cell.x,
-            cell.cell.y,
-            cell.offset.x,
-            cell.offset.y,
-        }) catch |e| onexit(e),
+        .move => {
+            const flags: MouseFlags = @bitCast(@as(u8, @intCast(0xff & wparam)));
+            if (flags.left_down) state.pid.send(.{
+                "RDR",
+                "D",
+                @intFromEnum(input.mouse.BUTTON1),
+                cell.cell.x,
+                cell.cell.y,
+                cell.offset.x,
+                cell.offset.y,
+            }) catch |e| onexit(e) else state.pid.send(.{
+                "RDR",
+                "M",
+                cell.cell.x,
+                cell.cell.y,
+                cell.offset.x,
+                cell.offset.y,
+            }) catch |e| onexit(e);
+        },
         else => |b| state.pid.send(.{
             "RDR",
             "B",
@@ -953,23 +975,23 @@ fn WndProc(
 
     switch (msg) {
         win32.WM_MOUSEMOVE => {
-            sendMouse(hwnd, .move, lparam);
+            sendMouse(hwnd, .move, wparam, lparam);
             return 0;
         },
         win32.WM_LBUTTONDOWN => {
-            sendMouse(hwnd, .left_down, lparam);
+            sendMouse(hwnd, .left_down, wparam, lparam);
             return 0;
         },
         win32.WM_LBUTTONUP => {
-            sendMouse(hwnd, .left_up, lparam);
+            sendMouse(hwnd, .left_up, wparam, lparam);
             return 0;
         },
         win32.WM_RBUTTONDOWN => {
-            sendMouse(hwnd, .right_down, lparam);
+            sendMouse(hwnd, .right_down, wparam, lparam);
             return 0;
         },
         win32.WM_RBUTTONUP => {
-            sendMouse(hwnd, .right_up, lparam);
+            sendMouse(hwnd, .right_up, wparam, lparam);
             return 0;
         },
         win32.WM_MOUSEWHEEL => {
