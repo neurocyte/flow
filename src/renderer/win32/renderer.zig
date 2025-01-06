@@ -125,8 +125,8 @@ pub fn render(self: *Self) error{}!void {
     }
 }
 pub fn stop(self: *Self) void {
-    _ = self;
-    std.log.warn("TODO: implement stop", .{});
+    gui.stop();
+    if (self.thread) |thread| thread.join();
 }
 
 pub fn stdplane(self: *Self) Plane {

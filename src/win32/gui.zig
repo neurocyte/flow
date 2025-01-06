@@ -16,6 +16,8 @@ const windowmsg = @import("windowmsg.zig");
 
 const HResultError = ddui.HResultError;
 
+const WM_APP_EXIT = win32.WM_APP + 1;
+
 pub const DropWriter = struct {
     pub const WriteError = error{};
     pub const Writer = std.io.Writer(DropWriter, WriteError, write);
@@ -491,6 +493,11 @@ pub const Win32Error = struct {
         return error.Win32;
     }
 };
+
+pub fn stop() void {
+    const hwnd = global.hwnd orelse return;
+    _ = win32.SendMessageW(hwnd, WM_APP_EXIT, 0, 0);
+}
 
 pub fn setWindowTitle(title: [*:0]const u16, err: *Win32Error) error{ NoWindow, Win32 }!void {
     global.mutex.lock();
@@ -1116,6 +1123,11 @@ fn WndProc(
             return 1; // background erased
         },
         win32.WM_CLOSE => {
+            const state = stateFromHwnd(hwnd);
+            state.pid.send(.{ "cmd", "quit" }) catch |e| onexit(e);
+            return 0;
+        },
+        WM_APP_EXIT => {
             win32.PostQuitMessage(0);
             return 0;
         },
