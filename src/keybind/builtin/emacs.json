@@ -3,19 +3,23 @@
         "press": [
             ["ctrl+g", "cancel"],
             ["ctrl+shift+-", "undo"],
-            ["ctrl+a", "move_begin"],
             ["ctrl+k", ["select_end"], ["cut"]],
             ["ctrl+w", "cut"],
-            ["alt+shift+,", "move_buffer_begin"],
-            ["alt+shift+.", "move_buffer_end"],
-            ["ctrl+e", "move_end"],
-            ["ctrl+b", "move_left"],
-            ["ctrl+f", "move_right"],
-            ["ctrl+s", "find"],
+
             ["ctrl+p", "move_up"],
             ["ctrl+n", "move_down"],
-            ["ctrl+v", "move_page_down"],
+            ["ctrl+b", "move_left"],
+            ["ctrl+f", "move_right"],
+            ["alt+b", "move_word_left"],
+            ["alt+f", "move_word_right"],
+            ["ctrl+a", "move_begin"],
+            ["ctrl+e", "move_end"],
+            ["alt+shift+,", "move_buffer_begin"],
+            ["alt+shift+.", "move_buffer_end"],
             ["alt+v", "move_page_up"],
+            ["ctrl+v", "move_page_down"],
+
+            ["ctrl+s", "find"],
             ["ctrl+d", "delete_forward"],
             ["alt+d", ["select_word_right"], ["cut"]],
             ["ctrl+y", "system_paste"],
@@ -25,7 +29,31 @@
             ["ctrl+x>ctrl+s", "save_file"],
             ["ctrl+x>ctrl+c", "quit"],
             ["ctrl+x>b", "open_recent"],
-            ["alt+x", "open_command_palette"]
+            ["alt+x", "open_command_palette"],
+            ["ctrl+space", "enter_mode", "select"]
+        ]
+    },
+    "select": {
+        "name": "SELECT",
+        "inherit": "normal",
+        "press": [
+            ["ctrl+space", ["enter_mode", "normal"], ["cancel"]],
+            ["ctrl+g", ["enter_mode", "normal"], ["cancel"]],
+            ["ctrl+w", ["cut"], ["enter_mode", "normal"], ["cancel"]],
+            ["alt+w", ["copy"], ["enter_mode", "normal"], ["cancel"]],
+
+            ["ctrl+p", "select_up"],
+            ["ctrl+n", "select_down"],
+            ["ctrl+b", "select_left"],
+            ["ctrl+f", "select_right"],
+            ["alt+b", "select_word_left"],
+            ["alt+f", "select_word_right"],
+            ["ctrl+a", "select_begin"],
+            ["ctrl+e", "select_end"],
+            ["alt+shift+,", "select_buffer_begin"],
+            ["alt+shift+.", "select_buffer_end"],
+            ["alt+v", "select_page_up"],
+            ["ctrl+v", "select_page_down"]
         ]
     },
     "overlay/palette": {
