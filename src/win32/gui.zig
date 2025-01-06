@@ -86,7 +86,7 @@ fn getIcons(dpi: XY(u32)) Icons {
     const small_y = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CYSMICON), dpi.y);
     const large_x = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CXICON), dpi.x);
     const large_y = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CYICON), dpi.y);
-    std.log.info("icons small={}x{} large={}x{} at dpi {}x{}", .{
+    std.log.debug("icons small={}x{} large={}x{} at dpi {}x{}", .{
         small_x, small_y,
         large_x, large_y,
         dpi.x,   dpi.y,
@@ -342,7 +342,7 @@ fn calcWindowPlacement() WindowPlacement {
         }
         break :blk dpi;
     };
-    std.log.info("primary monitor dpi {}x{}", .{ result.dpi.x, result.dpi.y });
+    std.log.debug("primary monitor dpi {}x{}", .{ result.dpi.x, result.dpi.y });
 
     const work_rect: win32.RECT = blk: {
         var info: win32.MONITORINFO = undefined;
@@ -358,7 +358,7 @@ fn calcWindowPlacement() WindowPlacement {
         .x = work_rect.right - work_rect.left,
         .y = work_rect.bottom - work_rect.top,
     };
-    std.log.info(
+    std.log.debug(
         "primary monitor work topleft={},{} size={}x{}",
         .{ work_rect.left, work_rect.top, work_size.x, work_size.y },
     );
@@ -481,7 +481,7 @@ fn entry(pid: thespian.pid) !void {
     }
 
     const exit_code = std.math.cast(u32, msg.wParam) orelse 0xffffffff;
-    std.log.info("gui thread exit {} ({})", .{ exit_code, msg.wParam });
+    std.log.debug("gui thread exit {} ({})", .{ exit_code, msg.wParam });
     pid.send(.{"quit"}) catch |e| onexit(e);
 }
 
@@ -611,10 +611,7 @@ fn sendMouse(
 ) void {
     const point = ddui.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
-    const cell_size = state.currently_rendered_cell_size orelse {
-        std.log.info("dropping mouse event that occurred before first render", .{});
-        return;
-    };
+    const cell_size = state.currently_rendered_cell_size orelse return;
     const cell = CellPos.init(cell_size, point.x, point.y);
     switch (kind) {
         .move => {
@@ -664,10 +661,7 @@ fn sendMouseWheel(
 ) void {
     const point = ddui.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
-    const cell_size = state.currently_rendered_cell_size orelse {
-        std.log.info("dropping mouse whell event that occurred before first render", .{});
-        return;
-    };
+    const cell_size = state.currently_rendered_cell_size orelse return;
     const cell = CellPos.init(cell_size, point.x, point.y);
     // const fwKeys = win32.loword(wparam);
     state.scroll_delta += @as(i16, @bitCast(win32.hiword(wparam)));
@@ -773,9 +767,9 @@ fn sendKey(
     }
     if (unicode_result > max_char_count) {
         for (char_buf[0..@intCast(unicode_result)], 0..) |codepoint, i| {
-            std.log.err("UNICODE[{}] 0x{x}", .{ i, codepoint });
+            std.log.err("UNICODE[{}] 0x{x} {d}", .{ i, codepoint, unicode_result });
         }
-        std.debug.panic("TODO: unicode result is {}", .{unicode_result});
+        return;
     }
 
     if (unicode_result == 0) {
@@ -1174,7 +1168,7 @@ fn sendResize(
         .x = @intCast(@divTrunc(client_pixel_size.x, single_cell_size.x)),
         .y = @intCast(@divTrunc(client_pixel_size.y, single_cell_size.y)),
     };
-    std.log.info(
+    std.log.debug(
         "Resize Px={}x{} Cells={}x{}",
         .{ client_pixel_size.x, client_pixel_size.y, client_cell_size.x, client_cell_size.y },
     );
