@@ -22,3 +22,5 @@ top_bar: []const u8 = "",
 bottom_bar: []const u8 = "mode file log selection diagnostics keybind linenumber clock spacer",
 
 lsp_request_timeout: usize = 10,
+
+config_files: []const u8 = "",

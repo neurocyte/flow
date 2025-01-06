@@ -82,9 +82,21 @@ fn start(args: StartArgs) tp.result {
 
 fn init(allocator: Allocator) !*Self {
     var self = try allocator.create(Self);
-    var conf_buf: ?[]const u8 = null;
-    var conf = root.read_config(allocator, &conf_buf);
-    defer if (conf_buf) |buf| allocator.free(buf);
+
+    var conf_bufs: std.ArrayListUnmanaged([]const u8) = .{};
+    defer {
+        for (conf_bufs.items) |buf| {
+            allocator.free(buf);
+        }
+        conf_bufs.deinit(allocator);
+    }
+    var conf = blk: {
+        var maybe_buf: ?[]const u8 = null;
+        const conf = root.read_config(allocator, &maybe_buf);
+        if (maybe_buf) |buf| try conf_bufs.append(allocator, buf);
+        break :blk conf;
+    };
+    try loadConfigFiles(allocator, &conf_bufs, &conf, conf.config_files);
 
     const theme = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return tp.exit("unknown theme");
     conf.theme = theme.name;
@@ -209,6 +221,53 @@ fn deinit(self: *Self) void {
     self.rdr.deinit();
     self.logger.deinit();
     self.allocator.destroy(self);
+}
+
+fn loadConfigFiles(
+    allocator: std.mem.Allocator,
+    conf_bufs: *std.ArrayListUnmanaged([]const u8),
+    final_conf: *config,
+    config_files: []const u8,
+) error{OutOfMemory}!void {
+    if (config_files.len == 0) return;
+
+    var it = std.mem.splitScalar(u8, config_files, std.fs.path.delimiter);
+    while (it.next()) |path| {
+        var maybe_buf: ?[]const u8 = null;
+        const conf = root.read_config_at(allocator, &maybe_buf, path);
+        if (maybe_buf) |buf| try conf_bufs.append(allocator, buf);
+
+        if (conf.config_files.len > 0) {
+            // just disallow nested config for now as we'd have to establish some
+            // sort of priority
+            std.log.err("{s}: ignoring nested 'config_files'", .{path});
+        }
+
+        inline for (std.meta.fields(config)) |field| {
+            if (comptime std.mem.eql(u8, field.name, "config_files")) continue;
+
+            const new_value_ref = &@field(conf, field.name);
+            const default_value_ref: *const field.type = @alignCast(@ptrCast(field.default_value));
+            const is_default = switch (field.type) {
+                bool, usize => new_value_ref.* == default_value_ref.*,
+                []const u8 => std.mem.eql(u8, new_value_ref.*, default_value_ref.*),
+                else => @compileError("unsupported type: " ++ @typeName(field.type)),
+            };
+            const value_spec: []const u8 = switch (field.type) {
+                bool, usize => "",
+                []const u8 => "s",
+                else => @compileError("unsupported type: " ++ @typeName(field.type)),
+            };
+            if (!is_default) {
+                std.log.info("{s} override {s} with {" ++ value_spec ++ "}", .{
+                    path,
+                    field.name,
+                    new_value_ref.*,
+                });
+                @field(final_conf, field.name) = new_value_ref.*;
+            }
+        }
+    }
 }
 
 fn listen_sigwinch(self: *Self) tp.result {
