@@ -30,6 +30,8 @@ dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
 thread: ?std.Thread = null,
 
+title_buf: std.ArrayList(u16),
+
 const global = struct {
     var init_called: bool = false;
 };
@@ -59,10 +61,11 @@ pub fn init(
         },
         .system_clipboard_allocator = allocator,
     };
-    var result = .{
+    var result: Self = .{
         .allocator = allocator,
         .vx = try vaxis.init(allocator, opts),
         .handler_ctx = handler_ctx,
+        .title_buf = std.ArrayList(u16).init(allocator),
     };
     result.vx.caps.unicode = .unicode;
     result.vx.screen.width_method = .unicode;
@@ -73,6 +76,7 @@ pub fn deinit(self: *Self) void {
     std.log.warn("TODO: implement win32 renderer deinit", .{});
     var drop_writer = DropWriter{};
     self.vx.deinit(self.allocator, drop_writer.writer().any());
+    self.title_buf.deinit();
 }
 
 threadlocal var thread_is_panicing = false;
@@ -203,6 +207,8 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
                 var buf: [200]u8 = undefined;
                 if (self.dispatch_event) |f| f(self.handler_ctx, fmtmsg(&buf, .{"resize"}));
             }
+            if (self.title_buf.items.len > 0)
+                self.set_terminal_title_internal();
             return;
         }
     }
@@ -305,65 +311,22 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
     return error.UnexpectedRendererEvent;
 }
 
-fn setEllipsis(str: []u16) void {
-    std.debug.assert(str.len >= 3);
-    str[str.len - 1] = '.';
-    str[str.len - 2] = '.';
-    str[str.len - 3] = '.';
-}
-
-const ConversionSizes = struct {
-    src_len: usize,
-    dst_len: usize,
-};
-fn calcUtf8ToUtf16LeWithMax(utf8: []const u8, max_dst_len: usize) !ConversionSizes {
-    var src_len: usize = 0;
-    var dst_len: usize = 0;
-    while (src_len < utf8.len) {
-        if (dst_len >= max_dst_len) break;
-        const n = try std.unicode.utf8ByteSequenceLength(utf8[src_len]);
-        const next_src_len = src_len + n;
-        const codepoint = try std.unicode.utf8Decode(utf8[src_len..next_src_len]);
-        if (codepoint < 0x10000) {
-            dst_len += 1;
-        } else {
-            if (dst_len + 2 > max_dst_len) break;
-            dst_len += 2;
-        }
-        src_len = next_src_len;
-    }
-    return .{ .src_len = src_len, .dst_len = dst_len };
-}
-
-pub fn set_terminal_title(self: *Self, title_utf8: []const u8) void {
-    _ = self;
-
-    const max_title_wide = 500;
-    const conversion_sizes = calcUtf8ToUtf16LeWithMax(title_utf8, max_title_wide) catch {
+pub fn set_terminal_title(self: *Self, text: []const u8) void {
+    std.unicode.utf8ToUtf16LeArrayList(&self.title_buf, text) catch {
         std.log.err("title is invalid UTF-8", .{});
         return;
     };
+    self.set_terminal_title_internal();
+}
 
-    var title_wide_buf: [max_title_wide + 1]u16 = undefined;
-    const len = @min(max_title_wide, conversion_sizes.dst_len);
-    title_wide_buf[len] = 0;
-    const title_wide = title_wide_buf[0..len :0];
-
-    const size = std.unicode.utf8ToUtf16Le(title_wide, title_utf8[0..conversion_sizes.src_len]) catch |err| switch (err) {
-        error.InvalidUtf8 => {
-            std.log.err("title is invalid UTF-8", .{});
-            return;
-        },
+fn set_terminal_title_internal(self: *Self) void {
+    const title = self.title_buf.toOwnedSliceSentinel(0) catch @panic("OOM:set_terminal_title");
+    gui.set_window_title(title) catch {
+        // leave self.title_buf to try again later
+        self.title_buf = std.ArrayList(u16).fromOwnedSlice(self.allocator, title);
+        return;
     };
-    std.debug.assert(size == conversion_sizes.dst_len);
-    if (conversion_sizes.src_len != title_utf8.len) {
-        setEllipsis(title_wide);
-    }
-    var win32_err: gui.Win32Error = undefined;
-    gui.setWindowTitle(title_wide, &win32_err) catch |err| switch (err) {
-        error.NoWindow => std.log.warn("no window to set the title for", .{}),
-        error.Win32 => std.log.err("{s} failed with {}", .{ win32_err.what, win32_err.code.fmt() }),
-    };
+    self.allocator.free(title);
 }
 
 pub fn set_terminal_style(self: *Self, style_: Style) void {

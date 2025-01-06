@@ -485,27 +485,19 @@ fn entry(pid: thespian.pid) !void {
     pid.send(.{"quit"}) catch |e| onexit(e);
 }
 
-pub const Win32Error = struct {
-    what: [:0]const u8,
-    code: win32.WIN32_ERROR,
-    pub fn set(self: *Win32Error, what: [:0]const u8, code: win32.WIN32_ERROR) error{Win32} {
-        self.* = .{ .what = what, .code = code };
-        return error.Win32;
-    }
-};
-
 pub fn stop() void {
     const hwnd = global.hwnd orelse return;
     _ = win32.SendMessageW(hwnd, WM_APP_EXIT, 0, 0);
 }
 
-pub fn setWindowTitle(title: [*:0]const u16, err: *Win32Error) error{ NoWindow, Win32 }!void {
+pub fn set_window_title(title: [*:0]const u16) error{ NoWindow, Win32 }!void {
     global.mutex.lock();
     defer global.mutex.unlock();
-
     const hwnd = global.hwnd orelse return error.NoWindow;
-    if (0 == win32.SetWindowTextW(hwnd, title))
-        return err.set("SetWindowText", win32.GetLastError());
+    if (win32.SetWindowTextW(hwnd, title) == 0) {
+        std.log.warn("error in SetWindowText: {}", .{win32.GetLastError()});
+        return error.Win32;
+    }
 }
 
 // returns false if there is no hwnd
