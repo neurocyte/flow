@@ -391,44 +391,67 @@ pub fn exit(status: u8) noreturn {
 
 const config = @import("config");
 
-pub fn read_config(allocator: std.mem.Allocator, buf: *?[]const u8) config {
-    const file_name = get_app_config_file_name(application_name) catch return .{};
-    return read_config_at(allocator, buf, file_name);
-}
-pub fn read_config_at(allocator: std.mem.Allocator, buf: *?[]const u8, file_name: []const u8) config {
-    return read_json_config_file(allocator, file_name, buf) catch |e| {
-        log.logger("config").print_err("read_config", "error reading config file: {any}", .{e});
-        return .{};
-    };
+pub fn free_config(allocator: std.mem.Allocator, bufs: [][]const u8) void {
+    for (bufs) |buf| allocator.free(buf);
 }
 
-fn read_json_config_file(allocator: std.mem.Allocator, file_name: []const u8, buf: *?[]const u8) !config {
+pub fn read_config(allocator: std.mem.Allocator) struct { config, [][]const u8 } {
+    var bufs: [][]const u8 = &[_][]const u8{};
+    const file_name = get_app_config_file_name(application_name) catch return .{ .{}, bufs };
+    var conf: config = .{};
+    read_config_file(allocator, &conf, &bufs, file_name);
+    read_nested_config_files(allocator, &conf, &bufs);
+    return .{ conf, bufs };
+}
+
+fn read_config_file(allocator: std.mem.Allocator, conf: *config, bufs: *[][]const u8, file_name: []const u8) void {
+    read_json_config_file(allocator, conf, bufs, file_name) catch |e|
+        log.logger("config").print_err("read_config", "error reading config file: {any}", .{e});
+    return;
+}
+
+fn read_json_config_file(allocator: std.mem.Allocator, conf: *config, bufs_: *[][]const u8, file_name: []const u8) !void {
     const cbor = @import("cbor");
     var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {
-        error.FileNotFound => return .{},
+        error.FileNotFound => return,
         else => return e,
     };
     defer file.close();
     const json = try file.readToEndAlloc(allocator, 64 * 1024);
     defer allocator.free(json);
     const cbor_buf: []u8 = try allocator.alloc(u8, json.len);
-    buf.* = cbor_buf;
+    var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
+    bufs.append(allocator, cbor_buf) catch @panic("OOM:read_json_config_file");
+    bufs_.* = bufs.toOwnedSlice(allocator) catch @panic("OOM:read_json_config_file");
     const cb = try cbor.fromJson(json, cbor_buf);
     var iter = cb;
     var len = try cbor.decodeMapHeader(&iter);
-    var data: config = .{};
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidConfig;
-        inline for (@typeInfo(config).Struct.fields) |field_info| {
-            if (std.mem.eql(u8, field_name, field_info.name)) {
+        inline for (@typeInfo(config).Struct.fields) |field_info|
+            if (comptime std.mem.eql(u8, "config_files", field_info.name)) {
+                if (std.mem.eql(u8, field_name, field_info.name)) {
+                    var value: field_info.type = undefined;
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidConfig;
+                    if (conf.config_files.len > 0) {
+                        std.log.err("{s}: ignoring nested 'config_files' value '{s}'", .{ file_name, value });
+                    } else {
+                        @field(conf, field_info.name) = value;
+                    }
+                }
+            } else if (std.mem.eql(u8, field_name, field_info.name)) {
                 var value: field_info.type = undefined;
                 if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidConfig;
-                @field(data, field_info.name) = value;
-            }
-        }
+                @field(conf, field_info.name) = value;
+            };
     }
-    return data;
+}
+
+fn read_nested_config_files(allocator: std.mem.Allocator, conf: *config, bufs: *[][]const u8) void {
+    if (conf.config_files.len == 0) return;
+    var it = std.mem.splitScalar(u8, conf.config_files, std.fs.path.delimiter);
+    while (it.next()) |path| read_config_file(allocator, conf, bufs, path);
 }
 
 pub fn write_config(conf: config, allocator: std.mem.Allocator) !void {
