@@ -178,7 +178,7 @@
             ["escape", ["enter_mode", "normal"], ["cancel"]],
             ["ctrl+g", ["enter_mode", "normal"], ["cancel"], ["goto"]],
             ["ctrl+f", ["enter_mode", "normal"], ["find"]],
-            ["ctrl+shift+f", ["enter_mode", "normal"], ["find_in_files"]],
+            ["ctrl+shift+f", ["enter_mode", "normal"], ["find_in_files"]]
         ]
     },
     "home": {
