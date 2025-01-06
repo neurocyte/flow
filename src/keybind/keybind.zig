@@ -233,7 +233,7 @@ const Namespace = struct {
 
     fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, mode_value: std.json.Value) !void {
         const fallback_mode = if (self.fallback) |fallback| fallback.get_mode(mode_name) orelse fallback.get_mode(default_mode) else null;
-        try self.modes.put(allocator, try allocator.dupe(u8, mode_name), try BindingSet.load(allocator, self.name, mode_value, fallback_mode));
+        try self.modes.put(allocator, try allocator.dupe(u8, mode_name), try BindingSet.load(allocator, self.name, mode_value, fallback_mode, self));
     }
 
     fn copy_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, fallback_mode: *const BindingSet) !void {
@@ -369,7 +369,7 @@ const BindingSet = struct {
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
 
-    fn load(allocator: std.mem.Allocator, namespace_name: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet) (error{OutOfMemory} || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
+    fn load(allocator: std.mem.Allocator, namespace_name: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet, siblings: *Namespace) (error{OutOfMemory} || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
         var self: @This() = .{ .name = undefined };
 
         const JsonConfig = struct {
@@ -380,6 +380,7 @@ const BindingSet = struct {
             name: ?[]const u8 = null,
             line_numbers: LineNumbers = .absolute,
             cursor: ?CursorShape = null,
+            inherit: ?[]const u8 = null,
         };
         const parsed = try std.json.parseFromValue(JsonConfig, allocator, mode_bindings, .{
             .ignore_unknown_fields = true,
@@ -392,7 +393,12 @@ const BindingSet = struct {
         self.cursor_shape = parsed.value.cursor;
         try self.load_event(allocator, &self.press, input.event.press, parsed.value.press);
         try self.load_event(allocator, &self.release, input.event.release, parsed.value.release);
-        if (fallback) |fallback_| {
+        if (parsed.value.inherit) |sibling_fallback| {
+            if (siblings.get_mode(sibling_fallback)) |sib| {
+                for (sib.press.items) |binding| try append_if_not_match(allocator, &self.press, binding);
+                for (sib.release.items) |binding| try append_if_not_match(allocator, &self.release, binding);
+            }
+        } else if (fallback) |fallback_| {
             for (fallback_.press.items) |binding| try append_if_not_match(allocator, &self.press, binding);
             for (fallback_.release.items) |binding| try append_if_not_match(allocator, &self.release, binding);
         }
