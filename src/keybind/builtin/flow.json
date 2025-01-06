@@ -33,7 +33,6 @@
             ["ctrl+\\", "add_split"],
             ["ctrl+/", "toggle_comment"],
             ["ctrl+enter", "smart_insert_line_after"],
-            ["ctrl+space", "completion"],
             ["ctrl+end", "move_buffer_end"],
             ["ctrl+home", "move_buffer_begin"],
             ["ctrl+up", "move_scroll_up"],
@@ -145,13 +144,39 @@
             ["left_control", "enable_fast_scroll"],
             ["right_control", "enable_fast_scroll"],
             ["left_alt", "enable_jump_mode"],
-            ["right_alt", "enable_jump_mode"]
+            ["right_alt", "enable_jump_mode"],
+            ["ctrl+space", "enter_mode", "select"]
         ],
         "release": [
             ["left_control", "disable_fast_scroll"],
             ["right_control", "disable_fast_scroll"],
             ["left_alt", "disable_jump_mode"],
             ["right_alt", "disable_jump_mode"]
+        ]
+    },
+    "select": {
+        "name": "SELECT",
+        "inherit": "normal",
+        "press": [
+            ["left", "select_left"],
+            ["right", "select_right"],
+            ["ctrl+left", "select_word_left"],
+            ["ctrl+right", "select_word_right"],
+            ["up", "select_up"],
+            ["down", "select_down"],
+            ["home", "select_begin"],
+            ["end", "select_end"],
+            ["ctrl+home", "select_buffer_begin"],
+            ["ctrl+end", "select_buffer_end"],
+            ["page_up", "select_page_up"],
+            ["page_down", "select_page_down"],
+            ["ctrl+page_up", "select_scroll_page_up"],
+            ["ctrl+page_down", "select_scroll_page_down"],
+            ["ctrl+space", "enter_mode", "normal"],
+            ["ctrl+x", ["cut"], ["enter_mode", "normal"], ["cancel"]],
+            ["ctrl+c", ["copy"], ["enter_mode", "normal"], ["cancel"]],
+            ["escape", ["enter_mode", "normal"], ["cancel"]],
+            ["ctrl+g", ["enter_mode", "normal"], ["cancel"]]
         ]
     },
     "home": {
