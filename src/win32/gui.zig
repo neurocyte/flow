@@ -57,8 +57,6 @@ pub fn init() void {
     std.debug.assert(!global.init_called);
     global.init_called = true;
 
-    global.icons = getIcons();
-
     {
         const hr = win32.DWriteCreateFactory(
             win32.DWRITE_FACTORY_TYPE_SHARED,
@@ -81,14 +79,15 @@ const Icons = struct {
     small: win32.HICON,
     large: win32.HICON,
 };
-fn getIcons() Icons {
-    const small_x = win32.GetSystemMetrics(.CXSMICON);
-    const small_y = win32.GetSystemMetrics(.CYSMICON);
-    const large_x = win32.GetSystemMetrics(.CXICON);
-    const large_y = win32.GetSystemMetrics(.CYICON);
-    std.log.info("icons small={}x{} large={}x{}", .{
+fn getIcons(dpi: XY(u32)) Icons {
+    const small_x = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CXSMICON), dpi.x);
+    const small_y = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CYSMICON), dpi.y);
+    const large_x = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CXICON), dpi.x);
+    const large_y = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CYICON), dpi.y);
+    std.log.info("icons small={}x{} large={}x{} at dpi {}x{}", .{
         small_x, small_y,
         large_x, large_y,
+        dpi.x,   dpi.y,
     });
     const small = win32.LoadImageW(
         win32.GetModuleHandleW(null),
@@ -296,6 +295,88 @@ fn paint(
     }
 }
 
+const WindowPlacement = struct {
+    dpi: XY(u32),
+    size: XY(i32),
+    pos: XY(i32),
+    pub const default: WindowPlacement = .{
+        .dpi = .{
+            .x = 96,
+            .y = 96,
+        },
+        .pos = .{
+            .x = win32.CW_USEDEFAULT,
+            .y = win32.CW_USEDEFAULT,
+        },
+        .size = .{
+            .x = win32.CW_USEDEFAULT,
+            .y = win32.CW_USEDEFAULT,
+        },
+    };
+};
+
+fn calcWindowPlacement() WindowPlacement {
+    var result = WindowPlacement.default;
+
+    const monitor = win32.MonitorFromPoint(
+        .{ .x = 0, .y = 0 },
+        win32.MONITOR_DEFAULTTOPRIMARY,
+    ) orelse {
+        std.log.warn("MonitorFromPoint failed with {}", .{win32.GetLastError().fmt()});
+        return result;
+    };
+
+    result.dpi = blk: {
+        var dpi: XY(u32) = undefined;
+        const hr = win32.GetDpiForMonitor(
+            monitor,
+            win32.MDT_EFFECTIVE_DPI,
+            &dpi.x,
+            &dpi.y,
+        );
+        if (hr < 0) {
+            std.log.warn("GetDpiForMonitor failed, hresult=0x{x}", .{@as(u32, @bitCast(hr))});
+            return result;
+        }
+        break :blk dpi;
+    };
+    std.log.info("primary monitor dpi {}x{}", .{ result.dpi.x, result.dpi.y });
+
+    const work_rect: win32.RECT = blk: {
+        var info: win32.MONITORINFO = undefined;
+        info.cbSize = @sizeOf(win32.MONITORINFO);
+        if (0 == win32.GetMonitorInfoW(monitor, &info)) {
+            std.log.warn("GetMonitorInfo failed with {}", .{win32.GetLastError().fmt()});
+            return result;
+        }
+        break :blk info.rcWork;
+    };
+
+    const work_size: XY(i32) = .{
+        .x = work_rect.right - work_rect.left,
+        .y = work_rect.bottom - work_rect.top,
+    };
+    std.log.info(
+        "primary monitor work topleft={},{} size={}x{}",
+        .{ work_rect.left, work_rect.top, work_size.x, work_size.y },
+    );
+
+    const wanted_size: XY(i32) = .{
+        .x = win32.scaleDpi(i32, 800, result.dpi.x),
+        .y = win32.scaleDpi(i32, 1200, result.dpi.y),
+    };
+    result.size = .{
+        .x = @min(wanted_size.x, work_size.x),
+        .y = @min(wanted_size.y, work_size.y),
+    };
+    result.pos = .{
+        // TODO: maybe we should shift this window away from the center?
+        .x = work_rect.left + @divTrunc(work_size.x - result.size.x, 2),
+        .y = work_rect.top + @divTrunc(work_size.y - result.size.y, 2),
+    };
+    return result;
+}
+
 const CreateWindowArgs = struct {
     allocator: std.mem.Allocator,
     pid: thespian.pid,
@@ -336,6 +417,9 @@ fn entry(pid: thespian.pid) !void {
         );
     }
 
+    const initial_placement = calcWindowPlacement();
+    global.icons = getIcons(initial_placement.dpi);
+
     var create_args = CreateWindowArgs{
         .allocator = arena_instance.allocator(),
         .pid = pid,
@@ -345,10 +429,10 @@ fn entry(pid: thespian.pid) !void {
         CLASS_NAME, // Window class
         win32.L("Flow"),
         window_style,
-        win32.CW_USEDEFAULT, // x
-        win32.CW_USEDEFAULT, // y
-        win32.CW_USEDEFAULT, // width
-        win32.CW_USEDEFAULT, // height
+        initial_placement.pos.x,
+        initial_placement.pos.y,
+        initial_placement.size.x,
+        initial_placement.size.y,
         null, // Parent window
         null, // Menu
         win32.GetModuleHandleW(null),
