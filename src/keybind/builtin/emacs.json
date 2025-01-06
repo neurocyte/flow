@@ -5,6 +5,7 @@
             ["ctrl+shift+-", "undo"],
             ["ctrl+a", "move_begin"],
             ["ctrl+k", ["select_end"], ["cut"]],
+            ["ctrl+w", "cut"],
             ["alt+shift+,", "move_buffer_begin"],
             ["alt+shift+.", "move_buffer_end"],
             ["ctrl+e", "move_end"],
@@ -15,14 +16,21 @@
             ["ctrl+n", "move_down"],
             ["ctrl+v", "move_page_down"],
             ["alt+v", "move_page_up"],
+            ["ctrl+d", "delete_forward"],
+            ["alt+d", ["select_word_right"], ["cut"]],
             ["ctrl+y", "system_paste"],
-            ["ctrl+x>ctrl+f", "open_file"],
+            ["ctrl+x>ctrl+f", "open_recent"],
             ["ctrl+x>k", "close_file"],
             ["ctrl+x>ctrl+c", "quit"],
             ["ctrl+x>ctrl+s", "save_file"],
             ["ctrl+x>ctrl+c", "quit"],
             ["ctrl+x>b", "open_recent"],
             ["alt+x", "open_command_palette"]
+        ]
+    },
+    "overlay/palette": {
+        "press": [
+            ["ctrl+a", "palette_menu_top"]
         ]
     },
     "mini/file_browser": {
@@ -34,7 +42,7 @@
         "on_match_failure": "ignore",
         "press": [
             ["ctrl+h>ctrl+a", "open_help"],
-            ["ctrl+x>ctrl+f", "open_file"],
+            ["ctrl+x>ctrl+f", "open_recent"],
             ["alt+x", "open_command_palette"],
             ["ctrl+x>ctrl+c", "quit"]
         ]
