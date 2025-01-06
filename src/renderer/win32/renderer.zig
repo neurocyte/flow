@@ -22,8 +22,6 @@ pub const style = StyleBits;
 allocator: std.mem.Allocator,
 vx: vaxis.Vaxis,
 
-renders_missed: u32 = 0,
-
 handler_ctx: *anyopaque,
 dispatch_input: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 dispatch_mouse: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void = null,
@@ -119,10 +117,7 @@ pub fn fmtmsg(buf: []u8, value: anytype) []const u8 {
 }
 
 pub fn render(self: *Self) error{}!void {
-    if (!gui.updateScreen(&self.vx.screen)) {
-        self.renders_missed += 1;
-        std.log.warn("missed {} renders, no gui window yet", .{self.renders_missed});
-    }
+    _ = gui.updateScreen(&self.vx.screen);
 }
 pub fn stop(self: *Self) void {
     gui.stop();
