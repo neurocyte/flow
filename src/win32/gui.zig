@@ -11,6 +11,7 @@ const cbor = @import("cbor");
 const thespian = @import("thespian");
 const vaxis = @import("vaxis");
 
+const RGB = @import("color").RGB;
 const input = @import("input");
 const windowmsg = @import("windowmsg.zig");
 
@@ -18,6 +19,9 @@ const HResultError = ddui.HResultError;
 
 const WM_APP_EXIT = win32.WM_APP + 1;
 const WM_APP_SET_BACKGROUND = win32.WM_APP + 2;
+
+const WM_APP_EXIT_RESULT = 0x45feaa11;
+const WM_APP_SET_BACKGROUND_RESULT = 0x369a26cd;
 
 pub const DropWriter = struct {
     pub const WriteError = error{};
@@ -41,15 +45,18 @@ fn onexit(e: error{Exit}) void {
 }
 
 const global = struct {
-    var mutex: std.Thread.Mutex = .{};
-
     var init_called: bool = false;
     var start_called: bool = false;
     var icons: Icons = undefined;
     var dwrite_factory: *win32.IDWriteFactory = undefined;
     var d2d_factory: *win32.ID2D1Factory = undefined;
-    var window_class: u16 = 0;
-    var hwnd: ?win32.HWND = null;
+
+    const shared_screen = struct {
+        var mutex: std.Thread.Mutex = .{};
+        // only access arena/obj while the mutex is locked
+        var arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        var obj: vaxis.Screen = .{};
+    };
 };
 const window_style_ex = win32.WINDOW_EX_STYLE{
     //.ACCEPTFILES = 1,
@@ -115,7 +122,7 @@ fn d2dColorFromVAxis(color: vaxis.Cell.Color) win32.D2D_COLOR_F {
     return switch (color) {
         .default => .{ .r = 0, .g = 0, .b = 0, .a = 0 },
         .index => |idx| blk: {
-            const rgb = @import("color").RGB.from_u24(xterm_colors[idx]);
+            const rgb = RGB.from_u24(xterm_colors[idx]);
             break :blk .{
                 .r = @as(f32, @floatFromInt(rgb.r)) / 255.0,
                 .g = @as(f32, @floatFromInt(rgb.g)) / 255.0,
@@ -220,22 +227,7 @@ const State = struct {
     text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{},
     scroll_delta: isize = 0,
     currently_rendered_cell_size: ?XY(i32) = null,
-
-    // these fields should only be accessed inside the global mutex
-    shared_screen_arena: std.heap.ArenaAllocator,
-    shared_screen: vaxis.Screen = .{},
-    pub fn deinit(self: *State) void {
-        {
-            global.mutex.lock();
-            defer global.mutex.unlock();
-            self.shared_screen.deinit(self.shared_screen_arena.allocator());
-            self.shared_screen_arena.deinit();
-        }
-        if (self.maybe_d2d) |*d2d| {
-            d2d.deinit();
-        }
-        self.* = undefined;
-    }
+    background: ?u32 = null,
 };
 fn stateFromHwnd(hwnd: win32.HWND) *State {
     const addr: usize = @bitCast(win32.GetWindowLongPtrW(hwnd, @enumFromInt(0)));
@@ -245,12 +237,13 @@ fn stateFromHwnd(hwnd: win32.HWND) *State {
 
 fn paint(
     d2d: *const D2d,
+    background: RGB,
     screen: *const vaxis.Screen,
     text_format_editor: *win32.IDWriteTextFormat,
     cell_size: XY(i32),
 ) void {
     {
-        const color = ddui.rgb8(31, 31, 31);
+        const color = ddui.rgb8(background.r, background.g, background.b);
         d2d.target.ID2D1RenderTarget.Clear(&color);
     }
 
@@ -406,27 +399,24 @@ fn entry(pid: thespian.pid) !void {
     global.icons = getIcons(initial_placement.dpi);
 
     // we only need to register the window class once per process
-    if (global.window_class == 0) {
-        const wc = win32.WNDCLASSEXW{
-            .cbSize = @sizeOf(win32.WNDCLASSEXW),
-            .style = .{},
-            .lpfnWndProc = WndProc,
-            .cbClsExtra = 0,
-            .cbWndExtra = @sizeOf(*State),
-            .hInstance = win32.GetModuleHandleW(null),
-            .hIcon = global.icons.large,
-            .hCursor = win32.LoadCursorW(null, win32.IDC_ARROW),
-            .hbrBackground = null,
-            .lpszMenuName = null,
-            .lpszClassName = CLASS_NAME,
-            .hIconSm = global.icons.small,
-        };
-        global.window_class = win32.RegisterClassExW(&wc);
-        if (global.window_class == 0) fatalWin32(
-            "RegisterClass for main window",
-            win32.GetLastError(),
-        );
-    }
+    const wc = win32.WNDCLASSEXW{
+        .cbSize = @sizeOf(win32.WNDCLASSEXW),
+        .style = .{},
+        .lpfnWndProc = WndProc,
+        .cbClsExtra = 0,
+        .cbWndExtra = @sizeOf(*State),
+        .hInstance = win32.GetModuleHandleW(null),
+        .hIcon = global.icons.large,
+        .hCursor = win32.LoadCursorW(null, win32.IDC_ARROW),
+        .hbrBackground = null,
+        .lpszMenuName = null,
+        .lpszClassName = CLASS_NAME,
+        .hIconSm = global.icons.small,
+    };
+    if (0 == win32.RegisterClassExW(&wc)) fatalWin32(
+        "RegisterClass for main window",
+        win32.GetLastError(),
+    );
 
     var create_args = CreateWindowArgs{
         .allocator = arena_instance.allocator(),
@@ -446,20 +436,14 @@ fn entry(pid: thespian.pid) !void {
         win32.GetModuleHandleW(null),
         @ptrCast(&create_args),
     ) orelse fatalWin32("CreateWindow", win32.GetLastError());
-    defer if (0 == win32.DestroyWindow(hwnd)) fatalWin32("DestroyWindow", win32.GetLastError());
-
-    {
-        global.mutex.lock();
-        defer global.mutex.unlock();
-        std.debug.assert(global.hwnd == null);
-        global.hwnd = hwnd;
-    }
-    defer {
-        global.mutex.lock();
-        defer global.mutex.unlock();
-        std.debug.assert(global.hwnd == hwnd);
-        global.hwnd = null;
-    }
+    // NEVER DESTROY THE WINDOW!
+    // This allows us to send the hwnd to other thread/parts
+    // of the app and it will always be valid.
+    pid.send(.{
+        "RDR",
+        "WindowCreated",
+        @intFromPtr(hwnd),
+    }) catch |e| return onexit(e);
 
     {
         // TODO: maybe use DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 if applicable
@@ -491,42 +475,33 @@ fn entry(pid: thespian.pid) !void {
     pid.send(.{"quit"}) catch |e| onexit(e);
 }
 
-pub fn stop() void {
-    const hwnd = global.hwnd orelse return;
-    _ = win32.SendMessageW(hwnd, WM_APP_EXIT, 0, 0);
+pub fn stop(hwnd: win32.HWND) void {
+    std.debug.assert(WM_APP_EXIT_RESULT == win32.SendMessageW(hwnd, WM_APP_EXIT, 0, 0));
 }
 
-pub fn set_window_title(title: [*:0]const u16) error{ NoWindow, Win32 }!void {
-    global.mutex.lock();
-    defer global.mutex.unlock();
-    const hwnd = global.hwnd orelse return error.NoWindow;
-    if (win32.SetWindowTextW(hwnd, title) == 0) {
-        std.log.warn("error in SetWindowText: {}", .{win32.GetLastError()});
-        return error.Win32;
-    }
+pub fn set_window_background(hwnd: win32.HWND, color: u32) void {
+    std.debug.assert(WM_APP_SET_BACKGROUND_RESULT == win32.SendMessageW(
+        hwnd,
+        WM_APP_SET_BACKGROUND,
+        color,
+        0,
+    ));
 }
 
-pub fn set_window_background(color: u32) void {
-    const hwnd = global.hwnd orelse return;
-    _ = win32.SendMessageW(hwnd, WM_APP_SET_BACKGROUND, color, 0);
-}
+pub fn updateScreen(screen: *const vaxis.Screen) void {
+    global.shared_screen.mutex.lock();
+    defer global.shared_screen.mutex.unlock();
+    _ = global.shared_screen.arena.reset(.retain_capacity);
 
-// returns false if there is no hwnd
-pub fn updateScreen(screen: *const vaxis.Screen) bool {
-    global.mutex.lock();
-    defer global.mutex.unlock();
-
-    const hwnd = global.hwnd orelse return false;
-    const state = stateFromHwnd(hwnd);
-
-    _ = state.shared_screen_arena.reset(.retain_capacity);
-
-    const buf = state.shared_screen_arena.allocator().alloc(vaxis.Cell, screen.buf.len) catch |e| oom(e);
+    const buf = global.shared_screen.arena.allocator().alloc(vaxis.Cell, screen.buf.len) catch |e| oom(e);
     @memcpy(buf, screen.buf);
     for (buf) |*cell| {
-        cell.char.grapheme = state.shared_screen_arena.allocator().dupe(u8, cell.char.grapheme) catch |e| oom(e);
+        cell.char.grapheme = global.shared_screen.arena.allocator().dupe(
+            u8,
+            cell.char.grapheme,
+        ) catch |e| oom(e);
     }
-    state.shared_screen = .{
+    global.shared_screen.obj = .{
         .width = screen.width,
         .height = screen.height,
         .width_pix = screen.width_pix,
@@ -540,8 +515,6 @@ pub fn updateScreen(screen: *const vaxis.Screen) bool {
         .mouse_shape = screen.mouse_shape,
         .cursor_shape = undefined,
     };
-    win32.invalidateHwnd(hwnd);
-    return true;
 }
 
 // NOTE: we round the text metric up to the nearest integer which
@@ -1056,11 +1029,12 @@ fn WndProc(
                 state.currently_rendered_cell_size = getCellSize(text_format_editor);
 
                 {
-                    global.mutex.lock();
-                    defer global.mutex.unlock();
+                    global.shared_screen.mutex.lock();
+                    defer global.shared_screen.mutex.unlock();
                     paint(
                         &state.maybe_d2d.?,
-                        &state.shared_screen,
+                        RGB.from_u24(if (state.background) |b| @intCast(0xffffff & b) else 0),
+                        &global.shared_screen.obj,
                         text_format_editor,
                         state.currently_rendered_cell_size.?,
                     );
@@ -1137,7 +1111,13 @@ fn WndProc(
         },
         WM_APP_EXIT => {
             win32.PostQuitMessage(0);
-            return 0;
+            return WM_APP_EXIT_RESULT;
+        },
+        WM_APP_SET_BACKGROUND => {
+            const state = stateFromHwnd(hwnd);
+            state.background = @intCast(wparam);
+            win32.invalidateHwnd(hwnd);
+            return WM_APP_SET_BACKGROUND_RESULT;
         },
         win32.WM_CREATE => {
             const create_struct: *win32.CREATESTRUCTW = @ptrFromInt(@as(usize, @bitCast(lparam)));
@@ -1146,7 +1126,6 @@ fn WndProc(
 
             state.* = .{
                 .pid = create_args.pid,
-                .shared_screen_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
             };
             const existing = win32.SetWindowLongPtrW(
                 hwnd,
@@ -1159,10 +1138,9 @@ fn WndProc(
             return 0;
         },
         win32.WM_DESTROY => {
-            const state = stateFromHwnd(hwnd);
-            state.deinit();
-            // no need to free, it was allocated via an arena
-            return 0;
+            // the window should never be destroyed so as to not to invalidate
+            // hwnd reference
+            @panic("gui window erroneously destroyed");
         },
         else => return win32.DefWindowProcW(hwnd, msg, wparam, lparam),
     }

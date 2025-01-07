@@ -39,7 +39,7 @@ logger: log.Logger,
 
 loop: Loop,
 
-pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool) !Self {
+pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool, _: *const fn (ctx: *anyopaque) void) !Self {
     const opts: vaxis.Vaxis.Options = .{
         .kitty_keyboard_flags = .{
             .disambiguate = true,

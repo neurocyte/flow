@@ -106,7 +106,7 @@ fn init(allocator: Allocator) !*Self {
     self.* = .{
         .allocator = allocator,
         .config = conf,
-        .rdr = try renderer.init(allocator, self, tp.env.get().is("no-alternate")),
+        .rdr = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), dispatch_initialized),
         .frame_time = frame_time,
         .frame_clock = frame_clock,
         .frame_clock_running = true,
@@ -115,7 +115,9 @@ fn init(allocator: Allocator) !*Self {
         .message_filters = MessageFilter.List.init(allocator),
         .input_listeners = EventHandler.List.init(allocator),
         .logger = log.logger("tui"),
-        .init_timer = try tp.timeout.init_ms(init_delay, tp.message.fmt(.{"init"})),
+        .init_timer = if (build_options.gui) null else try tp.timeout.init_ms(init_delay, tp.message.fmt(
+            .{"init"},
+        )),
         .theme = theme,
         .no_sleep = tp.env.get().is("no-sleep"),
     };
@@ -339,7 +341,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         if (self.init_timer) |*timer| {
             timer.deinit();
             self.init_timer = null;
-        } else {
+        } else if (!build_options.gui) {
             return tp.unexpected(m);
         }
         return;
@@ -444,6 +446,13 @@ fn dispatch_flush_input_event(self: *Self) !void {
     const mode = self.input_mode orelse return;
     try mode.input_handler.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
     if (mode.event_handler) |eh| try eh.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
+}
+
+fn dispatch_initialized(ctx: *anyopaque) void {
+    _ = ctx;
+    tp.self_pid().send(.{"init"}) catch |e| switch (e) {
+        error.Exit => {}, // safe to ignore
+    };
 }
 
 fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
@@ -1109,7 +1118,7 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
 };
 
 fn set_terminal_style(self: *Self) void {
-    if (self.config.enable_terminal_color_scheme) {
+    if (build_options.gui or self.config.enable_terminal_color_scheme) {
         self.rdr.set_terminal_style(self.theme.editor);
         self.rdr.set_terminal_cursor_color(self.theme.editor_cursor.bg.?);
     }

@@ -71,7 +71,8 @@
         "on_match_failure": "ignore",
         "press": [
             ["ctrl+h ctrl+a", "open_help"],
-            ["ctrl+x ctrl+f", "open_recent"],
+            ["ctrl+x ctrl+f", "open_file"],
+            ["ctrl+x b", "open_recent"],
             ["alt+x", "open_command_palette"],
             ["ctrl+x ctrl+c", "quit"]
         ]

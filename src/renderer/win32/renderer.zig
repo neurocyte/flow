@@ -23,6 +23,7 @@ allocator: std.mem.Allocator,
 vx: vaxis.Vaxis,
 
 handler_ctx: *anyopaque,
+dispatch_initialized: *const fn (ctx: *anyopaque) void,
 dispatch_input: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 dispatch_mouse: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void = null,
 dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void = null,
@@ -30,7 +31,9 @@ dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
 thread: ?std.Thread = null,
 
+hwnd: ?win32.HWND = null,
 title_buf: std.ArrayList(u16),
+style: ?Style = null,
 
 const global = struct {
     var init_called: bool = false;
@@ -44,6 +47,7 @@ pub fn init(
     allocator: std.mem.Allocator,
     handler_ctx: *anyopaque,
     no_alternate: bool,
+    dispatch_initialized: *const fn (ctx: *anyopaque) void,
 ) !Self {
     std.debug.assert(!global.init_called);
     global.init_called = true;
@@ -66,6 +70,7 @@ pub fn init(
         .vx = try vaxis.init(allocator, opts),
         .handler_ctx = handler_ctx,
         .title_buf = std.ArrayList(u16).init(allocator),
+        .dispatch_initialized = dispatch_initialized,
     };
     result.vx.caps.unicode = .unicode;
     result.vx.screen.width_method = .unicode;
@@ -122,9 +127,13 @@ pub fn fmtmsg(buf: []u8, value: anytype) []const u8 {
 
 pub fn render(self: *Self) error{}!void {
     _ = gui.updateScreen(&self.vx.screen);
+    if (self.hwnd) |hwnd| win32.invalidateHwnd(hwnd);
 }
 pub fn stop(self: *Self) void {
-    gui.stop();
+    // this is guaranteed because stop won't be called until after
+    // the window is created and we call dispatch_initialized
+    const hwnd = self.hwnd orelse unreachable;
+    gui.stop(hwnd);
     if (self.thread) |thread| thread.join();
 }
 
@@ -207,8 +216,6 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
                 var buf: [200]u8 = undefined;
                 if (self.dispatch_event) |f| f(self.handler_ctx, fmtmsg(&buf, .{"resize"}));
             }
-            if (self.title_buf.items.len > 0)
-                self.set_terminal_title_internal();
             return;
         }
     }
@@ -308,30 +315,57 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
             return;
         }
     }
+    {
+        var hwnd: usize = undefined;
+        if (try cbor.match(msg, .{
+            cbor.any,
+            "WindowCreated",
+            cbor.extract(&hwnd),
+        })) {
+            std.debug.assert(self.hwnd == null);
+            self.hwnd = @ptrFromInt(hwnd);
+            self.dispatch_initialized(self.handler_ctx);
+            self.update_window_title();
+            self.update_window_style();
+            return;
+        }
+    }
     return error.UnexpectedRendererEvent;
 }
 
 pub fn set_terminal_title(self: *Self, text: []const u8) void {
+    self.title_buf.clearRetainingCapacity();
     std.unicode.utf8ToUtf16LeArrayList(&self.title_buf, text) catch {
         std.log.err("title is invalid UTF-8", .{});
         return;
     };
-    self.set_terminal_title_internal();
+    self.update_window_title();
 }
 
-fn set_terminal_title_internal(self: *Self) void {
-    const title = self.title_buf.toOwnedSliceSentinel(0) catch @panic("OOM:set_terminal_title");
-    gui.set_window_title(title) catch {
-        // leave self.title_buf to try again later
+fn update_window_title(self: *Self) void {
+    if (self.title_buf.items.len == 0) return;
+
+    // keep the title buf around if the window isn't created yet
+    const hwnd = self.hwnd orelse return;
+
+    const title = self.title_buf.toOwnedSliceSentinel(0) catch @panic("OOM:update_window_title");
+    if (win32.SetWindowTextW(hwnd, title) == 0) {
+        std.log.warn("SetWindowText failed with {}", .{win32.GetLastError().fmt()});
         self.title_buf = std.ArrayList(u16).fromOwnedSlice(self.allocator, title);
-        return;
-    };
-    self.allocator.free(title);
+    } else {
+        self.allocator.free(title);
+    }
 }
 
 pub fn set_terminal_style(self: *Self, style_: Style) void {
-    _ = self;
-    if (style_.bg) |color| gui.set_window_background(@intCast(color.color));
+    self.style = style_;
+    self.update_window_style();
+}
+fn update_window_style(self: *Self) void {
+    const hwnd = self.hwnd orelse return;
+    if (self.style) |style_| {
+        if (style_.bg) |color| gui.set_window_background(hwnd, @intCast(color.color));
+    }
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
