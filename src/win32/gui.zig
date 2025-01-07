@@ -791,19 +791,23 @@ fn sendKey(
         return;
     }
     for (char_buf[0..@intCast(unicode_result)]) |codepoint| {
+        const mod_bits = @as(u8, @bitCast(mods));
         var utf8_buf: [6]u8 = undefined;
-        const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch {
-            std.log.err("invalid codepoint {}", .{codepoint});
-            continue;
-        };
+        const utf8_len = if (event == input.event.press and (mod_bits & 0xBE == 0)) // ignore shift and caps
+            std.unicode.utf8Encode(codepoint, &utf8_buf) catch {
+                std.log.err("invalid codepoint {}", .{codepoint});
+                continue;
+            }
+        else
+            0;
         state.pid.send(.{
             "RDR",
             "I",
             event,
-            @as(u21, codepoint),
+            @as(u21, winkey.toKKPKeyCode()),
             @as(u21, codepoint),
             utf8_buf[0..utf8_len],
-            @as(u8, @bitCast(mods)),
+            mod_bits,
         }) catch |e| onexit(e);
     }
 }
@@ -931,6 +935,28 @@ const WinKey = struct {
             @intFromEnum(win32.VK_MEDIA_STOP) => input.key.media_stop,
             @intFromEnum(win32.VK_MEDIA_PLAY_PAUSE) => input.key.media_play_pause,
             else => null,
+        };
+    }
+
+    pub fn toKKPKeyCode(self: WinKey) u21 {
+        if (self.extended) return self.vk;
+        return switch (self.vk) {
+            'A'...'Z' => |char| char + ('a' - 'A'),
+
+            @intFromEnum(win32.VK_OEM_1) => ';',
+            @intFromEnum(win32.VK_OEM_PLUS) => '+',
+            @intFromEnum(win32.VK_OEM_COMMA) => ',',
+            @intFromEnum(win32.VK_OEM_MINUS) => '-',
+            @intFromEnum(win32.VK_OEM_PERIOD) => '.',
+            @intFromEnum(win32.VK_OEM_2) => '/',
+            @intFromEnum(win32.VK_OEM_3) => '`',
+            @intFromEnum(win32.VK_OEM_4) => '[',
+            @intFromEnum(win32.VK_OEM_5) => '\\',
+            @intFromEnum(win32.VK_OEM_6) => ']',
+            @intFromEnum(win32.VK_OEM_7) => '\'',
+            @intFromEnum(win32.VK_OEM_102) => '\\',
+
+            else => |char| char,
         };
     }
 };
