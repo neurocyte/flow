@@ -276,8 +276,13 @@ fn paint(
             // TODO: pre-caclulate the buffer size needed, for now this should just
             //       cause out-of-bounds access
             var buf_wtf16: [100]u16 = undefined;
-            const grapheme_len = std.unicode.wtf8ToWtf16Le(&buf_wtf16, cell.char.grapheme) catch |err| switch (err) {
-                error.InvalidWtf8 => @panic("TODO: handle invalid wtf8"),
+            const grapheme_len = blk: {
+                break :blk std.unicode.wtf8ToWtf16Le(&buf_wtf16, cell.char.grapheme) catch |err| switch (err) {
+                    error.InvalidWtf8 => {
+                        buf_wtf16[0] = std.unicode.replacement_character;
+                        break :blk 1;
+                    },
+                };
             };
             const grapheme = buf_wtf16[0..grapheme_len];
             if (std.mem.eql(u16, grapheme, &[_]u16{' '}))
