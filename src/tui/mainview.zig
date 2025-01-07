@@ -7,6 +7,7 @@ const root = @import("root");
 const location_history = @import("location_history");
 const project_manager = @import("project_manager");
 const log = @import("log");
+const shell = @import("shell");
 const builtin = @import("builtin");
 
 const Plane = @import("renderer").Plane;
@@ -382,6 +383,15 @@ const cmds = struct {
     }
     pub const open_config_meta = .{ .description = "Edit configuration file" };
 
+    pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
+        try self.check_all_not_dirty();
+        tui.reset_drag_context();
+        try self.create_editor();
+        try command.executeName("open_scratch_buffer", ctx);
+        tui.need_render();
+    }
+    pub const create_scratch_buffer_meta = .{ .arguments = &.{ .string, .string } };
+
     pub fn restore_session(self: *Self, _: Ctx) Result {
         if (tp.env.get().str("project").len == 0) {
             try open_project_cwd(self, .{});
@@ -592,6 +602,34 @@ const cmds = struct {
         defer rg.deinit();
     }
     pub const find_in_files_query_meta = .{ .arguments = &.{.string} };
+
+    pub fn shell_execute_log(self: *Self, ctx: Ctx) Result {
+        if (!try ctx.args.match(.{ tp.string, tp.more }))
+            return error.InvalidShellArgument;
+        const cmd = ctx.args;
+        const handlers = struct {
+            fn out(_: tp.pid_ref, arg0: []const u8, output: []const u8) void {
+                const logger = log.logger(arg0);
+                var it = std.mem.splitScalar(u8, output, '\n');
+                while (it.next()) |line| logger.print("{s}", .{std.fmt.fmtSliceEscapeLower(line)});
+            }
+        };
+        try shell.execute(self.allocator, cmd, .{ .out = handlers.out });
+    }
+    pub const shell_execute_log_meta = .{ .arguments = &.{.string} };
+
+    pub fn shell_execute_insert(self: *Self, ctx: Ctx) Result {
+        if (!try ctx.args.match(.{ tp.string, tp.more }))
+            return error.InvalidShellArgument;
+        const cmd = ctx.args;
+        const handlers = struct {
+            fn out(parent: tp.pid_ref, _: []const u8, output: []const u8) void {
+                parent.send(.{ "cmd", "insert_chars", .{output} }) catch {};
+            }
+        };
+        try shell.execute(self.allocator, cmd, .{ .out = handlers.out });
+    }
+    pub const shell_execute_insert_meta = .{ .arguments = &.{.string} };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {

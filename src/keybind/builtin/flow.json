@@ -1,5 +1,12 @@
 {
+    "project": {
+        "press": [
+            ["f5", ["create_scratch_buffer", "*test*"], ["shell_execute_insert", "zig", "build", "test"]],
+            ["f7", ["create_scratch_buffer", "*build*"], ["shell_execute_insert", "zig", "build"]]
+        ]
+    },
     "normal": {
+        "inherit": "project",
         "press": [
             ["ctrl+e", "open_recent"],
             ["ctrl+r", "open_recent_project"],
@@ -120,12 +127,12 @@
             ["ctrl+f2", "insert_command_name"],
             ["f3", "goto_next_match"],
             ["f15", "goto_prev_match"],
-            ["f5", "toggle_inspector_view"],
-            ["f6", "dump_current_line_tree"],
-            ["f7", "dump_current_line"],
+            ["ctrl+f5", "dump_current_line_tree"],
+            ["ctrl+f7", "dump_current_line"],
             ["f9", "theme_prev"],
             ["f10", "theme_next"],
             ["f11", "toggle_panel"],
+            ["ctrl+f11", "toggle_inspector_view"],
             ["f12", "goto_definition"],
             ["f34", "toggle_whitespace_mode"],
             ["escape", "cancel"],
@@ -182,6 +189,7 @@
         ]
     },
     "home": {
+        "inherit": "project",
         "on_match_failure": "ignore",
         "press": [
             ["h", "open_help"],

@@ -3603,6 +3603,9 @@ pub const Editor = struct {
         if (ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content) }) catch false) {
             try self.open_scratch(file_path, content);
             self.clamp();
+        } else if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
+            try self.open_scratch(file_path, "");
+            self.clamp();
         } else return error.InvalidOpenScratchBufferArgument;
     }
     pub const open_scratch_buffer_meta = .{ .arguments = &.{ .string, .string } };
