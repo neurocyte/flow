@@ -747,17 +747,25 @@ fn sendKey(
         .vk = @intCast(0xffff & wparam),
         .extended = win_key_flags.extended,
     };
+    if (winkey.skipToUnicode()) |codepoint| {
+        state.pid.send(.{
+            "RDR",
+            "I",
+            event,
+            @as(u21, codepoint),
+            @as(u21, codepoint),
+            "",
+            @as(u8, @bitCast(mods)),
+        }) catch |e| onexit(e);
+        return;
+    }
 
     const max_char_count = 20;
     var char_buf: [max_char_count + 1]u16 = undefined;
 
-    // don't call ToUnicode if control is down as it does some weird
-    // translation (i.e. ctrl+a becomes virtual keycode 1)
-    const skip_unicode = mods.ctrl or mods.alt or switch (winkey.vk) {
-        @intFromEnum(win32.VK_BACK) => true,
-        else => false,
-    };
-    const unicode_result = if (skip_unicode) 0 else win32.ToUnicode(
+    // release control key when getting the unicode character of this key
+    keyboard_state[@intFromEnum(win32.VK_CONTROL)] = 0;
+    const unicode_result = win32.ToUnicode(
         winkey.vk,
         win_key_flags.scan_code,
         &keyboard_state,
@@ -779,19 +787,8 @@ fn sendKey(
     }
 
     if (unicode_result == 0) {
-        const codepoint = winkey.toCodepoint() orelse {
-            std.log.warn("unknown virtual key {} 0x{0x}", .{winkey});
-            return;
-        };
-        state.pid.send(.{
-            "RDR",
-            "I",
-            event,
-            @as(u21, codepoint),
-            @as(u21, codepoint),
-            "",
-            @as(u8, @bitCast(mods)),
-        }) catch |e| onexit(e);
+        std.log.warn("unknown virtual key {} (0x{x})", .{ winkey, winkey.vk });
+        return;
     }
     for (char_buf[0..@intCast(unicode_result)]) |codepoint| {
         var utf8_buf: [6]u8 = undefined;
@@ -829,7 +826,7 @@ const WinKey = struct {
         const e_suffix: []const u8 = if (self.extended) "e" else "";
         try writer.print("{}{s}", .{ self.vk, e_suffix });
     }
-    pub fn toCodepoint(self: WinKey) ?u21 {
+    pub fn skipToUnicode(self: WinKey) ?u21 {
         if (self.extended) return switch (self.vk) {
             @intFromEnum(win32.VK_RETURN) => input.key.kp_enter,
             @intFromEnum(win32.VK_CONTROL) => input.key.right_control,
@@ -874,9 +871,6 @@ const WinKey = struct {
             @intFromEnum(win32.VK_SNAPSHOT) => input.key.print_screen,
             @intFromEnum(win32.VK_INSERT) => input.key.kp_insert,
             @intFromEnum(win32.VK_DELETE) => input.key.kp_delete,
-
-            '0'...'9' => |ascii| ascii,
-            'A'...'Z' => |ascii| ascii + ('a' - 'A'),
 
             @intFromEnum(win32.VK_LWIN) => input.key.left_super,
             @intFromEnum(win32.VK_RWIN) => input.key.right_super,
@@ -936,18 +930,6 @@ const WinKey = struct {
             @intFromEnum(win32.VK_MEDIA_PREV_TRACK) => input.key.media_track_previous,
             @intFromEnum(win32.VK_MEDIA_STOP) => input.key.media_stop,
             @intFromEnum(win32.VK_MEDIA_PLAY_PAUSE) => input.key.media_play_pause,
-            @intFromEnum(win32.VK_OEM_1) => ';',
-            @intFromEnum(win32.VK_OEM_PLUS) => '+',
-            @intFromEnum(win32.VK_OEM_COMMA) => ',',
-            @intFromEnum(win32.VK_OEM_MINUS) => '-',
-            @intFromEnum(win32.VK_OEM_PERIOD) => '.',
-            @intFromEnum(win32.VK_OEM_2) => '/',
-            @intFromEnum(win32.VK_OEM_3) => '`',
-            @intFromEnum(win32.VK_OEM_4) => '[',
-            @intFromEnum(win32.VK_OEM_5) => '\\',
-            @intFromEnum(win32.VK_OEM_6) => ']',
-            @intFromEnum(win32.VK_OEM_7) => '\'',
-            @intFromEnum(win32.VK_OEM_102) => '\\',
             else => null,
         };
     }
