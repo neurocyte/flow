@@ -25,12 +25,12 @@
             ["ctrl+d", "delete_forward"],
             ["alt+d", ["select_word_right"], ["cut"]],
             ["ctrl+y", "system_paste"],
-            ["ctrl+x>ctrl+f", "open_file"],
-            ["ctrl+x>k", "close_file"],
-            ["ctrl+x>ctrl+c", "quit"],
-            ["ctrl+x>ctrl+s", "save_file"],
-            ["ctrl+x>ctrl+c", "quit"],
-            ["ctrl+x>b", "open_recent"],
+            ["ctrl+x ctrl+f", "open_file"],
+            ["ctrl+x k", "close_file"],
+            ["ctrl+x ctrl+c", "quit"],
+            ["ctrl+x ctrl+s", "save_file"],
+            ["ctrl+x ctrl+c", "quit"],
+            ["ctrl+x b", "open_recent"],
             ["alt+x", "open_command_palette"],
             ["ctrl+space", "enter_mode", "select"]
         ]
@@ -72,10 +72,10 @@
     "home": {
         "on_match_failure": "ignore",
         "press": [
-            ["ctrl+h>ctrl+a", "open_help"],
-            ["ctrl+x>ctrl+f", "open_recent"],
+            ["ctrl+h ctrl+a", "open_help"],
+            ["ctrl+x ctrl+f", "open_recent"],
             ["alt+x", "open_command_palette"],
-            ["ctrl+x>ctrl+c", "quit"]
+            ["ctrl+x ctrl+c", "quit"]
         ]
     }
 }

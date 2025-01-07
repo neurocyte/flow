@@ -22,7 +22,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
     parse_error_reset();
     if (str.len == 0) return parse_error("empty", .{});
     var result_events = std.ArrayList(input.KeyEvent).init(allocator);
-    var iter_sequence = std.mem.tokenizeScalar(u8, str, '>');
+    var iter_sequence = std.mem.tokenizeScalar(u8, str, ' ');
     while (iter_sequence.next()) |item| {
         var key: ?input.Key = null;
         var mods = input.ModSet{};
@@ -80,6 +80,7 @@ pub const name_map = blk: {
         .{ "escape", input.key.escape },
         .{ "space", input.key.space },
         .{ "backspace", input.key.backspace },
+        .{ "lt", '<' },
         .{ "gt", '>' },
     });
 };
