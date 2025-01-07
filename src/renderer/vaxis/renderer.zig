@@ -151,12 +151,12 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
     const event = std.mem.bytesAsValue(vaxis.Event, input_);
     switch (event.*) {
         .key_press => |key__| {
-            const key_ = filter_mods(key__);
+            const key_ = filter_mods(normalize_shifted_alphas(key__));
             try self.sync_mod_state(key_.codepoint, key_.mods);
             const cbor_msg = try self.fmtmsg(.{
                 "I",
                 input.event.press,
-                key_.codepoint,
+                key_.base_layout_codepoint orelse key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
                 text orelse "",
                 @as(u8, @bitCast(key_.mods)),
@@ -166,11 +166,11 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
             } else if (self.dispatch_input) |f| f(self.handler_ctx, cbor_msg);
         },
         .key_release => |key__| {
-            const key_ = filter_mods(key__);
+            const key_ = filter_mods(normalize_shifted_alphas(key__));
             const cbor_msg = try self.fmtmsg(.{
                 "I",
                 input.event.release,
-                key_.codepoint,
+                key_.base_layout_codepoint orelse key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
                 text orelse "",
                 @as(u8, @bitCast(key_.mods)),
@@ -458,6 +458,16 @@ fn filter_mods(key_: vaxis.Key) vaxis.Key {
         .ctrl = key_.mods.ctrl,
     };
     return key__;
+}
+
+fn normalize_shifted_alphas(key_: vaxis.Key) vaxis.Key {
+    if (!key_.mods.shift) return key_;
+    var key = key_;
+    const shifted_codepoint = key.shifted_codepoint orelse key.codepoint;
+    const base_layout_codepoint = key.base_layout_codepoint orelse key.codepoint;
+    if (shifted_codepoint == base_layout_codepoint and 'a' <= shifted_codepoint and shifted_codepoint <= 'z')
+        key.shifted_codepoint = shifted_codepoint - 0x20;
+    return key;
 }
 
 const Loop = struct {

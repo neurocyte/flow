@@ -584,12 +584,6 @@ const BindingSet = struct {
         };
         const text = key_event.text;
 
-        //normalize to lowercase if modifier is set
-        const key = if (mods > 0 and key_event.key >= 'A' and key_event.key <= 'Z')
-            key_event.key - 'A' + 'a'
-        else
-            key_event.key;
-
         if (event == input.event.release)
             return self.process_key_release_event(key_event);
 
@@ -600,14 +594,14 @@ const BindingSet = struct {
         }
         globals.last_key_event_timestamp_ms = timestamp;
 
-        if (globals.current_sequence.items.len > 0 and input.is_modifier(key))
+        if (globals.current_sequence.items.len > 0 and input.is_modifier(key_event.key))
             return null;
 
         try globals.current_sequence.append(globals_allocator, key_event);
-        if ((mods & ~(input.mod.shift | input.mod.caps_lock) == 0) and !input.is_non_input_key(key)) {
+        if ((mods & ~(input.mod.shift | input.mod.caps_lock) == 0) and !input.is_non_input_key(key_event.key)) {
             var buf: [6]u8 = undefined;
             const bytes = if (text.len > 0) text else text: {
-                const bytes = try input.ucs32_to_utf8(&[_]u32{key}, &buf);
+                const bytes = try input.ucs32_to_utf8(&[_]u32{key_event.key}, &buf);
                 break :text buf[0..bytes];
             };
             try globals.current_sequence_egc.appendSlice(globals_allocator, bytes);
