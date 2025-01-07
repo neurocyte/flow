@@ -79,7 +79,7 @@ pub fn log_handler(parent: tp.pid_ref, arg0: []const u8, output: []const u8) voi
     _ = arg0;
     const logger = log.logger(@typeName(Self));
     var it = std.mem.splitScalar(u8, output, '\n');
-    while (it.next()) |line| logger.print("{s}", .{line});
+    while (it.next()) |line| if (line.len > 0) logger.print("{s}", .{line});
 }
 
 pub fn log_err_handler(parent: tp.pid_ref, arg0: []const u8, output: []const u8) void {
@@ -96,6 +96,14 @@ pub fn log_exit_handler(parent: tp.pid_ref, arg0: []const u8, err_msg: []const u
         logger.print_err(arg0, "'{s}' terminated {s} exitcode: {d}", .{ arg0, err_msg, exit_code });
     } else {
         logger.print("'{s}' exited", .{arg0});
+    }
+}
+
+pub fn log_exit_err_handler(parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
+    _ = parent;
+    const logger = log.logger(@typeName(Self));
+    if (exit_code > 0) {
+        logger.print_err(arg0, "'{s}' terminated {s} exitcode: {d}", .{ arg0, err_msg, exit_code });
     }
 }
 
@@ -187,11 +195,11 @@ const Process = struct {
         var err_msg: []const u8 = undefined;
         var exit_code: i64 = undefined;
         if (try m.match(.{ tp.any, tp.any, "exited", 0 })) {
-            self.logger.print("'{s}' exited ok", .{self.arg0});
+            self.handlers.exit(self.parent.ref(), self.arg0, "exited", 0);
         } else if (try m.match(.{ tp.any, tp.any, "error.FileNotFound", 1 })) {
             self.logger.print_err(self.arg0, "'{s}' executable not found", .{self.arg0});
         } else if (try m.match(.{ tp.any, tp.any, tp.extract(&err_msg), tp.extract(&exit_code) })) {
-            self.logger.print_err(self.arg0, "'{s}' terminated {s} exitcode: {d}", .{ self.arg0, err_msg, exit_code });
+            self.handlers.exit(self.parent.ref(), self.arg0, err_msg, exit_code);
         }
     }
 };

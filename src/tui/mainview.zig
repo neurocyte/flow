@@ -607,14 +607,11 @@ const cmds = struct {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
             return error.InvalidShellArgument;
         const cmd = ctx.args;
-        const handlers = struct {
-            fn out(_: tp.pid_ref, arg0: []const u8, output: []const u8) void {
-                const logger = log.logger(arg0);
-                var it = std.mem.splitScalar(u8, output, '\n');
-                while (it.next()) |line| logger.print("{s}", .{std.fmt.fmtSliceEscapeLower(line)});
-            }
-        };
-        try shell.execute(self.allocator, cmd, .{ .out = handlers.out });
+        try shell.execute(self.allocator, cmd, .{
+            .out = shell.log_handler,
+            .err = shell.log_err_handler,
+            .exit = shell.log_exit_err_handler,
+        });
     }
     pub const shell_execute_log_meta = .{ .arguments = &.{.string} };
 
