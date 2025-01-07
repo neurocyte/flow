@@ -17,6 +17,7 @@ const windowmsg = @import("windowmsg.zig");
 const HResultError = ddui.HResultError;
 
 const WM_APP_EXIT = win32.WM_APP + 1;
+const WM_APP_SET_BACKGROUND = win32.WM_APP + 2;
 
 pub const DropWriter = struct {
     pub const WriteError = error{};
@@ -498,6 +499,11 @@ pub fn set_window_title(title: [*:0]const u16) error{ NoWindow, Win32 }!void {
         std.log.warn("error in SetWindowText: {}", .{win32.GetLastError()});
         return error.Win32;
     }
+}
+
+pub fn set_window_background(color: u32) void {
+    const hwnd = global.hwnd orelse return;
+    _ = win32.SendMessageW(hwnd, WM_APP_SET_BACKGROUND, color, 0);
 }
 
 // returns false if there is no hwnd

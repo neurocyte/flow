@@ -331,12 +331,7 @@ fn set_terminal_title_internal(self: *Self) void {
 
 pub fn set_terminal_style(self: *Self, style_: Style) void {
     _ = self;
-    _ = style_;
-    std.log.warn("TODO: implement set_terminal_style", .{});
-    //if (style_.fg) |color|
-    //self.vx.setTerminalForegroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
-    //if (style_.bg) |color|
-    //self.vx.setTerminalBackgroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+    if (style_.bg) |color| gui.set_window_background(@intCast(color.color));
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
