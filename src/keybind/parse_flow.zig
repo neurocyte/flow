@@ -80,5 +80,6 @@ pub const name_map = blk: {
         .{ "escape", input.key.escape },
         .{ "space", input.key.space },
         .{ "backspace", input.key.backspace },
+        .{ "gt", '>' },
     });
 };
