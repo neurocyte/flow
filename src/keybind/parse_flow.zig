@@ -18,7 +18,7 @@ fn parse_error(comptime format: anytype, args: anytype) ParseError {
     return error.InvalidFormat;
 }
 
-pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: []const u8) ParseError![]input.KeyEvent {
+pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseError![]input.KeyEvent {
     parse_error_reset();
     if (str.len == 0) return parse_error("empty", .{});
     var result_events = std.ArrayList(input.KeyEvent).init(allocator);
@@ -65,7 +65,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             if (key == null) return parse_error("unknown key '{s}' in '{s}'", .{ part, str });
         }
         if (key) |k|
-            try result_events.append(.{ .event = event, .key = k, .modifiers = @bitCast(mods) })
+            try result_events.append(input.KeyEvent.from_key_modset(k, mods))
         else
             return parse_error("no key defined in '{s}'", .{str});
     }

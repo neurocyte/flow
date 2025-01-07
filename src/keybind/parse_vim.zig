@@ -49,7 +49,9 @@ fn parse_error(e: ParseError, comptime format: anytype, args: anytype) ParseErro
     return e;
 }
 
-pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: []const u8) ParseError![]input.KeyEvent {
+pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseError![]input.KeyEvent {
+    const from_key = input.KeyEvent.from_key;
+    const from_key_mods = input.KeyEvent.from_key_mods;
     parse_error_reset();
     const State = enum {
         base,
@@ -90,15 +92,12 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
                         i += 1;
                     },
                     //lowercase characters
+                    'A'...'Z',
                     'a'...'z',
                     '0'...'9',
-                    '`', '-', '=', '[', ']', '\\', ':', ';', '\'', ',', '.', '/', => {
-                        try result.append(.{ .key = str[i] });
-                        i += 1;
-                    },
-                    //uppercase letters also allowed here
-                    'A'...'Z', => {
-                        try result.append(.{ .key = std.ascii.toLower(str[i]), .modifiers = input.mod.shift});
+                    '!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
+                    '`', '~', '-', '_', '=', '+', '[', ']', '{', '}', '\\', '|', ':', ';', '\'', '"', ',', '.', '/', '?', => {
+                        try result.append(from_key(str[i]));
                         i += 1;
                     },
                     else => return parse_error(error.InvalidInitialCharacter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
@@ -203,7 +202,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .insert => {
                 if (std.mem.indexOf(u8, str[i..], "Insert") == 0) {
-                    try result.append(.{ .key = input.key.insert, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.insert, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -211,7 +210,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .end => {
                 if (std.mem.indexOf(u8, str[i..], "End") == 0) {
-                    try result.append(.{ .key = input.key.end, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.end, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -219,7 +218,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .home => {
                 if (std.mem.indexOf(u8, str[i..], "Home") == 0) {
-                    try result.append(.{ .key = input.key.home, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.home, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -227,7 +226,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .bs => {
                 if (std.mem.indexOf(u8, str[i..], "BS") == 0) {
-                    try result.append(.{ .key = input.key.backspace, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.backspace, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -235,7 +234,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .cr => {
                 if (std.mem.indexOf(u8, str[i..], "CR") == 0) {
-                    try result.append(.{ .event = event, .key = input.key.enter, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.enter, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -243,7 +242,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .space => {
                 if (std.mem.indexOf(u8, str[i..], "Space") == 0) {
-                    try result.append(.{ .event = event, .key = input.key.space, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.space, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
@@ -251,7 +250,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .del => {
                 if (std.mem.indexOf(u8, str[i..], "Del") == 0) {
-                    try result.append(.{ .event = event, .key = input.key.delete, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.delete, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -259,7 +258,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .tab => {
                 if (std.mem.indexOf(u8, str[i..], "Tab") == 0) {
-                    try result.append(.{ .event = event, .key = input.key.tab, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.tab, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -267,7 +266,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .up => {
                 if (std.mem.indexOf(u8, str[i..], "Up") == 0) {
-                    try result.append(.{ .event = event, .key = input.key.up, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.up, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -275,7 +274,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .esc => {
                 if (std.mem.indexOf(u8, str[i..], "Esc") == 0) {
-                    try result.append(.{ .event = event, .key = input.key.escape, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.escape, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -283,7 +282,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .down => {
                 if (std.mem.indexOf(u8, str[i..], "Down") == 0) {
-                    try result.append(.{ .event = event, .key = input.key.down, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.down, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -291,7 +290,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .left => {
                 if (std.mem.indexOf(u8, str[i..], "Left") == 0) {
-                    try result.append(.{ .event = event, .key = input.key.left, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.left, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -299,7 +298,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
             },
             .right => {
                 if (std.mem.indexOf(u8, str[i..], "Right") == 0) {
-                    try result.append(.{ .event = event, .key = input.key.right, .modifiers = modifiers });
+                    try result.append(from_key_mods(input.key.right, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
@@ -316,7 +315,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
                     },
                     '>' => {
                         const function_key = input.key.f1 - 1 + function_key_number;
-                        try result.append(.{ .event = event, .key = function_key, .modifiers = modifiers });
+                        try result.append(from_key_mods(function_key, modifiers));
                         modifiers = 0;
                         function_key_number = 0;
                         state = .base;
@@ -342,7 +341,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, event: input.Event, str: [
                     '0'...'9',
                     '`', '-', '=', '[', ']', '\\', ':', ';', '\'', ',', '.', '/',
                      => {
-                        try result.append(.{ .key = str[i], .modifiers = modifiers });
+                        try result.append(from_key_mods(str[i], modifiers));
                         modifiers = 0;
                         state = .escape_sequence_end;
                         i += 1;

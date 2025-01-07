@@ -61,19 +61,80 @@ pub const event = struct {
 };
 
 pub const KeyEvent = struct {
-    event: Event = event.press,
-    key: Key = 0,
+    event: Event = 0,
+    key: Key,
+    key_unshifted: Key,
     modifiers: Mods = 0,
+    text: []const u8 = "",
 
     pub fn eql(self: @This(), other: @This()) bool {
-        return meta.eql(self, other);
+        const self_mods = self.mods_no_shifts();
+        const other_mods = other.mods_no_shifts();
+        return self.key == other.key and self_mods == other_mods;
+    }
+
+    pub fn eql_unshifted(self: @This(), other: @This()) bool {
+        const self_mods = self.mods_no_caps();
+        const other_mods = other.mods_no_caps();
+        return self.key_unshifted == other.key_unshifted and self_mods == other_mods;
+    }
+
+    inline fn mods_no_shifts(self: @This()) Mods {
+        return if (self.key != self.key_unshifted) self.modifiers & ~(mod.shift | mod.caps_lock) else self.modifiers;
+    }
+
+    inline fn mods_no_caps(self: @This()) Mods {
+        return self.modifiers & ~mod.caps_lock;
     }
 
     pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+        const mods = self.mods_no_shifts();
         return if (self.event > 0)
-            writer.print("{}:{}{}", .{ event_fmt(self.event), mod_fmt(self.modifiers), key_fmt(self.key) })
+            writer.print("{}:{}{}", .{ event_fmt(self.event), mod_fmt(mods), key_fmt(self.key) })
         else
-            writer.print("{}{}", .{ mod_fmt(self.modifiers), key_fmt(self.key) });
+            writer.print("{}{}", .{ mod_fmt(mods), key_fmt(self.key) });
+    }
+
+    pub fn from_key(keypress: Key) @This() {
+        return .{
+            .key = keypress,
+            .key_unshifted = keypress,
+        };
+    }
+
+    pub fn from_key_mods(keypress: Key, modifiers: Mods) @This() {
+        return .{
+            .key = keypress,
+            .key_unshifted = keypress,
+            .modifiers = modifiers,
+        };
+    }
+
+    pub fn from_key_modset(keypress: Key, modifiers: ModSet) @This() {
+        return from_key_mods(keypress, @bitCast(modifiers));
+    }
+
+    pub fn from_message(
+        event_: Event,
+        keypress: Key,
+        keypress_shifted: Key,
+        text: []const u8,
+        modifiers: Mods,
+    ) @This() {
+        const mods = switch (keypress) {
+            key.left_super, key.right_super => modifiers & ~mod.super,
+            key.left_shift, key.right_shift => modifiers & ~mod.shift,
+            key.left_control, key.right_control => modifiers & ~mod.ctrl,
+            key.left_alt, key.right_alt => modifiers & ~mod.alt,
+            else => modifiers,
+        };
+        return .{
+            .event = event_,
+            .key = keypress_shifted,
+            .key_unshifted = keypress,
+            .modifiers = mods,
+            .text = text,
+        };
     }
 };
 
