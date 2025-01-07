@@ -331,7 +331,8 @@ const Binding = struct {
         if (self.key_events.len == 0) return .match_impossible;
         for (self.key_events, 0..) |key_event, i| {
             if (match_key_events.len <= i) return .match_possible;
-            if (!key_event.eql(match_key_events[i])) return .match_impossible;
+            if (!(key_event.eql(match_key_events[i]) or key_event.eql_unshifted(match_key_events[i])))
+                return .match_impossible;
         }
         return if (self.key_events.len == match_key_events.len) .matched else .match_possible;
     }
@@ -407,6 +408,7 @@ const BindingSet = struct {
     }
 
     fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayListUnmanaged(Binding), event: input.Event, bindings: []const []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
+        _ = event;
         bindings: for (bindings) |entry| {
             if (entry.len < 2) {
                 const logger = log.logger("keybind");
@@ -423,13 +425,13 @@ const BindingSet = struct {
             }
 
             const key_events = switch (self.syntax) {
-                .flow => parse_flow.parse_key_events(allocator, event, keys.string) catch |e| {
+                .flow => parse_flow.parse_key_events(allocator, keys.string) catch |e| {
                     const logger = log.logger("keybind");
                     logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
                     logger.deinit();
                     break;
                 },
-                .vim => parse_vim.parse_key_events(allocator, event, keys.string) catch |e| {
+                .vim => parse_vim.parse_key_events(allocator, keys.string) catch |e| {
                     const logger = log.logger("keybind");
                     logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
                     logger.deinit();
@@ -548,7 +550,7 @@ const BindingSet = struct {
     fn receive(self: *const @This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         var event: input.Event = 0;
         var keypress: input.Key = 0;
-        var egc: input.Key = 0;
+        var keypress_shifted: input.Key = 0;
         var text: []const u8 = "";
         var modifiers: input.Mods = 0;
 
@@ -556,15 +558,12 @@ const BindingSet = struct {
             "I",
             tp.extract(&event),
             tp.extract(&keypress),
-            tp.extract(&egc),
+            tp.extract(&keypress_shifted),
             tp.extract(&text),
             tp.extract(&modifiers),
         })) {
-            if (self.process_key_event(egc, text, .{
-                .event = event,
-                .key = keypress,
-                .modifiers = modifiers,
-            }) catch |e| return tp.exit_error(e, @errorReturnTrace())) |binding| {
+            const key_event = input.KeyEvent.from_message(event, keypress, keypress_shifted, text, modifiers);
+            if (self.process_key_event(key_event) catch |e| return tp.exit_error(e, @errorReturnTrace())) |binding| {
                 for (binding.commands) |*cmd| try cmd.execute();
             }
         } else if (try m.match(.{"F"})) {
@@ -574,22 +573,25 @@ const BindingSet = struct {
     }
 
     //register a key press and try to match it with a binding
-    fn process_key_event(self: *const @This(), egc: input.Key, text: []const u8, event_: KeyEvent) !?*Binding {
-        var event = event_;
+    fn process_key_event(self: *const @This(), key_event: KeyEvent) !?*Binding {
+        const event = key_event.event;
 
         //ignore modifiers for modifier key events
-        event.modifiers = switch (event.key) {
+        const mods = switch (key_event.key) {
             input.key.left_control, input.key.right_control => 0,
             input.key.left_alt, input.key.right_alt => 0,
-            else => event.modifiers,
+            else => key_event.modifiers,
         };
+        const text = key_event.text;
 
-        //normalize to lowercase for binding matching (input is done via `text`)
-        if (event.key >= 'A' and event.key <= 'Z')
-            event.key = event.key - 'A' + 'a';
+        //normalize to lowercase if modifier is set
+        const key = if (mods > 0 and key_event.key >= 'A' and key_event.key <= 'Z')
+            key_event.key - 'A' + 'a'
+        else
+            key_event.key;
 
-        if (event.event == input.event.release)
-            return self.process_key_release_event(event);
+        if (event == input.event.release)
+            return self.process_key_release_event(key_event);
 
         //clear key history if enough time has passed since last key press
         const timestamp = std.time.milliTimestamp();
@@ -598,14 +600,14 @@ const BindingSet = struct {
         }
         globals.last_key_event_timestamp_ms = timestamp;
 
-        if (globals.current_sequence.items.len > 0 and input.is_modifier(event.key))
+        if (globals.current_sequence.items.len > 0 and input.is_modifier(key))
             return null;
 
-        try globals.current_sequence.append(globals_allocator, event);
-        if ((event.modifiers == 0 or event.modifiers == input.mod.shift) and !input.is_non_input_key(event.key)) {
+        try globals.current_sequence.append(globals_allocator, key_event);
+        if ((mods & ~(input.mod.shift | input.mod.caps_lock) == 0) and !input.is_non_input_key(key)) {
             var buf: [6]u8 = undefined;
             const bytes = if (text.len > 0) text else text: {
-                const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
+                const bytes = try input.ucs32_to_utf8(&[_]u32{key}, &buf);
                 break :text buf[0..bytes];
             };
             try globals.current_sequence_egc.appendSlice(globals_allocator, bytes);
@@ -708,35 +710,30 @@ const expectEqual = std.testing.expectEqual;
 
 const parse_test_cases = .{
     //input, expected
-    .{ "j", &.{KeyEvent{ .key = 'j' }} },
-    .{ "J", &.{KeyEvent{ .key = 'j', .modifiers = input.mod.shift }} },
-    .{ "jk", &.{ KeyEvent{ .key = 'j' }, KeyEvent{ .key = 'k' } } },
-    .{ "<Space>", &.{KeyEvent{ .key = input.key.space }} },
-    .{ "<C-x><C-c>", &.{ KeyEvent{ .key = 'x', .modifiers = input.mod.ctrl }, KeyEvent{ .key = 'c', .modifiers = input.mod.ctrl } } },
-    .{ "<A-x><Tab>", &.{ KeyEvent{ .key = 'x', .modifiers = input.mod.alt }, KeyEvent{ .key = input.key.tab } } },
-    .{ "<S-A-x><D-Del>", &.{
-        KeyEvent{ .key = 'x', .modifiers = input.mod.alt | input.mod.shift },
-        KeyEvent{ .key = input.key.delete, .modifiers = input.mod.super },
-    } },
-    .{ ".", &.{KeyEvent{ .key = '.' }} },
-    .{ ",", &.{KeyEvent{ .key = ',' }} },
-    .{ "`", &.{KeyEvent{ .key = '`' }} },
-    .{ "<S--><Home>", &.{
-        KeyEvent{ .key = '-', .modifiers = input.mod.shift },
-        KeyEvent{ .key = input.key.home },
-    } },
+    .{ "j", &.{"j"} },
+    .{ "J", &.{"J"} },
+    .{ "jk", &.{ "j", "k" } },
+    .{ "<Space>", &.{"space"} },
+    .{ "<C-x><C-c>", &.{ "ctrl+x", "ctrl+c" } },
+    .{ "<A-x><Tab>", &.{ "alt+x", "tab" } },
+    .{ "<S-A-x><D-Del>", &.{ "alt+shift+x", "super+delete" } },
+    .{ ".", &.{"."} },
+    .{ ",", &.{","} },
+    .{ "`", &.{"`"} },
+    .{ "_<Home>", &.{ "_", "home" } },
+    .{ "<S--><Home>", &.{ "shift+-", "home" } },
 };
 
 test "parse" {
     const alloc = std.testing.allocator;
     inline for (parse_test_cases) |case| {
-        const parsed = try parse_vim.parse_key_events(alloc, input.event.press, case[0]);
+        const parsed = try parse_vim.parse_key_events(alloc, case[0]);
         defer alloc.free(parsed);
-        const expected: []const KeyEvent = case[1];
+        const expected: []const []const u8 = case[1];
         const actual: []const KeyEvent = parsed;
         try expectEqual(expected.len, actual.len);
         for (expected, 0..) |expected_event, i| {
-            try expectEqual(expected_event, actual[i]);
+            try std.testing.expectFmt(expected_event, "{}", .{actual[i]});
         }
     }
 }
@@ -760,10 +757,10 @@ const match_test_cases = .{
 test "match" {
     const alloc = std.testing.allocator;
     inline for (match_test_cases) |case| {
-        const events = try parse_vim.parse_key_events(alloc, input.event.press, case[0]);
+        const events = try parse_vim.parse_key_events(alloc, case[0]);
         defer alloc.free(events);
         const binding: Binding = .{
-            .key_events = try parse_vim.parse_key_events(alloc, input.event.press, case[1]),
+            .key_events = try parse_vim.parse_key_events(alloc, case[1]),
             .commands = &[_]Command{},
         };
         defer alloc.free(binding.key_events);
@@ -774,9 +771,9 @@ test "match" {
 
 test "json" {
     var bindings: BindingSet = .{ .name = "test" };
-    _ = try bindings.process_key_event('j', "", .{ .key = 'j' });
-    _ = try bindings.process_key_event('k', "", .{ .key = 'k' });
-    _ = try bindings.process_key_event('g', "", .{ .key = 'g' });
-    _ = try bindings.process_key_event('i', "", .{ .key = 'i' });
-    _ = try bindings.process_key_event(0, "", .{ .key = 'i', .modifiers = input.mod.ctrl });
+    _ = try bindings.process_key_event(input.KeyEvent.from_key('j'));
+    _ = try bindings.process_key_event(input.KeyEvent.from_key('k'));
+    _ = try bindings.process_key_event(input.KeyEvent.from_key('g'));
+    _ = try bindings.process_key_event(input.KeyEvent.from_key('i'));
+    _ = try bindings.process_key_event(input.KeyEvent.from_key_mods('i', input.mod.ctrl));
 }

@@ -792,8 +792,9 @@ fn sendKey(
     }
     for (char_buf[0..@intCast(unicode_result)]) |codepoint| {
         const mod_bits = @as(u8, @bitCast(mods));
+        const is_modified = mod_bits & ~(input.mod.shift | input.mod.caps_lock) != 0; // ignore shift and caps
         var utf8_buf: [6]u8 = undefined;
-        const utf8_len = if (event == input.event.press and (mod_bits & 0xBE == 0)) // ignore shift and caps
+        const utf8_len = if (event == input.event.press and !is_modified)
             std.unicode.utf8Encode(codepoint, &utf8_buf) catch {
                 std.log.err("invalid codepoint {}", .{codepoint});
                 continue;

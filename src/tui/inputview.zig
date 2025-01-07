@@ -110,29 +110,18 @@ pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 
     var event: input.Event = 0;
     var keypress: input.Key = 0;
-    var egc: input.Key = 0;
+    var keypress_shifted: input.Key = 0;
     var text: []const u8 = "";
     var modifiers: input.Mods = 0;
     if (try m.match(.{
         "I",
         tp.extract(&event),
         tp.extract(&keypress),
-        tp.extract(&egc),
+        tp.extract(&keypress_shifted),
         tp.extract(&text),
         tp.extract(&modifiers),
     })) {
-        var key_event: input.KeyEvent = .{
-            .event = event,
-            .key = keypress,
-            .modifiers = modifiers,
-        };
-        key_event.modifiers = switch (key_event.key) {
-            input.key.left_super, input.key.right_super => key_event.modifiers & ~input.mod.super,
-            input.key.left_shift, input.key.right_shift => key_event.modifiers & ~input.mod.shift,
-            input.key.left_control, input.key.right_control => key_event.modifiers & ~input.mod.ctrl,
-            input.key.left_alt, input.key.right_alt => key_event.modifiers & ~input.mod.alt,
-            else => key_event.modifiers,
-        };
+        const key_event = input.KeyEvent.from_message(event, keypress, keypress_shifted, text, modifiers);
         writer.print(" -> {}", .{key_event}) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     self.append(result.items) catch |e| return tp.exit_error(e, @errorReturnTrace());
