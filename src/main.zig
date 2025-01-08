@@ -407,17 +407,48 @@ pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const 
 }
 
 fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) void {
-    read_json_config_file(T, allocator, conf, bufs, file_name) catch
-        std.log.err("error reading config file '{s}'", .{file_name});
-    return;
+    read_text_config_file(T, allocator, conf, bufs, file_name[0 .. file_name.len - 5]) catch |e| switch (e) {
+        error.FileNotFound => read_json_config_file(T, allocator, conf, bufs, file_name) catch |e_| switch (e_) {
+            error.FileNotFound => return,
+            else => std.log.err("error reading config file '{s}': {s}", .{ file_name, @errorName(e_) }),
+        },
+        else => std.log.err("error reading config file '{s}': {s}", .{ file_name[0 .. file_name.len - 5], @errorName(e) }),
+    };
+}
+
+fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
+    const cbor = @import("cbor");
+    var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
+    defer file.close();
+    const text = try file.readToEndAlloc(allocator, 64 * 1024);
+    defer allocator.free(text);
+    var cbor_buf = std.ArrayList(u8).init(allocator);
+    defer cbor_buf.deinit();
+    const writer = cbor_buf.writer();
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |line| if (line.len > 0 and line[0] != '#') {
+        const sep = std.mem.indexOfScalar(u8, line, ' ') orelse {
+            std.log.err("invalid line in config '{s}'", .{line});
+            continue;
+        };
+        const cb = cbor.fromJsonAlloc(allocator, line[sep..]) catch {
+            std.log.err("invalid value in config line '{s}'", .{line});
+            continue;
+        };
+        defer allocator.free(cb);
+        try cbor.writeValue(writer, line[0..sep]);
+        try cbor_buf.appendSlice(cb);
+    };
+    const cb = try cbor_buf.toOwnedSlice();
+    var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
+    bufs.append(allocator, cb) catch @panic("OOM:read_text_config_file");
+    bufs_.* = bufs.toOwnedSlice(allocator) catch @panic("OOM:read_text_config_file");
+    return read_cbor_config(T, conf, file_name, cb);
 }
 
 fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
     const cbor = @import("cbor");
-    var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {
-        error.FileNotFound => return,
-        else => return e,
-    };
+    var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
     defer file.close();
     const json = try file.readToEndAlloc(allocator, 64 * 1024);
     defer allocator.free(json);
@@ -427,11 +458,24 @@ fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
     bufs_.* = bufs.toOwnedSlice(allocator) catch @panic("OOM:read_json_config_file");
     const cb = try cbor.fromJson(json, cbor_buf);
     var iter = cb;
-    var len = try cbor.decodeMapHeader(&iter);
-    while (len > 0) : (len -= 1) {
-        var field_name: []const u8 = undefined;
+    _ = try cbor.decodeMapHeader(&iter);
+    return read_cbor_config(T, conf, file_name, iter);
+}
+
+fn read_cbor_config(
+    T: type,
+    conf: *T,
+    file_name: []const u8,
+    cb: []const u8,
+) !void {
+    const cbor = @import("cbor");
+    var iter = cb;
+    var field_name: []const u8 = undefined;
+    while (cbor.matchString(&iter, &field_name) catch |e| switch (e) {
+        error.TooShort => return,
+        else => return e,
+    }) {
         var known = false;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidConfig;
         inline for (@typeInfo(T).Struct.fields) |field_info|
             if (comptime std.mem.eql(u8, "include_files", field_info.name)) {
                 if (std.mem.eql(u8, field_name, field_info.name)) {
@@ -474,7 +518,43 @@ fn read_nested_include_files(T: type, allocator: std.mem.Allocator, conf: *T, bu
 pub fn write_config(conf: anytype, allocator: std.mem.Allocator) !void {
     config_mutex.lock();
     defer config_mutex.unlock();
-    return write_json_file(@TypeOf(conf), conf, allocator, try get_app_config_file_name(application_name, @typeName(@TypeOf(conf))));
+    _ = allocator;
+    const file_name = try get_app_config_file_name(application_name, @typeName(@TypeOf(conf)));
+    return write_text_config_file(@TypeOf(conf), conf, file_name[0 .. file_name.len - 5]);
+    // return write_json_file(@TypeOf(conf), conf, allocator, try get_app_config_file_name(application_name, @typeName(@TypeOf(conf))));
+}
+
+fn write_text_config_file(comptime T: type, data: T, file_name: []const u8) !void {
+    const default: T = .{};
+    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
+    defer file.close();
+    const writer = file.writer();
+    inline for (@typeInfo(T).Struct.fields) |field_info| {
+        if (config_eql(
+            field_info.type,
+            @field(data, field_info.name),
+            @field(default, field_info.name),
+        )) {
+            try writer.print("# {s} ", .{field_info.name});
+        } else {
+            try writer.print("{s} ", .{field_info.name});
+        }
+        var s = std.json.writeStream(writer, .{ .whitespace = .indent_4 });
+        try s.write(@field(data, field_info.name));
+        try writer.print("\n", .{});
+    }
+}
+
+fn config_eql(comptime T: type, a: T, b: T) bool {
+    switch (T) {
+        []const u8 => return std.mem.eql(u8, a, b),
+        else => {},
+    }
+    switch (@typeInfo(T)) {
+        .Bool, .Int, .Float => return a == b,
+        else => {},
+    }
+    @compileError("unsupported config type " ++ @typeName(T));
 }
 
 fn write_json_file(comptime T: type, data: T, allocator: std.mem.Allocator, file_name: []const u8) !void {

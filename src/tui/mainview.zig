@@ -379,13 +379,13 @@ const cmds = struct {
 
     pub fn open_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("config"));
-        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - 5] } });
     }
     pub const open_config_meta = .{ .description = "Edit configuration file" };
 
     pub fn open_gui_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("gui_config"));
-        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - 5] } });
     }
     pub const open_gui_config_meta = .{ .description = "Edit gui configuration file" };
 
