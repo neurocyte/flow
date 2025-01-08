@@ -381,12 +381,6 @@ pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) vo
     // it is used by terminals to spawn new windows or splits in the same directory
 }
 
-pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
-    _ = self;
-    _ = text;
-    std.log.warn("TODO: copy_to_system_clipboard", .{});
-}
-
 pub const copy_to_windows_clipboard = @import("tuirenderer").copy_to_windows_clipboard;
 pub const request_windows_clipboard = @import("tuirenderer").request_windows_clipboard;
 
