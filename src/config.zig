@@ -23,4 +23,4 @@ bottom_bar: []const u8 = "mode file log selection diagnostics keybind linenumber
 
 lsp_request_timeout: usize = 10,
 
-config_files: []const u8 = "",
+include_files: []const u8 = "",

@@ -398,7 +398,7 @@ pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const 
     const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ .{}, bufs };
     var conf: T = .{};
     read_config_file(T, allocator, &conf, &bufs, file_name);
-    read_nested_config_files(T, allocator, &conf, &bufs);
+    read_nested_include_files(T, allocator, &conf, &bufs);
     return .{ conf, bufs };
 }
 
@@ -428,12 +428,12 @@ fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
         var field_name: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidConfig;
         inline for (@typeInfo(T).Struct.fields) |field_info|
-            if (comptime std.mem.eql(u8, "config_files", field_info.name)) {
+            if (comptime std.mem.eql(u8, "include_files", field_info.name)) {
                 if (std.mem.eql(u8, field_name, field_info.name)) {
                     var value: field_info.type = undefined;
                     if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidConfig;
-                    if (conf.config_files.len > 0) {
-                        std.log.err("{s}: ignoring nested 'config_files' value '{s}'", .{ file_name, value });
+                    if (conf.include_files.len > 0) {
+                        std.log.err("{s}: ignoring nested 'include_files' value '{s}'", .{ file_name, value });
                     } else {
                         @field(conf, field_info.name) = value;
                     }
@@ -446,9 +446,9 @@ fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
     }
 }
 
-fn read_nested_config_files(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8) void {
-    if (conf.config_files.len == 0) return;
-    var it = std.mem.splitScalar(u8, conf.config_files, std.fs.path.delimiter);
+fn read_nested_include_files(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8) void {
+    if (conf.include_files.len == 0) return;
+    var it = std.mem.splitScalar(u8, conf.include_files, std.fs.path.delimiter);
     while (it.next()) |path| read_config_file(T, allocator, conf, bufs, path);
 }
 
