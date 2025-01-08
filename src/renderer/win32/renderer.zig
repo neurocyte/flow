@@ -134,7 +134,10 @@ pub fn stop(self: *Self) void {
     // the window is created and we call dispatch_initialized
     const hwnd = self.hwnd orelse unreachable;
     gui.stop(hwnd);
-    if (self.thread) |thread| thread.join();
+    if (self.thread) |thread| {
+        thread.join();
+        self.thread = null;
+    }
 }
 
 pub fn stdplane(self: *Self) Plane {

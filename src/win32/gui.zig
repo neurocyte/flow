@@ -52,6 +52,7 @@ const global = struct {
     var icons: Icons = undefined;
     var dwrite_factory: *win32.IDWriteFactory = undefined;
     var d2d_factory: *win32.ID2D1Factory = undefined;
+    var conf: ?*gui_config = null;
 
     const shared_screen = struct {
         var mutex: std.Thread.Mutex = .{};
@@ -149,10 +150,26 @@ const Dpi = struct {
 };
 
 fn createTextFormatEditor(dpi: Dpi) *win32.IDWriteTextFormat {
+    const default_config = gui_config{};
+    const fontface_utf8 = if (global.conf) |conf| conf.fontface else blk: {
+        std.log.err("global gui config not found", .{});
+        break :blk default_config.fontface;
+    };
+    const fontsize = if (global.conf) |conf| conf.fontsize else default_config.fontsize;
+
+    var buf: [4096]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var fontface = std.ArrayList(u16).init(fba.allocator());
+    std.unicode.utf8ToUtf16LeArrayList(&fontface, fontface_utf8) catch {
+        std.log.err("fontface contains invalid UTF-8", .{});
+        fontface.clearRetainingCapacity();
+        std.unicode.utf8ToUtf16LeArrayList(&fontface, default_config.fontface) catch {};
+    };
+
     var err: HResultError = undefined;
     return ddui.createTextFormat(global.dwrite_factory, &err, .{
-        .size = win32.scaleDpi(f32, 14, dpi.value),
-        .family_name = win32.L("Cascadia Code"),
+        .size = win32.scaleDpi(f32, @as(f32, @floatFromInt(fontsize)), dpi.value),
+        .family_name = fontface.toOwnedSliceSentinel(0) catch @panic("OOM:createTextFormatEditor"),
     }) catch std.debug.panic("{s} failed, hresult=0x{x}", .{ err.context, err.hr });
 }
 
@@ -230,6 +247,7 @@ const State = struct {
     scroll_delta: isize = 0,
     currently_rendered_cell_size: ?XY(i32) = null,
     background: ?u32 = null,
+    conf: gui_config,
 };
 fn stateFromHwnd(hwnd: win32.HWND) *State {
     const addr: usize = @bitCast(win32.GetWindowLongPtrW(hwnd, @enumFromInt(0)));
@@ -422,6 +440,8 @@ fn entry(pid: thespian.pid) !void {
     );
 
     const conf, _ = root.read_config(gui_config, arena_instance.allocator());
+    root.write_config(conf, arena_instance.allocator()) catch
+        std.log.err("failed to write gui config file", .{});
 
     var create_args = CreateWindowArgs{
         .allocator = arena_instance.allocator(),
@@ -1132,7 +1152,10 @@ fn WndProc(
 
             state.* = .{
                 .pid = create_args.pid,
+                .conf = create_args.conf,
             };
+            global.conf = &state.conf;
+
             const existing = win32.SetWindowLongPtrW(
                 hwnd,
                 @enumFromInt(0),

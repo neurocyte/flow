@@ -393,7 +393,11 @@ pub fn free_config(allocator: std.mem.Allocator, bufs: [][]const u8) void {
     for (bufs) |buf| allocator.free(buf);
 }
 
+var config_mutex: std.Thread.Mutex = .{};
+
 pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const u8 } {
+    config_mutex.lock();
+    defer config_mutex.unlock();
     var bufs: [][]const u8 = &[_][]const u8{};
     const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ .{}, bufs };
     var conf: T = .{};
@@ -404,7 +408,7 @@ pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const 
 
 fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) void {
     read_json_config_file(T, allocator, conf, bufs, file_name) catch |e|
-        log.logger("config").print_err("read_config", "error reading config file: {any}", .{e});
+        std.log.err("error reading config file '{s}' {any}", .{ file_name, e });
     return;
 }
 
@@ -453,6 +457,8 @@ fn read_nested_include_files(T: type, allocator: std.mem.Allocator, conf: *T, bu
 }
 
 pub fn write_config(conf: anytype, allocator: std.mem.Allocator) !void {
+    config_mutex.lock();
+    defer config_mutex.unlock();
     return write_json_file(@TypeOf(conf), conf, allocator, try get_app_config_file_name(application_name, @typeName(@TypeOf(conf))));
 }
 
@@ -643,14 +649,8 @@ fn get_app_config_file_name(appname: []const u8, comptime base_name: []const u8)
 fn get_app_config_dir_file_name(appname: []const u8, comptime config_file_name: []const u8) ![]const u8 {
     const local = struct {
         var config_file_buffer: [std.posix.PATH_MAX]u8 = undefined;
-        var config_file: ?[]const u8 = null;
     };
-    const config_file = if (local.config_file) |file|
-        file
-    else
-        try std.fmt.bufPrint(&local.config_file_buffer, "{s}/{s}", .{ try get_app_config_dir(appname), config_file_name });
-    local.config_file = config_file;
-    return config_file;
+    return std.fmt.bufPrint(&local.config_file_buffer, "{s}/{s}", .{ try get_app_config_dir(appname), config_file_name });
 }
 
 pub fn get_config_file_name(T: type) ![]const u8 {

@@ -452,6 +452,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "config", .module = config_mod },
+            .{ .name = "gui_config", .module = gui_config_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "command", .module = command_mod },
             .{ .name = "EventHandler", .module = EventHandler_mod },

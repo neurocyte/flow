@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
@@ -25,7 +26,19 @@ input_namespace: []const u8,
 
 const Self = @This();
 
-const menu_commands = &[_][]const u8{
+const menu_commands = if (build_options.gui) &[_][]const u8{
+    "open_help",
+    "open_file",
+    "open_recent",
+    "open_recent_project",
+    "open_command_palette",
+    "open_config",
+    "open_gui_config",
+    "open_keybind_config",
+    "toggle_input_mode",
+    "change_theme",
+    "quit",
+} else &[_][]const u8{
     "open_help",
     "open_file",
     "open_recent",

@@ -378,10 +378,16 @@ const cmds = struct {
     pub const open_help_meta = .{ .description = "Open help" };
 
     pub fn open_config(_: *Self, _: Ctx) Result {
-        const file_name = try root.get_config_file_name(@TypeOf(tui.current().config));
+        const file_name = try root.get_config_file_name(@import("config"));
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
     }
     pub const open_config_meta = .{ .description = "Edit configuration file" };
+
+    pub fn open_gui_config(_: *Self, _: Ctx) Result {
+        const file_name = try root.get_config_file_name(@import("gui_config"));
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+    }
+    pub const open_gui_config_meta = .{ .description = "Edit gui configuration file" };
 
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
         try self.check_all_not_dirty();
