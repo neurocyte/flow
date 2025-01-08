@@ -376,8 +376,9 @@ pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
     _ = self;
-    std.log.warn("TODO: set_terminal_working_directory '{s}'", .{absolute_path});
-    //self.vx.setTerminalWorkingDirectory(self.tty.anyWriter(), absolute_path) catch {};
+    _ = absolute_path;
+    // this is usually a no-op for GUI renderers
+    // it is used by terminals to spawn new windows or splits in the same directory
 }
 
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
