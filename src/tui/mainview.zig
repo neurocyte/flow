@@ -378,7 +378,7 @@ const cmds = struct {
     pub const open_help_meta = .{ .description = "Open help" };
 
     pub fn open_config(_: *Self, _: Ctx) Result {
-        const file_name = try root.get_config_file_name();
+        const file_name = try root.get_config_file_name(@TypeOf(tui.current().config));
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
     }
     pub const open_config_meta = .{ .description = "Edit configuration file" };

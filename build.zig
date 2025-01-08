@@ -252,6 +252,13 @@ pub fn build_exe(
         },
     });
 
+    const gui_config_mod = b.createModule(.{
+        .root_source_file = b.path("src/gui_config.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+        },
+    });
+
     const log_mod = b.createModule(.{
         .root_source_file = b.path("src/log.zig"),
         .imports = &.{
@@ -324,6 +331,7 @@ pub fn build_exe(
                         // TODO: we should be able to work without these modules
                         .{ .name = "vaxis", .module = vaxis_mod },
                         .{ .name = "color", .module = color_mod },
+                        .{ .name = "gui_config", .module = gui_config_mod },
                     },
                 });
                 gui_mod.addIncludePath(b.path("src/win32"));

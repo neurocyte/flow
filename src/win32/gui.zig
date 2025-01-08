@@ -1,4 +1,5 @@
 const std = @import("std");
+const root = @import("root");
 
 const c = @cImport({
     @cInclude("ResourceNames.h");
@@ -10,6 +11,7 @@ const ddui = @import("ddui");
 const cbor = @import("cbor");
 const thespian = @import("thespian");
 const vaxis = @import("vaxis");
+const gui_config = @import("gui_config");
 
 const RGB = @import("color").RGB;
 const input = @import("input");
@@ -381,6 +383,7 @@ fn calcWindowPlacement() WindowPlacement {
 const CreateWindowArgs = struct {
     allocator: std.mem.Allocator,
     pid: thespian.pid,
+    conf: gui_config,
 };
 
 pub fn start() !std.Thread {
@@ -418,9 +421,12 @@ fn entry(pid: thespian.pid) !void {
         win32.GetLastError(),
     );
 
+    const conf, _ = root.read_config(gui_config, arena_instance.allocator());
+
     var create_args = CreateWindowArgs{
         .allocator = arena_instance.allocator(),
         .pid = pid,
+        .conf = conf,
     };
     const hwnd = win32.CreateWindowExW(
         window_style_ex,

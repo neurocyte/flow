@@ -83,7 +83,7 @@ fn start(args: StartArgs) tp.result {
 fn init(allocator: Allocator) !*Self {
     var self = try allocator.create(Self);
 
-    var conf, const conf_bufs = root.read_config(allocator);
+    var conf, const conf_bufs = root.read_config(config, allocator);
     defer root.free_config(allocator, conf_bufs);
 
     const theme = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return tp.exit("unknown theme");

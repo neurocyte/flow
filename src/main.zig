@@ -389,28 +389,26 @@ pub fn exit(status: u8) noreturn {
     std.posix.exit(status);
 }
 
-const config = @import("config");
-
 pub fn free_config(allocator: std.mem.Allocator, bufs: [][]const u8) void {
     for (bufs) |buf| allocator.free(buf);
 }
 
-pub fn read_config(allocator: std.mem.Allocator) struct { config, [][]const u8 } {
+pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const u8 } {
     var bufs: [][]const u8 = &[_][]const u8{};
-    const file_name = get_app_config_file_name(application_name) catch return .{ .{}, bufs };
-    var conf: config = .{};
-    read_config_file(allocator, &conf, &bufs, file_name);
-    read_nested_config_files(allocator, &conf, &bufs);
+    const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ .{}, bufs };
+    var conf: T = .{};
+    read_config_file(T, allocator, &conf, &bufs, file_name);
+    read_nested_config_files(T, allocator, &conf, &bufs);
     return .{ conf, bufs };
 }
 
-fn read_config_file(allocator: std.mem.Allocator, conf: *config, bufs: *[][]const u8, file_name: []const u8) void {
-    read_json_config_file(allocator, conf, bufs, file_name) catch |e|
+fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) void {
+    read_json_config_file(T, allocator, conf, bufs, file_name) catch |e|
         log.logger("config").print_err("read_config", "error reading config file: {any}", .{e});
     return;
 }
 
-fn read_json_config_file(allocator: std.mem.Allocator, conf: *config, bufs_: *[][]const u8, file_name: []const u8) !void {
+fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
     const cbor = @import("cbor");
     var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return,
@@ -429,7 +427,7 @@ fn read_json_config_file(allocator: std.mem.Allocator, conf: *config, bufs_: *[]
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidConfig;
-        inline for (@typeInfo(config).Struct.fields) |field_info|
+        inline for (@typeInfo(T).Struct.fields) |field_info|
             if (comptime std.mem.eql(u8, "config_files", field_info.name)) {
                 if (std.mem.eql(u8, field_name, field_info.name)) {
                     var value: field_info.type = undefined;
@@ -448,14 +446,14 @@ fn read_json_config_file(allocator: std.mem.Allocator, conf: *config, bufs_: *[]
     }
 }
 
-fn read_nested_config_files(allocator: std.mem.Allocator, conf: *config, bufs: *[][]const u8) void {
+fn read_nested_config_files(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8) void {
     if (conf.config_files.len == 0) return;
     var it = std.mem.splitScalar(u8, conf.config_files, std.fs.path.delimiter);
-    while (it.next()) |path| read_config_file(allocator, conf, bufs, path);
+    while (it.next()) |path| read_config_file(T, allocator, conf, bufs, path);
 }
 
-pub fn write_config(conf: config, allocator: std.mem.Allocator) !void {
-    return write_json_file(config, conf, allocator, try get_app_config_file_name(application_name));
+pub fn write_config(conf: anytype, allocator: std.mem.Allocator) !void {
+    return write_json_file(@TypeOf(conf), conf, allocator, try get_app_config_file_name(application_name, @typeName(@TypeOf(conf))));
 }
 
 fn write_json_file(comptime T: type, data: T, allocator: std.mem.Allocator, file_name: []const u8) !void {
@@ -638,12 +636,15 @@ fn get_app_state_dir(appname: []const u8) ![]const u8 {
     return state_dir;
 }
 
-fn get_app_config_file_name(appname: []const u8) ![]const u8 {
+fn get_app_config_file_name(appname: []const u8, comptime base_name: []const u8) ![]const u8 {
+    return get_app_config_dir_file_name(appname, base_name ++ ".json");
+}
+
+fn get_app_config_dir_file_name(appname: []const u8, comptime config_file_name: []const u8) ![]const u8 {
     const local = struct {
         var config_file_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var config_file: ?[]const u8 = null;
     };
-    const config_file_name = "config.json";
     const config_file = if (local.config_file) |file|
         file
     else
@@ -652,8 +653,8 @@ fn get_app_config_file_name(appname: []const u8) ![]const u8 {
     return config_file;
 }
 
-pub fn get_config_file_name() ![]const u8 {
-    return get_app_config_file_name(application_name);
+pub fn get_config_file_name(T: type) ![]const u8 {
+    return get_app_config_file_name(application_name, @typeName(T));
 }
 
 pub fn get_restore_file_name() ![]const u8 {
