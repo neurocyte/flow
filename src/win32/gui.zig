@@ -336,7 +336,7 @@ const WindowPlacement = struct {
     };
 };
 
-fn calcWindowPlacement() WindowPlacement {
+fn calcWindowPlacement(initial_window_x: u16, initial_window_y: u16) WindowPlacement {
     var result = WindowPlacement.default;
 
     const monitor = win32.MonitorFromPoint(
@@ -383,8 +383,8 @@ fn calcWindowPlacement() WindowPlacement {
     );
 
     const wanted_size: XY(i32) = .{
-        .x = win32.scaleDpi(i32, 800, result.dpi.x),
-        .y = win32.scaleDpi(i32, 1200, result.dpi.y),
+        .x = win32.scaleDpi(i32, @intCast(initial_window_x), result.dpi.x),
+        .y = win32.scaleDpi(i32, @intCast(initial_window_y), result.dpi.y),
     };
     result.size = .{
         .x = @min(wanted_size.x, work_size.x),
@@ -416,7 +416,14 @@ fn entry(pid: thespian.pid) !void {
 
     const CLASS_NAME = win32.L("Flow");
 
-    const initial_placement = calcWindowPlacement();
+    const conf, _ = root.read_config(gui_config, arena_instance.allocator());
+    root.write_config(conf, arena_instance.allocator()) catch
+        std.log.err("failed to write gui config file", .{});
+
+    const initial_placement = calcWindowPlacement(
+        conf.initial_window_x,
+        conf.initial_window_y,
+    );
     global.icons = getIcons(initial_placement.dpi);
 
     // we only need to register the window class once per process
@@ -438,10 +445,6 @@ fn entry(pid: thespian.pid) !void {
         "RegisterClass for main window",
         win32.GetLastError(),
     );
-
-    const conf, _ = root.read_config(gui_config, arena_instance.allocator());
-    root.write_config(conf, arena_instance.allocator()) catch
-        std.log.err("failed to write gui config file", .{});
 
     var create_args = CreateWindowArgs{
         .allocator = arena_instance.allocator(),
