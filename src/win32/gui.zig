@@ -541,8 +541,8 @@ fn getCellSize(text_format: *win32.IDWriteTextFormat) XY(i32) {
         if (hr < 0) fatalHr("GetMetrics", hr);
     }
     return .{
-        .x = @intFromFloat(@ceil(metrics.width)),
-        .y = @intFromFloat(@ceil(metrics.height)),
+        .x = @as(i32, @intFromFloat(@floor(metrics.width))),
+        .y = @as(i32, @intFromFloat(@floor(metrics.height))),
     };
 }
 
