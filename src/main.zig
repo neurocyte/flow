@@ -426,19 +426,25 @@ fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
     defer cbor_buf.deinit();
     const writer = cbor_buf.writer();
     var it = std.mem.splitScalar(u8, text, '\n');
-    while (it.next()) |line| if (line.len > 0 and line[0] != '#') {
+    var lineno: u32 = 0;
+    while (it.next()) |line| {
+        lineno += 1;
+        if (line.len == 0 or line[0] == '#')
+            continue;
         const sep = std.mem.indexOfScalar(u8, line, ' ') orelse {
-            std.log.err("invalid line in config '{s}'", .{line});
+            std.log.err("{s}:{}: {s} missing value", .{ file_name, lineno, line });
             continue;
         };
-        const cb = cbor.fromJsonAlloc(allocator, line[sep..]) catch {
-            std.log.err("invalid value in config line '{s}'", .{line});
+        const name = line[0..sep];
+        const value_str = line[sep + 1 ..];
+        const cb = cbor.fromJsonAlloc(allocator, value_str) catch {
+            std.log.err("{s}:{}: {s} has bad value: {s}", .{ file_name, lineno, name, value_str });
             continue;
         };
         defer allocator.free(cb);
-        try cbor.writeValue(writer, line[0..sep]);
+        try cbor.writeValue(writer, name);
         try cbor_buf.appendSlice(cb);
-    };
+    }
     const cb = try cbor_buf.toOwnedSlice();
     var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
     bufs.append(allocator, cb) catch @panic("OOM:read_text_config_file");
