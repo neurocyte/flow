@@ -78,7 +78,7 @@ pub fn init(
 }
 
 pub fn deinit(self: *Self) void {
-    std.log.warn("TODO: implement win32 renderer deinit", .{});
+    std.debug.assert(self.thread == null);
     var drop_writer = DropWriter{};
     self.vx.deinit(self.allocator, drop_writer.writer().any());
     self.title_buf.deinit();
