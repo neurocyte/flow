@@ -407,8 +407,8 @@ pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const 
 }
 
 fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) void {
-    read_json_config_file(T, allocator, conf, bufs, file_name) catch |e|
-        std.log.err("error reading config file '{s}' {any}", .{ file_name, e });
+    read_json_config_file(T, allocator, conf, bufs, file_name) catch
+        std.log.err("error reading config file '{s}'", .{file_name});
     return;
 }
 
@@ -430,23 +430,38 @@ fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
     var len = try cbor.decodeMapHeader(&iter);
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
+        var known = false;
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidConfig;
         inline for (@typeInfo(T).Struct.fields) |field_info|
             if (comptime std.mem.eql(u8, "include_files", field_info.name)) {
                 if (std.mem.eql(u8, field_name, field_info.name)) {
+                    known = true;
                     var value: field_info.type = undefined;
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidConfig;
-                    if (conf.include_files.len > 0) {
-                        std.log.err("{s}: ignoring nested 'include_files' value '{s}'", .{ file_name, value });
+                    if (try cbor.matchValue(&iter, cbor.extract(&value))) {
+                        if (conf.include_files.len > 0) {
+                            std.log.err("{s}: ignoring nested 'include_files' value '{s}'", .{ file_name, value });
+                        } else {
+                            @field(conf, field_info.name) = value;
+                        }
                     } else {
-                        @field(conf, field_info.name) = value;
+                        try cbor.skipValue(&iter);
+                        std.log.err("invalid value for key '{s}'", .{field_name});
                     }
                 }
             } else if (std.mem.eql(u8, field_name, field_info.name)) {
+                known = true;
                 var value: field_info.type = undefined;
-                if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidConfig;
-                @field(conf, field_info.name) = value;
+                if (try cbor.matchValue(&iter, cbor.extract(&value))) {
+                    @field(conf, field_info.name) = value;
+                } else {
+                    try cbor.skipValue(&iter);
+                    std.log.err("invalid value for key '{s}'", .{field_name});
+                }
             };
+        if (!known) {
+            try cbor.skipValue(&iter);
+            std.log.err("unknown config value '{s}' ignored", .{field_name});
+        }
     }
 }
 
