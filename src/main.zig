@@ -399,21 +399,28 @@ pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const 
     config_mutex.lock();
     defer config_mutex.unlock();
     var bufs: [][]const u8 = &[_][]const u8{};
-    const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ .{}, bufs };
+    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ .{}, bufs };
+    const text_file_name = json_file_name[0 .. json_file_name.len - ".json".len];
     var conf: T = .{};
-    read_config_file(T, allocator, &conf, &bufs, file_name);
+    if (!read_config_file(T, allocator, &conf, &bufs, text_file_name)) {
+        _ = read_config_file(T, allocator, &conf, &bufs, json_file_name);
+    }
     read_nested_include_files(T, allocator, &conf, &bufs);
     return .{ conf, bufs };
 }
 
-fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) void {
-    read_text_config_file(T, allocator, conf, bufs, file_name[0 .. file_name.len - 5]) catch |e| switch (e) {
-        error.FileNotFound => read_json_config_file(T, allocator, conf, bufs, file_name) catch |e_| switch (e_) {
-            error.FileNotFound => return,
-            else => std.log.err("error reading config file '{s}': {s}", .{ file_name, @errorName(e_) }),
-        },
-        else => std.log.err("error reading config file '{s}': {s}", .{ file_name[0 .. file_name.len - 5], @errorName(e) }),
+// returns true if the file was found
+fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) bool {
+    std.log.info("loading {s}", .{file_name});
+    const err: anyerror = blk: {
+        if (std.mem.endsWith(u8, file_name, ".json")) if (read_json_config_file(T, allocator, conf, bufs, file_name)) return true else |e| break :blk e;
+        if (read_text_config_file(T, allocator, conf, bufs, file_name)) return true else |e| break :blk e;
     };
+    switch (err) {
+        error.FileNotFound => return false,
+        else => |e| std.log.err("error reading config file '{s}': {s}", .{ file_name, @errorName(e) }),
+    }
+    return true;
 }
 
 fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
@@ -518,7 +525,9 @@ fn read_cbor_config(
 fn read_nested_include_files(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8) void {
     if (conf.include_files.len == 0) return;
     var it = std.mem.splitScalar(u8, conf.include_files, std.fs.path.delimiter);
-    while (it.next()) |path| read_config_file(T, allocator, conf, bufs, path);
+    while (it.next()) |path| if (!read_config_file(T, allocator, conf, bufs, path)) {
+        std.log.err("config include file '{s}' is not found", .{path});
+    };
 }
 
 pub fn write_config(conf: anytype, allocator: std.mem.Allocator) !void {
