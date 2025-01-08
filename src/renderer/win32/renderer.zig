@@ -370,8 +370,8 @@ fn update_window_style(self: *Self) void {
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
     _ = self;
-    std.log.warn("TODO: set_terminal_cursor_color '{any}'", .{color});
-    //self.vx.setTerminalCursorColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+    _ = color;
+    //@panic("todo");
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
