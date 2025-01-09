@@ -21,9 +21,11 @@ const HResultError = ddui.HResultError;
 
 const WM_APP_EXIT = win32.WM_APP + 1;
 const WM_APP_SET_BACKGROUND = win32.WM_APP + 2;
+const WM_APP_ADJUST_FONTSIZE = win32.WM_APP + 3;
 
 const WM_APP_EXIT_RESULT = 0x45feaa11;
 const WM_APP_SET_BACKGROUND_RESULT = 0x369a26cd;
+const WM_APP_ADJUST_FONTSIZE_RESULT = 0x79aba9ef;
 
 pub const DropWriter = struct {
     pub const WriteError = error{};
@@ -57,8 +59,9 @@ const global = struct {
     var d2d_factory: *win32.ID2D1Factory = undefined;
     var conf: ?gui_config = null;
     var fontface: ?[:0]const u16 = null;
+    var fontsize: ?f32 = null;
 
-    var text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{};
+    var text_format_editor: ddui.TextFormatCache(FontCacheParams, createTextFormatEditor) = .{};
 
     const shared_screen = struct {
         var mutex: std.Thread.Mutex = .{};
@@ -148,10 +151,11 @@ fn d2dColorFromVAxis(color: vaxis.Cell.Color) win32.D2D_COLOR_F {
     };
 }
 
-const Dpi = struct {
-    value: u32,
-    pub fn eql(self: Dpi, other: Dpi) bool {
-        return self.value == other.value;
+const FontCacheParams = struct {
+    dpi: u32,
+    fontsize: f32,
+    pub fn eql(self: FontCacheParams, other: FontCacheParams) bool {
+        return self.dpi == other.dpi and self.fontsize == other.fontsize;
     }
 };
 
@@ -184,11 +188,17 @@ fn getFontFace() [:0]const u16 {
     return global.fontface.?;
 }
 
-fn createTextFormatEditor(dpi: Dpi) *win32.IDWriteTextFormat {
-    const conf = getConfig();
+fn getFontSize() f32 {
+    if (global.fontsize == null) {
+        global.fontsize = @floatFromInt(getConfig().fontsize);
+    }
+    return global.fontsize.?;
+}
+
+fn createTextFormatEditor(params: FontCacheParams) *win32.IDWriteTextFormat {
     var err: HResultError = undefined;
     return ddui.createTextFormat(global.dwrite_factory, &err, .{
-        .size = win32.scaleDpi(f32, @as(f32, @floatFromInt(conf.fontsize)), dpi.value),
+        .size = win32.scaleDpi(f32, params.fontsize, params.dpi),
         .family_name = getFontFace(),
     }) catch std.debug.panic("{s} failed, hresult=0x{x}", .{ err.context, err.hr });
 }
@@ -456,7 +466,7 @@ fn entry(pid: thespian.pid) !void {
         break :blk dpi;
     };
 
-    const text_format_editor = global.text_format_editor.getOrCreate(Dpi{ .value = @max(dpi.x, dpi.y) });
+    const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = @max(dpi.x, dpi.y), .fontsize = @floatFromInt(conf.fontsize) });
     const cell_size = getCellSize(text_format_editor);
     const initial_placement = calcWindowPlacement(
         maybe_monitor,
@@ -556,6 +566,15 @@ pub fn set_window_background(hwnd: win32.HWND, color: u32) void {
     ));
 }
 
+pub fn adjust_fontsize(hwnd: win32.HWND, amount: f32) void {
+    std.debug.assert(WM_APP_ADJUST_FONTSIZE_RESULT == win32.SendMessageW(
+        hwnd,
+        WM_APP_ADJUST_FONTSIZE,
+        @as(u32, @bitCast(amount)),
+        0,
+    ));
+}
+
 pub fn updateScreen(screen: *const vaxis.Screen) void {
     global.shared_screen.mutex.lock();
     defer global.shared_screen.mutex.unlock();
@@ -583,6 +602,25 @@ pub fn updateScreen(screen: *const vaxis.Screen) void {
         .mouse_shape = screen.mouse_shape,
         .cursor_shape = undefined,
     };
+}
+
+fn updateWindowSize(hwnd: win32.HWND, edge: ?win32.WPARAM) void {
+    const dpi = win32.dpiFromHwnd(hwnd);
+    const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = dpi, .fontsize = getFontSize() });
+    const cell_size = getCellSize(text_format_editor);
+
+    var window_rect: win32.RECT = undefined;
+    if (0 == win32.GetWindowRect(hwnd, &window_rect)) fatalWin32(
+        "GetWindowRect",
+        win32.GetLastError(),
+    );
+    const new_rect = shrinkWindowRectForCells(
+        dpi,
+        window_rect,
+        edge,
+        cell_size,
+    );
+    setWindowPosRect(hwnd, new_rect);
 }
 
 // NOTE: we round the text metric up to the nearest integer which
@@ -948,7 +986,7 @@ const WinKey = struct {
             @intFromEnum(win32.VK_F4) => input.key.f4,
             @intFromEnum(win32.VK_F5) => input.key.f5,
             @intFromEnum(win32.VK_F6) => input.key.f6,
-            @intFromEnum(win32.VK_F7) => input.key.f8,
+            @intFromEnum(win32.VK_F7) => input.key.f7,
             @intFromEnum(win32.VK_F8) => input.key.f8,
             @intFromEnum(win32.VK_F9) => input.key.f9,
             @intFromEnum(win32.VK_F10) => input.key.f10,
@@ -1093,7 +1131,7 @@ fn WndProc(
                 }
                 state.maybe_d2d.?.target.ID2D1RenderTarget.BeginDraw();
 
-                const text_format_editor = global.text_format_editor.getOrCreate(Dpi{ .value = dpi });
+                const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = dpi, .fontsize = getFontSize() });
                 state.currently_rendered_cell_size = getCellSize(text_format_editor);
 
                 {
@@ -1125,7 +1163,7 @@ fn WndProc(
         win32.WM_GETDPISCALEDSIZE => {
             const inout_size: *win32.SIZE = @ptrFromInt(@as(usize, @bitCast(lparam)));
             const new_dpi: u32 = @intCast(0xffffffff & wparam);
-            const text_format_editor = global.text_format_editor.getOrCreate(Dpi{ .value = new_dpi });
+            const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = new_dpi, .fontsize = getFontSize() });
             const cell_size = getCellSize(text_format_editor);
             const new_rect = shrinkWindowRectForCells(
                 new_dpi,
@@ -1183,22 +1221,7 @@ fn WndProc(
         },
         win32.WM_EXITSIZEMOVE => {
             const state = stateFromHwnd(hwnd);
-            const dpi = win32.dpiFromHwnd(hwnd);
-            const text_format_editor = global.text_format_editor.getOrCreate(Dpi{ .value = dpi });
-            const cell_size = getCellSize(text_format_editor);
-
-            var window_rect: win32.RECT = undefined;
-            if (0 == win32.GetWindowRect(hwnd, &window_rect)) fatalWin32(
-                "GetWindowRect",
-                win32.GetLastError(),
-            );
-            const new_rect = shrinkWindowRectForCells(
-                dpi,
-                window_rect,
-                state.last_sizing_edge,
-                cell_size,
-            );
-            setWindowPosRect(hwnd, new_rect);
+            updateWindowSize(hwnd, state.last_sizing_edge);
             state.last_sizing_edge = null;
             return 0;
         },
@@ -1235,6 +1258,13 @@ fn WndProc(
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_BACKGROUND_RESULT;
         },
+        WM_APP_ADJUST_FONTSIZE => {
+            const amount: f32 = @bitCast(@as(u32, @intCast(0xFFFFFFFFF & wparam)));
+            global.fontsize = @max(getFontSize() + amount, 1.0);
+            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT);
+            win32.invalidateHwnd(hwnd);
+            return WM_APP_ADJUST_FONTSIZE_RESULT;
+        },
         win32.WM_CREATE => {
             std.debug.assert(global.state == null);
             const create_struct: *win32.CREATESTRUCTW = @ptrFromInt(@as(usize, @bitCast(lparam)));
@@ -1269,7 +1299,7 @@ fn sendResize(
         );
     }
     const single_cell_size = getCellSize(
-        global.text_format_editor.getOrCreate(Dpi{ .value = @intCast(dpi) }),
+        global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = @intCast(dpi), .fontsize = getFontSize() }),
     );
     const client_pixel_size = getClientSize(hwnd);
     const client_cell_size: XY(u16) = .{

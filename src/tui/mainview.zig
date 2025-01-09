@@ -9,6 +9,7 @@ const project_manager = @import("project_manager");
 const log = @import("log");
 const shell = @import("shell");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 
 const Plane = @import("renderer").Plane;
 const input = @import("input");
@@ -633,6 +634,15 @@ const cmds = struct {
         try shell.execute(self.allocator, cmd, .{ .out = handlers.out });
     }
     pub const shell_execute_insert_meta = .{ .arguments = &.{.string} };
+
+    pub fn adjust_fontsize(_: *Self, ctx: Ctx) Result {
+        var amount: f32 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&amount)}))
+            return error.InvalidArgument;
+        if (build_options.gui)
+            tui.current().rdr.adjust_fontsize(amount);
+    }
+    pub const adjust_fontsize_meta = .{ .arguments = &.{.float} };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
