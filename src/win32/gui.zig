@@ -53,6 +53,7 @@ const global = struct {
     var dwrite_factory: *win32.IDWriteFactory = undefined;
     var d2d_factory: *win32.ID2D1Factory = undefined;
     var conf: ?*gui_config = null;
+    var text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{};
 
     const shared_screen = struct {
         var mutex: std.Thread.Mutex = .{};
@@ -243,11 +244,11 @@ const State = struct {
     pid: thespian.pid,
     maybe_d2d: ?D2d = null,
     erase_bg_done: bool = false,
-    text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{},
     scroll_delta: isize = 0,
     currently_rendered_cell_size: ?XY(i32) = null,
     background: ?u32 = null,
     conf: gui_config,
+    last_sizing_edge: ?win32.WPARAM = null,
 };
 fn stateFromHwnd(hwnd: win32.HWND) *State {
     const addr: usize = @bitCast(win32.GetWindowLongPtrW(hwnd, @enumFromInt(0)));
@@ -336,32 +337,16 @@ const WindowPlacement = struct {
     };
 };
 
-fn calcWindowPlacement(initial_window_x: u16, initial_window_y: u16) WindowPlacement {
+fn calcWindowPlacement(
+    maybe_monitor: ?win32.HMONITOR,
+    dpi: u32,
+    cell_size: XY(i32),
+    initial_window_x: u16,
+    initial_window_y: u16,
+) WindowPlacement {
     var result = WindowPlacement.default;
 
-    const monitor = win32.MonitorFromPoint(
-        .{ .x = 0, .y = 0 },
-        win32.MONITOR_DEFAULTTOPRIMARY,
-    ) orelse {
-        std.log.warn("MonitorFromPoint failed with {}", .{win32.GetLastError().fmt()});
-        return result;
-    };
-
-    result.dpi = blk: {
-        var dpi: XY(u32) = undefined;
-        const hr = win32.GetDpiForMonitor(
-            monitor,
-            win32.MDT_EFFECTIVE_DPI,
-            &dpi.x,
-            &dpi.y,
-        );
-        if (hr < 0) {
-            std.log.warn("GetDpiForMonitor failed, hresult=0x{x}", .{@as(u32, @bitCast(hr))});
-            return result;
-        }
-        break :blk dpi;
-    };
-    std.log.debug("primary monitor dpi {}x{}", .{ result.dpi.x, result.dpi.y });
+    const monitor = maybe_monitor orelse return result;
 
     const work_rect: win32.RECT = blk: {
         var info: win32.MONITORINFO = undefined;
@@ -386,14 +371,26 @@ fn calcWindowPlacement(initial_window_x: u16, initial_window_y: u16) WindowPlace
         .x = win32.scaleDpi(i32, @intCast(initial_window_x), result.dpi.x),
         .y = win32.scaleDpi(i32, @intCast(initial_window_y), result.dpi.y),
     };
-    result.size = .{
+    const unadjusted_size: XY(i32) = .{
         .x = @min(wanted_size.x, work_size.x),
         .y = @min(wanted_size.y, work_size.y),
     };
-    result.pos = .{
-        // TODO: maybe we should shift this window away from the center?
-        .x = work_rect.left + @divTrunc(work_size.x - result.size.x, 2),
-        .y = work_rect.top + @divTrunc(work_size.y - result.size.y, 2),
+    const unadjusted_rect: win32.RECT = ddui.rectIntFromSize(.{
+        .left = work_rect.left + @divTrunc(work_size.x - unadjusted_size.x, 2),
+        .top = work_rect.top + @divTrunc(work_size.y - unadjusted_size.y, 2),
+        .width = unadjusted_size.x,
+        .height = unadjusted_size.y,
+    });
+    const adjusted_rect: win32.RECT = shrinkWindowRectForCells(
+        dpi,
+        unadjusted_rect,
+        null,
+        cell_size,
+    );
+    result.pos = .{ .x = adjusted_rect.left, .y = adjusted_rect.top };
+    result.size = .{
+        .x = adjusted_rect.right - adjusted_rect.left,
+        .y = adjusted_rect.bottom - adjusted_rect.top,
     };
     return result;
 }
@@ -420,7 +417,39 @@ fn entry(pid: thespian.pid) !void {
     root.write_config(conf, arena_instance.allocator()) catch
         std.log.err("failed to write gui config file", .{});
 
+    const maybe_monitor: ?win32.HMONITOR = blk: {
+        break :blk win32.MonitorFromPoint(
+            .{ .x = 0, .y = 0 },
+            win32.MONITOR_DEFAULTTOPRIMARY,
+        ) orelse {
+            std.log.warn("MonitorFromPoint failed with {}", .{win32.GetLastError().fmt()});
+            break :blk null;
+        };
+    };
+
+    const dpi: XY(u32) = blk: {
+        const monitor = maybe_monitor orelse break :blk .{ .x = 96, .y = 96 };
+        var dpi: XY(u32) = undefined;
+        const hr = win32.GetDpiForMonitor(
+            monitor,
+            win32.MDT_EFFECTIVE_DPI,
+            &dpi.x,
+            &dpi.y,
+        );
+        if (hr < 0) {
+            std.log.warn("GetDpiForMonitor failed, hresult=0x{x}", .{@as(u32, @bitCast(hr))});
+            break :blk .{ .x = 96, .y = 96 };
+        }
+        std.log.debug("primary monitor dpi {}x{}", .{ dpi.x, dpi.y });
+        break :blk dpi;
+    };
+
+    const text_format_editor = global.text_format_editor.getOrCreate(Dpi{ .value = @max(dpi.x, dpi.y) });
+    const cell_size = getCellSize(text_format_editor);
     const initial_placement = calcWindowPlacement(
+        maybe_monitor,
+        @max(dpi.x, dpi.y),
+        cell_size,
         conf.initial_window_x,
         conf.initial_window_y,
     );
@@ -1054,7 +1083,7 @@ fn WndProc(
                 }
                 state.maybe_d2d.?.target.ID2D1RenderTarget.BeginDraw();
 
-                const text_format_editor = state.text_format_editor.getOrCreate(Dpi{ .value = dpi });
+                const text_format_editor = global.text_format_editor.getOrCreate(Dpi{ .value = dpi });
                 state.currently_rendered_cell_size = getCellSize(text_format_editor);
 
                 {
@@ -1082,6 +1111,28 @@ fn WndProc(
                 win32.invalidateHwnd(hwnd);
             } else if (err.hr < 0) std.debug.panic("paint error: {}", .{err});
             return 0;
+        },
+        win32.WM_GETDPISCALEDSIZE => {
+            const inout_size: *win32.SIZE = @ptrFromInt(@as(usize, @bitCast(lparam)));
+            const new_dpi: u32 = @intCast(0xffffffff & wparam);
+            const text_format_editor = global.text_format_editor.getOrCreate(Dpi{ .value = new_dpi });
+            const cell_size = getCellSize(text_format_editor);
+            const new_rect = shrinkWindowRectForCells(
+                new_dpi,
+                .{
+                    .left = 0,
+                    .top = 0,
+                    .right = inout_size.cx,
+                    .bottom = inout_size.cy,
+                },
+                win32.WMSZ_BOTTOMRIGHT,
+                cell_size,
+            );
+            inout_size.* = .{
+                .cx = new_rect.right,
+                .cy = new_rect.bottom,
+            };
+            return 1;
         },
         win32.WM_DPICHANGED => {
             const dpi = win32.dpiFromHwnd(hwnd);
@@ -1113,6 +1164,32 @@ fn WndProc(
                 std.debug.assert(client_pixel_size.y == client_size.y);
             }
             sendResize(hwnd);
+            return 0;
+        },
+        win32.WM_SIZING => {
+            const state = stateFromHwnd(hwnd);
+            state.last_sizing_edge = wparam;
+            return 0;
+        },
+        win32.WM_EXITSIZEMOVE => {
+            const state = stateFromHwnd(hwnd);
+            const dpi = win32.dpiFromHwnd(hwnd);
+            const text_format_editor = global.text_format_editor.getOrCreate(Dpi{ .value = dpi });
+            const cell_size = getCellSize(text_format_editor);
+
+            var window_rect: win32.RECT = undefined;
+            if (0 == win32.GetWindowRect(hwnd, &window_rect)) fatalWin32(
+                "GetWindowRect",
+                win32.GetLastError(),
+            );
+            const new_rect = shrinkWindowRectForCells(
+                dpi,
+                window_rect,
+                state.last_sizing_edge,
+                cell_size,
+            );
+            setWindowPosRect(hwnd, new_rect);
+            state.last_sizing_edge = null;
             return 0;
         },
         win32.WM_DISPLAYCHANGE => {
@@ -1191,7 +1268,7 @@ fn sendResize(
         );
     }
     const single_cell_size = getCellSize(
-        state.text_format_editor.getOrCreate(Dpi{ .value = @intCast(dpi) }),
+        global.text_format_editor.getOrCreate(Dpi{ .value = @intCast(dpi) }),
     );
     const client_pixel_size = getClientSize(hwnd);
     const client_cell_size: XY(u16) = .{
@@ -1233,6 +1310,100 @@ fn getClientSize(hwnd: win32.HWND) XY(i32) {
     std.debug.assert(rect.top == 0);
     return .{ .x = rect.right, .y = rect.bottom };
 }
+
+fn shrinkWindowRectForCells(
+    dpi: u32,
+    rect: win32.RECT,
+    maybe_edge: ?win32.WPARAM,
+    cell_size: XY(i32),
+) win32.RECT {
+    const window_size: XY(i32) = .{
+        .x = rect.right - rect.left,
+        .y = rect.bottom - rect.top,
+    };
+    const client_inset = getClientInset(dpi);
+    const client_size: XY(i32) = .{
+        .x = window_size.x - client_inset.x,
+        .y = window_size.y - client_inset.y,
+    };
+
+    const diff: XY(i32) = .{
+        .x = -@mod(client_size.x, cell_size.x),
+        .y = -@mod(client_size.y, cell_size.y),
+    };
+
+    const Adjustment = enum { low, high, both };
+    const adjustments: XY(Adjustment) = if (maybe_edge) |edge| switch (edge) {
+        win32.WMSZ_LEFT => .{ .x = .low, .y = .both },
+        win32.WMSZ_RIGHT => .{ .x = .high, .y = .both },
+        win32.WMSZ_TOP => .{ .x = .both, .y = .low },
+        win32.WMSZ_TOPLEFT => .{ .x = .low, .y = .low },
+        win32.WMSZ_TOPRIGHT => .{ .x = .high, .y = .low },
+        win32.WMSZ_BOTTOM => .{ .x = .both, .y = .high },
+        win32.WMSZ_BOTTOMLEFT => .{ .x = .low, .y = .high },
+        win32.WMSZ_BOTTOMRIGHT => .{ .x = .high, .y = .high },
+        else => .{ .x = .both, .y = .both },
+    } else .{ .x = .both, .y = .both };
+
+    return .{
+        .left = rect.left - switch (adjustments.x) {
+            .low => diff.x,
+            .high => 0,
+            .both => @divTrunc(diff.x, 2),
+        },
+        .top = rect.top - switch (adjustments.y) {
+            .low => diff.y,
+            .high => 0,
+            .both => @divTrunc(diff.y, 2),
+        },
+        .right = rect.right + switch (adjustments.x) {
+            .low => 0,
+            .high => diff.x,
+            .both => @divTrunc(diff.x + 1, 2),
+        },
+        .bottom = rect.bottom + switch (adjustments.y) {
+            .low => 0,
+            .high => diff.y,
+            .both => @divTrunc(diff.y + 1, 2),
+        },
+    };
+}
+
+fn getClientInset(dpi: u32) XY(i32) {
+    var rect: win32.RECT = .{
+        .left = 0,
+        .top = 0,
+        .right = 0,
+        .bottom = 0,
+    };
+    if (0 == win32.AdjustWindowRectExForDpi(
+        &rect,
+        window_style,
+        0,
+        window_style_ex,
+        dpi,
+    )) fatalWin32(
+        "AdjustWindowRect",
+        win32.GetLastError(),
+    );
+    return .{
+        .x = rect.right - rect.left,
+        .y = rect.bottom - rect.top,
+    };
+}
+
+fn setWindowPosRect(hwnd: win32.HWND, rect: win32.RECT) void {
+    if (0 == win32.SetWindowPos(
+        hwnd,
+        null, // ignored via NOZORDER
+        rect.left,
+        rect.top,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
+        .{ .NOZORDER = 1 },
+    )) fatalWin32("SetWindowPos", win32.GetLastError());
+}
+
 pub fn XY(comptime T: type) type {
     return struct {
         x: T,
