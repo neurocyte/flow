@@ -542,6 +542,13 @@ fn entry(pid: thespian.pid) !void {
 
     if (0 == win32.UpdateWindow(hwnd)) fatalWin32("UpdateWindow", win32.GetLastError());
     _ = win32.ShowWindow(hwnd, win32.SW_SHOWNORMAL);
+
+    // try some things to bring our window to the top
+    const HWND_TOP: ?win32.HWND = null;
+    _ = win32.SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, .{ .NOMOVE = 1, .NOSIZE = 1 });
+    _ = win32.SetForegroundWindow(hwnd);
+    _ = win32.BringWindowToTop(hwnd);
+
     var msg: win32.MSG = undefined;
     while (win32.GetMessageW(&msg, null, 0, 0) != 0) {
         _ = win32.TranslateMessage(&msg);
