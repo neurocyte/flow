@@ -47,12 +47,17 @@ fn onexit(e: error{Exit}) void {
 }
 
 const global = struct {
+    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const arena = arena_instance.allocator();
     var init_called: bool = false;
     var start_called: bool = false;
     var icons: Icons = undefined;
     var dwrite_factory: *win32.IDWriteFactory = undefined;
+    var state: ?State = null;
     var d2d_factory: *win32.ID2D1Factory = undefined;
-    var conf: ?*gui_config = null;
+    var conf: ?gui_config = null;
+    var fontface: ?[:0]const u16 = null;
+
     var text_format_editor: ddui.TextFormatCache(Dpi, createTextFormatEditor) = .{};
 
     const shared_screen = struct {
@@ -150,27 +155,41 @@ const Dpi = struct {
     }
 };
 
+fn getConfig() *const gui_config {
+    if (global.conf == null) {
+        global.conf, _ = root.read_config(gui_config, global.arena);
+        root.write_config(global.conf.?, global.arena) catch
+            std.log.err("failed to write gui config file", .{});
+    }
+    return &global.conf.?;
+}
+
+fn getFieldDefault(field: std.builtin.Type.StructField) ?*const field.type {
+    return @alignCast(@ptrCast(field.default_value orelse return null));
+}
+
+fn getFontFace() [:0]const u16 {
+    if (global.fontface == null) {
+        const conf = getConfig();
+        global.fontface = blk: {
+            break :blk std.unicode.utf8ToUtf16LeAllocZ(global.arena, conf.fontface) catch |e| {
+                std.log.err("failed to convert fontface name with {s}", .{@errorName(e)});
+                const default = comptime getFieldDefault(
+                    std.meta.fieldInfo(gui_config, .fontface),
+                ) orelse @compileError("fontface is missing default");
+                break :blk win32.L(default.*);
+            };
+        };
+    }
+    return global.fontface.?;
+}
+
 fn createTextFormatEditor(dpi: Dpi) *win32.IDWriteTextFormat {
-    const default_config = gui_config{};
-    const fontface_utf8 = if (global.conf) |conf| conf.fontface else blk: {
-        std.log.err("global gui config not found", .{});
-        break :blk default_config.fontface;
-    };
-    const fontsize = if (global.conf) |conf| conf.fontsize else default_config.fontsize;
-
-    var buf: [4096]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    var fontface = std.ArrayList(u16).init(fba.allocator());
-    std.unicode.utf8ToUtf16LeArrayList(&fontface, fontface_utf8) catch {
-        std.log.err("fontface contains invalid UTF-8", .{});
-        fontface.clearRetainingCapacity();
-        std.unicode.utf8ToUtf16LeArrayList(&fontface, default_config.fontface) catch {};
-    };
-
+    const conf = getConfig();
     var err: HResultError = undefined;
     return ddui.createTextFormat(global.dwrite_factory, &err, .{
-        .size = win32.scaleDpi(f32, @as(f32, @floatFromInt(fontsize)), dpi.value),
-        .family_name = fontface.toOwnedSliceSentinel(0) catch @panic("OOM:createTextFormatEditor"),
+        .size = win32.scaleDpi(f32, @as(f32, @floatFromInt(conf.fontsize)), dpi.value),
+        .family_name = getFontFace(),
     }) catch std.debug.panic("{s} failed, hresult=0x{x}", .{ err.context, err.hr });
 }
 
@@ -241,19 +260,18 @@ const D2d = struct {
 };
 
 const State = struct {
+    hwnd: win32.HWND,
     pid: thespian.pid,
     maybe_d2d: ?D2d = null,
     erase_bg_done: bool = false,
     scroll_delta: isize = 0,
     currently_rendered_cell_size: ?XY(i32) = null,
     background: ?u32 = null,
-    conf: gui_config,
     last_sizing_edge: ?win32.WPARAM = null,
 };
 fn stateFromHwnd(hwnd: win32.HWND) *State {
-    const addr: usize = @bitCast(win32.GetWindowLongPtrW(hwnd, @enumFromInt(0)));
-    if (addr == 0) @panic("window is missing it's state!");
-    return @ptrFromInt(addr);
+    std.debug.assert(hwnd == global.state.?.hwnd);
+    return &global.state.?;
 }
 
 fn paint(
@@ -396,9 +414,7 @@ fn calcWindowPlacement(
 }
 
 const CreateWindowArgs = struct {
-    allocator: std.mem.Allocator,
     pid: thespian.pid,
-    conf: gui_config,
 };
 
 pub fn start() !std.Thread {
@@ -408,18 +424,14 @@ pub fn start() !std.Thread {
     return try std.Thread.spawn(.{}, entry, .{pid});
 }
 fn entry(pid: thespian.pid) !void {
-    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_instance.deinit();
-
-    const CLASS_NAME = win32.L("Flow");
-
-    const conf, _ = root.read_config(gui_config, arena_instance.allocator());
-    root.write_config(conf, arena_instance.allocator()) catch
-        std.log.err("failed to write gui config file", .{});
+    const conf = getConfig();
 
     const maybe_monitor: ?win32.HMONITOR = blk: {
         break :blk win32.MonitorFromPoint(
-            .{ .x = 0, .y = 0 },
+            .{
+                .x = conf.initial_window_x,
+                .y = conf.initial_window_y,
+            },
             win32.MONITOR_DEFAULTTOPRIMARY,
         ) orelse {
             std.log.warn("MonitorFromPoint failed with {}", .{win32.GetLastError().fmt()});
@@ -455,13 +467,15 @@ fn entry(pid: thespian.pid) !void {
     );
     global.icons = getIcons(initial_placement.dpi);
 
+    const CLASS_NAME = win32.L("Flow");
+
     // we only need to register the window class once per process
     const wc = win32.WNDCLASSEXW{
         .cbSize = @sizeOf(win32.WNDCLASSEXW),
         .style = .{},
         .lpfnWndProc = WndProc,
         .cbClsExtra = 0,
-        .cbWndExtra = @sizeOf(*State),
+        .cbWndExtra = 0,
         .hInstance = win32.GetModuleHandleW(null),
         .hIcon = global.icons.large,
         .hCursor = win32.LoadCursorW(null, win32.IDC_ARROW),
@@ -475,11 +489,7 @@ fn entry(pid: thespian.pid) !void {
         win32.GetLastError(),
     );
 
-    var create_args = CreateWindowArgs{
-        .allocator = arena_instance.allocator(),
-        .pid = pid,
-        .conf = conf,
-    };
+    var create_args = CreateWindowArgs{ .pid = pid };
     const hwnd = win32.CreateWindowExW(
         window_style_ex,
         CLASS_NAME, // Window class
@@ -1226,23 +1236,14 @@ fn WndProc(
             return WM_APP_SET_BACKGROUND_RESULT;
         },
         win32.WM_CREATE => {
+            std.debug.assert(global.state == null);
             const create_struct: *win32.CREATESTRUCTW = @ptrFromInt(@as(usize, @bitCast(lparam)));
             const create_args: *CreateWindowArgs = @alignCast(@ptrCast(create_struct.lpCreateParams));
-            const state = create_args.allocator.create(State) catch |e| oom(e);
-
-            state.* = .{
+            global.state = .{
+                .hwnd = hwnd,
                 .pid = create_args.pid,
-                .conf = create_args.conf,
             };
-            global.conf = &state.conf;
-
-            const existing = win32.SetWindowLongPtrW(
-                hwnd,
-                @enumFromInt(0),
-                @as(isize, @bitCast(@intFromPtr(state))),
-            );
-            std.debug.assert(existing == 0);
-            std.debug.assert(state == stateFromHwnd(hwnd));
+            std.debug.assert(&(global.state.?) == stateFromHwnd(hwnd));
             sendResize(hwnd);
             return 0;
         },
