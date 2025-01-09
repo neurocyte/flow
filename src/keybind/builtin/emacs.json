@@ -1,4 +1,10 @@
 {
+    "project": {
+        "press": [
+            ["ctrl+=", "adjust_fontsize", 1.0],
+            ["ctrl+-", "adjust_fontsize", -1.0]
+        ]
+    },
     "normal": {
         "press": [
             ["ctrl+g", "cancel"],

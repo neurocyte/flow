@@ -278,6 +278,7 @@ const State = struct {
     currently_rendered_cell_size: ?XY(i32) = null,
     background: ?u32 = null,
     last_sizing_edge: ?win32.WPARAM = null,
+    bounds: ?WindowBounds = null,
 };
 fn stateFromHwnd(hwnd: win32.HWND) *State {
     std.debug.assert(hwnd == global.state.?.hwnd);
@@ -399,19 +400,19 @@ fn calcWindowPlacement(
         .x = win32.scaleDpi(i32, @intCast(initial_window_x), result.dpi.x),
         .y = win32.scaleDpi(i32, @intCast(initial_window_y), result.dpi.y),
     };
-    const unadjusted_size: XY(i32) = .{
+    const bounding_size: XY(i32) = .{
         .x = @min(wanted_size.x, work_size.x),
         .y = @min(wanted_size.y, work_size.y),
     };
-    const unadjusted_rect: win32.RECT = ddui.rectIntFromSize(.{
-        .left = work_rect.left + @divTrunc(work_size.x - unadjusted_size.x, 2),
-        .top = work_rect.top + @divTrunc(work_size.y - unadjusted_size.y, 2),
-        .width = unadjusted_size.x,
-        .height = unadjusted_size.y,
+    const bouding_rect: win32.RECT = ddui.rectIntFromSize(.{
+        .left = work_rect.left + @divTrunc(work_size.x - bounding_size.x, 2),
+        .top = work_rect.top + @divTrunc(work_size.y - bounding_size.y, 2),
+        .width = bounding_size.x,
+        .height = bounding_size.y,
     });
-    const adjusted_rect: win32.RECT = shrinkWindowRectForCells(
+    const adjusted_rect: win32.RECT = calcWindowRect(
         dpi,
-        unadjusted_rect,
+        bouding_rect,
         null,
         cell_size,
     );
@@ -604,7 +605,16 @@ pub fn updateScreen(screen: *const vaxis.Screen) void {
     };
 }
 
-fn updateWindowSize(hwnd: win32.HWND, edge: ?win32.WPARAM) void {
+const WindowBounds = struct {
+    token: win32.RECT,
+    rect: win32.RECT,
+};
+
+fn updateWindowSize(
+    hwnd: win32.HWND,
+    edge: ?win32.WPARAM,
+    bounds_ref: *?WindowBounds,
+) void {
     const dpi = win32.dpiFromHwnd(hwnd);
     const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = dpi, .fontsize = getFontSize() });
     const cell_size = getCellSize(text_format_editor);
@@ -614,12 +624,26 @@ fn updateWindowSize(hwnd: win32.HWND, edge: ?win32.WPARAM) void {
         "GetWindowRect",
         win32.GetLastError(),
     );
-    const new_rect = shrinkWindowRectForCells(
+
+    const restored_bounds: ?win32.RECT = blk: {
+        if (bounds_ref.*) |b| {
+            if (std.meta.eql(b.token, window_rect)) {
+                break :blk b.rect;
+            }
+        }
+        break :blk null;
+    };
+    const bounds = if (restored_bounds) |b| b else window_rect;
+    const new_rect = calcWindowRect(
         dpi,
-        window_rect,
+        bounds,
         edge,
         cell_size,
     );
+    bounds_ref.* = .{
+        .token = new_rect,
+        .rect = if (restored_bounds) |b| b else new_rect,
+    };
     setWindowPosRect(hwnd, new_rect);
 }
 
@@ -647,8 +671,8 @@ fn getCellSize(text_format: *win32.IDWriteTextFormat) XY(i32) {
         if (hr < 0) fatalHr("GetMetrics", hr);
     }
     return .{
-        .x = @as(i32, @intFromFloat(@floor(metrics.width))),
-        .y = @as(i32, @intFromFloat(@floor(metrics.height))),
+        .x = @max(1, @as(i32, @intFromFloat(@floor(metrics.width)))),
+        .y = @max(1, @as(i32, @intFromFloat(@floor(metrics.height)))),
     };
 }
 
@@ -1165,7 +1189,7 @@ fn WndProc(
             const new_dpi: u32 = @intCast(0xffffffff & wparam);
             const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = new_dpi, .fontsize = getFontSize() });
             const cell_size = getCellSize(text_format_editor);
-            const new_rect = shrinkWindowRectForCells(
+            const new_rect = calcWindowRect(
                 new_dpi,
                 .{
                     .left = 0,
@@ -1183,20 +1207,13 @@ fn WndProc(
             return 1;
         },
         win32.WM_DPICHANGED => {
+            const state = stateFromHwnd(hwnd);
             const dpi = win32.dpiFromHwnd(hwnd);
             if (dpi != win32.hiword(wparam)) @panic("unexpected hiword dpi");
             if (dpi != win32.loword(wparam)) @panic("unexpected loword dpi");
             const rect: *win32.RECT = @ptrFromInt(@as(usize, @bitCast(lparam)));
-            if (0 == win32.SetWindowPos(
-                hwnd,
-                null, // ignored via NOZORDER
-                rect.left,
-                rect.top,
-                rect.right - rect.left,
-                rect.bottom - rect.top,
-                .{ .NOZORDER = 1 },
-            )) fatalWin32("SetWindowPos", win32.GetLastError());
-            sendResize(hwnd);
+            setWindowPosRect(hwnd, rect.*);
+            state.bounds = null;
             return 0;
         },
         win32.WM_SIZE,
@@ -1221,7 +1238,8 @@ fn WndProc(
         },
         win32.WM_EXITSIZEMOVE => {
             const state = stateFromHwnd(hwnd);
-            updateWindowSize(hwnd, state.last_sizing_edge);
+            state.bounds = null;
+            updateWindowSize(hwnd, state.last_sizing_edge, &state.bounds);
             state.last_sizing_edge = null;
             return 0;
         },
@@ -1259,9 +1277,10 @@ fn WndProc(
             return WM_APP_SET_BACKGROUND_RESULT;
         },
         WM_APP_ADJUST_FONTSIZE => {
+            const state = stateFromHwnd(hwnd);
             const amount: f32 = @bitCast(@as(u32, @intCast(0xFFFFFFFFF & wparam)));
             global.fontsize = @max(getFontSize() + amount, 1.0);
-            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT);
+            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
             win32.invalidateHwnd(hwnd);
             return WM_APP_ADJUST_FONTSIZE_RESULT;
         },
@@ -1342,15 +1361,15 @@ fn getClientSize(hwnd: win32.HWND) XY(i32) {
     return .{ .x = rect.right, .y = rect.bottom };
 }
 
-fn shrinkWindowRectForCells(
+fn calcWindowRect(
     dpi: u32,
-    rect: win32.RECT,
+    bouding_rect: win32.RECT,
     maybe_edge: ?win32.WPARAM,
     cell_size: XY(i32),
 ) win32.RECT {
     const window_size: XY(i32) = .{
-        .x = rect.right - rect.left,
-        .y = rect.bottom - rect.top,
+        .x = bouding_rect.right - bouding_rect.left,
+        .y = bouding_rect.bottom - bouding_rect.top,
     };
     const client_inset = getClientInset(dpi);
     const client_size: XY(i32) = .{
@@ -1377,22 +1396,22 @@ fn shrinkWindowRectForCells(
     } else .{ .x = .both, .y = .both };
 
     return .{
-        .left = rect.left - switch (adjustments.x) {
+        .left = bouding_rect.left - switch (adjustments.x) {
             .low => diff.x,
             .high => 0,
             .both => @divTrunc(diff.x, 2),
         },
-        .top = rect.top - switch (adjustments.y) {
+        .top = bouding_rect.top - switch (adjustments.y) {
             .low => diff.y,
             .high => 0,
             .both => @divTrunc(diff.y, 2),
         },
-        .right = rect.right + switch (adjustments.x) {
+        .right = bouding_rect.right + switch (adjustments.x) {
             .low => 0,
             .high => diff.x,
             .both => @divTrunc(diff.x + 1, 2),
         },
-        .bottom = rect.bottom + switch (adjustments.y) {
+        .bottom = bouding_rect.bottom + switch (adjustments.y) {
             .low => 0,
             .high => diff.y,
             .both => @divTrunc(diff.y + 1, 2),
