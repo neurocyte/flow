@@ -103,6 +103,24 @@ pub fn move_page_down(self: *Self, root: Buffer.Root, view: *const View, metrics
     self.move_right_no_target(root, metrics) catch return;
 }
 
+pub fn move_half_page_up(self: *Self, root: Buffer.Root, view: *const View, metrics: Metrics) void {
+    const half_view_rows = @divTrunc(view.rows, 2);
+    self.row = if (self.row > half_view_rows) self.row - half_view_rows else 0;
+    self.follow_target(root, metrics);
+    self.move_left_no_target(root, metrics) catch return;
+    self.move_right_no_target(root, metrics) catch return;
+}
+
+pub fn move_half_page_down(self: *Self, root: Buffer.Root, view: *const View, metrics: Metrics) void {
+    const half_view_rows = @divTrunc(view.rows, 2);
+    if (root.lines() > self.row + half_view_rows) {
+        self.row += half_view_rows;
+    } else self.move_buffer_last(root, metrics);
+    self.follow_target(root, metrics);
+    self.move_left_no_target(root, metrics) catch return;
+    self.move_right_no_target(root, metrics) catch return;
+}
+
 pub fn move_to(self: *Self, root: Buffer.Root, row: usize, col: usize, metrics: Metrics) !void {
     if (row < root.lines()) {
         self.row = row;

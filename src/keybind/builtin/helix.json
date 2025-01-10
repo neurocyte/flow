@@ -11,8 +11,8 @@
         "press": [
             ["ctrl+b", "move_scroll_page_up"],
             ["ctrl+f", "move_scroll_page_down"],
-            ["ctrl+u", "page_cursor_half_up"],
-            ["ctrl+d", "page_cursor_half_down"],
+            ["ctrl+u", "move_scroll_half_page_up"],
+            ["ctrl+d", "move_scroll_half_page_down"],
             ["ctrl+c", "toggle_comment"],
             ["ctrl+i", "jump_forward"],
             ["ctrl+o", "jump_back"],
@@ -253,10 +253,10 @@
         "line_numbers": "relative",
         "cursor": "block",
         "press": [
-            ["ctrl+b", "move_scroll_page_up"],
-            ["ctrl+f", "move_scroll_page_down"],
-            ["ctrl+u", "page_cursor_half_up"],
-            ["ctrl+d", "page_cursor_half_down"],
+            ["ctrl+b", "select_page_up"],
+            ["ctrl+f", "select_page_down"],
+            ["ctrl+u", "select_half_page_up"],
+            ["ctrl+d", "select_half_page_down"],
 
             ["ctrl+c", "toggle_comment"],
 
