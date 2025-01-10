@@ -1955,6 +1955,14 @@ pub const Editor = struct {
         cursor.move_page_down(root, view, metrics);
     }
 
+    fn move_cursor_half_page_up(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
+        cursor.move_half_page_up(root, view, metrics);
+    }
+
+    fn move_cursor_half_page_down(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
+        cursor.move_half_page_down(root, view, metrics);
+    }
+
     pub fn primary_click(self: *Self, y: c_int, x: c_int) !void {
         if (self.fast_scroll)
             try self.push_cursor()
@@ -2889,6 +2897,30 @@ pub const Editor = struct {
     }
     pub const move_scroll_page_down_meta = .{ .description = "Move and scroll page down" };
 
+    pub fn move_scroll_half_page_up(self: *Self, _: Context) Result {
+        if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
+            const root = try self.buf_root();
+            self.with_cursors_and_view_const(root, move_cursor_half_page_up, &self.view) catch {};
+            const new_cursor_row = self.get_primary().cursor.row;
+            self.update_scroll_dest_abs(if (cursor.row > new_cursor_row) 0 else new_cursor_row - cursor.row);
+        } else {
+            return self.move_half_page_up(.{});
+        }
+    }
+    pub const move_scroll_half_page_up_meta = .{ .description = "Move and scroll half a page up" };
+
+    pub fn move_scroll_half_page_down(self: *Self, _: Context) Result {
+        if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
+            const root = try self.buf_root();
+            self.with_cursors_and_view_const(root, move_cursor_half_page_down, &self.view) catch {};
+            const new_cursor_row = self.get_primary().cursor.row;
+            self.update_scroll_dest_abs(if (cursor.row > new_cursor_row) 0 else new_cursor_row - cursor.row);
+        } else {
+            return self.move_half_page_down(.{});
+        }
+    }
+    pub const move_scroll_half_page_down_meta = .{ .description = "Move and scroll half a page down" };
+
     pub fn smart_move_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_cursors_const(root, smart_move_cursor_begin);
@@ -2926,6 +2958,23 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
     pub const move_page_down_meta = .{ .description = "Move cursor page down" };
+
+    pub fn move_half_page_up(self: *Self, _: Context) Result {
+        try self.send_editor_jump_source();
+        const root = try self.buf_root();
+        try self.with_cursors_and_view_const(root, move_cursor_page_up, &self.view);
+        self.clamp();
+    }
+    pub const move_half_page_up_meta = .{ .description = "Move cursor half a page up" };
+
+    pub fn move_half_page_down(self: *Self, _: Context) Result {
+        try self.send_editor_jump_source();
+        const root = try self.buf_root();
+        try self.with_cursors_and_view_const(root, move_cursor_page_down, &self.view);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const move_half_page_down_meta = .{ .description = "Move cursor half a page down" };
 
     pub fn move_buffer_begin(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3094,6 +3143,24 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
     pub const select_page_down_meta = .{ .description = "Select page down" };
+
+    pub fn select_half_page_up(self: *Self, _: Context) Result {
+        try self.send_editor_jump_source();
+        const root = try self.buf_root();
+        try self.with_selections_and_view_const(root, move_cursor_half_page_up, &self.view);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const select_half_page_up_meta = .{ .description = "Select half a page up" };
+
+    pub fn select_half_page_down(self: *Self, _: Context) Result {
+        try self.send_editor_jump_source();
+        const root = try self.buf_root();
+        try self.with_selections_and_view_const(root, move_cursor_half_page_down, &self.view);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const select_half_page_down_meta = .{ .description = "Select half a page down" };
 
     pub fn select_all(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
