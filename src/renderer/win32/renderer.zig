@@ -376,6 +376,16 @@ pub fn adjust_fontsize(self: *Self, amount: f32) void {
     gui.adjust_fontsize(hwnd, amount);
 }
 
+pub fn set_fontsize(self: *Self, fontsize: f32) void {
+    const hwnd = self.hwnd orelse return;
+    gui.set_fontsize(hwnd, fontsize);
+}
+
+pub fn set_fontface(self: *Self, fontface: []const u8) void {
+    const hwnd = self.hwnd orelse return;
+    gui.set_fontface(hwnd, fontface);
+}
+
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
     _ = self;
     _ = color;

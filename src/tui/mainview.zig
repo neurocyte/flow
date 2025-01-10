@@ -643,6 +643,24 @@ const cmds = struct {
             tui.current().rdr.adjust_fontsize(amount);
     }
     pub const adjust_fontsize_meta = .{ .arguments = &.{.float} };
+
+    pub fn set_fontsize(_: *Self, ctx: Ctx) Result {
+        var fontsize: f32 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&fontsize)}))
+            return error.InvalidArgument;
+        if (build_options.gui)
+            tui.current().rdr.set_fontsize(fontsize);
+    }
+    pub const set_fontsize_meta = .{ .arguments = &.{.float} };
+
+    pub fn set_fontface(_: *Self, ctx: Ctx) Result {
+        var fontface: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&fontface)}))
+            return error.InvalidArgument;
+        if (build_options.gui)
+            tui.current().rdr.set_fontface(fontface);
+    }
+    pub const set_fontface_meta = .{ .arguments = &.{.float} };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
