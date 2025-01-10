@@ -22,10 +22,14 @@ const HResultError = ddui.HResultError;
 const WM_APP_EXIT = win32.WM_APP + 1;
 const WM_APP_SET_BACKGROUND = win32.WM_APP + 2;
 const WM_APP_ADJUST_FONTSIZE = win32.WM_APP + 3;
+const WM_APP_SET_FONTSIZE = win32.WM_APP + 4;
+const WM_APP_SET_FONTFACE = win32.WM_APP + 5;
 
 const WM_APP_EXIT_RESULT = 0x45feaa11;
 const WM_APP_SET_BACKGROUND_RESULT = 0x369a26cd;
 const WM_APP_ADJUST_FONTSIZE_RESULT = 0x79aba9ef;
+const WM_APP_SET_FONTSIZE_RESULT = 0x72fa44bc;
+const WM_APP_SET_FONTFACE_RESULT = 0x1a49ffa8;
 
 pub const DropWriter = struct {
     pub const WriteError = error{};
@@ -176,7 +180,7 @@ fn getFontFace() [:0]const u16 {
     if (global.fontface == null) {
         const conf = getConfig();
         global.fontface = blk: {
-            break :blk std.unicode.utf8ToUtf16LeAllocZ(global.arena, conf.fontface) catch |e| {
+            break :blk std.unicode.utf8ToUtf16LeAllocZ(std.heap.c_allocator, conf.fontface) catch |e| {
                 std.log.err("failed to convert fontface name with {s}", .{@errorName(e)});
                 const default = comptime getFieldDefault(
                     std.meta.fieldInfo(gui_config, .fontface),
@@ -579,6 +583,28 @@ pub fn adjust_fontsize(hwnd: win32.HWND, amount: f32) void {
         WM_APP_ADJUST_FONTSIZE,
         @as(u32, @bitCast(amount)),
         0,
+    ));
+}
+
+pub fn set_fontsize(hwnd: win32.HWND, fontsize: f32) void {
+    std.debug.assert(WM_APP_SET_FONTSIZE_RESULT == win32.SendMessageW(
+        hwnd,
+        WM_APP_SET_FONTSIZE,
+        @as(u32, @bitCast(fontsize)),
+        0,
+    ));
+}
+
+pub fn set_fontface(hwnd: win32.HWND, fontface_utf8: []const u8) void {
+    const fontface = std.unicode.utf8ToUtf16LeAllocZ(std.heap.c_allocator, fontface_utf8) catch |e| {
+        std.log.err("failed to convert fontface name '{s}' with {s}", .{ fontface_utf8, @errorName(e) });
+        return;
+    };
+    std.debug.assert(WM_APP_SET_FONTFACE_RESULT == win32.SendMessageW(
+        hwnd,
+        WM_APP_SET_FONTFACE,
+        @intFromPtr(fontface.ptr),
+        @intCast(fontface.len),
     ));
 }
 
@@ -1271,6 +1297,23 @@ fn WndProc(
             updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT);
             win32.invalidateHwnd(hwnd);
             return WM_APP_ADJUST_FONTSIZE_RESULT;
+        },
+        WM_APP_SET_FONTSIZE => {
+            const fontsize: f32 = @bitCast(@as(u32, @intCast(0xFFFFFFFFF & wparam)));
+            global.fontsize = @max(fontsize, 1.0);
+            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT);
+            win32.invalidateHwnd(hwnd);
+            return WM_APP_SET_FONTSIZE_RESULT;
+        },
+        WM_APP_SET_FONTFACE => {
+            var fontface: [:0]const u16 = undefined;
+            fontface.ptr = @ptrFromInt(wparam);
+            fontface.len = @intCast(lparam);
+            if (global.fontface) |old_fontface| std.heap.c_allocator.free(old_fontface);
+            global.fontface = fontface;
+            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT);
+            win32.invalidateHwnd(hwnd);
+            return WM_APP_SET_FONTFACE_RESULT;
         },
         win32.WM_CREATE => {
             std.debug.assert(global.state == null);
