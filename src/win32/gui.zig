@@ -75,6 +75,7 @@ const global = struct {
     };
 };
 const window_style_ex = win32.WINDOW_EX_STYLE{
+    .APPWINDOW = 1,
     //.ACCEPTFILES = 1,
 };
 const window_style = win32.WS_OVERLAPPEDWINDOW;
@@ -1318,19 +1319,21 @@ fn WndProc(
             return WM_APP_ADJUST_FONTSIZE_RESULT;
         },
         WM_APP_SET_FONTSIZE => {
+            const state = stateFromHwnd(hwnd);
             const fontsize: f32 = @bitCast(@as(u32, @intCast(0xFFFFFFFFF & wparam)));
             global.fontsize = @max(fontsize, 1.0);
-            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT);
+            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_FONTSIZE_RESULT;
         },
         WM_APP_SET_FONTFACE => {
+            const state = stateFromHwnd(hwnd);
             var fontface: [:0]const u16 = undefined;
             fontface.ptr = @ptrFromInt(wparam);
             fontface.len = @intCast(lparam);
             if (global.fontface) |old_fontface| std.heap.c_allocator.free(old_fontface);
             global.fontface = fontface;
-            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT);
+            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_FONTFACE_RESULT;
         },
