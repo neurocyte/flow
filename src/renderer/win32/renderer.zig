@@ -126,8 +126,8 @@ pub fn fmtmsg(buf: []u8, value: anytype) []const u8 {
 }
 
 pub fn render(self: *Self) error{}!void {
-    _ = gui.updateScreen(&self.vx.screen);
-    if (self.hwnd) |hwnd| win32.invalidateHwnd(hwnd);
+    const hwnd = self.hwnd orelse return;
+    _ = gui.updateScreen(hwnd, &self.vx.screen);
 }
 pub fn stop(self: *Self) void {
     // this is guaranteed because stop won't be called until after

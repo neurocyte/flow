@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const root = @import("root");
 
 const c = @cImport({
@@ -6,7 +7,7 @@ const c = @cImport({
 });
 
 const win32 = @import("win32").everything;
-const ddui = @import("ddui");
+const win32ext = @import("win32ext.zig");
 
 const cbor = @import("cbor");
 const thespian = @import("thespian");
@@ -17,19 +18,24 @@ const RGB = @import("color").RGB;
 const input = @import("input");
 const windowmsg = @import("windowmsg.zig");
 
-const HResultError = ddui.HResultError;
+const render = if (build_options.d2d) @import("d2d.zig") else @import("d3d11.zig");
+
+const FontFace = @import("FontFace.zig");
+const XY = @import("xy.zig").XY;
 
 const WM_APP_EXIT = win32.WM_APP + 1;
 const WM_APP_SET_BACKGROUND = win32.WM_APP + 2;
 const WM_APP_ADJUST_FONTSIZE = win32.WM_APP + 3;
 const WM_APP_SET_FONTSIZE = win32.WM_APP + 4;
 const WM_APP_SET_FONTFACE = win32.WM_APP + 5;
+const WM_APP_UPDATE_SCREEN = win32.WM_APP + 6;
 
 const WM_APP_EXIT_RESULT = 0x45feaa11;
 const WM_APP_SET_BACKGROUND_RESULT = 0x369a26cd;
 const WM_APP_ADJUST_FONTSIZE_RESULT = 0x79aba9ef;
 const WM_APP_SET_FONTSIZE_RESULT = 0x72fa44bc;
 const WM_APP_SET_FONTFACE_RESULT = 0x1a49ffa8;
+const WM_APP_UPDATE_SCREEN_RESULT = 0x3add213b;
 
 pub const DropWriter = struct {
     pub const WriteError = error{};
@@ -58,48 +64,27 @@ const global = struct {
     var init_called: bool = false;
     var start_called: bool = false;
     var icons: Icons = undefined;
-    var dwrite_factory: *win32.IDWriteFactory = undefined;
+
     var state: ?State = null;
-    var d2d_factory: *win32.ID2D1Factory = undefined;
     var conf: ?gui_config = null;
-    var fontface: ?[:0]const u16 = null;
+    var fontface: ?FontFace = null;
     var fontsize: ?f32 = null;
+    var font: ?Font = null;
 
-    var text_format_editor: ddui.TextFormatCache(FontCacheParams, createTextFormatEditor) = .{};
-
-    const shared_screen = struct {
-        var mutex: std.Thread.Mutex = .{};
-        // only access arena/obj while the mutex is locked
-        var arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        var obj: vaxis.Screen = .{};
-    };
+    var screen_arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var screen: vaxis.Screen = .{};
 };
 const window_style_ex = win32.WINDOW_EX_STYLE{
     .APPWINDOW = 1,
     //.ACCEPTFILES = 1,
+    .NOREDIRECTIONBITMAP = render.NOREDIRECTIONBITMAP,
 };
 const window_style = win32.WS_OVERLAPPEDWINDOW;
 
 pub fn init() void {
     std.debug.assert(!global.init_called);
     global.init_called = true;
-
-    {
-        const hr = win32.DWriteCreateFactory(
-            win32.DWRITE_FACTORY_TYPE_SHARED,
-            win32.IID_IDWriteFactory,
-            @ptrCast(&global.dwrite_factory),
-        );
-        if (hr < 0) fatalHr("DWriteCreateFactory", hr);
-    }
-    {
-        var err: HResultError = undefined;
-        global.d2d_factory = ddui.createFactory(
-            .SINGLE_THREADED,
-            .{},
-            &err,
-        ) catch std.debug.panic("{}", .{err});
-    }
+    render.init();
 }
 
 const Icons = struct {
@@ -135,35 +120,6 @@ fn getIcons(dpi: XY(u32)) Icons {
     return .{ .small = @ptrCast(small), .large = @ptrCast(large) };
 }
 
-fn d2dColorFromVAxis(color: vaxis.Cell.Color) win32.D2D_COLOR_F {
-    return switch (color) {
-        .default => .{ .r = 0, .g = 0, .b = 0, .a = 0 },
-        .index => |idx| blk: {
-            const rgb = RGB.from_u24(xterm_colors[idx]);
-            break :blk .{
-                .r = @as(f32, @floatFromInt(rgb.r)) / 255.0,
-                .g = @as(f32, @floatFromInt(rgb.g)) / 255.0,
-                .b = @as(f32, @floatFromInt(rgb.b)) / 255.0,
-                .a = 1,
-            };
-        },
-        .rgb => |rgb| .{
-            .r = @as(f32, @floatFromInt(rgb[0])) / 255.0,
-            .g = @as(f32, @floatFromInt(rgb[1])) / 255.0,
-            .b = @as(f32, @floatFromInt(rgb[2])) / 255.0,
-            .a = 1,
-        },
-    };
-}
-
-const FontCacheParams = struct {
-    dpi: u32,
-    fontsize: f32,
-    pub fn eql(self: FontCacheParams, other: FontCacheParams) bool {
-        return self.dpi == other.dpi and self.fontsize == other.fontsize;
-    }
-};
-
 fn getConfig() *const gui_config {
     if (global.conf == null) {
         global.conf, _ = root.read_config(gui_config, global.arena);
@@ -177,20 +133,34 @@ fn getFieldDefault(field: std.builtin.Type.StructField) ?*const field.type {
     return @alignCast(@ptrCast(field.default_value orelse return null));
 }
 
-fn getFontFace() [:0]const u16 {
+fn getDefaultFontFace() FontFace {
+    const default = comptime getFieldDefault(
+        std.meta.fieldInfo(gui_config, .fontface),
+    ) orelse @compileError("gui_config fontface is missing default");
+    const default_wide = win32.L(default.*);
+    var result: FontFace = .{ .buf = undefined, .len = default_wide.len };
+    @memcpy(result.buf[0..default_wide.len], default_wide);
+    result.buf[default_wide.len] = 0;
+    return result;
+}
+
+fn getFontFace() *const FontFace {
     if (global.fontface == null) {
         const conf = getConfig();
         global.fontface = blk: {
-            break :blk std.unicode.utf8ToUtf16LeAllocZ(std.heap.c_allocator, conf.fontface) catch |e| {
-                std.log.err("failed to convert fontface name with {s}", .{@errorName(e)});
-                const default = comptime getFieldDefault(
-                    std.meta.fieldInfo(gui_config, .fontface),
-                ) orelse @compileError("fontface is missing default");
-                break :blk win32.L(default.*);
+            break :blk FontFace.initUtf8(conf.fontface) catch |e| switch (e) {
+                error.TooLong => {
+                    std.log.err("fontface '{s}' is too long", .{conf.fontface});
+                    break :blk getDefaultFontFace();
+                },
+                error.InvalidUtf8 => {
+                    std.log.err("fontface '{s}' is invalid utf8", .{conf.fontface});
+                    break :blk getDefaultFontFace();
+                },
             };
         };
     }
-    return global.fontface.?;
+    return &(global.fontface.?);
 }
 
 fn getFontSize() f32 {
@@ -200,155 +170,40 @@ fn getFontSize() f32 {
     return global.fontsize.?;
 }
 
-fn createTextFormatEditor(params: FontCacheParams) *win32.IDWriteTextFormat {
-    var err: HResultError = undefined;
-    return ddui.createTextFormat(global.dwrite_factory, &err, .{
-        .size = win32.scaleDpi(f32, params.fontsize, params.dpi),
-        .family_name = getFontFace(),
-    }) catch std.debug.panic("{s} failed, hresult=0x{x}", .{ err.context, err.hr });
+fn getFont(dpi: u32, size: f32, face: *const FontFace) render.Font {
+    if (global.font) |*font| {
+        if (font.dpi == dpi and font.size == size and font.face.eql(face))
+            return font.render_object;
+        font.render_object.deinit();
+        global.font = null;
+    }
+    global.font = .{
+        .dpi = dpi,
+        .size = size,
+        .face = face.*,
+        .render_object = render.Font.init(dpi, size, face),
+    };
+    return global.font.?.render_object;
 }
 
-const D2d = struct {
-    target: *win32.ID2D1HwndRenderTarget,
-    brush: *win32.ID2D1SolidColorBrush,
-    pub fn init(hwnd: win32.HWND, err: *HResultError) error{HResult}!D2d {
-        var target: *win32.ID2D1HwndRenderTarget = undefined;
-        const target_props = win32.D2D1_RENDER_TARGET_PROPERTIES{
-            .type = .DEFAULT,
-            .pixelFormat = .{
-                .format = .B8G8R8A8_UNORM,
-                .alphaMode = .PREMULTIPLIED,
-            },
-            .dpiX = 0,
-            .dpiY = 0,
-            .usage = .{},
-            .minLevel = .DEFAULT,
-        };
-        const hwnd_target_props = win32.D2D1_HWND_RENDER_TARGET_PROPERTIES{
-            .hwnd = hwnd,
-            .pixelSize = .{ .width = 0, .height = 0 },
-            .presentOptions = .{},
-        };
-
-        {
-            const hr = global.d2d_factory.CreateHwndRenderTarget(
-                &target_props,
-                &hwnd_target_props,
-                &target,
-            );
-            if (hr < 0) return err.set(hr, "CreateHwndRenderTarget");
-        }
-        errdefer _ = target.IUnknown.Release();
-
-        {
-            var dc: *win32.ID2D1DeviceContext = undefined;
-            {
-                const hr = target.IUnknown.QueryInterface(win32.IID_ID2D1DeviceContext, @ptrCast(&dc));
-                if (hr < 0) return err.set(hr, "GetDeviceContext");
-            }
-            defer _ = dc.IUnknown.Release();
-            // just make everything DPI aware, all applications should just do this
-            dc.SetUnitMode(win32.D2D1_UNIT_MODE_PIXELS);
-        }
-
-        var brush: *win32.ID2D1SolidColorBrush = undefined;
-        {
-            const color: win32.D2D_COLOR_F = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
-            const hr = target.ID2D1RenderTarget.CreateSolidColorBrush(&color, null, &brush);
-            if (hr < 0) return err.set(hr, "CreateSolidBrush");
-        }
-        errdefer _ = brush.IUnknown.Release();
-
-        return .{
-            .target = target,
-            .brush = brush,
-        };
-    }
-    pub fn deinit(self: *D2d) void {
-        _ = self.brush.IUnknown.Release();
-        _ = self.target.IUnknown.Release();
-    }
-    pub fn solid(self: *const D2d, color: win32.D2D_COLOR_F) *win32.ID2D1Brush {
-        self.brush.SetColor(&color);
-        return &self.brush.ID2D1Brush;
-    }
+const Font = struct {
+    dpi: u32,
+    size: f32,
+    face: FontFace,
+    render_object: render.Font,
 };
 
 const State = struct {
     hwnd: win32.HWND,
     pid: thespian.pid,
-    maybe_d2d: ?D2d = null,
-    erase_bg_done: bool = false,
+    render_state: render.WindowState,
     scroll_delta: isize = 0,
-    currently_rendered_cell_size: ?XY(i32) = null,
-    background: ?u32 = null,
     last_sizing_edge: ?win32.WPARAM = null,
     bounds: ?WindowBounds = null,
 };
 fn stateFromHwnd(hwnd: win32.HWND) *State {
     std.debug.assert(hwnd == global.state.?.hwnd);
     return &global.state.?;
-}
-
-fn paint(
-    d2d: *const D2d,
-    background: RGB,
-    screen: *const vaxis.Screen,
-    text_format_editor: *win32.IDWriteTextFormat,
-    cell_size: XY(i32),
-) void {
-    {
-        const color = ddui.rgb8(background.r, background.g, background.b);
-        d2d.target.ID2D1RenderTarget.Clear(&color);
-    }
-
-    for (0..screen.height) |y| {
-        const row_y: i32 = cell_size.y * @as(i32, @intCast(y));
-        for (0..screen.width) |x| {
-            const column_x: i32 = cell_size.x * @as(i32, @intCast(x));
-            const cell_index = screen.width * y + x;
-            const cell = &screen.buf[cell_index];
-
-            const cell_rect: win32.RECT = .{
-                .left = column_x,
-                .top = row_y,
-                .right = column_x + cell_size.x,
-                .bottom = row_y + cell_size.y,
-            };
-            ddui.FillRectangle(
-                &d2d.target.ID2D1RenderTarget,
-                cell_rect,
-                d2d.solid(d2dColorFromVAxis(cell.style.bg)),
-            );
-
-            // TODO: pre-caclulate the buffer size needed, for now this should just
-            //       cause out-of-bounds access
-            var buf_wtf16: [100]u16 = undefined;
-            const grapheme_len = blk: {
-                break :blk std.unicode.wtf8ToWtf16Le(&buf_wtf16, cell.char.grapheme) catch |err| switch (err) {
-                    error.InvalidWtf8 => {
-                        buf_wtf16[0] = std.unicode.replacement_character;
-                        break :blk 1;
-                    },
-                };
-            };
-            const grapheme = buf_wtf16[0..grapheme_len];
-            if (std.mem.eql(u16, grapheme, &[_]u16{' '}))
-                continue;
-            ddui.DrawText(
-                &d2d.target.ID2D1RenderTarget,
-                grapheme,
-                text_format_editor,
-                ddui.rectFloatFromInt(cell_rect),
-                d2d.solid(d2dColorFromVAxis(cell.style.fg)),
-                .{
-                    .CLIP = 1,
-                    .ENABLE_COLOR_FONT = 1,
-                },
-                .NATURAL,
-            );
-        }
-    }
 }
 
 const WindowPlacement = struct {
@@ -409,7 +264,7 @@ fn calcWindowPlacement(
         .x = @min(wanted_size.x, work_size.x),
         .y = @min(wanted_size.y, work_size.y),
     };
-    const bouding_rect: win32.RECT = ddui.rectIntFromSize(.{
+    const bouding_rect: win32.RECT = rectIntFromSize(.{
         .left = work_rect.left + @divTrunc(work_size.x - bounding_size.x, 2),
         .top = work_rect.top + @divTrunc(work_size.y - bounding_size.y, 2),
         .width = bounding_size.x,
@@ -440,6 +295,9 @@ pub fn start() !std.Thread {
     return try std.Thread.spawn(.{}, entry, .{pid});
 }
 fn entry(pid: thespian.pid) !void {
+    std.debug.assert(global.init_called);
+    std.debug.assert(global.start_called);
+
     const conf = getConfig();
 
     const maybe_monitor: ?win32.HMONITOR = blk: {
@@ -472,8 +330,7 @@ fn entry(pid: thespian.pid) !void {
         break :blk dpi;
     };
 
-    const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = @max(dpi.x, dpi.y), .fontsize = @floatFromInt(conf.fontsize) });
-    const cell_size = getCellSize(text_format_editor);
+    const cell_size = getFont(@max(dpi.x, dpi.y), getFontSize(), getFontFace()).getCellSize(i32);
     const initial_placement = calcWindowPlacement(
         maybe_monitor,
         @max(dpi.x, dpi.y),
@@ -598,45 +455,25 @@ pub fn set_fontsize(hwnd: win32.HWND, fontsize: f32) void {
 }
 
 pub fn set_fontface(hwnd: win32.HWND, fontface_utf8: []const u8) void {
-    const fontface = std.unicode.utf8ToUtf16LeAllocZ(std.heap.c_allocator, fontface_utf8) catch |e| {
-        std.log.err("failed to convert fontface name '{s}' with {s}", .{ fontface_utf8, @errorName(e) });
+    const fontface = FontFace.initUtf8(fontface_utf8) catch |e| {
+        std.log.err("failed to set fontface '{s}' with {s}", .{ fontface_utf8, @errorName(e) });
         return;
     };
     std.debug.assert(WM_APP_SET_FONTFACE_RESULT == win32.SendMessageW(
         hwnd,
         WM_APP_SET_FONTFACE,
-        @intFromPtr(fontface.ptr),
-        @intCast(fontface.len),
+        @intFromPtr(&fontface),
+        0,
     ));
 }
 
-pub fn updateScreen(screen: *const vaxis.Screen) void {
-    global.shared_screen.mutex.lock();
-    defer global.shared_screen.mutex.unlock();
-    _ = global.shared_screen.arena.reset(.retain_capacity);
-
-    const buf = global.shared_screen.arena.allocator().alloc(vaxis.Cell, screen.buf.len) catch |e| oom(e);
-    @memcpy(buf, screen.buf);
-    for (buf) |*cell| {
-        cell.char.grapheme = global.shared_screen.arena.allocator().dupe(
-            u8,
-            cell.char.grapheme,
-        ) catch |e| oom(e);
-    }
-    global.shared_screen.obj = .{
-        .width = screen.width,
-        .height = screen.height,
-        .width_pix = screen.width_pix,
-        .height_pix = screen.height_pix,
-        .buf = buf,
-        .cursor_row = screen.cursor_row,
-        .cursor_col = screen.cursor_col,
-        .cursor_vis = screen.cursor_vis,
-        .unicode = undefined,
-        .width_method = undefined,
-        .mouse_shape = screen.mouse_shape,
-        .cursor_shape = undefined,
-    };
+pub fn updateScreen(hwnd: win32.HWND, screen: *const vaxis.Screen) void {
+    std.debug.assert(WM_APP_UPDATE_SCREEN_RESULT == win32.SendMessageW(
+        hwnd,
+        WM_APP_UPDATE_SCREEN,
+        @intFromPtr(screen),
+        0,
+    ));
 }
 
 const WindowBounds = struct {
@@ -650,8 +487,8 @@ fn updateWindowSize(
     bounds_ref: *?WindowBounds,
 ) void {
     const dpi = win32.dpiFromHwnd(hwnd);
-    const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = dpi, .fontsize = getFontSize() });
-    const cell_size = getCellSize(text_format_editor);
+    const font = getFont(dpi, getFontSize(), getFontFace());
+    const cell_size = font.getCellSize(i32);
 
     var window_rect: win32.RECT = undefined;
     if (0 == win32.GetWindowRect(hwnd, &window_rect)) fatalWin32(
@@ -679,35 +516,6 @@ fn updateWindowSize(
         .rect = if (restored_bounds) |b| b else new_rect,
     };
     setWindowPosRect(hwnd, new_rect);
-}
-
-// NOTE: we round the text metric up to the nearest integer which
-//       means our background rectangles will be aligned. We accomodate
-//       for any gap added by doing this by centering the text.
-fn getCellSize(text_format: *win32.IDWriteTextFormat) XY(i32) {
-    var text_layout: *win32.IDWriteTextLayout = undefined;
-    {
-        const hr = global.dwrite_factory.CreateTextLayout(
-            win32.L("█"),
-            1,
-            text_format,
-            std.math.floatMax(f32),
-            std.math.floatMax(f32),
-            &text_layout,
-        );
-        if (hr < 0) fatalHr("CreateTextLayout", hr);
-    }
-    defer _ = text_layout.IUnknown.Release();
-
-    var metrics: win32.DWRITE_TEXT_METRICS = undefined;
-    {
-        const hr = text_layout.GetMetrics(&metrics);
-        if (hr < 0) fatalHr("GetMetrics", hr);
-    }
-    return .{
-        .x = @max(1, @as(i32, @intFromFloat(@floor(metrics.width)))),
-        .y = @max(1, @as(i32, @intFromFloat(@floor(metrics.height)))),
-    };
 }
 
 const CellPos = struct {
@@ -757,9 +565,10 @@ fn sendMouse(
     wparam: win32.WPARAM,
     lparam: win32.LPARAM,
 ) void {
-    const point = ddui.pointFromLparam(lparam);
+    const point = win32ext.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
-    const cell_size = state.currently_rendered_cell_size orelse return;
+    const dpi = win32.dpiFromHwnd(hwnd);
+    const cell_size = getFont(dpi, getFontSize(), getFontFace()).getCellSize(i32);
     const cell = CellPos.init(cell_size, point.x, point.y);
     switch (kind) {
         .move => {
@@ -807,9 +616,10 @@ fn sendMouseWheel(
     wparam: win32.WPARAM,
     lparam: win32.LPARAM,
 ) void {
-    const point = ddui.pointFromLparam(lparam);
+    const point = win32ext.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
-    const cell_size = state.currently_rendered_cell_size orelse return;
+    const dpi = win32.dpiFromHwnd(hwnd);
+    const cell_size = getFont(dpi, getFontSize(), getFontFace()).getCellSize(i32);
     const cell = CellPos.init(cell_size, point.x, point.y);
     // const fwKeys = win32.loword(wparam);
     state.scroll_delta += @as(i16, @bitCast(win32.hiword(wparam)));
@@ -1159,70 +969,30 @@ fn WndProc(
             return 0;
         },
         win32.WM_PAINT => {
-            const dpi = win32.dpiFromHwnd(hwnd);
-            const client_size = getClientSize(hwnd);
             const state = stateFromHwnd(hwnd);
-
-            const err: HResultError = blk: {
-                var ps: win32.PAINTSTRUCT = undefined;
-                _ = win32.BeginPaint(hwnd, &ps) orelse return fatalWin32(
-                    "BeginPaint",
-                    win32.GetLastError(),
-                );
-                defer if (0 == win32.EndPaint(hwnd, &ps)) fatalWin32(
-                    "EndPaint",
-                    win32.GetLastError(),
-                );
-
-                if (state.maybe_d2d == null) {
-                    var err: HResultError = undefined;
-                    state.maybe_d2d = D2d.init(hwnd, &err) catch break :blk err;
-                }
-
-                {
-                    const size: win32.D2D_SIZE_U = .{
-                        .width = @intCast(client_size.x),
-                        .height = @intCast(client_size.y),
-                    };
-                    const hr = state.maybe_d2d.?.target.Resize(&size);
-                    if (hr < 0) break :blk HResultError{ .context = "D2dResize", .hr = hr };
-                }
-                state.maybe_d2d.?.target.ID2D1RenderTarget.BeginDraw();
-
-                const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = dpi, .fontsize = getFontSize() });
-                state.currently_rendered_cell_size = getCellSize(text_format_editor);
-
-                {
-                    global.shared_screen.mutex.lock();
-                    defer global.shared_screen.mutex.unlock();
-                    paint(
-                        &state.maybe_d2d.?,
-                        RGB.from_u24(if (state.background) |b| @intCast(0xffffff & b) else 0),
-                        &global.shared_screen.obj,
-                        text_format_editor,
-                        state.currently_rendered_cell_size.?,
-                    );
-                }
-
-                break :blk HResultError{
-                    .context = "D2dEndDraw",
-                    .hr = state.maybe_d2d.?.target.ID2D1RenderTarget.EndDraw(null, null),
-                };
-            };
-
-            if (err.hr == win32.D2DERR_RECREATE_TARGET) {
-                std.log.debug("D2DERR_RECREATE_TARGET", .{});
-                state.maybe_d2d.?.deinit();
-                state.maybe_d2d = null;
-                win32.invalidateHwnd(hwnd);
-            } else if (err.hr < 0) std.debug.panic("paint error: {}", .{err});
+            const dpi = win32.dpiFromHwnd(hwnd);
+            const font = getFont(dpi, getFontSize(), getFontFace());
+            render.paint(hwnd, &state.render_state, font, &global.screen);
             return 0;
         },
         win32.WM_GETDPISCALEDSIZE => {
             const inout_size: *win32.SIZE = @ptrFromInt(@as(usize, @bitCast(lparam)));
             const new_dpi: u32 = @intCast(0xffffffff & wparam);
-            const text_format_editor = global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = new_dpi, .fontsize = getFontSize() });
-            const cell_size = getCellSize(text_format_editor);
+            // we don't want to update the font with the new dpi until after
+            // the dpi change is effective, so, we get the cell size from the current font/dpi
+            // and re-scale it based on the new dpi ourselves
+            const current_dpi = win32.dpiFromHwnd(hwnd);
+            const font = getFont(current_dpi, getFontSize(), getFontFace());
+            const current_cell_size_i32 = font.getCellSize(i32);
+            const current_cell_size: XY(f32) = .{
+                .x = @floatFromInt(current_cell_size_i32.x),
+                .y = @floatFromInt(current_cell_size_i32.y),
+            };
+            const scale: f32 = @as(f32, @floatFromInt(new_dpi)) / @as(f32, @floatFromInt(current_dpi));
+            const rescaled_cell_size: XY(i32) = .{
+                .x = @intFromFloat(@round(current_cell_size.x * scale)),
+                .y = @intFromFloat(@round(current_cell_size.y * scale)),
+            };
             const new_rect = calcWindowRect(
                 new_dpi,
                 .{
@@ -1232,7 +1002,7 @@ fn WndProc(
                     .bottom = inout_size.cy,
                 },
                 win32.WMSZ_BOTTOMRIGHT,
-                cell_size,
+                rescaled_cell_size,
             );
             inout_size.* = .{
                 .cx = new_rect.right,
@@ -1254,13 +1024,13 @@ fn WndProc(
         => {
             const do_sanity_check = true;
             if (do_sanity_check) {
-                const client_pixel_size: XY(u16) = .{
+                const lparam_size: XY(u16) = .{
                     .x = win32.loword(lparam),
                     .y = win32.hiword(lparam),
                 };
-                const client_size = getClientSize(hwnd);
-                std.debug.assert(client_pixel_size.x == client_size.x);
-                std.debug.assert(client_pixel_size.y == client_size.y);
+                const client_size = getClientSize(u16, hwnd);
+                std.debug.assert(lparam_size.x == client_size.x);
+                std.debug.assert(lparam_size.y == client_size.y);
             }
             sendResize(hwnd);
             return 0;
@@ -1281,20 +1051,6 @@ fn WndProc(
             win32.invalidateHwnd(hwnd);
             return 0;
         },
-        win32.WM_ERASEBKGND => {
-            const state = stateFromHwnd(hwnd);
-            if (!state.erase_bg_done) {
-                state.erase_bg_done = true;
-                const brush = win32.CreateSolidBrush(toColorRef(.{ .r = 29, .g = 29, .b = 29 })) orelse
-                    fatalWin32("CreateSolidBrush", win32.GetLastError());
-                defer deleteObject(brush);
-                const hdc: win32.HDC = @ptrFromInt(wparam);
-                var rect: win32.RECT = undefined;
-                if (0 == win32.GetClientRect(hwnd, &rect)) @panic("");
-                if (0 == win32.FillRect(hdc, &rect, brush)) @panic("");
-            }
-            return 1; // background erased
-        },
         win32.WM_CLOSE => {
             const state = stateFromHwnd(hwnd);
             state.pid.send(.{ "cmd", "quit" }) catch |e| onexit(e);
@@ -1305,8 +1061,10 @@ fn WndProc(
             return WM_APP_EXIT_RESULT;
         },
         WM_APP_SET_BACKGROUND => {
-            const state = stateFromHwnd(hwnd);
-            state.background = @intCast(wparam);
+            render.setBackground(
+                &stateFromHwnd(hwnd).render_state,
+                RGB.from_u24(@intCast(0xffffff & wparam)),
+            );
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_BACKGROUND_RESULT;
         },
@@ -1328,14 +1086,39 @@ fn WndProc(
         },
         WM_APP_SET_FONTFACE => {
             const state = stateFromHwnd(hwnd);
-            var fontface: [:0]const u16 = undefined;
-            fontface.ptr = @ptrFromInt(wparam);
-            fontface.len = @intCast(lparam);
-            if (global.fontface) |old_fontface| std.heap.c_allocator.free(old_fontface);
-            global.fontface = fontface;
+            const fontface: *FontFace = @ptrFromInt(wparam);
+            global.fontface = fontface.*;
             updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_FONTFACE_RESULT;
+        },
+        WM_APP_UPDATE_SCREEN => {
+            const screen: *const vaxis.Screen = @ptrFromInt(wparam);
+            _ = global.screen_arena.reset(.retain_capacity);
+            const buf = global.screen_arena.allocator().alloc(vaxis.Cell, screen.buf.len) catch |e| oom(e);
+            @memcpy(buf, screen.buf);
+            for (buf) |*cell| {
+                cell.char.grapheme = global.screen_arena.allocator().dupe(
+                    u8,
+                    cell.char.grapheme,
+                ) catch |e| oom(e);
+            }
+            global.screen = .{
+                .width = screen.width,
+                .height = screen.height,
+                .width_pix = screen.width_pix,
+                .height_pix = screen.height_pix,
+                .buf = buf,
+                .cursor_row = screen.cursor_row,
+                .cursor_col = screen.cursor_col,
+                .cursor_vis = screen.cursor_vis,
+                .unicode = undefined,
+                .width_method = undefined,
+                .mouse_shape = screen.mouse_shape,
+                .cursor_shape = undefined,
+            };
+            win32.invalidateHwnd(hwnd);
+            return WM_APP_UPDATE_SCREEN_RESULT;
         },
         win32.WM_CREATE => {
             std.debug.assert(global.state == null);
@@ -1344,6 +1127,7 @@ fn WndProc(
             global.state = .{
                 .hwnd = hwnd,
                 .pid = create_args.pid,
+                .render_state = render.WindowState.init(hwnd),
             };
             std.debug.assert(&(global.state.?) == stateFromHwnd(hwnd));
             sendResize(hwnd);
@@ -1363,32 +1147,25 @@ fn sendResize(
 ) void {
     const dpi = win32.dpiFromHwnd(hwnd);
     const state = stateFromHwnd(hwnd);
-    if (state.maybe_d2d == null) {
-        var err: HResultError = undefined;
-        state.maybe_d2d = D2d.init(hwnd, &err) catch std.debug.panic(
-            "D2d.init failed with {}",
-            .{err},
-        );
-    }
-    const single_cell_size = getCellSize(
-        global.text_format_editor.getOrCreate(FontCacheParams{ .dpi = @intCast(dpi), .fontsize = getFontSize() }),
-    );
-    const client_pixel_size = getClientSize(hwnd);
-    const client_cell_size: XY(u16) = .{
-        .x = @intCast(@divTrunc(client_pixel_size.x, single_cell_size.x)),
-        .y = @intCast(@divTrunc(client_pixel_size.y, single_cell_size.y)),
+
+    const font = getFont(dpi, getFontSize(), getFontFace());
+    const cell_size = font.getCellSize(u16);
+    const client_size = getClientSize(u16, hwnd);
+    const client_cell_count: XY(u16) = .{
+        .x = @intCast(@divTrunc(client_size.x, cell_size.x)),
+        .y = @intCast(@divTrunc(client_size.y, cell_size.y)),
     };
     std.log.debug(
         "Resize Px={}x{} Cells={}x{}",
-        .{ client_pixel_size.x, client_pixel_size.y, client_cell_size.x, client_cell_size.y },
+        .{ client_size.x, client_size.y, client_cell_count.x, client_cell_count.y },
     );
     state.pid.send(.{
         "RDR",
         "Resize",
-        client_cell_size.x,
-        client_cell_size.y,
-        client_pixel_size.x,
-        client_pixel_size.y,
+        client_cell_count.x,
+        client_cell_count.y,
+        client_size.x,
+        client_size.y,
     }) catch @panic("pid send failed");
 }
 
@@ -1405,13 +1182,13 @@ fn fatalHr(what: []const u8, hresult: win32.HRESULT) noreturn {
 fn deleteObject(obj: ?win32.HGDIOBJ) void {
     if (0 == win32.DeleteObject(obj)) fatalWin32("DeleteObject", win32.GetLastError());
 }
-fn getClientSize(hwnd: win32.HWND) XY(i32) {
+fn getClientSize(comptime T: type, hwnd: win32.HWND) XY(T) {
     var rect: win32.RECT = undefined;
     if (0 == win32.GetClientRect(hwnd, &rect))
         fatalWin32("GetClientRect", win32.GetLastError());
     std.debug.assert(rect.left == 0);
     std.debug.assert(rect.top == 0);
-    return .{ .x = rect.right, .y = rect.bottom };
+    return .{ .x = @intCast(rect.right), .y = @intCast(rect.bottom) };
 }
 
 fn calcWindowRect(
@@ -1495,6 +1272,15 @@ fn getClientInset(dpi: u32) XY(i32) {
     };
 }
 
+fn rectIntFromSize(args: struct { left: i32, top: i32, width: i32, height: i32 }) win32.RECT {
+    return .{
+        .left = args.left,
+        .top = args.top,
+        .right = args.left + args.width,
+        .bottom = args.top + args.height,
+    };
+}
+
 fn setWindowPosRect(hwnd: win32.HWND, rect: win32.RECT) void {
     if (0 == win32.SetWindowPos(
         hwnd,
@@ -1506,50 +1292,3 @@ fn setWindowPosRect(hwnd: win32.HWND, rect: win32.RECT) void {
         .{ .NOZORDER = 1 },
     )) fatalWin32("SetWindowPos", win32.GetLastError());
 }
-
-pub fn XY(comptime T: type) type {
-    return struct {
-        x: T,
-        y: T,
-        pub fn init(x: T, y: T) @This() {
-            return .{ .x = x, .y = y };
-        }
-    };
-}
-
-const xterm_colors: [256]u24 = .{
-    0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xc0c0c0,
-    0x808080, 0xff0000, 0x00ff00, 0xffff00, 0x0000ff, 0xff00ff, 0x00ffff, 0xffffff,
-
-    0x000000, 0x00005f, 0x000087, 0x0000af, 0x0000d7, 0x0000ff, 0x005f00, 0x005f5f,
-    0x005f87, 0x005faf, 0x005fd7, 0x005fff, 0x008700, 0x00875f, 0x008787, 0x0087af,
-    0x0087d7, 0x0087ff, 0x00af00, 0x00af5f, 0x00af87, 0x00afaf, 0x00afd7, 0x00afff,
-    0x00d700, 0x00d75f, 0x00d787, 0x00d7af, 0x00d7d7, 0x00d7ff, 0x00ff00, 0x00ff5f,
-    0x00ff87, 0x00ffaf, 0x00ffd7, 0x00ffff, 0x5f0000, 0x5f005f, 0x5f0087, 0x5f00af,
-    0x5f00d7, 0x5f00ff, 0x5f5f00, 0x5f5f5f, 0x5f5f87, 0x5f5faf, 0x5f5fd7, 0x5f5fff,
-    0x5f8700, 0x5f875f, 0x5f8787, 0x5f87af, 0x5f87d7, 0x5f87ff, 0x5faf00, 0x5faf5f,
-    0x5faf87, 0x5fafaf, 0x5fafd7, 0x5fafff, 0x5fd700, 0x5fd75f, 0x5fd787, 0x5fd7af,
-    0x5fd7d7, 0x5fd7ff, 0x5fff00, 0x5fff5f, 0x5fff87, 0x5fffaf, 0x5fffd7, 0x5fffff,
-    0x870000, 0x87005f, 0x870087, 0x8700af, 0x8700d7, 0x8700ff, 0x875f00, 0x875f5f,
-    0x875f87, 0x875faf, 0x875fd7, 0x875fff, 0x878700, 0x87875f, 0x878787, 0x8787af,
-    0x8787d7, 0x8787ff, 0x87af00, 0x87af5f, 0x87af87, 0x87afaf, 0x87afd7, 0x87afff,
-    0x87d700, 0x87d75f, 0x87d787, 0x87d7af, 0x87d7d7, 0x87d7ff, 0x87ff00, 0x87ff5f,
-    0x87ff87, 0x87ffaf, 0x87ffd7, 0x87ffff, 0xaf0000, 0xaf005f, 0xaf0087, 0xaf00af,
-    0xaf00d7, 0xaf00ff, 0xaf5f00, 0xaf5f5f, 0xaf5f87, 0xaf5faf, 0xaf5fd7, 0xaf5fff,
-    0xaf8700, 0xaf875f, 0xaf8787, 0xaf87af, 0xaf87d7, 0xaf87ff, 0xafaf00, 0xafaf5f,
-    0xafaf87, 0xafafaf, 0xafafd7, 0xafafff, 0xafd700, 0xafd75f, 0xafd787, 0xafd7af,
-    0xafd7d7, 0xafd7ff, 0xafff00, 0xafff5f, 0xafff87, 0xafffaf, 0xafffd7, 0xafffff,
-    0xd70000, 0xd7005f, 0xd70087, 0xd700af, 0xd700d7, 0xd700ff, 0xd75f00, 0xd75f5f,
-    0xd75f87, 0xd75faf, 0xd75fd7, 0xd75fff, 0xd78700, 0xd7875f, 0xd78787, 0xd787af,
-    0xd787d7, 0xd787ff, 0xd7af00, 0xd7af5f, 0xd7af87, 0xd7afaf, 0xd7afd7, 0xd7afff,
-    0xd7d700, 0xd7d75f, 0xd7d787, 0xd7d7af, 0xd7d7d7, 0xd7d7ff, 0xd7ff00, 0xd7ff5f,
-    0xd7ff87, 0xd7ffaf, 0xd7ffd7, 0xd7ffff, 0xff0000, 0xff005f, 0xff0087, 0xff00af,
-    0xff00d7, 0xff00ff, 0xff5f00, 0xff5f5f, 0xff5f87, 0xff5faf, 0xff5fd7, 0xff5fff,
-    0xff8700, 0xff875f, 0xff8787, 0xff87af, 0xff87d7, 0xff87ff, 0xffaf00, 0xffaf5f,
-    0xffaf87, 0xffafaf, 0xffafd7, 0xffafff, 0xffd700, 0xffd75f, 0xffd787, 0xffd7af,
-    0xffd7d7, 0xffd7ff, 0xffff00, 0xffff5f, 0xffff87, 0xffffaf, 0xffffd7, 0xffffff,
-
-    0x080808, 0x121212, 0x1c1c1c, 0x262626, 0x303030, 0x3a3a3a, 0x444444, 0x4e4e4e,
-    0x585858, 0x606060, 0x666666, 0x767676, 0x808080, 0x8a8a8a, 0x949494, 0x9e9e9e,
-    0xa8a8a8, 0xb2b2b2, 0xbcbcbc, 0xc6c6c6, 0xd0d0d0, 0xdadada, 0xe4e4e4, 0xeeeeee,
-};

@@ -161,6 +161,13 @@ pub fn build_exe(
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
     options.addOption(bool, "strip", strip);
     options.addOption(bool, "gui", gui);
+    if (gui) {
+        options.addOption(bool, "d2d", b.option(
+            bool,
+            "d2d",
+            "use the Direct2D backend (instead of Direct3D11)",
+        ) orelse false);
+    }
 
     const options_mod = options.createModule();
 
@@ -323,6 +330,7 @@ pub fn build_exe(
                 const gui_mod = b.createModule(.{
                     .root_source_file = b.path("src/win32/gui.zig"),
                     .imports = &.{
+                        .{ .name = "build_options", .module = options_mod },
                         .{ .name = "win32", .module = win32_mod },
                         .{ .name = "ddui", .module = direct2d_dep.module("ddui") },
                         .{ .name = "cbor", .module = cbor_mod },
