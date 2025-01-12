@@ -176,6 +176,13 @@ pub fn completion(file_path: []const u8, row: usize, col: usize) (ProjectManager
     return send(.{ "completion", project, file_path, row, col });
 }
 
+pub fn rename_symbol(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "rename_symbol", project, file_path, row, col });
+}
+
 pub fn hover(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -339,6 +346,8 @@ const Process = struct {
             self.references(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "completion", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.completion(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "rename_symbol", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+            self.rename_symbol(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "hover", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.hover(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
@@ -490,6 +499,13 @@ const Process = struct {
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.completion(from, file_path, row, col);
+    }
+
+    fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || cbor.Error)!void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".rename_symbol" });
+        defer frame.deinit();
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.rename_symbol(from, file_path, row, col);
     }
 
     fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || cbor.Error)!void {

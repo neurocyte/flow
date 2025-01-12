@@ -554,6 +554,32 @@ const cmds = struct {
     }
     pub const add_diagnostic_meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
 
+    pub fn rename_symbol_item(self: *Self, ctx: Ctx) Result {
+        var file_uri: []const u8 = undefined;
+        var sel: ed.Selection = .{};
+        var new_text: []const u8 = undefined;
+        if (!try ctx.args.match(.{
+            tp.extract(&file_uri),
+            tp.extract(&sel.begin.row),
+            tp.extract(&sel.begin.col),
+            tp.extract(&sel.end.row),
+            tp.extract(&sel.end.col),
+            tp.extract(&new_text),
+        })) return error.InvalidRenameSymbolArgument;
+        file_uri = project_manager.normalize_file_path(file_uri);
+        if (self.get_active_editor()) |editor| {
+            // TODO match correctly. endsWith() isn't correct because path is a
+            // short, relative path while file_uri is an absolute path starting with 'file://'
+            const match = if (editor.file_path) |path| std.mem.endsWith(u8, file_uri, path) else false;
+            if (match) {
+                try editor.rename_symbol_item(sel, new_text);
+            } else {
+                // TODO perform renames in other files
+            }
+        }
+    }
+    pub const rename_symbol_item_meta = .{ .arguments = &.{ .string, .integer, .integer, .integer, .integer, .string } };
+
     pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidClearDiagnosticsArgument;

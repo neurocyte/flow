@@ -4222,6 +4222,13 @@ pub const Editor = struct {
     }
     pub const completion_meta = .{ .description = "Language: Show completions at cursor" };
 
+    pub fn rename_symbol(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        return project_manager.rename_symbol(file_path, primary.cursor.row, primary.cursor.col);
+    }
+    pub const rename_symbol_meta = .{ .description = "Language: Rename symbol at cursor" };
+
     pub fn hover(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         return self.hover_at(primary.cursor.row, primary.cursor.col);
@@ -4313,6 +4320,15 @@ pub const Editor = struct {
         self.diag_info = 0;
         self.diag_hints = 0;
         self.send_editor_diagnostics() catch {};
+        self.need_render();
+    }
+
+    pub fn rename_symbol_item(self: *Self, sel: Selection, new_text: []const u8) Result {
+        self.get_primary().selection = sel;
+        const buf = try self.buf_for_update();
+        const r1 = try self.delete_selection(buf.root, self.get_primary(), self.allocator);
+        const r2 = try self.insert(r1, self.get_primary(), new_text, self.allocator);
+        try self.update_buf(r2);
         self.need_render();
     }
 

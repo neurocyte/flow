@@ -782,6 +782,118 @@ fn send_completion_item(_: *Self, to: tp.pid_ref, file_path: []const u8, row: us
     }) catch error.ClientFailed;
 }
 
+pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspOrClientError || InvalidMessageError || cbor.Error)!void {
+    const lsp = try self.get_language_server(file_path);
+    const uri = try self.make_URI(file_path);
+    defer self.allocator.free(uri);
+    const response = lsp.send_request(self.allocator, "textDocument/rename", .{
+        .textDocument = .{ .uri = uri },
+        .position = .{ .line = row, .character = col },
+        .newName = "foobar",
+    }) catch return error.LspFailed;
+    defer self.allocator.free(response.buf);
+    var result: []const u8 = undefined;
+
+    if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
+        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+            try self.send_rename_symbol_map(from, result);
+    }
+}
+
+// parse a WorkspaceEdit record which may have shape {"changes": {}} or {"documentChanges": []}
+// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspaceEdit
+fn send_rename_symbol_map(self: *Self, to: tp.pid_ref, result: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = result;
+    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+    var changes: []const u8 = "";
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "changes")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidMessageField;
+            return self.send_rename_symbol_changes(to, changes) catch error.ClientFailed;
+        } else if (std.mem.eql(u8, field_name, "documentChanges")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidMessageField;
+            return self.send_rename_symbol_doc_changes(to, changes) catch error.ClientFailed;
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    return error.ClientFailed;
+}
+
+fn send_rename_symbol_changes(self: *Self, to: tp.pid_ref, changes: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+    // log.logger("lsp").print("send_rename_symbol_changes()\n", .{});
+    var iter = changes;
+    var files_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+    while (files_len > 0) : (files_len -= 1) {
+        var file_uri: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidMessage;
+        try send_rename_symbol_item(self, to, file_uri, iter);
+    }
+}
+
+fn send_rename_symbol_doc_changes(self: *Self, to: tp.pid_ref, changes: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = changes;
+    var changes_len = cbor.decodeArrayHeader(&iter) catch return error.InvalidMessage;
+    while (changes_len > 0) : (changes_len -= 1) {
+        var dc_fields_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+        while (dc_fields_len > 0) : (dc_fields_len -= 1) {
+            var file_uri: []const u8 = "";
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+            if (std.mem.eql(u8, field_name, "textDocument")) {
+                var td_fields_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+                while (td_fields_len > 0) : (td_fields_len -= 1) {
+                    var td_field_name: []const u8 = undefined;
+                    if (!(try cbor.matchString(&iter, &td_field_name))) return error.InvalidMessage;
+                    if (std.mem.eql(u8, td_field_name, "uri")) {
+                        if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidMessage;
+                    } else try cbor.skipValue(&iter); // skip "version": 1
+                }
+            } else if (std.mem.eql(u8, field_name, "edits")) {
+                if (file_uri.len == 0) return error.InvalidMessage;
+                try send_rename_symbol_item(self, to, file_uri, iter);
+            }
+        }
+    }
+}
+
+// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textEdit
+fn send_rename_symbol_item(_: *Self, to: tp.pid_ref, file_uri: []const u8, bytes: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = bytes;
+    var text_edits_len = cbor.decodeArrayHeader(&iter) catch return error.InvalidMessage;
+    while (text_edits_len > 0) : (text_edits_len -= 1) {
+        var m_range: ?Range = null;
+        var new_text: []const u8 = "";
+        var edits_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+        while (edits_len > 0) : (edits_len -= 1) {
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+            if (std.mem.eql(u8, field_name, "range")) {
+                var range: []const u8 = undefined;
+                if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
+                m_range = try read_range(range);
+            } else if (std.mem.eql(u8, field_name, "newText")) {
+                if (!(try cbor.matchString(&iter, &new_text))) return error.InvalidMessageField;
+            } else {
+                try cbor.skipValue(&iter);
+            }
+        }
+
+        const range = m_range orelse return error.InvalidMessageField;
+
+        to.send(.{ "cmd", "rename_symbol_item", .{
+            file_uri,
+            range.start.line,
+            range.start.character,
+            range.end.line,
+            range.end.character,
+            new_text,
+        } }) catch return error.ClientFailed;
+    }
+}
+
 pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspOrClientError || InvalidMessageError || cbor.Error)!void {
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
