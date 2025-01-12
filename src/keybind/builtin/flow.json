@@ -152,10 +152,10 @@
             ["page_up", "move_page_up"],
             ["page_down", "move_page_down"],
             ["tab", "indent"],
-            ["left_control", "enable_fast_scroll"],
-            ["right_control", "enable_fast_scroll"],
-            ["left_alt", "enable_jump_mode"],
-            ["right_alt", "enable_jump_mode"],
+            ["left_alt", "enable_fast_scroll"],
+            ["right_alt", "enable_fast_scroll"],
+            ["left_control", "enable_jump_mode"],
+            ["right_control", "enable_jump_mode"],
             ["ctrl+space", "enter_mode", "select"]
         ],
         "release": [
