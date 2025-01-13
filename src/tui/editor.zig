@@ -4323,13 +4323,18 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    pub fn rename_symbol_item(self: *Self, sel: Selection, new_text: []const u8) Result {
+    pub fn rename_symbol_item(
+        self: *Self,
+        sel: Selection,
+        new_text: []const u8,
+        root_prev: *?Buffer.Root,
+        final: bool,
+    ) !void {
         self.get_primary().selection = sel;
-        const buf = try self.buf_for_update();
-        const r1 = try self.delete_selection(buf.root, self.get_primary(), self.allocator);
-        const r2 = try self.insert(r1, self.get_primary(), new_text, self.allocator);
-        try self.update_buf(r2);
-        self.need_render();
+        if (root_prev.* == null) root_prev.* = (try self.buf_for_update()).root;
+        const root = try self.delete_selection(root_prev.*.?, self.get_primary(), self.allocator);
+        root_prev.* = try self.insert(root, self.get_primary(), new_text, self.allocator);
+        if (final) try self.update_buf(root_prev.*.?);
     }
 
     pub fn select(self: *Self, ctx: Context) Result {

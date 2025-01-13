@@ -782,6 +782,12 @@ fn send_completion_item(_: *Self, to: tp.pid_ref, file_path: []const u8, row: us
     }) catch error.ClientFailed;
 }
 
+const Rename = struct {
+    uri: []const u8,
+    new_text: []const u8,
+    range: Range,
+};
+
 pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspOrClientError || InvalidMessageError || cbor.Error)!void {
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
@@ -793,16 +799,39 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     }) catch return error.LspFailed;
     defer self.allocator.free(response.buf);
     var result: []const u8 = undefined;
+    // buffer the renames in order to send as a single, atomic message
+    var renames = std.ArrayList(Rename).init(self.allocator);
+    defer renames.deinit();
 
     if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
-        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
-            try self.send_rename_symbol_map(from, result);
+        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
+            try self.decode_rename_symbol_map(result, &renames);
+            // write the renames message manually since there doesn't appear to be an array helper
+            var m = std.ArrayList(u8).init(self.allocator);
+            const w = m.writer();
+            defer m.deinit();
+            try cbor.writeArrayHeader(w, 3);
+            try cbor.writeValue(w, "cmd");
+            try cbor.writeValue(w, "rename_symbol_item");
+            try cbor.writeArrayHeader(w, renames.items.len);
+            for (renames.items) |rename| {
+                try cbor.writeValue(w, .{
+                    rename.uri,
+                    rename.range.start.line,
+                    rename.range.start.character,
+                    rename.range.end.line,
+                    rename.range.end.character,
+                    rename.new_text,
+                });
+            }
+            from.send_raw(.{ .buf = m.items }) catch return error.ClientFailed;
+        }
     }
 }
 
-// parse a WorkspaceEdit record which may have shape {"changes": {}} or {"documentChanges": []}
+// decode a WorkspaceEdit record which may have shape {"changes": {}} or {"documentChanges": []}
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspaceEdit
-fn send_rename_symbol_map(self: *Self, to: tp.pid_ref, result: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_map(self: *Self, result: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = result;
     var len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
     var changes: []const u8 = "";
@@ -811,10 +840,12 @@ fn send_rename_symbol_map(self: *Self, to: tp.pid_ref, result: []const u8) (Clie
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
         if (std.mem.eql(u8, field_name, "changes")) {
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidMessageField;
-            return self.send_rename_symbol_changes(to, changes) catch error.ClientFailed;
+            try self.decode_rename_symbol_changes(changes, renames);
+            return;
         } else if (std.mem.eql(u8, field_name, "documentChanges")) {
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidMessageField;
-            return self.send_rename_symbol_doc_changes(to, changes) catch error.ClientFailed;
+            try self.decode_rename_symbol_doc_changes(changes, renames);
+            return;
         } else {
             try cbor.skipValue(&iter);
         }
@@ -822,24 +853,23 @@ fn send_rename_symbol_map(self: *Self, to: tp.pid_ref, result: []const u8) (Clie
     return error.ClientFailed;
 }
 
-fn send_rename_symbol_changes(self: *Self, to: tp.pid_ref, changes: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
-    // log.logger("lsp").print("send_rename_symbol_changes()\n", .{});
+fn decode_rename_symbol_changes(self: *Self, changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = changes;
     var files_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
     while (files_len > 0) : (files_len -= 1) {
         var file_uri: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidMessage;
-        try send_rename_symbol_item(self, to, file_uri, iter);
+        try decode_rename_symbol_item(self, file_uri, iter, renames);
     }
 }
 
-fn send_rename_symbol_doc_changes(self: *Self, to: tp.pid_ref, changes: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_doc_changes(self: *Self, changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = changes;
     var changes_len = cbor.decodeArrayHeader(&iter) catch return error.InvalidMessage;
     while (changes_len > 0) : (changes_len -= 1) {
         var dc_fields_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+        var file_uri: []const u8 = "";
         while (dc_fields_len > 0) : (dc_fields_len -= 1) {
-            var file_uri: []const u8 = "";
             var field_name: []const u8 = undefined;
             if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
             if (std.mem.eql(u8, field_name, "textDocument")) {
@@ -853,15 +883,15 @@ fn send_rename_symbol_doc_changes(self: *Self, to: tp.pid_ref, changes: []const 
                 }
             } else if (std.mem.eql(u8, field_name, "edits")) {
                 if (file_uri.len == 0) return error.InvalidMessage;
-                try send_rename_symbol_item(self, to, file_uri, iter);
+                try decode_rename_symbol_item(self, file_uri, iter, renames);
             }
         }
     }
 }
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textEdit
-fn send_rename_symbol_item(_: *Self, to: tp.pid_ref, file_uri: []const u8, bytes: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
-    var iter = bytes;
+fn decode_rename_symbol_item(_: *Self, file_uri: []const u8, _iter: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = _iter;
     var text_edits_len = cbor.decodeArrayHeader(&iter) catch return error.InvalidMessage;
     while (text_edits_len > 0) : (text_edits_len -= 1) {
         var m_range: ?Range = null;
@@ -882,15 +912,7 @@ fn send_rename_symbol_item(_: *Self, to: tp.pid_ref, file_uri: []const u8, bytes
         }
 
         const range = m_range orelse return error.InvalidMessageField;
-
-        to.send(.{ "cmd", "rename_symbol_item", .{
-            file_uri,
-            range.start.line,
-            range.start.character,
-            range.end.line,
-            range.end.character,
-            new_text,
-        } }) catch return error.ClientFailed;
+        try renames.append(.{ .uri = file_uri, .range = range, .new_text = new_text });
     }
 }
 

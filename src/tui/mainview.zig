@@ -555,26 +555,34 @@ const cmds = struct {
     pub const add_diagnostic_meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
 
     pub fn rename_symbol_item(self: *Self, ctx: Ctx) Result {
-        var file_uri: []const u8 = undefined;
-        var sel: ed.Selection = .{};
-        var new_text: []const u8 = undefined;
-        if (!try ctx.args.match(.{
-            tp.extract(&file_uri),
-            tp.extract(&sel.begin.row),
-            tp.extract(&sel.begin.col),
-            tp.extract(&sel.end.row),
-            tp.extract(&sel.end.col),
-            tp.extract(&new_text),
-        })) return error.InvalidRenameSymbolArgument;
-        file_uri = project_manager.normalize_file_path(file_uri);
-        if (self.get_active_editor()) |editor| {
-            // TODO match correctly. endsWith() isn't correct because path is a
-            // short, relative path while file_uri is an absolute path starting with 'file://'
-            const match = if (editor.file_path) |path| std.mem.endsWith(u8, file_uri, path) else false;
-            if (match) {
-                try editor.rename_symbol_item(sel, new_text);
-            } else {
-                // TODO perform renames in other files
+        // because the incoming message is an array of Renames, we manuallly
+        // parse instead of using ctx.args.match() which doesn't seem to return
+        // the parsed length needed to correctly advance iter.
+        var iter = ctx.args.buf;
+        var len = try cbor.decodeArrayHeader(&iter);
+        var mroot: ?@import("Buffer").Root = null;
+        while (len != 0) {
+            var file_uri: []const u8 = undefined;
+            var sel: ed.Selection = .{};
+            var new_text: []const u8 = undefined;
+            len -= 1;
+            std.debug.assert(try cbor.decodeArrayHeader(&iter) == 6);
+            if (!try cbor.matchString(&iter, &file_uri)) return error.MissingArgument;
+            if (!try cbor.matchInt(usize, &iter, &sel.begin.row)) return error.MissingArgument;
+            if (!try cbor.matchInt(usize, &iter, &sel.begin.col)) return error.MissingArgument;
+            if (!try cbor.matchInt(usize, &iter, &sel.end.row)) return error.MissingArgument;
+            if (!try cbor.matchInt(usize, &iter, &sel.end.col)) return error.MissingArgument;
+            if (!try cbor.matchString(&iter, &new_text)) return error.MissingArgument;
+            file_uri = project_manager.normalize_file_path(file_uri);
+            if (self.get_active_editor()) |editor| {
+                // TODO match file_uri correctly. endsWith() isn't correct because 'path' is a
+                // short, relative path while 'file_uri' is an absolute path starting with 'file://'
+                const match = if (editor.file_path) |path| std.mem.endsWith(u8, file_uri, path) else false;
+                if (match) {
+                    try editor.rename_symbol_item(sel, new_text, &mroot, len == 0);
+                } else {
+                    log.logger("LSP").print("TODO perform renames in other files\n", .{});
+                }
             }
         }
     }
