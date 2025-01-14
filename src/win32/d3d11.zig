@@ -63,13 +63,14 @@ pub fn init() void {
     global.init_called = true;
     dwrite.init();
 
-    const debug_d3d = switch (builtin.mode) {
+    const try_debug = switch (builtin.mode) {
         .Debug => true,
         else => false,
     };
-    global.d3d = D3d.init(.{ .debug = debug_d3d });
 
-    if (debug_d3d) {
+    global.d3d, const debug = D3d.init(.{ .debug = try_debug });
+
+    if (debug) {
         const info = win32ext.queryInterface(global.d3d.device, win32.ID3D11InfoQueue);
         defer _ = info.IUnknown.Release();
         {
@@ -400,22 +401,37 @@ const D3d = struct {
     context: *win32.ID3D11DeviceContext,
     context1: *win32.ID3D11DeviceContext1,
 
-    pub fn init(opt: struct { debug: bool }) D3d {
+    pub fn init(opt: struct { debug: bool }) struct { D3d, bool } {
         const levels = [_]win32.D3D_FEATURE_LEVEL{
             .@"11_0",
         };
         var last_hr: i32 = undefined;
-        for (&[_]win32.D3D_DRIVER_TYPE{ .HARDWARE, .WARP }) |driver| {
+
+        const Config = struct {
+            driver: win32.D3D_DRIVER_TYPE,
+            debug: bool,
+        };
+        const configs = [_]Config{
+            .{ .driver = .HARDWARE, .debug = true },
+            .{ .driver = .HARDWARE, .debug = false },
+            .{ .driver = .SOFTWARE, .debug = true },
+            .{ .driver = .SOFTWARE, .debug = false },
+        };
+
+        for (configs) |config| {
+            const skip_config = config.debug and !opt.debug;
+            if (skip_config) continue;
+
             var device: *win32.ID3D11Device = undefined;
             var context: *win32.ID3D11DeviceContext = undefined;
             last_hr = win32.D3D11CreateDevice(
                 null,
-                driver,
+                config.driver,
                 null,
                 .{
                     .BGRA_SUPPORT = 1,
                     .SINGLETHREADED = 1,
-                    .DEBUG = if (opt.debug) 1 else 0,
+                    .DEBUG = if (config.debug) 1 else 0,
                 },
                 &levels,
                 levels.len,
@@ -424,17 +440,23 @@ const D3d = struct {
                 null,
                 &context,
             );
-            if (last_hr >= 0) return .{
-                .device = device,
-                .context = context,
-                .context1 = win32ext.queryInterface(context, win32.ID3D11DeviceContext1),
-            };
+            if (last_hr >= 0) {
+                std.log.info("d3d11: {s} debug={}", .{ @tagName(config.driver), config.debug });
+                return .{
+                    .{
+                        .device = device,
+                        .context = context,
+                        .context1 = win32ext.queryInterface(context, win32.ID3D11DeviceContext1),
+                    },
+                    config.debug,
+                };
+            }
             std.log.info(
-                "D3D11 {s} Driver error, hresult=0x{x}",
-                .{ @tagName(driver), @as(u32, @bitCast(last_hr)) },
+                "D3D11 {s} Driver (with{s} debug) error, hresult=0x{x}",
+                .{ @tagName(config.driver), if (config.debug) "" else "out", @as(u32, @bitCast(last_hr)) },
             );
         }
-        std.debug.panic("failed to initialize Direct3D11, hresult=0x{x}", .{last_hr});
+        std.debug.panic("failed to initialize Direct3D11, hresult=0x{x}", .{@as(u32, @bitCast(last_hr))});
     }
 };
 
