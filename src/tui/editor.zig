@@ -1527,6 +1527,29 @@ pub const Editor = struct {
         self.cursels.clearRetainingCapacity();
     }
 
+    fn cursor_count(self: *const Self) usize {
+        var count: usize = 0;
+        for (self.cursels.items[0..]) |*cursel| if (cursel.*) |_| {
+            count += 1;
+        };
+        return count;
+    }
+
+    fn cursor_at(self: *const Self, cursor: Cursor) ?usize {
+        for (self.cursels.items[0..], 0..) |*cursel, i| if (cursel.*) |*result|
+            if (cursor.eql(result.cursor))
+                return i;
+        return null;
+    }
+
+    fn remove_cursor_at(self: *const Self, cursor: Cursor) bool {
+        if (self.cursor_at(cursor)) |i| {
+            if (self.cursor_count() > 1) // refuse to remove the last cursor
+                self.cursels.items[i] = null;
+            return true; // but return true anyway to indicate a cursor was found
+        } else return false;
+    }
+
     fn collapse_cursors(self: *Self) void {
         const frame = tracy.initZone(@src(), .{ .name = "collapse cursors" });
         defer frame.deinit();
@@ -1964,15 +1987,20 @@ pub const Editor = struct {
     }
 
     pub fn primary_click(self: *Self, y: c_int, x: c_int) !void {
-        if (self.fast_scroll)
-            try self.push_cursor()
-        else
+        const root = self.buf_root() catch return;
+        if (self.fast_scroll) {
+            var at: Cursor = .{};
+            at.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
+            if (self.remove_cursor_at(at))
+                return;
+            try self.push_cursor();
+        } else {
             self.cancel_all_selections();
+        }
         const primary = self.get_primary();
         primary.selection = null;
         self.selection_mode = .char;
         try self.send_editor_jump_source();
-        const root = self.buf_root() catch return;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         self.clamp_mouse();
         try self.send_editor_jump_destination();
@@ -2839,9 +2867,9 @@ pub const Editor = struct {
     pub fn unindent(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         errdefer self.restore_cursels();
-        const cursor_count = self.cursels.items.len;
+        const previous_len = self.cursels.items.len;
         const root = try self.with_cursels_mut(b.root, unindent_cursel, b.allocator);
-        if (self.cursels.items.len != cursor_count)
+        if (self.cursels.items.len != previous_len)
             self.restore_cursels();
         try self.update_buf(root);
     }
