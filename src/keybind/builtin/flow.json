@@ -1,6 +1,7 @@
 {
     "project": {
         "press": [
+            ["ctrl+0", "reset_fontsize"],
             ["ctrl+plus", "adjust_fontsize", 1.0],
             ["ctrl+minus", "adjust_fontsize", -1.0],
             ["f5", ["create_scratch_buffer", "*test*"], ["shell_execute_insert", "zig", "build", "test"]],

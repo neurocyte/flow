@@ -28,13 +28,17 @@ const WM_APP_SET_BACKGROUND = win32.WM_APP + 2;
 const WM_APP_ADJUST_FONTSIZE = win32.WM_APP + 3;
 const WM_APP_SET_FONTSIZE = win32.WM_APP + 4;
 const WM_APP_SET_FONTFACE = win32.WM_APP + 5;
-const WM_APP_UPDATE_SCREEN = win32.WM_APP + 6;
+const WM_APP_RESET_FONTSIZE = win32.WM_APP + 6;
+const WM_APP_RESET_FONTFACE = win32.WM_APP + 7;
+const WM_APP_UPDATE_SCREEN = win32.WM_APP + 8;
 
 const WM_APP_EXIT_RESULT = 0x45feaa11;
 const WM_APP_SET_BACKGROUND_RESULT = 0x369a26cd;
 const WM_APP_ADJUST_FONTSIZE_RESULT = 0x79aba9ef;
 const WM_APP_SET_FONTSIZE_RESULT = 0x72fa44bc;
 const WM_APP_SET_FONTFACE_RESULT = 0x1a49ffa8;
+const WM_APP_RESET_FONTSIZE_RESULT = 0x082c4c0c;
+const WM_APP_RESET_FONTFACE_RESULT = 0x0101f996;
 const WM_APP_UPDATE_SCREEN_RESULT = 0x3add213b;
 
 pub const DropWriter = struct {
@@ -453,6 +457,15 @@ pub fn set_fontsize(hwnd: win32.HWND, fontsize: f32) void {
     ));
 }
 
+pub fn reset_fontsize(hwnd: win32.HWND) void {
+    std.debug.assert(WM_APP_RESET_FONTSIZE_RESULT == win32.SendMessageW(
+        hwnd,
+        WM_APP_RESET_FONTSIZE,
+        0,
+        0,
+    ));
+}
+
 pub fn set_fontface(hwnd: win32.HWND, fontface_utf8: []const u8) void {
     const fontface = FontFace.initUtf8(fontface_utf8) catch |e| {
         std.log.err("failed to set fontface '{s}' with {s}", .{ fontface_utf8, @errorName(e) });
@@ -462,6 +475,15 @@ pub fn set_fontface(hwnd: win32.HWND, fontface_utf8: []const u8) void {
         hwnd,
         WM_APP_SET_FONTFACE,
         @intFromPtr(&fontface),
+        0,
+    ));
+}
+
+pub fn reset_fontface(hwnd: win32.HWND) void {
+    std.debug.assert(WM_APP_RESET_FONTFACE_RESULT == win32.SendMessageW(
+        hwnd,
+        WM_APP_RESET_FONTFACE,
+        0,
         0,
     ));
 }
@@ -1085,10 +1107,24 @@ fn WndProc(
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_FONTSIZE_RESULT;
         },
+        WM_APP_RESET_FONTSIZE => {
+            const state = stateFromHwnd(hwnd);
+            global.fontsize = null;
+            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
+            win32.invalidateHwnd(hwnd);
+            return WM_APP_SET_FONTSIZE_RESULT;
+        },
         WM_APP_SET_FONTFACE => {
             const state = stateFromHwnd(hwnd);
             const fontface: *FontFace = @ptrFromInt(wparam);
             global.fontface = fontface.*;
+            updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
+            win32.invalidateHwnd(hwnd);
+            return WM_APP_SET_FONTFACE_RESULT;
+        },
+        WM_APP_RESET_FONTFACE => {
+            const state = stateFromHwnd(hwnd);
+            global.fontface = null;
             updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_FONTFACE_RESULT;

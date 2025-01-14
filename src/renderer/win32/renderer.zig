@@ -381,9 +381,19 @@ pub fn set_fontsize(self: *Self, fontsize: f32) void {
     gui.set_fontsize(hwnd, fontsize);
 }
 
+pub fn reset_fontsize(self: *Self) void {
+    const hwnd = self.hwnd orelse return;
+    gui.reset_fontsize(hwnd);
+}
+
 pub fn set_fontface(self: *Self, fontface: []const u8) void {
     const hwnd = self.hwnd orelse return;
     gui.set_fontface(hwnd, fontface);
+}
+
+pub fn reset_fontface(self: *Self) void {
+    const hwnd = self.hwnd orelse return;
+    gui.reset_fontface(hwnd);
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {

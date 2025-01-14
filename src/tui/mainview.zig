@@ -653,6 +653,12 @@ const cmds = struct {
     }
     pub const set_fontsize_meta = .{ .arguments = &.{.float} };
 
+    pub fn reset_fontsize(_: *Self, _: Ctx) Result {
+        if (build_options.gui)
+            tui.current().rdr.reset_fontsize();
+    }
+    pub const reset_fontsize_meta = .{ .description = "Reset font to configured size" };
+
     pub fn set_fontface(_: *Self, ctx: Ctx) Result {
         var fontface: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&fontface)}))
@@ -661,6 +667,12 @@ const cmds = struct {
             tui.current().rdr.set_fontface(fontface);
     }
     pub const set_fontface_meta = .{ .arguments = &.{.float} };
+
+    pub fn reset_fontface(_: *Self, _: Ctx) Result {
+        if (build_options.gui)
+            tui.current().rdr.reset_fontface();
+    }
+    pub const reset_fontface_meta = .{ .description = "Reset font to configured face" };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
