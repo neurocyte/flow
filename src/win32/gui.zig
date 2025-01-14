@@ -1019,18 +1019,7 @@ fn WndProc(
             state.bounds = null;
             return 0;
         },
-        win32.WM_SIZE,
-        => {
-            const do_sanity_check = true;
-            if (do_sanity_check) {
-                const lparam_size: XY(u16) = .{
-                    .x = win32.loword(lparam),
-                    .y = win32.hiword(lparam),
-                };
-                const client_size = getClientSize(u16, hwnd);
-                std.debug.assert(lparam_size.x == client_size.x);
-                std.debug.assert(lparam_size.y == client_size.y);
-            }
+        win32.WM_WINDOWPOSCHANGED => {
             sendResize(hwnd);
             return 0;
         },
@@ -1194,25 +1183,19 @@ fn getClientSize(comptime T: type, hwnd: win32.HWND) XY(T) {
 
 fn calcWindowRect(
     dpi: u32,
-    bouding_rect: win32.RECT,
+    bounding_rect: win32.RECT,
     maybe_edge: ?win32.WPARAM,
     cell_size: XY(i32),
 ) win32.RECT {
-    const window_size: XY(i32) = .{
-        .x = bouding_rect.right - bouding_rect.left,
-        .y = bouding_rect.bottom - bouding_rect.top,
-    };
     const client_inset = getClientInset(dpi);
-    const client_size: XY(i32) = .{
-        .x = window_size.x - client_inset.x,
-        .y = window_size.y - client_inset.y,
+    const bounding_client_size: XY(i32) = .{
+        .x = (bounding_rect.right - bounding_rect.left) - client_inset.x,
+        .y = (bounding_rect.bottom - bounding_rect.top) - client_inset.y,
     };
-
-    const diff: XY(i32) = .{
-        .x = -@mod(client_size.x, cell_size.x),
-        .y = -@mod(client_size.y, cell_size.y),
+    const trim: XY(i32) = .{
+        .x = @mod(bounding_client_size.x, cell_size.x),
+        .y = @mod(bounding_client_size.y, cell_size.y),
     };
-
     const Adjustment = enum { low, high, both };
     const adjustments: XY(Adjustment) = if (maybe_edge) |edge| switch (edge) {
         win32.WMSZ_LEFT => .{ .x = .low, .y = .both },
@@ -1227,25 +1210,25 @@ fn calcWindowRect(
     } else .{ .x = .both, .y = .both };
 
     return .{
-        .left = bouding_rect.left - switch (adjustments.x) {
-            .low => diff.x,
+        .left = bounding_rect.left + switch (adjustments.x) {
+            .low => trim.x,
             .high => 0,
-            .both => @divTrunc(diff.x, 2),
+            .both => @divTrunc(trim.x, 2),
         },
-        .top = bouding_rect.top - switch (adjustments.y) {
-            .low => diff.y,
+        .top = bounding_rect.top + switch (adjustments.y) {
+            .low => trim.y,
             .high => 0,
-            .both => @divTrunc(diff.y, 2),
+            .both => @divTrunc(trim.y, 2),
         },
-        .right = bouding_rect.right + switch (adjustments.x) {
+        .right = bounding_rect.right - switch (adjustments.x) {
             .low => 0,
-            .high => diff.x,
-            .both => @divTrunc(diff.x + 1, 2),
+            .high => trim.x,
+            .both => @divTrunc(trim.x + 1, 2),
         },
-        .bottom = bouding_rect.bottom + switch (adjustments.y) {
+        .bottom = bounding_rect.bottom - switch (adjustments.y) {
             .low => 0,
-            .high => diff.y,
-            .both => @divTrunc(diff.y + 1, 2),
+            .high => trim.y,
+            .both => @divTrunc(trim.y + 1, 2),
         },
     };
 }
