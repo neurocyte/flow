@@ -152,17 +152,18 @@
             ["page_up", "move_page_up"],
             ["page_down", "move_page_down"],
             ["tab", "indent"],
-            ["left_alt", "enable_fast_scroll"],
-            ["right_alt", "enable_fast_scroll"],
+            ["ctrl+space", "enter_mode", "select"],
+
             ["left_control", "enable_jump_mode"],
             ["right_control", "enable_jump_mode"],
-            ["ctrl+space", "enter_mode", "select"]
+            ["left_alt", "enable_fast_scroll"],
+            ["right_alt", "enable_fast_scroll"]
         ],
         "release": [
-            ["left_control", "disable_fast_scroll"],
-            ["right_control", "disable_fast_scroll"],
-            ["left_alt", "disable_jump_mode"],
-            ["right_alt", "disable_jump_mode"]
+            ["left_control", "disable_jump_mode"],
+            ["right_control", "disable_jump_mode"],
+            ["left_alt", "disable_fast_scroll"],
+            ["right_alt", "disable_fast_scroll"]
         ]
     },
     "select": {
