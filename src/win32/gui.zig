@@ -18,7 +18,7 @@ const RGB = @import("color").RGB;
 const input = @import("input");
 const windowmsg = @import("windowmsg.zig");
 
-const render = if (build_options.d2d) @import("d2d.zig") else @import("d3d11.zig");
+const render = @import("d3d11.zig");
 
 const FontFace = @import("FontFace.zig");
 const XY = @import("xy.zig").XY;
