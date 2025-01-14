@@ -25,7 +25,7 @@ pub fn queryInterface(obj: anytype, comptime Interface: type) *Interface {
     var iface: *Interface = undefined;
     const hr = obj.IUnknown.QueryInterface(iid, @ptrCast(&iface));
     if (hr < 0) std.debug.panic(
-        "QueryInferface on " ++ obj_basename ++ " as " ++ iface_basename ++ " failed, hresult={}",
+        "QueryInferface on " ++ obj_basename ++ " as " ++ iface_basename ++ " failed, hresult=0x{x}",
         .{@as(u32, @bitCast(hr))},
     );
     return iface;
