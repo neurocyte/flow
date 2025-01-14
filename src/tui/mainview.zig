@@ -562,18 +562,18 @@ const cmds = struct {
         var len = try cbor.decodeArrayHeader(&iter);
         var mroot: ?@import("Buffer").Root = null;
         while (len != 0) {
-            var file_uri: []const u8 = undefined;
-            var sel: ed.Selection = .{};
-            var new_text: []const u8 = undefined;
             len -= 1;
             std.debug.assert(try cbor.decodeArrayHeader(&iter) == 6);
+            var file_uri: []const u8 = undefined;
             if (!try cbor.matchString(&iter, &file_uri)) return error.MissingArgument;
+            var sel: ed.Selection = .{};
             if (!try cbor.matchInt(usize, &iter, &sel.begin.row)) return error.MissingArgument;
             if (!try cbor.matchInt(usize, &iter, &sel.begin.col)) return error.MissingArgument;
             if (!try cbor.matchInt(usize, &iter, &sel.end.row)) return error.MissingArgument;
             if (!try cbor.matchInt(usize, &iter, &sel.end.col)) return error.MissingArgument;
+            var new_text: []const u8 = undefined;
             if (!try cbor.matchString(&iter, &new_text)) return error.MissingArgument;
-            file_uri = project_manager.normalize_file_path(file_uri);
+
             if (self.get_active_editor()) |editor| {
                 // TODO match file_uri correctly. endsWith() isn't correct because 'path' is a
                 // short, relative path while 'file_uri' is an absolute path starting with 'file://'
@@ -581,12 +581,15 @@ const cmds = struct {
                 if (match) {
                     try editor.rename_symbol_item(sel, new_text, &mroot, len == 0);
                 } else {
-                    log.logger("LSP").print("TODO perform renames in other files\n", .{});
+                    const logger = log.logger("LSP");
+                    defer logger.deinit();
+                    logger.print("TODO perform renames in other files\n", .{});
                 }
             }
         }
     }
-    pub const rename_symbol_item_meta = .{ .arguments = &.{ .string, .integer, .integer, .integer, .integer, .string } };
+    pub const rename_symbol_item_meta = .{ .arguments = &.{.array} };
+    pub const rename_symbol_item_elem_meta = .{ .arguments = &.{ .string, .integer, .integer, .integer, .integer, .string } };
 
     pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;

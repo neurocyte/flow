@@ -807,9 +807,9 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
         if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
             try self.decode_rename_symbol_map(result, &renames);
             // write the renames message manually since there doesn't appear to be an array helper
-            var m = std.ArrayList(u8).init(self.allocator);
-            const w = m.writer();
-            defer m.deinit();
+            var msg_buf = std.ArrayList(u8).init(self.allocator);
+            defer msg_buf.deinit();
+            const w = msg_buf.writer();
             try cbor.writeArrayHeader(w, 3);
             try cbor.writeValue(w, "cmd");
             try cbor.writeValue(w, "rename_symbol_item");
@@ -824,7 +824,7 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
                     rename.new_text,
                 });
             }
-            from.send_raw(.{ .buf = m.items }) catch return error.ClientFailed;
+            from.send_raw(.{ .buf = msg_buf.items }) catch return error.ClientFailed;
         }
     }
 }

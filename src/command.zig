@@ -35,6 +35,7 @@ pub const ArgumentType = enum {
     integer,
     float,
     object,
+    array,
 };
 
 pub fn Closure(comptime T: type) type {
