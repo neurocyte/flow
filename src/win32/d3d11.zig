@@ -359,7 +359,10 @@ fn generateGlyph(
     grapheme_utf8: []const u8,
     texture: *win32.ID3D11Texture2D,
 ) u32 {
-    const codepoint = std.unicode.wtf8Decode(grapheme_utf8) catch std.unicode.replacement_character;
+    const codepoint = if (std.unicode.utf8ValidateSlice(grapheme_utf8))
+        std.unicode.wtf8Decode(grapheme_utf8) catch std.unicode.replacement_character
+    else
+        std.unicode.replacement_character;
     switch (glyph_index_cache.reserve(
         global.glyph_cache_arena.allocator(),
         codepoint,
