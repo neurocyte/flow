@@ -8,8 +8,8 @@ cbuffer GridConfig : register(b0)
 struct Cell
 {
     uint glyph_index;
-    uint background;
-    uint foreground;
+    uint bg;
+    uint fg;
     // todo: underline flags, single/double/curly/dotted/dashed
     // todo: underline color
 };
@@ -35,39 +35,30 @@ float4 UnpackRgba(uint packed)
     return unpacked;
 }
 
+float3 Pixel(float2 pos, float4 bg, float4 fg, float glyph_texel)
+{
+    return lerp(bg.rgb, fg.rgb, fg.a * glyph_texel);
+}
+
 float4 PixelMain(float4 sv_pos : SV_POSITION) : SV_TARGET {
-    uint2 grid_pos = sv_pos.xy / cell_size;
-    uint index = grid_pos.y * col_count + grid_pos.x;
+    uint col = sv_pos.x / cell_size.x;
+    uint row = sv_pos.y / cell_size.y;
+    uint cell_index = row * col_count + col;
 
     const uint DEBUG_MODE_NONE = 0;
-    const uint DEBUG_MODE_CHECKERBOARD = 1;
     const uint DEBUG_MODE_GLYPH_TEXTURE = 2;
 
     const uint DEBUG_MODE = DEBUG_MODE_NONE;
-    //const uint DEBUG_MODE = DEBUG_MODE_CHECKERBOARD;
-    //const uint DEBUG_MODE = DEBUG_MODE_GLYPH_TEXTURE;
+    // const uint DEBUG_MODE = DEBUG_MODE_GLYPH_TEXTURE;
 
-    if (DEBUG_MODE == DEBUG_MODE_CHECKERBOARD) {
-        uint cell_count = col_count * row_count;
-        float strength = float(index) / float(cell_count);
-        uint checker = (grid_pos.x + grid_pos.y) % 2;
-        if (checker == 0) {
-            float shade = 1.0 - strength;
-            return float4(shade,shade,shade,1);
-        }
-        return float4(0,0,0,1);
-    }
-
-    Cell cell = cells[index];
-    float4 bg_color = UnpackRgba(cell.background);
-    float4 fg_color = UnpackRgba(cell.foreground);
+    Cell cell = cells[cell_index];
+    float4 bg = UnpackRgba(cell.bg);
+    float4 fg = UnpackRgba(cell.fg);
 
     if (DEBUG_MODE == DEBUG_MODE_GLYPH_TEXTURE) {
         float4 glyph_texel = glyph_texture.Load(int3(sv_pos.xy, 0));
-        return lerp(bg_color, fg_color, glyph_texel);
+        return lerp(bg, fg, glyph_texel.a);
     }
-
-    uint2 cell_pixel = uint2(sv_pos.xy) % cell_size;
 
     uint texture_width, texture_height;
     glyph_texture.GetDimensions(texture_width, texture_height);
@@ -78,7 +69,10 @@ float4 PixelMain(float4 sv_pos : SV_POSITION) : SV_TARGET {
         cell.glyph_index % cells_per_row,
         cell.glyph_index / cells_per_row
     );
+    uint2 cell_pixel = uint2(sv_pos.xy) % cell_size;
     uint2 texture_coord = glyph_cell_pos * cell_size + cell_pixel;
     float4 glyph_texel = glyph_texture.Load(int3(texture_coord, 0));
-    return lerp(bg_color, fg_color, glyph_texel.a);
+
+    float2 pos = sv_pos.xy / (cell_size * float2(col_count, row_count));
+    return float4(Pixel(pos, bg, fg, glyph_texel.a), 1.0);
 }

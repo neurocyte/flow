@@ -49,7 +49,7 @@ const StagingTexture = struct {
             .Height = size.y,
             .MipLevels = 1,
             .ArraySize = 1,
-            .Format = .B8G8R8A8_UNORM,
+            .Format = .A8_UNORM,
             .SampleDesc = .{ .Count = 1, .Quality = 0 },
             .Usage = .DEFAULT,
             .BindFlags = .{ .RENDER_TARGET = 1 },
@@ -70,7 +70,7 @@ const StagingTexture = struct {
             const props = win32.D2D1_RENDER_TARGET_PROPERTIES{
                 .type = .DEFAULT,
                 .pixelFormat = .{
-                    .format = .B8G8R8A8_UNORM,
+                    .format = .A8_UNORM,
                     .alphaMode = .PREMULTIPLIED,
                 },
                 .dpiX = 0,

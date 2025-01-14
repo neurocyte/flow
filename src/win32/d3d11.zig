@@ -678,7 +678,7 @@ const GlyphTexture = struct {
                 .Height = size.y,
                 .MipLevels = 1,
                 .ArraySize = 1,
-                .Format = .B8G8R8A8_UNORM,
+                .Format = .A8_UNORM,
                 .SampleDesc = .{ .Count = 1, .Quality = 0 },
                 .Usage = .DEFAULT,
                 .BindFlags = .{ .SHADER_RESOURCE = 1 },
