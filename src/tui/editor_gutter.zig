@@ -28,6 +28,7 @@ line: usize = 0,
 linenum: bool,
 relative: bool,
 highlight: bool,
+symbols: bool,
 width: usize = 4,
 editor: *ed.Editor,
 diff: diff.AsyncDiffer,
@@ -47,6 +48,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .linenum = tui.current().config.gutter_line_numbers,
         .relative = tui.current().config.gutter_line_numbers_relative,
         .highlight = tui.current().config.highlight_current_line_gutter,
+        .symbols = tui.current().config.gutter_symbols,
         .editor = editor,
         .diff = try diff.create(),
         .diff_symbols = std.ArrayList(Symbol).init(allocator),
@@ -106,8 +108,9 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn update_width(self: *Self) void {
     if (!self.linenum) return;
     var buf: [31]u8 = undefined;
-    const tmp = std.fmt.bufPrint(&buf, "  {d} ", .{self.lines}) catch return;
-    self.width = if (self.relative and tmp.len > 7) 7 else @max(tmp.len, 5);
+    const tmp = std.fmt.bufPrint(&buf, "{d}", .{self.lines}) catch return;
+    self.width = if (self.relative and tmp.len > 4) 4 else @max(tmp.len, 2);
+    self.width += if (self.symbols) 3 else 1;
 }
 
 pub fn layout(self: *Self) Widget.Layout {
@@ -115,7 +118,7 @@ pub fn layout(self: *Self) Widget.Layout {
 }
 
 inline fn get_width(self: *Self) usize {
-    return if (self.linenum) self.width else 3;
+    return if (self.linenum) self.width else if (self.symbols) 3 else 1;
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -135,7 +138,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     } else {
         self.render_none(theme);
     }
-    self.render_diagnostics(theme);
+    if (self.symbols)
+        self.render_diagnostics(theme);
     return false;
 }
 
