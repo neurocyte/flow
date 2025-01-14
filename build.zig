@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
     const use_llvm = b.option(bool, "use_llvm", "Enable llvm backend (default: none)");
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
     const gui = b.option(bool, "gui", "Standalone GUI mode") orelse false;
+    const d2d = if (gui) b.option(bool, "d2d", "use the Direct2D backend (instead of Direct3D11)") orelse false else false;
 
     const run_step = b.step("run", "Run the app");
     const check_step = b.step("check", "Check the app");
@@ -27,6 +28,7 @@ pub fn build(b: *std.Build) void {
         use_llvm,
         pie,
         gui,
+        d2d,
     );
 }
 
@@ -42,6 +44,7 @@ fn build_development(
     use_llvm: ?bool,
     pie: ?bool,
     gui: bool,
+    d2d: bool,
 ) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
     const optimize = b.standardOptimizeOption(.{});
@@ -61,6 +64,7 @@ fn build_development(
         use_llvm,
         pie,
         gui,
+        d2d,
     );
 }
 
@@ -76,6 +80,7 @@ fn build_release(
     use_llvm: ?bool,
     pie: ?bool,
     _: bool, //gui
+    d2d: bool,
 ) void {
     const targets: []const std.Target.Query = &.{
         .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
@@ -118,6 +123,7 @@ fn build_release(
             use_llvm,
             pie,
             false, //gui
+            false, //d2d
         );
 
         if (t.os_tag == .windows)
@@ -136,6 +142,7 @@ fn build_release(
                 use_llvm,
                 pie,
                 true, //gui
+                d2d,
             );
     }
 }
@@ -155,19 +162,14 @@ pub fn build_exe(
     use_llvm: ?bool,
     pie: ?bool,
     gui: bool,
+    d2d: bool,
 ) void {
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
     options.addOption(bool, "strip", strip);
     options.addOption(bool, "gui", gui);
-    if (gui) {
-        options.addOption(bool, "d2d", b.option(
-            bool,
-            "d2d",
-            "use the Direct2D backend (instead of Direct3D11)",
-        ) orelse false);
-    }
+    options.addOption(bool, "d2d", d2d);
 
     const options_mod = options.createModule();
 
