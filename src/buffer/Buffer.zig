@@ -781,11 +781,14 @@ const Node = union(enum) {
         self_: *const Node,
         line_: usize,
         col_: usize,
-        s: []const u8,
+        chars: []const u8,
         allocator: Allocator,
         metrics_: Metrics,
     ) !struct { usize, usize, Root } {
         var self = self_;
+        var s = chars;
+        if (!std.unicode.utf8ValidateSlice(chars))
+            s = try unicode.utf8_sanitize(allocator, chars);
         const Ctx = struct {
             allocator: Allocator,
             col: usize,
