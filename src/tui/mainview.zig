@@ -48,7 +48,7 @@ panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history: location_history,
 file_stack: std.ArrayList([]const u8),
-find_in_files_done: bool = false,
+find_in_files_state: enum { init, adding, done } = .done,
 file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
 
@@ -121,10 +121,14 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         try self.add_find_in_files_result(.find_in_files, path, begin_line, begin_pos, end_line, end_pos, lines, .Information);
         return true;
     } else if (try m.match(.{ "REF", "done" })) {
-        self.find_in_files_done = true;
+        self.find_in_files_state = .done;
         return true;
     } else if (try m.match(.{ "FIF", "done" })) {
-        self.find_in_files_done = true;
+        switch (self.find_in_files_state) {
+            .init => self.clear_find_in_files_results(self.file_list_type),
+            else => {},
+        }
+        self.find_in_files_state = .done;
         return true;
     } else if (try m.match(.{ "hover", tp.extract(&path), tp.string, tp.extract(&lines), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
         try self.add_info_content(lines);
@@ -607,6 +611,7 @@ const cmds = struct {
         if (std.mem.indexOfScalar(u8, query, '\n')) |_| return;
         var rg = try find_f(self.allocator, query, "FIF");
         defer rg.deinit();
+        self.find_in_files_state = .init;
     }
     pub const find_in_files_query_meta = .{ .arguments = &.{.string} };
 
@@ -916,9 +921,16 @@ fn add_find_in_files_result(
     if (!self.is_panel_view_showing(filelist_view))
         _ = self.toggle_panel_view(filelist_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
-    if (self.find_in_files_done or self.file_list_type != file_list_type) {
+    if (self.file_list_type != file_list_type) {
         self.clear_find_in_files_results(self.file_list_type);
         self.file_list_type = file_list_type;
+    } else switch (self.find_in_files_state) {
+        .init, .done => {
+            self.clear_find_in_files_results(self.file_list_type);
+            self.file_list_type = file_list_type;
+            self.find_in_files_state = .adding;
+        },
+        .adding => {},
     }
     fl.add_item(.{
         .path = path,
@@ -935,7 +947,7 @@ fn clear_find_in_files_results(self: *Self, file_list_type: FileListType) void {
     if (self.file_list_type != file_list_type) return;
     if (!self.is_panel_view_showing(filelist_view)) return;
     const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
-    self.find_in_files_done = false;
+    self.find_in_files_state = .done;
     self.file_list_type = file_list_type;
     fl.reset();
 }

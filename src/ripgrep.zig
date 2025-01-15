@@ -179,6 +179,8 @@ const Process = struct {
             var exit_code: i64 = undefined;
             if (try m.match(.{ tp.any, tp.any, "exited", 0 })) {
                 self.logger.print("found {d} matches", .{self.match_count});
+            } else if (try m.match(.{ tp.any, tp.any, "exited", 1 })) {
+                self.logger.print("no matches found", .{});
             } else if (try m.match(.{ tp.any, tp.any, "error.FileNotFound", 1 })) {
                 self.logger.print_err(ripgrep_binary, "'{s}' executable not found", .{ripgrep_binary});
             } else if (try m.match(.{ tp.any, tp.any, tp.extract(&err_msg), tp.extract(&exit_code) })) {
