@@ -2,14 +2,10 @@ const builtin = @import("builtin");
 const std = @import("std");
 const win32 = @import("win32").everything;
 const win32ext = @import("win32ext.zig");
-const vaxis = @import("vaxis");
 
 const dwrite = @import("dwrite.zig");
 const GlyphIndexCache = @import("GlyphIndexCache.zig");
 const TextRenderer = @import("DwriteRenderer.zig");
-
-const RGB = @import("color").RGB;
-const xterm = @import("xterm.zig");
 const XY = @import("xy.zig").XY;
 
 pub const Font = dwrite.Font;
@@ -40,16 +36,21 @@ const Rgba8 = packed struct(u32) {
     pub fn initRgb(r: u8, g: u8, b: u8) Color {
         return .{ .r = r, .g = g, .b = b, .a = 255 };
     }
+    pub fn initRgba(r: u8, g: u8, b: u8, a: u8) Color {
+        return .{ .r = r, .g = g, .b = b, .a = a };
+    }
 };
 
+pub const Cell = shader.Cell;
+
 // types shared with the shader
-const shader = struct {
+pub const shader = struct {
     const GridConfig = extern struct {
         cell_size: [2]u32,
         col_count: u32,
         row_count: u32,
     };
-    const Cell = extern struct {
+    pub const Cell = extern struct {
         glyph_index: u32,
         background: Rgba8,
         foreground: Rgba8,
@@ -58,7 +59,9 @@ const shader = struct {
 
 const swap_chain_flags: u32 = @intFromEnum(win32.DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
 
-pub fn init() void {
+pub fn init(opt: struct {
+    shader: ?[:0]const u8 = null,
+}) void {
     std.debug.assert(!global.init_called);
     global.init_called = true;
     dwrite.init();
@@ -68,7 +71,7 @@ pub fn init() void {
         else => false,
     };
 
-    global.d3d, const debug = D3d.init(.{ .debug = try_debug });
+    global.d3d, const debug = D3d.init(.{ .try_debug = try_debug });
 
     if (debug) {
         const info = win32ext.queryInterface(global.d3d.device, win32.ID3D11InfoQueue);
@@ -87,7 +90,7 @@ pub fn init() void {
         }
     }
 
-    global.shaders = Shaders.init();
+    global.shaders = Shaders.init(opt.shader);
 
     {
         const desc: win32.D3D11_BUFFER_DESC = .{
@@ -114,12 +117,12 @@ pub fn init() void {
     }
 }
 
-pub fn setBackground(state: *const WindowState, rgb: RGB) void {
-    global.background = .{ .r = rgb.r, .g = rgb.b, .b = rgb.b, .a = 255 };
+pub fn setBackground(state: *const WindowState, c: Color) void {
+    global.background = c;
     const color: win32.DXGI_RGBA = .{
-        .r = @as(f32, @floatFromInt(rgb.r)) / 255,
-        .g = @as(f32, @floatFromInt(rgb.g)) / 255,
-        .b = @as(f32, @floatFromInt(rgb.b)) / 255,
+        .r = @as(f32, @floatFromInt(c.r)) / 255,
+        .g = @as(f32, @floatFromInt(c.g)) / 255,
+        .b = @as(f32, @floatFromInt(c.b)) / 255,
         .a = 1.0,
     };
     const hr = state.swap_chain.IDXGISwapChain1.SetBackgroundColor(&color);
@@ -140,20 +143,77 @@ pub const WindowState = struct {
         const swap_chain = initSwapChain(global.d3d.device, hwnd);
         return .{ .swap_chain = swap_chain };
     }
+
+    // TODO: this should take a utf8 graphme instead
+    pub fn generateGlyph(state: *WindowState, font: Font, codepoint: u21) u32 {
+        // for now we'll just use 1 texture and leverage the entire thing
+        const texture_cell_count: XY(u16) = getD3d11TextureMaxCellCount(font.cell_size);
+        const texture_cell_count_total: u32 =
+            @as(u32, texture_cell_count.x) * @as(u32, texture_cell_count.y);
+
+        const texture_pixel_size: XY(u16) = .{
+            .x = texture_cell_count.x * font.cell_size.x,
+            .y = texture_cell_count.y * font.cell_size.y,
+        };
+        const texture_retained = switch (state.glyph_texture.updateSize(texture_pixel_size)) {
+            .retained => true,
+            .newly_created => false,
+        };
+
+        const cache_cell_size_valid = if (state.glyph_cache_cell_size) |size| size.eql(font.cell_size) else false;
+        state.glyph_cache_cell_size = font.cell_size;
+
+        if (!texture_retained or !cache_cell_size_valid) {
+            if (state.glyph_index_cache) |*c| {
+                c.deinit(global.glyph_cache_arena.allocator());
+                _ = global.glyph_cache_arena.reset(.retain_capacity);
+                state.glyph_index_cache = null;
+            }
+        }
+
+        const glyph_index_cache = blk: {
+            if (state.glyph_index_cache) |*c| break :blk c;
+            state.glyph_index_cache = GlyphIndexCache.init(
+                global.glyph_cache_arena.allocator(),
+                texture_cell_count_total,
+            ) catch |e| oom(e);
+            break :blk &(state.glyph_index_cache.?);
+        };
+
+        switch (glyph_index_cache.reserve(
+            global.glyph_cache_arena.allocator(),
+            codepoint,
+        ) catch |e| oom(e)) {
+            .newly_reserved => |reserved| {
+                // var render_success = false;
+                // defer if (!render_success) state.glyph_index_cache.remove(reserved.index);
+                const pos: XY(u16) = cellPosFromIndex(reserved.index, texture_cell_count.x);
+                const coord = coordFromCellPos(font.cell_size, pos);
+                global.text_renderer.render(
+                    global.d3d.device,
+                    global.d3d.context,
+                    global.d2d_factory,
+                    font,
+                    state.glyph_texture.obj,
+                    codepoint,
+                    coord,
+                );
+                return reserved.index;
+            },
+            .already_reserved => |index| return index,
+        }
+    }
 };
 
 pub fn paint(
-    hwnd: win32.HWND,
     state: *WindowState,
+    client_size: XY(u32),
     font: Font,
-    screen: *const vaxis.Screen,
+    row_count: u16,
+    col_count: u16,
+    top: u16,
+    cells: []const Cell,
 ) void {
-    var ps: win32.PAINTSTRUCT = undefined;
-    _ = win32.BeginPaint(hwnd, &ps) orelse fatalWin32("BeginPaint", win32.GetLastError());
-    defer if (0 == win32.EndPaint(hwnd, &ps)) fatalWin32("EndPaint", win32.GetLastError());
-
-    const client_size = getClientSize(u32, hwnd);
-
     {
         const swap_chain_size = getSwapChainSize(state.swap_chain);
         if (swap_chain_size.x != client_size.x or swap_chain_size.y != client_size.y) {
@@ -173,8 +233,8 @@ pub fn paint(
             {
                 const hr = state.swap_chain.IDXGISwapChain.ResizeBuffers(
                     0,
-                    @intCast(client_size.x),
-                    @intCast(client_size.y),
+                    client_size.x,
+                    client_size.y,
                     .UNKNOWN,
                     swap_chain_flags,
                 );
@@ -182,40 +242,6 @@ pub fn paint(
             }
         }
     }
-
-    // for now we'll just use 1 texture and leverage the entire thing
-    const texture_cell_count: XY(u16) = getD3d11TextureMaxCellCount(font.cell_size);
-    const texture_cell_count_total: u32 =
-        @as(u32, texture_cell_count.x) * @as(u32, texture_cell_count.y);
-
-    const texture_pixel_size: XY(u16) = .{
-        .x = texture_cell_count.x * font.cell_size.x,
-        .y = texture_cell_count.y * font.cell_size.y,
-    };
-    const texture_retained = switch (state.glyph_texture.updateSize(texture_pixel_size)) {
-        .retained => true,
-        .newly_created => false,
-    };
-
-    const cache_cell_size_valid = if (state.glyph_cache_cell_size) |size| size.eql(font.cell_size) else false;
-    state.glyph_cache_cell_size = font.cell_size;
-
-    if (!texture_retained or !cache_cell_size_valid) {
-        if (state.glyph_index_cache) |*c| {
-            c.deinit(global.glyph_cache_arena.allocator());
-            _ = global.glyph_cache_arena.reset(.retain_capacity);
-            state.glyph_index_cache = null;
-        }
-    }
-
-    const glyph_index_cache = blk: {
-        if (state.glyph_index_cache) |*c| break :blk c;
-        state.glyph_index_cache = GlyphIndexCache.init(
-            global.glyph_cache_arena.allocator(),
-            texture_cell_count_total,
-        ) catch |e| oom(e);
-        break :blk &(state.glyph_index_cache.?);
-    };
 
     const shader_col_count: u16 = @intCast(@divTrunc(client_size.x + font.cell_size.x - 1, font.cell_size.x));
     const shader_row_count: u16 = @intCast(@divTrunc(client_size.y + font.cell_size.y - 1, font.cell_size.y));
@@ -238,30 +264,8 @@ pub fn paint(
         config.row_count = shader_row_count;
     }
 
-    const space_glyph = generateGlyph(
-        font,
-        glyph_index_cache,
-        texture_cell_count.x,
-        " ",
-        state.glyph_texture.obj,
-    );
-    const populate_col_count: u16 = @min(screen.width, shader_col_count);
-    const populate_row_count: u16 = @min(screen.height, shader_row_count);
-    // we loop through and cache all the glyphs before mapping the cell buffer and potentially
-    // blocking the gpu while we're doing expensive text rendering
-    for (0..populate_row_count) |row| {
-        const row_offset = row * screen.width;
-        for (0..populate_col_count) |col| {
-            const screen_cell = &screen.buf[row_offset + col];
-            _ = generateGlyph(
-                font,
-                glyph_index_cache,
-                texture_cell_count.x,
-                screen_cell.char.grapheme,
-                state.glyph_texture.obj,
-            );
-        }
-    }
+    const copy_col_count: u16 = @min(col_count, shader_col_count);
+    const blank_space_glyph_index = state.generateGlyph(font, ' ');
 
     const cell_count: u32 = @as(u32, shader_col_count) * @as(u32, shader_row_count);
     state.shader_cells.updateCount(cell_count);
@@ -279,47 +283,22 @@ pub fn paint(
 
         const cells_shader: [*]shader.Cell = @ptrCast(@alignCast(mapped.pData));
         for (0..shader_row_count) |row| {
-            const src_row_offset = row * screen.width;
-            const dst_row_offset = row * @as(usize, shader_col_count);
-            const src_col_count = if (row < screen.height) populate_col_count else 0;
-            for (0..src_col_count) |col| {
-                const screen_cell = &screen.buf[src_row_offset + col];
-                const codepoint = std.unicode.wtf8Decode(screen_cell.char.grapheme) catch std.unicode.replacement_character;
-                const glyph_index = blk: {
-                    switch (glyph_index_cache.reserve(global.glyph_cache_arena.allocator(), codepoint) catch |e| oom(e)) {
-                        .newly_reserved => |reserved| {
-                            // should never happen unless there' more characters than the cache can hold
-                            // var render_success = false;
-                            // defer if (!render_success) state.glyph_index_cache.remove(reserved.index);
-                            const pos: XY(u16) = cellPosFromIndex(reserved.index, texture_cell_count.x);
-                            const coord = coordFromCellPos(font.cell_size, pos);
-                            global.text_renderer.render(
-                                global.d3d.device,
-                                global.d3d.context,
-                                global.d2d_factory,
-                                font,
-                                state.glyph_texture.obj,
-                                codepoint,
-                                coord,
-                            );
-                            break :blk reserved.index;
-                        },
-                        .already_reserved => |i| break :blk i,
-                    }
-                };
-                cells_shader[dst_row_offset + col] = .{
-                    .glyph_index = glyph_index,
-                    .background = shaderColorFromVaxis(screen_cell.style.bg),
-                    .foreground = shaderColorFromVaxis(screen_cell.style.fg),
-                };
-            }
-            for (src_col_count..shader_col_count) |col| {
-                cells_shader[dst_row_offset + col] = .{
-                    .glyph_index = space_glyph,
-                    .background = global.background,
-                    .foreground = global.background,
-                };
-            }
+            const src_row = blk: {
+                const r = top + row;
+                break :blk r - if (r >= row_count) row_count else 0;
+            };
+            const src_row_offset = src_row * col_count;
+            const dst_row_offset = row * shader_col_count;
+            const copy_len = if (row < row_count) copy_col_count else 0;
+            @memcpy(
+                cells_shader[dst_row_offset..][0..copy_len],
+                cells[src_row_offset..][0..copy_len],
+            );
+            @memset(cells_shader[dst_row_offset..][copy_len..shader_col_count], .{
+                .glyph_index = blank_space_glyph_index,
+                .background = global.background,
+                .foreground = global.background,
+            });
         }
     }
 
@@ -353,55 +332,12 @@ pub fn paint(
     }
 }
 
-fn generateGlyph(
-    font: Font,
-    glyph_index_cache: *GlyphIndexCache,
-    texture_column_count: u16,
-    grapheme_utf8: []const u8,
-    texture: *win32.ID3D11Texture2D,
-) u32 {
-    const codepoint = if (std.unicode.utf8ValidateSlice(grapheme_utf8))
-        std.unicode.wtf8Decode(grapheme_utf8) catch std.unicode.replacement_character
-    else
-        std.unicode.replacement_character;
-    switch (glyph_index_cache.reserve(
-        global.glyph_cache_arena.allocator(),
-        codepoint,
-    ) catch |e| oom(e)) {
-        .newly_reserved => |reserved| {
-            // var render_success = false;
-            // defer if (!render_success) state.glyph_index_cache.remove(reserved.index);
-            const pos: XY(u16) = cellPosFromIndex(reserved.index, texture_column_count);
-            const coord = coordFromCellPos(font.cell_size, pos);
-            global.text_renderer.render(
-                global.d3d.device,
-                global.d3d.context,
-                global.d2d_factory,
-                font,
-                texture,
-                codepoint,
-                coord,
-            );
-            return reserved.index;
-        },
-        .already_reserved => |index| return index,
-    }
-}
-
-fn shaderColorFromVaxis(color: vaxis.Color) Rgba8 {
-    return switch (color) {
-        .default => .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-        .index => |idx| return @bitCast(@as(u32, xterm.colors[idx]) << 8 | 0xff),
-        .rgb => |rgb| .{ .r = rgb[0], .g = rgb[1], .b = rgb[2], .a = 255 },
-    };
-}
-
 const D3d = struct {
     device: *win32.ID3D11Device,
     context: *win32.ID3D11DeviceContext,
     context1: *win32.ID3D11DeviceContext1,
 
-    pub fn init(opt: struct { debug: bool }) struct { D3d, bool } {
+    pub fn init(opt: struct { try_debug: bool }) struct { D3d, bool } {
         const levels = [_]win32.D3D_FEATURE_LEVEL{
             .@"11_0",
         };
@@ -419,7 +355,7 @@ const D3d = struct {
         };
 
         for (configs) |config| {
-            const skip_config = config.debug and !opt.debug;
+            const skip_config = config.debug and !opt.try_debug;
             if (skip_config) continue;
 
             var device: *win32.ID3D11Device = undefined;
@@ -549,8 +485,24 @@ fn initSwapChain(
 const Shaders = struct {
     vertex: *win32.ID3D11VertexShader,
     pixel: *win32.ID3D11PixelShader,
-    pub fn init() Shaders {
-        const shader_source = @embedFile("terminal.hlsl");
+    pub fn init(maybe_file_path: ?[:0]const u8) Shaders {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        const shader_source: []const u8 = blk: {
+            if (maybe_file_path) |file_path| {
+                var file = std.fs.cwd().openFileZ(file_path, .{}) catch |e| std.debug.panic(
+                    "failed to open --shader '{s}' with {s}",
+                    .{ file_path, @errorName(e) },
+                );
+                defer file.close();
+                break :blk file.readToEndAlloc(arena.allocator(), std.math.maxInt(usize)) catch |e| std.debug.panic(
+                    "read --shader '{s}' failed with {s}",
+                    .{ file_path, @errorName(e) },
+                );
+            }
+            break :blk @embedFile("builtin.hlsl");
+        };
+        const file = maybe_file_path orelse "builtin.hlsl";
 
         var vs_blob: *win32.ID3DBlob = undefined;
         var error_blob: ?*win32.ID3DBlob = null;
@@ -558,7 +510,7 @@ const Shaders = struct {
             const hr = win32.D3DCompile(
                 shader_source.ptr,
                 shader_source.len,
-                null,
+                file,
                 null,
                 null,
                 "VertexMain",
@@ -580,7 +532,7 @@ const Shaders = struct {
             const hr = win32.D3DCompile(
                 shader_source.ptr,
                 shader_source.len,
-                null,
+                file,
                 null,
                 null,
                 "PixelMain",
@@ -783,9 +735,6 @@ fn createCellBuffer(device: *win32.ID3D11Device, count: u32) *win32.ID3D11Buffer
 }
 
 fn getD3d11TextureMaxCellCount(cell_size: XY(u16)) XY(u16) {
-    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    // small size so we can just render the whole texture for development
-    //if (true) return .{ .x = 80, .y = 500 };
     comptime std.debug.assert(win32.D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION == 16384);
     return .{
         .x = @intCast(@divTrunc(win32.D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION, cell_size.x)),
