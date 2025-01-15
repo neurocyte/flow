@@ -73,6 +73,10 @@ float4 PixelMain(float4 sv_pos : SV_POSITION) : SV_TARGET {
     uint2 texture_coord = glyph_cell_pos * cell_size + cell_pixel;
     float4 glyph_texel = glyph_texture.Load(int3(texture_coord, 0));
 
-    float2 pos = sv_pos.xy / (cell_size * float2(col_count, row_count));
-    return float4(Pixel(pos, bg, fg, glyph_texel.a), 1.0);
+    float2 pos = (sv_pos.xy - 0.5) / (float2(cell_size) * float2(col_count, row_count));
+    float4 p = float4(Pixel(pos, bg, fg, glyph_texel.a), 1.0);
+    // return red/green for out-of-bound pixels for now
+    if (pos.x > 1) return float4(1,0,0,1);
+    if (pos.y > 1) return float4(0,1,0,1);
+    return p;
 }

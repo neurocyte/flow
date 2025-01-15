@@ -19,6 +19,7 @@ const input = @import("input");
 const windowmsg = @import("windowmsg.zig");
 
 const render = @import("d3d11.zig");
+const xterm = @import("xterm.zig");
 
 const FontFace = @import("FontFace.zig");
 const XY = @import("xy.zig").XY;
@@ -77,6 +78,9 @@ const global = struct {
 
     var screen_arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     var screen: vaxis.Screen = .{};
+
+    var render_cells_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var render_cells: std.ArrayListUnmanaged(render.Cell) = .{};
 };
 const window_style_ex = win32.WINDOW_EX_STYLE{
     .APPWINDOW = 1,
@@ -88,7 +92,7 @@ const window_style = win32.WS_OVERLAPPEDWINDOW;
 pub fn init() void {
     std.debug.assert(!global.init_called);
     global.init_called = true;
-    render.init();
+    render.init(.{});
 }
 
 const Icons = struct {
@@ -993,7 +997,35 @@ fn WndProc(
             const state = stateFromHwnd(hwnd);
             const dpi = win32.dpiFromHwnd(hwnd);
             const font = getFont(dpi, getFontSize(), getFontFace());
-            render.paint(hwnd, &state.render_state, font, &global.screen);
+            const client_size = getClientSize(u32, hwnd);
+
+            global.render_cells.resize(
+                global.render_cells_arena.allocator(),
+                global.screen.buf.len,
+            ) catch |e| oom(e);
+            for (global.screen.buf, global.render_cells.items) |*screen_cell, *render_cell| {
+                const codepoint = if (std.unicode.utf8ValidateSlice(screen_cell.char.grapheme))
+                    std.unicode.wtf8Decode(screen_cell.char.grapheme) catch std.unicode.replacement_character
+                else
+                    std.unicode.replacement_character;
+                render_cell.* = .{
+                    .glyph_index = state.render_state.generateGlyph(
+                        font,
+                        codepoint,
+                    ),
+                    .background = renderColorFromVaxis(screen_cell.style.bg),
+                    .foreground = renderColorFromVaxis(screen_cell.style.fg),
+                };
+            }
+            render.paint(
+                &state.render_state,
+                client_size,
+                font,
+                global.screen.height,
+                global.screen.width,
+                0,
+                global.render_cells.items,
+            );
             return 0;
         },
         win32.WM_GETDPISCALEDSIZE => {
@@ -1084,9 +1116,10 @@ fn WndProc(
             return WM_APP_EXIT_RESULT;
         },
         WM_APP_SET_BACKGROUND => {
+            const rgb = RGB.from_u24(@intCast(0xffffff & wparam));
             render.setBackground(
                 &stateFromHwnd(hwnd).render_state,
-                RGB.from_u24(@intCast(0xffffff & wparam)),
+                render.Color.initRgb(rgb.r, rgb.g, rgb.b),
             );
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_BACKGROUND_RESULT;
@@ -1206,10 +1239,14 @@ fn sendResize(
     }) catch @panic("pid send failed");
 }
 
-pub const Rgb8 = struct { r: u8, g: u8, b: u8 };
-fn toColorRef(rgb: Rgb8) u32 {
-    return (@as(u32, rgb.r) << 0) | (@as(u32, rgb.g) << 8) | (@as(u32, rgb.b) << 16);
+fn renderColorFromVaxis(color: vaxis.Color) render.Color {
+    return switch (color) {
+        .default => render.Color.initRgb(0, 0, 0),
+        .index => |idx| return @bitCast(@as(u32, xterm.colors[idx]) << 8 | 0xff),
+        .rgb => |rgb| render.Color.initRgb(rgb[0], rgb[1], rgb[2]),
+    };
 }
+
 fn fatalWin32(what: []const u8, err: win32.WIN32_ERROR) noreturn {
     std.debug.panic("{s} failed with {}", .{ what, err.fmt() });
 }
