@@ -628,7 +628,20 @@ const cmds = struct {
         const cmd = ctx.args;
         const handlers = struct {
             fn out(parent: tp.pid_ref, _: []const u8, output: []const u8) void {
-                parent.send(.{ "cmd", "insert_chars", .{output} }) catch {};
+                var pos: usize = 0;
+                var nl_count: usize = 0;
+                while (std.mem.indexOfScalarPos(u8, output, pos, '\n')) |next| {
+                    pos = next + 1;
+                    nl_count += 1;
+                }
+                const output_ = if (nl_count == 1 and output[output.len - 1] == '\n')
+                    if (output.len > 2 and output[output.len - 2] == '\r')
+                        output[0 .. output.len - 2]
+                    else
+                        output[0 .. output.len - 1]
+                else
+                    output;
+                parent.send(.{ "cmd", "insert_chars", .{output_} }) catch {};
             }
         };
         try shell.execute(self.allocator, cmd, .{ .out = handlers.out });
