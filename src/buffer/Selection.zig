@@ -33,9 +33,12 @@ pub fn reverse(self: *Self) void {
     self.end = tmp;
 }
 
+pub inline fn is_reversed(self: *Self) bool {
+    return self.begin.right_of(self.end);
+}
+
 pub fn normalize(self: *Self) void {
-    if (self.begin.right_of(self.end))
-        self.reverse();
+    if (self.is_reversed()) self.reverse();
 }
 
 pub fn write(self: *const Self, writer: Buffer.MetaWriter) !void {
