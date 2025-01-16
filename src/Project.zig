@@ -863,7 +863,7 @@ fn decode_rename_symbol_changes(self: *Self, changes: []const u8, renames: *std.
     while (files_len > 0) : (files_len -= 1) {
         var file_uri: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidMessage;
-        try decode_rename_symbol_item(self, file_uri, iter, renames);
+        try decode_rename_symbol_item(self, file_uri, &iter, renames);
     }
 }
 
@@ -887,31 +887,30 @@ fn decode_rename_symbol_doc_changes(self: *Self, changes: []const u8, renames: *
                 }
             } else if (std.mem.eql(u8, field_name, "edits")) {
                 if (file_uri.len == 0) return error.InvalidMessage;
-                try decode_rename_symbol_item(self, file_uri, iter, renames);
+                try decode_rename_symbol_item(self, file_uri, &iter, renames);
             }
         }
     }
 }
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textEdit
-fn decode_rename_symbol_item(_: *Self, file_uri: []const u8, _iter: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
-    var iter = _iter;
-    var text_edits_len = cbor.decodeArrayHeader(&iter) catch return error.InvalidMessage;
+fn decode_rename_symbol_item(_: *Self, file_uri: []const u8, iter: *[]const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var text_edits_len = cbor.decodeArrayHeader(iter) catch return error.InvalidMessage;
     while (text_edits_len > 0) : (text_edits_len -= 1) {
         var m_range: ?Range = null;
         var new_text: []const u8 = "";
-        var edits_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+        var edits_len = cbor.decodeMapHeader(iter) catch return error.InvalidMessage;
         while (edits_len > 0) : (edits_len -= 1) {
             var field_name: []const u8 = undefined;
-            if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+            if (!(try cbor.matchString(iter, &field_name))) return error.InvalidMessage;
             if (std.mem.eql(u8, field_name, "range")) {
                 var range: []const u8 = undefined;
-                if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
+                if (!(try cbor.matchValue(iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
                 m_range = try read_range(range);
             } else if (std.mem.eql(u8, field_name, "newText")) {
-                if (!(try cbor.matchString(&iter, &new_text))) return error.InvalidMessageField;
+                if (!(try cbor.matchString(iter, &new_text))) return error.InvalidMessageField;
             } else {
-                try cbor.skipValue(&iter);
+                try cbor.skipValue(iter);
             }
         }
 
