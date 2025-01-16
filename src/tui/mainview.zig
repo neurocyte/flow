@@ -564,7 +564,7 @@ const cmds = struct {
         var first = true;
         while (len != 0) {
             len -= 1;
-            std.debug.assert(try cbor.decodeArrayHeader(&iter) == 6);
+            if (try cbor.decodeArrayHeader(&iter) != 7) return error.InvalidRenameSymbolItemArgument;
             var file_path: []const u8 = undefined;
             if (!try cbor.matchString(&iter, &file_path)) return error.MissingArgument;
             var sel: ed.Selection = .{};
@@ -574,15 +574,24 @@ const cmds = struct {
             if (!try cbor.matchInt(usize, &iter, &sel.end.col)) return error.MissingArgument;
             var new_text: []const u8 = undefined;
             if (!try cbor.matchString(&iter, &new_text)) return error.MissingArgument;
+            var line_text: []const u8 = undefined;
+            if (!try cbor.matchString(&iter, &line_text)) return error.MissingArgument;
 
             file_path = project_manager.normalize_file_path(file_path);
             if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
                 try editor.add_rename_symbol_cursor(sel, first);
                 first = false;
             } else {
-                const logger = log.logger("LSP");
-                defer logger.deinit();
-                logger.print("TODO perform renames in other files\n", .{});
+                try self.add_find_in_files_result(
+                    .references,
+                    file_path,
+                    sel.begin.row + 1,
+                    sel.begin.col,
+                    sel.end.row + 1,
+                    sel.end.col,
+                    line_text,
+                    .Information,
+                );
             }
         }
     }

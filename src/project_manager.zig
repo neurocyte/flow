@@ -501,7 +501,7 @@ const Process = struct {
         return project.completion(from, file_path, row, col);
     }
 
-    fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || cbor.Error)!void {
+    fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || Project.GetLineOfFileError || cbor.Error)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".rename_symbol" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;

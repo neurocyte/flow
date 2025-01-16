@@ -788,7 +788,7 @@ const Rename = struct {
     range: Range,
 };
 
-pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspOrClientError || InvalidMessageError || cbor.Error)!void {
+pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspOrClientError || GetLineOfFileError || InvalidMessageError || cbor.Error)!void {
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
@@ -817,6 +817,7 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
             for (renames.items) |rename| {
                 var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
                 const file_path_ = std.Uri.percentDecodeBackwards(&file_path_buf, rename.uri[7..]);
+                const line = try self.get_line_of_file(self.allocator, file_path, rename.range.start.line);
                 try cbor.writeValue(w, .{
                     file_path_,
                     rename.range.start.line,
@@ -824,6 +825,7 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
                     rename.range.end.line,
                     rename.range.end.character,
                     rename.new_text,
+                    line,
                 });
             }
             from.send_raw(.{ .buf = msg_buf.items }) catch return error.ClientFailed;
@@ -1532,7 +1534,7 @@ fn format_lsp_name_func(
 
 const eol = '\n';
 
-const GetLineOfFileError = (OutOfMemoryError || std.fs.File.OpenError || std.fs.File.Reader.Error);
+pub const GetLineOfFileError = (OutOfMemoryError || std.fs.File.OpenError || std.fs.File.Reader.Error);
 
 fn get_line_of_file(self: *Self, allocator: std.mem.Allocator, file_path: []const u8, line_: usize) GetLineOfFileError![]const u8 {
     const line = line_ + 1;
