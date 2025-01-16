@@ -6,9 +6,10 @@ const win32ext = @import("win32ext.zig");
 const dwrite = @import("dwrite.zig");
 const GlyphIndexCache = @import("GlyphIndexCache.zig");
 const TextRenderer = @import("DwriteRenderer.zig");
+
 const XY = @import("xy.zig").XY;
 
-pub const Font = dwrite.Font;
+pub const Font = TextRenderer.Font;
 
 const log = std.log.scoped(.d3d);
 
@@ -16,14 +17,16 @@ const log = std.log.scoped(.d3d);
 // bad artifacts when the window is resized
 pub const NOREDIRECTIONBITMAP = 1;
 
+const D2dFactory = if (TextRenderer.needs_direct2d) *win32.ID2D1Factory else void;
+
 const global = struct {
     var init_called: bool = false;
     var d3d: D3d = undefined;
     var shaders: Shaders = undefined;
     var const_buf: *win32.ID3D11Buffer = undefined;
-    var d2d_factory: *win32.ID2D1Factory = undefined;
+    var d2d_factory: D2dFactory = undefined;
     var glyph_cache_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    var text_renderer: TextRenderer = undefined;
+    var staging_texture: StagingTexture = .{};
     var background: Rgba8 = .{ .r = 19, .g = 19, .b = 19, .a = 255 };
 };
 
@@ -106,7 +109,7 @@ pub fn init(opt: struct {
         if (hr < 0) fatalHr("CreateBuffer for grid config", hr);
     }
 
-    {
+    if (TextRenderer.needs_direct2d) {
         const hr = win32.D2D1CreateFactory(
             .SINGLE_THREADED,
             win32.IID_ID2D1Factory,
@@ -189,14 +192,34 @@ pub const WindowState = struct {
                 // defer if (!render_success) state.glyph_index_cache.remove(reserved.index);
                 const pos: XY(u16) = cellPosFromIndex(reserved.index, texture_cell_count.x);
                 const coord = coordFromCellPos(font.cell_size, pos);
-                global.text_renderer.render(
-                    global.d3d.device,
-                    global.d3d.context,
-                    global.d2d_factory,
+                const staging = global.staging_texture.update(font.cell_size);
+                var utf8_buf: [7]u8 = undefined;
+                const utf8_len: u3 = std.unicode.utf8Encode(codepoint, &utf8_buf) catch |e| std.debug.panic(
+                    "todo: handle invalid codepoint {} (0x{0x}) ({s})",
+                    .{ codepoint, @errorName(e) },
+                );
+                staging.text_renderer.render(
                     font,
-                    state.glyph_texture.obj,
-                    codepoint,
-                    coord,
+                    utf8_buf[0..utf8_len],
+                );
+                const box: win32.D3D11_BOX = .{
+                    .left = 0,
+                    .top = 0,
+                    .front = 0,
+                    .right = font.cell_size.x,
+                    .bottom = font.cell_size.y,
+                    .back = 1,
+                };
+
+                global.d3d.context.CopySubresourceRegion(
+                    &state.glyph_texture.obj.ID3D11Resource,
+                    0, // subresource
+                    coord.x,
+                    coord.y,
+                    0, // z
+                    &staging.texture.ID3D11Resource,
+                    0, // subresource
+                    &box,
                 );
                 return reserved.index;
             },
@@ -680,6 +703,68 @@ const GlyphTexture = struct {
         }
         self.size = size;
         return .newly_created;
+    }
+};
+
+const StagingTexture = struct {
+    const Cached = struct {
+        size: XY(u16),
+        texture: *win32.ID3D11Texture2D,
+        text_renderer: TextRenderer,
+    };
+    cached: ?Cached = null,
+    pub fn update(
+        self: *StagingTexture,
+        size: XY(u16),
+    ) struct {
+        texture: *win32.ID3D11Texture2D,
+        text_renderer: TextRenderer,
+    } {
+        if (self.cached) |*cached| {
+            if (cached.size.eql(size)) return .{
+                .texture = cached.texture,
+                .text_renderer = cached.text_renderer,
+            };
+            std.log.debug(
+                "resizing staging texture from {}x{} to {}x{}",
+                .{ cached.size.x, cached.size.y, size.x, size.y },
+            );
+            cached.text_renderer.deinit();
+            _ = cached.texture.IUnknown.Release();
+            self.cached = null;
+        }
+
+        var texture: *win32.ID3D11Texture2D = undefined;
+        const desc: win32.D3D11_TEXTURE2D_DESC = .{
+            .Width = size.x,
+            .Height = size.y,
+            .MipLevels = 1,
+            .ArraySize = 1,
+            .Format = .A8_UNORM,
+            .SampleDesc = .{ .Count = 1, .Quality = 0 },
+            .Usage = .DEFAULT,
+            .BindFlags = .{ .RENDER_TARGET = 1 },
+            .CPUAccessFlags = .{},
+            .MiscFlags = .{},
+        };
+        {
+            const hr = global.d3d.device.CreateTexture2D(&desc, null, &texture);
+            if (hr < 0) fatalHr("CreateStagingTexture", hr);
+        }
+        errdefer _ = texture.IUnknown.Release();
+
+        const text_renderer = TextRenderer.init(global.d2d_factory, texture);
+        errdefer text_renderer.deinit();
+
+        self.cached = .{
+            .size = size,
+            .texture = texture,
+            .text_renderer = text_renderer,
+        };
+        return .{
+            .texture = self.cached.?.texture,
+            .text_renderer = text_renderer,
+        };
     }
 };
 
