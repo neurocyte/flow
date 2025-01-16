@@ -564,8 +564,8 @@ const cmds = struct {
         while (len != 0) {
             len -= 1;
             std.debug.assert(try cbor.decodeArrayHeader(&iter) == 6);
-            var file_uri: []const u8 = undefined;
-            if (!try cbor.matchString(&iter, &file_uri)) return error.MissingArgument;
+            var file_path: []const u8 = undefined;
+            if (!try cbor.matchString(&iter, &file_path)) return error.MissingArgument;
             var sel: ed.Selection = .{};
             if (!try cbor.matchInt(usize, &iter, &sel.begin.row)) return error.MissingArgument;
             if (!try cbor.matchInt(usize, &iter, &sel.begin.col)) return error.MissingArgument;
@@ -574,18 +574,14 @@ const cmds = struct {
             var new_text: []const u8 = undefined;
             if (!try cbor.matchString(&iter, &new_text)) return error.MissingArgument;
 
-            if (self.get_active_editor()) |editor| {
-                // TODO match file_uri correctly. endsWith() isn't correct because 'path' is a
-                // short, relative path while 'file_uri' is an absolute path starting with 'file://'
-                const match = if (editor.file_path) |path| std.mem.endsWith(u8, file_uri, path) else false;
-                if (match) {
-                    try editor.rename_symbol_item(sel, new_text, &mroot, len == 0);
-                } else {
-                    const logger = log.logger("LSP");
-                    defer logger.deinit();
-                    logger.print("TODO perform renames in other files\n", .{});
-                }
-            }
+            file_path = project_manager.normalize_file_path(file_path);
+            if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
+                try editor.rename_symbol_item(sel, new_text, &mroot, len == 0);
+            } else {
+                const logger = log.logger("LSP");
+                defer logger.deinit();
+                logger.print("TODO perform renames in other files\n", .{});
+            };
         }
     }
     pub const rename_symbol_item_meta = .{ .arguments = &.{.array} };

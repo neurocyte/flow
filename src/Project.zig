@@ -815,8 +815,10 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
             try cbor.writeValue(w, "rename_symbol_item");
             try cbor.writeArrayHeader(w, renames.items.len);
             for (renames.items) |rename| {
+                var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const file_path_ = std.Uri.percentDecodeBackwards(&file_path_buf, rename.uri[7..]);
                 try cbor.writeValue(w, .{
-                    rename.uri,
+                    file_path_,
                     rename.range.start.line,
                     rename.range.start.character,
                     rename.range.end.line,
