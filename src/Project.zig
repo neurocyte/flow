@@ -795,7 +795,7 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     const response = lsp.send_request(self.allocator, "textDocument/rename", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
-        .newName = "foobar",
+        .newName = "PLACEHOLDER",
     }) catch return error.LspFailed;
     defer self.allocator.free(response.buf);
     var result: []const u8 = undefined;

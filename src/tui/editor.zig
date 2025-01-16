@@ -4229,6 +4229,14 @@ pub const Editor = struct {
     }
     pub const rename_symbol_meta = .{ .description = "Language: Rename symbol at cursor" };
 
+    pub fn add_rename_symbol_cursor(self: *Self, sel: Selection, first: bool) !void {
+        if (first) self.cancel_all_selections() else try self.push_cursor();
+        const primary = self.get_primary();
+        primary.selection = sel;
+        primary.cursor = sel.end;
+        self.need_render();
+    }
+
     pub fn hover(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         return self.hover_at(primary.cursor.row, primary.cursor.col);
@@ -4321,20 +4329,6 @@ pub const Editor = struct {
         self.diag_hints = 0;
         self.send_editor_diagnostics() catch {};
         self.need_render();
-    }
-
-    pub fn rename_symbol_item(
-        self: *Self,
-        sel: Selection,
-        new_text: []const u8,
-        root_prev: *?Buffer.Root,
-        final: bool,
-    ) !void {
-        self.get_primary().selection = sel;
-        if (root_prev.* == null) root_prev.* = (try self.buf_for_update()).root;
-        const root = try self.delete_selection(root_prev.*.?, self.get_primary(), self.allocator);
-        root_prev.* = try self.insert(root, self.get_primary(), new_text, self.allocator);
-        if (final) try self.update_buf(root_prev.*.?);
     }
 
     pub fn select(self: *Self, ctx: Context) Result {

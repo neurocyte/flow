@@ -555,12 +555,13 @@ const cmds = struct {
     pub const add_diagnostic_meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
 
     pub fn rename_symbol_item(self: *Self, ctx: Ctx) Result {
+        const editor = self.get_active_editor() orelse return;
         // because the incoming message is an array of Renames, we manuallly
         // parse instead of using ctx.args.match() which doesn't seem to return
         // the parsed length needed to correctly advance iter.
         var iter = ctx.args.buf;
         var len = try cbor.decodeArrayHeader(&iter);
-        var mroot: ?@import("Buffer").Root = null;
+        var first = true;
         while (len != 0) {
             len -= 1;
             std.debug.assert(try cbor.decodeArrayHeader(&iter) == 6);
@@ -575,13 +576,14 @@ const cmds = struct {
             if (!try cbor.matchString(&iter, &new_text)) return error.MissingArgument;
 
             file_path = project_manager.normalize_file_path(file_path);
-            if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
-                try editor.rename_symbol_item(sel, new_text, &mroot, len == 0);
+            if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
+                try editor.add_rename_symbol_cursor(sel, first);
+                first = false;
             } else {
                 const logger = log.logger("LSP");
                 defer logger.deinit();
                 logger.print("TODO perform renames in other files\n", .{});
-            };
+            }
         }
     }
     pub const rename_symbol_item_meta = .{ .arguments = &.{.array} };
