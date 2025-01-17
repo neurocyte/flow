@@ -91,6 +91,87 @@ pub const Font = struct {
     }
 };
 
+pub const Fonts = struct {
+    collection: *win32.IDWriteFontCollection,
+    pub fn init() Fonts {
+        var collection: *win32.IDWriteFontCollection = undefined;
+        const hr = global.dwrite_factory.GetSystemFontCollection(
+            &collection,
+            1, // check for updates (not sure why this is even an option)
+        );
+        if (hr < 0) fatalHr("GetSystemFontCollection", hr);
+        return .{ .collection = collection };
+    }
+    pub fn deinit(self: Fonts) void {
+        _ = self.collection.IUnknown.Release();
+    }
+    pub fn count(self: Fonts) usize {
+        return @intCast(self.collection.GetFontFamilyCount());
+    }
+
+    pub fn getName(self: Fonts, index: usize) FontFace {
+        var family: *win32.IDWriteFontFamily = undefined;
+        {
+            const hr = self.collection.GetFontFamily(@intCast(index), &family);
+            if (hr < 0) fatalHr("GetFontFamily", hr);
+        }
+        defer _ = family.IUnknown.Release();
+
+        var names: *win32.IDWriteLocalizedStrings = undefined;
+        {
+            const hr = family.GetFamilyNames(&names);
+            if (hr < 0) fatalHr("GetFamilyNames", hr);
+        }
+        defer _ = names.IUnknown.Release();
+
+        // code currently assumes this is always true
+        std.debug.assert(names.GetCount() >= 1);
+
+        // leaving this code in in case we ever want to implement
+        // some sort logic to pick a string based on locale
+        if (false) {
+            const locale_count = names.GetCount();
+            std.log.info("Font {} has {} string locales", .{ index, locale_count });
+            for (0..locale_count) |i| {
+                var locale_name_len: u32 = undefined;
+                {
+                    const hr = names.GetLocaleNameLength(@intCast(i), &locale_name_len);
+                    if (hr < 0) fatalHr("GetLocaleNameLength", hr);
+                }
+                std.debug.assert(locale_name_len <= win32.LOCALE_NAME_MAX_LENGTH);
+                var locale_name_buf: [win32.LOCALE_NAME_MAX_LENGTH + 1]u16 = undefined;
+                {
+                    const hr = names.GetLocaleName(@intCast(i), @ptrCast(&locale_name_buf), locale_name_buf.len);
+                    if (hr < 0) fatalHr("GetLocaleName", hr);
+                }
+                const locale_name = locale_name_buf[0..locale_name_len];
+                std.log.info("  {} '{}'", .{ i, std.unicode.fmtUtf16Le(locale_name) });
+            }
+        }
+
+        var name_length: u32 = undefined;
+        {
+            const hr = names.GetStringLength(0, &name_length);
+            if (hr < 0) fatalHr("GetStringLength", hr);
+        }
+
+        if (name_length > FontFace.max) std.debug.panic(
+            "font name length {} too long (max is {}, we either need to increase max or use allocation)",
+            .{ name_length, FontFace.max },
+        );
+
+        var result: FontFace = .{ .buf = undefined, .len = @intCast(name_length) };
+
+        {
+            // note: we're just asking for the first one, whatever locale it is
+            const hr = names.GetString(0, @ptrCast(&result.buf), name_length + 1);
+            if (hr < 0) fatalHr("GetString", hr);
+        }
+
+        return result;
+    }
+};
+
 fn fatalHr(what: []const u8, hresult: win32.HRESULT) noreturn {
     std.debug.panic("{s} failed, hresult=0x{x}", .{ what, @as(u32, @bitCast(hresult)) });
 }

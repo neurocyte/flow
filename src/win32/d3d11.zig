@@ -10,6 +10,7 @@ const TextRenderer = @import("DwriteRenderer.zig");
 const XY = @import("xy.zig").XY;
 
 pub const Font = TextRenderer.Font;
+pub const Fonts = TextRenderer.Fonts;
 
 const log = std.log.scoped(.d3d);
 
