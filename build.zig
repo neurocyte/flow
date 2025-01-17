@@ -587,11 +587,27 @@ fn gen_version_info(
 
     const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags" }, &code, .Ignore);
     const branch_ = try b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", "HEAD" }, &code, .Ignore);
+    const branch = std.mem.trimRight(u8, branch_, "\r\n ");
+    const tracking_branch_ = blk: {
+        var buf = std.ArrayList(u8).init(b.allocator);
+        defer buf.deinit();
+        try buf.appendSlice(branch);
+        try buf.appendSlice("@{upstream}");
+        break :blk try b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", buf.items }, &code, .Ignore);
+    };
+    const tracking_remote_name = if (std.mem.indexOfScalar(u8, tracking_branch_, '/')) |pos| tracking_branch_[0..pos] else "";
+    const tracking_remote_ = if (tracking_remote_name.len > 0) blk: {
+        var remote_config_path = std.ArrayList(u8).init(b.allocator);
+        defer remote_config_path.deinit();
+        try remote_config_path.writer().print("remote.{s}.url", .{tracking_remote_name});
+        break :blk b.runAllowFail(&[_][]const u8{ "git", "config", remote_config_path.items }, &code, .Ignore) catch "(remote not found)";
+    } else "";
     const remote_ = b.runAllowFail(&[_][]const u8{ "git", "config", "remote.origin.url" }, &code, .Ignore) catch "(origin not found)";
     const log_ = b.runAllowFail(&[_][]const u8{ "git", "log", "--pretty=oneline", "@{u}..." }, &code, .Ignore) catch "";
     const diff_ = b.runAllowFail(&[_][]const u8{ "git", "diff", "--stat", "--patch", "HEAD" }, &code, .Ignore) catch "(git diff failed)";
     const version = std.mem.trimRight(u8, describe, "\r\n ");
-    const branch = std.mem.trimRight(u8, branch_, "\r\n ");
+    const tracking_branch = std.mem.trimRight(u8, tracking_branch_, "\r\n ");
+    const tracking_remote = std.mem.trimRight(u8, tracking_remote_, "\r\n ");
     const remote = std.mem.trimRight(u8, remote_, "\r\n ");
     const log = std.mem.trimRight(u8, log_, "\r\n ");
     const diff = std.mem.trimRight(u8, diff_, "\r\n ");
@@ -603,7 +619,9 @@ fn gen_version_info(
         target_triple,
     });
 
-    if (branch.len > 0)
+    if (branch.len > 0) if (tracking_branch.len > 0)
+        try writer.print("branch: {s} tracking {s} at {s}\n", .{ branch, tracking_branch, tracking_remote })
+    else
         try writer.print("branch: {s} at {s}\n", .{ branch, remote });
 
     if (log.len > 0)
