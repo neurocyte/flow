@@ -37,6 +37,7 @@ const menu_commands = if (build_options.gui) &[_][]const u8{
     "open_keybind_config",
     "toggle_input_mode",
     "change_theme",
+    "change_fontface",
     "quit",
 } else &[_][]const u8{
     "open_help",
@@ -101,9 +102,13 @@ fn add_menu_command(self: *Self, comptime command_name: []const u8, menu: anytyp
     var buf: [64]u8 = undefined;
     var fis = std.io.fixedBufferStream(&buf);
     const writer = fis.writer();
-    try writer.print("{s} ..", .{description});
+    const leader = if (hint.len > 0) "." else " ";
+    _ = try writer.write(description);
+    _ = try writer.write(" ");
+    _ = try writer.write(leader);
+    _ = try writer.write(leader);
     for (0..(self.max_desc_len - label_len - 5)) |_|
-        try writer.print(".", .{});
+        _ = try writer.write(leader);
     try writer.print(" :{s}", .{hint});
     const label = fis.getWritten();
     try menu.add_item_with_handler(label, menu_action(command_name));

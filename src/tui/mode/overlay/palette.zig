@@ -76,7 +76,6 @@ pub fn Create(options: type) type {
             try self.start_query(0);
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
-            if (self.initial_selected) |idx| self.select(idx);
             var mode = try keybind.mode("overlay/palette", allocator, .{
                 .insert_command = "overlay_insert_bytes",
             });
@@ -154,7 +153,7 @@ pub fn Create(options: type) type {
 
         fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
             self.do_resize();
-            self.start_query(0) catch {};
+            // self.start_query(0) catch {};
         }
 
         fn do_resize(self: *Self) void {
@@ -231,13 +230,18 @@ pub fn Create(options: type) type {
             } else {
                 _ = try self.query_entries(self.inputbox.text.items);
             }
-            self.menu.select_down();
-            var i = n;
-            while (i > 0) : (i -= 1)
+            if (self.initial_selected) |idx| {
+                self.initial_selected = null;
+                self.select(idx);
+            } else {
                 self.menu.select_down();
-            self.do_resize();
-            tui.current().refresh_hover();
-            self.selection_updated();
+                var i = n;
+                while (i > 0) : (i -= 1)
+                    self.menu.select_down();
+                self.do_resize();
+                tui.current().refresh_hover();
+                self.selection_updated();
+            }
         }
 
         fn query_entries(self: *Self, query: []const u8) error{OutOfMemory}!usize {

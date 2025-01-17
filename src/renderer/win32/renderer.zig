@@ -396,6 +396,11 @@ pub fn reset_fontface(self: *Self) void {
     gui.reset_fontface(hwnd);
 }
 
+pub fn get_fontfaces(self: *Self) void {
+    const hwnd = self.hwnd orelse return;
+    gui.get_fontfaces(hwnd);
+}
+
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
     _ = self;
     _ = color;

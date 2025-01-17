@@ -515,6 +515,7 @@
             ["b", "open_keybind_config"],
             ["j", "home_menu_down"],
             ["k", "home_menu_up"],
+            ["f", "change_fontface"],
             ["space", "home_menu_activate"]
         ]
     } 

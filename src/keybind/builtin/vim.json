@@ -100,6 +100,7 @@
             ["b", "open_keybind_config"],
             ["j", "home_menu_down"],
             ["k", "home_menu_up"],
+            ["f", "change_fontface"],
             ["<Space>", "home_menu_activate"]
         ]
     }

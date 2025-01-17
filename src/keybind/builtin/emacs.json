@@ -81,6 +81,7 @@
             ["ctrl+x ctrl+f", "open_file"],
             ["ctrl+x b", "open_recent"],
             ["alt+x", "open_command_palette"],
+            ["f", "change_fontface"],
             ["ctrl+x ctrl+c", "quit"]
         ]
     }

@@ -207,6 +207,7 @@
             ["g", "open_gui_config"],
             ["k", "open_keybind_config"],
             ["t", "change_theme"],
+            ["f", "change_fontface"],
             ["q", "quit"],
             ["ctrl+\\", "add_split"],
             ["ctrl+f ctrl+f ctrl+f ctrl+f ctrl+f", "home_sheeran"],

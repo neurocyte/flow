@@ -31,7 +31,8 @@ const WM_APP_SET_FONTSIZE = win32.WM_APP + 4;
 const WM_APP_SET_FONTFACE = win32.WM_APP + 5;
 const WM_APP_RESET_FONTSIZE = win32.WM_APP + 6;
 const WM_APP_RESET_FONTFACE = win32.WM_APP + 7;
-const WM_APP_UPDATE_SCREEN = win32.WM_APP + 8;
+const WM_APP_GET_FONTFACES = win32.WM_APP + 8;
+const WM_APP_UPDATE_SCREEN = win32.WM_APP + 9;
 
 const WM_APP_EXIT_RESULT = 0x45feaa11;
 const WM_APP_SET_BACKGROUND_RESULT = 0x369a26cd;
@@ -40,6 +41,7 @@ const WM_APP_SET_FONTSIZE_RESULT = 0x72fa44bc;
 const WM_APP_SET_FONTFACE_RESULT = 0x1a49ffa8;
 const WM_APP_RESET_FONTSIZE_RESULT = 0x082c4c0c;
 const WM_APP_RESET_FONTFACE_RESULT = 0x0101f996;
+const WM_APP_GET_FONTFACES_RESULT = 0x07e228f5;
 const WM_APP_UPDATE_SCREEN_RESULT = 0x3add213b;
 
 pub const DropWriter = struct {
@@ -128,7 +130,7 @@ fn getIcons(dpi: XY(u32)) Icons {
     return .{ .small = @ptrCast(small), .large = @ptrCast(large) };
 }
 
-fn getConfig() *const gui_config {
+fn getConfig() *gui_config {
     if (global.conf == null) {
         global.conf, _ = root.read_config(gui_config, global.arena);
         root.write_config(global.conf.?, global.arena) catch
@@ -169,6 +171,15 @@ fn getFontFace() *const FontFace {
         };
     }
     return &(global.fontface.?);
+}
+
+fn setFontFace(fontface: *const FontFace) void {
+    global.fontface = fontface.*;
+    const conf = getConfig();
+    var buf: [FontFace.max * 2]u8 = undefined;
+    conf.fontface = buf[0 .. std.unicode.utf16LeToUtf8(&buf, fontface.slice()) catch return];
+    root.write_config(conf.*, global.arena) catch
+        std.log.err("failed to write gui config file", .{});
 }
 
 fn getFontSize() f32 {
@@ -492,6 +503,15 @@ pub fn reset_fontface(hwnd: win32.HWND) void {
     ));
 }
 
+pub fn get_fontfaces(hwnd: win32.HWND) void {
+    std.debug.assert(WM_APP_GET_FONTFACES_RESULT == win32.SendMessageW(
+        hwnd,
+        WM_APP_GET_FONTFACES,
+        0,
+        0,
+    ));
+}
+
 pub fn updateScreen(hwnd: win32.HWND, screen: *const vaxis.Screen) void {
     std.debug.assert(WM_APP_UPDATE_SCREEN_RESULT == win32.SendMessageW(
         hwnd,
@@ -541,6 +561,27 @@ fn updateWindowSize(
         .rect = if (restored_bounds) |b| b else new_rect,
     };
     setWindowPosRect(hwnd, new_rect);
+}
+
+fn getFontFaces(state: *State) void {
+    const fonts = render.Fonts.init();
+    defer fonts.deinit();
+    var buf: [FontFace.max * 2]u8 = undefined;
+
+    if (global.fontface) |fontface|
+        state.pid.send(.{
+            "fontface",
+            "current",
+            buf[0 .. std.unicode.utf16LeToUtf8(&buf, fontface.slice()) catch 0],
+        }) catch {};
+
+    for (0..fonts.count()) |font_index|
+        state.pid.send(.{
+            "fontface",
+            buf[0 .. std.unicode.utf16LeToUtf8(&buf, fonts.getName(font_index).slice()) catch 0],
+        }) catch {};
+
+    state.pid.send(.{ "fontface", "done" }) catch {};
 }
 
 const CellPos = struct {
@@ -1138,8 +1179,7 @@ fn WndProc(
         },
         WM_APP_SET_FONTFACE => {
             const state = stateFromHwnd(hwnd);
-            const fontface: *FontFace = @ptrFromInt(wparam);
-            global.fontface = fontface.*;
+            setFontFace(@ptrFromInt(wparam));
             updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_FONTFACE_RESULT;
@@ -1150,6 +1190,11 @@ fn WndProc(
             updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_FONTFACE_RESULT;
+        },
+        WM_APP_GET_FONTFACES => {
+            const state = stateFromHwnd(hwnd);
+            getFontFaces(state);
+            return WM_APP_GET_FONTFACES_RESULT;
         },
         WM_APP_UPDATE_SCREEN => {
             const screen: *const vaxis.Screen = @ptrFromInt(wparam);

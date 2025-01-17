@@ -54,6 +54,8 @@ render_pending: bool = false,
 keepalive_timer: ?tp.Cancellable = null,
 mouse_idle_timer: ?tp.Cancellable = null,
 default_cursor: keybind.CursorShape = .default,
+fontface: []const u8 = "",
+fontfaces: ?std.ArrayList([]const u8) = null,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -378,6 +380,27 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         if (self.mouse_idle_timer) |*t| t.deinit();
         self.mouse_idle_timer = null;
         try self.clear_hover_focus();
+        return;
+    }
+
+    if (try m.match(.{ "fontface", "done" })) {
+        return self.enter_overlay_mode(@import("mode/overlay/fontface_palette.zig").Type);
+    }
+
+    var fontface: []const u8 = undefined;
+    if (try m.match(.{ "fontface", "current", tp.extract(&fontface) })) {
+        if (self.fontface.len > 0) self.allocator.free(self.fontface);
+        self.fontface = "";
+        self.fontface = try self.allocator.dupe(u8, fontface);
+        return;
+    }
+
+    if (try m.match(.{ "fontface", tp.extract(&fontface) })) {
+        var fontfaces = if (self.fontfaces) |*p| p else blk: {
+            self.fontfaces = std.ArrayList([]const u8).init(self.allocator);
+            break :blk &self.fontfaces.?;
+        };
+        try fontfaces.append(try self.allocator.dupe(u8, fontface));
         return;
     }
 
@@ -797,6 +820,12 @@ const cmds = struct {
         return self.enter_overlay_mode(@import("mode/overlay/file_type_palette.zig").Type);
     }
     pub const change_file_type_meta = .{ .description = "Change file type" };
+
+    pub fn change_fontface(self: *Self, _: Ctx) Result {
+        if (build_options.gui)
+            self.rdr.get_fontfaces();
+    }
+    pub const change_fontface_meta = .{ .description = "Select font face" };
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
         self.rdr.cursor_disable();
