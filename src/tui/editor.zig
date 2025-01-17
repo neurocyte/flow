@@ -4224,13 +4224,26 @@ pub const Editor = struct {
 
     pub fn rename_symbol(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
+        const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        return project_manager.rename_symbol(file_path, primary.cursor.row, primary.cursor.col);
+        const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
+        return project_manager.rename_symbol(file_path, primary.cursor.row, col);
     }
     pub const rename_symbol_meta = .{ .description = "Language: Rename symbol at cursor" };
 
-    pub fn add_rename_symbol_cursor(self: *Self, sel: Selection, first: bool) !void {
+    pub fn add_rename_symbol_cursor(self: *Self, sel_: Selection, first: bool) !void {
         if (first) self.cancel_all_selections() else try self.push_cursor();
+        const root = self.buf_root() catch return;
+        const sel: Selection = .{
+            .begin = .{
+                .row = sel_.begin.row,
+                .col = try root.pos_to_width(sel_.begin.row, sel_.begin.col, self.metrics),
+            },
+            .end = .{
+                .row = sel_.end.row,
+                .col = try root.pos_to_width(sel_.end.row, sel_.end.col, self.metrics),
+            },
+        };
         const primary = self.get_primary();
         primary.selection = sel;
         primary.cursor = sel.end;
