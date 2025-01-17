@@ -1568,7 +1568,7 @@ pub const Editor = struct {
     }
 
     fn cancel_all_selections(self: *Self) void {
-        var primary = self.cursels.getLast() orelse CurSel{};
+        var primary = self.get_primary().*;
         primary.selection = null;
         self.cursels.clearRetainingCapacity();
         self.cursels.addOneAssumeCapacity().* = primary;
