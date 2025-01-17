@@ -810,6 +810,7 @@ fn delete_active_view(self: *Self) !void {
 
 fn replace_active_view(self: *Self, widget: Widget) !void {
     const n = self.active_view orelse return error.NotFound;
+    self.remove_editor(0);
     self.views.replace(n, widget);
 }
 
@@ -819,16 +820,13 @@ fn create_editor(self: *Self) !void {
     command.executeName("enter_mode_default", .{}) catch {};
     var editor_widget = try ed.create(self.allocator, Widget.to(self));
     errdefer editor_widget.deinit(self.allocator);
-    if (editor_widget.get("editor")) |editor| {
-        if (self.top_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
-        if (self.bottom_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
-        editor.subscribe(EventHandler.bind(self, handle_editor_event)) catch @panic("subscribe unsupported");
-        if (editor.dynamic_cast(ed.EditorWidget)) |p|
-            try self.add_editor(&p.editor)
-        else
-            self.remove_editor(0);
-    } else @panic("mainview editor not found");
+    const editor = editor_widget.get("editor") orelse @panic("mainview editor not found");
+    if (self.top_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
+    if (self.bottom_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
+    editor.subscribe(EventHandler.bind(self, handle_editor_event)) catch @panic("subscribe unsupported");
     try self.replace_active_view(editor_widget);
+    if (editor.dynamic_cast(ed.EditorWidget)) |p|
+        try self.add_editor(&p.editor);
     tui.current().resize();
 }
 
