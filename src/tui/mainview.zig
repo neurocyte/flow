@@ -562,8 +562,7 @@ const cmds = struct {
         var iter = ctx.args.buf;
         var len = try cbor.decodeArrayHeader(&iter);
         var first = true;
-        while (len != 0) {
-            len -= 1;
+        while (len != 0) : (len -= 1) {
             if (try cbor.decodeArrayHeader(&iter) != 7) return error.InvalidRenameSymbolItemArgument;
             var file_path: []const u8 = undefined;
             if (!try cbor.matchString(&iter, &file_path)) return error.MissingArgument;
@@ -579,7 +578,9 @@ const cmds = struct {
 
             file_path = project_manager.normalize_file_path(file_path);
             if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
-                try editor.add_rename_symbol_cursor(sel, first);
+                if (len == 1 and sel.begin.row == 0 and sel.begin.col == 0 and sel.end.row > 0) //probably a full file edit
+                    return editor.add_cursors_from_content_diff(new_text);
+                try editor.add_cursor_from_selection(sel, if (first) .cancel else .push);
                 first = false;
             } else {
                 try self.add_find_in_files_result(
