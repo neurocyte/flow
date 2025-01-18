@@ -2287,9 +2287,17 @@ pub const Editor = struct {
     pub const cut_meta = .{ .description = "Cut selection or current line to clipboard" };
 
     pub fn copy(self: *Self, _: Context) Result {
+        const primary = self.get_primary();
         const root = self.buf_root() catch return;
         var first = true;
         var text = std.ArrayList(u8).init(self.allocator);
+        if (self.cursels.items.len == 1)
+            if (primary.selection) |_| {} else {
+                const sel = primary.enable_selection();
+                try move_cursor_begin(root, &sel.begin, self.metrics);
+                try move_cursor_end(root, &sel.end, self.metrics);
+                try move_cursor_right(root, &sel.end, self.metrics);
+            };
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |sel| {
                 const copy_text = try copy_selection(root, sel, self.allocator, self.metrics);
