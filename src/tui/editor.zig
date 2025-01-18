@@ -219,6 +219,7 @@ pub const Editor = struct {
     file_path: ?[]const u8,
     buffer: ?*Buffer,
     lsp_version: usize = 1,
+    pause_undo: bool = false,
 
     cursels: CurSel.List,
     cursels_saved: CurSel.List,
@@ -423,8 +424,10 @@ pub const Editor = struct {
     }
 
     fn buf_for_update(self: *Self) !*const Buffer {
-        self.cursels_saved.clearAndFree();
-        self.cursels_saved = try self.cursels.clone();
+        if (!self.pause_undo) {
+            self.cursels_saved.clearAndFree();
+            self.cursels_saved = try self.cursels.clone();
+        }
         return self.buffer orelse error.Stop;
     }
 
@@ -610,9 +613,11 @@ pub const Editor = struct {
         const b = self.buffer orelse return error.Stop;
         var sfa = std.heap.stackFallback(512, self.allocator);
         const allocator = sfa.get();
-        const meta = try self.store_undo_meta(allocator);
-        defer allocator.free(meta);
-        try b.store_undo(meta);
+        if (!self.pause_undo) {
+            const meta = try self.store_undo_meta(allocator);
+            defer allocator.free(meta);
+            try b.store_undo(meta);
+        }
         b.update(root);
         b.file_eol_mode = eol_mode;
         b.file_utf8_sanitized = utf8_sanitized;
@@ -631,6 +636,8 @@ pub const Editor = struct {
     }
 
     fn restore_undo(self: *Self) !void {
+        if (self.pause_undo)
+            try self.resume_undo_history(.{});
         if (self.buffer) |b_mut| {
             try self.send_editor_jump_source();
             self.cancel_all_matches();
@@ -665,6 +672,16 @@ pub const Editor = struct {
             try self.send_editor_jump_destination();
         }
     }
+
+    pub fn pause_undo_history(self: *Self, _: Context) Result {
+        self.pause_undo = true;
+    }
+    pub const pause_undo_history_meta = .{ .description = "Pause undo history" };
+
+    pub fn resume_undo_history(self: *Self, _: Context) Result {
+        self.pause_undo = false;
+    }
+    pub const resume_undo_history_meta = .{ .description = "Resume undo history" };
 
     fn find_first_non_ws(root: Buffer.Root, row: usize, metrics: Buffer.Metrics) usize {
         const Ctx = struct {
