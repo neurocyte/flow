@@ -51,7 +51,10 @@ pub fn Create(options: type) type {
             const self: *Self = try allocator.create(Self);
             self.* = .{
                 .allocator = allocator,
-                .modal = try ModalBackground.create(*Self, allocator, tui.current().mainview, .{ .ctx = self }),
+                .modal = try ModalBackground.create(*Self, allocator, tui.current().mainview, .{
+                    .ctx = self,
+                    .on_click = mouse_palette_menu_cancel,
+                }),
                 .menu = try Menu.create(*Self, allocator, tui.current().mainview, .{
                     .ctx = self,
                     .on_render = if (@hasDecl(options, "on_render_menu")) options.on_render_menu else on_render_menu,
@@ -199,6 +202,10 @@ pub fn Create(options: type) type {
                 self.view_pos += Menu.scroll_lines;
             self.update_scrollbar();
             self.start_query(0) catch {};
+        }
+
+        fn mouse_palette_menu_cancel(self: *Self, _: *ModalBackground.State(*Self)) void {
+            self.cmd("palette_menu_cancel", .{}) catch {};
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
