@@ -554,6 +554,51 @@ const cmds = struct {
     }
     pub const add_diagnostic_meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
 
+    pub fn rename_symbol_item(self: *Self, ctx: Ctx) Result {
+        const editor = self.get_active_editor() orelse return;
+        // because the incoming message is an array of Renames, we manuallly
+        // parse instead of using ctx.args.match() which doesn't seem to return
+        // the parsed length needed to correctly advance iter.
+        var iter = ctx.args.buf;
+        var len = try cbor.decodeArrayHeader(&iter);
+        var first = true;
+        while (len != 0) : (len -= 1) {
+            if (try cbor.decodeArrayHeader(&iter) != 7) return error.InvalidRenameSymbolItemArgument;
+            var file_path: []const u8 = undefined;
+            if (!try cbor.matchString(&iter, &file_path)) return error.MissingArgument;
+            var sel: ed.Selection = .{};
+            if (!try cbor.matchInt(usize, &iter, &sel.begin.row)) return error.MissingArgument;
+            if (!try cbor.matchInt(usize, &iter, &sel.begin.col)) return error.MissingArgument;
+            if (!try cbor.matchInt(usize, &iter, &sel.end.row)) return error.MissingArgument;
+            if (!try cbor.matchInt(usize, &iter, &sel.end.col)) return error.MissingArgument;
+            var new_text: []const u8 = undefined;
+            if (!try cbor.matchString(&iter, &new_text)) return error.MissingArgument;
+            var line_text: []const u8 = undefined;
+            if (!try cbor.matchString(&iter, &line_text)) return error.MissingArgument;
+
+            file_path = project_manager.normalize_file_path(file_path);
+            if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
+                if (len == 1 and sel.begin.row == 0 and sel.begin.col == 0 and sel.end.row > 0) //probably a full file edit
+                    return editor.add_cursors_from_content_diff(new_text);
+                try editor.add_cursor_from_selection(sel, if (first) .cancel else .push);
+                first = false;
+            } else {
+                try self.add_find_in_files_result(
+                    .references,
+                    file_path,
+                    sel.begin.row + 1,
+                    sel.begin.col,
+                    sel.end.row + 1,
+                    sel.end.col,
+                    line_text,
+                    .Information,
+                );
+            }
+        }
+    }
+    pub const rename_symbol_item_meta = .{ .arguments = &.{.array} };
+    pub const rename_symbol_item_elem_meta = .{ .arguments = &.{ .string, .integer, .integer, .integer, .integer, .string } };
+
     pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidClearDiagnosticsArgument;

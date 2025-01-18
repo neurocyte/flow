@@ -37,7 +37,25 @@
             ["ctrl+x ctrl+c", "quit"],
             ["ctrl+x b", "open_recent"],
             ["alt+x", "open_command_palette"],
-            ["ctrl+space", "enter_mode", "select"]
+            ["ctrl+space", "enter_mode", "select"],
+
+            ["ctrl+c l = =", "format"],
+            ["ctrl+c l = r", "format"],
+            ["ctrl+c l g g", "goto_definition"],
+            ["ctrl+c l g i", "goto_implementation"],
+            ["ctrl+c l g d", "goto_declaration"],
+            ["ctrl+c l g r", "references"],
+            ["ctrl+c l h h", "hover"],
+            ["ctrl+c l r r", "rename_symbol"],
+
+            ["super+l = =", "format"],
+            ["super+l = r", "format"],
+            ["super+l g g", "goto_definition"],
+            ["super+l g i", "goto_implementation"],
+            ["super+l g d", "goto_declaration"],
+            ["super+l g r", "references"],
+            ["super+l h h", "hover"],
+            ["super+l r r", "rename_symbol"]
         ]
     },
     "select": {

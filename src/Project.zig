@@ -782,6 +782,150 @@ fn send_completion_item(_: *Self, to: tp.pid_ref, file_path: []const u8, row: us
     }) catch error.ClientFailed;
 }
 
+const Rename = struct {
+    uri: []const u8,
+    new_text: []const u8,
+    range: Range,
+};
+
+pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspOrClientError || GetLineOfFileError || InvalidMessageError || cbor.Error)!void {
+    const lsp = try self.get_language_server(file_path);
+    const uri = try self.make_URI(file_path);
+    defer self.allocator.free(uri);
+    const response = lsp.send_request(self.allocator, "textDocument/rename", .{
+        .textDocument = .{ .uri = uri },
+        .position = .{ .line = row, .character = col },
+        .newName = "PLACEHOLDER",
+    }) catch return error.LspFailed;
+    defer self.allocator.free(response.buf);
+    var result: []const u8 = undefined;
+    // buffer the renames in order to send as a single, atomic message
+    var renames = std.ArrayList(Rename).init(self.allocator);
+    defer renames.deinit();
+
+    if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
+        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
+            try self.decode_rename_symbol_map(result, &renames);
+            // write the renames message manually since there doesn't appear to be an array helper
+            var msg_buf = std.ArrayList(u8).init(self.allocator);
+            defer msg_buf.deinit();
+            const w = msg_buf.writer();
+            try cbor.writeArrayHeader(w, 3);
+            try cbor.writeValue(w, "cmd");
+            try cbor.writeValue(w, "rename_symbol_item");
+            try cbor.writeArrayHeader(w, renames.items.len);
+            for (renames.items) |rename| {
+                if (!std.mem.eql(u8, rename.uri[0..7], "file://")) return error.InvalidTargetURI;
+                var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const file_path_ = std.Uri.percentDecodeBackwards(&file_path_buf, rename.uri[7..]);
+                if (builtin.os.tag == .windows) {
+                    if (file_path[0] == '/') file_path = file_path[1..];
+                    for (file_path, 0..) |c, i| if (c == '/') {
+                        file_path[i] = '\\';
+                    };
+                }
+                const line = try self.get_line_of_file(self.allocator, file_path, rename.range.start.line);
+                try cbor.writeValue(w, .{
+                    file_path_,
+                    rename.range.start.line,
+                    rename.range.start.character,
+                    rename.range.end.line,
+                    rename.range.end.character,
+                    rename.new_text,
+                    line,
+                });
+            }
+            from.send_raw(.{ .buf = msg_buf.items }) catch return error.ClientFailed;
+        }
+    }
+}
+
+// decode a WorkspaceEdit record which may have shape {"changes": {}} or {"documentChanges": []}
+// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspaceEdit
+fn decode_rename_symbol_map(self: *Self, result: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = result;
+    var len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+    var changes: []const u8 = "";
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "changes")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidMessageField;
+            try self.decode_rename_symbol_changes(changes, renames);
+            return;
+        } else if (std.mem.eql(u8, field_name, "documentChanges")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidMessageField;
+            try self.decode_rename_symbol_doc_changes(changes, renames);
+            return;
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    return error.ClientFailed;
+}
+
+fn decode_rename_symbol_changes(self: *Self, changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = changes;
+    var files_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+    while (files_len > 0) : (files_len -= 1) {
+        var file_uri: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidMessage;
+        try decode_rename_symbol_item(self, file_uri, &iter, renames);
+    }
+}
+
+fn decode_rename_symbol_doc_changes(self: *Self, changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = changes;
+    var changes_len = cbor.decodeArrayHeader(&iter) catch return error.InvalidMessage;
+    while (changes_len > 0) : (changes_len -= 1) {
+        var dc_fields_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+        var file_uri: []const u8 = "";
+        while (dc_fields_len > 0) : (dc_fields_len -= 1) {
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+            if (std.mem.eql(u8, field_name, "textDocument")) {
+                var td_fields_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
+                while (td_fields_len > 0) : (td_fields_len -= 1) {
+                    var td_field_name: []const u8 = undefined;
+                    if (!(try cbor.matchString(&iter, &td_field_name))) return error.InvalidMessage;
+                    if (std.mem.eql(u8, td_field_name, "uri")) {
+                        if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidMessage;
+                    } else try cbor.skipValue(&iter); // skip "version": 1
+                }
+            } else if (std.mem.eql(u8, field_name, "edits")) {
+                if (file_uri.len == 0) return error.InvalidMessage;
+                try decode_rename_symbol_item(self, file_uri, &iter, renames);
+            }
+        }
+    }
+}
+
+// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textEdit
+fn decode_rename_symbol_item(_: *Self, file_uri: []const u8, iter: *[]const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var text_edits_len = cbor.decodeArrayHeader(iter) catch return error.InvalidMessage;
+    while (text_edits_len > 0) : (text_edits_len -= 1) {
+        var m_range: ?Range = null;
+        var new_text: []const u8 = "";
+        var edits_len = cbor.decodeMapHeader(iter) catch return error.InvalidMessage;
+        while (edits_len > 0) : (edits_len -= 1) {
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(iter, &field_name))) return error.InvalidMessage;
+            if (std.mem.eql(u8, field_name, "range")) {
+                var range: []const u8 = undefined;
+                if (!(try cbor.matchValue(iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
+                m_range = try read_range(range);
+            } else if (std.mem.eql(u8, field_name, "newText")) {
+                if (!(try cbor.matchString(iter, &new_text))) return error.InvalidMessageField;
+            } else {
+                try cbor.skipValue(iter);
+            }
+        }
+
+        const range = m_range orelse return error.InvalidMessageField;
+        try renames.append(.{ .uri = file_uri, .range = range, .new_text = new_text });
+    }
+}
+
 pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspOrClientError || InvalidMessageError || cbor.Error)!void {
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
@@ -1396,7 +1540,7 @@ fn format_lsp_name_func(
 
 const eol = '\n';
 
-const GetLineOfFileError = (OutOfMemoryError || std.fs.File.OpenError || std.fs.File.Reader.Error);
+pub const GetLineOfFileError = (OutOfMemoryError || std.fs.File.OpenError || std.fs.File.Reader.Error);
 
 fn get_line_of_file(self: *Self, allocator: std.mem.Allocator, file_path: []const u8, line_: usize) GetLineOfFileError![]const u8 {
     const line = line_ + 1;

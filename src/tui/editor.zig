@@ -4247,6 +4247,104 @@ pub const Editor = struct {
     }
     pub const completion_meta = .{ .description = "Language: Show completions at cursor" };
 
+    pub fn rename_symbol(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const root = self.buf_root() catch return;
+        const primary = self.get_primary();
+        const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
+        return project_manager.rename_symbol(file_path, primary.cursor.row, col);
+    }
+    pub const rename_symbol_meta = .{ .description = "Language: Rename symbol at cursor" };
+
+    pub fn add_cursor_from_selection(self: *Self, sel_: Selection, op: enum { cancel, push }) !void {
+        switch (op) {
+            .cancel => self.cancel_all_selections(),
+            .push => try self.push_cursor(),
+        }
+        const root = self.buf_root() catch return;
+        const sel: Selection = .{
+            .begin = .{
+                .row = sel_.begin.row,
+                .col = try root.pos_to_width(sel_.begin.row, sel_.begin.col, self.metrics),
+            },
+            .end = .{
+                .row = sel_.end.row,
+                .col = try root.pos_to_width(sel_.end.row, sel_.end.col, self.metrics),
+            },
+        };
+        const primary = self.get_primary();
+        primary.selection = sel;
+        primary.cursor = sel.end;
+        self.need_render();
+    }
+
+    pub fn add_cursors_from_content_diff(self: *Self, new_content: []const u8) !void {
+        const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
+        defer frame.deinit();
+
+        var content_ = std.ArrayList(u8).init(self.allocator);
+        defer content_.deinit();
+        const root = self.buf_root() catch return;
+        const eol_mode = self.buf_eol_mode() catch return;
+        try root.store(content_.writer(), eol_mode);
+        const content = content_.items;
+        var last_begin_row: usize = 0;
+        var last_begin_col_pos: usize = 0;
+        var last_end_row: usize = 0;
+        var last_end_col_pos: usize = 0;
+
+        const diffs = try @import("diff").diff(self.allocator, new_content, content);
+        defer self.allocator.free(diffs);
+        var first = true;
+        for (diffs) |diff| {
+            switch (diff.kind) {
+                .delete => {
+                    var begin_row, var begin_col_pos = count_lines(content[0..diff.start]);
+                    const end_row, const end_col_pos = count_lines(content[0 .. diff.start + diff.bytes.len]);
+                    if (begin_row == last_end_row and begin_col_pos == last_end_col_pos) {
+                        begin_row = last_begin_row;
+                        begin_col_pos = last_begin_col_pos;
+                    } else {
+                        if (first) {
+                            self.cancel_all_selections();
+                        } else {
+                            try self.push_cursor();
+                        }
+                        first = false;
+                    }
+                    const begin_col = try root.pos_to_width(begin_row, begin_col_pos, self.metrics);
+                    const end_col = try root.pos_to_width(end_row, end_col_pos, self.metrics);
+
+                    last_begin_row = begin_row;
+                    last_begin_col_pos = begin_col_pos;
+                    last_end_row = end_row;
+                    last_end_col_pos = end_col_pos;
+
+                    const sel: Selection = .{
+                        .begin = .{ .row = begin_row, .col = begin_col },
+                        .end = .{ .row = end_row, .col = end_col },
+                    };
+                    const primary = self.get_primary();
+                    primary.selection = sel;
+                    primary.cursor = sel.end;
+                    self.need_render();
+                },
+                else => {},
+            }
+        }
+    }
+
+    fn count_lines(content: []const u8) struct { usize, usize } {
+        var pos = content;
+        var offset = content.len;
+        var lines: usize = 0;
+        while (pos.len > 0) : (pos = pos[1..]) if (pos[0] == '\n') {
+            offset = pos.len - 1;
+            lines += 1;
+        };
+        return .{ lines, offset };
+    }
+
     pub fn hover(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         return self.hover_at(primary.cursor.row, primary.cursor.col);
