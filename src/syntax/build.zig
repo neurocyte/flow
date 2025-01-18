@@ -76,6 +76,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-zig/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-ziggy/tree-sitter-ziggy/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-ziggy/tree-sitter-ziggy-schema/queries/highlights.scm"),
+        ts_queryfile(b, tree_sitter_dep, "nvim-treesitter/queries/verilog/highlights.scm"),
 
         ts_queryfile(b, tree_sitter_dep, "queries/cmake/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-cpp/queries/injections.scm"),
@@ -102,6 +103,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-typst/queries/typst/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-vim/queries/vim/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-zig/queries/injections.scm"),
+        ts_queryfile(b, tree_sitter_dep, "nvim-treesitter/queries/verilog/injections.scm"),
     } else &.{
         .{ .name = "build_options", .module = options_mod },
     };
