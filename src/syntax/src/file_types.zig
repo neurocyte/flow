@@ -450,6 +450,16 @@ pub const swift = .{
     .formatter = .{"swift-format"},
 };
 
+pub const verilog = .{
+    .description = "SystemVerilog",
+    .extensions = .{ "sv", "svh" },
+    .comment = "//",
+    .highlights = "nvim-treesitter/queries/verilog/highlights.scm",
+    .injections = "nvim-treesitter/queries/verilog/injections.scm",
+    .language_server = .{"verible-verilog-ls"},
+    .formatter = .{ "verible-verilog-format", "-" }
+};
+
 pub const toml = .{
     .description = "TOML",
     .extensions = .{ "toml", "ini" },
