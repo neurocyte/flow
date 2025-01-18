@@ -106,6 +106,16 @@ pub const CurSel = struct {
         };
     }
 
+    fn enable_selection_helix(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) *Selection {
+        return if (self.selection) |*sel|
+            sel
+        else cod: {
+            self.selection = Selection.from_cursor(&self.cursor);
+            try self.selection.?.end.move_right(root, metrics);
+            break :cod &self.selection.?;
+        };
+    }
+
     fn check_selection(self: *Self) void {
         if (self.selection) |sel| if (sel.empty()) {
             self.selection = null;
