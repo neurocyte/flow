@@ -106,7 +106,7 @@ pub const CurSel = struct {
         };
     }
 
-    fn enable_selection_helix(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) *Selection {
+    fn enable_selection_helix(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
         return if (self.selection) |*sel|
             sel
         else cod: {
@@ -114,6 +114,13 @@ pub const CurSel = struct {
             try self.selection.?.end.move_right(root, metrics);
             break :cod &self.selection.?;
         };
+    }
+
+    fn get_helix_render_cursor(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Cursor {
+        var res = self.cursor;
+        if (self.selection) |sel| if (!sel.is_reversed())
+            try res.move_left(root, metrics);
+        return res;
     }
 
     fn check_selection(self: *Self) void {
@@ -274,6 +281,7 @@ pub const Editor = struct {
     render_whitespace: WhitespaceMode,
     indent_size: usize,
     tab_width: usize,
+    enable_helix_selection: bool = false,
 
     last: struct {
         root: ?Buffer.Root = null,
@@ -373,6 +381,7 @@ pub const Editor = struct {
         const frame_rate = tp.env.get().num("frame-rate");
         const indent_size = tui.current().config.indent_size;
         const tab_width = tui.current().config.tab_width;
+        const helix_mode = std.mem.eql(u8, tui.current().config.input_mode, "helix");
         self.* = Self{
             .allocator = allocator,
             .plane = n,
@@ -392,6 +401,7 @@ pub const Editor = struct {
             .enable_terminal_cursor = tui.current().config.enable_terminal_cursor,
             .render_whitespace = from_whitespace_mode(tui.current().config.whitespace_mode),
             .diagnostics = std.ArrayList(Diagnostic).init(allocator),
+            .enable_helix_selection = helix_mode,
         };
     }
 
@@ -951,7 +961,10 @@ pub const Editor = struct {
             _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_, self.metrics) catch {};
         }
         self.render_syntax(theme, cache, root) catch {};
-        self.render_cursors(theme, ctx_.cell_map) catch {};
+        if (self.enable_helix_selection)
+            self.render_cursors_helix(theme, ctx_.cell_map) catch {}
+        else
+            self.render_cursors(theme, ctx_.cell_map) catch {};
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
     }
@@ -962,6 +975,21 @@ pub const Editor = struct {
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel|
             try self.render_cursor_secondary(&cursel.cursor, theme, cell_map);
         try self.render_cursor_primary(&self.get_primary().cursor, theme, cell_map);
+    }
+
+    fn render_cursors_helix(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
+        // const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
+        // defer frame.deinit();
+        const root = self.buf_root() catch return;
+        for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| {
+            if (cursel_.*) |cursel| {
+                const cursor = try cursel.get_helix_render_cursor(root, self.metrics);
+                try self.render_cursor_secondary(&cursor, theme, cell_map);
+            }
+        }
+        var primary = self.get_primary();
+        const cursor = try primary.get_helix_render_cursor(root, self.metrics);
+        try self.render_cursor_primary(&cursor, theme, cell_map);
     }
 
     fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap) !void {
@@ -1673,8 +1701,8 @@ pub const Editor = struct {
         return root;
     }
 
-    fn with_selection_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
-        const sel = cursel.enable_selection();
+    fn with_selection_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics, helix_cursor: bool) error{Stop}!void {
+        const sel = if (helix_cursor) cursel.enable_selection_helix(root, metrics) catch return else cursel.enable_selection();
         try move(root, &sel.end, metrics);
         cursel.cursor = sel.end;
         cursel.check_selection();
@@ -1683,15 +1711,15 @@ pub const Editor = struct {
     fn with_selections_const(self: *Self, root: Buffer.Root, move: cursor_operator_const) error{Stop}!void {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            with_selection_const(root, move, cursel, self.metrics) catch {
+            with_selection_const(root, move, cursel, self.metrics, self.enable_helix_selection) catch {
                 someone_stopped = true;
             };
         self.collapse_cursors();
         return if (someone_stopped) error.Stop else {};
     }
 
-    fn with_selection_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
-        const sel = cursel.enable_selection();
+    fn with_selection_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics, helix_cursor: bool) error{Stop}!void {
+        const sel = if (helix_cursor) cursel.enable_selection_helix(root, metrics) catch return else cursel.enable_selection();
         try move(root, &sel.end, ctx, metrics);
         cursel.cursor = sel.end;
         cursel.check_selection();
@@ -1700,15 +1728,15 @@ pub const Editor = struct {
     fn with_selections_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            with_selection_const_arg(root, move, cursel, ctx, self.metrics) catch {
+            with_selection_const_arg(root, move, cursel, ctx, self.metrics, self.enable_helix_selection) catch {
                 someone_stopped = true;
             };
         self.collapse_cursors();
         return if (someone_stopped) error.Stop else {};
     }
 
-    fn with_selection_and_view_const(root: Buffer.Root, move: cursor_view_operator_const, cursel: *CurSel, view: *const View, metrics: Buffer.Metrics) error{Stop}!void {
-        const sel = cursel.enable_selection();
+    fn with_selection_and_view_const(root: Buffer.Root, move: cursor_view_operator_const, cursel: *CurSel, view: *const View, metrics: Buffer.Metrics, helix_cursor: bool) error{Stop}!void {
+        const sel = if (helix_cursor) cursel.enable_selection_helix(root, metrics) catch return else cursel.enable_selection();
         try move(root, &sel.end, view, metrics);
         cursel.cursor = sel.end;
     }
@@ -1716,7 +1744,7 @@ pub const Editor = struct {
     fn with_selections_and_view_const(self: *Self, root: Buffer.Root, move: cursor_view_operator_const, view: *const View) error{Stop}!void {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            with_selection_and_view_const(root, move, cursel, view, self.metrics) catch {
+            with_selection_and_view_const(root, move, cursel, view, self.metrics, self.enable_helix_selection) catch {
                 someone_stopped = true;
             };
         self.collapse_cursors();
@@ -1807,7 +1835,7 @@ pub const Editor = struct {
                 all_stop = false;
                 continue;
             }
-            with_selection_const(root, move, cursel, self.metrics) catch continue;
+            with_selection_const(root, move, cursel, self.metrics, self.enable_helix_selection) catch continue;
             root = self.delete_selection(root, cursel, allocator) catch continue;
             all_stop = false;
         };
@@ -2066,14 +2094,14 @@ pub const Editor = struct {
         switch (self.selection_mode) {
             .char => {},
             .word => if (sel.begin.right_of(sel.end))
-                with_selection_const(root, move_cursor_word_begin, primary, self.metrics) catch return
+                with_selection_const(root, move_cursor_word_begin, primary, self.metrics, self.enable_helix_selection) catch return
             else
-                with_selection_const(root, move_cursor_word_end, primary, self.metrics) catch return,
+                with_selection_const(root, move_cursor_word_end, primary, self.metrics, self.enable_helix_selection) catch return,
             .line => if (sel.begin.right_of(sel.end))
-                with_selection_const(root, move_cursor_begin, primary, self.metrics) catch return
+                with_selection_const(root, move_cursor_begin, primary, self.metrics, self.enable_helix_selection) catch return
             else {
-                with_selection_const(root, move_cursor_end, primary, self.metrics) catch return;
-                with_selection_const(root, move_cursor_right, primary, self.metrics) catch return;
+                with_selection_const(root, move_cursor_end, primary, self.metrics, self.enable_helix_selection) catch return;
+                with_selection_const(root, move_cursor_right, primary, self.metrics, self.enable_helix_selection) catch return;
             },
         }
         primary.cursor = sel.end;
@@ -2669,7 +2697,7 @@ pub const Editor = struct {
     pub const add_cursor_all_matches_meta = .{ .description = "Add cursors to all highlighted matches" };
 
     fn add_cursors_to_cursel_line_ends(self: *Self, root: Buffer.Root, cursel: *CurSel) !void {
-        var sel = cursel.enable_selection();
+        const sel = if (self.enable_helix_selection) cursel.enable_selection_helix(root, self.metrics) catch return else cursel.enable_selection();
         sel.normalize();
         var row = sel.begin.row;
         while (row <= sel.end.row) : (row += 1) {
