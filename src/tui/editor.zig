@@ -269,6 +269,7 @@ pub const Editor = struct {
         root: ?Buffer.Root = null,
         primary: CurSel = CurSel.invalid(),
         view: View = View.invalid(),
+        lines: usize = 0,
         matches: usize = 0,
         cursels: usize = 0,
         dirty: bool = false,
@@ -1397,6 +1398,8 @@ pub const Editor = struct {
         const root: ?Buffer.Root = self.buf_root() catch null;
         const eol_mode = self.buf_eol_mode() catch .lf;
         const utf8_sanitized = self.buf_utf8_sanitized() catch false;
+        const lines = if (root) |root_| root_.lines() else 0;
+
         if (token_from(self.last.root) != token_from(root)) {
             try self.send_editor_update(self.last.root, root, eol_mode);
             self.lsp_version += 1;
@@ -1418,8 +1421,8 @@ pub const Editor = struct {
             self.last.cursels = self.cursels.items.len;
         }
 
-        if (!primary.cursor.eql(self.last.primary.cursor))
-            try self.send_editor_pos(&primary.cursor);
+        if (lines != self.last.lines or !primary.cursor.eql(self.last.primary.cursor))
+            try self.send_editor_pos(lines, &primary.cursor);
 
         if (primary.selection) |primary_selection_| {
             var primary_selection = primary_selection_;
@@ -1433,10 +1436,11 @@ pub const Editor = struct {
         } else if (self.last.primary.selection) |_|
             try self.send_editor_selection_removed();
 
-        if (!self.view.eql(self.last.view))
-            try self.send_editor_view();
+        if (lines != self.last.lines or !self.view.eql(self.last.view))
+            try self.send_editor_view(lines, self.view);
 
         self.last.view = self.view;
+        self.last.lines = lines;
         self.last.primary = primary.*;
         self.last.dirty = dirty;
         self.last.root = root;
@@ -1444,9 +1448,8 @@ pub const Editor = struct {
         self.last.utf8_sanitized = utf8_sanitized;
     }
 
-    fn send_editor_pos(self: *const Self, cursor: *const Cursor) !void {
-        const root = self.buf_root() catch return error.Stop;
-        _ = try self.handlers.msg(.{ "E", "pos", root.lines(), cursor.row, cursor.col });
+    fn send_editor_pos(self: *const Self, lines: usize, cursor: *const Cursor) !void {
+        _ = try self.handlers.msg(.{ "E", "pos", lines, cursor.row, cursor.col });
     }
 
     fn send_editor_match(self: *const Self, matches: usize) !void {
@@ -1469,9 +1472,8 @@ pub const Editor = struct {
         _ = try self.handlers.msg(.{ "E", "sel", "none" });
     }
 
-    fn send_editor_view(self: *const Self) !void {
-        const root = self.buf_root() catch return error.Stop;
-        _ = try self.handlers.msg(.{ "E", "view", root.lines(), self.view.rows, self.view.row });
+    fn send_editor_view(self: *const Self, lines: usize, view: View) !void {
+        _ = try self.handlers.msg(.{ "E", "view", lines, view.rows, view.row });
     }
 
     fn send_editor_diagnostics(self: *const Self) !void {
