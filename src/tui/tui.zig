@@ -951,13 +951,11 @@ const cmds = struct {
 
     pub fn enter_helix_mode(_: *Self, _: Ctx) Result {
         try @import("mode/helix.zig").init();
-        if (get_active_editor()) |editor| editor.enable_helix_selection = true;
     }
     pub const enter_helix_mode_meta = .{};
 
     pub fn exit_helix_mode(_: *Self, _: Ctx) Result {
         @import("mode/helix.zig").deinit();
-        if (get_active_editor()) |editor| editor.enable_helix_selection = false;
     }
     pub const exit_helix_mode_meta = .{};
 };
@@ -1173,4 +1171,8 @@ pub fn is_cursor_beam(self: *Self) bool {
         .beam, .beam_blink => true,
         else => false,
     };
+}
+
+pub fn get_selection_style(self: *Self) @import("Buffer").Selection.Style {
+    return if (self.input_mode) |mode| mode.selection_style else .normal;
 }

@@ -6,6 +6,8 @@ end: Cursor = Cursor{},
 
 const Self = @This();
 
+pub const Style = enum { normal, inclusive };
+
 pub inline fn eql(self: Self, other: Self) bool {
     return self.begin.eql(other.begin) and self.end.eql(other.end);
 }

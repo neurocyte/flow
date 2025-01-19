@@ -8,6 +8,7 @@
         "name": "NOR",
         "line_numbers": "relative",
         "cursor": "block",
+        "selection": "inclusive",
         "press": [
             ["ctrl+b", "move_scroll_page_up"],
             ["ctrl+f", "move_scroll_page_down"],
@@ -252,6 +253,7 @@
         "name": "SEL",
         "line_numbers": "relative",
         "cursor": "block",
+        "selection": "inclusive",
         "press": [
             ["ctrl+b", "select_page_up"],
             ["ctrl+f", "select_page_down"],
