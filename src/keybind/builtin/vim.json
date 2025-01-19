@@ -23,11 +23,11 @@
             ["<Space>", "move_right_vim"],
 
             ["i", "enter_mode", "insert"],
-            ["a", "enter_mode_at_next_char", "insert"],
-            ["I", "enter_mode_at_line_begin", "insert"],
-            ["A", "enter_mode_at_line_end", "insert"],
-            ["o", "enter_mode_on_newline_down", "insert"],
-            ["O", "enter_mode_on_newline_up", "insert"],
+            ["a", ["move_right"], ["enter_mode", "insert"]],
+            ["I", ["move_begin"], ["enter_mode", "insert"]],
+            ["A", ["move_end"], ["enter_mode", "insert"]],
+            ["o", ["smart_insert_line_after"], ["enter_mode", "insert"]],
+            ["O", ["smart_insert_line_before"], ["enter_mode", "insert"]],
 
             ["v", "enter_mode", "visual"],
 
