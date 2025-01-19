@@ -116,18 +116,23 @@ pub const KeyEvent = struct {
 
     pub fn from_message(
         event_: Event,
-        keypress: Key,
+        keypress_: Key,
         keypress_shifted: Key,
         text: []const u8,
         modifiers: Mods,
     ) @This() {
-        const mods = switch (keypress) {
+        const mods_ = switch (keypress_) {
             key.left_super, key.right_super => modifiers & ~mod.super,
             key.left_shift, key.right_shift => modifiers & ~mod.shift,
             key.left_control, key.right_control => modifiers & ~mod.ctrl,
             key.left_alt, key.right_alt => modifiers & ~mod.alt,
             else => modifiers,
         };
+        const keypress, const mods = if (keypress_shifted == keypress_)
+            map_key_to_unshifed_legacy(keypress_shifted, mods_)
+        else
+            .{ keypress_, mods_ };
+
         return .{
             .event = event_,
             .key = keypress_shifted,
@@ -375,4 +380,32 @@ pub fn mod_short_fmt(mods: Mods) struct {
     }
 } {
     return .{ .modifiers = mods };
+}
+
+fn map_key_to_unshifed_legacy(keypress_shifted: Key, mods: Mods) struct { Key, Mods } {
+    return switch (keypress_shifted) {
+        'A'...'Z' => .{ keypress_shifted + ('a' - 'A'), mods | mod.shift },
+        '!' => .{ '1', mods | mod.shift },
+        '@' => .{ '2', mods | mod.shift },
+        '#' => .{ '3', mods | mod.shift },
+        '$' => .{ '4', mods | mod.shift },
+        '%' => .{ '5', mods | mod.shift },
+        '^' => .{ '6', mods | mod.shift },
+        '&' => .{ '7', mods | mod.shift },
+        '*' => .{ '8', mods | mod.shift },
+        '(' => .{ '9', mods | mod.shift },
+        ')' => .{ '0', mods | mod.shift },
+        '_' => .{ '-', mods | mod.shift },
+        '+' => .{ '=', mods | mod.shift },
+        '~' => .{ '`', mods | mod.shift },
+        '{' => .{ '[', mods | mod.shift },
+        '}' => .{ ']', mods | mod.shift },
+        '|' => .{ '\\', mods | mod.shift },
+        ':' => .{ ';', mods | mod.shift },
+        '"' => .{ '\'', mods | mod.shift },
+        '<' => .{ ',', mods | mod.shift },
+        '>' => .{ '.', mods | mod.shift },
+        '?' => .{ '/', mods | mod.shift },
+        else => .{ keypress_shifted, mods },
+    };
 }
