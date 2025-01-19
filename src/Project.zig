@@ -817,11 +817,11 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
             for (renames.items) |rename| {
                 if (!std.mem.eql(u8, rename.uri[0..7], "file://")) return error.InvalidTargetURI;
                 var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-                const file_path_ = std.Uri.percentDecodeBackwards(&file_path_buf, rename.uri[7..]);
+                var file_path_ = std.Uri.percentDecodeBackwards(&file_path_buf, rename.uri[7..]);
                 if (builtin.os.tag == .windows) {
-                    if (file_path[0] == '/') file_path = file_path[1..];
-                    for (file_path, 0..) |c, i| if (c == '/') {
-                        file_path[i] = '\\';
+                    if (file_path_[0] == '/') file_path_ = file_path_[1..];
+                    for (file_path_, 0..) |c, i| if (c == '/') {
+                        file_path_[i] = '\\';
                     };
                 }
                 const line = try self.get_line_of_file(self.allocator, file_path, rename.range.start.line);
