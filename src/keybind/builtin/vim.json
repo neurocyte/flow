@@ -24,7 +24,7 @@
 
             ["i", "enter_mode", "insert"],
             ["a", ["move_right"], ["enter_mode", "insert"]],
-            ["I", ["move_begin"], ["enter_mode", "insert"]],
+            ["I", ["smart_move_begin"], ["enter_mode", "insert"]],
             ["A", ["move_end"], ["enter_mode", "insert"]],
             ["o", ["smart_insert_line_after"], ["enter_mode", "insert"]],
             ["O", ["smart_insert_line_before"], ["enter_mode", "insert"]],
