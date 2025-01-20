@@ -56,6 +56,7 @@ mouse_idle_timer: ?tp.Cancellable = null,
 default_cursor: keybind.CursorShape = .default,
 fontface: []const u8 = "",
 fontfaces: ?std.ArrayList([]const u8) = null,
+enable_mouse_idle_timer: bool = false,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -222,6 +223,7 @@ fn listen_sigwinch(self: *Self) tp.result {
 }
 
 fn update_mouse_idle_timer(self: *Self) void {
+    if (!self.enable_mouse_idle_timer) return;
     const delay = std.time.us_per_ms * @as(u64, mouse_idle_time_milliseconds);
     if (self.mouse_idle_timer) |*t| {
         t.cancel() catch {};
