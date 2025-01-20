@@ -309,7 +309,7 @@ pub fn paint(
         for (0..shader_row_count) |row| {
             const src_row = blk: {
                 const r = top + row;
-                break :blk r - if (r >= row_count) row_count else 0;
+                break :blk if (r < row_count) r else 0;
             };
             const src_row_offset = src_row * col_count;
             const dst_row_offset = row * shader_col_count;
