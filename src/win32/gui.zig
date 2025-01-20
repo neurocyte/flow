@@ -1040,6 +1040,10 @@ fn WndProc(
             const font = getFont(dpi, getFontSize(), getFontFace());
             const client_size = getClientSize(u32, hwnd);
 
+            var ps: win32.PAINTSTRUCT = undefined;
+            _ = win32.BeginPaint(hwnd, &ps) orelse return fatalWin32("BeginPaint", win32.GetLastError());
+            defer if (0 == win32.EndPaint(hwnd, &ps)) fatalWin32("EndPaint", win32.GetLastError());
+
             global.render_cells.resize(
                 global.render_cells_arena.allocator(),
                 global.screen.buf.len,
