@@ -311,6 +311,8 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{"resize"})) {
         self.resize();
+        const box = self.screen();
+        message("{d}x{d}", .{ box.w, box.h });
         return;
     }
 
@@ -1173,4 +1175,9 @@ pub fn is_cursor_beam(self: *Self) bool {
         .beam, .beam_blink => true,
         else => false,
     };
+}
+
+pub fn message(comptime fmt: anytype, args: anytype) void {
+    var buf: [256]u8 = undefined;
+    tp.self_pid().send(.{ "message", std.fmt.bufPrint(&buf, fmt, args) catch @panic("too large") }) catch {};
 }
