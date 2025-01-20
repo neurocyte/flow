@@ -1,4 +1,5 @@
 const std = @import("std");
+const tracy = @import("tracy");
 const build_options = @import("build_options");
 const root = @import("root");
 
@@ -92,6 +93,8 @@ const window_style_ex = win32.WINDOW_EX_STYLE{
 const window_style = win32.WS_OVERLAPPEDWINDOW;
 
 pub fn init() void {
+    const frame = tracy.initZone(@src(), .{ .name = "gui init" });
+    defer frame.deinit();
     std.debug.assert(!global.init_called);
     global.init_called = true;
     render.init(.{});
@@ -102,6 +105,8 @@ const Icons = struct {
     large: win32.HICON,
 };
 fn getIcons(dpi: XY(u32)) Icons {
+    const frame = tracy.initZone(@src(), .{ .name = "gui getIcons" });
+    defer frame.deinit();
     const small_x = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CXSMICON), dpi.x);
     const small_y = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CYSMICON), dpi.y);
     const large_x = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CXICON), dpi.x);
@@ -190,6 +195,8 @@ fn getFontSize() f32 {
 }
 
 fn getFont(dpi: u32, size: f32, face: *const FontFace) render.Font {
+    const frame = tracy.initZone(@src(), .{ .name = "gui getFont" });
+    defer frame.deinit();
     if (global.font) |*font| {
         if (font.dpi == dpi and font.size == size and font.face.eql(face))
             return font.render_object;
@@ -251,6 +258,8 @@ fn calcWindowPlacement(
     initial_window_x: u16,
     initial_window_y: u16,
 ) WindowPlacement {
+    const frame = tracy.initZone(@src(), .{ .name = "gui calcWindowPlacement" });
+    defer frame.deinit();
     var result = WindowPlacement.default;
 
     const monitor = maybe_monitor orelse return result;
@@ -531,6 +540,8 @@ fn updateWindowSize(
     edge: ?win32.WPARAM,
     bounds_ref: *?WindowBounds,
 ) void {
+    const frame = tracy.initZone(@src(), .{ .name = "gui updateWindowSize" });
+    defer frame.deinit();
     const dpi = win32.dpiFromHwnd(hwnd);
     const font = getFont(dpi, getFontSize(), getFontFace());
     const cell_size = font.getCellSize(i32);
@@ -564,6 +575,8 @@ fn updateWindowSize(
 }
 
 fn getFontFaces(state: *State) void {
+    const frame = tracy.initZone(@src(), .{ .name = "gui getFontFaces" });
+    defer frame.deinit();
     const fonts = render.Fonts.init();
     defer fonts.deinit();
     var buf: [FontFace.max * 2]u8 = undefined;
@@ -631,6 +644,8 @@ fn sendMouse(
     wparam: win32.WPARAM,
     lparam: win32.LPARAM,
 ) void {
+    const frame = tracy.initZone(@src(), .{ .name = "gui sendMouse" });
+    defer frame.deinit();
     const point = win32ext.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
     const dpi = win32.dpiFromHwnd(hwnd);
@@ -682,6 +697,8 @@ fn sendMouseWheel(
     wparam: win32.WPARAM,
     lparam: win32.LPARAM,
 ) void {
+    const frame = tracy.initZone(@src(), .{ .name = "gui sendMouseWheel" });
+    defer frame.deinit();
     const point = win32ext.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
     const dpi = win32.dpiFromHwnd(hwnd);
@@ -731,6 +748,8 @@ fn sendKey(
     wparam: win32.WPARAM,
     lparam: win32.LPARAM,
 ) void {
+    const frame = tracy.initZone(@src(), .{ .name = "gui sendKey" });
+    defer frame.deinit();
     const state = stateFromHwnd(hwnd);
 
     var keyboard_state: [256]u8 = undefined;
@@ -988,6 +1007,8 @@ fn WndProc(
     wparam: win32.WPARAM,
     lparam: win32.LPARAM,
 ) callconv(std.os.windows.WINAPI) win32.LRESULT {
+    const frame = tracy.initZone(@src(), .{ .name = "gui WndProc" });
+    defer frame.deinit();
     var msg_node: windowmsg.MessageNode = undefined;
     msg_node.init(&global_msg_tail, hwnd, msg, wparam, lparam);
     defer msg_node.deinit();
@@ -1035,6 +1056,8 @@ fn WndProc(
             return 0;
         },
         win32.WM_PAINT => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_PAINT" });
+            defer frame_.deinit();
             const state = stateFromHwnd(hwnd);
             const dpi = win32.dpiFromHwnd(hwnd);
             const font = getFont(dpi, getFontSize(), getFontFace());
@@ -1074,6 +1097,8 @@ fn WndProc(
             return 0;
         },
         win32.WM_GETDPISCALEDSIZE => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_GETDPISCALEDSIZE" });
+            defer frame_.deinit();
             const inout_size: *win32.SIZE = @ptrFromInt(@as(usize, @bitCast(lparam)));
             const new_dpi: u32 = @intCast(0xffffffff & wparam);
             // we don't want to update the font with the new dpi until after
@@ -1109,6 +1134,8 @@ fn WndProc(
             return 1;
         },
         win32.WM_DPICHANGED => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_DPICHANGED" });
+            defer frame_.deinit();
             const state = stateFromHwnd(hwnd);
             const dpi = win32.dpiFromHwnd(hwnd);
             if (dpi != win32.hiword(wparam)) @panic("unexpected hiword dpi");
@@ -1119,10 +1146,14 @@ fn WndProc(
             return 0;
         },
         win32.WM_WINDOWPOSCHANGED => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_WINDOWPOSCHANGED" });
+            defer frame_.deinit();
             sendResize(hwnd);
             return 0;
         },
         win32.WM_SIZING => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_SIZING" });
+            defer frame_.deinit();
             const rect: *win32.RECT = @ptrFromInt(@as(usize, @bitCast(lparam)));
             const dpi = win32.dpiFromHwnd(hwnd);
             const font = getFont(dpi, getFontSize(), getFontFace());
@@ -1137,6 +1168,8 @@ fn WndProc(
             return 0;
         },
         win32.WM_DISPLAYCHANGE => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_DISPLAYCHANGE" });
+            defer frame_.deinit();
             win32.invalidateHwnd(hwnd);
             return 0;
         },
@@ -1150,6 +1183,8 @@ fn WndProc(
             return WM_APP_EXIT_RESULT;
         },
         WM_APP_SET_BACKGROUND => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_APP_SET_BACKGROUND" });
+            defer frame_.deinit();
             const rgb = RGB.from_u24(@intCast(0xffffff & wparam));
             render.setBackground(
                 &stateFromHwnd(hwnd).render_state,
@@ -1159,6 +1194,8 @@ fn WndProc(
             return WM_APP_SET_BACKGROUND_RESULT;
         },
         WM_APP_ADJUST_FONTSIZE => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_APP_ADJUST_FONTSIZE" });
+            defer frame_.deinit();
             const state = stateFromHwnd(hwnd);
             const amount: f32 = @bitCast(@as(u32, @intCast(0xFFFFFFFFF & wparam)));
             global.fontsize = @max(getFontSize() + amount, 1.0);
@@ -1167,6 +1204,8 @@ fn WndProc(
             return WM_APP_ADJUST_FONTSIZE_RESULT;
         },
         WM_APP_SET_FONTSIZE => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_APP_SET_FONTSIZE" });
+            defer frame_.deinit();
             const state = stateFromHwnd(hwnd);
             const fontsize: f32 = @bitCast(@as(u32, @intCast(0xFFFFFFFFF & wparam)));
             global.fontsize = @max(fontsize, 1.0);
@@ -1175,6 +1214,8 @@ fn WndProc(
             return WM_APP_SET_FONTSIZE_RESULT;
         },
         WM_APP_RESET_FONTSIZE => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_APP_RESET_FONTSIZE" });
+            defer frame_.deinit();
             const state = stateFromHwnd(hwnd);
             global.fontsize = null;
             updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
@@ -1182,6 +1223,8 @@ fn WndProc(
             return WM_APP_SET_FONTSIZE_RESULT;
         },
         WM_APP_SET_FONTFACE => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_APP_SET_FONTFACE" });
+            defer frame_.deinit();
             const state = stateFromHwnd(hwnd);
             setFontFace(@ptrFromInt(wparam));
             updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
@@ -1189,6 +1232,8 @@ fn WndProc(
             return WM_APP_SET_FONTFACE_RESULT;
         },
         WM_APP_RESET_FONTFACE => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_APP_RESET_FONTFACE" });
+            defer frame_.deinit();
             const state = stateFromHwnd(hwnd);
             global.fontface = null;
             updateWindowSize(hwnd, win32.WMSZ_BOTTOMRIGHT, &state.bounds);
@@ -1196,11 +1241,15 @@ fn WndProc(
             return WM_APP_SET_FONTFACE_RESULT;
         },
         WM_APP_GET_FONTFACES => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_APP_GET_FONTFACES" });
+            defer frame_.deinit();
             const state = stateFromHwnd(hwnd);
             getFontFaces(state);
             return WM_APP_GET_FONTFACES_RESULT;
         },
         WM_APP_UPDATE_SCREEN => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_APP_UPDATE_SCREEN" });
+            defer frame_.deinit();
             const screen: *const vaxis.Screen = @ptrFromInt(wparam);
             _ = global.screen_arena.reset(.retain_capacity);
             const buf = global.screen_arena.allocator().alloc(vaxis.Cell, screen.buf.len) catch |e| oom(e);
@@ -1229,6 +1278,8 @@ fn WndProc(
             return WM_APP_UPDATE_SCREEN_RESULT;
         },
         win32.WM_CREATE => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui WM_CREATE" });
+            defer frame_.deinit();
             std.debug.assert(global.state == null);
             const create_struct: *win32.CREATESTRUCTW = @ptrFromInt(@as(usize, @bitCast(lparam)));
             const create_args: *CreateWindowArgs = @alignCast(@ptrCast(create_struct.lpCreateParams));
@@ -1246,13 +1297,19 @@ fn WndProc(
             // hwnd reference
             @panic("gui window erroneously destroyed");
         },
-        else => return win32.DefWindowProcW(hwnd, msg, wparam, lparam),
+        else => {
+            const frame_ = tracy.initZone(@src(), .{ .name = "gui DefWindowProcW" });
+            defer frame_.deinit();
+            return win32.DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
     }
 }
 
 fn sendResize(
     hwnd: win32.HWND,
 ) void {
+    const frame = tracy.initZone(@src(), .{ .name = "gui sendResize" });
+    defer frame.deinit();
     const dpi = win32.dpiFromHwnd(hwnd);
     const state = stateFromHwnd(hwnd);
 
@@ -1309,6 +1366,8 @@ fn calcWindowRect(
     maybe_edge: ?win32.WPARAM,
     cell_size: XY(i32),
 ) win32.RECT {
+    const frame = tracy.initZone(@src(), .{ .name = "gui calcWindowRect" });
+    defer frame.deinit();
     const client_inset = getClientInset(dpi);
     const bounding_client_size: XY(i32) = .{
         .x = (bounding_rect.right - bounding_rect.left) - client_inset.x,

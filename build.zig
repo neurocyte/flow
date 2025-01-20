@@ -333,6 +333,7 @@ pub fn build_exe(
                         .{ .name = "vaxis", .module = vaxis_mod },
                         .{ .name = "color", .module = color_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
+                        .{ .name = "tracy", .module = tracy_mod },
                     },
                 });
                 gui_mod.addIncludePath(b.path("src/win32"));
