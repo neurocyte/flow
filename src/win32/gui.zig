@@ -123,7 +123,7 @@ fn getIcons(dpi: XY(u32)) Icons {
         small_x,
         small_y,
         win32.LR_SHARED,
-    ) orelse fatalWin32("LoadImage for small icon", win32.GetLastError());
+    ) orelse win32.panicWin32("LoadImage for small icon", win32.GetLastError());
     const large = win32.LoadImageW(
         win32.GetModuleHandleW(null),
         @ptrFromInt(c.ID_ICON_FLOW),
@@ -131,7 +131,7 @@ fn getIcons(dpi: XY(u32)) Icons {
         large_x,
         large_y,
         win32.LR_SHARED,
-    ) orelse fatalWin32("LoadImage for large icon", win32.GetLastError());
+    ) orelse win32.panicWin32("LoadImage for large icon", win32.GetLastError());
     return .{ .small = @ptrCast(small), .large = @ptrCast(large) };
 }
 
@@ -268,7 +268,7 @@ fn calcWindowPlacement(
         var info: win32.MONITORINFO = undefined;
         info.cbSize = @sizeOf(win32.MONITORINFO);
         if (0 == win32.GetMonitorInfoW(monitor, &info)) {
-            std.log.warn("GetMonitorInfo failed with {}", .{win32.GetLastError().fmt()});
+            std.log.warn("GetMonitorInfo failed, error={}", .{win32.GetLastError()});
             return result;
         }
         break :blk info.rcWork;
@@ -335,7 +335,7 @@ fn entry(pid: thespian.pid) !void {
             },
             win32.MONITOR_DEFAULTTOPRIMARY,
         ) orelse {
-            std.log.warn("MonitorFromPoint failed with {}", .{win32.GetLastError().fmt()});
+            std.log.warn("MonitorFromPoint failed, error={}", .{win32.GetLastError()});
             break :blk null;
         };
     };
@@ -384,7 +384,7 @@ fn entry(pid: thespian.pid) !void {
         .lpszClassName = CLASS_NAME,
         .hIconSm = global.icons.small,
     };
-    if (0 == win32.RegisterClassExW(&wc)) fatalWin32(
+    if (0 == win32.RegisterClassExW(&wc)) win32.panicWin32(
         "RegisterClass for main window",
         win32.GetLastError(),
     );
@@ -403,7 +403,7 @@ fn entry(pid: thespian.pid) !void {
         null, // Menu
         win32.GetModuleHandleW(null),
         @ptrCast(&create_args),
-    ) orelse fatalWin32("CreateWindow", win32.GetLastError());
+    ) orelse win32.panicWin32("CreateWindow", win32.GetLastError());
     // NEVER DESTROY THE WINDOW!
     // This allows us to send the hwnd to other thread/parts
     // of the app and it will always be valid.
@@ -430,7 +430,7 @@ fn entry(pid: thespian.pid) !void {
         );
     }
 
-    if (0 == win32.UpdateWindow(hwnd)) fatalWin32("UpdateWindow", win32.GetLastError());
+    if (0 == win32.UpdateWindow(hwnd)) win32.panicWin32("UpdateWindow", win32.GetLastError());
     _ = win32.ShowWindow(hwnd, win32.SW_SHOWNORMAL);
 
     // try some things to bring our window to the top
@@ -547,7 +547,7 @@ fn updateWindowSize(
     const cell_size = font.getCellSize(i32);
 
     var window_rect: win32.RECT = undefined;
-    if (0 == win32.GetWindowRect(hwnd, &window_rect)) fatalWin32(
+    if (0 == win32.GetWindowRect(hwnd, &window_rect)) win32.panicWin32(
         "GetWindowRect",
         win32.GetLastError(),
     );
@@ -646,7 +646,7 @@ fn sendMouse(
 ) void {
     const frame = tracy.initZone(@src(), .{ .name = "gui sendMouse" });
     defer frame.deinit();
-    const point = win32ext.pointFromLparam(lparam);
+    const point = win32.pointFromLparam(lparam);
     const state = stateFromHwnd(hwnd);
     const dpi = win32.dpiFromHwnd(hwnd);
     const cell_size = getFont(dpi, getFontSize(), getFontFace()).getCellSize(i32);
@@ -699,7 +699,7 @@ fn sendMouseWheel(
 ) void {
     const frame = tracy.initZone(@src(), .{ .name = "gui sendMouseWheel" });
     defer frame.deinit();
-    var point = win32ext.pointFromLparam(lparam);
+    var point = win32.pointFromLparam(lparam);
     _ = win32.ScreenToClient(hwnd, &point);
     const state = stateFromHwnd(hwnd);
     const dpi = win32.dpiFromHwnd(hwnd);
@@ -754,7 +754,7 @@ fn sendKey(
     const state = stateFromHwnd(hwnd);
 
     var keyboard_state: [256]u8 = undefined;
-    if (0 == win32.GetKeyboardState(&keyboard_state)) fatalWin32(
+    if (0 == win32.GetKeyboardState(&keyboard_state)) win32.panicWin32(
         "GetKeyboardState",
         win32.GetLastError(),
     );
@@ -1065,8 +1065,8 @@ fn WndProc(
             const client_size = getClientSize(u32, hwnd);
 
             var ps: win32.PAINTSTRUCT = undefined;
-            _ = win32.BeginPaint(hwnd, &ps) orelse return fatalWin32("BeginPaint", win32.GetLastError());
-            defer if (0 == win32.EndPaint(hwnd, &ps)) fatalWin32("EndPaint", win32.GetLastError());
+            _ = win32.BeginPaint(hwnd, &ps) orelse return win32.panicWin32("BeginPaint", win32.GetLastError());
+            defer if (0 == win32.EndPaint(hwnd, &ps)) win32.panicWin32("EndPaint", win32.GetLastError());
 
             global.render_cells.resize(
                 global.render_cells_arena.allocator(),
@@ -1343,19 +1343,13 @@ fn renderColorFromVaxis(color: vaxis.Color) render.Color {
     };
 }
 
-fn fatalWin32(what: []const u8, err: win32.WIN32_ERROR) noreturn {
-    std.debug.panic("{s} failed with {}", .{ what, err.fmt() });
-}
-fn fatalHr(what: []const u8, hresult: win32.HRESULT) noreturn {
-    std.debug.panic("{s} failed, hresult=0x{x}", .{ what, @as(u32, @bitCast(hresult)) });
-}
 fn deleteObject(obj: ?win32.HGDIOBJ) void {
-    if (0 == win32.DeleteObject(obj)) fatalWin32("DeleteObject", win32.GetLastError());
+    if (0 == win32.DeleteObject(obj)) win32.panicWin32("DeleteObject", win32.GetLastError());
 }
 fn getClientSize(comptime T: type, hwnd: win32.HWND) XY(T) {
     var rect: win32.RECT = undefined;
     if (0 == win32.GetClientRect(hwnd, &rect))
-        fatalWin32("GetClientRect", win32.GetLastError());
+        win32.panicWin32("GetClientRect", win32.GetLastError());
     std.debug.assert(rect.left == 0);
     std.debug.assert(rect.top == 0);
     return .{ .x = @intCast(rect.right), .y = @intCast(rect.bottom) };
@@ -1428,7 +1422,7 @@ fn getClientInset(dpi: u32) XY(i32) {
         0,
         window_style_ex,
         dpi,
-    )) fatalWin32(
+    )) win32.panicWin32(
         "AdjustWindowRect",
         win32.GetLastError(),
     );
@@ -1456,5 +1450,5 @@ fn setWindowPosRect(hwnd: win32.HWND, rect: win32.RECT) void {
         rect.right - rect.left,
         rect.bottom - rect.top,
         .{ .NOZORDER = 1 },
-    )) fatalWin32("SetWindowPos", win32.GetLastError());
+    )) win32.panicWin32("SetWindowPos", win32.GetLastError());
 }

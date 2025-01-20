@@ -1,17 +1,6 @@
 const std = @import("std");
 const win32 = @import("win32").everything;
 
-// todo: these should be available in zigwin32
-fn xFromLparam(lparam: win32.LPARAM) i16 {
-    return @bitCast(win32.loword(lparam));
-}
-fn yFromLparam(lparam: win32.LPARAM) i16 {
-    return @bitCast(win32.hiword(lparam));
-}
-pub fn pointFromLparam(lparam: win32.LPARAM) win32.POINT {
-    return win32.POINT{ .x = xFromLparam(lparam), .y = yFromLparam(lparam) };
-}
-
 // TODO: update zigwin32 with a way to get the corresponding IID for any COM interface
 pub fn queryInterface(obj: anytype, comptime Interface: type) *Interface {
     const obj_basename_start: usize = comptime if (std.mem.lastIndexOfScalar(u8, @typeName(@TypeOf(obj)), '.')) |i| (i + 1) else 0;
