@@ -19,6 +19,8 @@ const gui = @import("gui");
 const DropWriter = gui.DropWriter;
 pub const style = StyleBits;
 
+pub const panic = win32.messageBoxThenPanic(.{ .title = "Flow Panic" });
+
 allocator: std.mem.Allocator,
 vx: vaxis.Vaxis,
 
@@ -82,25 +84,6 @@ pub fn deinit(self: *Self) void {
     var drop_writer = DropWriter{};
     self.vx.deinit(self.allocator, drop_writer.writer().any());
     self.title_buf.deinit();
-}
-
-threadlocal var thread_is_panicing = false;
-
-pub fn panic(
-    msg: []const u8,
-    error_return_trace: ?*std.builtin.StackTrace,
-    ret_addr: ?usize,
-) noreturn {
-    if (!thread_is_panicing) {
-        thread_is_panicing = true;
-        const msg_z: [:0]const u8 = if (std.fmt.allocPrintZ(
-            std.heap.page_allocator,
-            "{s}",
-            .{msg},
-        )) |msg_z| msg_z else |_| "failed allocate error message";
-        _ = win32.MessageBoxA(null, msg_z, "Flow Panic", .{ .ICONASTERISK = 1 });
-    }
-    std.builtin.default_panic(msg, error_return_trace, ret_addr);
 }
 
 pub fn run(self: *Self) !void {
@@ -353,7 +336,7 @@ fn update_window_title(self: *Self) void {
 
     const title = self.title_buf.toOwnedSliceSentinel(0) catch @panic("OOM:update_window_title");
     if (win32.SetWindowTextW(hwnd, title) == 0) {
-        std.log.warn("SetWindowText failed with {}", .{win32.GetLastError().fmt()});
+        std.log.warn("SetWindowText failed, error={}", .{win32.GetLastError()});
         self.title_buf = std.ArrayList(u16).fromOwnedSlice(self.allocator, title);
     } else {
         self.allocator.free(title);

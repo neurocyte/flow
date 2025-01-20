@@ -318,16 +318,13 @@ pub fn build_exe(
     const renderer_mod = blk: {
         if (gui) switch (target.result.os.tag) {
             .windows => {
-                const direct2d_dep = b.lazyDependency("direct2d", .{}) orelse break :blk tui_renderer_mod;
-
-                const win32_dep = direct2d_dep.builder.dependency("win32", .{});
-                const win32_mod = win32_dep.module("zigwin32");
+                const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
+                const win32_mod = win32_dep.module("win32");
                 const gui_mod = b.createModule(.{
                     .root_source_file = b.path("src/win32/gui.zig"),
                     .imports = &.{
                         .{ .name = "build_options", .module = options_mod },
                         .{ .name = "win32", .module = win32_mod },
-                        .{ .name = "ddui", .module = direct2d_dep.module("ddui") },
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "thespian", .module = thespian_mod },
                         .{ .name = "input", .module = input_mod },
