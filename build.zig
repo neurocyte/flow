@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const optimize_deps = .ReleaseFast;
+
 pub fn build(b: *std.Build) void {
     const release = b.option(bool, "package_release", "Build all release targets") orelse false;
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
@@ -227,14 +229,14 @@ pub fn build_exe(
 
     const syntax_dep = b.dependency("syntax", .{
         .target = target,
-        .optimize = optimize,
+        .optimize = optimize_deps,
         .use_tree_sitter = use_tree_sitter,
     });
     const syntax_mod = syntax_dep.module("syntax");
 
     const thespian_dep = b.dependency("thespian", .{
         .target = target,
-        .optimize = optimize,
+        .optimize = optimize_deps,
         .enable_tracy = tracy_enabled,
     });
 
