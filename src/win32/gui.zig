@@ -699,7 +699,8 @@ fn sendMouseWheel(
 ) void {
     const frame = tracy.initZone(@src(), .{ .name = "gui sendMouseWheel" });
     defer frame.deinit();
-    const point = win32ext.pointFromLparam(lparam);
+    var point = win32ext.pointFromLparam(lparam);
+    _ = win32.ScreenToClient(hwnd, &point);
     const state = stateFromHwnd(hwnd);
     const dpi = win32.dpiFromHwnd(hwnd);
     const cell_size = getFont(dpi, getFontSize(), getFontFace()).getCellSize(i32);
