@@ -1,12 +1,13 @@
 #!/bin/bash
 set -e
 
+DESTDIR="$(pwd)/release"
 BASEDIR="$(cd "$(dirname "$0")/.." && pwd)"
 APPNAME="$(basename "$BASEDIR")"
 
 cd "$BASEDIR"
 
-if [ -e "release" ]; then
+if [ -e "$DESTDIR" ]; then
     echo directory \"release\" already exists
     exit 1
 fi
@@ -17,9 +18,9 @@ echo running tests...
 
 echo building...
 
-./zig build -Dpackage_release --prefix release/build
+./zig build -Dpackage_release --prefix "$DESTDIR/build"
 
-cd release/build
+cd "$DESTDIR/build"
 
 VERSION=$(/bin/cat version)
 TARGETS=$(/bin/ls)
@@ -44,7 +45,7 @@ for tarfile in $TARFILES; do
     sha256sum -b "$tarfile" > "${tarfile}.sha256"
 done
 
-echo "done making release $VERSION"
+echo "done making release $VERSION @ $DESTDIR"
 echo
 
 /bin/ls -lah
