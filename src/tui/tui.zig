@@ -991,6 +991,10 @@ pub fn get_active_selection(allocator: std.mem.Allocator) ?[]u8 {
     return editor.get_selection(sel, allocator) catch null;
 }
 
+pub fn get_buffer_manager() ?*@import("Buffer").Manager {
+    return if (current().mainview.dynamic_cast(mainview)) |mv_| &mv_.buffer_manager else null;
+}
+
 fn context_check() void {
     if (instance_ == null) @panic("tui call out of context");
 }

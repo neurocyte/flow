@@ -10,6 +10,7 @@ const max_imbalance = 7;
 pub const Root = *const Node;
 pub const unicode = @import("unicode.zig");
 
+pub const Manager = @import("Manager.zig");
 pub const Cursor = @import("Cursor.zig");
 pub const View = @import("View.zig");
 pub const Selection = @import("Selection.zig");
