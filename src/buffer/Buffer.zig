@@ -44,6 +44,9 @@ undo_history: ?*UndoNode = null,
 redo_history: ?*UndoNode = null,
 curr_history: ?*UndoNode = null,
 
+mtime: i64,
+utime: i64,
+
 pub const EolMode = enum { lf, crlf };
 pub const EolModeTag = @typeInfo(EolMode).Enum.tag_type;
 
@@ -1052,6 +1055,8 @@ pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
         .allocator = self.arena.allocator(),
         .external_allocator = allocator,
         .root = try Node.new(self.allocator, &empty_leaf, &empty_leaf),
+        .mtime = std.time.milliTimestamp(),
+        .utime = std.time.milliTimestamp(),
     };
     return self;
 }
@@ -1061,6 +1066,10 @@ pub fn deinit(self: *Self) void {
     if (self.leaves_buf) |buf| self.external_allocator.free(buf);
     self.arena.deinit();
     self.external_allocator.destroy(self);
+}
+
+pub fn update_last_used_time(self: *Self) void {
+    self.utime = std.time.milliTimestamp();
 }
 
 fn new_file(self: *const Self, file_exists: *bool) error{OutOfMemory}!Root {
@@ -1142,6 +1151,7 @@ pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []cons
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = false;
+    self.mtime = std.time.milliTimestamp();
 }
 
 pub const LoadFromFileError = error{
@@ -1213,12 +1223,14 @@ pub fn load_from_file_and_update(self: *Self, file_path: []const u8) LoadFromFil
     self.file_eol_mode = eol_mode;
     self.file_utf8_sanitized = utf8_sanitized;
     self.last_save_eol_mode = eol_mode;
+    self.mtime = std.time.milliTimestamp();
 }
 
 pub fn reset_to_last_saved(self: *Self) void {
     if (self.last_save) |last_save| {
         self.store_undo(&[_]u8{}) catch {};
         self.root = last_save;
+        self.mtime = std.time.milliTimestamp();
     }
 }
 
@@ -1319,6 +1331,7 @@ pub fn version(self: *const Self) usize {
 
 pub fn update(self: *Self, root: Root) void {
     self.root = root;
+    self.mtime = std.time.milliTimestamp();
 }
 
 pub fn store_undo(self: *Self, meta: []const u8) !void {
@@ -1369,6 +1382,7 @@ pub fn undo(self: *Self, meta: []const u8) error{Stop}![]const u8 {
     self.curr_history = h;
     self.root = h.root;
     self.push_redo(r);
+    self.mtime = std.time.milliTimestamp();
     return h.meta;
 }
 
@@ -1380,5 +1394,6 @@ pub fn redo(self: *Self) error{Stop}![]const u8 {
     self.curr_history = h;
     self.root = h.root;
     self.push_undo(u);
+    self.mtime = std.time.milliTimestamp();
     return h.meta;
 }

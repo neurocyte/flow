@@ -23,39 +23,47 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn open_file(self: *Self, file_path: []const u8) Buffer.LoadFromFileError!*Buffer {
-    if (self.buffers.get(file_path)) |buffer| {
-        return buffer;
-    } else {
+    const buffer = if (self.buffers.get(file_path)) |buffer| buffer else blk: {
         var buffer = try Buffer.create(self.allocator);
         errdefer buffer.deinit();
         try buffer.load_from_file_and_update(file_path);
         try self.buffers.put(self.allocator, try self.allocator.dupe(u8, file_path), buffer);
-        return buffer;
-    }
+        break :blk buffer;
+    };
+    buffer.update_last_used_time();
+    return buffer;
 }
 
 pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buffer.LoadFromStringError!*Buffer {
-    if (self.buffers.get(file_path)) |buffer| {
-        return buffer;
-    } else {
+    const buffer = if (self.buffers.get(file_path)) |buffer| buffer else blk: {
         var buffer = try Buffer.create(self.allocator);
         errdefer buffer.deinit();
         try buffer.load_from_string_and_update(file_path, content);
         buffer.file_exists = true;
         try self.buffers.put(self.allocator, try self.allocator.dupe(u8, file_path), buffer);
-        return buffer;
-    }
+        break :blk buffer;
+    };
+    buffer.update_last_used_time();
+    return buffer;
 }
 
-pub fn retire(self: *Self, buffer: *Buffer) void {
-    _ = self;
-    _ = buffer;
+pub fn retire(_: *Self, buffer: *Buffer) void {
+    buffer.update_last_used_time();
 }
 
-pub fn list(self: *Self, allocator: std.mem.Allocator) []*const Buffer {
-    _ = self;
-    _ = allocator;
-    unreachable;
+pub fn list(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*const Buffer {
+    var buffers: std.ArrayListUnmanaged([]*const Buffer) = .{};
+    var i = self.buffers.iterator();
+    while (i.next()) |kv|
+        (try buffers.addOne()).* = kv.value_ptr.*;
+
+    std.mem.sort(*Buffer, buffers.items, {}, struct {
+        fn less_fn(_: void, lhs: *Buffer, rhs: *Buffer) bool {
+            return lhs.mtime > rhs.mtime;
+        }
+    }.less_fn);
+
+    return buffers.toOwnedSlice(allocator);
 }
 
 pub fn is_dirty(self: *const Self) bool {
