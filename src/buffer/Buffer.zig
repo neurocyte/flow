@@ -1220,7 +1220,7 @@ pub fn store_to_string(self: *const Self, allocator: Allocator, eol_mode: EolMod
     return s.toOwnedSlice();
 }
 
-fn store_to_file_const(self: *const Self, file: anytype) !void {
+fn store_to_file_const(self: *const Self, file: anytype) StoreToFileError!void {
     const buffer_size = 4096 * 16; // 64KB
     const BufferedWriter = std.io.BufferedWriter(buffer_size, std.fs.File.Writer);
     const Writer = std.io.Writer(*BufferedWriter, BufferedWriter.Error, BufferedWriter.write);
@@ -1232,7 +1232,46 @@ fn store_to_file_const(self: *const Self, file: anytype) !void {
     try buffered_writer.flush();
 }
 
-pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) !void {
+pub const StoreToFileError = error{
+    AccessDenied,
+    AntivirusInterference,
+    BadPathName,
+    BrokenPipe,
+    ConnectionResetByPeer,
+    DeviceBusy,
+    DiskQuota,
+    FileBusy,
+    FileLocksNotSupported,
+    FileNotFound,
+    FileTooBig,
+    InputOutput,
+    InvalidArgument,
+    InvalidUtf8,
+    InvalidWtf8,
+    IsDir,
+    LinkQuotaExceeded,
+    LockViolation,
+    NameTooLong,
+    NetworkNotFound,
+    NoDevice,
+    NoSpaceLeft,
+    NotDir,
+    NotOpenForWriting,
+    OperationAborted,
+    PathAlreadyExists,
+    PipeBusy,
+    ProcessFdQuotaExceeded,
+    ReadOnlyFileSystem,
+    RenameAcrossMountPoints,
+    SharingViolation,
+    SymLinkLoop,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    Unexpected,
+    WouldBlock,
+};
+
+pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
     const stat = try cwd().statFile(file_path);
     var atomic = try cwd().atomicFile(file_path, .{ .mode = stat.mode });
     defer atomic.deinit();
@@ -1240,13 +1279,13 @@ pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) !v
     try atomic.finish();
 }
 
-pub fn store_to_new_file_const(self: *const Self, file_path: []const u8) !void {
+pub fn store_to_new_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
     const file = try cwd().createFile(file_path, .{ .read = true, .truncate = true });
     defer file.close();
     try self.store_to_file_const(file);
 }
 
-pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) !void {
+pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) StoreToFileError!void {
     self.store_to_existing_file_const(file_path) catch |e| switch (e) {
         error.FileNotFound => try self.store_to_new_file_const(file_path),
         else => return e,
