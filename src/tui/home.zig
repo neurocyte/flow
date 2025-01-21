@@ -245,6 +245,12 @@ const cmds = struct {
     const Ctx = command.Context;
     const Result = command.Result;
 
+    pub fn save_all(_: *Self, _: Ctx) Result {
+        if (tui.get_buffer_manager()) |bm|
+            bm.save_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const save_all_meta = .{ .description = "Save all changed files" };
+
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
