@@ -1214,6 +1214,13 @@ pub fn load_from_file_and_update(self: *Self, file_path: []const u8) LoadFromFil
     self.last_save_eol_mode = eol_mode;
 }
 
+pub fn reset_to_last_saved(self: *Self) void {
+    if (self.last_save) |last_save| {
+        self.store_undo(&[_]u8{}) catch {};
+        self.root = last_save;
+    }
+}
+
 pub fn store_to_string(self: *const Self, allocator: Allocator, eol_mode: EolMode) ![]u8 {
     var s = try ArrayList(u8).initCapacity(allocator, self.root.weights_sum().len);
     try self.root.store(s.writer(), eol_mode);
