@@ -51,15 +51,15 @@ pub fn retire(_: *Self, buffer: *Buffer) void {
     buffer.update_last_used_time();
 }
 
-pub fn list(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*const Buffer {
-    var buffers: std.ArrayListUnmanaged([]*const Buffer) = .{};
+pub fn list_most_recently_used(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*Buffer {
+    var buffers: std.ArrayListUnmanaged(*Buffer) = .{};
     var i = self.buffers.iterator();
     while (i.next()) |kv|
-        (try buffers.addOne()).* = kv.value_ptr.*;
+        (try buffers.addOne(allocator)).* = kv.value_ptr.*;
 
     std.mem.sort(*Buffer, buffers.items, {}, struct {
         fn less_fn(_: void, lhs: *Buffer, rhs: *Buffer) bool {
-            return lhs.mtime > rhs.mtime;
+            return lhs.utime > rhs.utime;
         }
     }.less_fn);
 

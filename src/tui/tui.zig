@@ -815,6 +815,11 @@ const cmds = struct {
     }
     pub const open_recent_project_meta = .{ .description = "Open recent project" };
 
+    pub fn switch_buffers(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/buffer_palette.zig").Type);
+    }
+    pub const switch_buffers_meta = .{ .description = "Switch buffers" };
+
     pub fn change_theme(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/theme_palette.zig").Type);
     }
