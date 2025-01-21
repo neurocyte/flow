@@ -143,7 +143,7 @@ pub const Leaf = struct {
     bol: bool = true,
     eol: bool = true,
 
-    fn new(allocator: Allocator, piece: []const u8, bol: bool, eol: bool) !*const Node {
+    fn new(allocator: Allocator, piece: []const u8, bol: bool, eol: bool) error{OutOfMemory}!*const Node {
         if (piece.len == 0)
             return if (!bol and !eol) &empty_leaf else if (bol and !eol) &empty_bol_leaf else if (!bol and eol) &empty_eol_leaf else &empty_line_leaf;
         const node = try allocator.create(Node);
@@ -1043,7 +1043,7 @@ const Node = union(enum) {
     }
 };
 
-pub fn create(allocator: Allocator) !*Self {
+pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
     const arena_a = if (builtin.is_test) allocator else std.heap.page_allocator;
     self.* = .{
@@ -1062,12 +1062,23 @@ pub fn deinit(self: *Self) void {
     self.external_allocator.destroy(self);
 }
 
-fn new_file(self: *const Self, file_exists: *bool) !Root {
+fn new_file(self: *const Self, file_exists: *bool) error{OutOfMemory}!Root {
     file_exists.* = false;
     return Leaf.new(self.allocator, "", true, false);
 }
 
-pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode, utf8_sanitized: *bool) !Root {
+pub fn LoadError(comptime reader_error: anytype) type {
+    return error{
+        OutOfMemory,
+        BufferUnderrun,
+        DanglingSurrogateHalf,
+        ExpectedSecondSurrogateHalf,
+        UnexpectedSecondSurrogateHalf,
+        Unexpected,
+    } || reader_error;
+}
+
+pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError(@TypeOf(reader).Error)!Root {
     const lf = '\n';
     const cr = '\r';
     var buf = try self.external_allocator.alloc(u8, size);
@@ -1117,12 +1128,14 @@ pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode,
     return Node.merge_in_place(leaves, self.allocator);
 }
 
-pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) !Root {
+pub const LoadFromStringError = LoadError(error{});
+
+pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) LoadFromStringError!Root {
     var stream = std.io.fixedBufferStream(s);
     return self.load(stream.reader(), s.len, eol_mode, utf8_sanitized);
 }
 
-pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) !void {
+pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) LoadFromStringError!void {
     self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
     self.file_path = try self.allocator.dupe(u8, file_path);
     self.last_save = self.root;
@@ -1130,7 +1143,53 @@ pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []cons
     self.file_exists = false;
 }
 
-pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bool, eol_mode: *EolMode, utf8_sanitized: *bool) !Root {
+pub const LoadFromFileError = error{
+    OutOfMemory,
+    Unexpected,
+    FileTooBig,
+    NoSpaceLeft,
+    DeviceBusy,
+    AccessDenied,
+    SystemResources,
+    WouldBlock,
+    IsDir,
+    SharingViolation,
+    PathAlreadyExists,
+    FileNotFound,
+    PipeBusy,
+    NameTooLong,
+    InvalidUtf8,
+    InvalidWtf8,
+    BadPathName,
+    NetworkNotFound,
+    AntivirusInterference,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    NotDir,
+    FileLocksNotSupported,
+    FileBusy,
+    InputOutput,
+    BrokenPipe,
+    OperationAborted,
+    ConnectionResetByPeer,
+    ConnectionTimedOut,
+    NotOpenForReading,
+    SocketNotConnected,
+    BufferUnderrun,
+    DanglingSurrogateHalf,
+    ExpectedSecondSurrogateHalf,
+    UnexpectedSecondSurrogateHalf,
+};
+
+pub fn load_from_file(
+    self: *const Self,
+    file_path: []const u8,
+    file_exists: *bool,
+    eol_mode: *EolMode,
+    utf8_sanitized: *bool,
+) LoadFromFileError!Root {
     const file = cwd().openFile(file_path, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return self.new_file(file_exists),
         else => return e,
@@ -1142,7 +1201,7 @@ pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bo
     return self.load(file.reader(), @intCast(stat.size), eol_mode, utf8_sanitized);
 }
 
-pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {
+pub fn load_from_file_and_update(self: *Self, file_path: []const u8) LoadFromFileError!void {
     var file_exists: bool = false;
     var eol_mode: EolMode = .lf;
     var utf8_sanitized: bool = false;
