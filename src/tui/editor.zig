@@ -149,27 +149,9 @@ pub const CurSel = struct {
     }
 
     fn check_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
-        switch (tui.current().get_selection_style()) {
-            .normal => self.check_selection_normal(),
-            .inclusive => self.check_selection_inclusive(root, metrics),
-        }
-    }
-
-    fn check_selection_normal(self: *Self) void {
         if (self.selection) |sel| if (sel.empty()) {
-            self.disable_selection_normal();
+            self.disable_selection(root, metrics);
         };
-    }
-
-    fn check_selection_inclusive(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
-        if (self.selection) |sel| if (sel.empty()) {
-            self.disable_selection_inclusive(root, metrics);
-        };
-        // if (self.selection) |*sel| {
-        //     var temp = sel;
-        //     if (!temp.is_reversed()) temp.end.move_left(root, metrics) catch {};
-        //     if (temp.empty()) self.disable_selection_inclusive(root, metrics);
-        // }
     }
 
     fn expand_selection_to_line(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
@@ -1702,16 +1684,6 @@ pub const Editor = struct {
 
     fn with_cursor(root: Buffer.Root, move: cursor_operator, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         return try move(root, &cursel.cursor, allocator);
-    }
-
-    fn with_cursors(self: *Self, root_: Buffer.Root, move: cursor_operator, allocator: Allocator) error{Stop}!Buffer.Root {
-        var root = root_;
-        for (self.cursels.items) |*cursel| {
-            self.selection(root, self.metrics);
-            root = try with_cursor(root, move, cursel, allocator);
-        }
-        self.collapse_cursors();
-        return root;
     }
 
     fn with_selection_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
