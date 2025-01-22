@@ -386,6 +386,7 @@ pub fn build_exe(
         tests.root_module.addImport("input", input_mod);
         tests.root_module.addImport("thespian", thespian_mod);
         tests.root_module.addImport("log", log_mod);
+        tests.root_module.addImport("Buffer", Buffer_mod);
         // b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };

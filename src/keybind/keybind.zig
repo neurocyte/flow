@@ -770,7 +770,7 @@ test "match" {
 }
 
 test "json" {
-    var bindings: BindingSet = .{ .name = "test" };
+    var bindings: BindingSet = .{ .name = "test", .selection_style = .normal };
     _ = try bindings.process_key_event(input.KeyEvent.from_key('j'));
     _ = try bindings.process_key_event(input.KeyEvent.from_key('k'));
     _ = try bindings.process_key_event(input.KeyEvent.from_key('g'));
