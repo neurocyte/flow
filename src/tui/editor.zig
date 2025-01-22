@@ -130,10 +130,46 @@ pub const CurSel = struct {
         return res;
     }
 
-    fn check_selection(self: *Self) void {
-        if (self.selection) |sel| if (sel.empty()) {
+    fn disable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
+        switch (tui.current().get_selection_style()) {
+            .normal => self.disable_selection_normal(),
+            .inclusive => self.disable_selection_inclusive(root, metrics),
+        }
+    }
+
+    fn disable_selection_normal(self: *Self) void {
+        self.selection = null;
+    }
+
+    fn disable_selection_inclusive(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
+        if (self.selection) |sel| {
+            if (!sel.is_reversed()) self.cursor.move_left(root, metrics) catch {};
             self.selection = null;
+        }
+    }
+
+    fn check_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
+        switch (tui.current().get_selection_style()) {
+            .normal => self.check_selection_normal(),
+            .inclusive => self.check_selection_inclusive(root, metrics),
+        }
+    }
+
+    fn check_selection_normal(self: *Self) void {
+        if (self.selection) |sel| if (sel.empty()) {
+            self.disable_selection_normal();
         };
+    }
+
+    fn check_selection_inclusive(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
+        if (self.selection) |sel| if (sel.empty()) {
+            self.disable_selection_inclusive(root, metrics);
+        };
+        // if (self.selection) |*sel| {
+        //     var temp = sel;
+        //     if (!temp.is_reversed()) temp.end.move_left(root, metrics) catch {};
+        //     if (temp.empty()) self.disable_selection_inclusive(root, metrics);
+        // }
     }
 
     fn expand_selection_to_line(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
@@ -1603,7 +1639,7 @@ pub const Editor = struct {
 
     fn cancel_all_selections(self: *Self) void {
         var primary = self.get_primary().*;
-        primary.selection = null;
+        primary.disable_selection(self.buf_root() catch return, self.metrics);
         self.cursels.clearRetainingCapacity();
         self.cursels.addOneAssumeCapacity().* = primary;
         for (self.matches.items) |*match_| if (match_.*) |*match| {
@@ -1632,7 +1668,7 @@ pub const Editor = struct {
 
     fn with_cursors_const(self: *Self, root: Buffer.Root, move: cursor_operator_const) error{Stop}!void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            cursel.selection = null;
+            cursel.disable_selection(root, self.metrics);
             try with_cursor_const(root, move, cursel, self.metrics);
         };
         self.collapse_cursors();
@@ -1644,7 +1680,7 @@ pub const Editor = struct {
 
     fn with_cursors_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            cursel.selection = null;
+            cursel.disable_selection(root, self.metrics);
             try with_cursor_const_arg(root, move, cursel, ctx, self.metrics);
         };
         self.collapse_cursors();
@@ -1671,7 +1707,7 @@ pub const Editor = struct {
     fn with_cursors(self: *Self, root_: Buffer.Root, move: cursor_operator, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         for (self.cursels.items) |*cursel| {
-            cursel.selection = null;
+            self.selection(root, self.metrics);
             root = try with_cursor(root, move, cursel, allocator);
         }
         self.collapse_cursors();
@@ -1682,7 +1718,7 @@ pub const Editor = struct {
         const sel = try cursel.enable_selection(root, metrics);
         try move(root, &sel.end, metrics);
         cursel.cursor = sel.end;
-        cursel.check_selection();
+        cursel.check_selection(root, metrics);
     }
 
     fn with_selections_const(self: *Self, root: Buffer.Root, move: cursor_operator_const) error{Stop}!void {
@@ -1699,7 +1735,7 @@ pub const Editor = struct {
         const sel = try cursel.enable_selection(root, metrics);
         try move(root, &sel.end, ctx, metrics);
         cursel.cursor = sel.end;
-        cursel.check_selection();
+        cursel.check_selection(root, metrics);
     }
 
     fn with_selections_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
@@ -1796,7 +1832,7 @@ pub const Editor = struct {
         var sel: Selection = cursel.selection orelse return error.Stop;
         sel.normalize();
         cursel.cursor = sel.begin;
-        cursel.selection = null;
+        cursel.disable_selection(root, self.metrics);
         var size: usize = 0;
         const root_ = try root.delete_range(sel, allocator, &size, self.metrics);
         self.nudge_delete(sel, cursel, size);
@@ -2032,7 +2068,7 @@ pub const Editor = struct {
             self.cancel_all_selections();
         }
         const primary = self.get_primary();
-        primary.selection = null;
+        primary.disable_selection(root, self.metrics);
         self.selection_mode = .char;
         try self.send_editor_jump_source();
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
@@ -2043,9 +2079,9 @@ pub const Editor = struct {
 
     pub fn primary_double_click(self: *Self, y: c_int, x: c_int) !void {
         const primary = self.get_primary();
-        primary.selection = null;
-        self.selection_mode = .word;
         const root = self.buf_root() catch return;
+        primary.disable_selection(root, self.metrics);
+        self.selection_mode = .word;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         _ = try self.select_word_at_cursor(primary);
         self.clamp_mouse();
@@ -2053,9 +2089,9 @@ pub const Editor = struct {
 
     pub fn primary_triple_click(self: *Self, y: c_int, x: c_int) !void {
         const primary = self.get_primary();
-        primary.selection = null;
-        self.selection_mode = .line;
         const root = self.buf_root() catch return;
+        primary.disable_selection(root, self.metrics);
+        self.selection_mode = .line;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         try self.select_line_at_cursor(primary);
         self.clamp_mouse();
@@ -2082,7 +2118,7 @@ pub const Editor = struct {
             },
         }
         primary.cursor = sel.end;
-        primary.check_selection();
+        primary.check_selection(root, self.metrics);
         self.clamp_mouse();
     }
 
@@ -2758,7 +2794,7 @@ pub const Editor = struct {
     fn dupe_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
-        cursel.selection = null;
+        cursel.disable_selection(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const text = copy_selection(root, sel, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(text);
@@ -2780,7 +2816,7 @@ pub const Editor = struct {
     fn dupe_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
-        cursel.selection = null;
+        cursel.disable_selection(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const text = copy_selection(root, sel, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(text);
@@ -3248,7 +3284,7 @@ pub const Editor = struct {
     fn select_word_at_cursor(self: *Self, cursel: *CurSel) !*Selection {
         const root = try self.buf_root();
         const sel = try cursel.enable_selection(root, self.metrics);
-        defer cursel.check_selection();
+        defer cursel.check_selection(root, self.metrics);
         sel.normalize();
         try move_cursor_word_begin(root, &sel.begin, self.metrics);
         try move_cursor_word_end(root, &sel.end, self.metrics);
@@ -3298,7 +3334,7 @@ pub const Editor = struct {
     }
 
     fn select_node_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        cursel.selection = null;
+        cursel.disable_selection(root, self.metrics);
         const sel = (try cursel.enable_selection(root, self.metrics)).*;
         return cursel.select_node(try self.node_at_selection(sel, root, metrics), root, metrics);
     }
@@ -3316,7 +3352,7 @@ pub const Editor = struct {
         try self.send_editor_jump_source();
         const root = try self.buf_root();
         const cursel = self.get_primary();
-        cursel.check_selection();
+        cursel.check_selection(root, self.metrics);
         try if (cursel.selection) |_|
             self.expand_selection_to_parent_node(root, cursel, self.metrics)
         else
@@ -3350,7 +3386,7 @@ pub const Editor = struct {
         try self.send_editor_jump_source();
         const root = try self.buf_root();
         const cursel = self.get_primary();
-        cursel.check_selection();
+        cursel.check_selection(root, self.metrics);
         if (cursel.selection) |_|
             try if (unnamed)
                 self.shrink_selection_to_child_node(root, cursel, self.metrics)
@@ -3385,7 +3421,7 @@ pub const Editor = struct {
         try self.send_editor_jump_source();
         const root = try self.buf_root();
         const cursel = self.get_primary();
-        cursel.check_selection();
+        cursel.check_selection(root, self.metrics);
         if (cursel.selection) |_|
             try if (unnamed)
                 self.select_next_sibling_node(root, cursel, self.metrics)
@@ -3420,7 +3456,7 @@ pub const Editor = struct {
         try self.send_editor_jump_source();
         const root = try self.buf_root();
         const cursel = self.get_primary();
-        cursel.check_selection();
+        cursel.check_selection(root, self.metrics);
         if (cursel.selection) |_|
             try if (unnamed)
                 self.select_prev_sibling_node(root, cursel, self.metrics)
