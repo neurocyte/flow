@@ -1804,7 +1804,7 @@ pub const Editor = struct {
         var sel: Selection = cursel.selection orelse return error.Stop;
         sel.normalize();
         cursel.cursor = sel.begin;
-        cursel.disable_selection(root, self.metrics);
+        cursel.disable_selection_normal();
         var size: usize = 0;
         const root_ = try root.delete_range(sel, allocator, &size, self.metrics);
         self.nudge_delete(sel, cursel, size);
