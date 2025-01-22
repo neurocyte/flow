@@ -251,7 +251,6 @@
             ["ctrl+p", "palette_menu_up"],
             ["ctrl+n", "palette_menu_down"],
             ["ctrl+e", "palette_menu_down"],
-            ["ctrl+shift+e", "palette_menu_down"],
             ["ctrl+r", "palette_menu_down"],
             ["ctrl+t", "palette_menu_down"],
             ["ctrl+v", "system_paste"],
