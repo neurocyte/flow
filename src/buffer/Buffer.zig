@@ -10,6 +10,7 @@ const max_imbalance = 7;
 pub const Root = *const Node;
 pub const unicode = @import("unicode.zig");
 
+pub const Manager = @import("Manager.zig");
 pub const Cursor = @import("Cursor.zig");
 pub const View = @import("View.zig");
 pub const Selection = @import("Selection.zig");
@@ -42,6 +43,9 @@ file_utf8_sanitized: bool = false,
 undo_history: ?*UndoNode = null,
 redo_history: ?*UndoNode = null,
 curr_history: ?*UndoNode = null,
+
+mtime: i64,
+utime: i64,
 
 pub const EolMode = enum { lf, crlf };
 pub const EolModeTag = @typeInfo(EolMode).Enum.tag_type;
@@ -143,7 +147,7 @@ pub const Leaf = struct {
     bol: bool = true,
     eol: bool = true,
 
-    fn new(allocator: Allocator, piece: []const u8, bol: bool, eol: bool) !*const Node {
+    fn new(allocator: Allocator, piece: []const u8, bol: bool, eol: bool) error{OutOfMemory}!*const Node {
         if (piece.len == 0)
             return if (!bol and !eol) &empty_leaf else if (bol and !eol) &empty_bol_leaf else if (!bol and eol) &empty_eol_leaf else &empty_line_leaf;
         const node = try allocator.create(Node);
@@ -1043,7 +1047,7 @@ const Node = union(enum) {
     }
 };
 
-pub fn create(allocator: Allocator) !*Self {
+pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
     const arena_a = if (builtin.is_test) allocator else std.heap.page_allocator;
     self.* = .{
@@ -1051,6 +1055,8 @@ pub fn create(allocator: Allocator) !*Self {
         .allocator = self.arena.allocator(),
         .external_allocator = allocator,
         .root = try Node.new(self.allocator, &empty_leaf, &empty_leaf),
+        .mtime = std.time.milliTimestamp(),
+        .utime = std.time.milliTimestamp(),
     };
     return self;
 }
@@ -1062,12 +1068,27 @@ pub fn deinit(self: *Self) void {
     self.external_allocator.destroy(self);
 }
 
-fn new_file(self: *const Self, file_exists: *bool) !Root {
+pub fn update_last_used_time(self: *Self) void {
+    self.utime = std.time.milliTimestamp();
+}
+
+fn new_file(self: *const Self, file_exists: *bool) error{OutOfMemory}!Root {
     file_exists.* = false;
     return Leaf.new(self.allocator, "", true, false);
 }
 
-pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode, utf8_sanitized: *bool) !Root {
+pub fn LoadError(comptime reader_error: anytype) type {
+    return error{
+        OutOfMemory,
+        BufferUnderrun,
+        DanglingSurrogateHalf,
+        ExpectedSecondSurrogateHalf,
+        UnexpectedSecondSurrogateHalf,
+        Unexpected,
+    } || reader_error;
+}
+
+pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError(@TypeOf(reader).Error)!Root {
     const lf = '\n';
     const cr = '\r';
     var buf = try self.external_allocator.alloc(u8, size);
@@ -1117,20 +1138,69 @@ pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode,
     return Node.merge_in_place(leaves, self.allocator);
 }
 
-pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) !Root {
+pub const LoadFromStringError = LoadError(error{});
+
+pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) LoadFromStringError!Root {
     var stream = std.io.fixedBufferStream(s);
     return self.load(stream.reader(), s.len, eol_mode, utf8_sanitized);
 }
 
-pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) !void {
+pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) LoadFromStringError!void {
     self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
     self.file_path = try self.allocator.dupe(u8, file_path);
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = false;
+    self.mtime = std.time.milliTimestamp();
 }
 
-pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bool, eol_mode: *EolMode, utf8_sanitized: *bool) !Root {
+pub const LoadFromFileError = error{
+    OutOfMemory,
+    Unexpected,
+    FileTooBig,
+    NoSpaceLeft,
+    DeviceBusy,
+    AccessDenied,
+    SystemResources,
+    WouldBlock,
+    IsDir,
+    SharingViolation,
+    PathAlreadyExists,
+    FileNotFound,
+    PipeBusy,
+    NameTooLong,
+    InvalidUtf8,
+    InvalidWtf8,
+    BadPathName,
+    NetworkNotFound,
+    AntivirusInterference,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    NotDir,
+    FileLocksNotSupported,
+    FileBusy,
+    InputOutput,
+    BrokenPipe,
+    OperationAborted,
+    ConnectionResetByPeer,
+    ConnectionTimedOut,
+    NotOpenForReading,
+    SocketNotConnected,
+    BufferUnderrun,
+    DanglingSurrogateHalf,
+    ExpectedSecondSurrogateHalf,
+    UnexpectedSecondSurrogateHalf,
+};
+
+pub fn load_from_file(
+    self: *const Self,
+    file_path: []const u8,
+    file_exists: *bool,
+    eol_mode: *EolMode,
+    utf8_sanitized: *bool,
+) LoadFromFileError!Root {
     const file = cwd().openFile(file_path, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return self.new_file(file_exists),
         else => return e,
@@ -1142,7 +1212,7 @@ pub fn load_from_file(self: *const Self, file_path: []const u8, file_exists: *bo
     return self.load(file.reader(), @intCast(stat.size), eol_mode, utf8_sanitized);
 }
 
-pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {
+pub fn load_from_file_and_update(self: *Self, file_path: []const u8) LoadFromFileError!void {
     var file_exists: bool = false;
     var eol_mode: EolMode = .lf;
     var utf8_sanitized: bool = false;
@@ -1153,6 +1223,15 @@ pub fn load_from_file_and_update(self: *Self, file_path: []const u8) !void {
     self.file_eol_mode = eol_mode;
     self.file_utf8_sanitized = utf8_sanitized;
     self.last_save_eol_mode = eol_mode;
+    self.mtime = std.time.milliTimestamp();
+}
+
+pub fn reset_to_last_saved(self: *Self) void {
+    if (self.last_save) |last_save| {
+        self.store_undo(&[_]u8{}) catch {};
+        self.root = last_save;
+        self.mtime = std.time.milliTimestamp();
+    }
 }
 
 pub fn store_to_string(self: *const Self, allocator: Allocator, eol_mode: EolMode) ![]u8 {
@@ -1161,7 +1240,7 @@ pub fn store_to_string(self: *const Self, allocator: Allocator, eol_mode: EolMod
     return s.toOwnedSlice();
 }
 
-fn store_to_file_const(self: *const Self, file: anytype) !void {
+fn store_to_file_const(self: *const Self, file: anytype) StoreToFileError!void {
     const buffer_size = 4096 * 16; // 64KB
     const BufferedWriter = std.io.BufferedWriter(buffer_size, std.fs.File.Writer);
     const Writer = std.io.Writer(*BufferedWriter, BufferedWriter.Error, BufferedWriter.write);
@@ -1173,7 +1252,46 @@ fn store_to_file_const(self: *const Self, file: anytype) !void {
     try buffered_writer.flush();
 }
 
-pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) !void {
+pub const StoreToFileError = error{
+    AccessDenied,
+    AntivirusInterference,
+    BadPathName,
+    BrokenPipe,
+    ConnectionResetByPeer,
+    DeviceBusy,
+    DiskQuota,
+    FileBusy,
+    FileLocksNotSupported,
+    FileNotFound,
+    FileTooBig,
+    InputOutput,
+    InvalidArgument,
+    InvalidUtf8,
+    InvalidWtf8,
+    IsDir,
+    LinkQuotaExceeded,
+    LockViolation,
+    NameTooLong,
+    NetworkNotFound,
+    NoDevice,
+    NoSpaceLeft,
+    NotDir,
+    NotOpenForWriting,
+    OperationAborted,
+    PathAlreadyExists,
+    PipeBusy,
+    ProcessFdQuotaExceeded,
+    ReadOnlyFileSystem,
+    RenameAcrossMountPoints,
+    SharingViolation,
+    SymLinkLoop,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    Unexpected,
+    WouldBlock,
+};
+
+pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
     const stat = try cwd().statFile(file_path);
     var atomic = try cwd().atomicFile(file_path, .{ .mode = stat.mode });
     defer atomic.deinit();
@@ -1181,13 +1299,13 @@ pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) !v
     try atomic.finish();
 }
 
-pub fn store_to_new_file_const(self: *const Self, file_path: []const u8) !void {
+pub fn store_to_new_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
     const file = try cwd().createFile(file_path, .{ .read = true, .truncate = true });
     defer file.close();
     try self.store_to_file_const(file);
 }
 
-pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) !void {
+pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) StoreToFileError!void {
     self.store_to_existing_file_const(file_path) catch |e| switch (e) {
         error.FileNotFound => try self.store_to_new_file_const(file_path),
         else => return e,
@@ -1213,6 +1331,7 @@ pub fn version(self: *const Self) usize {
 
 pub fn update(self: *Self, root: Root) void {
     self.root = root;
+    self.mtime = std.time.milliTimestamp();
 }
 
 pub fn store_undo(self: *Self, meta: []const u8) !void {
@@ -1263,6 +1382,7 @@ pub fn undo(self: *Self, meta: []const u8) error{Stop}![]const u8 {
     self.curr_history = h;
     self.root = h.root;
     self.push_redo(r);
+    self.mtime = std.time.milliTimestamp();
     return h.meta;
 }
 
@@ -1274,5 +1394,6 @@ pub fn redo(self: *Self) error{Stop}![]const u8 {
     self.curr_history = h;
     self.root = h.root;
     self.push_undo(u);
+    self.mtime = std.time.milliTimestamp();
     return h.meta;
 }

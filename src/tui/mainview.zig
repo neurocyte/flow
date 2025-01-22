@@ -14,6 +14,7 @@ const build_options = @import("build_options");
 const Plane = @import("renderer").Plane;
 const input = @import("input");
 const command = @import("command");
+const BufferManager = @import("Buffer").Manager;
 
 const tui = @import("tui.zig");
 const Box = @import("Box.zig");
@@ -47,6 +48,7 @@ active_view: ?usize = 0,
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history: location_history,
+buffer_manager: BufferManager,
 file_stack: std.ArrayList([]const u8),
 find_in_files_state: enum { init, adding, done } = .done,
 file_list_type: FileListType = .find_in_files,
@@ -70,6 +72,7 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
         .file_stack = std.ArrayList([]const u8).init(allocator),
         .views = undefined,
         .views_widget = undefined,
+        .buffer_manager = BufferManager.init(allocator),
     };
     try self.commands.init(self);
     const w = Widget.to(self);
@@ -104,6 +107,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.commands.deinit();
     self.widgets.deinit(allocator);
     self.floating_views.deinit();
+    self.buffer_manager.deinit();
     allocator.destroy(self);
 }
 
@@ -237,15 +241,8 @@ fn toggle_view(self: *Self, view: anytype) !void {
 }
 
 fn check_all_not_dirty(self: *const Self) command.Result {
-    for (self.editors.items) |editor|
-        if (editor.is_dirty())
-            return tp.exit("unsaved changes");
-}
-
-fn check_active_not_dirty(self: *const Self) command.Result {
-    if (self.active_editor) |idx|
-        if (self.editors.items[idx].is_dirty())
-            return tp.exit("unsaved changes");
+    if (self.buffer_manager.is_dirty())
+        return tp.exit("unsaved changes");
 }
 
 const cmds = struct {
@@ -296,6 +293,8 @@ const cmds = struct {
         self.clear_find_in_files_results(.diagnostics);
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false);
+        self.buffer_manager.deinit();
+        self.buffer_manager = BufferManager.init(self.allocator);
         try project_manager.open(project_dir);
         const project = tp.env.get().str("project");
         tui.current().rdr.set_terminal_working_directory(project);
@@ -352,7 +351,6 @@ const cmds = struct {
 
         if (!same_file) {
             if (self.get_active_editor()) |editor| {
-                try self.check_active_not_dirty();
                 editor.send_editor_jump_source() catch {};
             }
             try self.create_editor();
@@ -395,7 +393,6 @@ const cmds = struct {
     pub const open_gui_config_meta = .{ .description = "Edit gui configuration file" };
 
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
-        try self.check_all_not_dirty();
         tui.reset_drag_context();
         try self.create_editor();
         try command.executeName("open_scratch_buffer", ctx);
@@ -863,7 +860,7 @@ fn create_editor(self: *Self) !void {
     if (self.get_active_file_path()) |file_path| self.push_file_stack(file_path) catch {};
     try self.delete_active_view();
     command.executeName("enter_mode_default", .{}) catch {};
-    var editor_widget = try ed.create(self.allocator, Widget.to(self));
+    var editor_widget = try ed.create(self.allocator, Widget.to(self), &self.buffer_manager);
     errdefer editor_widget.deinit(self.allocator);
     const editor = editor_widget.get("editor") orelse @panic("mainview editor not found");
     if (self.top_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");

@@ -11,7 +11,6 @@ pub const create = Type.create;
 
 pub fn load_entries(self: *Type) error{ Exit, OutOfMemory }!void {
     const editor = tui.get_active_editor() orelse return;
-    if (editor.is_dirty()) return tp.exit("unsaved changes");
     if (editor.file_path) |old_path|
         if (std.mem.lastIndexOf(u8, old_path, "/")) |pos|
             try self.file_path.appendSlice(old_path[0 .. pos + 1]);

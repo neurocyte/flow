@@ -10,6 +10,7 @@ const keybind = @import("keybind");
 const project_manager = @import("project_manager");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+const BufferManager = @import("Buffer").Manager;
 
 const tui = @import("../../tui.zig");
 const MessageFilter = @import("../../MessageFilter.zig");
@@ -34,6 +35,7 @@ need_reset: bool = false,
 need_select_first: bool = true,
 longest: usize = 0,
 commands: Commands = undefined,
+buffer_manager: ?*BufferManager,
 
 pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     const mv = tui.current().mainview.dynamic_cast(mainview) orelse return error.NotFound;
@@ -51,6 +53,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
             .ctx = self,
             .label = "Search files by name",
         }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
+        .buffer_manager = tui.get_buffer_manager(),
     };
     try self.commands.init(self);
     try tui.current().message_filters.add(MessageFilter.bind(self, receive_project_manager));
@@ -93,7 +96,7 @@ inline fn max_menu_width() usize {
     return @max(15, width - (width / 5));
 }
 
-fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+fn on_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
     const style_base = theme.editor_widget;
     const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_base;
@@ -110,7 +113,8 @@ fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
     if (!(cbor.matchString(&iter, &file_path) catch false))
         file_path = "#ERROR#";
     button.plane.set_style(style_keybind);
-    const pointer = if (selected) "⏵" else " ";
+    const dirty = if (self.buffer_manager) |bm| if (bm.is_buffer_dirty(file_path)) "" else " " else " ";
+    const pointer = if (selected) "⏵" else dirty;
     _ = button.plane.print("{s}", .{pointer}) catch {};
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var removed_prefix: usize = 0;

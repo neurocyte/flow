@@ -242,6 +242,7 @@ pub const Editor = struct {
 
     file_path: ?[]const u8,
     buffer: ?*Buffer,
+    buffer_manager: *Buffer.Manager,
     lsp_version: usize = 1,
     pause_undo: bool = false,
 
@@ -382,7 +383,7 @@ pub const Editor = struct {
         self.clamp();
     }
 
-    fn init(self: *Self, allocator: Allocator, n: Plane) void {
+    fn init(self: *Self, allocator: Allocator, n: Plane, buffer_manager: *Buffer.Manager) void {
         const logger = log.logger("editor");
         const frame_rate = tp.env.get().num("frame-rate");
         const indent_size = tui.current().config.indent_size;
@@ -396,6 +397,7 @@ pub const Editor = struct {
             .logger = logger,
             .file_path = null,
             .buffer = null,
+            .buffer_manager = buffer_manager,
             .handlers = EventHandler.List.init(allocator),
             .animation_lag = get_animation_max_lag(),
             .animation_frame_rate = frame_rate,
@@ -417,7 +419,7 @@ pub const Editor = struct {
         self.matches.deinit();
         self.handlers.deinit();
         self.logger.deinit();
-        if (self.buffer) |p| p.deinit();
+        if (self.buffer) |p| self.buffer_manager.retire(p);
         if (self.case_data) |cd| cd.deinit();
     }
 
@@ -483,28 +485,16 @@ pub const Editor = struct {
         self.view.cols = pos.w;
     }
 
-    pub fn is_dirty(self: *Self) bool {
-        const b = self.buffer orelse return false;
-        return b.is_dirty();
-    }
-
     fn open(self: *Self, file_path: []const u8) !void {
-        var new_buf = try Buffer.create(self.allocator);
-        errdefer new_buf.deinit();
-        try new_buf.load_from_file_and_update(file_path);
-        return self.open_buffer(file_path, new_buf);
+        return self.open_buffer(file_path, try self.buffer_manager.open_file(file_path));
     }
 
     fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) !void {
-        var new_buf = try Buffer.create(self.allocator);
-        errdefer new_buf.deinit();
-        try new_buf.load_from_string_and_update(file_path, content);
-        new_buf.file_exists = true;
-        return self.open_buffer(file_path, new_buf);
+        return self.open_buffer(file_path, try self.buffer_manager.open_scratch(file_path, content));
     }
 
     fn open_buffer(self: *Self, file_path: []const u8, new_buf: *Buffer) !void {
-        errdefer new_buf.deinit();
+        errdefer self.buffer_manager.retire(new_buf);
         self.cancel_all_selections();
         self.get_primary().reset();
         self.file_path = try self.allocator.dupe(u8, file_path);
@@ -543,17 +533,7 @@ pub const Editor = struct {
     }
 
     fn close(self: *Self) !void {
-        return self.close_internal(false);
-    }
-
-    fn close_dirty(self: *Self) !void {
-        return self.close_internal(true);
-    }
-
-    fn close_internal(self: *Self, allow_dirty_close: bool) !void {
-        const b = self.buffer orelse return error.Stop;
-        if (!allow_dirty_close and b.is_dirty()) return tp.exit("unsaved changes");
-        if (self.buffer) |b_mut| b_mut.deinit();
+        if (self.buffer) |b_mut| self.buffer_manager.retire(b_mut);
         self.buffer = null;
         self.plane.erase();
         self.plane.home();
@@ -3805,7 +3785,8 @@ pub const Editor = struct {
 
     pub fn close_file_without_saving(self: *Self, _: Context) Result {
         self.cancel_all_selections();
-        try self.close_dirty();
+        if (self.buffer) |buffer| buffer.reset_to_last_saved();
+        try self.close();
     }
     pub const close_file_without_saving_meta = .{ .description = "Close file without saving" };
 
@@ -4794,8 +4775,8 @@ pub const Editor = struct {
     pub const set_file_type_meta = .{ .arguments = &.{.string} };
 };
 
-pub fn create(allocator: Allocator, parent: Widget) !Widget {
-    return EditorWidget.create(allocator, parent);
+pub fn create(allocator: Allocator, parent: Widget, buffer_manager: *Buffer.Manager) !Widget {
+    return EditorWidget.create(allocator, parent, buffer_manager);
 }
 
 pub const EditorWidget = struct {
@@ -4817,10 +4798,10 @@ pub const EditorWidget = struct {
     const Self = @This();
     const Commands = command.Collection(Editor);
 
-    fn create(allocator: Allocator, parent: Widget) !Widget {
+    fn create(allocator: Allocator, parent: Widget, buffer_manager: *Buffer.Manager) !Widget {
         const container = try WidgetList.createH(allocator, parent, "editor.container", .dynamic);
         const self: *Self = try allocator.create(Self);
-        try self.init(allocator, container.widget());
+        try self.init(allocator, container.widget(), buffer_manager);
         try self.commands.init(&self.editor);
         const editorWidget = Widget.to(self);
         try container.add(try editor_gutter.create(allocator, container.widget(), editorWidget, &self.editor));
@@ -4829,7 +4810,7 @@ pub const EditorWidget = struct {
         return container.widget();
     }
 
-    fn init(self: *Self, allocator: Allocator, parent: Widget) !void {
+    fn init(self: *Self, allocator: Allocator, parent: Widget, buffer_manager: *Buffer.Manager) !void {
         var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
         errdefer n.deinit();
 
@@ -4838,7 +4819,7 @@ pub const EditorWidget = struct {
             .plane = n,
             .editor = undefined,
         };
-        self.editor.init(allocator, n);
+        self.editor.init(allocator, n, buffer_manager);
         errdefer self.editor.deinit();
         try self.editor.push_cursor();
     }

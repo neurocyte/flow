@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const optimize_deps = .ReleaseFast;
+
 pub fn build(b: *std.Build) void {
     const release = b.option(bool, "package_release", "Build all release targets") orelse false;
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
@@ -227,14 +229,14 @@ pub fn build_exe(
 
     const syntax_dep = b.dependency("syntax", .{
         .target = target,
-        .optimize = optimize,
+        .optimize = optimize_deps,
         .use_tree_sitter = use_tree_sitter,
     });
     const syntax_mod = syntax_dep.module("syntax");
 
     const thespian_dep = b.dependency("thespian", .{
         .target = target,
-        .optimize = optimize,
+        .optimize = optimize_deps,
         .enable_tracy = tracy_enabled,
     });
 
@@ -316,16 +318,13 @@ pub fn build_exe(
     const renderer_mod = blk: {
         if (gui) switch (target.result.os.tag) {
             .windows => {
-                const direct2d_dep = b.lazyDependency("direct2d", .{}) orelse break :blk tui_renderer_mod;
-
-                const win32_dep = direct2d_dep.builder.dependency("win32", .{});
-                const win32_mod = win32_dep.module("zigwin32");
+                const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
+                const win32_mod = win32_dep.module("win32");
                 const gui_mod = b.createModule(.{
                     .root_source_file = b.path("src/win32/gui.zig"),
                     .imports = &.{
                         .{ .name = "build_options", .module = options_mod },
                         .{ .name = "win32", .module = win32_mod },
-                        .{ .name = "ddui", .module = direct2d_dep.module("ddui") },
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "thespian", .module = thespian_mod },
                         .{ .name = "input", .module = input_mod },
@@ -333,6 +332,7 @@ pub fn build_exe(
                         .{ .name = "vaxis", .module = vaxis_mod },
                         .{ .name = "color", .module = color_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
+                        .{ .name = "tracy", .module = tracy_mod },
                     },
                 });
                 gui_mod.addIncludePath(b.path("src/win32"));

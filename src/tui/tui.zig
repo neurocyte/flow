@@ -56,6 +56,7 @@ mouse_idle_timer: ?tp.Cancellable = null,
 default_cursor: keybind.CursorShape = .default,
 fontface: []const u8 = "",
 fontfaces: ?std.ArrayList([]const u8) = null,
+enable_mouse_idle_timer: bool = false,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -222,6 +223,7 @@ fn listen_sigwinch(self: *Self) tp.result {
 }
 
 fn update_mouse_idle_timer(self: *Self) void {
+    if (!self.enable_mouse_idle_timer) return;
     const delay = std.time.us_per_ms * @as(u64, mouse_idle_time_milliseconds);
     if (self.mouse_idle_timer) |*t| {
         t.cancel() catch {};
@@ -309,6 +311,8 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{"resize"})) {
         self.resize();
+        const box = self.screen();
+        message("{d}x{d}", .{ box.w, box.h });
         return;
     }
 
@@ -811,6 +815,11 @@ const cmds = struct {
     }
     pub const open_recent_project_meta = .{ .description = "Open recent project" };
 
+    pub fn switch_buffers(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/buffer_palette.zig").Type);
+    }
+    pub const switch_buffers_meta = .{ .description = "Switch buffers" };
+
     pub fn change_theme(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/theme_palette.zig").Type);
     }
@@ -985,6 +994,10 @@ pub fn get_active_selection(allocator: std.mem.Allocator) ?[]u8 {
     const editor = get_active_editor() orelse return null;
     const sel = editor.get_primary().selection orelse return null;
     return editor.get_selection(sel, allocator) catch null;
+}
+
+pub fn get_buffer_manager() ?*@import("Buffer").Manager {
+    return if (current().mainview.dynamic_cast(mainview)) |mv_| &mv_.buffer_manager else null;
 }
 
 fn context_check() void {
@@ -1175,4 +1188,9 @@ pub fn is_cursor_beam(self: *Self) bool {
 
 pub fn get_selection_style(self: *Self) @import("Buffer").Selection.Style {
     return if (self.input_mode) |mode| mode.selection_style else .normal;
+}
+
+pub fn message(comptime fmt: anytype, args: anytype) void {
+    var buf: [256]u8 = undefined;
+    tp.self_pid().send(.{ "message", std.fmt.bufPrint(&buf, fmt, args) catch @panic("too large") }) catch {};
 }
