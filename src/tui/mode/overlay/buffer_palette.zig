@@ -6,6 +6,7 @@ const command = @import("command");
 
 const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
+const module_name = @typeName(@This());
 
 pub const label = "Switch buffers";
 pub const name = " buffer";
@@ -43,7 +44,15 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
-    tp.self_pid().send(.{ "cmd", "navigate", .{} }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
-    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "navigate", .{} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+}
+
+pub fn delete_item(menu: *Type.MenuState, button: *Type.ButtonState) void {
+    var file_path: []const u8 = undefined;
+    var iter = button.opts.label;
+    if (!(cbor.matchString(&iter, &file_path) catch false)) return;
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "delete_buffer", .{file_path} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }

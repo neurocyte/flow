@@ -285,6 +285,7 @@
             ["page_up", "palette_menu_pageup"],
             ["page_down", "palette_menu_pagedown"],
             ["enter", "palette_menu_activate"],
+            ["delete", "palette_menu_delete_item"],
             ["backspace", "overlay_delete_backwards"]
         ],
         "release": [

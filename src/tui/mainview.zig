@@ -400,6 +400,25 @@ const cmds = struct {
     }
     pub const create_scratch_buffer_meta = .{ .arguments = &.{ .string, .string } };
 
+    pub fn delete_buffer(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
+            return error.InvalidDeleteBufferArgument;
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        if (buffer.is_dirty())
+            return tp.exit("unsaved changes");
+        if (self.get_active_editor()) |editor| {
+            if (editor.buffer == buffer)
+                editor.close_file(.{}) catch |e| return e;
+        }
+        _ = self.buffer_manager.delete_buffer(file_path);
+        const logger = log.logger("buffer");
+        defer logger.deinit();
+        logger.print("deleted {s}", .{file_path});
+        tui.need_render();
+    }
+    pub const delete_buffer_meta = .{ .arguments = &.{.string} };
+
     pub fn restore_session(self: *Self, _: Ctx) Result {
         if (tp.env.get().str("project").len == 0) {
             try open_project_cwd(self, .{});

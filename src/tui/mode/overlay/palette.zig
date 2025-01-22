@@ -428,6 +428,14 @@ pub fn Create(options: type) type {
             }
             pub const palette_menu_pageup_meta = .{};
 
+            pub fn palette_menu_delete_item(self: *Self, _: Ctx) Result {
+                if (@hasDecl(options, "delete_item")) {
+                    const button = self.menu.get_selected() orelse return;
+                    options.delete_item(self.menu, button);
+                }
+            }
+            pub const palette_menu_delete_item_meta = .{};
+
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
                 self.menu.activate_selected();
             }

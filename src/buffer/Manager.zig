@@ -47,9 +47,17 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buf
     return buffer;
 }
 
-pub fn retire(_: *Self, buffer: *Buffer) void {
-    buffer.update_last_used_time();
+pub fn get_buffer_for_file(self: *Self, file_path: []const u8) ?*Buffer {
+    return self.buffers.get(file_path);
 }
+
+pub fn delete_buffer(self: *Self, file_path: []const u8) bool {
+    const buffer = self.buffers.get(file_path) orelse return false;
+    buffer.deinit();
+    return self.buffers.remove(file_path);
+}
+
+pub fn retire(_: *Self, _: *Buffer) void {}
 
 pub fn list_most_recently_used(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*Buffer {
     var buffers: std.ArrayListUnmanaged(*Buffer) = .{};
