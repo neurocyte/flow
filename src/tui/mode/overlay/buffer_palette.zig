@@ -45,7 +45,6 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    tp.self_pid().send(.{ "cmd", "navigate", .{} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 

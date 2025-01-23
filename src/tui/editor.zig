@@ -3786,13 +3786,21 @@ pub const Editor = struct {
 
     pub fn close_file(self: *Self, _: Context) Result {
         self.cancel_all_selections();
+        if (self.buffer) |buffer| {
+            if (buffer.is_dirty())
+                return tp.exit("unsaved changes");
+            buffer.hidden = true;
+        }
         try self.close();
     }
     pub const close_file_meta = .{ .description = "Close file" };
 
     pub fn close_file_without_saving(self: *Self, _: Context) Result {
         self.cancel_all_selections();
-        if (self.buffer) |buffer| buffer.reset_to_last_saved();
+        if (self.buffer) |buffer| {
+            buffer.reset_to_last_saved();
+            buffer.hidden = true;
+        }
         try self.close();
     }
     pub const close_file_without_saving_meta = .{ .description = "Close file without saving" };

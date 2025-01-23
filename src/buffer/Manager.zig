@@ -31,6 +31,7 @@ pub fn open_file(self: *Self, file_path: []const u8) Buffer.LoadFromFileError!*B
         break :blk buffer;
     };
     buffer.update_last_used_time();
+    buffer.hidden = false;
     return buffer;
 }
 
@@ -44,6 +45,7 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buf
         break :blk buffer;
     };
     buffer.update_last_used_time();
+    buffer.hidden = false;
     return buffer;
 }
 

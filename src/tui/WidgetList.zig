@@ -97,6 +97,12 @@ pub fn remove(self: *Self, w: Widget) void {
         self.widgets.orderedRemove(i).widget.deinit(self.allocator);
 }
 
+pub fn remove_all(self: *Self) void {
+    for (self.widgets.items) |*w|
+        w.widget.deinit(self.allocator);
+    self.widgets.clearRetainingCapacity();
+}
+
 pub fn empty(self: *const Self) bool {
     return self.widgets.items.len == 0;
 }
