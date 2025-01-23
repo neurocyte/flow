@@ -27,7 +27,7 @@ var previous_theme: ?[]const u8 = null;
 pub fn load_entries(palette: *Type) !usize {
     var longest_hint: usize = 0;
     var idx: usize = 0;
-    previous_theme = tui.current().theme.name;
+    previous_theme = tui.theme().name;
     for (Widget.themes) |theme| {
         idx += 1;
         (try palette.entries.addOne()).* = .{
@@ -76,7 +76,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonState) !void {
 }
 
 pub fn cancel(palette: *Type) !void {
-    if (previous_theme) |name_| if (!std.mem.eql(u8, name_, tui.current().theme.name)) {
+    if (previous_theme) |name_| if (!std.mem.eql(u8, name_, tui.theme().name)) {
         previous_theme = null;
         tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| palette.logger.err("theme_palette cancel", e);
     };

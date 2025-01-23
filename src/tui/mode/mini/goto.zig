@@ -49,7 +49,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
 }
 
 fn update_mini_mode_text(self: *Self) void {
-    if (tui.current().mini_mode) |*mini_mode| {
+    if (tui.mini_mode()) |mini_mode| {
         mini_mode.text = if (self.input) |linenum|
             (fmt.bufPrint(&self.buf, "{d}", .{linenum}) catch "")
         else

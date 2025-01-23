@@ -125,7 +125,7 @@ pub fn State(ctx_type: type) type {
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-                tui.current().rdr.request_mouse_cursor_pointer(self.hover);
+                tui.rdr().request_mouse_cursor_pointer(self.hover);
                 tui.need_render();
                 return true;
             }

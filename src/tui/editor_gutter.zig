@@ -45,15 +45,15 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
         .parent = parent,
-        .linenum = tui.current().config.gutter_line_numbers,
-        .relative = tui.current().config.gutter_line_numbers_relative,
-        .highlight = tui.current().config.highlight_current_line_gutter,
-        .symbols = tui.current().config.gutter_symbols,
+        .linenum = tui.config().gutter_line_numbers,
+        .relative = tui.config().gutter_line_numbers_relative,
+        .highlight = tui.config().highlight_current_line_gutter,
+        .symbols = tui.config().gutter_symbols,
         .editor = editor,
         .diff = try diff.create(),
         .diff_symbols = std.ArrayList(Symbol).init(allocator),
     };
-    try tui.current().message_filters.add(MessageFilter.bind(self, filter_receive));
+    try tui.message_filters().add(MessageFilter.bind(self, filter_receive));
     try event_source.subscribe(EventHandler.bind(self, handle_event));
     return self.widget();
 }
@@ -65,7 +65,7 @@ pub fn widget(self: *Self) Widget {
 pub fn deinit(self: *Self, allocator: Allocator) void {
     self.diff_symbols_clear();
     self.diff_symbols.deinit();
-    tui.current().message_filters.remove_ptr(self);
+    tui.message_filters().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -130,7 +130,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_style(theme.editor_gutter);
     _ = self.plane.fill(" ");
     if (self.linenum) {
-        const relative = self.relative or if (tui.current().input_mode) |mode| mode.line_numbers == .relative else false;
+        const relative = self.relative or if (tui.input_mode()) |mode| mode.line_numbers == .relative else false;
         if (relative)
             self.render_relative(theme)
         else

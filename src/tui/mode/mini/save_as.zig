@@ -4,7 +4,6 @@ const root = @import("root");
 const command = @import("command");
 
 const tui = @import("../../tui.zig");
-const mainview = @import("../../mainview.zig");
 
 pub const Type = @import("file_browser.zig").Create(@This());
 

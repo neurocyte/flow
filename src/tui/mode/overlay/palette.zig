@@ -14,7 +14,6 @@ const tui = @import("../../tui.zig");
 const Button = @import("../../Button.zig");
 const InputBox = @import("../../InputBox.zig");
 const Widget = @import("../../Widget.zig");
-const mainview = @import("../../mainview.zig");
 const scrollbar_v = @import("../../scrollbar_v.zig");
 const ModalBackground = @import("../../ModalBackground.zig");
 
@@ -47,11 +46,11 @@ pub fn Create(options: type) type {
         pub const ButtonState = Button.State(*Menu.State(*Self));
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
-            const mv = tui.current().mainview.dynamic_cast(mainview) orelse return error.NotFound;
+            const mv = tui.mainview() orelse return error.NotFound;
             const self: *Self = try allocator.create(Self);
             self.* = .{
                 .allocator = allocator,
-                .modal = try ModalBackground.create(*Self, allocator, tui.current().mainview, .{
+                .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{
                     .ctx = self,
                     .on_click = mouse_palette_menu_cancel,
                 }),
@@ -68,7 +67,7 @@ pub fn Create(options: type) type {
                     .ctx = self,
                     .label = options.label,
                 }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
-                .view_rows = get_view_rows(tui.current().screen()),
+                .view_rows = get_view_rows(tui.screen()),
                 .entries = std.ArrayList(Entry).init(allocator),
             };
             self.menu.scrollbar.?.style_factory = scrollbar_style;
@@ -92,8 +91,8 @@ pub fn Create(options: type) type {
             if (@hasDecl(options, "deinit"))
                 options.deinit(self);
             self.entries.deinit();
-            tui.current().message_filters.remove_ptr(self);
-            if (tui.current().mainview.dynamic_cast(mainview)) |mv| {
+            tui.message_filters().remove_ptr(self);
+            if (tui.mainview()) |mv| {
                 mv.floating_views.remove(self.menu.container_widget);
                 mv.floating_views.remove(self.modal.widget());
             }
@@ -160,7 +159,7 @@ pub fn Create(options: type) type {
         }
 
         fn do_resize(self: *Self) void {
-            const screen = tui.current().screen();
+            const screen = tui.screen();
             const w = @min(self.longest, max_menu_width) + 2 + 1 + self.longest_hint;
             const x = if (screen.w > w) (screen.w - w) / 2 else 0;
             self.view_rows = get_view_rows(screen);
@@ -246,7 +245,7 @@ pub fn Create(options: type) type {
                 while (i > 0) : (i -= 1)
                     self.menu.select_down();
                 self.do_resize();
-                tui.current().refresh_hover();
+                tui.refresh_hover();
                 self.selection_updated();
             }
         }

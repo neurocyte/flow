@@ -36,10 +36,9 @@ pub fn Options(context: type) type {
             }
             if (self.cursor) |cursor| {
                 const pos: c_int = @intCast(cursor);
-                const tui_ = tui.current();
-                if (tui_.config.enable_terminal_cursor) {
+                if (tui.config().enable_terminal_cursor) {
                     const y, const x = self.plane.rel_yx_to_abs(0, pos + 1);
-                    tui_.rdr.cursor_enable(y, x, tui_.get_cursor_shape()) catch {};
+                    tui.rdr().cursor_enable(y, x, tui.get_cursor_shape()) catch {};
                 } else {
                     self.plane.cursor_move_yx(0, pos + 1) catch return false;
                     var cell = self.plane.cell_init();
@@ -119,7 +118,7 @@ pub fn State(ctx_type: type) type {
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-                tui.current().rdr.request_mouse_cursor_pointer(self.hover);
+                tui.rdr().request_mouse_cursor_pointer(self.hover);
                 tui.need_render();
                 return true;
             }

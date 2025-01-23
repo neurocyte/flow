@@ -44,7 +44,7 @@ pub fn Create(options: type) type {
                 .entries = std.ArrayList(Entry).init(allocator),
             };
             try self.commands.init(self);
-            try tui.current().message_filters.add(MessageFilter.bind(self, receive_path_entry));
+            try tui.message_filters().add(MessageFilter.bind(self, receive_path_entry));
             try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
@@ -57,7 +57,7 @@ pub fn Create(options: type) type {
 
         pub fn deinit(self: *Self) void {
             self.commands.deinit();
-            tui.current().message_filters.remove_ptr(self);
+            tui.message_filters().remove_ptr(self);
             self.clear_entries();
             self.entries.deinit();
             self.match.deinit();
@@ -113,7 +113,7 @@ pub fn Create(options: type) type {
                 } else {
                     try self.file_path.appendSlice(self.query.items);
                 }
-                if (tui.current().mini_mode) |*mini_mode| {
+                if (tui.mini_mode()) |mini_mode| {
                     mini_mode.text = self.file_path.items;
                     mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 8);
                 }
@@ -137,7 +137,7 @@ pub fn Create(options: type) type {
 
         fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void {
             defer {
-                if (tui.current().mini_mode) |*mini_mode| {
+                if (tui.mini_mode()) |mini_mode| {
                     mini_mode.text = self.file_path.items;
                     mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 8);
                 }
@@ -241,7 +241,7 @@ pub fn Create(options: type) type {
         }
 
         fn update_mini_mode_text(self: *Self) void {
-            if (tui.current().mini_mode) |*mini_mode| {
+            if (tui.mini_mode()) |mini_mode| {
                 mini_mode.text = self.file_path.items;
                 mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 8);
             }

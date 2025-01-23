@@ -5,7 +5,6 @@ const command = @import("command");
 const cmd = command.executeName;
 
 const tui = @import("../tui.zig");
-const mainview = @import("../mainview.zig");
 
 var commands: Commands = undefined;
 
@@ -59,7 +58,7 @@ const cmds_ = struct {
         const logger = log.logger("helix-mode");
         defer logger.deinit();
         logger.print("saved location", .{});
-        const mv = tui.current().mainview.dynamic_cast(mainview) orelse return;
+        const mv = tui.mainview() orelse return;
         const file_path = mv.get_active_file_path() orelse return;
         const primary = (mv.get_active_editor() orelse return).get_primary();
         const sel: ?location_history.Selection = if (primary.selection) |sel| .{

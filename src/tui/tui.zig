@@ -3,7 +3,6 @@ const build_options = @import("build_options");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
-const config = @import("config");
 const project_manager = @import("project_manager");
 const root = @import("root");
 const tracy = @import("tracy");
@@ -16,19 +15,19 @@ const keybind = @import("keybind");
 
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
-const mainview = @import("mainview.zig");
+const MainView = @import("mainview.zig");
 
 const Allocator = std.mem.Allocator;
 
 allocator: Allocator,
 rdr: renderer,
-config: config,
+config: @import("config"),
 frame_time: usize, // in microseconds
 frame_clock: tp.metronome,
 frame_clock_running: bool = false,
 frame_last_time: i64 = 0,
 receiver: Receiver,
-mainview: Widget,
+mainview: ?Widget = null,
 message_filters: MessageFilter.List,
 input_mode: ?Mode = null,
 delayed_init_done: bool = false,
@@ -55,7 +54,7 @@ keepalive_timer: ?tp.Cancellable = null,
 mouse_idle_timer: ?tp.Cancellable = null,
 default_cursor: keybind.CursorShape = .default,
 fontface: []const u8 = "",
-fontfaces: ?std.ArrayList([]const u8) = null,
+fontfaces: std.ArrayListUnmanaged([]const u8) = .{},
 enable_mouse_idle_timer: bool = false,
 
 const keepalive = std.time.us_per_day * 365; // one year
@@ -84,13 +83,11 @@ fn start(args: StartArgs) tp.result {
 }
 
 fn init(allocator: Allocator) !*Self {
-    var self = try allocator.create(Self);
-
-    var conf, const conf_bufs = root.read_config(config, allocator);
+    var conf, const conf_bufs = root.read_config(@import("config"), allocator);
     defer root.free_config(allocator, conf_bufs);
 
-    const theme = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return tp.exit("unknown theme");
-    conf.theme = theme.name;
+    const theme_ = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return tp.exit("unknown theme");
+    conf.theme = theme_.name;
     conf.whitespace_mode = try allocator.dupe(u8, conf.whitespace_mode);
     conf.input_mode = try allocator.dupe(u8, conf.input_mode);
     conf.top_bar = try allocator.dupe(u8, conf.top_bar);
@@ -106,6 +103,7 @@ fn init(allocator: Allocator) !*Self {
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 
+    var self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
         .config = conf,
@@ -114,14 +112,13 @@ fn init(allocator: Allocator) !*Self {
         .frame_clock = frame_clock,
         .frame_clock_running = true,
         .receiver = Receiver.init(receive, self),
-        .mainview = undefined,
         .message_filters = MessageFilter.List.init(allocator),
         .input_listeners = EventHandler.List.init(allocator),
         .logger = log.logger("tui"),
         .init_timer = if (build_options.gui) null else try tp.timeout.init_ms(init_delay, tp.message.fmt(
             .{"init"},
         )),
-        .theme = theme,
+        .theme = theme_,
         .no_sleep = tp.env.get().is("no-sleep"),
     };
     instance_ = self;
@@ -147,11 +144,11 @@ fn init(allocator: Allocator) !*Self {
             try self.listen_sigwinch();
         },
     }
-    self.mainview = try mainview.create(allocator);
-    self.resize();
+    self.mainview = try MainView.create(allocator);
+    resize();
     self.set_terminal_style();
     try self.rdr.render();
-    try self.save_config();
+    try save_config();
     try self.init_input_namespace();
     if (tp.env.get().is("restore-session")) {
         command.executeName("restore_session", .{}) catch |e| self.logger.err("restore_session", e);
@@ -168,7 +165,7 @@ fn init_input_namespace(self: *Self) !void {
         self.logger.print_err("keybind", "unknown mode {s}", .{namespace_name});
         try keybind.set_namespace("flow");
         self.config.input_mode = "flow";
-        try self.save_config();
+        try save_config();
     };
 }
 
@@ -204,7 +201,7 @@ fn deinit(self: *Self) void {
         self.delayed_init_input_mode = null;
     }
     self.commands.deinit();
-    self.mainview.deinit(self.allocator);
+    if (self.mainview) |*mv| mv.deinit(self.allocator);
     self.message_filters.deinit();
     self.input_listeners.deinit();
     if (self.frame_clock_running)
@@ -296,7 +293,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{"restart"})) {
-        _ = try self.mainview.msg(.{"write_restore_info"});
+        if (mainview()) |mv| mv.write_restore_info();
         project_manager.shutdown();
         self.final_exit = "restart";
         return;
@@ -310,8 +307,8 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         };
 
     if (try m.match(.{"resize"})) {
-        self.resize();
-        const box = self.screen();
+        resize();
+        const box = screen();
         message("{d}x{d}", .{ box.w, box.h });
         return;
     }
@@ -391,20 +388,16 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return self.enter_overlay_mode(@import("mode/overlay/fontface_palette.zig").Type);
     }
 
-    var fontface: []const u8 = undefined;
-    if (try m.match(.{ "fontface", "current", tp.extract(&fontface) })) {
+    var fontface_: []const u8 = undefined;
+    if (try m.match(.{ "fontface", "current", tp.extract(&fontface_) })) {
         if (self.fontface.len > 0) self.allocator.free(self.fontface);
         self.fontface = "";
-        self.fontface = try self.allocator.dupe(u8, fontface);
+        self.fontface = try self.allocator.dupe(u8, fontface_);
         return;
     }
 
-    if (try m.match(.{ "fontface", tp.extract(&fontface) })) {
-        var fontfaces = if (self.fontfaces) |*p| p else blk: {
-            self.fontfaces = std.ArrayList([]const u8).init(self.allocator);
-            break :blk &self.fontfaces.?;
-        };
-        try fontfaces.append(try self.allocator.dupe(u8, fontface));
+    if (try m.match(.{ "fontface", tp.extract(&fontface_) })) {
+        try self.fontfaces.append(self.allocator, try self.allocator.dupe(u8, fontface_));
         return;
     }
 
@@ -427,14 +420,14 @@ fn render(self: *Self) void {
     {
         const frame = tracy.initZone(@src(), .{ .name = "tui update" });
         defer frame.deinit();
-        self.mainview.update();
+        if (self.mainview) |mv| mv.update();
     }
 
     const more = ret: {
         const frame = tracy.initZone(@src(), .{ .name = "tui render" });
         defer frame.deinit();
         self.rdr.stdplane().erase();
-        break :ret self.mainview.render(&self.theme);
+        break :ret if (self.mainview) |mv| mv.render(&self.theme) else false;
     };
 
     {
@@ -543,7 +536,7 @@ fn find_coord_widget(self: *Self, y: usize, x: usize) ?*Widget {
         }
     };
     var ctx: Ctx = .{ .y = y, .x = x };
-    _ = self.mainview.walk(&ctx, Ctx.find);
+    if (self.mainview) |*mv| _ = mv.walk(&ctx, Ctx.find);
     return ctx.widget;
 }
 
@@ -560,7 +553,7 @@ fn is_live_widget_ptr(self: *Self, w_: *Widget) bool {
         }
     };
     var ctx: Ctx = .{ .w = w_ };
-    return self.mainview.walk(&ctx, Ctx.find);
+    return if (self.mainview) |*mv| mv.walk(&ctx, Ctx.find) else false;
 }
 
 fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -569,8 +562,10 @@ fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     tp.trace(tp.channel.widget, m);
     return if (self.keyboard_focus) |w|
         w.send(from, m)
+    else if (self.mainview) |mv|
+        mv.send(from, m)
     else
-        self.mainview.send(from, m);
+        false;
 }
 
 fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) tp.result {
@@ -623,16 +618,19 @@ fn clear_hover_focus(self: *Self) tp.result {
     self.hover_focus = null;
 }
 
-pub fn refresh_hover(self: *Self) void {
+pub fn refresh_hover() void {
+    const self = current();
     self.clear_hover_focus() catch return;
     _ = self.update_hover(self.last_hover_y, self.last_hover_x) catch {};
 }
 
-pub fn save_config(self: *const Self) !void {
+pub fn save_config() !void {
+    const self = current();
     try root.write_config(self.config, self.allocator);
 }
 
-pub fn is_mainview_focused(self: *const Self) bool {
+pub fn is_mainview_focused() bool {
+    const self = current();
     return self.mini_mode == null and self.input_mode_outer == null;
 }
 
@@ -643,7 +641,7 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     if (self.input_mode_outer) |_| try cmds.exit_overlay_mode(self, .{});
     self.input_mode_outer = self.input_mode;
     self.input_mode = try mode.create(self.allocator);
-    self.refresh_hover();
+    refresh_hover();
 }
 
 fn get_input_mode(self: *Self, mode_name: []const u8) !Mode {
@@ -703,7 +701,7 @@ const cmds = struct {
         self.config.theme = self.theme.name;
         self.set_terminal_style();
         self.logger.print("theme: {s}", .{self.theme.description});
-        try self.save_config();
+        try save_config();
     }
     pub const set_theme_meta = .{ .arguments = &.{.string} };
 
@@ -712,7 +710,7 @@ const cmds = struct {
         self.config.theme = self.theme.name;
         self.set_terminal_style();
         self.logger.print("theme: {s}", .{self.theme.description});
-        try self.save_config();
+        try save_config();
     }
     pub const theme_next_meta = .{ .description = "Switch to next color theme" };
 
@@ -721,7 +719,7 @@ const cmds = struct {
         self.config.theme = self.theme.name;
         self.set_terminal_style();
         self.logger.print("theme: {s}", .{self.theme.description});
-        try self.save_config();
+        try save_config();
     }
     pub const theme_prev_meta = .{ .description = "Switch to previous color theme" };
 
@@ -740,7 +738,7 @@ const cmds = struct {
             "full"
         else
             "none";
-        try self.save_config();
+        try save_config();
         var buf: [32]u8 = undefined;
         const m = try tp.message.fmtbuf(&buf, .{ "whitespace_mode", self.config.whitespace_mode });
         _ = try self.send_widgets(tp.self_pid(), m);
@@ -764,7 +762,7 @@ const cmds = struct {
                 found = true;
         } else try self.allocator.dupe(u8, namespaces[0]);
 
-        try self.save_config();
+        try save_config();
         self.logger.print("input mode {s}", .{self.config.input_mode});
         try keybind.set_namespace(self.config.input_mode);
         return self.refresh_input_mode();
@@ -842,7 +840,7 @@ const cmds = struct {
         if (self.input_mode) |*mode| mode.deinit();
         self.input_mode = self.input_mode_outer;
         self.input_mode_outer = null;
-        self.refresh_hover();
+        refresh_hover();
     }
     pub const exit_overlay_mode_meta = .{};
 
@@ -879,13 +877,13 @@ const cmds = struct {
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
         command.executeName("disable_fast_scroll", .{}) catch {};
         command.executeName("disable_jump_mode", .{}) catch {};
-        const input_mode, const mini_mode = try mode.create(self.allocator, ctx);
+        const input_mode_, const mini_mode_ = try mode.create(self.allocator, ctx);
         if (self.mini_mode) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode_outer != null) @panic("exit_overlay_mode failed");
         self.input_mode_outer = self.input_mode;
-        self.input_mode = input_mode;
-        self.mini_mode = mini_mode;
+        self.input_mode = input_mode_;
+        self.mini_mode = mini_mode_;
     }
 
     pub fn exit_mini_mode(self: *Self, _: Ctx) Result {
@@ -980,12 +978,52 @@ pub const KeybindHints = keybind.KeybindHints;
 
 threadlocal var instance_: ?*Self = null;
 
-pub fn current() *Self {
+fn current() *Self {
     return instance_ orelse @panic("tui call out of context");
 }
 
+pub fn rdr() *renderer {
+    return &current().rdr;
+}
+
+pub fn message_filters() *MessageFilter.List {
+    return &current().message_filters;
+}
+
+pub fn input_listeners() *EventHandler.List {
+    return &current().input_listeners;
+}
+
+pub fn input_mode() ?*Mode {
+    return if (current().input_mode) |*p| p else null;
+}
+
+pub fn input_mode_outer() ?*Mode {
+    return if (current().input_mode_outer) |*p| p else null;
+}
+
+pub fn mini_mode() ?*MiniMode {
+    return if (current().mini_mode) |*p| p else null;
+}
+
+pub fn config() *const @import("config") {
+    return &current().config;
+}
+
+pub fn config_mut() *@import("config") {
+    return &current().config;
+}
+
+pub fn mainview() ?*MainView {
+    return if (current().mainview) |*mv| mv.dynamic_cast(MainView) else null;
+}
+
+pub fn mainview_widget() Widget {
+    return current().mainview orelse @panic("tui main view not found");
+}
+
 pub fn get_active_editor() ?*@import("editor.zig").Editor {
-    if (current().mainview.dynamic_cast(mainview)) |mv_| if (mv_.get_active_editor()) |editor|
+    if (mainview()) |mv_| if (mv_.get_active_editor()) |editor|
         return editor;
     return null;
 }
@@ -997,7 +1035,7 @@ pub fn get_active_selection(allocator: std.mem.Allocator) ?[]u8 {
 }
 
 pub fn get_buffer_manager() ?*@import("Buffer").Manager {
-    return if (current().mainview.dynamic_cast(mainview)) |mv_| &mv_.buffer_manager else null;
+    return if (mainview()) |mv| &mv.buffer_manager else null;
 }
 
 fn context_check() void {
@@ -1031,9 +1069,9 @@ pub fn need_render() void {
     }
 }
 
-pub fn resize(self: *Self) void {
-    self.mainview.resize(self.screen());
-    self.refresh_hover();
+pub fn resize() void {
+    mainview_widget().resize(screen());
+    refresh_hover();
     need_render();
 }
 
@@ -1053,24 +1091,36 @@ pub fn egc_last(egcs: []const u8) []const u8 {
     return plane().egc_last(egcs);
 }
 
-pub fn screen(self: *Self) Widget.Box {
-    return Widget.Box.from(self.rdr.stdplane());
+pub fn screen() Widget.Box {
+    return Widget.Box.from(plane());
+}
+
+pub fn fontface() []const u8 {
+    return current().fontface;
+}
+
+pub fn fontfaces(allocator: std.mem.Allocator) error{OutOfMemory}![][]const u8 {
+    return current().fontfaces.toOwnedSlice(allocator);
+}
+
+pub fn theme() *const Widget.Theme {
+    return &current().theme;
 }
 
 pub fn get_theme_by_name(name: []const u8) ?Widget.Theme {
-    for (Widget.themes) |theme| {
-        if (std.mem.eql(u8, theme.name, name))
-            return theme;
+    for (Widget.themes) |theme_| {
+        if (std.mem.eql(u8, theme_.name, name))
+            return theme_;
     }
     return null;
 }
 
 pub fn get_next_theme_by_name(name: []const u8) Widget.Theme {
     var next = false;
-    for (Widget.themes) |theme| {
+    for (Widget.themes) |theme_| {
         if (next)
-            return theme;
-        if (std.mem.eql(u8, theme.name, name))
+            return theme_;
+        if (std.mem.eql(u8, theme_.name, name))
             next = true;
     }
     return Widget.themes[0];
@@ -1078,24 +1128,24 @@ pub fn get_next_theme_by_name(name: []const u8) Widget.Theme {
 
 pub fn get_prev_theme_by_name(name: []const u8) Widget.Theme {
     var prev: ?Widget.Theme = null;
-    for (Widget.themes) |theme| {
-        if (std.mem.eql(u8, theme.name, name))
+    for (Widget.themes) |theme_| {
+        if (std.mem.eql(u8, theme_.name, name))
             return prev orelse Widget.themes[Widget.themes.len - 1];
-        prev = theme;
+        prev = theme_;
     }
     return Widget.themes[Widget.themes.len - 1];
 }
 
-pub fn find_scope_style(theme: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Token {
+pub fn find_scope_style(theme_: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Token {
     return if (find_scope_fallback(scope)) |tm_scope|
-        scope_to_theme_token(theme, tm_scope) orelse
-            scope_to_theme_token(theme, scope)
+        scope_to_theme_token(theme_, tm_scope) orelse
+            scope_to_theme_token(theme_, scope)
     else
-        scope_to_theme_token(theme, scope);
+        scope_to_theme_token(theme_, scope);
 }
 
-fn scope_to_theme_token(theme: *const Widget.Theme, document_scope: []const u8) ?Widget.Theme.Token {
-    var idx = theme.tokens.len - 1;
+fn scope_to_theme_token(theme_: *const Widget.Theme, document_scope: []const u8) ?Widget.Theme.Token {
+    var idx = theme_.tokens.len - 1;
     var matched: ?Widget.Theme.Token = null;
     var done = false;
     while (!done) : (if (idx == 0) {
@@ -1103,7 +1153,7 @@ fn scope_to_theme_token(theme: *const Widget.Theme, document_scope: []const u8) 
     } else {
         idx -= 1;
     }) {
-        const token = theme.tokens[idx];
+        const token = theme_.tokens[idx];
         const theme_scope = Widget.scopes[token.id];
         const last_matched_scope = if (matched) |tok| Widget.scopes[tok.id] else "";
         if (theme_scope.len < last_matched_scope.len) continue;
@@ -1178,7 +1228,8 @@ fn set_terminal_style(self: *Self) void {
     }
 }
 
-pub fn get_cursor_shape(self: *Self) renderer.CursorShape {
+pub fn get_cursor_shape() renderer.CursorShape {
+    const self = current();
     const shape = if (self.input_mode) |mode| mode.cursor_shape orelse self.default_cursor else self.default_cursor;
     return switch (shape) {
         .default => .default,
@@ -1191,15 +1242,15 @@ pub fn get_cursor_shape(self: *Self) renderer.CursorShape {
     };
 }
 
-pub fn is_cursor_beam(self: *Self) bool {
-    return switch (self.get_cursor_shape()) {
+pub fn is_cursor_beam() bool {
+    return switch (get_cursor_shape()) {
         .beam, .beam_blink => true,
         else => false,
     };
 }
 
-pub fn get_selection_style(self: *Self) @import("Buffer").Selection.Style {
-    return if (self.input_mode) |mode| mode.selection_style else .normal;
+pub fn get_selection_style() @import("Buffer").Selection.Style {
+    return if (current().input_mode) |mode| mode.selection_style else .normal;
 }
 
 pub fn message(comptime fmt: anytype, args: anytype) void {

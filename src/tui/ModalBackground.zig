@@ -63,7 +63,7 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Widget, opts
         .allocator = allocator,
         .plane = parent.plane.*,
         .opts = opts,
-        .fade_time_ms = tui.current().config.animation_max_lag,
+        .fade_time_ms = tui.config().animation_max_lag,
         .frame_rate = @intCast(tp.env.get().num("frame-rate")),
     };
     return self;
@@ -106,7 +106,7 @@ pub fn State(ctx_type: type) type {
                 self.call_click_handler(@enumFromInt(btn));
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-                tui.current().rdr.request_mouse_cursor_default(self.hover);
+                tui.rdr().request_mouse_cursor_default(self.hover);
                 return true;
             }
             return false;

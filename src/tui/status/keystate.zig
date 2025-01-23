@@ -36,7 +36,7 @@ pub fn create(allocator: Allocator, parent: Plane, _: ?EventHandler) @import("wi
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .wipe_after_frames = @divTrunc(frame_rate, 2),
     };
-    try tui.current().input_listeners.add(EventHandler.bind(self, listen));
+    try tui.input_listeners().add(EventHandler.bind(self, listen));
     return self.widget();
 }
 
@@ -45,7 +45,7 @@ pub fn widget(self: *Self) Widget {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
-    tui.current().input_listeners.remove_ptr(self);
+    tui.input_listeners().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -171,7 +171,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return true;
     }
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-        tui.current().rdr.request_mouse_cursor_pointer(self.hover);
+        tui.rdr().request_mouse_cursor_pointer(self.hover);
         return true;
     }
 

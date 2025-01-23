@@ -80,8 +80,8 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
     const widgets = try WidgetList.createV(allocator, self.plane, @typeName(Self), .dynamic);
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
-    if (tui.current().config.top_bar.len > 0)
-        self.top_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.current().config.top_bar, .none, null));
+    if (tui.config().top_bar.len > 0)
+        self.top_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().top_bar, .none, null));
 
     const views = try WidgetList.createH(allocator, self.plane, @typeName(Self), .dynamic);
     self.views = views;
@@ -90,8 +90,8 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
 
     try widgets.add(self.views_widget);
 
-    if (tui.current().config.bottom_bar.len > 0) {
-        self.bottom_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.current().config.bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)));
+    if (tui.config().bottom_bar.len > 0) {
+        self.bottom_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)));
     }
     if (tp.env.get().is("show-input"))
         self.toggle_inputview_async();
@@ -141,9 +141,6 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 .begin = .{ .row = begin_line, .col = begin_pos },
                 .end = .{ .row = end_line, .col = end_pos },
             });
-        return true;
-    } else if (try m.match(.{"write_restore_info"})) {
-        self.write_restore_info();
         return true;
     }
     return if (try self.floating_views.send(from_, m)) true else self.widgets.send(from_, m);
@@ -212,7 +209,7 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !void {
         try panels.add(try view.create(self.allocator, self.widgets.plane));
         self.panels = panels;
     }
-    tui.current().resize();
+    tui.resize();
 }
 
 fn get_panel_view(self: *Self, comptime view: type) ?*view {
@@ -228,7 +225,7 @@ fn close_all_panel_views(self: *Self) void {
         self.widgets.remove(panels.widget());
         self.panels = null;
     }
-    tui.current().resize();
+    tui.resize();
 }
 
 fn toggle_view(self: *Self, view: anytype) !void {
@@ -237,7 +234,7 @@ fn toggle_view(self: *Self, view: anytype) !void {
     } else {
         try self.widgets.add(try view.create(self.allocator, self.plane));
     }
-    tui.current().resize();
+    tui.resize();
 }
 
 fn check_all_not_dirty(self: *const Self) command.Result {
@@ -274,7 +271,7 @@ const cmds = struct {
             return;
         try project_manager.open(project_dir);
         const project = tp.env.get().str("project");
-        tui.current().rdr.set_terminal_working_directory(project);
+        tui.rdr().set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
@@ -297,7 +294,7 @@ const cmds = struct {
         self.buffer_manager = BufferManager.init(self.allocator);
         try project_manager.open(project_dir);
         const project = tp.env.get().str("project");
-        tui.current().rdr.set_terminal_working_directory(project);
+        tui.rdr().set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (try project_manager.request_most_recent_file(self.allocator)) |file_path|
@@ -487,9 +484,9 @@ const cmds = struct {
     pub const add_split_meta = .{};
 
     pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
-        const tui_ = tui.current();
-        var ln = tui_.config.gutter_line_numbers;
-        var lnr = tui_.config.gutter_line_numbers_relative;
+        const config = tui.config_mut();
+        var ln = config.gutter_line_numbers;
+        var lnr = config.gutter_line_numbers_relative;
         if (ln and !lnr) {
             ln = true;
             lnr = true;
@@ -500,9 +497,9 @@ const cmds = struct {
             ln = true;
             lnr = false;
         }
-        tui_.config.gutter_line_numbers = ln;
-        tui_.config.gutter_line_numbers_relative = lnr;
-        try tui_.save_config();
+        config.gutter_line_numbers = ln;
+        config.gutter_line_numbers_relative = lnr;
+        try tui.save_config();
         if (self.widgets.get("editor_gutter")) |gutter_widget| {
             const gutter = gutter_widget.dynamic_cast(@import("editor_gutter.zig")) orelse return;
             gutter.linenum = ln;
@@ -658,7 +655,7 @@ const cmds = struct {
             defer self.allocator.free(text);
             return command.executeName("paste", command.fmt(.{text})) catch {};
         }
-        tui.current().rdr.request_system_clipboard();
+        tui.rdr().request_system_clipboard();
     }
     pub const system_paste_meta = .{ .description = "Paste from system clipboard" };
 
@@ -719,7 +716,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&amount)}))
             return error.InvalidArgument;
         if (build_options.gui)
-            tui.current().rdr.adjust_fontsize(amount);
+            tui.rdr().adjust_fontsize(amount);
     }
     pub const adjust_fontsize_meta = .{ .arguments = &.{.float} };
 
@@ -728,13 +725,13 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&fontsize)}))
             return error.InvalidArgument;
         if (build_options.gui)
-            tui.current().rdr.set_fontsize(fontsize);
+            tui.rdr().set_fontsize(fontsize);
     }
     pub const set_fontsize_meta = .{ .arguments = &.{.float} };
 
     pub fn reset_fontsize(_: *Self, _: Ctx) Result {
         if (build_options.gui)
-            tui.current().rdr.reset_fontsize();
+            tui.rdr().reset_fontsize();
     }
     pub const reset_fontsize_meta = .{ .description = "Reset font to configured size" };
 
@@ -743,13 +740,13 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&fontface)}))
             return error.InvalidArgument;
         if (build_options.gui)
-            tui.current().rdr.set_fontface(fontface);
+            tui.rdr().set_fontface(fontface);
     }
     pub const set_fontface_meta = .{ .arguments = &.{.float} };
 
     pub fn reset_fontface(_: *Self, _: Ctx) Result {
         if (build_options.gui)
-            tui.current().rdr.reset_fontface();
+            tui.rdr().reset_fontface();
     }
     pub const reset_fontface_meta = .{ .description = "Reset font to configured face" };
 };
@@ -888,7 +885,7 @@ fn create_editor(self: *Self) !void {
     try self.replace_active_view(editor_widget);
     if (editor.dynamic_cast(ed.EditorWidget)) |p|
         try self.add_editor(&p.editor);
-    tui.current().resize();
+    tui.resize();
 }
 
 fn toggle_logview_async(_: *Self) void {
@@ -913,16 +910,16 @@ fn create_home(self: *Self) !void {
     if (self.active_editor) |_| return;
     try self.delete_active_view();
     try self.replace_active_view(try home.create(self.allocator, Widget.to(self)));
-    tui.current().resize();
+    tui.resize();
 }
 
 fn create_home_split(self: *Self) !void {
     tui.reset_drag_context();
     try self.add_view(try home.create(self.allocator, Widget.to(self)));
-    tui.current().resize();
+    tui.resize();
 }
 
-fn write_restore_info(self: *Self) void {
+pub fn write_restore_info(self: *Self) void {
     const editor = self.get_active_editor() orelse return;
     var sfa = std.heap.stackFallback(512, self.allocator);
     const a = sfa.get();

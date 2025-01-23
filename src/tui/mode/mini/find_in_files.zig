@@ -81,7 +81,7 @@ fn start_query(self: *Self) !void {
 }
 
 fn update_mini_mode_text(self: *Self) void {
-    if (tui.current().mini_mode) |*mini_mode| {
+    if (tui.mini_mode()) |mini_mode| {
         mini_mode.text = self.input;
         mini_mode.cursor = tui.egc_chunk_width(self.input, 0, 8);
     }

@@ -39,12 +39,12 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
         .plane = n,
         .buffer = Buffer.init(allocator),
     };
-    try tui.current().input_listeners.add(EventHandler.bind(self, listen));
+    try tui.input_listeners().add(EventHandler.bind(self, listen));
     return Widget.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
-    tui.current().input_listeners.remove_ptr(self);
+    tui.input_listeners().remove_ptr(self);
     for (self.buffer.items) |item|
         self.buffer.allocator.free(item.json);
     self.buffer.deinit();

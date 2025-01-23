@@ -98,7 +98,7 @@ pub const CurSel = struct {
     }
 
     fn enable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
-        return switch (tui.current().get_selection_style()) {
+        return switch (tui.get_selection_style()) {
             .normal => self.enable_selection_normal(),
             .inclusive => try self.enable_selection_inclusive(root, metrics),
         };
@@ -131,7 +131,7 @@ pub const CurSel = struct {
     }
 
     fn disable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
-        switch (tui.current().get_selection_style()) {
+        switch (tui.get_selection_style()) {
             .normal => self.disable_selection_normal(),
             .inclusive => self.disable_selection_inclusive(root, metrics),
         }
@@ -404,8 +404,8 @@ pub const Editor = struct {
     fn init(self: *Self, allocator: Allocator, n: Plane, buffer_manager: *Buffer.Manager) void {
         const logger = log.logger("editor");
         const frame_rate = tp.env.get().num("frame-rate");
-        const indent_size = tui.current().config.indent_size;
-        const tab_width = tui.current().config.tab_width;
+        const indent_size = tui.config().indent_size;
+        const tab_width = tui.config().tab_width;
         self.* = Self{
             .allocator = allocator,
             .plane = n,
@@ -423,8 +423,8 @@ pub const Editor = struct {
             .cursels = CurSel.List.init(allocator),
             .cursels_saved = CurSel.List.init(allocator),
             .matches = Match.List.init(allocator),
-            .enable_terminal_cursor = tui.current().config.enable_terminal_cursor,
-            .render_whitespace = from_whitespace_mode(tui.current().config.whitespace_mode),
+            .enable_terminal_cursor = tui.config().enable_terminal_cursor,
+            .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
             .diagnostics = std.ArrayList(Diagnostic).init(allocator),
         };
     }
@@ -555,7 +555,7 @@ pub const Editor = struct {
         self.buffer = null;
         self.plane.erase();
         self.plane.home();
-        tui.current().rdr.cursor_disable();
+        tui.rdr().cursor_disable();
         _ = try self.handlers.msg(.{ "E", "close" });
         if (self.syntax) |_| if (self.file_path) |file_path|
             project_manager.did_close(file_path) catch {};
@@ -933,7 +933,7 @@ pub const Editor = struct {
                 return Buffer.Walker.keep_walking;
             }
         };
-        const hl_row: ?usize = if (tui.current().config.highlight_current_line) blk: {
+        const hl_row: ?usize = if (tui.config().highlight_current_line) blk: {
             if (self.get_primary().selection) |_|
                 if (theme.editor_selection.bg) |sel_bg|
                     if (theme.editor_line_highlight.bg) |hl_bg|
@@ -969,7 +969,7 @@ pub const Editor = struct {
     }
 
     fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
-        const style = tui.current().get_selection_style();
+        const style = tui.get_selection_style();
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel| {
@@ -988,19 +988,18 @@ pub const Editor = struct {
     }
 
     fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap) !void {
-        const tui_ = tui.current();
-        if (!tui_.is_mainview_focused() or !self.enable_terminal_cursor) {
+        if (!tui.is_mainview_focused() or !self.enable_terminal_cursor) {
             if (self.screen_cursor(cursor)) |pos| {
                 set_cell_map_cursor(cell_map, pos.row, pos.col);
                 self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
-                const style = if (tui_.is_mainview_focused()) theme.editor_cursor else theme.editor_cursor_secondary;
+                const style = if (tui.is_mainview_focused()) theme.editor_cursor else theme.editor_cursor_secondary;
                 self.render_cursor_cell(style);
             }
         } else {
             if (self.screen_cursor(cursor)) |pos| {
                 set_cell_map_cursor(cell_map, pos.row, pos.col);
                 const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
-                const configured_shape = tui_.get_cursor_shape();
+                const configured_shape = tui.get_cursor_shape();
                 const cursor_shape = if (self.cursels.items.len > 1) switch (configured_shape) {
                     .beam => .block,
                     .beam_blink => .block_blink,
@@ -1008,9 +1007,9 @@ pub const Editor = struct {
                     .underline_blink => .block_blink,
                     else => configured_shape,
                 } else configured_shape;
-                tui_.rdr.cursor_enable(y, x, cursor_shape) catch {};
+                tui.rdr().cursor_enable(y, x, cursor_shape) catch {};
             } else {
-                tui_.rdr.cursor_disable();
+                tui.rdr().cursor_disable();
             }
         }
     }
@@ -2112,12 +2111,12 @@ pub const Editor = struct {
     }
 
     fn get_animation_min_lag() f64 {
-        const ms: f64 = @floatFromInt(tui.current().config.animation_min_lag);
+        const ms: f64 = @floatFromInt(tui.config().animation_min_lag);
         return @max(ms * 0.001, 0.001); // to seconds
     }
 
     fn get_animation_max_lag() f64 {
-        const ms: f64 = @floatFromInt(tui.current().config.animation_max_lag);
+        const ms: f64 = @floatFromInt(tui.config().animation_max_lag);
         return @max(ms * 0.001, 0.001); // to seconds
     }
 
@@ -2249,7 +2248,7 @@ pub const Editor = struct {
             @import("renderer").copy_to_windows_clipboard(text) catch |e|
                 self.logger.print_err("clipboard", "failed to set clipboard: {any}", .{e});
         } else {
-            tui.current().rdr.copy_to_system_clipboard(text);
+            tui.rdr().copy_to_system_clipboard(text);
         }
     }
 
@@ -3566,13 +3565,13 @@ pub const Editor = struct {
 
     pub fn enable_jump_mode(self: *Self, _: Context) Result {
         self.jump_mode = true;
-        tui.current().rdr.request_mouse_cursor_pointer(true);
+        tui.rdr().request_mouse_cursor_pointer(true);
     }
     pub const enable_jump_mode_meta = .{ .description = "Enable jump/hover mode" };
 
     pub fn disable_jump_mode(self: *Self, _: Context) Result {
         self.jump_mode = false;
-        tui.current().rdr.request_mouse_cursor_text(true);
+        tui.rdr().request_mouse_cursor_text(true);
     }
     pub const disable_jump_mode_meta = .{};
 
@@ -3762,7 +3761,7 @@ pub const Editor = struct {
         if (ctx.args.match(.{ "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
             then = true;
         }
-        if (tui.current().config.enable_format_on_save) if (self.get_formatter()) |_| {
+        if (tui.config().enable_format_on_save) if (self.get_formatter()) |_| {
             self.need_save_after_filter = .{ .then = if (then) .{ .cmd = cmd, .args = args } else null };
             const primary = self.get_primary();
             const sel = primary.selection;
@@ -4888,10 +4887,10 @@ pub const EditorWidget = struct {
         } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
             if (self.editor.jump_mode) {
                 self.update_hover_timer(.init);
-                tui.current().rdr.request_mouse_cursor_pointer(self.hover);
+                tui.rdr().request_mouse_cursor_pointer(self.hover);
             } else {
                 self.update_hover_timer(.cancel);
-                tui.current().rdr.request_mouse_cursor_text(self.hover);
+                tui.rdr().request_mouse_cursor_text(self.hover);
             }
         } else if (try m.match(.{"HOVER"})) {
             self.update_hover_timer(.fired);
@@ -4947,7 +4946,7 @@ pub const EditorWidget = struct {
     }
 
     fn mouse_pos_abs(self: *Self, y: c_int, x: c_int, xoffset: c_int) struct { c_int, c_int } {
-        return if (tui.current().is_cursor_beam())
+        return if (tui.is_cursor_beam())
             self.editor.plane.abs_yx_to_rel_nearest_x(y, x, xoffset)
         else
             self.editor.plane.abs_yx_to_rel(y, x);

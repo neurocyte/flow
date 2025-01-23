@@ -18,7 +18,6 @@ const Button = @import("../../Button.zig");
 const InputBox = @import("../../InputBox.zig");
 const Menu = @import("../../Menu.zig");
 const Widget = @import("../../Widget.zig");
-const mainview = @import("../../mainview.zig");
 const ModalBackground = @import("../../ModalBackground.zig");
 
 const Self = @This();
@@ -38,11 +37,11 @@ commands: Commands = undefined,
 buffer_manager: ?*BufferManager,
 
 pub fn create(allocator: std.mem.Allocator) !tui.Mode {
-    const mv = tui.current().mainview.dynamic_cast(mainview) orelse return error.NotFound;
+    const mv = tui.mainview() orelse return error.NotFound;
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
-        .modal = try ModalBackground.create(*Self, allocator, tui.current().mainview, .{ .ctx = self }),
+        .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{ .ctx = self }),
         .menu = try Menu.create(*Self, allocator, tui.plane(), .{
             .ctx = self,
             .on_render = on_render_menu,
@@ -56,7 +55,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
         .buffer_manager = tui.get_buffer_manager(),
     };
     try self.commands.init(self);
-    try tui.current().message_filters.add(MessageFilter.bind(self, receive_project_manager));
+    try tui.message_filters().add(MessageFilter.bind(self, receive_project_manager));
     self.query_pending = true;
     try project_manager.request_recent_files(max_recent_files);
     self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = max_menu_width() + 2 });
@@ -72,8 +71,8 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
 
 pub fn deinit(self: *Self) void {
     self.commands.deinit();
-    tui.current().message_filters.remove_ptr(self);
-    if (tui.current().mainview.dynamic_cast(mainview)) |mv| {
+    tui.message_filters().remove_ptr(self);
+    if (tui.mainview()) |mv| {
         mv.floating_views.remove(self.menu.container_widget);
         mv.floating_views.remove(self.modal.widget());
     }
@@ -86,13 +85,13 @@ inline fn menu_width(self: *Self) usize {
 }
 
 inline fn menu_pos_x(self: *Self) usize {
-    const screen_width = tui.current().screen().w;
+    const screen_width = tui.screen().w;
     const width = self.menu_width();
     return if (screen_width <= width) 0 else (screen_width - width) / 2;
 }
 
 inline fn max_menu_width() usize {
-    const width = tui.current().screen().w;
+    const width = tui.screen().w;
     return @max(15, width - (width / 5));
 }
 

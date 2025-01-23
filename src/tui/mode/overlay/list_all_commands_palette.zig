@@ -23,7 +23,7 @@ pub fn deinit(palette: *Type) void {
 }
 
 pub fn load_entries(palette: *Type) !usize {
-    const hints = if (tui.current().input_mode) |m| m.keybind_hints else @panic("no keybind hints");
+    const hints = if (tui.input_mode()) |m| m.keybind_hints else @panic("no keybind hints");
     var longest_hint: usize = 0;
     for (command.commands.items) |cmd_| if (cmd_) |p| {
         var label_ = std.ArrayList(u8).init(palette.allocator);

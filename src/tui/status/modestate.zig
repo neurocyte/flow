@@ -33,11 +33,11 @@ pub fn layout(_: *void, btn: *Button.State(void)) Widget.Layout {
 }
 
 fn is_mini_mode() bool {
-    return tui.current().mini_mode != null;
+    return tui.mini_mode() != null;
 }
 
 fn is_overlay_mode() bool {
-    return tui.current().input_mode_outer != null;
+    return tui.input_mode_outer() != null;
 }
 
 pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) bool {

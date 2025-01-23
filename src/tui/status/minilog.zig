@@ -34,7 +34,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
         .on_event = event_handler,
     };
     logview.init(allocator);
-    try tui.current().message_filters.add(MessageFilter.bind(self, receive_log));
+    try tui.message_filters().add(MessageFilter.bind(self, receive_log));
     try log.subscribe();
     return Widget.to(self);
 }
@@ -47,7 +47,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     }
     self.msg.deinit();
     log.unsubscribe() catch {};
-    tui.current().message_filters.remove_ptr(self);
+    tui.message_filters().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
 }

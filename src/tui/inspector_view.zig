@@ -37,7 +37,7 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     self.editor.handlers.remove_ptr(self);
-    tui.current().message_filters.remove_ptr(self);
+    tui.message_filters().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
 }

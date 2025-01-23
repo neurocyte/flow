@@ -33,10 +33,10 @@ pub fn deinit(palette: *Type) void {
 
 pub fn load_entries(palette: *Type) !usize {
     var idx: usize = 0;
-    previous_fontface = try palette.allocator.dupe(u8, tui.current().fontface);
-    const fontfaces = tui.current().fontfaces orelse return 0;
-    tui.current().fontfaces = null;
-    for (fontfaces.items) |fontface| {
+    previous_fontface = try palette.allocator.dupe(u8, tui.fontface());
+    const fontfaces = try tui.fontfaces(palette.allocator);
+    defer palette.allocator.free(fontfaces);
+    for (fontfaces) |fontface| {
         idx += 1;
         (try palette.entries.addOne()).* = .{ .label = fontface };
         if (previous_fontface) |previous_fontface_| if (std.mem.eql(u8, fontface, previous_fontface_)) {

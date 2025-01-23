@@ -24,7 +24,7 @@ pub fn create(allocator: Allocator, parent: Plane, _: ?EventHandler) @import("wi
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
     };
-    try tui.current().input_listeners.add(EventHandler.bind(self, listen));
+    try tui.input_listeners().add(EventHandler.bind(self, listen));
     return self.widget();
 }
 
@@ -33,7 +33,7 @@ pub fn widget(self: *Self) Widget {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
-    tui.current().input_listeners.remove_ptr(self);
+    tui.input_listeners().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
 }
