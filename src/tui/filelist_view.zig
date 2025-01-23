@@ -53,7 +53,7 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
         .plane = try Plane.init(&(Widget.Box{}).opts(name), parent),
         .logger = log.logger(@typeName(Self)),
         .entries = std.ArrayList(Entry).init(allocator),
-        .menu = try Menu.create(*Self, allocator, tui.current().mainview, .{
+        .menu = try Menu.create(*Self, allocator, tui.plane(), .{
             .ctx = self,
             .on_render = handle_render_menu,
             .on_scroll = EventHandler.bind(self, Self.handle_scroll),

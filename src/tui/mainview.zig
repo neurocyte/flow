@@ -64,7 +64,7 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
     const self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
-        .plane = tui.current().stdplane(),
+        .plane = tui.plane(),
         .widgets = undefined,
         .widgets_widget = undefined,
         .floating_views = WidgetStack.init(allocator),
@@ -77,13 +77,13 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
     try self.commands.init(self);
     const w = Widget.to(self);
 
-    const widgets = try WidgetList.createV(allocator, w, @typeName(Self), .dynamic);
+    const widgets = try WidgetList.createV(allocator, self.plane, @typeName(Self), .dynamic);
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
     if (tui.current().config.top_bar.len > 0)
-        self.top_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, w, tui.current().config.top_bar, .none, null));
+        self.top_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.current().config.top_bar, .none, null));
 
-    const views = try WidgetList.createH(allocator, self.widgets_widget, @typeName(Self), .dynamic);
+    const views = try WidgetList.createH(allocator, self.plane, @typeName(Self), .dynamic);
     self.views = views;
     self.views_widget = views.widget();
     try views.add(try Widget.empty(allocator, self.views_widget.plane.*, .dynamic));
@@ -91,7 +91,7 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
     try widgets.add(self.views_widget);
 
     if (tui.current().config.bottom_bar.len > 0) {
-        self.bottom_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, w, tui.current().config.bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)));
+        self.bottom_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.current().config.bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)));
     }
     if (tp.env.get().is("show-input"))
         self.toggle_inputview_async();
@@ -161,7 +161,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 }
 
 pub fn handle_resize(self: *Self, pos: Box) void {
-    self.plane = tui.current().stdplane();
+    self.plane = tui.plane();
     if (self.panel_height) |h| if (h >= self.box().h) {
         self.panel_height = null;
     };
@@ -207,7 +207,7 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !void {
             try panels.add(try view.create(self.allocator, self.widgets.plane));
         }
     } else {
-        const panels = try WidgetList.createH(self.allocator, self.widgets.widget(), "panel", .{ .static = self.panel_height orelse self.box().h / 5 });
+        const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.panel_height orelse self.box().h / 5 });
         try self.widgets.add(panels.widget());
         try panels.add(try view.create(self.allocator, self.widgets.plane));
         self.panels = panels;
@@ -879,7 +879,7 @@ fn create_editor(self: *Self) !void {
     if (self.get_active_file_path()) |file_path| self.push_file_stack(file_path) catch {};
     try self.delete_active_view();
     command.executeName("enter_mode_default", .{}) catch {};
-    var editor_widget = try ed.create(self.allocator, Widget.to(self), &self.buffer_manager);
+    var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager);
     errdefer editor_widget.deinit(self.allocator);
     const editor = editor_widget.get("editor") orelse @panic("mainview editor not found");
     if (self.top_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");

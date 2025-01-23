@@ -26,10 +26,10 @@ style_factory: ?*const fn (self: *Self, theme: *const Widget.Theme) Widget.Theme
 
 const Self = @This();
 
-pub fn create(allocator: Allocator, parent: Widget, event_source: ?Widget, event_sink: EventHandler) !Widget {
+pub fn create(allocator: Allocator, parent: Plane, event_source: ?Widget, event_sink: EventHandler) !Widget {
     const self: *Self = try allocator.create(Self);
     self.* = .{
-        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
+        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .event_sink = event_sink,
     };
 

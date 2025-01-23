@@ -43,7 +43,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     self.* = .{
         .allocator = allocator,
         .modal = try ModalBackground.create(*Self, allocator, tui.current().mainview, .{ .ctx = self }),
-        .menu = try Menu.create(*Self, allocator, tui.current().mainview, .{
+        .menu = try Menu.create(*Self, allocator, tui.plane(), .{
             .ctx = self,
             .on_render = on_render_menu,
             .on_resize = on_resize_menu,
@@ -231,14 +231,14 @@ fn delete_word(self: *Self) !void {
     } else {
         self.inputbox.text.shrinkRetainingCapacity(0);
     }
-    self.inputbox.cursor = tui.current().stdplane().egc_chunk_width(self.inputbox.text.items, 0, 8);
+    self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
     return self.start_query();
 }
 
 fn delete_code_point(self: *Self) !void {
     if (self.inputbox.text.items.len > 0) {
-        self.inputbox.text.shrinkRetainingCapacity(self.inputbox.text.items.len - tui.current().stdplane().egc_last(self.inputbox.text.items).len);
-        self.inputbox.cursor = tui.current().stdplane().egc_chunk_width(self.inputbox.text.items, 0, 8);
+        self.inputbox.text.shrinkRetainingCapacity(self.inputbox.text.items.len - tui.egc_last(self.inputbox.text.items).len);
+        self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
     }
     return self.start_query();
 }
@@ -247,13 +247,13 @@ fn insert_code_point(self: *Self, c: u32) !void {
     var buf: [6]u8 = undefined;
     const bytes = try input.ucs32_to_utf8(&[_]u32{c}, &buf);
     try self.inputbox.text.appendSlice(buf[0..bytes]);
-    self.inputbox.cursor = tui.current().stdplane().egc_chunk_width(self.inputbox.text.items, 0, 8);
+    self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
     return self.start_query();
 }
 
 fn insert_bytes(self: *Self, bytes: []const u8) !void {
     try self.inputbox.text.appendSlice(bytes);
-    self.inputbox.cursor = tui.current().stdplane().egc_chunk_width(self.inputbox.text.items, 0, 8);
+    self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
     return self.start_query();
 }
 

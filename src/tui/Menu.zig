@@ -5,6 +5,7 @@ const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const Button = @import("Button.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
+const Plane = @import("renderer").Plane;
 
 pub const Container = WidgetList;
 pub const scroll_lines = 3;
@@ -52,12 +53,12 @@ pub fn Options(context: type) type {
     };
 }
 
-pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Widget, opts: Options(ctx_type)) !*State(ctx_type) {
+pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !*State(ctx_type) {
     const self = try allocator.create(State(ctx_type));
     const container = try WidgetList.createH(allocator, parent, @typeName(@This()), .dynamic);
     self.* = .{
         .allocator = allocator,
-        .menu = try WidgetList.createV(allocator, container.widget(), @typeName(@This()), .dynamic),
+        .menu = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),
         .container = container,
         .container_widget = container.widget(),
         .scrollbar = if (opts.on_scroll) |on_scroll| (try scrollbar_v.create(allocator, parent, null, on_scroll)).dynamic_cast(scrollbar_v).? else null,

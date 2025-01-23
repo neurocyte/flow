@@ -4783,7 +4783,7 @@ pub const Editor = struct {
     pub const set_file_type_meta = .{ .arguments = &.{.string} };
 };
 
-pub fn create(allocator: Allocator, parent: Widget, buffer_manager: *Buffer.Manager) !Widget {
+pub fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager) !Widget {
     return EditorWidget.create(allocator, parent, buffer_manager);
 }
 
@@ -4806,24 +4806,24 @@ pub const EditorWidget = struct {
     const Self = @This();
     const Commands = command.Collection(Editor);
 
-    fn create(allocator: Allocator, parent: Widget, buffer_manager: *Buffer.Manager) !Widget {
+    fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager) !Widget {
         const container = try WidgetList.createH(allocator, parent, "editor.container", .dynamic);
         const self: *Self = try allocator.create(Self);
-        try self.init(allocator, container.widget(), buffer_manager);
+        try self.init(allocator, container.plane, buffer_manager);
         try self.commands.init(&self.editor);
         const editorWidget = Widget.to(self);
         try container.add(try editor_gutter.create(allocator, container.widget(), editorWidget, &self.editor));
         try container.add(editorWidget);
-        try container.add(try scrollbar_v.create(allocator, container.widget(), editorWidget, EventHandler.to_unowned(container)));
+        try container.add(try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.to_unowned(container)));
         return container.widget();
     }
 
-    fn init(self: *Self, allocator: Allocator, parent: Widget, buffer_manager: *Buffer.Manager) !void {
-        var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
+    fn init(self: *Self, allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager) !void {
+        var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent);
         errdefer n.deinit();
 
         self.* = .{
-            .parent = parent.plane.*,
+            .parent = parent,
             .plane = n,
             .editor = undefined,
         };

@@ -83,7 +83,7 @@ fn start_query(self: *Self) !void {
 fn update_mini_mode_text(self: *Self) void {
     if (tui.current().mini_mode) |*mini_mode| {
         mini_mode.text = self.input;
-        mini_mode.cursor = tui.current().stdplane().egc_chunk_width(self.input, 0, 8);
+        mini_mode.cursor = tui.egc_chunk_width(self.input, 0, 8);
     }
 }
 
@@ -128,7 +128,7 @@ const cmds = struct {
     pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };
 
     pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
-        self.input = self.input[0 .. self.input.len - tui.current().stdplane().egc_last(self.input).len];
+        self.input = self.input[0 .. self.input.len - tui.egc_last(self.input).len];
         self.update_mini_mode_text();
     }
     pub const mini_mode_delete_backwards_meta = .{ .description = "Delete backwards" };

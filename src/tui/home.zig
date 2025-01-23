@@ -65,7 +65,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .allocator = allocator,
         .parent = parent.plane.*,
         .plane = n,
-        .menu = try Menu.create(*Self, allocator, w, .{ .ctx = self, .on_render = menu_on_render }),
+        .menu = try Menu.create(*Self, allocator, w.plane.*, .{ .ctx = self, .on_render = menu_on_render }),
         .input_namespace = keybind.get_namespace(),
     };
     try self.commands.init(self);

@@ -1037,8 +1037,20 @@ pub fn resize(self: *Self) void {
     need_render();
 }
 
-pub fn stdplane(self: *Self) renderer.Plane {
+pub fn plane() renderer.Plane {
+    return current().rdr.stdplane();
+}
+
+fn stdplane(self: *Self) renderer.Plane {
     return self.rdr.stdplane();
+}
+
+pub fn egc_chunk_width(chunk: []const u8, abs_col: usize, tab_width: usize) usize {
+    return plane().egc_chunk_width(chunk, abs_col, tab_width);
+}
+
+pub fn egc_last(egcs: []const u8) []const u8 {
+    return plane().egc_last(egcs);
 }
 
 pub fn screen(self: *Self) Widget.Box {
