@@ -49,7 +49,6 @@ panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history: location_history,
 buffer_manager: BufferManager,
-file_stack: std.ArrayList([]const u8),
 find_in_files_state: enum { init, adding, done } = .done,
 file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
@@ -69,7 +68,6 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
         .widgets_widget = undefined,
         .floating_views = WidgetStack.init(allocator),
         .location_history = try location_history.create(),
-        .file_stack = std.ArrayList([]const u8).init(allocator),
         .views = undefined,
         .views_widget = undefined,
         .buffer_manager = BufferManager.init(allocator),
@@ -102,8 +100,6 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.close_all_panel_views();
-    self.clear_file_stack();
-    self.file_stack.deinit();
     self.commands.deinit();
     self.widgets.deinit(allocator);
     self.floating_views.deinit();
@@ -286,7 +282,7 @@ const cmds = struct {
             editor.clear_diagnostics();
             try editor.close_file(.{});
         }
-        self.clear_file_stack();
+        self.delete_all_buffers();
         self.clear_find_in_files_results(.diagnostics);
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false);
@@ -644,8 +640,7 @@ const cmds = struct {
     pub const show_diagnostics_meta = .{ .description = "Show diagnostics panel" };
 
     pub fn open_previous_file(self: *Self, _: Ctx) Result {
-        const file_path = try project_manager.request_n_most_recent_file(self.allocator, 1);
-        self.show_file_async_and_free(file_path orelse return error.Stop);
+        self.show_file_async(self.get_next_mru_buffer() orelse return error.Stop);
     }
     pub const open_previous_file_meta = .{ .description = "Open the previous file" };
 
@@ -759,8 +754,8 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         return self.location_update(m);
 
     if (try m.match(.{ "E", "close" })) {
-        if (self.pop_file_stack(editor.file_path)) |file_path|
-            self.show_file_async_and_free(file_path)
+        if (self.get_next_mru_buffer()) |file_path|
+            self.show_file_async(file_path)
         else
             self.show_home_async();
         self.active_editor = null;
@@ -873,7 +868,6 @@ fn replace_active_view(self: *Self, widget: Widget) !void {
 }
 
 fn create_editor(self: *Self) !void {
-    if (self.get_active_file_path()) |file_path| self.push_file_stack(file_path) catch {};
     try self.delete_active_view();
     command.executeName("enter_mode_default", .{}) catch {};
     var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager);
@@ -898,6 +892,10 @@ fn toggle_inputview_async(_: *Self) void {
 
 fn show_file_async_and_free(self: *Self, file_path: []const u8) void {
     defer self.allocator.free(file_path);
+    self.show_file_async(file_path);
+}
+
+fn show_file_async(_: *Self, file_path: []const u8) void {
     tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch return;
 }
 
@@ -943,24 +941,22 @@ fn read_restore_info(self: *Self) !void {
     try editor.extract_state(buf[0..size]);
 }
 
-fn push_file_stack(self: *Self, file_path: []const u8) !void {
-    for (self.file_stack.items, 0..) |file_path_, i|
-        if (std.mem.eql(u8, file_path, file_path_))
-            self.allocator.free(self.file_stack.orderedRemove(i));
-    (try self.file_stack.addOne()).* = try self.allocator.dupe(u8, file_path);
+fn get_next_mru_buffer(self: *Self) ?[]const u8 {
+    const buffers = self.buffer_manager.list_most_recently_used(self.allocator) catch return null;
+    defer self.allocator.free(buffers);
+    const active_file_path = self.get_active_file_path();
+    for (buffers) |buffer| {
+        if (active_file_path) |fp| if (std.mem.eql(u8, fp, buffer.file_path))
+            continue;
+        if (buffer.hidden)
+            continue;
+        return buffer.file_path;
+    }
+    return null;
 }
 
-fn pop_file_stack(self: *Self, closed: ?[]const u8) ?[]const u8 {
-    if (closed) |file_path|
-        for (self.file_stack.items, 0..) |file_path_, i|
-            if (std.mem.eql(u8, file_path, file_path_))
-                self.allocator.free(self.file_stack.orderedRemove(i));
-    return self.file_stack.popOrNull();
-}
-
-fn clear_file_stack(self: *Self) void {
-    for (self.file_stack.items) |file_path| self.allocator.free(file_path);
-    self.file_stack.clearRetainingCapacity();
+fn delete_all_buffers(self: *Self) void {
+    self.buffer_manager.delete_all();
 }
 
 fn add_find_in_files_result(

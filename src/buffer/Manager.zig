@@ -62,17 +62,22 @@ pub fn delete_buffer(self: *Self, file_path: []const u8) bool {
 pub fn retire(_: *Self, _: *Buffer) void {}
 
 pub fn list_most_recently_used(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*Buffer {
-    var buffers: std.ArrayListUnmanaged(*Buffer) = .{};
-    var i = self.buffers.iterator();
-    while (i.next()) |kv|
-        (try buffers.addOne(allocator)).* = kv.value_ptr.*;
+    const result = try self.list_unordered(allocator);
 
-    std.mem.sort(*Buffer, buffers.items, {}, struct {
+    std.mem.sort(*Buffer, result, {}, struct {
         fn less_fn(_: void, lhs: *Buffer, rhs: *Buffer) bool {
             return lhs.utime > rhs.utime;
         }
     }.less_fn);
 
+    return result;
+}
+
+pub fn list_unordered(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*Buffer {
+    var buffers = try std.ArrayListUnmanaged(*Buffer).initCapacity(allocator, self.buffers.size);
+    var i = self.buffers.iterator();
+    while (i.next()) |kv|
+        (try buffers.addOne(allocator)).* = kv.value_ptr.*;
     return buffers.toOwnedSlice(allocator);
 }
 
@@ -94,4 +99,13 @@ pub fn save_all(self: *const Self) Buffer.StoreToFileError!void {
         const buffer = kv.value_ptr.*;
         try buffer.store_to_file_and_clean(buffer.file_path);
     }
+}
+
+pub fn delete_all(self: *Self) void {
+    var i = self.buffers.iterator();
+    while (i.next()) |p| {
+        self.allocator.free(p.key_ptr.*);
+        p.value_ptr.*.deinit();
+    }
+    self.buffers.clearRetainingCapacity();
 }
