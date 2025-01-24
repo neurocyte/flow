@@ -104,6 +104,10 @@ pub fn abs_yx_to_rel(self: Plane, y: c_int, x: c_int) struct { c_int, c_int } {
     return .{ y - self.abs_y(), x - self.abs_x() };
 }
 
+pub fn abs_y_to_rel(self: Plane, y: c_int) c_int {
+    return y - self.abs_y();
+}
+
 pub fn rel_yx_to_abs(self: Plane, y: c_int, x: c_int) struct { c_int, c_int } {
     return .{ self.abs_y() + y, self.abs_x() + x };
 }
