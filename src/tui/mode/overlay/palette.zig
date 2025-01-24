@@ -430,7 +430,14 @@ pub fn Create(options: type) type {
             pub fn palette_menu_delete_item(self: *Self, _: Ctx) Result {
                 if (@hasDecl(options, "delete_item")) {
                     const button = self.menu.get_selected() orelse return;
-                    options.delete_item(self.menu, button);
+                    const refresh = options.delete_item(self.menu, button);
+                    if (refresh) {
+                        self.entries.clearRetainingCapacity();
+                        self.longest_hint = try options.load_entries(self);
+                        if (self.entries.items.len > 0)
+                            self.initial_selected = self.menu.selected;
+                        try self.start_query(0);
+                    }
                 }
             }
             pub const palette_menu_delete_item_meta = .{};
