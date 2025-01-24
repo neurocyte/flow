@@ -103,6 +103,10 @@ pub fn remove_all(self: *Self) void {
     self.widgets.clearRetainingCapacity();
 }
 
+pub fn pop(self: *Self) ?Widget {
+    return if (self.widgets.popOrNull()) |ws| ws.widget else null;
+}
+
 pub fn empty(self: *const Self) bool {
     return self.widgets.items.len == 0;
 }

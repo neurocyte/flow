@@ -744,6 +744,16 @@ const cmds = struct {
             tui.rdr().reset_fontface();
     }
     pub const reset_fontface_meta = .{ .description = "Reset font to configured face" };
+
+    pub fn next_tab(self: *Self, _: Ctx) Result {
+        _ = try self.widgets_widget.msg(.{"next_tab"});
+    }
+    pub const next_tab_meta = .{ .description = "Switch to next tab" };
+
+    pub fn previous_tab(self: *Self, _: Ctx) Result {
+        _ = try self.widgets_widget.msg(.{"previous_tab"});
+    }
+    pub const previous_tab_meta = .{ .description = "Switch to previous tab" };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
