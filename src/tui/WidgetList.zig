@@ -97,6 +97,16 @@ pub fn remove(self: *Self, w: Widget) void {
         self.widgets.orderedRemove(i).widget.deinit(self.allocator);
 }
 
+pub fn remove_all(self: *Self) void {
+    for (self.widgets.items) |*w|
+        w.widget.deinit(self.allocator);
+    self.widgets.clearRetainingCapacity();
+}
+
+pub fn pop(self: *Self) ?Widget {
+    return if (self.widgets.popOrNull()) |ws| ws.widget else null;
+}
+
 pub fn empty(self: *const Self) bool {
     return self.widgets.items.len == 0;
 }
@@ -150,6 +160,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
 
 pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (try m.match(.{ "H", tp.more }))
+        return false;
+
     for (self.widgets.items) |*w|
         if (try w.widget.send(from_, m))
             return true;

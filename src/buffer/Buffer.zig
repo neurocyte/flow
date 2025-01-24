@@ -39,6 +39,7 @@ file_exists: bool = true,
 file_eol_mode: EolMode = .lf,
 last_save_eol_mode: EolMode = .lf,
 file_utf8_sanitized: bool = false,
+hidden: bool = false,
 
 undo_history: ?*UndoNode = null,
 redo_history: ?*UndoNode = null,

@@ -1,6 +1,8 @@
 {
     "project": {
         "press": [
+            ["ctrl+tab", "next_tab"],
+            ["ctrl+shift+tab", "previous_tab"],
             ["ctrl+shift+e", "switch_buffers"],
             ["ctrl+0", "reset_fontsize"],
             ["ctrl+plus", "adjust_fontsize", 1.0],

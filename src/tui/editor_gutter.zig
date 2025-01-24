@@ -273,7 +273,8 @@ fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widg
     _ = self.plane.putc(&cell) catch {};
 }
 
-fn primary_click(self: *const Self, y: i32) error{Exit}!bool {
+fn primary_click(self: *const Self, y_: i32) error{Exit}!bool {
+    const y = self.editor.plane.abs_y_to_rel(y_);
     var line = self.row + 1;
     line += @intCast(y);
     if (line > self.lines) line = self.lines;
@@ -284,7 +285,8 @@ fn primary_click(self: *const Self, y: i32) error{Exit}!bool {
     return true;
 }
 
-fn primary_drag(_: *const Self, y: i32) error{Exit}!bool {
+fn primary_drag(self: *const Self, y_: i32) error{Exit}!bool {
+    const y = self.editor.plane.abs_y_to_rel(y_);
     try command.executeName("drag_to", command.fmt(.{ y + 1, 0 }));
     return true;
 }
