@@ -434,6 +434,13 @@ pub const scheme = .{
     .comment = ";",
 };
 
+pub const sql = .{
+    .description = "SQL",
+    .icon = "󰆼",
+    .extensions = .{ "sql" },
+    .comment = "--",
+};
+
 pub const @"ssh-config" = .{
     .description = "SSH config",
     .extensions = .{".ssh/config"},
