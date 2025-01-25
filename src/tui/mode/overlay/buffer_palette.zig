@@ -29,6 +29,10 @@ pub fn load_entries(palette: *Type) !usize {
     return if (palette.entries.items.len == 0) label.len else 2;
 }
 
+pub fn clear_entries(palette: *Type) void {
+    palette.entries.clearRetainingCapacity();
+}
+
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value = std.ArrayList(u8).init(palette.allocator);
     defer value.deinit();

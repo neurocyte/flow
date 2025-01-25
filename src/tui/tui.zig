@@ -818,6 +818,39 @@ const cmds = struct {
     }
     pub const switch_buffers_meta = .{ .description = "Switch buffers" };
 
+    pub fn select_task(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
+    }
+    pub const select_task_meta = .{ .description = "Select a task to run" };
+
+    pub fn add_task(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, struct {
+            pub const Type = @import("mode/mini/buffer.zig").Create(@This());
+            pub const create = Type.create;
+            pub fn name(_: *Type) []const u8 {
+                return @import("mode/overlay/task_palette.zig").name;
+            }
+            pub fn select(self_: *Type) void {
+                project_manager.add_task(self_.input.items) catch |e| {
+                    const logger = log.logger("tui");
+                    logger.err("add_task", e);
+                    logger.deinit();
+                };
+                command.executeName("exit_mini_mode", .{}) catch {};
+                command.executeName("select_task", .{}) catch {};
+            }
+        }, ctx);
+    }
+    pub const add_task_meta = .{ .description = "Add a task to run" };
+
+    pub fn delete_task(_: *Self, ctx: Ctx) Result {
+        var task: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&task)}))
+            return error.InvalidDeleteTaskArgument;
+        project_manager.delete_task(task) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const delete_task_meta = .{};
+
     pub fn change_theme(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/theme_palette.zig").Type);
     }

@@ -19,6 +19,7 @@ longest_file_path: usize = 0,
 open_time: i64,
 language_servers: std.StringHashMap(LSP),
 file_language_server: std.StringHashMap(LSP),
+tasks: std.ArrayList(Task),
 
 const Self = @This();
 
@@ -39,6 +40,11 @@ const File = struct {
     visited: bool = false,
 };
 
+const Task = struct {
+    command: []const u8,
+    mtime: i64,
+};
+
 pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Self {
     return .{
         .allocator = allocator,
@@ -48,6 +54,7 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
         .open_time = std.time.milliTimestamp(),
         .language_servers = std.StringHashMap(LSP).init(allocator),
         .file_language_server = std.StringHashMap(LSP).init(allocator),
+        .tasks = std.ArrayList(Task).init(allocator),
     };
 }
 
@@ -63,10 +70,39 @@ pub fn deinit(self: *Self) void {
     }
     for (self.files.items) |file| self.allocator.free(file.path);
     self.files.deinit();
+    for (self.tasks.items) |task| self.allocator.free(task.command);
+    self.tasks.deinit();
     self.allocator.free(self.name);
 }
 
 pub fn write_state(self: *Self, writer: anytype) !void {
+    return self.write_state_v1(writer);
+}
+
+pub fn write_state_v1(self: *Self, writer: anytype) !void {
+    try cbor.writeValue(writer, self.name);
+    var visited: usize = 0;
+    for (self.files.items) |file| {
+        if (file.visited) visited += 1;
+    }
+    try cbor.writeArrayHeader(writer, visited);
+    for (self.files.items) |file| {
+        if (!file.visited) continue;
+        try cbor.writeArrayHeader(writer, 4);
+        try cbor.writeValue(writer, file.path);
+        try cbor.writeValue(writer, file.mtime);
+        try cbor.writeValue(writer, file.row);
+        try cbor.writeValue(writer, file.col);
+    }
+    try cbor.writeArrayHeader(writer, self.tasks.items.len);
+    for (self.tasks.items) |task| {
+        try cbor.writeArrayHeader(writer, 2);
+        try cbor.writeValue(writer, task.command);
+        try cbor.writeValue(writer, task.mtime);
+    }
+}
+
+pub fn write_state_v0(self: *Self, writer: anytype) !void {
     try cbor.writeValue(writer, self.name);
     for (self.files.items) |file| {
         if (!file.visited) continue;
@@ -79,6 +115,66 @@ pub fn write_state(self: *Self, writer: anytype) !void {
 }
 
 pub fn restore_state(self: *Self, data: []const u8) !void {
+    defer self.sort_files_by_mtime();
+    defer self.sort_tasks_by_mtime();
+    var iter: []const u8 = data;
+    _ = cbor.matchValue(&iter, tp.string) catch {};
+    _ = cbor.decodeArrayHeader(&iter) catch |e| switch (e) {
+        error.InvalidType => return self.restore_state_v0(data),
+        else => return e,
+    };
+    return self.restore_state_v1(data);
+}
+
+pub fn restore_state_v1(self: *Self, data: []const u8) !void {
+    var iter: []const u8 = data;
+
+    var name: []const u8 = undefined;
+    _ = cbor.matchValue(&iter, tp.extract(&name)) catch {};
+
+    var files = try cbor.decodeArrayHeader(&iter);
+    while (files > 0) : (files -= 1) {
+        var path: []const u8 = undefined;
+        var mtime: i128 = undefined;
+        var row: usize = undefined;
+        var col: usize = undefined;
+        if (!try cbor.matchValue(&iter, .{
+            tp.extract(&path),
+            tp.extract(&mtime),
+            tp.extract(&row),
+            tp.extract(&col),
+        })) {
+            try cbor.skipValue(&iter);
+            continue;
+        }
+        self.longest_file_path = @max(self.longest_file_path, path.len);
+        const stat = std.fs.cwd().statFile(path) catch return;
+        switch (stat.kind) {
+            .sym_link, .file => {},
+            else => return,
+        }
+        try self.update_mru_internal(path, mtime, row, col);
+    }
+
+    var tasks = try cbor.decodeArrayHeader(&iter);
+    while (tasks > 0) : (tasks -= 1) {
+        var command: []const u8 = undefined;
+        var mtime: i64 = undefined;
+        if (!try cbor.matchValue(&iter, .{
+            tp.extract(&command),
+            tp.extract(&mtime),
+        })) {
+            try cbor.skipValue(&iter);
+            continue;
+        }
+        (try self.tasks.addOne()).* = .{
+            .command = try self.allocator.dupe(u8, command),
+            .mtime = mtime,
+        };
+    }
+}
+
+pub fn restore_state_v0(self: *Self, data: []const u8) !void {
     defer self.sort_files_by_mtime();
     var name: []const u8 = undefined;
     var path: []const u8 = undefined;
@@ -160,12 +256,19 @@ fn make_URI(self: *Self, file_path: ?[]const u8) LspError![]const u8 {
 }
 
 pub fn sort_files_by_mtime(self: *Self) void {
-    const less_fn = struct {
-        fn less_fn(_: void, lhs: File, rhs: File) bool {
+    sort_by_mtime(File, self.files.items);
+}
+
+pub fn sort_tasks_by_mtime(self: *Self) void {
+    sort_by_mtime(Task, self.tasks.items);
+}
+
+inline fn sort_by_mtime(T: type, items: []T) void {
+    std.mem.sort(T, items, {}, struct {
+        fn cmp(_: void, lhs: T, rhs: T) bool {
             return lhs.mtime > rhs.mtime;
         }
-    }.less_fn;
-    std.mem.sort(File, self.files.items, {}, less_fn);
+    }.cmp);
 }
 
 pub fn request_n_most_recent_file(self: *Self, from: tp.pid_ref, n: usize) ClientError!void {
@@ -300,6 +403,37 @@ pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) Cl
             from.send(.{ "cmd", "goto_line_and_column", .{ file.row + 1, file.col + 1 } }) catch return error.ClientFailed;
         return;
     }
+}
+
+pub fn request_tasks(self: *Self, from: tp.pid_ref) ClientError!void {
+    var message = std.ArrayList(u8).init(self.allocator);
+    const writer = message.writer();
+    try cbor.writeArrayHeader(writer, self.tasks.items.len);
+    for (self.tasks.items) |task|
+        try cbor.writeValue(writer, task.command);
+    from.send_raw(.{ .buf = message.items }) catch return error.ClientFailed;
+}
+
+pub fn add_task(self: *Self, command: []const u8) OutOfMemoryError!void {
+    defer self.sort_tasks_by_mtime();
+    for (self.tasks.items) |*task|
+        if (std.mem.eql(u8, task.command, command)) {
+            task.mtime = std.time.milliTimestamp();
+            return;
+        };
+    (try self.tasks.addOne()).* = .{
+        .command = try self.allocator.dupe(u8, command),
+        .mtime = std.time.milliTimestamp(),
+    };
+}
+
+pub fn delete_task(self: *Self, command: []const u8) error{}!void {
+    for (self.tasks.items, 0..) |task, i|
+        if (std.mem.eql(u8, task.command, command)) {
+            const removed = self.tasks.orderedRemove(i);
+            self.allocator.free(removed.command);
+            return;
+        };
 }
 
 pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) StartLspError!void {

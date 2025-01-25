@@ -432,7 +432,7 @@ pub fn Create(options: type) type {
                     const button = self.menu.get_selected() orelse return;
                     const refresh = options.delete_item(self.menu, button);
                     if (refresh) {
-                        self.entries.clearRetainingCapacity();
+                        options.clear_entries(self);
                         self.longest_hint = try options.load_entries(self);
                         if (self.entries.items.len > 0)
                             self.initial_selected = self.menu.selected;
