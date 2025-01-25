@@ -706,6 +706,31 @@ const cmds = struct {
     }
     pub const shell_execute_insert_meta = .{ .arguments = &.{.string} };
 
+    pub fn shell_execute_stream(self: *Self, ctx: Ctx) Result {
+        if (!try ctx.args.match(.{ tp.string, tp.more }))
+            return error.InvalidShellArgument;
+        const cmd = ctx.args;
+        const handlers = struct {
+            fn out(parent: tp.pid_ref, _: []const u8, output: []const u8) void {
+                parent.send(.{ "cmd", "insert_chars", .{output} }) catch {};
+            }
+            fn exit(parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
+                var buf: [256]u8 = undefined;
+                var stream = std.io.fixedBufferStream(&buf);
+                const writer = stream.writer();
+                if (exit_code > 0) {
+                    writer.print("\n'{s}' terminated {s} exitcode: {d}\n", .{ arg0, err_msg, exit_code }) catch {};
+                } else {
+                    writer.print("\n'{s}' exited\n", .{arg0}) catch {};
+                }
+                parent.send(.{ "cmd", "move_buffer_end", .{} }) catch {};
+                parent.send(.{ "cmd", "insert_chars", .{stream.getWritten()} }) catch {};
+            }
+        };
+        try shell.execute(self.allocator, cmd, .{ .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
+    }
+    pub const shell_execute_stream_meta = .{ .arguments = &.{.string} };
+
     pub fn adjust_fontsize(_: *Self, ctx: Ctx) Result {
         var amount: f32 = undefined;
         if (!try ctx.args.match(.{tp.extract(&amount)}))

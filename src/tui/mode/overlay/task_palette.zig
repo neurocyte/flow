@@ -59,7 +59,7 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "add_task", .{task} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{"*task*"} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    tp.self_pid().send(.{ "cmd", "shell_execute_insert", .{task} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{task} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
 pub fn delete_item(menu: *Type.MenuState, button: *Type.ButtonState) bool {
