@@ -64,8 +64,11 @@ const TabBar = struct {
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-        self.plane.set_base_style(theme.statusbar);
+        self.plane.set_base_style(theme.editor);
         self.plane.erase();
+        self.plane.home();
+        self.plane.set_style(theme.statusbar);
+        self.plane.fill(" ");
         self.plane.home();
         return self.widget_list_widget.render(theme);
     }
@@ -217,13 +220,34 @@ const Tab = struct {
 
     fn render(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
         const active = self.tabbar.active_buffer == self.buffer;
+        return if (active)
+            self.render_active(btn, theme)
+        else
+            self.render_inactive(btn, theme);
+    }
+
+    fn render_active(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
         btn.plane.set_base_style(theme.statusbar);
         btn.plane.erase();
         btn.plane.home();
-        btn.plane.set_style(if (active) theme.editor else if (btn.hover) theme.statusbar_hover else theme.statusbar);
+        btn.plane.set_style(theme.editor);
         btn.plane.fill(" ");
         btn.plane.home();
-        btn.plane.set_style(if (active) theme.editor else if (btn.hover) theme.statusbar_hover else theme.statusbar);
+        btn.plane.set_style(theme.editor);
+        return self.render_content(btn);
+    }
+
+    fn render_inactive(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
+        btn.plane.set_base_style(theme.editor);
+        btn.plane.erase();
+        btn.plane.home();
+        btn.plane.set_style(if (btn.hover) theme.statusbar_hover else theme.statusbar);
+        btn.plane.fill(" ");
+        btn.plane.home();
+        return self.render_content(btn);
+    }
+
+    fn render_content(self: *@This(), btn: *Button.State(@This())) bool {
         _ = btn.plane.putstr(" ") catch {};
         if (self.buffer.is_dirty())
             _ = btn.plane.putstr(dirty_indicator) catch {};
