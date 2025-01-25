@@ -67,7 +67,7 @@ const TabBar = struct {
         self.plane.set_base_style(theme.editor);
         self.plane.erase();
         self.plane.home();
-        self.plane.set_style(theme.statusbar);
+        self.plane.set_style(theme.tab_inactive);
         self.plane.fill(" ");
         self.plane.home();
         return self.widget_list_widget.render(theme);
@@ -117,7 +117,7 @@ const TabBar = struct {
             if (first) {
                 first = false;
             } else {
-                try self.widget_list.add(try self.make_spacer(1));
+                try self.widget_list.add(try self.make_spacer());
             }
             try self.widget_list.add(tab.widget);
         }
@@ -154,8 +154,8 @@ const TabBar = struct {
         self.tabs = try result.toOwnedSlice(self.allocator);
     }
 
-    fn make_spacer(self: @This(), comptime size: usize) !Widget {
-        return @import("blank.zig").Create(.{ .static = size })(self.allocator, self.widget_list.plane, null);
+    fn make_spacer(self: @This()) !Widget {
+        return spacer.create(self.allocator, self.widget_list.plane, null);
     }
 
     fn select_next_tab(self: *Self) void {
@@ -227,13 +227,15 @@ const Tab = struct {
     }
 
     fn render_active(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
-        btn.plane.set_base_style(theme.statusbar);
+        btn.plane.set_base_style(theme.editor);
         btn.plane.erase();
         btn.plane.home();
-        btn.plane.set_style(theme.editor);
+        btn.plane.set_style(theme.tab_inactive);
         btn.plane.fill(" ");
         btn.plane.home();
-        btn.plane.set_style(theme.editor);
+        btn.plane.set_style(theme.tab_active);
+        btn.plane.fill(" ");
+        btn.plane.home();
         return self.render_content(btn);
     }
 
@@ -241,9 +243,14 @@ const Tab = struct {
         btn.plane.set_base_style(theme.editor);
         btn.plane.erase();
         btn.plane.home();
-        btn.plane.set_style(if (btn.hover) theme.statusbar_hover else theme.statusbar);
+        btn.plane.set_style(theme.tab_inactive);
         btn.plane.fill(" ");
         btn.plane.home();
+        if (btn.hover) {
+            btn.plane.set_style(theme.tab_selected);
+            btn.plane.fill(" ");
+            btn.plane.home();
+        }
         return self.render_content(btn);
     }
 
@@ -271,5 +278,51 @@ const Tab = struct {
         const basename_begin = std.mem.lastIndexOfScalar(u8, file_path, std.fs.path.sep);
         const basename = if (basename_begin) |begin| file_path[begin + 1 ..] else file_path;
         return basename;
+    }
+};
+
+const spacer = struct {
+    plane: Plane,
+    layout: Widget.Layout,
+    on_event: ?EventHandler,
+
+    const Self = @This();
+
+    fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
+        const self: *Self = try allocator.create(Self);
+        self.* = .{
+            .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
+            .layout = .{ .static = 1 },
+            .on_event = event_handler,
+        };
+        return Widget.to(self);
+    }
+
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        self.plane.deinit();
+        allocator.destroy(self);
+    }
+
+    pub fn layout(self: *Self) Widget.Layout {
+        return self.layout;
+    }
+
+    pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+        self.plane.set_base_style(theme.editor);
+        self.plane.erase();
+        self.plane.home();
+        self.plane.set_style(theme.tab_inactive);
+        self.plane.fill(" ");
+        self.plane.home();
+        return false;
+    }
+
+    pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
+        var btn: u32 = 0;
+        if (try m.match(.{ "D", tp.any, tp.extract(&btn), tp.more })) {
+            if (self.on_event) |h| h.send(from, m) catch {};
+            return true;
+        }
+        return false;
     }
 };
