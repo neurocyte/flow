@@ -364,7 +364,10 @@ pub fn Create(options: type) type {
                 self.view_pos = 0;
             }
             self.update_scrollbar();
-            self.start_query(idx - self.view_pos - 1) catch {};
+            if (idx < self.view_pos + 1)
+                self.start_query(0) catch {}
+            else
+                self.start_query(idx - self.view_pos - 1) catch {};
         }
 
         const cmds = struct {
