@@ -4724,6 +4724,14 @@ pub const Editor = struct {
     }
     pub const switch_case_meta = .{ .description = "Switch the case of selection or character at cursor" };
 
+    pub fn forced_mark_clean(self: *Self, _: Context) Result {
+        if (self.buffer) |b| {
+            b.mark_clean();
+            self.update_event() catch {};
+        }
+    }
+    pub const forced_mark_clean_meta = .{ .description = "Force current file to be marked as clean" };
+
     pub fn toggle_eol_mode(self: *Self, _: Context) Result {
         if (self.buffer) |b| {
             b.file_eol_mode = switch (b.file_eol_mode) {

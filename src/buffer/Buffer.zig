@@ -1317,6 +1317,10 @@ pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) StoreToFileEr
     self.file_utf8_sanitized = false;
 }
 
+pub fn mark_clean(self: *Self) void {
+    self.last_save = self.root;
+}
+
 pub fn is_dirty(self: *const Self) bool {
     return if (!self.file_exists)
         self.root.length() > 0

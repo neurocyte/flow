@@ -759,8 +759,12 @@ const cmds = struct {
         var buffer_ref: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&buffer_ref)}))
             return error.InvalidShellOutputCompleteArgument;
-        // TODO
-        _ = self;
+        const buffer = self.buffer_manager.buffer_from_ref(buffer_ref) orelse return;
+        if (self.get_active_editor()) |editor| if (editor.buffer) |eb| if (eb == buffer) {
+            editor.forced_mark_clean(.{}) catch {};
+            return;
+        };
+        buffer.mark_clean();
     }
     pub const shell_execute_stream_output_complete_meta = .{ .arguments = &.{ .integer, .string } };
 
