@@ -11,7 +11,17 @@ const module_name = @typeName(Self);
 pub const max_chunk_size = tp.subprocess.max_chunk_size;
 pub const Writer = std.io.Writer(*Self, Error, write);
 pub const BufferedWriter = std.io.BufferedWriter(max_chunk_size, Writer);
-pub const Error = error{ InvalidShellArg0, OutOfMemory, Exit, ThespianSpawnFailed, Closed };
+pub const Error = error{
+    InvalidShellArg0,
+    OutOfMemory,
+    Exit,
+    ThespianSpawnFailed,
+    Closed,
+    IntegerTooLarge,
+    IntegerTooSmall,
+    InvalidType,
+    TooShort,
+};
 
 pub const OutputHandler = fn (context: usize, parent: tp.pid_ref, arg0: []const u8, output: []const u8) void;
 pub const ExitHandler = fn (context: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void;
@@ -126,17 +136,19 @@ const Process = struct {
     const Receiver = tp.Receiver(*Process);
 
     pub fn create(allocator: std.mem.Allocator, argv_: tp.message, stdin_behavior: std.process.Child.StdIo, handlers: Handlers) Error!tp.pid {
-        const argv = try argv_.clone(allocator);
-        var arg0_: []const u8 = "";
-        if (!try argv.match(.{ tp.extract(&arg0_), tp.more })) {
-            allocator.free(argv.buf);
+        var arg0: []const u8 = "";
+        const argv = if (try argv_.match(.{tp.extract(&arg0)}))
+            try parse_arg0_to_argv(allocator, &arg0)
+        else if (try argv_.match(.{ tp.extract(&arg0), tp.more }))
+            try argv_.clone(allocator)
+        else
             return error.InvalidShellArg0;
-        }
+
         const self = try allocator.create(Process);
         self.* = .{
             .allocator = allocator,
             .argv = argv,
-            .arg0 = try allocator.dupeZ(u8, arg0_),
+            .arg0 = try allocator.dupeZ(u8, arg0),
             .receiver = Receiver.init(receive, self),
             .parent = tp.self_pid().clone(),
             .logger = log.logger(@typeName(Self)),
@@ -208,3 +220,24 @@ const Process = struct {
         }
     }
 };
+
+fn parse_arg0_to_argv(allocator: std.mem.Allocator, arg0: *[]const u8) !tp.message {
+    // this is horribly simplistic
+    // TODO: add quotes parsing and workspace variables, etc.
+    var args = std.ArrayList([]const u8).init(allocator);
+    defer args.deinit();
+
+    var it = std.mem.splitScalar(u8, arg0.*, ' ');
+    while (it.next()) |arg|
+        try args.append(arg);
+
+    var msg_cb = std.ArrayList(u8).init(allocator);
+    defer msg_cb.deinit();
+
+    try cbor.writeArrayHeader(msg_cb.writer(), args.items.len);
+    for (args.items) |arg|
+        try cbor.writeValue(msg_cb.writer(), arg);
+
+    _ = try cbor.match(msg_cb.items, .{ tp.extract(arg0), tp.more });
+    return .{ .buf = try msg_cb.toOwnedSlice() };
+}
