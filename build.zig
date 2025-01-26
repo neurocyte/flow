@@ -292,6 +292,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "thespian", .module = thespian_mod },
         },
     });
 

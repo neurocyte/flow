@@ -1,4 +1,5 @@
 const std = @import("std");
+const tp = @import("thespian");
 const Buffer = @import("Buffer.zig");
 
 const Self = @This();
@@ -108,4 +109,17 @@ pub fn delete_all(self: *Self) void {
         p.value_ptr.*.deinit();
     }
     self.buffers.clearRetainingCapacity();
+}
+
+pub fn buffer_from_ref(self: *Self, buffer_ref: usize) ?*Buffer {
+    var i = self.buffers.iterator();
+    while (i.next()) |p|
+        if (@intFromPtr(p.value_ptr.*) == buffer_ref)
+            return p.value_ptr.*;
+    tp.trace(tp.channel.debug, .{ "buffer_from_ref", "failed", buffer_ref });
+    return null;
+}
+
+pub fn buffer_to_ref(_: *Self, buffer: *Buffer) usize {
+    return @intFromPtr(buffer);
 }
