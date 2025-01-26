@@ -80,13 +80,13 @@ pub fn write_state(self: *Self, writer: anytype) !void {
 }
 
 pub fn write_state_v1(self: *Self, writer: anytype) !void {
-    tp.trace(tp.channel.event, .{"write_state_v1"});
+    tp.trace(tp.channel.debug, .{"write_state_v1"});
     try cbor.writeValue(writer, self.name);
     var visited: usize = 0;
     for (self.files.items) |file| {
         if (file.visited) visited += 1;
     }
-    tp.trace(tp.channel.event, .{ "write_state_v1", "files", visited });
+    tp.trace(tp.channel.debug, .{ "write_state_v1", "files", visited });
     try cbor.writeArrayHeader(writer, visited);
     for (self.files.items) |file| {
         if (!file.visited) continue;
@@ -95,15 +95,15 @@ pub fn write_state_v1(self: *Self, writer: anytype) !void {
         try cbor.writeValue(writer, file.mtime);
         try cbor.writeValue(writer, file.row);
         try cbor.writeValue(writer, file.col);
-        tp.trace(tp.channel.event, .{ "write_state_v1", "file", file.path, file.mtime, file.row, file.col });
+        tp.trace(tp.channel.debug, .{ "write_state_v1", "file", file.path, file.mtime, file.row, file.col });
     }
     try cbor.writeArrayHeader(writer, self.tasks.items.len);
-    tp.trace(tp.channel.event, .{ "write_state_v1", "tasks", self.tasks.items.len });
+    tp.trace(tp.channel.debug, .{ "write_state_v1", "tasks", self.tasks.items.len });
     for (self.tasks.items) |task| {
         try cbor.writeArrayHeader(writer, 2);
         try cbor.writeValue(writer, task.command);
         try cbor.writeValue(writer, task.mtime);
-        tp.trace(tp.channel.event, .{ "write_state_v1", "task", task.command, task.mtime });
+        tp.trace(tp.channel.debug, .{ "write_state_v1", "task", task.command, task.mtime });
     }
 }
 
@@ -120,29 +120,29 @@ pub fn write_state_v0(self: *Self, writer: anytype) !void {
 }
 
 pub fn restore_state(self: *Self, data: []const u8) !void {
-    tp.trace(tp.channel.event, .{"restore_state"});
-    errdefer |e| tp.trace(tp.channel.event, .{ "restore_state", "abort", e });
+    tp.trace(tp.channel.debug, .{"restore_state"});
+    errdefer |e| tp.trace(tp.channel.debug, .{ "restore_state", "abort", e });
     defer self.sort_files_by_mtime();
     defer self.sort_tasks_by_mtime();
     var iter: []const u8 = data;
     _ = cbor.matchValue(&iter, tp.string) catch {};
     _ = cbor.decodeArrayHeader(&iter) catch |e| switch (e) {
         error.InvalidType => return self.restore_state_v0(data),
-        else => return tp.trace(tp.channel.event, .{ "restore_state", "unknown format", data }),
+        else => return tp.trace(tp.channel.debug, .{ "restore_state", "unknown format", data }),
     };
     return self.restore_state_v1(data);
 }
 
 pub fn restore_state_v1(self: *Self, data: []const u8) !void {
-    tp.trace(tp.channel.event, .{"restore_state_v1"});
+    tp.trace(tp.channel.debug, .{"restore_state_v1"});
     var iter: []const u8 = data;
 
     var name: []const u8 = undefined;
     _ = cbor.matchValue(&iter, tp.extract(&name)) catch {};
-    tp.trace(tp.channel.event, .{ "restore_state_v1", "name", name });
+    tp.trace(tp.channel.debug, .{ "restore_state_v1", "name", name });
 
     var files = try cbor.decodeArrayHeader(&iter);
-    tp.trace(tp.channel.event, .{ "restore_state_v1", "files", files });
+    tp.trace(tp.channel.debug, .{ "restore_state_v1", "files", files });
     while (files > 0) : (files -= 1) {
         var path: []const u8 = undefined;
         var mtime: i128 = undefined;
@@ -157,7 +157,7 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
             try cbor.skipValue(&iter);
             continue;
         }
-        tp.trace(tp.channel.event, .{ "restore_state_v1", "file", path, mtime, row, col });
+        tp.trace(tp.channel.debug, .{ "restore_state_v1", "file", path, mtime, row, col });
         self.longest_file_path = @max(self.longest_file_path, path.len);
         const stat = std.fs.cwd().statFile(path) catch continue;
         switch (stat.kind) {
@@ -167,7 +167,7 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
     }
 
     var tasks = try cbor.decodeArrayHeader(&iter);
-    tp.trace(tp.channel.event, .{ "restore_state_v1", "tasks", tasks });
+    tp.trace(tp.channel.debug, .{ "restore_state_v1", "tasks", tasks });
     while (tasks > 0) : (tasks -= 1) {
         var command: []const u8 = undefined;
         var mtime: i64 = undefined;
@@ -178,7 +178,7 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
             try cbor.skipValue(&iter);
             continue;
         }
-        tp.trace(tp.channel.event, .{ "restore_state_v1", "task", command, mtime });
+        tp.trace(tp.channel.debug, .{ "restore_state_v1", "task", command, mtime });
         (try self.tasks.addOne()).* = .{
             .command = try self.allocator.dupe(u8, command),
             .mtime = mtime,
@@ -187,7 +187,7 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
 }
 
 pub fn restore_state_v0(self: *Self, data: []const u8) error{ OutOfMemory, IntegerTooLarge, IntegerTooSmall, InvalidType, TooShort }!void {
-    tp.trace(tp.channel.event, .{"restore_state_v0"});
+    tp.trace(tp.channel.debug, .{"restore_state_v0"});
     defer self.sort_files_by_mtime();
     var name: []const u8 = undefined;
     var path: []const u8 = undefined;
@@ -196,7 +196,7 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{ OutOfMemory, Integ
     var col: usize = undefined;
     var iter: []const u8 = data;
     _ = cbor.matchValue(&iter, tp.extract(&name)) catch {};
-    tp.trace(tp.channel.event, .{ "restore_state_v0", "name", name });
+    tp.trace(tp.channel.debug, .{ "restore_state_v0", "name", name });
     while (cbor.matchValue(&iter, .{
         tp.extract(&path),
         tp.extract(&mtime),
@@ -206,7 +206,7 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{ OutOfMemory, Integ
         error.TooShort => return,
         else => return e,
     }) {
-        tp.trace(tp.channel.event, .{ "restore_state_v0", "file", path, mtime, row, col });
+        tp.trace(tp.channel.debug, .{ "restore_state_v0", "file", path, mtime, row, col });
         self.longest_file_path = @max(self.longest_file_path, path.len);
         const stat = std.fs.cwd().statFile(path) catch continue;
         switch (stat.kind) {

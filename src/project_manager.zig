@@ -607,7 +607,7 @@ const Process = struct {
     }
 
     fn persist_project(self: *Process, project: *Project) !void {
-        tp.trace(tp.channel.event, .{ "persist_project", project.name });
+        tp.trace(tp.channel.debug, .{ "persist_project", project.name });
         self.logger.print("saving: {s}", .{project.name});
         const file_name = try get_project_state_file_path(self.allocator, project);
         defer self.allocator.free(file_name);
@@ -619,7 +619,7 @@ const Process = struct {
     }
 
     fn restore_project(self: *Process, project: *Project) !void {
-        tp.trace(tp.channel.event, .{ "restore_project", project.name });
+        tp.trace(tp.channel.debug, .{ "restore_project", project.name });
         const file_name = try get_project_state_file_path(self.allocator, project);
         defer self.allocator.free(file_name);
         var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {

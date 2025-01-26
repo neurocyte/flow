@@ -74,9 +74,6 @@ const TabBar = struct {
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-        tp.trace(tp.channel.widget, .{"receive"});
-        tp.trace(tp.channel.widget, m);
-
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         var file_path: []const u8 = undefined;
         if (try m.match(.{"next_tab"})) {
@@ -159,7 +156,7 @@ const TabBar = struct {
     }
 
     fn select_next_tab(self: *Self) void {
-        tp.trace(tp.channel.widget, .{"select_next_tab"});
+        tp.trace(tp.channel.debug, .{"select_next_tab"});
         var activate_next = false;
         var first: ?*const TabBarTab = null;
         for (self.tabs) |*tab| {
@@ -175,7 +172,7 @@ const TabBar = struct {
     }
 
     fn select_previous_tab(self: *Self) void {
-        tp.trace(tp.channel.widget, .{"select_previous_tab"});
+        tp.trace(tp.channel.debug, .{"select_previous_tab"});
         var goto: ?*const TabBarTab = if (self.tabs.len > 0) &self.tabs[self.tabs.len - 1] else null;
         for (self.tabs) |*tab| {
             if (tab.buffer == self.active_buffer)

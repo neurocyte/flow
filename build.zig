@@ -273,6 +273,7 @@ pub fn build_exe(
         .imports = &.{
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "log", .module = log_mod },
+            .{ .name = "cbor", .module = cbor_mod },
         },
     });
 

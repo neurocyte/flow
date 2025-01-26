@@ -153,30 +153,41 @@ pub fn main() anyerror!void {
         }
     } else {
         if (args.trace_level != 0) {
-            env.enable_all_channels();
             var threshold: usize = 1;
-            if (args.trace_level < threshold) {
-                env.disable(thespian.channel.widget);
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.debug);
             }
             threshold += 1;
-            if (args.trace_level < threshold) {
-                env.disable(thespian.channel.receive);
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.widget);
             }
             threshold += 1;
-            if (args.trace_level < threshold) {
-                env.disable(thespian.channel.event);
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.event);
             }
             threshold += 1;
-            if (args.trace_level < threshold) {
-                env.disable(thespian.channel.metronome);
-                env.disable(thespian.channel.execute);
-                env.disable(thespian.channel.link);
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.input);
             }
             threshold += 1;
-            if (args.trace_level < threshold) {
-                env.disable(thespian.channel.input);
-                env.disable(thespian.channel.send);
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.receive);
             }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.metronome);
+                env.enable(thespian.channel.execute);
+                env.enable(thespian.channel.link);
+            }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.send);
+            }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable_all_channels();
+            }
+
             env.on_trace(trace_to_file);
         }
     }
