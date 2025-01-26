@@ -430,14 +430,17 @@ pub fn request_tasks(self: *Self, from: tp.pid_ref) ClientError!void {
 
 pub fn add_task(self: *Self, command: []const u8) OutOfMemoryError!void {
     defer self.sort_tasks_by_mtime();
+    const mtime = std.time.milliTimestamp();
     for (self.tasks.items) |*task|
         if (std.mem.eql(u8, task.command, command)) {
-            task.mtime = std.time.milliTimestamp();
+            tp.trace(tp.channel.debug, .{ "Project", self.name, "add_task", command, task.mtime, "->", mtime });
+            task.mtime = mtime;
             return;
         };
+    tp.trace(tp.channel.debug, .{ "project", self.name, "add_task", command, mtime });
     (try self.tasks.addOne()).* = .{
         .command = try self.allocator.dupe(u8, command),
-        .mtime = std.time.milliTimestamp(),
+        .mtime = mtime,
     };
 }
 
