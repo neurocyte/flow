@@ -1,6 +1,7 @@
 const std = @import("std");
 const tp = @import("thespian");
 const log = @import("log");
+const cbor = @import("cbor");
 
 pub var context_check: ?*const fn () void = null;
 
@@ -108,6 +109,29 @@ pub fn removeCommand(id: ID) void {
 }
 
 pub fn execute(id: ID, ctx: Context) tp.result {
+    if (tp.env.get().enabled(tp.channel.debug)) trace: {
+        var iter = ctx.args.buf;
+        var len = cbor.decodeArrayHeader(&iter) catch break :trace;
+        if (len < 1) {
+            tp.trace(tp.channel.debug, .{ "command", "execute", id, get_name(id) });
+        } else {
+            var msg_cb = std.ArrayList(u8).init(command_table_allocator);
+            defer msg_cb.deinit();
+            const writer = msg_cb.writer();
+            cbor.writeArrayHeader(writer, 4 + len) catch break :trace;
+            cbor.writeValue(writer, "command") catch break :trace;
+            cbor.writeValue(writer, "execute") catch break :trace;
+            cbor.writeValue(writer, id) catch break :trace;
+            cbor.writeValue(writer, get_name(id)) catch break :trace;
+            while (len > 0) : (len -= 1) {
+                var arg: []const u8 = undefined;
+                if (cbor.matchValue(&iter, cbor.extract_cbor(&arg)) catch break :trace)
+                    msg_cb.appendSlice(arg) catch break :trace;
+            }
+            const msg: tp.message = .{ .buf = msg_cb.items };
+            tp.trace(tp.channel.debug, msg);
+        }
+    }
     if (context_check) |check| check();
     if (id >= commands.items.len)
         return tp.exit_fmt("CommandNotFound: {d}", .{id});
@@ -127,10 +151,17 @@ pub fn get_id(name: []const u8) ?ID {
             if (std.mem.eql(u8, p.name, name))
                 return p.id;
     }
+    tp.trace(tp.channel.debug, .{ "command", "get_id", "failed", name });
     return null;
 }
 
 pub fn get_name(id: ID) ?[]const u8 {
+    if (tp.env.get().enabled(tp.channel.debug)) {
+        if (id >= commands.items.len)
+            tp.trace(tp.channel.debug, .{ "command", "get_name", "too large", id })
+        else if (commands.items[id] == null)
+            tp.trace(tp.channel.debug, .{ "command", "get_name", "null", id });
+    }
     if (id >= commands.items.len) return null;
     return (commands.items[id] orelse return null).name;
 }
