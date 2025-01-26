@@ -56,9 +56,12 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     var task: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &task) catch false)) return;
+    var buffer_name = std.ArrayList(u8).init(menu.*.opts.ctx.allocator);
+    defer buffer_name.deinit();
+    buffer_name.writer().print("*{s}*", .{task}) catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "add_task", .{task} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{"*task*"} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{buffer_name.items} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{task} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
