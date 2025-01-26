@@ -1335,13 +1335,13 @@ pub fn update(self: *Self, root: Root) void {
     self.mtime = std.time.milliTimestamp();
 }
 
-pub fn store_undo(self: *Self, meta: []const u8) !void {
+pub fn store_undo(self: *Self, meta: []const u8) error{OutOfMemory}!void {
     self.push_undo(try self.create_undo(self.root, meta));
     self.curr_history = null;
     try self.push_redo_branch();
 }
 
-fn create_undo(self: *const Self, root: Root, meta_: []const u8) !*UndoNode {
+fn create_undo(self: *const Self, root: Root, meta_: []const u8) error{OutOfMemory}!*UndoNode {
     const h = try self.allocator.create(UndoNode);
     const meta = try self.allocator.dupe(u8, meta_);
     h.* = UndoNode{
