@@ -13,10 +13,11 @@ pub const Writer = std.io.Writer(*Self, Error, write);
 pub const BufferedWriter = std.io.BufferedWriter(max_chunk_size, Writer);
 pub const Error = error{ InvalidShellArg0, OutOfMemory, Exit, ThespianSpawnFailed, Closed };
 
-pub const OutputHandler = fn (parent: tp.pid_ref, arg0: []const u8, output: []const u8) void;
-pub const ExitHandler = fn (parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void;
+pub const OutputHandler = fn (context: usize, parent: tp.pid_ref, arg0: []const u8, output: []const u8) void;
+pub const ExitHandler = fn (context: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void;
 
 pub const Handlers = struct {
+    context: usize = 0,
     out: *const OutputHandler,
     err: ?*const OutputHandler = null,
     exit: *const ExitHandler = log_exit_handler,
@@ -74,7 +75,8 @@ pub fn bufferedWriter(self: *Self) BufferedWriter {
     return .{ .unbuffered_writer = self.writer() };
 }
 
-pub fn log_handler(parent: tp.pid_ref, arg0: []const u8, output: []const u8) void {
+pub fn log_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, output: []const u8) void {
+    _ = context;
     _ = parent;
     _ = arg0;
     const logger = log.logger(@typeName(Self));
@@ -82,14 +84,16 @@ pub fn log_handler(parent: tp.pid_ref, arg0: []const u8, output: []const u8) voi
     while (it.next()) |line| if (line.len > 0) logger.print("{s}", .{line});
 }
 
-pub fn log_err_handler(parent: tp.pid_ref, arg0: []const u8, output: []const u8) void {
+pub fn log_err_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, output: []const u8) void {
+    _ = context;
     _ = parent;
     const logger = log.logger(@typeName(Self));
     var it = std.mem.splitScalar(u8, output, '\n');
     while (it.next()) |line| logger.print_err(arg0, "{s}", .{line});
 }
 
-pub fn log_exit_handler(parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
+pub fn log_exit_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
+    _ = context;
     _ = parent;
     const logger = log.logger(@typeName(Self));
     if (exit_code > 0) {
@@ -99,7 +103,8 @@ pub fn log_exit_handler(parent: tp.pid_ref, arg0: []const u8, err_msg: []const u
     }
 }
 
-pub fn log_exit_err_handler(parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
+pub fn log_exit_err_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
+    _ = context;
     _ = parent;
     const logger = log.logger(@typeName(Self));
     if (exit_code > 0) {
@@ -178,9 +183,9 @@ const Process = struct {
         } else if (try m.match(.{"close"})) {
             try self.close();
         } else if (try m.match(.{ module_name, "stdout", tp.extract(&bytes) })) {
-            self.handlers.out(self.parent.ref(), self.arg0, bytes);
+            self.handlers.out(self.handlers.context, self.parent.ref(), self.arg0, bytes);
         } else if (try m.match(.{ module_name, "stderr", tp.extract(&bytes) })) {
-            (self.handlers.err orelse self.handlers.out)(self.parent.ref(), self.arg0, bytes);
+            (self.handlers.err orelse self.handlers.out)(self.handlers.context, self.parent.ref(), self.arg0, bytes);
         } else if (try m.match(.{ module_name, "term", tp.more })) {
             self.handle_terminated(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "exit", "normal" })) {
@@ -195,11 +200,11 @@ const Process = struct {
         var err_msg: []const u8 = undefined;
         var exit_code: i64 = undefined;
         if (try m.match(.{ tp.any, tp.any, "exited", 0 })) {
-            self.handlers.exit(self.parent.ref(), self.arg0, "exited", 0);
+            self.handlers.exit(self.handlers.context, self.parent.ref(), self.arg0, "exited", 0);
         } else if (try m.match(.{ tp.any, tp.any, "error.FileNotFound", 1 })) {
             self.logger.print_err(self.arg0, "'{s}' executable not found", .{self.arg0});
         } else if (try m.match(.{ tp.any, tp.any, tp.extract(&err_msg), tp.extract(&exit_code) })) {
-            self.handlers.exit(self.parent.ref(), self.arg0, err_msg, exit_code);
+            self.handlers.exit(self.handlers.context, self.parent.ref(), self.arg0, err_msg, exit_code);
         }
     }
 };

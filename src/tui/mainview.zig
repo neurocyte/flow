@@ -14,7 +14,7 @@ const build_options = @import("build_options");
 const Plane = @import("renderer").Plane;
 const input = @import("input");
 const command = @import("command");
-const BufferManager = @import("Buffer").Manager;
+const Buffer = @import("Buffer");
 
 const tui = @import("tui.zig");
 const Box = @import("Box.zig");
@@ -48,7 +48,7 @@ active_view: ?usize = 0,
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history: location_history,
-buffer_manager: BufferManager,
+buffer_manager: Buffer.Manager,
 find_in_files_state: enum { init, adding, done } = .done,
 file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
@@ -70,7 +70,7 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
         .location_history = try location_history.create(),
         .views = undefined,
         .views_widget = undefined,
-        .buffer_manager = BufferManager.init(allocator),
+        .buffer_manager = Buffer.Manager.init(allocator),
     };
     try self.commands.init(self);
     const w = Widget.to(self);
@@ -287,7 +287,7 @@ const cmds = struct {
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false);
         self.buffer_manager.deinit();
-        self.buffer_manager = BufferManager.init(self.allocator);
+        self.buffer_manager = Buffer.Manager.init(self.allocator);
         try project_manager.open(project_dir);
         const project = tp.env.get().str("project");
         tui.rdr().set_terminal_working_directory(project);
@@ -685,7 +685,7 @@ const cmds = struct {
             return error.InvalidShellArgument;
         const cmd = ctx.args;
         const handlers = struct {
-            fn out(parent: tp.pid_ref, _: []const u8, output: []const u8) void {
+            fn out(_: usize, parent: tp.pid_ref, _: []const u8, output: []const u8) void {
                 var pos: usize = 0;
                 var nl_count: usize = 0;
                 while (std.mem.indexOfScalarPos(u8, output, pos, '\n')) |next| {
@@ -711,10 +711,10 @@ const cmds = struct {
             return error.InvalidShellArgument;
         const cmd = ctx.args;
         const handlers = struct {
-            fn out(parent: tp.pid_ref, _: []const u8, output: []const u8) void {
-                parent.send(.{ "cmd", "insert_chars", .{output} }) catch {};
+            fn out(buffer_ref: usize, parent: tp.pid_ref, _: []const u8, output: []const u8) void {
+                parent.send(.{ "cmd", "shell_execute_stream_output", .{ buffer_ref, output } }) catch {};
             }
-            fn exit(parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
+            fn exit(buffer_ref: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
                 var buf: [256]u8 = undefined;
                 var stream = std.io.fixedBufferStream(&buf);
                 const writer = stream.writer();
@@ -723,13 +723,46 @@ const cmds = struct {
                 } else {
                     writer.print("\n'{s}' exited\n", .{arg0}) catch {};
                 }
-                parent.send(.{ "cmd", "move_buffer_end", .{} }) catch {};
-                parent.send(.{ "cmd", "insert_chars", .{stream.getWritten()} }) catch {};
+                parent.send(.{ "cmd", "shell_execute_stream_output", .{ buffer_ref, stream.getWritten() } }) catch {};
+                parent.send(.{ "cmd", "shell_execute_stream_output_complete", .{buffer_ref} }) catch {};
             }
         };
-        try shell.execute(self.allocator, cmd, .{ .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
+        const editor = self.get_active_editor() orelse return error.Stop;
+        const buffer = editor.buffer orelse return error.Stop;
+        const buffer_ref = self.buffer_manager.buffer_to_ref(buffer);
+        try shell.execute(self.allocator, cmd, .{ .context = buffer_ref, .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
     }
     pub const shell_execute_stream_meta = .{ .arguments = &.{.string} };
+
+    pub fn shell_execute_stream_output(self: *Self, ctx: Ctx) Result {
+        var buffer_ref: usize = 0;
+        var output: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&buffer_ref), tp.extract(&output) }))
+            return error.InvalidShellOutputArgument;
+        const buffer = self.buffer_manager.buffer_from_ref(buffer_ref) orelse return;
+        if (self.get_active_editor()) |editor| if (editor.buffer) |eb| if (eb == buffer) {
+            editor.move_buffer_end(.{}) catch {};
+            editor.insert_chars(command.fmt(.{output})) catch {};
+            return;
+        };
+        var cursor: Buffer.Cursor = .{};
+        const metrics = self.plane.metrics(1);
+        cursor.move_buffer_end(buffer.root, metrics);
+        var root_ = buffer.root;
+        _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, output, self.allocator, metrics);
+        buffer.store_undo(&[_]u8{}) catch {};
+        buffer.update(root_);
+    }
+    pub const shell_execute_stream_output_meta = .{ .arguments = &.{ .integer, .string } };
+
+    pub fn shell_execute_stream_output_complete(self: *Self, ctx: Ctx) Result {
+        var buffer_ref: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&buffer_ref)}))
+            return error.InvalidShellOutputCompleteArgument;
+        // TODO
+        _ = self;
+    }
+    pub const shell_execute_stream_output_complete_meta = .{ .arguments = &.{ .integer, .string } };
 
     pub fn adjust_fontsize(_: *Self, ctx: Ctx) Result {
         var amount: f32 = undefined;
