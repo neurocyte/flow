@@ -12,6 +12,7 @@ pub const label = "Switch buffers";
 pub const name = " buffer";
 pub const description = "buffer";
 const dirty_indicator = "";
+const hidden_indicator = "-";
 
 pub const Entry = struct {
     label: []const u8,
@@ -23,7 +24,12 @@ pub fn load_entries(palette: *Type) !usize {
     const buffers = try buffer_manager.list_most_recently_used(palette.allocator);
     defer palette.allocator.free(buffers);
     for (buffers) |buffer| {
-        const hint = if (buffer.is_dirty()) dirty_indicator else "";
+        const hint = if (buffer.is_dirty())
+            dirty_indicator
+        else if (buffer.is_hidden())
+            hidden_indicator
+        else
+            "";
         (try palette.entries.addOne()).* = .{ .label = buffer.file_path, .hint = hint };
     }
     return if (palette.entries.items.len == 0) label.len else 2;
