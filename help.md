@@ -13,7 +13,7 @@ kitty_mod ctrl+alt
 ```
 
 For other editors you will probably have to disable or rebind them each
-individually. 
+individually.
 
 ## Searching
 
@@ -28,7 +28,7 @@ Flow Control supports multiple input modes that may be changed
 interactively at runtime. The current input mode (and some other
 settings) is persisted in the configuration file automatically.
 
-- f2 => Cycle major input modes (flow, vim, ...)
+- f4 => Cycle major input modes (flow, vim, ...)
 
 The current input mode is displayed in the at the left side of the statusbar.
 
@@ -39,7 +39,7 @@ also shows any available keybind that may be used to run the command without
 opening the palette.
 
 - ctrl+f2 => Show all available commands and keybinds
- 
+
 This shows all currently available commands. Including commands that are
 normally only executed via a keybinding. Selecting a command in this view
 will insert the command name into the current document instead of executing
@@ -48,7 +48,7 @@ it. This is very useful for editing keybinding definition files.
 Run the `Edit keybindings` command to save the current keybinding mode to a
 file in the configuration `keys` directory and open it for editing. Save your
 customized keybinds under a new name in the same directory to create an
-entirely new keybinding mode that can be selected with `f2`. Delete the
+entirely new keybinding mode that can be selected with `f4`. Delete the
 keybinding file from the configuration `keys` directory to revert the mode
 to it's built-in definition (if there is one). Changes to keybinding files
 will take effect on restart.
@@ -106,10 +106,10 @@ Mouse commands are not rebindable and are not listed in the command palette.
 - Drag Left Click =>
         Extend selection to mouse pointer
 
-- Ctrl + Left Click =>
+- Alt + Left Click =>
         Add cursor at mouse click
 
-- Alt + Left Click =>
+- Ctrl + Left Click =>
         Goto definition of symbol at click
 
 - hold Alt =>
@@ -118,13 +118,16 @@ Mouse commands are not rebindable and are not listed in the command palette.
 - Right Click =>
         Extend selection to mouse pointer
 
+- Middle Click =>
+        Close tab
+
 - Back Button, Forward Button =>
         Jump to previous/next location in the location history
 
 - Scroll Wheel =>
         Scroll
-        
-- Ctrl + Scroll Wheel =>
+
+- Alt + Scroll Wheel =>
         Fast scroll
 
 ## Configuration
