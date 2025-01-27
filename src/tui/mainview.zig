@@ -393,6 +393,25 @@ const cmds = struct {
     }
     pub const create_scratch_buffer_meta = .{ .arguments = &.{ .string, .string } };
 
+    pub fn create_new_file(self: *Self, _: Ctx) Result {
+        var n: usize = 1;
+        var found_unique = false;
+        var name = std.ArrayList(u8).init(self.allocator);
+        defer name.deinit();
+        while (!found_unique) {
+            name.clearRetainingCapacity();
+            try name.writer().print("Untitled-{d}", .{n});
+            if (self.buffer_manager.get_buffer_for_file(name.items)) |_| {
+                n += 1;
+            } else {
+                found_unique = true;
+            }
+        }
+        try command.executeName("create_scratch_buffer", command.fmt(.{name.items}));
+        try command.executeName("change_file_type", .{});
+    }
+    pub const create_new_file_meta = .{ .description = "Create: New File…" };
+
     pub fn delete_buffer(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))

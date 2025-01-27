@@ -1,6 +1,7 @@
 {
     "project": {
         "press": [
+            ["ctrl+shift+n", "create_new_file"],
             ["alt+!", "select_task"],
             ["ctrl+tab", "next_tab"],
             ["ctrl+shift+tab", "previous_tab"],
