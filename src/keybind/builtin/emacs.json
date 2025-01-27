@@ -35,7 +35,8 @@
             ["ctrl+x ctrl+c", "quit"],
             ["ctrl+x ctrl+s", "save_file"],
             ["ctrl+x ctrl+c", "quit"],
-            ["ctrl+x b", "open_recent"],
+            ["ctrl+x b", "switch_buffers"],
+            ["ctrl+x ctrl+r", "open_recent"],
             ["alt+x", "open_command_palette"],
             ["ctrl+space", "enter_mode", "select"],
 
