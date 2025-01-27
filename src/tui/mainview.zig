@@ -368,7 +368,7 @@ const cmds = struct {
     pub fn open_help(self: *Self, _: Ctx) Result {
         tui.reset_drag_context();
         try self.create_editor();
-        try command.executeName("open_scratch_buffer", command.fmt(.{ "help.md", @embedFile("help.md") }));
+        try command.executeName("open_scratch_buffer", command.fmt(.{ "help", @embedFile("help.md"), "markdown" }));
         tui.need_render();
     }
     pub const open_help_meta = .{ .description = "Open help" };
