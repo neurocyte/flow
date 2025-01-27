@@ -504,14 +504,14 @@ pub const Editor = struct {
     }
 
     fn open(self: *Self, file_path: []const u8) !void {
-        return self.open_buffer(file_path, try self.buffer_manager.open_file(file_path));
+        return self.open_buffer(file_path, try self.buffer_manager.open_file(file_path), null);
     }
 
-    fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) !void {
-        return self.open_buffer(file_path, try self.buffer_manager.open_scratch(file_path, content));
+    fn open_scratch(self: *Self, file_path: []const u8, content: []const u8, file_type: ?[]const u8) !void {
+        return self.open_buffer(file_path, try self.buffer_manager.open_scratch(file_path, content), file_type);
     }
 
-    fn open_buffer(self: *Self, file_path: []const u8, new_buf: *Buffer) !void {
+    fn open_buffer(self: *Self, file_path: []const u8, new_buf: *Buffer, file_type: ?[]const u8) !void {
         errdefer self.buffer_manager.retire(new_buf);
         self.cancel_all_selections();
         self.get_primary().reset();
@@ -528,7 +528,7 @@ pub const Editor = struct {
             self.syntax_no_render = true;
         }
         self.syntax = syntax: {
-            const lang_override = tp.env.get().str("language");
+            const lang_override = file_type orelse tp.env.get().str("language");
             var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
             try new_buf.root.store(content.writer(), new_buf.file_eol_mode);
@@ -3751,11 +3751,15 @@ pub const Editor = struct {
     pub fn open_scratch_buffer(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
         var content: []const u8 = undefined;
-        if (ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content) }) catch false) {
-            try self.open_scratch(file_path, content);
+        var file_type: []const u8 = undefined;
+        if (ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content), tp.extract(&file_type) }) catch false) {
+            try self.open_scratch(file_path, content, file_type);
+            self.clamp();
+        } else if (ctx.args.match(.{ tp.extract(&file_path), tp.extract(&content) }) catch false) {
+            try self.open_scratch(file_path, content, null);
             self.clamp();
         } else if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
-            try self.open_scratch(file_path, "");
+            try self.open_scratch(file_path, "", null);
             self.clamp();
         } else return error.InvalidOpenScratchBufferArgument;
     }

@@ -386,12 +386,14 @@ const cmds = struct {
     pub const open_gui_config_meta = .{ .description = "Edit gui configuration file" };
 
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
+        const args = try ctx.args.clone(self.allocator);
+        defer self.allocator.free(args.buf);
         tui.reset_drag_context();
         try self.create_editor();
-        try command.executeName("open_scratch_buffer", ctx);
+        try command.executeName("open_scratch_buffer", .{ .args = args });
         tui.need_render();
     }
-    pub const create_scratch_buffer_meta = .{ .arguments = &.{ .string, .string } };
+    pub const create_scratch_buffer_meta = .{ .arguments = &.{ .string, .string, .string } };
 
     pub fn create_new_file(self: *Self, _: Ctx) Result {
         var n: usize = 1;
