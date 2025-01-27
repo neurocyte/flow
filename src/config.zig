@@ -19,7 +19,7 @@ default_cursor: []const u8 = "default",
 indent_size: usize = 4,
 tab_width: usize = 8,
 
-top_bar: []const u8 = "",
+top_bar: []const u8 = "tabs",
 bottom_bar: []const u8 = "mode file log selection diagnostics keybind linenumber clock spacer",
 
 lsp_request_timeout: usize = 10,
