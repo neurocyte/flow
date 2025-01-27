@@ -125,7 +125,8 @@ pub fn delete_task(task: []const u8) (ProjectManagerError || ProjectError)!void 
     return send(.{ "delete_task", project, task });
 }
 
-pub fn did_open(file_path: []const u8, file_type: *const FileType, version: usize, text: []const u8) (ProjectManagerError || ProjectError)!void {
+pub fn did_open(file_path: []const u8, file_type: *const FileType, version: usize, text: []const u8, ephemeral: bool) (ProjectManagerError || ProjectError)!void {
+    if (ephemeral) return;
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
@@ -211,7 +212,8 @@ pub fn hover(file_path: []const u8, row: usize, col: usize) (ProjectManagerError
     return send(.{ "hover", project, file_path, row, col });
 }
 
-pub fn update_mru(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn update_mru(file_path: []const u8, row: usize, col: usize, ephemeral: bool) (ProjectManagerError || ProjectError)!void {
+    if (ephemeral) return;
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;

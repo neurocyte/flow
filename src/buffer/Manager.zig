@@ -47,6 +47,7 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buf
     };
     buffer.update_last_used_time();
     buffer.hidden = false;
+    buffer.ephemeral = true;
     return buffer;
 }
 
@@ -56,11 +57,23 @@ pub fn get_buffer_for_file(self: *Self, file_path: []const u8) ?*Buffer {
 
 pub fn delete_buffer(self: *Self, file_path: []const u8) bool {
     const buffer = self.buffers.get(file_path) orelse return false;
+    const did_remove = self.buffers.remove(file_path);
     buffer.deinit();
-    return self.buffers.remove(file_path);
+    return did_remove;
 }
 
-pub fn retire(_: *Self, _: *Buffer) void {}
+pub fn retire(_: *Self, buffer: *Buffer) void {
+    tp.trace(tp.channel.debug, .{ "buffer", "retire", buffer.file_path, "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
+}
+
+pub fn close_buffer(self: *Self, buffer: *Buffer) void {
+    buffer.hidden = true;
+    tp.trace(tp.channel.debug, .{ "buffer", "close", buffer.file_path, "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
+    if (buffer.is_ephemeral()) {
+        _ = self.buffers.remove(buffer.file_path);
+        buffer.deinit();
+    }
+}
 
 pub fn list_most_recently_used(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*Buffer {
     const result = try self.list_unordered(allocator);
@@ -98,7 +111,10 @@ pub fn save_all(self: *const Self) Buffer.StoreToFileError!void {
     var i = self.buffers.iterator();
     while (i.next()) |kv| {
         const buffer = kv.value_ptr.*;
-        try buffer.store_to_file_and_clean(buffer.file_path);
+        if (buffer.is_ephemeral())
+            buffer.mark_clean()
+        else
+            try buffer.store_to_file_and_clean(buffer.file_path);
     }
 }
 

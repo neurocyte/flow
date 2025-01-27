@@ -40,6 +40,7 @@ file_eol_mode: EolMode = .lf,
 last_save_eol_mode: EolMode = .lf,
 file_utf8_sanitized: bool = false,
 hidden: bool = false,
+ephemeral: bool = false,
 
 undo_history: ?*UndoNode = null,
 redo_history: ?*UndoNode = null,
@@ -1279,6 +1280,7 @@ pub const StoreToFileError = error{
     NotDir,
     NotOpenForWriting,
     OperationAborted,
+    OutOfMemory,
     PathAlreadyExists,
     PipeBusy,
     ProcessFdQuotaExceeded,
@@ -1315,10 +1317,22 @@ pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) StoreToFileEr
     self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = true;
     self.file_utf8_sanitized = false;
+    if (self.ephemeral) {
+        self.ephemeral = false;
+        self.file_path = try self.allocator.dupe(u8, file_path);
+    }
 }
 
 pub fn mark_clean(self: *Self) void {
     self.last_save = self.root;
+}
+
+pub fn is_hidden(self: *const Self) bool {
+    return self.hidden;
+}
+
+pub fn is_ephemeral(self: *const Self) bool {
+    return self.ephemeral;
 }
 
 pub fn is_dirty(self: *const Self) bool {

@@ -82,6 +82,11 @@ pub fn State(ctx_type: type) type {
             allocator.destroy(self);
         }
 
+        pub fn update_label(self: *Self, label: []const u8) error{OutOfMemory}!void {
+            self.allocator.free(self.opts.label);
+            self.opts.label = try self.allocator.dupe(u8, label);
+        }
+
         pub fn layout(self: *Self) Widget.Layout {
             return self.opts.on_layout(&self.opts.ctx, self);
         }

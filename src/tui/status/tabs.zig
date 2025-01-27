@@ -117,6 +117,8 @@ const TabBar = struct {
                 try self.widget_list.add(try self.make_spacer());
             }
             try self.widget_list.add(tab.widget);
+            if (tab.widget.dynamic_cast(Button.State(Tab))) |btn|
+                try btn.update_label(Tab.name_from_buffer(tab.buffer));
         }
     }
 
@@ -212,7 +214,7 @@ const Tab = struct {
     }
 
     fn on_click2(self: *@This(), _: *Button.State(@This())) void {
-        tp.self_pid().send(.{ "cmd", "delete_buffer", .{self.buffer.file_path} }) catch {};
+        tp.self_pid().send(.{ "cmd", "close_buffer", .{self.buffer.file_path} }) catch {};
     }
 
     fn render(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {

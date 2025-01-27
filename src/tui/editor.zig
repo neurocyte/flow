@@ -537,7 +537,13 @@ pub const Editor = struct {
             else
                 syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch null;
             if (syn) |syn_|
-                project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch |e|
+                project_manager.did_open(
+                    file_path,
+                    syn_.file_type,
+                    self.lsp_version,
+                    try content.toOwnedSlice(),
+                    new_buf.is_ephemeral(),
+                ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
             break :syntax syn;
         };
@@ -563,6 +569,7 @@ pub const Editor = struct {
 
     fn save(self: *Self) !void {
         const b = self.buffer orelse return error.Stop;
+        if (b.is_ephemeral()) return self.logger.print_err("save", "ephemeral buffer, use save as", .{});
         if (!b.is_dirty()) return self.logger.print("no changes to save", .{});
         if (self.file_path) |file_path| {
             if (self.buffer) |b_mut| try b_mut.store_to_file_and_clean(file_path);
@@ -3785,23 +3792,24 @@ pub const Editor = struct {
     pub const save_file_as_meta = .{ .arguments = &.{.string} };
 
     pub fn close_file(self: *Self, _: Context) Result {
+        const buffer_ = self.buffer;
+        if (buffer_) |buffer| if (buffer.is_dirty())
+            return tp.exit("unsaved changes");
         self.cancel_all_selections();
-        if (self.buffer) |buffer| {
-            if (buffer.is_dirty())
-                return tp.exit("unsaved changes");
-            buffer.hidden = true;
-        }
         try self.close();
+        if (buffer_) |buffer|
+            self.buffer_manager.close_buffer(buffer);
     }
     pub const close_file_meta = .{ .description = "Close file" };
 
     pub fn close_file_without_saving(self: *Self, _: Context) Result {
         self.cancel_all_selections();
-        if (self.buffer) |buffer| {
+        const buffer_ = self.buffer;
+        if (buffer_) |buffer|
             buffer.reset_to_last_saved();
-            buffer.hidden = true;
-        }
         try self.close();
+        if (buffer_) |buffer|
+            self.buffer_manager.close_buffer(buffer);
     }
     pub const close_file_without_saving_meta = .{ .description = "Close file without saving" };
 
@@ -4781,7 +4789,13 @@ pub const Editor = struct {
             try root.store(content.writer(), try self.buf_eol_mode());
             const syn = syntax.create_file_type(self.allocator, file_type) catch null;
             if (syn) |syn_| if (self.file_path) |file_path|
-                project_manager.did_open(file_path, syn_.file_type, self.lsp_version, try content.toOwnedSlice()) catch |e|
+                project_manager.did_open(
+                    file_path,
+                    syn_.file_type,
+                    self.lsp_version,
+                    try content.toOwnedSlice(),
+                    if (self.buffer) |p| p.is_ephemeral() else true,
+                ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
             break :syntax syn;
         };

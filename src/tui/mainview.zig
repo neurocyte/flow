@@ -412,6 +412,22 @@ const cmds = struct {
     }
     pub const delete_buffer_meta = .{ .arguments = &.{.string} };
 
+    pub fn close_buffer(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
+            return error.InvalidDeleteBufferArgument;
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        if (buffer.is_dirty())
+            return tp.exit("unsaved changes");
+        if (self.get_active_editor()) |editor| if (editor.buffer == buffer) {
+            editor.close_file(.{}) catch |e| return e;
+            return;
+        };
+        _ = self.buffer_manager.close_buffer(buffer);
+        tui.need_render();
+    }
+    pub const close_buffer_meta = .{ .arguments = &.{.string} };
+
     pub fn restore_session(self: *Self, _: Ctx) Result {
         if (tp.env.get().str("project").len == 0) {
             try open_project_cwd(self, .{});
@@ -859,16 +875,17 @@ pub fn location_update(self: *Self, m: tp.message) tp.result {
     var row: usize = 0;
     var col: usize = 0;
     const file_path = self.get_active_file_path() orelse return;
+    const ephemeral = if (self.get_active_buffer()) |buffer| buffer.is_ephemeral() else false;
 
     if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col) })) {
         if (row == 0 and col == 0) return;
-        project_manager.update_mru(file_path, row, col) catch {};
+        project_manager.update_mru(file_path, row, col, ephemeral) catch {};
         return self.location_history.update(file_path, .{ .row = row + 1, .col = col + 1 }, null);
     }
 
     var sel: location_history.Selection = .{};
     if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col), tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) })) {
-        project_manager.update_mru(file_path, row, col) catch {};
+        project_manager.update_mru(file_path, row, col, ephemeral) catch {};
         return self.location_history.update(file_path, .{ .row = row + 1, .col = col + 1 }, sel);
     }
 }
@@ -909,6 +926,10 @@ pub fn get_active_editor(self: *Self) ?*ed.Editor {
 
 pub fn get_active_file_path(self: *Self) ?[]const u8 {
     return if (self.get_active_editor()) |editor| editor.file_path orelse null else null;
+}
+
+pub fn get_active_buffer(self: *Self) ?*Buffer {
+    return if (self.get_active_editor()) |editor| editor.buffer orelse null else null;
 }
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
