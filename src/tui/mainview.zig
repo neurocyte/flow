@@ -743,6 +743,7 @@ const cmds = struct {
         if (self.get_active_editor()) |editor| if (editor.buffer) |eb| if (eb == buffer) {
             editor.move_buffer_end(.{}) catch {};
             editor.insert_chars(command.fmt(.{output})) catch {};
+            tui.need_render();
             return;
         };
         var cursor: Buffer.Cursor = .{};
@@ -752,6 +753,7 @@ const cmds = struct {
         _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, output, self.allocator, metrics);
         buffer.store_undo(&[_]u8{}) catch {};
         buffer.update(root_);
+        tui.need_render();
     }
     pub const shell_execute_stream_output_meta = .{ .arguments = &.{ .integer, .string } };
 
@@ -765,6 +767,7 @@ const cmds = struct {
             return;
         };
         buffer.mark_clean();
+        tui.need_render();
     }
     pub const shell_execute_stream_output_complete_meta = .{ .arguments = &.{ .integer, .string } };
 
