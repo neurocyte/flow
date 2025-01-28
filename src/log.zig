@@ -127,6 +127,8 @@ pub const Logger = struct {
     }
 
     pub fn err(self: Logger, context: []const u8, e: anyerror) void {
+        var msg_fmt = std.ArrayList(u8).init(std.heap.c_allocator);
+        defer msg_fmt.deinit();
         defer tp.reset_error();
         var buf: [max_log_message]u8 = undefined;
         var msg: []const u8 = "UNKNOWN";
@@ -140,7 +142,16 @@ pub const Logger = struct {
                 } else if (msg_.match(.{ "exit", tp.extract(&msg__), tp.extract(&trace__) }) catch false) {
                     //
                 } else {
-                    msg__ = msg_.buf;
+                    var failed = false;
+                    msg_fmt.writer().print("{}", .{msg_}) catch {
+                        failed = true;
+                    };
+                    if (failed) {
+                        msg_fmt.clearRetainingCapacity();
+                        msg_fmt.writer().print("{s}", .{std.fmt.fmtSliceEscapeLower(msg_.buf)}) catch {};
+                    }
+                    msg__ = msg_fmt.items;
+                    tp.trace(tp.channel.debug, .{ "log_err_fmt", msg__.len, msg__[0..@min(msg__.len, 128)] });
                 }
                 if (msg__.len > buf.len) {
                     self.proc.send(.{ "log", "error", self.tag, context, "->", "MESSAGE TOO LARGE" }) catch {};
