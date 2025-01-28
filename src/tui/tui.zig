@@ -480,7 +480,6 @@ fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
-    tp.trace(tp.channel.input, m);
     self.input_listeners.send(from, m) catch {};
     if (self.keyboard_focus) |w|
         if (w.send(from, m) catch |e| ret: {
