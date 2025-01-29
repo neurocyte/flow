@@ -577,7 +577,7 @@ fn config_eql(comptime T: type, a: T, b: T) bool {
         else => {},
     }
     switch (@typeInfo(T)) {
-        .Bool, .Int, .Float => return a == b,
+        .Bool, .Int, .Float, .Enum => return a == b,
         else => {},
     }
     @compileError("unsupported config type " ++ @typeName(T));

@@ -1,5 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
+const root = @import("root");
 
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
@@ -10,8 +11,46 @@ const Widget = @import("../Widget.zig");
 const WidgetList = @import("../WidgetList.zig");
 const Button = @import("../Button.zig");
 
-const dirty_indicator = " ";
-const padding = " ";
+const @"style.config" = struct {
+    dirty_indicator: []const u8 = " ",
+
+    spacer: []const u8 = "|",
+    spacer_fg: colors = .active_bg,
+    spacer_bg: colors = .inactive_bg,
+
+    bar_fg: colors = .inactive_fg,
+    bar_bg: colors = .inactive_bg,
+
+    active_fg: colors = .active_fg,
+    active_bg: colors = .active_bg,
+    active_left: []const u8 = "◢█",
+    active_left_fg: colors = .active_bg,
+    active_left_bg: colors = .inactive_bg,
+    active_right: []const u8 = "█◣",
+    active_right_fg: colors = .active_bg,
+    active_right_bg: colors = .inactive_bg,
+
+    inactive_fg: colors = .inactive_fg,
+    inactive_bg: colors = .inactive_bg,
+    inactive_left: []const u8 = "  ",
+    inactive_left_fg: colors = .inactive_fg,
+    inactive_left_bg: colors = .inactive_bg,
+    inactive_right: []const u8 = "  ",
+    inactive_right_fg: colors = .inactive_fg,
+    inactive_right_bg: colors = .inactive_bg,
+
+    selected_fg: colors = .active_fg,
+    selected_bg: colors = .active_bg,
+    selected_left: []const u8 = "◢█",
+    selected_left_fg: colors = .active_bg,
+    selected_left_bg: colors = .inactive_bg,
+    selected_right: []const u8 = "█◣",
+    selected_right_fg: colors = .active_bg,
+    selected_right_bg: colors = .inactive_bg,
+
+    include_files: []const u8 = "",
+};
+const Style = @"style.config";
 
 pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
     const self = try allocator.create(TabBar);
@@ -28,6 +67,9 @@ const TabBar = struct {
     tabs: []TabBarTab = &[_]TabBarTab{},
     active_buffer: ?*Buffer = null,
 
+    tab_style: Style,
+    tab_style_bufs: [][]const u8,
+
     const Self = @This();
 
     const TabBarTab = struct {
@@ -38,16 +80,21 @@ const TabBar = struct {
     fn init(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) !Self {
         var w = try WidgetList.createH(allocator, parent, "tabs", .dynamic);
         w.ctx = w;
+        const tab_style, const tab_style_bufs = root.read_config(Style, allocator);
+        root.write_config(tab_style, allocator) catch {};
         return .{
             .allocator = allocator,
             .plane = w.plane,
             .widget_list = w,
             .widget_list_widget = w.widget(),
             .event_handler = event_handler,
+            .tab_style = tab_style,
+            .tab_style_bufs = tab_style_bufs,
         };
     }
 
     pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        root.free_config(self.allocator, self.tab_style_bufs);
         self.allocator.free(self.tabs);
         self.widget_list_widget.deinit(allocator);
         allocator.destroy(self);
@@ -67,7 +114,10 @@ const TabBar = struct {
         self.plane.set_base_style(theme.editor);
         self.plane.erase();
         self.plane.home();
-        self.plane.set_style(theme.tab_inactive);
+        self.plane.set_style(.{
+            .fg = self.tab_style.bar_fg.from_theme(theme),
+            .bg = self.tab_style.bar_bg.from_theme(theme),
+        });
         self.plane.fill(" ");
         self.plane.home();
         return self.widget_list_widget.render(theme);
@@ -146,7 +196,7 @@ const TabBar = struct {
             if (!buffer.hidden)
                 (try result.addOne(self.allocator)).* = .{
                     .buffer = buffer,
-                    .widget = try Tab.create(self, buffer, self.event_handler),
+                    .widget = try Tab.create(self, buffer, &self.tab_style, self.event_handler),
                 };
         }
 
@@ -154,7 +204,14 @@ const TabBar = struct {
     }
 
     fn make_spacer(self: @This()) !Widget {
-        return spacer.create(self.allocator, self.widget_list.plane, null);
+        return spacer.create(
+            self.allocator,
+            self.widget_list.plane,
+            self.tab_style.spacer,
+            self.tab_style.spacer_fg,
+            self.tab_style.spacer_bg,
+            null,
+        );
     }
 
     fn select_next_tab(self: *Self) void {
@@ -192,14 +249,18 @@ const TabBar = struct {
 const Tab = struct {
     tabbar: *TabBar,
     buffer: *Buffer,
+    tab_style: *const Style,
+
+    const Mode = enum { active, inactive, selected };
 
     fn create(
         tabbar: *TabBar,
         buffer: *Buffer,
+        tab_style: *const Style,
         event_handler: ?EventHandler,
     ) !Widget {
         return Button.create_widget(Tab, tabbar.allocator, tabbar.widget_list.plane, .{
-            .ctx = .{ .tabbar = tabbar, .buffer = buffer },
+            .ctx = .{ .tabbar = tabbar, .buffer = buffer, .tab_style = tab_style },
             .label = name_from_buffer(buffer),
             .on_click = Tab.on_click,
             .on_click2 = Tab.on_click2,
@@ -219,57 +280,140 @@ const Tab = struct {
 
     fn render(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
         const active = self.tabbar.active_buffer == self.buffer;
-        return if (active)
-            self.render_active(btn, theme)
-        else
-            self.render_inactive(btn, theme);
-    }
-
-    fn render_active(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
-        btn.plane.set_base_style(theme.editor);
-        btn.plane.erase();
-        btn.plane.home();
-        btn.plane.set_style(theme.tab_inactive);
-        btn.plane.fill(" ");
-        btn.plane.home();
-        btn.plane.set_style(theme.tab_active);
-        btn.plane.fill(" ");
-        btn.plane.home();
-        return self.render_content(btn);
-    }
-
-    fn render_inactive(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
-        btn.plane.set_base_style(theme.editor);
-        btn.plane.erase();
-        btn.plane.home();
-        btn.plane.set_style(theme.tab_inactive);
-        btn.plane.fill(" ");
-        btn.plane.home();
-        if (btn.hover) {
-            btn.plane.set_style(theme.tab_selected);
-            btn.plane.fill(" ");
-            btn.plane.home();
+        const mode: Mode = if (btn.hover) .selected else if (active) .active else .inactive;
+        switch (mode) {
+            .selected => self.render_selected(btn, theme, active),
+            .active => self.render_active(btn, theme),
+            .inactive => self.render_inactive(btn, theme),
         }
-        return self.render_content(btn);
-    }
-
-    fn render_content(self: *@This(), btn: *Button.State(@This())) bool {
-        _ = btn.plane.putstr(" ") catch {};
-        if (self.buffer.is_dirty())
-            _ = btn.plane.putstr(dirty_indicator) catch {};
-        _ = btn.plane.putstr(btn.opts.label) catch {};
-        _ = btn.plane.putstr(" ") catch {};
         return false;
     }
 
+    fn render_selected(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme, active: bool) void {
+        btn.plane.set_base_style(theme.editor);
+        btn.plane.erase();
+        btn.plane.home();
+        btn.plane.set_style(.{
+            .fg = self.tab_style.inactive_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_bg.from_theme(theme),
+        });
+        btn.plane.fill(" ");
+        btn.plane.home();
+        if (active) {
+            btn.plane.set_style(.{
+                .fg = self.tab_style.selected_fg.from_theme(theme),
+                .bg = self.tab_style.selected_bg.from_theme(theme),
+            });
+            btn.plane.fill(" ");
+            btn.plane.home();
+        }
+
+        btn.plane.set_style(.{
+            .fg = self.tab_style.selected_left_fg.from_theme(theme),
+            .bg = self.tab_style.selected_left_bg.from_theme(theme),
+        });
+        _ = btn.plane.putstr(self.tab_style.selected_left) catch {};
+
+        btn.plane.set_style(.{
+            .fg = self.tab_style.selected_fg.from_theme(theme),
+            .bg = self.tab_style.selected_bg.from_theme(theme),
+        });
+        self.render_content(btn);
+
+        btn.plane.set_style(.{
+            .fg = self.tab_style.selected_right_fg.from_theme(theme),
+            .bg = self.tab_style.selected_right_bg.from_theme(theme),
+        });
+        _ = btn.plane.putstr(self.tab_style.selected_right) catch {};
+    }
+
+    fn render_active(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) void {
+        btn.plane.set_base_style(theme.editor);
+        btn.plane.erase();
+        btn.plane.home();
+        btn.plane.set_style(.{
+            .fg = self.tab_style.inactive_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_bg.from_theme(theme),
+        });
+        btn.plane.fill(" ");
+        btn.plane.home();
+        btn.plane.set_style(.{
+            .fg = self.tab_style.active_fg.from_theme(theme),
+            .bg = self.tab_style.active_bg.from_theme(theme),
+        });
+        btn.plane.fill(" ");
+        btn.plane.home();
+
+        btn.plane.set_style(.{
+            .fg = self.tab_style.active_left_fg.from_theme(theme),
+            .bg = self.tab_style.active_left_bg.from_theme(theme),
+        });
+        _ = btn.plane.putstr(self.tab_style.active_left) catch {};
+
+        btn.plane.set_style(.{
+            .fg = self.tab_style.active_fg.from_theme(theme),
+            .bg = self.tab_style.active_bg.from_theme(theme),
+        });
+        self.render_content(btn);
+
+        btn.plane.set_style(.{
+            .fg = self.tab_style.active_right_fg.from_theme(theme),
+            .bg = self.tab_style.active_right_bg.from_theme(theme),
+        });
+        _ = btn.plane.putstr(self.tab_style.active_right) catch {};
+    }
+
+    fn render_inactive(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) void {
+        btn.plane.set_base_style(theme.editor);
+        btn.plane.erase();
+        btn.plane.home();
+        btn.plane.set_style(.{
+            .fg = self.tab_style.inactive_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_bg.from_theme(theme),
+        });
+        btn.plane.fill(" ");
+        btn.plane.home();
+
+        btn.plane.set_style(.{
+            .fg = self.tab_style.inactive_left_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_left_bg.from_theme(theme),
+        });
+        _ = btn.plane.putstr(self.tab_style.inactive_left) catch {};
+
+        btn.plane.set_style(.{
+            .fg = self.tab_style.inactive_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_bg.from_theme(theme),
+        });
+        self.render_content(btn);
+
+        btn.plane.set_style(.{
+            .fg = self.tab_style.inactive_right_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_right_bg.from_theme(theme),
+        });
+        _ = btn.plane.putstr(self.tab_style.inactive_right) catch {};
+    }
+
+    fn render_content(self: *@This(), btn: *Button.State(@This())) void {
+        if (self.buffer.is_dirty())
+            _ = btn.plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
+        _ = btn.plane.putstr(btn.opts.label) catch {};
+    }
+
     fn layout(self: *@This(), btn: *Button.State(@This())) Widget.Layout {
+        const active = self.tabbar.active_buffer == self.buffer;
         const len = btn.plane.egc_chunk_width(btn.opts.label, 0, 1);
-        const len_dirty_indicator = btn.plane.egc_chunk_width(dirty_indicator, 0, 1);
-        const len_padding = btn.plane.egc_chunk_width(padding, 0, 1);
-        return if (self.buffer.is_dirty())
-            .{ .static = len + (2 * len_padding) + len_dirty_indicator }
+        const len_padding = padding_len(btn.plane, self.tabbar.tab_style, active, self.buffer.is_dirty());
+        return .{ .static = len + len_padding };
+    }
+
+    fn padding_len(plane: Plane, tab_style: Style, active: bool, dirty: bool) usize {
+        const len_dirty_indicator = if (dirty) plane.egc_chunk_width(tab_style.dirty_indicator, 0, 1) else 0;
+        return len_dirty_indicator + if (active)
+            plane.egc_chunk_width(tab_style.active_left, 0, 1) +
+                plane.egc_chunk_width(tab_style.active_right, 0, 1)
         else
-            .{ .static = len + (2 * len_padding) };
+            plane.egc_chunk_width(tab_style.inactive_left, 0, 1) +
+                plane.egc_chunk_width(tab_style.inactive_right, 0, 1);
     }
 
     fn name_from_buffer(buffer: *Buffer) []const u8 {
@@ -284,15 +428,28 @@ const spacer = struct {
     plane: Plane,
     layout: Widget.Layout,
     on_event: ?EventHandler,
+    content: []const u8,
+    fg: colors,
+    bg: colors,
 
     const Self = @This();
 
-    fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
+    fn create(
+        allocator: std.mem.Allocator,
+        parent: Plane,
+        content: []const u8,
+        fg: colors,
+        bg: colors,
+        event_handler: ?EventHandler,
+    ) @import("widget.zig").CreateError!Widget {
         const self: *Self = try allocator.create(Self);
         self.* = .{
             .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-            .layout = .{ .static = 1 },
+            .layout = .{ .static = self.plane.egc_chunk_width(content, 0, 1) },
             .on_event = event_handler,
+            .content = content,
+            .fg = fg,
+            .bg = bg,
         };
         return Widget.to(self);
     }
@@ -310,9 +467,13 @@ const spacer = struct {
         self.plane.set_base_style(theme.editor);
         self.plane.erase();
         self.plane.home();
-        self.plane.set_style(theme.tab_inactive);
+        self.plane.set_style(.{
+            .fg = self.fg.from_theme(theme),
+            .bg = self.bg.from_theme(theme),
+        });
         self.plane.fill(" ");
         self.plane.home();
+        _ = self.plane.putstr(self.content) catch {};
         return false;
     }
 
@@ -323,5 +484,29 @@ const spacer = struct {
             return true;
         }
         return false;
+    }
+};
+
+const colors = enum {
+    default_bg,
+    default_fg,
+    active_bg,
+    active_fg,
+    inactive_bg,
+    inactive_fg,
+    selected_bg,
+    selected_fg,
+
+    fn from_theme(color: colors, theme: *const Widget.Theme) ?Widget.Theme.Color {
+        return switch (color) {
+            .default_bg => theme.editor.bg,
+            .default_fg => theme.editor.fg,
+            .active_bg => theme.tab_active.bg,
+            .active_fg => theme.tab_active.fg,
+            .inactive_bg => theme.tab_inactive.bg,
+            .inactive_fg => theme.tab_inactive.fg,
+            .selected_bg => theme.tab_selected.bg,
+            .selected_fg => theme.tab_selected.fg,
+        };
     }
 };
