@@ -367,7 +367,7 @@ pub const Editor = struct {
         try self.get_primary().cursor.write(writer);
     }
 
-    pub fn extract_state(self: *Self, buf: []const u8) !void {
+    pub fn extract_state(self: *Self, buf: []const u8, comptime op: enum { none, open_file }) !void {
         var file_path: []const u8 = undefined;
         var view_cbor: []const u8 = undefined;
         var primary_cbor: []const u8 = undefined;
@@ -383,7 +383,8 @@ pub const Editor = struct {
             tp.extract_cbor(&primary_cbor),
         }))
             return error.RestoreStateMatch;
-        try self.open(file_path);
+        if (op == .open_file)
+            try self.open(file_path);
         self.clipboard = if (clipboard.len > 0) try self.allocator.dupe(u8, clipboard) else null;
         self.last_find_query = if (query.len > 0) try self.allocator.dupe(u8, clipboard) else null;
         if (!try self.view.extract(&view_cbor))
@@ -430,6 +431,9 @@ pub const Editor = struct {
     }
 
     fn deinit(self: *Self) void {
+        var meta = std.ArrayList(u8).init(self.allocator);
+        defer meta.deinit();
+        self.write_state(meta.writer()) catch {};
         for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
         self.diagnostics.deinit();
         if (self.syntax) |syn| syn.destroy();
@@ -437,7 +441,7 @@ pub const Editor = struct {
         self.matches.deinit();
         self.handlers.deinit();
         self.logger.deinit();
-        if (self.buffer) |p| self.buffer_manager.retire(p);
+        if (self.buffer) |p| self.buffer_manager.retire(p, meta.items);
         if (self.case_data) |cd| cd.deinit();
     }
 
@@ -512,7 +516,7 @@ pub const Editor = struct {
     }
 
     fn open_buffer(self: *Self, file_path: []const u8, new_buf: *Buffer, file_type: ?[]const u8) !void {
-        errdefer self.buffer_manager.retire(new_buf);
+        errdefer self.buffer_manager.retire(new_buf, null);
         self.cancel_all_selections();
         self.get_primary().reset();
         self.file_path = try self.allocator.dupe(u8, file_path);
@@ -553,11 +557,17 @@ pub const Editor = struct {
         const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
         const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";
         const ftc = if (self.syntax) |syn| syn.file_type.color else 0x000000;
+
+        if (self.buffer) |buffer| if (buffer.get_meta()) |meta|
+            try self.extract_state(meta, .none);
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc);
     }
 
     fn close(self: *Self) !void {
-        if (self.buffer) |b_mut| self.buffer_manager.retire(b_mut);
+        var meta = std.ArrayList(u8).init(self.allocator);
+        defer meta.deinit();
+        self.write_state(meta.writer()) catch {};
+        if (self.buffer) |b_mut| self.buffer_manager.retire(b_mut, meta.items);
         self.buffer = null;
         self.plane.erase();
         self.plane.home();

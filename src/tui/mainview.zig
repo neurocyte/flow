@@ -341,6 +341,7 @@ const cmds = struct {
 
         const f = project_manager.normalize_file_path(file orelse return);
         const same_file = if (self.get_active_file_path()) |fp| std.mem.eql(u8, fp, f) else false;
+        const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
         if (!same_file) {
             if (self.get_active_editor()) |editor| {
@@ -358,7 +359,7 @@ const cmds = struct {
             if (column) |col|
                 try command.executeName("goto_column", command.fmt(.{col}));
         } else {
-            if (!same_file)
+            if (!same_file and !have_editor_metadata)
                 try project_manager.get_mru_position(f);
         }
         tui.need_render();
@@ -1053,7 +1054,7 @@ fn read_restore_info(self: *Self) !void {
     var buf = try self.allocator.alloc(u8, @intCast(stat.size));
     defer self.allocator.free(buf);
     const size = try file.readAll(buf);
-    try editor.extract_state(buf[0..size]);
+    try editor.extract_state(buf[0..size], .open_file);
 }
 
 fn get_next_mru_buffer(self: *Self) ?[]const u8 {
