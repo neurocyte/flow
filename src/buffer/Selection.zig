@@ -1,3 +1,5 @@
+const cbor = @import("cbor");
+
 const Buffer = @import("Buffer.zig");
 const Cursor = @import("Cursor.zig");
 
@@ -44,13 +46,19 @@ pub fn normalize(self: *Self) void {
 }
 
 pub fn write(self: *const Self, writer: Buffer.MetaWriter) !void {
+    try cbor.writeArrayHeader(writer, 2);
     try self.begin.write(writer);
     try self.end.write(writer);
 }
 
 pub fn extract(self: *Self, iter: *[]const u8) !bool {
-    if (!try self.begin.extract(iter)) return false;
-    return self.end.extract(iter);
+    var iter2 = iter.*;
+    const len = cbor.decodeArrayHeader(&iter2) catch return false;
+    if (len != 2) return false;
+    if (!try self.begin.extract(&iter2)) return false;
+    if (!try self.end.extract(&iter2)) return false;
+    iter.* = iter2;
+    return true;
 }
 
 pub fn nudge_insert(self: *Self, nudge: Self) void {

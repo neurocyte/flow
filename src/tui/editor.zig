@@ -181,6 +181,7 @@ pub const CurSel = struct {
     }
 
     fn write(self: *const Self, writer: Buffer.MetaWriter) !void {
+        try cbor.writeArrayHeader(writer, 2);
         try self.cursor.write(writer);
         if (self.selection) |sel| {
             try sel.write(writer);
@@ -190,15 +191,21 @@ pub const CurSel = struct {
     }
 
     fn extract(self: *Self, iter: *[]const u8) !bool {
-        if (!try self.cursor.extract(iter)) return false;
         var iter2 = iter.*;
-        if (try cbor.matchValue(&iter2, cbor.null_)) {
-            iter.* = iter2;
+        const len = cbor.decodeArrayHeader(&iter2) catch return false;
+        if (len != 2) return false;
+        if (!try self.cursor.extract(&iter2)) return false;
+        var iter3 = iter2;
+        if (try cbor.matchValue(&iter3, cbor.null_)) {
+            iter2 = iter3;
         } else {
+            iter3 = iter2;
             var sel: Selection = .{};
-            if (!try sel.extract(iter)) return false;
+            if (!try sel.extract(&iter3)) return false;
             self.selection = sel;
+            iter2 = iter3;
         }
+        iter.* = iter2;
         return true;
     }
 
@@ -364,13 +371,23 @@ pub const Editor = struct {
             try cbor.writeArrayHeader(writer, 0);
         }
         try self.view.write(writer);
-        try self.get_primary().cursor.write(writer);
+
+        var count_cursels: usize = 0;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |_| {
+            count_cursels += 1;
+        };
+        try cbor.writeArrayHeader(writer, count_cursels);
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            try cursel.write(writer);
+        };
     }
 
     pub fn extract_state(self: *Self, buf: []const u8, comptime op: enum { none, open_file }) !void {
+        tp.trace(tp.channel.debug, .{ "extract_state", self.file_path });
+        tp.trace(tp.channel.debug, tp.message{ .buf = buf });
         var file_path: []const u8 = undefined;
         var view_cbor: []const u8 = undefined;
-        var primary_cbor: []const u8 = undefined;
+        var cursels_cbor: []const u8 = undefined;
         var clipboard: []const u8 = undefined;
         var query: []const u8 = undefined;
         var find_history: []const u8 = undefined;
@@ -380,7 +397,7 @@ pub const Editor = struct {
             tp.extract(&query),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
-            tp.extract_cbor(&primary_cbor),
+            tp.extract_cbor(&cursels_cbor),
         }))
             return error.RestoreStateMatch;
         if (op == .open_file)
@@ -390,13 +407,22 @@ pub const Editor = struct {
         if (!try self.view.extract(&view_cbor))
             return error.RestoreView;
         self.scroll_dest = self.view.row;
-        if (!try self.get_primary().cursor.extract(&primary_cbor))
-            return error.RestoreCursor;
-        var len = cbor.decodeArrayHeader(&find_history) catch return error.RestoryFindHistory;
+
+        if (cursels_cbor.len > 0)
+            self.clear_all_cursors();
+        var iter = cursels_cbor;
+        var len = cbor.decodeArrayHeader(&iter) catch return error.RestoreCurSels;
+        while (len > 0) : (len -= 1) {
+            var cursel: CurSel = .{};
+            if (!(cursel.extract(&iter) catch false)) break;
+            (try self.cursels.addOne()).* = cursel;
+        }
+
+        len = cbor.decodeArrayHeader(&find_history) catch return error.RestoreFindHistory;
         while (len > 0) : (len -= 1) {
             var value: []const u8 = undefined;
-            if (!(cbor.matchValue(&find_history, cbor.extract(&value)) catch return error.RestoryFindHistory))
-                return error.RestoryFindHistory;
+            if (!(cbor.matchValue(&find_history, cbor.extract(&value)) catch return error.RestoreFindHistory))
+                return error.RestoreFindHistory;
             self.push_find_history(value);
         }
         self.clamp();
@@ -433,7 +459,7 @@ pub const Editor = struct {
     fn deinit(self: *Self) void {
         var meta = std.ArrayList(u8).init(self.allocator);
         defer meta.deinit();
-        self.write_state(meta.writer()) catch {};
+        if (self.buffer) |_| self.write_state(meta.writer()) catch {};
         for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
         self.diagnostics.deinit();
         if (self.syntax) |syn| syn.destroy();
@@ -568,6 +594,7 @@ pub const Editor = struct {
         defer meta.deinit();
         self.write_state(meta.writer()) catch {};
         if (self.buffer) |b_mut| self.buffer_manager.retire(b_mut, meta.items);
+        self.cancel_all_selections();
         self.buffer = null;
         self.plane.erase();
         self.plane.home();
@@ -3809,7 +3836,6 @@ pub const Editor = struct {
         const buffer_ = self.buffer;
         if (buffer_) |buffer| if (buffer.is_dirty())
             return tp.exit("unsaved changes");
-        self.cancel_all_selections();
         try self.close();
         if (buffer_) |buffer|
             self.buffer_manager.close_buffer(buffer);
@@ -3817,7 +3843,6 @@ pub const Editor = struct {
     pub const close_file_meta = .{ .description = "Close file" };
 
     pub fn close_file_without_saving(self: *Self, _: Context) Result {
-        self.cancel_all_selections();
         const buffer_ = self.buffer;
         if (buffer_) |buffer|
             buffer.reset_to_last_saved();

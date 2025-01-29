@@ -65,6 +65,7 @@ pub fn delete_buffer(self: *Self, file_path: []const u8) bool {
 pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
     if (meta) |buf| buffer.set_meta(buf) catch {};
     tp.trace(tp.channel.debug, .{ "buffer", "retire", buffer.file_path, "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
+    if (meta) |buf| tp.trace(tp.channel.debug, tp.message{ .buf = buf });
 }
 
 pub fn close_buffer(self: *Self, buffer: *Buffer) void {
