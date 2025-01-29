@@ -41,6 +41,7 @@ last_save_eol_mode: EolMode = .lf,
 file_utf8_sanitized: bool = false,
 hidden: bool = false,
 ephemeral: bool = false,
+meta: ?[]const u8 = null,
 
 undo_history: ?*UndoNode = null,
 redo_history: ?*UndoNode = null,
@@ -1064,10 +1065,21 @@ pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.meta) |buf| self.external_allocator.free(buf);
     if (self.file_buf) |buf| self.external_allocator.free(buf);
     if (self.leaves_buf) |buf| self.external_allocator.free(buf);
     self.arena.deinit();
     self.external_allocator.destroy(self);
+}
+
+pub fn set_meta(self: *Self, meta_: []const u8) error{OutOfMemory}!void {
+    const meta = try self.external_allocator.dupe(u8, meta_);
+    if (self.meta) |buf| self.external_allocator.free(buf);
+    self.meta = meta;
+}
+
+pub fn get_meta(self: *Self) ?[]const u8 {
+    return self.meta;
 }
 
 pub fn update_last_used_time(self: *Self) void {
