@@ -1347,6 +1347,10 @@ pub fn is_ephemeral(self: *const Self) bool {
     return self.ephemeral;
 }
 
+pub fn mark_not_ephemeral(self: *Self) void {
+    self.ephemeral = false;
+}
+
 pub fn is_dirty(self: *const Self) bool {
     return if (!self.file_exists)
         self.root.length() > 0
