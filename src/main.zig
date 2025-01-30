@@ -561,10 +561,14 @@ pub fn write_config(conf: anytype, allocator: std.mem.Allocator) !void {
 }
 
 fn write_text_config_file(comptime T: type, data: T, file_name: []const u8) !void {
-    const default: T = .{};
     var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
     defer file.close();
     const writer = file.writer();
+    return write_config_to_writer(T, data, writer);
+}
+
+pub fn write_config_to_writer(comptime T: type, data: T, writer: anytype) !void {
+    const default: T = .{};
     inline for (@typeInfo(T).Struct.fields) |field_info| {
         if (config_eql(
             field_info.type,
