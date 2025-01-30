@@ -80,8 +80,11 @@ const TabBar = struct {
     fn init(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) !Self {
         var w = try WidgetList.createH(allocator, parent, "tabs", .dynamic);
         w.ctx = w;
-        const tab_style, const tab_style_bufs = root.read_config(Style, allocator);
-        root.write_config(tab_style, allocator) catch {};
+        const tab_style, const tab_style_bufs: [][]const u8 = if (root.exists_config(Style)) blk: {
+            const tab_style, const tab_style_bufs = root.read_config(Style, allocator);
+            root.write_config(tab_style, allocator) catch {};
+            break :blk .{ tab_style, tab_style_bufs };
+        } else .{ Style{}, &.{} };
         return .{
             .allocator = allocator,
             .plane = w.plane,

@@ -406,6 +406,16 @@ pub fn free_config(allocator: std.mem.Allocator, bufs: [][]const u8) void {
 
 var config_mutex: std.Thread.Mutex = .{};
 
+pub fn exists_config(T: type) bool {
+    config_mutex.lock();
+    defer config_mutex.unlock();
+    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return false;
+    const text_file_name = json_file_name[0 .. json_file_name.len - ".json".len];
+    var file = std.fs.openFileAbsolute(text_file_name, .{ .mode = .read_only }) catch return false;
+    defer file.close();
+    return true;
+}
+
 pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const u8 } {
     config_mutex.lock();
     defer config_mutex.unlock();
