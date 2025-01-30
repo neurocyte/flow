@@ -28,9 +28,15 @@ TARGETS=$(/bin/ls)
 for target in $TARGETS; do
     if [ -d "$target" ]; then
         cd "$target"
-        echo packing "$target"...
-        tar -czf "../../${APPNAME}-${VERSION}-${target}.tar.gz" -- *
-        cd ..
+        if [ "${target:0:8}" == "windows-" ]; then
+            echo packing zip "$target"...
+            zip -r "../../${APPNAME}-${VERSION}-${target}.zip" ./*
+            cd ..
+        else
+            echo packing tar "$target"...
+            tar -czf "../../${APPNAME}-${VERSION}-${target}.tar.gz" -- *
+            cd ..
+        fi
     fi
 done
 
@@ -42,7 +48,7 @@ TARFILES=$(/bin/ls)
 for tarfile in $TARFILES; do
     echo signing "$tarfile"...
     gpg --local-user 4E6CF7234FFC4E14531074F98EB1E1BB660E3FB9 --detach-sig "$tarfile"
-    sha256sum -b "$tarfile" > "${tarfile}.sha256"
+    sha256sum -b "$tarfile" >"${tarfile}.sha256"
 done
 
 echo "done making release $VERSION @ $DESTDIR"
