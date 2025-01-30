@@ -390,9 +390,31 @@ const cmds = struct {
 
     pub fn open_gui_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("gui_config"));
-        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - 5] } });
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - ".json".len] } });
     }
     pub const open_gui_config_meta = .{ .description = "Edit gui configuration file" };
+
+    pub fn open_tabs_style_config(self: *Self, _: Ctx) Result {
+        const Style = @import("status/tabs.zig").Style;
+        const file_name = try root.get_config_file_name(Style);
+        const tab_style, const tab_style_bufs: [][]const u8 = if (root.exists_config(Style)) blk: {
+            const tab_style, const tab_style_bufs = root.read_config(Style, self.allocator);
+            break :blk .{ tab_style, tab_style_bufs };
+        } else .{ Style{}, &.{} };
+        root.free_config(self.allocator, tab_style_bufs);
+        var conf = std.ArrayList(u8).init(self.allocator);
+        defer conf.deinit();
+        root.write_config_to_writer(Style, tab_style, conf.writer()) catch {};
+        tui.reset_drag_context();
+        try self.create_editor();
+        try command.executeName("open_scratch_buffer", command.fmt(.{
+            file_name[0 .. file_name.len - ".json".len],
+            conf.items,
+            "conf",
+        }));
+        if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
+    }
+    pub const open_tabs_style_config_meta = .{ .description = "Edit tab styles configuration file" };
 
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
         const args = try ctx.args.clone(self.allocator);

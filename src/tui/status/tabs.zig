@@ -50,7 +50,7 @@ const @"style.config" = struct {
 
     include_files: []const u8 = "",
 };
-const Style = @"style.config";
+pub const Style = @"style.config";
 
 pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
     const self = try allocator.create(TabBar);
