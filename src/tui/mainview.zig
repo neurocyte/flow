@@ -401,7 +401,7 @@ const cmds = struct {
             const tab_style, const tab_style_bufs = root.read_config(Style, self.allocator);
             break :blk .{ tab_style, tab_style_bufs };
         } else .{ Style{}, &.{} };
-        root.free_config(self.allocator, tab_style_bufs);
+        defer root.free_config(self.allocator, tab_style_bufs);
         var conf = std.ArrayList(u8).init(self.allocator);
         defer conf.deinit();
         root.write_config_to_writer(Style, tab_style, conf.writer()) catch {};
