@@ -374,6 +374,14 @@ const cmds = struct {
     }
     pub const open_help_meta = .{ .description = "Open help" };
 
+    pub fn open_font_test_text(self: *Self, _: Ctx) Result {
+        tui.reset_drag_context();
+        try self.create_editor();
+        try command.executeName("open_scratch_buffer", command.fmt(.{ "font test", @import("fonts.zig").font_test_text, "text" }));
+        tui.need_render();
+    }
+    pub const open_font_test_text_meta = .{ .description = "Open font glyph test text" };
+
     pub fn open_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("config"));
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - 5] } });
