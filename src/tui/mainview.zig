@@ -382,6 +382,14 @@ const cmds = struct {
     }
     pub const open_font_test_text_meta = .{ .description = "Open font glyph test text" };
 
+    pub fn open_version_info(self: *Self, _: Ctx) Result {
+        tui.reset_drag_context();
+        try self.create_editor();
+        try command.executeName("open_scratch_buffer", command.fmt(.{ "version", root.version_info, "diff" }));
+        tui.need_render();
+    }
+    pub const open_version_info_meta = .{ .description = "Show build version information" };
+
     pub fn open_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("config"));
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - 5] } });

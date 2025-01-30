@@ -14,6 +14,8 @@ const c = @cImport({
 const build_options = @import("build_options");
 const log = @import("log");
 
+pub const version_info = @embedFile("version_info");
+
 pub var max_diff_lines: usize = 50000;
 pub var max_syntax_lines: usize = 50000;
 
@@ -117,7 +119,7 @@ pub fn main() anyerror!void {
     };
 
     if (args.version)
-        return std.io.getStdOut().writeAll(@embedFile("version_info"));
+        return std.io.getStdOut().writeAll(version_info);
 
     if (args.list_languages) {
         const stdout = std.io.getStdOut();
