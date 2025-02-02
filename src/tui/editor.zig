@@ -2421,7 +2421,6 @@ pub const Editor = struct {
         var all_stop = true;
         var root = root_;
 
-        // For each cursor, collect what would be deleted
         var text = std.ArrayList(u8).init(self.allocator);
         var first = true;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
@@ -2587,14 +2586,6 @@ pub const Editor = struct {
     }
     pub const delete_forward_meta = .{ .description = "Delete next character" };
 
-    pub fn delete_backward(self: *Self, _: Context) Result {
-        const b = try self.buf_for_update();
-        const root = try self.delete_to(move_cursor_left, b.root, b.allocator);
-        try self.update_buf(root);
-        self.clamp();
-    }
-    pub const delete_backward_meta = .{ .description = "Delete previous character" };
-
     pub fn cut_forward_internal(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         const text, const root= try self.cut_to(move_cursor_right, b.root);
@@ -2602,7 +2593,15 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const cut_forward_internal_meta = .{ .description = "Cut next character" };
+    pub const cut_forward_internal_meta = .{ .description = "Cut next character to internal clipboard" };
+
+    pub fn delete_backward(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.delete_to(move_cursor_left, b.root, b.allocator);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const delete_backward_meta = .{ .description = "Delete previous character" };
 
     pub fn delete_word_left(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2612,6 +2611,15 @@ pub const Editor = struct {
     }
     pub const delete_word_left_meta = .{ .description = "Delete previous word" };
 
+    pub fn cut_word_left_vim(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const text, const root= try self.cut_to(move_cursor_word_left_vim, b.root);
+        self.set_clipboard_internal(text);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const cut_word_left_vim_meta = .{ .description = "Cut next character to internal clipboard" };
+
     pub fn delete_word_right(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         const root = try self.delete_to(move_cursor_word_right_space, b.root, b.allocator);
@@ -2619,6 +2627,15 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const delete_word_right_meta = .{ .description = "Delete next word" };
+
+    pub fn cut_word_right_vim(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const text, const root= try self.cut_to(move_cursor_word_right_vim, b.root);
+        self.set_clipboard_internal(text);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const cut_word_right_vim_meta = .{ .description = "Cut next character to internal clipboard" };
 
     pub fn delete_to_begin(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
