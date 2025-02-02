@@ -9,6 +9,7 @@
         "name": "NORMAL",
         "line_numbers": "relative",
         "cursor": "block",
+        "selection": "inclusive",
         "press": [
             ["b", "move_word_left_vim"],
             ["w", "move_word_right_vim"],
@@ -73,6 +74,7 @@
         "name": "VISUAL",
         "line_numbers": "relative",
         "cursor": "underline",
+        "selection": "inclusive",
         "press": [
             ["<Esc>", "enter_mode", "normal"],
             ["k", "select_up"],
