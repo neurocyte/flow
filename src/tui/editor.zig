@@ -1945,8 +1945,6 @@ pub const Editor = struct {
             '=' => true,
             '"' => true,
             '\'' => true,
-            '\t' => true,
-            '\n' => true,
             '/' => true,
             '\\' => true,
             '*' => true,
@@ -1976,11 +1974,7 @@ pub const Editor = struct {
     }
 
     fn is_white_space(c: []const u8) bool {
-        if (c.len == 0) return true;
-        return switch (c[0]) {
-            ' ' => true,
-            else => false
-        };
+        return (c.len == 0) or (c[0] == ' ');
     }
 
     fn is_white_space_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
@@ -1992,13 +1986,12 @@ pub const Editor = struct {
         var next = cursor.*;
         next.move_left(root, metrics) catch return true;
 
-        // right now this doesn't work
-        // ["enter_vim_mode"], abc
-        // jumping from the last " forward once using this command goes to the end of the line
-        // it should go to the start of abc
+        const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
+        if(next_is_white_space) return true;
+
         const curr_is_non_word = is_non_word_char_at_cursor_vim(root, cursor, metrics);
-        const prev_is_non_word = is_non_word_char_at_cursor_vim(root, &next, metrics);
-        return curr_is_non_word != prev_is_non_word;
+        const next_is_non_word = is_non_word_char_at_cursor_vim(root, &next, metrics);
+        return curr_is_non_word != next_is_non_word;
     }
 
     fn is_non_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
@@ -2619,6 +2612,11 @@ pub const Editor = struct {
         move_cursor_left_until(root, cursor, is_word_boundary_left, metrics);
     }
 
+    fn move_cursor_word_left_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        try move_cursor_left(root, cursor, metrics);
+        move_cursor_left_until(root, cursor, is_word_boundary_left_vim, metrics);
+    }
+
     fn move_cursor_word_left_space(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try move_cursor_left(root, cursor, metrics);
         var next = cursor.*;
@@ -2660,6 +2658,14 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const move_word_left_meta = .{ .description = "Move cursor left by word" };
+
+    pub fn move_word_left_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const(root, move_cursor_word_left_vim) catch {};
+        self.clamp();
+    }
+    pub const move_word_left_vim_meta = .{ .description = "Move cursor left by word (vim)" };
+
 
     pub fn move_word_right(self: *Self, _: Context) Result {
         const root = try self.buf_root();

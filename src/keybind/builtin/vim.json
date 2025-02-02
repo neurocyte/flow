@@ -10,7 +10,7 @@
         "line_numbers": "relative",
         "cursor": "block",
         "press": [
-            ["b", "move_word_left"],
+            ["b", "move_word_left_vim"],
             ["w", "move_word_right_vim"],
             ["e", "move_word_right"],
             ["x", "delete_forward"],
