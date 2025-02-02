@@ -1939,6 +1939,68 @@ pub const Editor = struct {
         return false;
     }
 
+    fn is_not_word_char_vim(c: []const u8) bool {
+        if (c.len == 0) return true;
+        return switch (c[0]) {
+            '=' => true,
+            '"' => true,
+            '\'' => true,
+            '\t' => true,
+            '\n' => true,
+            '/' => true,
+            '\\' => true,
+            '*' => true,
+            ':' => true,
+            '.' => true,
+            ',' => true,
+            '(' => true,
+            ')' => true,
+            '{' => true,
+            '}' => true,
+            '[' => true,
+            ']' => true,
+            ';' => true,
+            '|' => true,
+            '!' => true,
+            '?' => true,
+            '&' => true,
+            '-' => true,
+            '<' => true,
+            '>' => true,
+            else => false,
+        };
+    }
+
+    fn is_non_word_char_at_cursor_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return cursor.test_at(root, is_not_word_char_vim, metrics);
+    }
+
+    fn is_white_space(c: []const u8) bool {
+        if (c.len == 0) return true;
+        return switch (c[0]) {
+            ' ' => true,
+            else => false
+        };
+    }
+
+    fn is_white_space_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return cursor.test_at(root, is_white_space, metrics);
+    }
+
+    fn is_word_boundary_left_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        if(is_white_space_at_cursor(root, cursor, metrics)) return false;
+        var next = cursor.*;
+        next.move_left(root, metrics) catch return true;
+
+        // right now this doesn't work
+        // ["enter_vim_mode"], abc
+        // jumping from the last " forward once using this command goes to the end of the line
+        // it should go to the start of abc
+        const curr_is_non_word = is_non_word_char_at_cursor_vim(root, cursor, metrics);
+        const prev_is_non_word = is_non_word_char_at_cursor_vim(root, &next, metrics);
+        return curr_is_non_word != prev_is_non_word;
+    }
+
     fn is_non_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         if (cursor.col == 0)
             return true;
@@ -2575,7 +2637,7 @@ pub const Editor = struct {
 
     pub fn move_cursor_word_right_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try move_cursor_right(root, cursor, metrics);
-        move_cursor_right_until(root, cursor, is_word_boundary_left, metrics);
+        move_cursor_right_until(root, cursor, is_word_boundary_left_vim, metrics);
     }
 
     pub fn move_cursor_word_right_space(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
