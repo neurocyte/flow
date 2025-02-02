@@ -10,16 +10,17 @@
         "line_numbers": "relative",
         "cursor": "block",
         "press": [
-            ["b", "move_word_left"],
+            ["b", "move_word_left_vim"],
             ["w", "move_word_right_vim"],
-            ["e", "move_word_right"],
+            ["e", "move_word_right_end_vim"],
             ["x", "delete_forward"],
+            ["s", ["delete_forward"], ["enter_mode", "insert"]],
             ["u", "undo"],
 
             ["j", "move_down"],
             ["k", "move_up"],
             ["l", "move_right_vim"],
-            ["h", "move_left"],
+            ["h", "move_left_vim"],
             ["<Space>", "move_right_vim"],
 
             ["i", "enter_mode", "insert"],
@@ -73,7 +74,11 @@
         "line_numbers": "relative",
         "cursor": "underline",
         "press": [
-            ["<Esc>", "enter_mode", "normal"]
+            ["<Esc>", "enter_mode", "normal"],
+            ["k", "select_up"],
+            ["j", "select_down"],
+            ["h", "select_left"],
+            ["l", "select_right"]
         ]
     },
     "insert": {

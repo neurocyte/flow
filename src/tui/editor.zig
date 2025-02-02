@@ -1939,6 +1939,61 @@ pub const Editor = struct {
         return false;
     }
 
+    fn is_not_word_char_vim(c: []const u8) bool {
+        if (c.len == 0) return true;
+        return switch (c[0]) {
+            '=' => true,
+            '"' => true,
+            '\'' => true,
+            '/' => true,
+            '\\' => true,
+            '*' => true,
+            ':' => true,
+            '.' => true,
+            ',' => true,
+            '(' => true,
+            ')' => true,
+            '{' => true,
+            '}' => true,
+            '[' => true,
+            ']' => true,
+            ';' => true,
+            '|' => true,
+            '!' => true,
+            '?' => true,
+            '&' => true,
+            '-' => true,
+            '<' => true,
+            '>' => true,
+            else => false,
+        };
+    }
+
+    fn is_non_word_char_at_cursor_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return cursor.test_at(root, is_not_word_char_vim, metrics);
+    }
+
+    fn is_white_space(c: []const u8) bool {
+        return (c.len == 0) or (c[0] == ' ');
+    }
+
+    fn is_white_space_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return cursor.test_at(root, is_white_space, metrics);
+    }
+
+    fn is_word_boundary_left_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        if(is_white_space_at_cursor(root, cursor, metrics)) return false;
+        var next = cursor.*;
+        next.move_left(root, metrics) catch return true;
+
+        const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
+        if(next_is_white_space) return true;
+
+        const curr_is_non_word = is_non_word_char_at_cursor_vim(root, cursor, metrics);
+        const next_is_non_word = is_non_word_char_at_cursor_vim(root, &next, metrics);
+        return curr_is_non_word != next_is_non_word;
+    }
+
     fn is_non_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         if (cursor.col == 0)
             return true;
@@ -1962,6 +2017,19 @@ pub const Editor = struct {
         if (is_non_word_char_at_cursor(root, &next, metrics))
             return true;
         return false;
+    }
+
+    fn is_word_boundary_right_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        if(is_white_space_at_cursor(root, cursor, metrics)) return false;
+        var next = cursor.*;
+        next.move_right(root, metrics) catch return true;
+
+        const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
+        if(next_is_white_space) return true;
+
+        const curr_is_non_word = is_non_word_char_at_cursor_vim(root, cursor, metrics);
+        const next_is_non_word = is_non_word_char_at_cursor_vim(root, &next, metrics);
+        return curr_is_non_word != next_is_non_word;
     }
 
     fn is_non_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
@@ -2557,6 +2625,11 @@ pub const Editor = struct {
         move_cursor_left_until(root, cursor, is_word_boundary_left, metrics);
     }
 
+    fn move_cursor_word_left_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        try move_cursor_left(root, cursor, metrics);
+        move_cursor_left_until(root, cursor, is_word_boundary_left_vim, metrics);
+    }
+
     fn move_cursor_word_left_space(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try move_cursor_left(root, cursor, metrics);
         var next = cursor.*;
@@ -2575,7 +2648,12 @@ pub const Editor = struct {
 
     pub fn move_cursor_word_right_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try move_cursor_right(root, cursor, metrics);
-        move_cursor_right_until(root, cursor, is_word_boundary_left, metrics);
+        move_cursor_right_until(root, cursor, is_word_boundary_left_vim, metrics);
+    }
+
+    pub fn move_cursor_word_right_end_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        try move_cursor_right(root, cursor, metrics);
+        move_cursor_right_until(root, cursor, is_word_boundary_right_vim, metrics);
     }
 
     pub fn move_cursor_word_right_space(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
@@ -2599,6 +2677,14 @@ pub const Editor = struct {
     }
     pub const move_word_left_meta = .{ .description = "Move cursor left by word" };
 
+    pub fn move_word_left_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const(root, move_cursor_word_left_vim) catch {};
+        self.clamp();
+    }
+    pub const move_word_left_vim_meta = .{ .description = "Move cursor left by word (vim)" };
+
+
     pub fn move_word_right(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_word_right) catch {};
@@ -2612,6 +2698,13 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const move_word_right_vim_meta = .{ .description = "Move cursor right by word (vim)" };
+
+    pub fn move_word_right_end_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const(root, move_cursor_word_right_end_vim) catch {};
+        self.clamp();
+    }
+    pub const move_word_right_end_vim_meta = .{ .description = "Move cursor right by end of word (vim)" };
 
     fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;
