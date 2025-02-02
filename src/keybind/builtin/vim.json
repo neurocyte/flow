@@ -13,8 +13,8 @@
             ["b", "move_word_left_vim"],
             ["w", "move_word_right_vim"],
             ["e", "move_word_right_end_vim"],
-            ["x", "delete_forward"],
-            ["s", ["delete_forward"], ["enter_mode", "insert"]],
+            ["x", "cut_forward_internal"],
+            ["s", ["cut_forward_internal"], ["enter_mode", "insert"]],
             ["u", "undo"],
 
             ["j", "move_down"],
@@ -48,7 +48,7 @@
             ["G", "move_buffer_end"],
 
             ["d$", "delete_to_end"],
-            ["dd", "cut"],
+            ["dd", "cut_internal"],
             ["\"_dd", "delete_line"],
 
             ["yy", "copy_line"],
@@ -78,7 +78,11 @@
             ["k", "select_up"],
             ["j", "select_down"],
             ["h", "select_left"],
-            ["l", "select_right"]
+            ["l", "select_right"],
+
+            ["x", ["cut_forward_internal"], ["enter_mode", "normal"]],
+            ["d", ["cut_forward_internal"], ["enter_mode", "normal"]],
+            ["s", ["cut_forward_internal"], ["enter_mode", "insert"]]
         ]
     },
     "insert": {

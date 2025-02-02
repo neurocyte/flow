@@ -2364,6 +2364,12 @@ pub const Editor = struct {
         }
     }
 
+    fn set_clipboard_internal(self: *Self, text: []const u8) void {
+        if (self.clipboard) |old|
+            self.allocator.free(old);
+        self.clipboard = text;
+    }
+
     fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]u8 {
         var size: usize = 0;
         _ = try root.get_range(sel, null, &size, null, metrics);
@@ -2411,6 +2417,71 @@ pub const Editor = struct {
         return root_;
     }
 
+    fn cut_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root) !struct { []const u8, Buffer.Root } {
+        var all_stop = true;
+        var root = root_;
+
+        // For each cursor, collect what would be deleted
+        var text = std.ArrayList(u8).init(self.allocator);
+        var first = true;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |_| {
+                const cut_text, root = self.cut_selection(root, cursel) catch continue;
+                all_stop = false;
+                if (first) {
+                    first = false;
+                } else {
+                    try text.appendSlice("\n");
+                }
+                try text.appendSlice(cut_text);
+                continue;
+            }
+
+            with_selection_const(root, move, cursel, self.metrics) catch continue;
+            const cut_text, root = self.cut_selection(root, cursel) catch continue;
+
+            if (first) {
+                first = false;
+            } else {
+                try text.appendSlice("\n");
+            }
+            try text.appendSlice(cut_text);
+            all_stop = false;
+        };
+
+        if (all_stop)
+            return error.Stop;
+        return .{text.items, root};
+    }
+
+    pub fn cut_internal(self: *Self, _: Context) Result {
+        const primary = self.get_primary();
+        const b = self.buf_for_update() catch return;
+        var root = b.root;
+        if (self.cursels.items.len == 1)
+            if (primary.selection) |_| {} else {
+                const sel = primary.enable_selection(root, self.metrics) catch return;
+                try move_cursor_begin(root, &sel.begin, self.metrics);
+                try move_cursor_end(root, &sel.end, self.metrics);
+                try move_cursor_right(root, &sel.end, self.metrics);
+            };
+        var first = true;
+        var text = std.ArrayList(u8).init(self.allocator);
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            const cut_text, root = try self.cut_selection(root, cursel);
+            if (first) {
+                first = false;
+            } else {
+                try text.appendSlice("\n");
+            }
+            try text.appendSlice(cut_text);
+        };
+        try self.update_buf(root);
+        self.set_clipboard_internal(text.items);
+        self.clamp();
+    }
+    pub const cut_internal_meta = .{ .description = "Cut selection or current line to internal clipboard" };
+ 
     pub fn cut(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         const b = self.buf_for_update() catch return;
@@ -2523,6 +2594,15 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const delete_backward_meta = .{ .description = "Delete previous character" };
+
+    pub fn cut_forward_internal(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const text, const root= try self.cut_to(move_cursor_right, b.root);
+        self.set_clipboard_internal(text);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const cut_forward_internal_meta = .{ .description = "Cut next character" };
 
     pub fn delete_word_left(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
