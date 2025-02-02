@@ -2019,6 +2019,19 @@ pub const Editor = struct {
         return false;
     }
 
+    fn is_word_boundary_right_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        if(is_white_space_at_cursor(root, cursor, metrics)) return false;
+        var next = cursor.*;
+        next.move_right(root, metrics) catch return true;
+
+        const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
+        if(next_is_white_space) return true;
+
+        const curr_is_non_word = is_non_word_char_at_cursor_vim(root, cursor, metrics);
+        const next_is_non_word = is_non_word_char_at_cursor_vim(root, &next, metrics);
+        return curr_is_non_word != next_is_non_word;
+    }
+
     fn is_non_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         const line_width = root.line_width(cursor.row, metrics) catch return true;
         if (cursor.col >= line_width)
@@ -2638,6 +2651,11 @@ pub const Editor = struct {
         move_cursor_right_until(root, cursor, is_word_boundary_left_vim, metrics);
     }
 
+    pub fn move_cursor_word_right_end_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        try move_cursor_right(root, cursor, metrics);
+        move_cursor_right_until(root, cursor, is_word_boundary_right_vim, metrics);
+    }
+
     pub fn move_cursor_word_right_space(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         var next = cursor.*;
         next.move_right(root, metrics) catch {
@@ -2680,6 +2698,13 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const move_word_right_vim_meta = .{ .description = "Move cursor right by word (vim)" };
+
+    pub fn move_word_right_end_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const(root, move_cursor_word_right_end_vim) catch {};
+        self.clamp();
+    }
+    pub const move_word_right_end_vim_meta = .{ .description = "Move cursor right by end of word (vim)" };
 
     fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;

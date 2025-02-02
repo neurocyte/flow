@@ -12,7 +12,7 @@
         "press": [
             ["b", "move_word_left_vim"],
             ["w", "move_word_right_vim"],
-            ["e", "move_word_right"],
+            ["e", "move_word_right_end_vim"],
             ["x", "delete_forward"],
             ["s", ["delete_forward"], ["enter_mode", "insert"]],
             ["u", "undo"],
