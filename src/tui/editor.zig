@@ -2417,6 +2417,16 @@ pub const Editor = struct {
         return root_;
     }
 
+    fn insert_line_vim(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+        var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, allocator) else root;
+        const cursor = &cursel.cursor;
+        const begin = cursel.cursor;
+        _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.metrics);
+        cursor.target = cursor.col;
+        self.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+        return root_;
+    }
+
     fn cut_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root) !struct { []const u8, Buffer.Root } {
         var all_stop = true;
         var root = root_;
@@ -2453,19 +2463,20 @@ pub const Editor = struct {
         return .{text.items, root};
     }
 
-    pub fn cut_internal(self: *Self, _: Context) Result {
+    pub fn cut_internal_vim(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         const b = self.buf_for_update() catch return;
         var root = b.root;
+        var text = std.ArrayList(u8).init(self.allocator);
         if (self.cursels.items.len == 1)
             if (primary.selection) |_| {} else {
+                try text.appendSlice("\n");
                 const sel = primary.enable_selection(root, self.metrics) catch return;
                 try move_cursor_begin(root, &sel.begin, self.metrics);
                 try move_cursor_end(root, &sel.end, self.metrics);
                 try move_cursor_right(root, &sel.end, self.metrics);
             };
         var first = true;
-        var text = std.ArrayList(u8).init(self.allocator);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             const cut_text, root = try self.cut_selection(root, cursel);
             if (first) {
@@ -2479,7 +2490,7 @@ pub const Editor = struct {
         self.set_clipboard_internal(text.items);
         self.clamp();
     }
-    pub const cut_internal_meta = .{ .description = "Cut selection or current line to internal clipboard" };
+    pub const cut_internal_vim_meta = .{ .description = "Cut selection or current line to internal clipboard (vim)" };
  
     pub fn cut(self: *Self, _: Context) Result {
         const primary = self.get_primary();
@@ -2543,6 +2554,66 @@ pub const Editor = struct {
     }
     pub const copy_meta = .{ .description = "Copy selection to clipboard" };
 
+    pub fn copy_internal_vim(self: *Self, _: Context) Result {
+        const root = self.buf_root() catch return;
+        var first = true;
+        var text = std.ArrayList(u8).init(self.allocator);
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |sel| {
+                const copy_text = try copy_selection(root, sel, self.allocator, self.metrics);
+                if (first) {
+                    first = false;
+                } else {
+                    try text.appendSlice("\n");
+                }
+                try text.appendSlice(copy_text);
+            }
+        };
+        if (text.items.len > 0) {
+            if (text.items.len > 100) {
+                self.logger.print("copy:{s}...", .{std.fmt.fmtSliceEscapeLower(text.items[0..100])});
+            } else {
+                self.logger.print("copy:{s}", .{std.fmt.fmtSliceEscapeLower(text.items)});
+            }
+            self.set_clipboard_internal(text.items);
+        }
+    }
+    pub const copy_internal_vim_meta = .{ .description = "Copy selection to internal clipboard (vim)" };
+
+    pub fn copy_line_internal_vim(self: *Self, _: Context) Result {
+        const primary = self.get_primary();
+        const root = self.buf_root() catch return;
+        var first = true;
+        var text = std.ArrayList(u8).init(self.allocator);
+        try text.appendSlice("\n");
+        if (primary.selection) |_| {} else {
+            const sel = primary.enable_selection(root, self.metrics) catch return;
+            try move_cursor_begin(root, &sel.begin, self.metrics);
+            try move_cursor_end(root, &sel.end, self.metrics);
+            try move_cursor_right(root, &sel.end, self.metrics);
+        }
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |sel| {
+                const copy_text = try copy_selection(root, sel, self.allocator, self.metrics);
+                if (first) {
+                    first = false;
+                } else {
+                    try text.appendSlice("\n");
+                }
+                try text.appendSlice(copy_text);
+            }
+        };
+        if (text.items.len > 0) {
+            if (text.items.len > 100) {
+                self.logger.print("copy:{s}...", .{std.fmt.fmtSliceEscapeLower(text.items[0..100])});
+            } else {
+                self.logger.print("copy:{s}", .{std.fmt.fmtSliceEscapeLower(text.items)});
+            }
+            self.set_clipboard_internal(text.items);
+        }
+    }
+    pub const copy_line_internal_vim_meta = .{ .description = "Copy line to internal clipboard (vim)" };
+
     pub fn paste(self: *Self, ctx: Context) Result {
         var text: []const u8 = undefined;
         if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
@@ -2577,6 +2648,51 @@ pub const Editor = struct {
         self.need_render();
     }
     pub const paste_meta = .{ .description = "Paste from internal clipboard" };
+
+    pub fn paste_internal_vim(self: *Self, ctx: Context) Result {
+        var text: []const u8 = undefined;
+        if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
+            if (self.clipboard) |text_| text = text_ else return;
+        }
+
+        self.logger.print("paste: {d} bytes", .{text.len});
+        const b = try self.buf_for_update();
+        var root = b.root;
+
+        if(std.mem.eql(u8, text[text.len-1..], "\n")) text = text[0..text.len-1];
+
+        if (std.mem.indexOfScalar(u8, text, '\n')) |idx| {
+            if(idx == 0) {
+                for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                    try move_cursor_end(root, &cursel.cursor, self.metrics);
+                    root = try self.insert(root, cursel, "\n", b.allocator);
+                };
+                text = text[1..];
+            }
+            if (self.cursels.items.len == 1) {
+            const primary = self.get_primary();
+            root = try self.insert_line_vim(root, primary, text, b.allocator);
+            } else {
+                for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                    root = try self.insert_line_vim(root, cursel, text, b.allocator);
+                };
+            }
+        } else {
+            if (self.cursels.items.len == 1) {
+            const primary = self.get_primary();
+            root = try self.insert(root, primary, text, b.allocator);
+            } else {
+                for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                    root = try self.insert(root, cursel, text, b.allocator);
+                };
+            }
+        }
+        
+        try self.update_buf(root);
+        self.clamp();
+        self.need_render();
+    }
+    pub const paste_internal_vim_meta = .{ .description = "Paste from internal clipboard (vim)" };
 
     pub fn delete_forward(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();

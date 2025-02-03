@@ -13,6 +13,8 @@
         "press": [
             ["b", "move_word_left_vim"],
             ["w", "move_word_right_vim"],
+            ["W", "move_word_right"],
+            ["B", "move_word_left"],
             ["e", "move_word_right_end_vim"],
             ["x", "cut_forward_internal"],
             ["s", ["cut_forward_internal"], ["enter_mode", "insert"]],
@@ -39,7 +41,7 @@
             ["^", "smart_move_begin"],
             ["$", "move_end"],
             [":", "open_command_palette"],
-            ["p", "paste"],
+            ["p", "paste_internal_vim"],
 
             ["gi", "goto_implementation"],
             ["gy", "goto_type_definition"],
@@ -51,10 +53,10 @@
             ["d$", "delete_to_end"],
             ["dw", "cut_word_right_vim"],
             ["db", "cut_word_left_vim"],
-            ["dd", "cut_internal"],
+            ["dd", "cut_internal_vim"],
             ["\"_dd", "delete_line"],
 
-            ["yy", "copy_line"],
+            ["yy", ["copy_line_internal_vim"], ["cancel"]],
 
             ["<C-u>", "move_scroll_page_up"],
             ["<C-d>", "move_scroll_page_down"],
@@ -86,9 +88,11 @@
             ["h", "select_left"],
             ["l", "select_right"],
 
-            ["x", ["cut_forward_internal"], ["enter_mode", "normal"]],
-            ["d", ["cut_forward_internal"], ["enter_mode", "normal"]],
-            ["s", ["cut_forward_internal"], ["enter_mode", "insert"]]
+            ["y", ["copy_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
+
+            ["x", ["cut_forward_internal"], ["cancel"], ["enter_mode", "normal"]],
+            ["d", ["cut_forward_internal"], ["cancel"], ["enter_mode", "normal"]],
+            ["s", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]]
         ]
     },
     "insert": {
