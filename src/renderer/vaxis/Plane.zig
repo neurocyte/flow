@@ -37,7 +37,7 @@ pub const option = enum {
 };
 
 pub fn init(nopts: *const Options, parent_: Plane) !Plane {
-    const opts = .{
+    const opts: vaxis.Window.ChildOptions = .{
         .x_off = @as(i17, @intCast(nopts.x)),
         .y_off = @as(i17, @intCast(nopts.y)),
         .width = @as(u16, @intCast(nopts.cols)),

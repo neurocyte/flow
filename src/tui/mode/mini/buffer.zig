@@ -67,18 +67,19 @@ pub fn Create(options: type) type {
         const cmds = struct {
             pub const Target = Self;
             const Ctx = command.Context;
+            const Meta = command.Metadata;
             const Result = command.Result;
 
             pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
                 self.input.clearRetainingCapacity();
                 self.update_mini_mode_text();
             }
-            pub const mini_mode_reset_meta = .{ .description = "Clear input" };
+            pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
             pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
                 command.executeName("exit_mini_mode", .{}) catch {};
             }
-            pub const mini_mode_cancel_meta = .{ .description = "Cancel input" };
+            pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
             pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
                 if (self.input.items.len > 0) {
@@ -86,7 +87,7 @@ pub fn Create(options: type) type {
                 }
                 self.update_mini_mode_text();
             }
-            pub const mini_mode_delete_backwards_meta = .{ .description = "Delete backwards" };
+            pub const mini_mode_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
 
             pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
                 var egc: u32 = 0;
@@ -97,7 +98,7 @@ pub fn Create(options: type) type {
                 try self.input.appendSlice(buf[0..bytes]);
                 self.update_mini_mode_text();
             }
-            pub const mini_mode_insert_code_point_meta = .{ .arguments = &.{.integer} };
+            pub const mini_mode_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
 
             pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
                 var bytes: []const u8 = undefined;
@@ -106,18 +107,18 @@ pub fn Create(options: type) type {
                 try self.input.appendSlice(bytes);
                 self.update_mini_mode_text();
             }
-            pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };
+            pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
             pub fn mini_mode_select(self: *Self, _: Ctx) Result {
                 options.select(self);
                 self.update_mini_mode_text();
             }
-            pub const mini_mode_select_meta = .{ .description = "Select" };
+            pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
 
             pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
                 return mini_mode_insert_bytes(self, ctx);
             }
-            pub const mini_mode_paste_meta = .{ .arguments = &.{.string} };
+            pub const mini_mode_paste_meta: Meta = .{ .arguments = &.{.string} };
         };
     };
 }

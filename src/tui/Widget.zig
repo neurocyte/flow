@@ -55,7 +55,7 @@ pub const VTable = struct {
 
 pub fn to(pimpl: anytype) Self {
     const impl = @typeInfo(@TypeOf(pimpl));
-    const child: type = impl.Pointer.child;
+    const child: type = impl.pointer.child;
     return .{
         .ptr = pimpl,
         .plane = &pimpl.plane,

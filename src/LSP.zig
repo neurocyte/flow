@@ -172,9 +172,9 @@ const Process = struct {
         const frame = tracy.initZone(@src(), .{ .name = module_name });
         defer frame.deinit();
         errdefer self.deinit();
-        var method: []u8 = "";
-        var bytes: []u8 = "";
-        var err: []u8 = "";
+        var method: []const u8 = "";
+        var bytes: []const u8 = "";
+        var err: []const u8 = "";
         var code: u32 = 0;
         var cbor_id: []const u8 = "";
 
@@ -259,7 +259,7 @@ const Process = struct {
         }
     }
 
-    fn handle_output(self: *Process, bytes: []u8) Error!void {
+    fn handle_output(self: *Process, bytes: []const u8) Error!void {
         try self.recv_buf.appendSlice(bytes);
         self.write_log("### RECV:\n{s}\n###\n", .{bytes});
         self.frame_message_recv() catch |e| {

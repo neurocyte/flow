@@ -8,6 +8,7 @@ const root = @import("root");
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
+const styles = @import("renderer").styles;
 const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
@@ -31,7 +32,7 @@ highlight: bool,
 symbols: bool,
 width: usize = 4,
 editor: *ed.Editor,
-diff: diff.AsyncDiffer,
+diff_: diff.AsyncDiffer,
 diff_symbols: std.ArrayList(Symbol),
 
 const Self = @This();
@@ -50,7 +51,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .highlight = tui.config().highlight_current_line_gutter,
         .symbols = tui.config().gutter_symbols,
         .editor = editor,
-        .diff = try diff.create(),
+        .diff_ = try diff.create(),
         .diff_symbols = std.ArrayList(Symbol).init(allocator),
     };
     try tui.message_filters().add(MessageFilter.bind(self, filter_receive));
@@ -168,10 +169,10 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
         if (linenum > self.lines) return;
         if (linenum == self.line + 1) {
             self.plane.set_style(.{ .fg = theme.editor_gutter_active.fg });
-            self.plane.on_styles(style.bold);
+            self.plane.on_styles(styles.bold);
         } else {
             self.plane.set_style(.{ .fg = theme.editor_gutter.fg });
-            self.plane.off_styles(style.bold);
+            self.plane.off_styles(styles.bold);
         }
         _ = self.plane.print_aligned_right(@intCast(pos), "{s}", .{std.fmt.bufPrintZ(&buf, "{d} ", .{linenum}) catch return}) catch {};
         if (self.highlight and linenum == self.line + 1)
@@ -315,7 +316,7 @@ fn diff_update(self: *Self) !void {
     const new = editor.get_current_root() orelse return;
     const old = if (editor.buffer) |buffer| buffer.last_save orelse return else return;
     const eol_mode = if (editor.buffer) |buffer| buffer.file_eol_mode else return;
-    return self.diff.diff(diff_result, new, old, eol_mode);
+    return self.diff_.diff(diff_result, new, old, eol_mode);
 }
 
 fn diff_result(from: tp.pid_ref, edits: []diff.Diff) void {

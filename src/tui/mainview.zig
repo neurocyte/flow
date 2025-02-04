@@ -47,7 +47,7 @@ views_widget: Widget,
 active_view: ?usize = 0,
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
-location_history: location_history,
+location_history_: location_history,
 buffer_manager: Buffer.Manager,
 find_in_files_state: enum { init, adding, done } = .done,
 file_list_type: FileListType = .find_in_files,
@@ -67,7 +67,7 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
         .widgets = undefined,
         .widgets_widget = undefined,
         .floating_views = WidgetStack.init(allocator),
-        .location_history = try location_history.create(),
+        .location_history_ = try location_history.create(),
         .views = undefined,
         .views_widget = undefined,
         .buffer_manager = Buffer.Manager.init(allocator),
@@ -179,7 +179,7 @@ fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
     };
     const h = self.plane.dim_y();
     self.panel_height = @max(1, h - @min(h, y + 1));
-    panels.layout = .{ .static = self.panel_height.? };
+    panels.layout_ = .{ .static = self.panel_height.? };
     if (self.panel_height == 1) {
         self.panel_height = null;
         command.executeName("toggle_panel", .{}) catch {};
@@ -241,25 +241,26 @@ fn check_all_not_dirty(self: *const Self) command.Result {
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Meta = command.Metadata;
     const Result = command.Result;
 
     pub fn quit(self: *Self, _: Ctx) Result {
         try self.check_all_not_dirty();
         try tp.self_pid().send("quit");
     }
-    pub const quit_meta = .{ .description = "Quit (exit) Flow Control" };
+    pub const quit_meta: Meta = .{ .description = "Quit (exit) Flow Control" };
 
     pub fn quit_without_saving(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("quit");
     }
-    pub const quit_without_saving_meta = .{ .description = "Quit without saving" };
+    pub const quit_without_saving_meta: Meta = .{ .description = "Quit without saving" };
 
     pub fn open_project_cwd(self: *Self, _: Ctx) Result {
         try project_manager.open(".");
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
-    pub const open_project_cwd_meta = .{};
+    pub const open_project_cwd_meta: Meta = .{};
 
     pub fn open_project_dir(self: *Self, ctx: Ctx) Result {
         var project_dir: []const u8 = undefined;
@@ -271,7 +272,7 @@ const cmds = struct {
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
-    pub const open_project_dir_meta = .{ .arguments = &.{.string} };
+    pub const open_project_dir_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn change_project(self: *Self, ctx: Ctx) Result {
         var project_dir: []const u8 = undefined;
@@ -296,7 +297,7 @@ const cmds = struct {
         if (try project_manager.request_most_recent_file(self.allocator)) |file_path|
             self.show_file_async_and_free(file_path);
     }
-    pub const change_project_meta = .{ .arguments = &.{.string} };
+    pub const change_project_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
@@ -364,7 +365,7 @@ const cmds = struct {
         }
         tui.need_render();
     }
-    pub const navigate_meta = .{ .arguments = &.{.object} };
+    pub const navigate_meta: Meta = .{ .arguments = &.{.object} };
 
     pub fn open_help(self: *Self, _: Ctx) Result {
         tui.reset_drag_context();
@@ -372,7 +373,7 @@ const cmds = struct {
         try command.executeName("open_scratch_buffer", command.fmt(.{ "help", @embedFile("help.md"), "markdown" }));
         tui.need_render();
     }
-    pub const open_help_meta = .{ .description = "Open help" };
+    pub const open_help_meta: Meta = .{ .description = "Open help" };
 
     pub fn open_font_test_text(self: *Self, _: Ctx) Result {
         tui.reset_drag_context();
@@ -380,7 +381,7 @@ const cmds = struct {
         try command.executeName("open_scratch_buffer", command.fmt(.{ "font test", @import("fonts.zig").font_test_text, "text" }));
         tui.need_render();
     }
-    pub const open_font_test_text_meta = .{ .description = "Open font glyph test text" };
+    pub const open_font_test_text_meta: Meta = .{ .description = "Open font glyph test text" };
 
     pub fn open_version_info(self: *Self, _: Ctx) Result {
         tui.reset_drag_context();
@@ -388,19 +389,19 @@ const cmds = struct {
         try command.executeName("open_scratch_buffer", command.fmt(.{ "version", root.version_info, "diff" }));
         tui.need_render();
     }
-    pub const open_version_info_meta = .{ .description = "Show build version information" };
+    pub const open_version_info_meta: Meta = .{ .description = "Show build version information" };
 
     pub fn open_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("config"));
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - 5] } });
     }
-    pub const open_config_meta = .{ .description = "Edit configuration file" };
+    pub const open_config_meta: Meta = .{ .description = "Edit configuration file" };
 
     pub fn open_gui_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("gui_config"));
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - ".json".len] } });
     }
-    pub const open_gui_config_meta = .{ .description = "Edit gui configuration file" };
+    pub const open_gui_config_meta: Meta = .{ .description = "Edit gui configuration file" };
 
     pub fn open_tabs_style_config(self: *Self, _: Ctx) Result {
         const Style = @import("status/tabs.zig").Style;
@@ -422,7 +423,7 @@ const cmds = struct {
         }));
         if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
     }
-    pub const open_tabs_style_config_meta = .{ .description = "Edit tab styles configuration file" };
+    pub const open_tabs_style_config_meta: Meta = .{ .description = "Edit tab styles configuration file" };
 
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
         const args = try ctx.args.clone(self.allocator);
@@ -432,7 +433,7 @@ const cmds = struct {
         try command.executeName("open_scratch_buffer", .{ .args = args });
         tui.need_render();
     }
-    pub const create_scratch_buffer_meta = .{ .arguments = &.{ .string, .string, .string } };
+    pub const create_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
 
     pub fn create_new_file(self: *Self, _: Ctx) Result {
         var n: usize = 1;
@@ -451,7 +452,7 @@ const cmds = struct {
         try command.executeName("create_scratch_buffer", command.fmt(.{name.items}));
         try command.executeName("change_file_type", .{});
     }
-    pub const create_new_file_meta = .{ .description = "Create: New File…" };
+    pub const create_new_file_meta: Meta = .{ .description = "Create: New File…" };
 
     pub fn delete_buffer(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
@@ -468,7 +469,7 @@ const cmds = struct {
         logger.print("deleted buffer {s}", .{file_path});
         tui.need_render();
     }
-    pub const delete_buffer_meta = .{ .arguments = &.{.string} };
+    pub const delete_buffer_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn close_buffer(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
@@ -484,7 +485,7 @@ const cmds = struct {
         _ = self.buffer_manager.close_buffer(buffer);
         tui.need_render();
     }
-    pub const close_buffer_meta = .{ .arguments = &.{.string} };
+    pub const close_buffer_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn restore_session(self: *Self, _: Ctx) Result {
         if (tp.env.get().str("project").len == 0) {
@@ -494,7 +495,7 @@ const cmds = struct {
         try self.read_restore_info();
         tui.need_render();
     }
-    pub const restore_session_meta = .{};
+    pub const restore_session_meta: Meta = .{};
 
     pub fn toggle_panel(self: *Self, _: Ctx) Result {
         if (self.is_panel_view_showing(logview))
@@ -506,52 +507,52 @@ const cmds = struct {
         else
             try self.toggle_panel_view(logview, false);
     }
-    pub const toggle_panel_meta = .{ .description = "Toggle panel" };
+    pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, false);
     }
-    pub const toggle_logview_meta = .{};
+    pub const toggle_logview_meta: Meta = .{};
 
     pub fn show_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, true);
     }
-    pub const show_logview_meta = .{ .description = "View log" };
+    pub const show_logview_meta: Meta = .{ .description = "View log" };
 
     pub fn toggle_inputview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(@import("inputview.zig"), false);
     }
-    pub const toggle_inputview_meta = .{ .description = "Toggle raw input log" };
+    pub const toggle_inputview_meta: Meta = .{ .description = "Toggle raw input log" };
 
     pub fn toggle_inspector_view(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(@import("inspector_view.zig"), false);
     }
-    pub const toggle_inspector_view_meta = .{ .description = "Toggle inspector view" };
+    pub const toggle_inspector_view_meta: Meta = .{ .description = "Toggle inspector view" };
 
     pub fn show_inspector_view(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(@import("inspector_view.zig"), true);
     }
-    pub const show_inspector_view_meta = .{};
+    pub const show_inspector_view_meta: Meta = .{};
 
     pub fn jump_back(self: *Self, _: Ctx) Result {
-        try self.location_history.back(location_jump);
+        try self.location_history_.back(location_jump);
     }
-    pub const jump_back_meta = .{ .description = "Navigate back to previous history location" };
+    pub const jump_back_meta: Meta = .{ .description = "Navigate back to previous history location" };
 
     pub fn jump_forward(self: *Self, _: Ctx) Result {
-        try self.location_history.forward(location_jump);
+        try self.location_history_.forward(location_jump);
     }
-    pub const jump_forward_meta = .{ .description = "Navigate forward to next history location" };
+    pub const jump_forward_meta: Meta = .{ .description = "Navigate forward to next history location" };
 
     pub fn show_home(self: *Self, _: Ctx) Result {
         return self.create_home();
     }
-    pub const show_home_meta = .{};
+    pub const show_home_meta: Meta = .{};
 
     pub fn add_split(self: *Self, _: Ctx) Result {
         return self.create_home_split();
     }
-    pub const add_split_meta = .{};
+    pub const add_split_meta: Meta = .{};
 
     pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
         const config = tui.config_mut();
@@ -576,7 +577,7 @@ const cmds = struct {
             gutter.relative = lnr;
         }
     }
-    pub const gutter_mode_next_meta = .{ .description = "Next gutter mode" };
+    pub const gutter_mode_next_meta: Meta = .{ .description = "Next gutter mode" };
 
     pub fn goto_next_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(filelist_view)) {
@@ -588,7 +589,7 @@ const cmds = struct {
             try command.executeName("goto_next_diagnostic", ctx);
         }
     }
-    pub const goto_next_file_or_diagnostic_meta = .{ .description = "Navigate to next file or diagnostic location" };
+    pub const goto_next_file_or_diagnostic_meta: Meta = .{ .description = "Navigate to next file or diagnostic location" };
 
     pub fn goto_prev_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(filelist_view)) {
@@ -600,7 +601,7 @@ const cmds = struct {
             try command.executeName("goto_prev_diagnostic", ctx);
         }
     }
-    pub const goto_prev_file_or_diagnostic_meta = .{ .description = "Navigate to previous file or diagnostic location" };
+    pub const goto_prev_file_or_diagnostic_meta: Meta = .{ .description = "Navigate to previous file or diagnostic location" };
 
     pub fn add_diagnostic(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
@@ -635,7 +636,7 @@ const cmds = struct {
                 ed.Diagnostic.to_severity(severity),
             );
     }
-    pub const add_diagnostic_meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
+    pub const add_diagnostic_meta: Meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
 
     pub fn rename_symbol_item(self: *Self, ctx: Ctx) Result {
         const editor = self.get_active_editor() orelse return;
@@ -679,8 +680,8 @@ const cmds = struct {
             }
         }
     }
-    pub const rename_symbol_item_meta = .{ .arguments = &.{.array} };
-    pub const rename_symbol_item_elem_meta = .{ .arguments = &.{ .string, .integer, .integer, .integer, .integer, .string } };
+    pub const rename_symbol_item_meta: Meta = .{ .arguments = &.{.array} };
+    pub const rename_symbol_item_elem_meta: Meta = .{ .arguments = &.{ .string, .integer, .integer, .integer, .integer, .string } };
 
     pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
@@ -693,7 +694,7 @@ const cmds = struct {
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false);
     }
-    pub const clear_diagnostics_meta = .{ .arguments = &.{.string} };
+    pub const clear_diagnostics_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn show_diagnostics(self: *Self, _: Ctx) Result {
         const editor = self.get_active_editor() orelse return;
@@ -711,12 +712,12 @@ const cmds = struct {
             );
         }
     }
-    pub const show_diagnostics_meta = .{ .description = "Show diagnostics panel" };
+    pub const show_diagnostics_meta: Meta = .{ .description = "Show diagnostics panel" };
 
     pub fn open_previous_file(self: *Self, _: Ctx) Result {
         self.show_file_async(self.get_next_mru_buffer() orelse return error.Stop);
     }
-    pub const open_previous_file_meta = .{ .description = "Open the previous file" };
+    pub const open_previous_file_meta: Meta = .{ .description = "Open the previous file" };
 
     pub fn system_paste(self: *Self, _: Ctx) Result {
         if (builtin.os.tag == .windows) {
@@ -726,7 +727,7 @@ const cmds = struct {
         }
         tui.rdr().request_system_clipboard();
     }
-    pub const system_paste_meta = .{ .description = "Paste from system clipboard" };
+    pub const system_paste_meta: Meta = .{ .description = "Paste from system clipboard" };
 
     pub fn find_in_files_query(self: *Self, ctx: Ctx) Result {
         var query: []const u8 = undefined;
@@ -740,7 +741,7 @@ const cmds = struct {
         defer rg.deinit();
         self.find_in_files_state = .init;
     }
-    pub const find_in_files_query_meta = .{ .arguments = &.{.string} };
+    pub const find_in_files_query_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn shell_execute_log(self: *Self, ctx: Ctx) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
@@ -752,7 +753,7 @@ const cmds = struct {
             .exit = shell.log_exit_err_handler,
         });
     }
-    pub const shell_execute_log_meta = .{ .arguments = &.{.string} };
+    pub const shell_execute_log_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn shell_execute_insert(self: *Self, ctx: Ctx) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
@@ -778,7 +779,7 @@ const cmds = struct {
         };
         try shell.execute(self.allocator, cmd, .{ .out = handlers.out });
     }
-    pub const shell_execute_insert_meta = .{ .arguments = &.{.string} };
+    pub const shell_execute_insert_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn shell_execute_stream(self: *Self, ctx: Ctx) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
@@ -806,7 +807,7 @@ const cmds = struct {
         const buffer_ref = self.buffer_manager.buffer_to_ref(buffer);
         try shell.execute(self.allocator, cmd, .{ .context = buffer_ref, .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
     }
-    pub const shell_execute_stream_meta = .{ .arguments = &.{.string} };
+    pub const shell_execute_stream_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn shell_execute_stream_output(self: *Self, ctx: Ctx) Result {
         var buffer_ref: usize = 0;
@@ -829,7 +830,7 @@ const cmds = struct {
         buffer.update(root_);
         tui.need_render();
     }
-    pub const shell_execute_stream_output_meta = .{ .arguments = &.{ .integer, .string } };
+    pub const shell_execute_stream_output_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
     pub fn shell_execute_stream_output_complete(self: *Self, ctx: Ctx) Result {
         var buffer_ref: usize = 0;
@@ -843,7 +844,7 @@ const cmds = struct {
         buffer.mark_clean();
         tui.need_render();
     }
-    pub const shell_execute_stream_output_complete_meta = .{ .arguments = &.{ .integer, .string } };
+    pub const shell_execute_stream_output_complete_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
     pub fn adjust_fontsize(_: *Self, ctx: Ctx) Result {
         var amount: f32 = undefined;
@@ -852,7 +853,7 @@ const cmds = struct {
         if (build_options.gui)
             tui.rdr().adjust_fontsize(amount);
     }
-    pub const adjust_fontsize_meta = .{ .arguments = &.{.float} };
+    pub const adjust_fontsize_meta: Meta = .{ .arguments = &.{.float} };
 
     pub fn set_fontsize(_: *Self, ctx: Ctx) Result {
         var fontsize: f32 = undefined;
@@ -861,13 +862,13 @@ const cmds = struct {
         if (build_options.gui)
             tui.rdr().set_fontsize(fontsize);
     }
-    pub const set_fontsize_meta = .{ .arguments = &.{.float} };
+    pub const set_fontsize_meta: Meta = .{ .arguments = &.{.float} };
 
     pub fn reset_fontsize(_: *Self, _: Ctx) Result {
         if (build_options.gui)
             tui.rdr().reset_fontsize();
     }
-    pub const reset_fontsize_meta = .{ .description = "Reset font to configured size" };
+    pub const reset_fontsize_meta: Meta = .{ .description = "Reset font to configured size" };
 
     pub fn set_fontface(_: *Self, ctx: Ctx) Result {
         var fontface: []const u8 = undefined;
@@ -876,23 +877,23 @@ const cmds = struct {
         if (build_options.gui)
             tui.rdr().set_fontface(fontface);
     }
-    pub const set_fontface_meta = .{ .arguments = &.{.float} };
+    pub const set_fontface_meta: Meta = .{ .arguments = &.{.float} };
 
     pub fn reset_fontface(_: *Self, _: Ctx) Result {
         if (build_options.gui)
             tui.rdr().reset_fontface();
     }
-    pub const reset_fontface_meta = .{ .description = "Reset font to configured face" };
+    pub const reset_fontface_meta: Meta = .{ .description = "Reset font to configured face" };
 
     pub fn next_tab(self: *Self, _: Ctx) Result {
         _ = try self.widgets_widget.msg(.{"next_tab"});
     }
-    pub const next_tab_meta = .{ .description = "Switch to next tab" };
+    pub const next_tab_meta: Meta = .{ .description = "Switch to next tab" };
 
     pub fn previous_tab(self: *Self, _: Ctx) Result {
         _ = try self.widgets_widget.msg(.{"previous_tab"});
     }
-    pub const previous_tab_meta = .{ .description = "Switch to previous tab" };
+    pub const previous_tab_meta: Meta = .{ .description = "Switch to previous tab" };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
@@ -938,13 +939,13 @@ pub fn location_update(self: *Self, m: tp.message) tp.result {
     if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col) })) {
         if (row == 0 and col == 0) return;
         project_manager.update_mru(file_path, row, col, ephemeral) catch {};
-        return self.location_history.update(file_path, .{ .row = row + 1, .col = col + 1 }, null);
+        return self.location_history_.update(file_path, .{ .row = row + 1, .col = col + 1 }, null);
     }
 
     var sel: location_history.Selection = .{};
     if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col), tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) })) {
         project_manager.update_mru(file_path, row, col, ephemeral) catch {};
-        return self.location_history.update(file_path, .{ .row = row + 1, .col = col + 1 }, sel);
+        return self.location_history_.update(file_path, .{ .row = row + 1, .col = col + 1 }, sel);
     }
 }
 

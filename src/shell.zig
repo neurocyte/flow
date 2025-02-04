@@ -187,7 +187,7 @@ const Process = struct {
 
     fn receive(self: *Process, _: tp.pid_ref, m: tp.message) tp.result {
         errdefer self.deinit();
-        var bytes: []u8 = "";
+        var bytes: []const u8 = "";
 
         if (try m.match(.{ "input", tp.extract(&bytes) })) {
             const sp = self.sp orelse return tp.exit_error(error.Closed, null);

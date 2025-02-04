@@ -29,7 +29,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
         var iter = std.mem.tokenizeScalar(u8, item, '+');
         loop: while (iter.next()) |part| {
             if (part.len == 0) return parse_error("empty part in '{s}'", .{str});
-            const modsInfo = @typeInfo(input.ModSet).Struct;
+            const modsInfo = @typeInfo(input.ModSet).@"struct";
             inline for (modsInfo.fields) |field| {
                 if (std.mem.eql(u8, part, field.name)) {
                     if (@field(mods, field.name)) return parse_error("duplicate modifier '{s}' in '{s}'", .{ part, str });

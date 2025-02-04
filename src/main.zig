@@ -24,7 +24,7 @@ pub const application_title = "Flow Control";
 pub const application_subtext = "a programmer's text editor";
 pub const application_description = application_title ++ ": " ++ application_subtext;
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     // .log_level = if (builtin.mode == .Debug) .debug else .warn,
     .log_level = if (builtin.mode == .Debug) .info else .warn,
     .logFn = log.std_log_function,
@@ -512,7 +512,7 @@ fn read_cbor_config(
         else => return e,
     }) {
         var known = false;
-        inline for (@typeInfo(T).Struct.fields) |field_info|
+        inline for (@typeInfo(T).@"struct".fields) |field_info|
             if (comptime std.mem.eql(u8, "include_files", field_info.name)) {
                 if (std.mem.eql(u8, field_name, field_info.name)) {
                     known = true;
@@ -571,7 +571,7 @@ fn write_text_config_file(comptime T: type, data: T, file_name: []const u8) !voi
 
 pub fn write_config_to_writer(comptime T: type, data: T, writer: anytype) !void {
     const default: T = .{};
-    inline for (@typeInfo(T).Struct.fields) |field_info| {
+    inline for (@typeInfo(T).@"struct".fields) |field_info| {
         if (config_eql(
             field_info.type,
             @field(data, field_info.name),
@@ -593,7 +593,7 @@ fn config_eql(comptime T: type, a: T, b: T) bool {
         else => {},
     }
     switch (@typeInfo(T)) {
-        .Bool, .Int, .Float, .Enum => return a == b,
+        .bool, .int, .float, .@"enum" => return a == b,
         else => {},
     }
     @compileError("unsupported config type " ++ @typeName(T));

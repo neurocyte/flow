@@ -6,7 +6,7 @@ const EventHandler = @import("EventHandler");
 const Widget = @import("../Widget.zig");
 
 plane: Plane,
-layout: Widget.Layout,
+layout_: Widget.Layout,
 on_event: ?EventHandler,
 
 const Self = @This();
@@ -17,7 +17,7 @@ pub fn Create(comptime layout_: Widget.Layout) @import("widget.zig").CreateFunct
             const self: *Self = try allocator.create(Self);
             self.* = .{
                 .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-                .layout = layout_,
+                .layout_ = layout_,
                 .on_event = event_handler,
             };
             return Widget.to(self);
@@ -31,7 +31,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
 }
 
 pub fn layout(self: *Self) Widget.Layout {
-    return self.layout;
+    return self.layout_;
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

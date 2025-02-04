@@ -23,7 +23,7 @@ plane: Plane,
 parent: Plane,
 allocator: Allocator,
 widgets: ArrayList(WidgetState),
-layout: Layout,
+layout_: Layout,
 direction: Direction,
 box: ?Widget.Box = null,
 ctx: ?*anyopaque = null,
@@ -58,7 +58,7 @@ fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction,
         .parent = parent,
         .allocator = allocator,
         .widgets = ArrayList(WidgetState).init(allocator),
-        .layout = layout_,
+        .layout_ = layout_,
         .direction = dir,
     };
 }
@@ -68,7 +68,7 @@ pub fn widget(self: *Self) Widget {
 }
 
 pub fn layout(self: *Self) Widget.Layout {
-    return self.layout;
+    return self.layout_;
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {

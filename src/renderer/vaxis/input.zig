@@ -8,7 +8,7 @@ pub const key = vaxis.Key;
 pub const Key = u21;
 
 pub const Mouse = vaxis.Mouse.Button;
-pub const MouseType = @typeInfo(Mouse).Enum.tag_type;
+pub const MouseType = @typeInfo(Mouse).@"enum".tag_type;
 
 pub const mouse = struct {
     pub const MOTION: Mouse = vaxis.Mouse.Button.none;

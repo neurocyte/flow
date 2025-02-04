@@ -1,8 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
 
-const fba = std.heap.FixedBufferAllocator;
-
 const Self = @This();
 
 pub const max_log_message = tp.max_message_size - 128;
@@ -11,7 +9,7 @@ allocator: std.mem.Allocator,
 receiver: Receiver,
 subscriber: ?tp.pid,
 heap: [32 + 1024]u8,
-fba: fba,
+fba: std.heap.FixedBufferAllocator,
 msg_store: MsgStoreT,
 
 const MsgStoreT = std.DoublyLinkedList([]u8);
@@ -39,7 +37,7 @@ fn init(args: StartArgs) !*Self {
         .receiver = Receiver.init(Self.receive, p),
         .subscriber = null,
         .heap = undefined,
-        .fba = fba.init(&p.heap),
+        .fba = std.heap.FixedBufferAllocator.init(&p.heap),
         .msg_store = MsgStoreT{},
     };
     return p;

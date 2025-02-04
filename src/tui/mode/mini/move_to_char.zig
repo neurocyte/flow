@@ -87,6 +87,7 @@ fn execute_operation(self: *Self, ctx: command.Context) command.Result {
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Meta = command.Metadata;
     const Result = command.Result;
 
     pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
@@ -97,7 +98,7 @@ const cmds = struct {
         const bytes = input.ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidMoveToCharCodePoint;
         return self.execute_operation(command.fmt(.{buf[0..bytes]}));
     }
-    pub const mini_mode_insert_code_point_meta = .{ .arguments = &.{.integer} };
+    pub const mini_mode_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
@@ -105,10 +106,10 @@ const cmds = struct {
             return error.InvalidMoveToCharInsertBytesArgument;
         return self.execute_operation(ctx);
     }
-    pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };
+    pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
         command.executeName("exit_mini_mode", .{}) catch {};
     }
-    pub const mini_mode_cancel_meta = .{ .description = "Cancel input" };
+    pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 };

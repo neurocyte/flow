@@ -51,7 +51,7 @@ mtime: i64,
 utime: i64,
 
 pub const EolMode = enum { lf, crlf };
-pub const EolModeTag = @typeInfo(EolMode).Enum.tag_type;
+pub const EolModeTag = @typeInfo(EolMode).@"enum".tag_type;
 
 const UndoNode = struct {
     root: Root,
@@ -66,26 +66,26 @@ const UndoBranch = struct {
 };
 
 pub const WalkerMut = struct {
-    keep_walking: bool = false,
-    found: bool = false,
+    keep_walking_: bool = false,
+    found_: bool = false,
     replace: ?Root = null,
     err: ?anyerror = null,
 
-    pub const keep_walking = WalkerMut{ .keep_walking = true };
-    pub const stop = WalkerMut{ .keep_walking = false };
-    pub const found = WalkerMut{ .found = true };
+    pub const keep_walking = WalkerMut{ .keep_walking_ = true };
+    pub const stop = WalkerMut{ .keep_walking_ = false };
+    pub const found = WalkerMut{ .found_ = true };
 
     const F = *const fn (ctx: *anyopaque, leaf: *const Leaf, metrics: Metrics) WalkerMut;
 };
 
 pub const Walker = struct {
-    keep_walking: bool = false,
-    found: bool = false,
+    keep_walking_: bool = false,
+    found_: bool = false,
     err: ?anyerror = null,
 
-    pub const keep_walking = Walker{ .keep_walking = true };
-    pub const stop = Walker{ .keep_walking = false };
-    pub const found = Walker{ .found = true };
+    pub const keep_walking = Walker{ .keep_walking_ = true };
+    pub const stop = Walker{ .keep_walking_ = false };
+    pub const found = Walker{ .found_ = true };
 
     const F = *const fn (ctx: *anyopaque, leaf: *const Leaf, metrics: Metrics) Walker;
 };
@@ -121,8 +121,8 @@ pub const Branch = struct {
     fn merge_results_const(_: *const Branch, left: Walker, right: Walker) Walker {
         var result = Walker{};
         result.err = if (left.err) |_| left.err else right.err;
-        result.keep_walking = left.keep_walking and right.keep_walking;
-        result.found = left.found or right.found;
+        result.keep_walking_ = left.keep_walking_ and right.keep_walking_;
+        result.found_ = left.found_ or right.found_;
         return result;
     }
 
@@ -139,8 +139,8 @@ pub const Branch = struct {
             else
                 Node.new(allocator, new_left, new_right) catch |e| return .{ .err = e };
         }
-        result.keep_walking = left.keep_walking and right.keep_walking;
-        result.found = left.found or right.found;
+        result.keep_walking_ = left.keep_walking_ and right.keep_walking_;
+        result.found_ = left.found_ or right.found_;
         return result;
     }
 };
@@ -345,10 +345,10 @@ const Node = union(enum) {
         switch (self.*) {
             .node => |*node| {
                 const left = node.left.walk_const(f, ctx, metrics);
-                if (!left.keep_walking) {
+                if (!left.keep_walking_) {
                     var result = Walker{};
                     result.err = left.err;
-                    result.found = left.found;
+                    result.found_ = left.found_;
                     return result;
                 }
                 const right = node.right.walk_const(f, ctx, metrics);
@@ -362,10 +362,10 @@ const Node = union(enum) {
         switch (self.*) {
             .node => |*node| {
                 const left = node.left.walk(allocator, f, ctx, metrics);
-                if (!left.keep_walking) {
+                if (!left.keep_walking_) {
                     var result = WalkerMut{};
                     result.err = left.err;
-                    result.found = left.found;
+                    result.found_ = left.found_;
                     if (left.replace) |p| {
                         result.replace = Node.new(allocator, p, node.right) catch |e| return .{ .err = e };
                     }
@@ -385,14 +385,14 @@ const Node = union(enum) {
                 if (line >= left_bols)
                     return node.right.walk_from_line_begin_const_internal(line - left_bols, f, ctx, metrics);
                 const left_result = node.left.walk_from_line_begin_const_internal(line, f, ctx, metrics);
-                const right_result = if (left_result.found and left_result.keep_walking) node.right.walk_const(f, ctx, metrics) else Walker{};
+                const right_result = if (left_result.found_ and left_result.keep_walking_) node.right.walk_const(f, ctx, metrics) else Walker{};
                 return node.merge_results_const(left_result, right_result);
             },
             .leaf => |*l| {
                 if (line == 0) {
                     var result = f(ctx, l, metrics);
                     if (result.err) |_| return result;
-                    result.found = true;
+                    result.found_ = true;
                     return result;
                 }
                 return Walker.keep_walking;
@@ -403,7 +403,7 @@ const Node = union(enum) {
     pub fn walk_from_line_begin_const(self: *const Node, line: usize, f: Walker.F, ctx: *anyopaque, metrics: Metrics) !bool {
         const result = self.walk_from_line_begin_const_internal(line, f, ctx, metrics);
         if (result.err) |e| return e;
-        return result.found;
+        return result.found_;
     }
 
     fn walk_from_line_begin_internal(self: *const Node, allocator: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque, metrics: Metrics) WalkerMut {
@@ -415,8 +415,8 @@ const Node = union(enum) {
                     if (right_result.replace) |p| {
                         var result = WalkerMut{};
                         result.err = right_result.err;
-                        result.found = right_result.found;
-                        result.keep_walking = right_result.keep_walking;
+                        result.found_ = right_result.found_;
+                        result.keep_walking_ = right_result.keep_walking_;
                         result.replace = if (p.is_empty())
                             node.left
                         else
@@ -427,7 +427,7 @@ const Node = union(enum) {
                     }
                 }
                 const left_result = node.left.walk_from_line_begin_internal(allocator, line, f, ctx, metrics);
-                const right_result = if (left_result.found and left_result.keep_walking) node.right.walk(allocator, f, ctx, metrics) else WalkerMut{};
+                const right_result = if (left_result.found_ and left_result.keep_walking_) node.right.walk(allocator, f, ctx, metrics) else WalkerMut{};
                 return node.merge_results(allocator, left_result, right_result);
             },
             .leaf => |*l| {
@@ -437,7 +437,7 @@ const Node = union(enum) {
                         result.replace = null;
                         return result;
                     }
-                    result.found = true;
+                    result.found_ = true;
                     return result;
                 }
                 return WalkerMut.keep_walking;
@@ -448,7 +448,7 @@ const Node = union(enum) {
     pub fn walk_from_line_begin(self: *const Node, allocator: Allocator, line: usize, f: WalkerMut.F, ctx: *anyopaque, metrics: Metrics) !struct { bool, ?Root } {
         const result = self.walk_from_line_begin_internal(allocator, line, f, ctx, metrics);
         if (result.err) |e| return e;
-        return .{ result.found, result.replace };
+        return .{ result.found_, result.replace };
     }
 
     fn find_line_node(self: *const Node, line: usize) ?*const Node {
@@ -503,12 +503,12 @@ const Node = union(enum) {
                     if (ret.err) |e| return .{ .err = e };
                     buf = buf[bytes..];
                     ctx.abs_col += @intCast(cols);
-                    if (!ret.keep_walking) return Walker.stop;
+                    if (!ret.keep_walking_) return Walker.stop;
                 }
                 if (leaf.eol) {
                     const ret = ctx.walker_f(ctx.walker_ctx, "\n", 1, metrics);
                     if (ret.err) |e| return .{ .err = e };
-                    if (!ret.keep_walking) return Walker.stop;
+                    if (!ret.keep_walking_) return Walker.stop;
                     ctx.abs_col = 0;
                 }
                 return Walker.keep_walking;
@@ -665,7 +665,7 @@ const Node = union(enum) {
                 var result = WalkerMut.keep_walking;
                 if (ctx.delete_next_bol and ctx.bytes == 0) {
                     result.replace = Leaf.new(ctx.allocator, leaf.buf, false, leaf.eol) catch |e| return .{ .err = e };
-                    result.keep_walking = false;
+                    result.keep_walking_ = false;
                     ctx.delete_next_bol = false;
                     return result;
                 }
@@ -719,7 +719,7 @@ const Node = union(enum) {
                         }
                     }
                     if (ctx.bytes == 0 and !ctx.delete_next_bol)
-                        result.keep_walking = false;
+                        result.keep_walking_ = false;
                 }
                 return result;
             }
@@ -1206,6 +1206,9 @@ pub const LoadFromFileError = error{
     DanglingSurrogateHalf,
     ExpectedSecondSurrogateHalf,
     UnexpectedSecondSurrogateHalf,
+    LockViolation,
+    ProcessNotFound,
+    Canceled,
 };
 
 pub fn load_from_file(
@@ -1296,6 +1299,7 @@ pub const StoreToFileError = error{
     PathAlreadyExists,
     PipeBusy,
     ProcessFdQuotaExceeded,
+    ProcessNotFound,
     ReadOnlyFileSystem,
     RenameAcrossMountPoints,
     SharingViolation,
