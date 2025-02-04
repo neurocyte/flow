@@ -2351,8 +2351,14 @@ pub const Editor = struct {
             if (primary.selection) |_| {} else {
                 const sel = primary.enable_selection(root, self.metrics) catch return;
                 try move_cursor_begin(root, &sel.begin, self.metrics);
-                try move_cursor_end(root, &sel.end, self.metrics);
-                try move_cursor_right(root, &sel.end, self.metrics);
+                move_cursor_end(root, &sel.end, self.metrics) catch |e| switch (e) {
+                    error.Stop => {},
+                    else => return e,
+                };
+                move_cursor_right(root, &sel.end, self.metrics) catch |e| switch (e) {
+                    error.Stop => {},
+                    else => return e,
+                };
             };
         var first = true;
         var text = std.ArrayList(u8).init(self.allocator);
