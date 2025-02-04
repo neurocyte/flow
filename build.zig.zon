@@ -34,8 +34,8 @@
             .hash = "12207e33747072d878fce61f587c133124dc95f4ae8aab7d2b3f467699586af07c77",
         },
         .zeit = .{
-            .url = "https://github.com/rockorager/zeit/archive/9cca8ec620a54c3b07cd249f25e5bcb3153d03d7.tar.gz",
-            .hash = "1220755ea2a5aa6bb3713437aaafefd44812169fe43f1da755c3ee6101b85940f441",
+            .url = "https://github.com/rockorager/zeit/archive/8fd203f85f597f16e0a525c1f1ca1e0bffded809.tar.gz",
+            .hash = "122022233835adc719535a8e7cefdd2902a67bbfb7ef198441ca9ce89c0593f488c2",
         },
         .win32 = .{
             .url = "https://github.com/marlersoft/zigwin32/archive/259b6f353a48968d7e3171573db4fd898b046188.tar.gz",
