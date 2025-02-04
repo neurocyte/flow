@@ -22,8 +22,8 @@
             .hash = "1220bbfd147f41fa49d2e5406096f3529c62e9335f4d2a89ae381e679a76ce398f1f",
         },
         .themes = .{
-            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-8b79cf6d79373c142393ec26a81b19f4701f4372/flow-themes.tar.gz",
-            .hash = "1220e4f3baf09dc23e48616f7dbf00bd45c3034faa2eddede7bb45ef4c23a19b962b",
+            .url = "https://github.com/neurocyte/flow-themes/releases/download/master-618a7801d3383049adfe18cc09f5f5086c66995f/flow-themes.tar.gz",
+            .hash = "1220019ed92f48fb94d4ae82bba17b11d0ba06f17ed31cd66613b3c048b1d2382095",
         },
         .fuzzig = .{
             .url = "https://github.com/fjebaker/fuzzig/archive/0fd156d5097365151e85a85eef9d8cf0eebe7b00.tar.gz",
