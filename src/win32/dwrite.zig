@@ -41,12 +41,12 @@ pub const Font = struct {
             );
             if (hr < 0) std.debug.panic(
                 "CreateTextFormat '{}' height {d} failed, hresult=0x{x}",
-                .{ std.unicode.fmtUtf16le(face.slice()), size, @as(u32, @bitCast(hr)) },
+                .{ std.unicode.fmtUtf16Le(face.slice()), size, @as(u32, @bitCast(hr)) },
             );
         }
         errdefer _ = text_format.IUnknown.Release();
 
-        const cell_size = blk: {
+        const cell_size: XY(u16) = blk: {
             var text_layout: *win32.IDWriteTextLayout = undefined;
             {
                 const hr = global.dwrite_factory.CreateTextLayout(

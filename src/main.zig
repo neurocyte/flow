@@ -32,7 +32,11 @@ pub const std_options: std.Options = .{
 
 const renderer = @import("renderer");
 
-pub const panic = if (@hasDecl(renderer, "panic")) renderer.panic else std.builtin.default_panic;
+pub const panic = if (@hasDecl(renderer, "panic")) renderer.panic else default_panic;
+
+fn default_panic(msg: []const u8, _: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+    return std.debug.defaultPanic(msg, ret_addr);
+}
 
 pub fn main() anyerror!void {
     if (builtin.os.tag == .linux) {
