@@ -43,6 +43,7 @@
             [":", "open_command_palette"],
             ["p", "paste_internal_vim"],
 
+            ["gd", "goto_definition"],
             ["gi", "goto_implementation"],
             ["gy", "goto_type_definition"],
             ["gg", "move_buffer_begin"],

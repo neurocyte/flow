@@ -1939,42 +1939,8 @@ pub const Editor = struct {
         return false;
     }
 
-    fn is_not_word_char_vim(c: []const u8) bool {
-        if (c.len == 0) return true;
-        return switch (c[0]) {
-            '=' => true,
-            '"' => true,
-            '\'' => true,
-            '/' => true,
-            '\\' => true,
-            '*' => true,
-            ':' => true,
-            '.' => true,
-            ',' => true,
-            '(' => true,
-            ')' => true,
-            '{' => true,
-            '}' => true,
-            '[' => true,
-            ']' => true,
-            ';' => true,
-            '|' => true,
-            '!' => true,
-            '?' => true,
-            '&' => true,
-            '-' => true,
-            '<' => true,
-            '>' => true,
-            else => false,
-        };
-    }
-
-    fn is_non_word_char_at_cursor_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
-        return cursor.test_at(root, is_not_word_char_vim, metrics);
-    }
-
     fn is_white_space(c: []const u8) bool {
-        return (c.len == 0) or (c[0] == ' ');
+        return (c.len == 0) or (c[0] == ' ') or (c[0] == '\t');
     }
 
     fn is_white_space_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
@@ -1989,8 +1955,8 @@ pub const Editor = struct {
         const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
         if(next_is_white_space) return true;
 
-        const curr_is_non_word = is_non_word_char_at_cursor_vim(root, cursor, metrics);
-        const next_is_non_word = is_non_word_char_at_cursor_vim(root, &next, metrics);
+        const curr_is_non_word = is_non_word_char_at_cursor(root, cursor, metrics);
+        const next_is_non_word = is_non_word_char_at_cursor(root, &next, metrics);
         return curr_is_non_word != next_is_non_word;
     }
 
@@ -2027,8 +1993,8 @@ pub const Editor = struct {
         const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
         if(next_is_white_space) return true;
 
-        const curr_is_non_word = is_non_word_char_at_cursor_vim(root, cursor, metrics);
-        const next_is_non_word = is_non_word_char_at_cursor_vim(root, &next, metrics);
+        const curr_is_non_word = is_non_word_char_at_cursor(root, cursor, metrics);
+        const next_is_non_word = is_non_word_char_at_cursor(root, &next, metrics);
         return curr_is_non_word != next_is_non_word;
     }
 
@@ -2734,7 +2700,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const cut_word_left_vim_meta = .{ .description = "Cut next character to internal clipboard" };
+    pub const cut_word_left_vim_meta = .{ .description = "Cut previous word to internal clipboard (vim)" };
 
     pub fn delete_word_right(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2751,7 +2717,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const cut_word_right_vim_meta = .{ .description = "Cut next character to internal clipboard" };
+    pub const cut_word_right_vim_meta = .{ .description = "Cut next word to internal clipboard (vim)" };
 
     pub fn delete_to_begin(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
