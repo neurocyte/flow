@@ -230,3 +230,19 @@ pub const font_test_text: []const u8 =
     \\ "Cascadia Code NF" => https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip
     \\
 ;
+
+pub const DigitStyle = @import("config").DigitStyle;
+
+pub fn get_digit(n: anytype, style_: DigitStyle) []const u8 {
+    return switch (style_) {
+        .ascii => digits_ascii[n],
+        .digital => digits_digtl[n],
+        .subscript => digits_subsc[n],
+        .superscript => digits_super[n],
+    };
+}
+
+const digits_ascii: [10][]const u8 = .{ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+const digits_digtl: [10][]const u8 = .{ "🯰", "🯱", "🯲", "🯳", "🯴", "🯵", "🯶", "🯷", "🯸", "🯹" };
+const digits_subsc: [10][]const u8 = .{ "₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉" };
+const digits_super: [10][]const u8 = .{ "⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹" };

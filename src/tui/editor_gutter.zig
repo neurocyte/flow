@@ -17,7 +17,7 @@ const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
 const ed = @import("editor.zig");
-const LineNumberStyle = @import("config").LineNumberStyle;
+const DigitStyle = @import("config").DigitStyle;
 
 allocator: Allocator,
 plane: Plane,
@@ -29,7 +29,7 @@ row: u32 = 1,
 line: usize = 0,
 linenum: bool,
 relative: bool,
-render_style: LineNumberStyle,
+render_style: DigitStyle,
 highlight: bool,
 symbols: bool,
 width: usize = 4,
@@ -424,7 +424,7 @@ fn int_width(n_: usize) usize {
     }
 }
 
-fn print_digits(self: *Self, n_: anytype, style_: LineNumberStyle) !void {
+fn print_digits(self: *Self, n_: anytype, style_: DigitStyle) !void {
     var n = n_;
     var buf: [12][]const u8 = undefined;
     var digits: std.ArrayListUnmanaged([]const u8) = .initBuffer(&buf);
@@ -438,20 +438,8 @@ fn print_digits(self: *Self, n_: anytype, style_: LineNumberStyle) !void {
     for (digits.items) |digit| _ = try self.plane.putstr(digit);
 }
 
-pub fn print_digit(plane: *Plane, n: anytype, style_: LineNumberStyle) !void {
+pub fn print_digit(plane: *Plane, n: anytype, style_: DigitStyle) !void {
     _ = try plane.putstr(get_digit(n, style_));
 }
 
-fn get_digit(n: anytype, style_: LineNumberStyle) []const u8 {
-    return switch (style_) {
-        .ascii => digits_ascii[n],
-        .digital => digits_digtl[n],
-        .subscript => digits_subsc[n],
-        .superscript => digits_super[n],
-    };
-}
-
-const digits_ascii: [10][]const u8 = .{ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" };
-const digits_digtl: [10][]const u8 = .{ "🯰", "🯱", "🯲", "🯳", "🯴", "🯵", "🯶", "🯷", "🯸", "🯹" };
-const digits_subsc: [10][]const u8 = .{ "₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉" };
-const digits_super: [10][]const u8 = .{ "⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹" };
+const get_digit = @import("fonts.zig").get_digit;
