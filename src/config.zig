@@ -5,6 +5,7 @@ theme: []const u8 = "default",
 input_mode: []const u8 = "flow",
 gutter_line_numbers: bool = true,
 gutter_line_numbers_relative: bool = false,
+gutter_line_numbers_style: LineNumberStyle = .ascii,
 gutter_symbols: bool = true,
 enable_terminal_cursor: bool = true,
 enable_terminal_color_scheme: bool = builtin.os.tag != .windows,
@@ -25,3 +26,10 @@ bottom_bar: []const u8 = "mode file log selection diagnostics keybind linenumber
 lsp_request_timeout: usize = 10,
 
 include_files: []const u8 = "",
+
+pub const LineNumberStyle = enum {
+    ascii,
+    digital,
+    subscript,
+    superscript,
+};
