@@ -1949,12 +1949,12 @@ pub const Editor = struct {
     }
 
     fn is_word_boundary_left_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
-        if(is_white_space_at_cursor(root, cursor, metrics)) return false;
+        if (is_white_space_at_cursor(root, cursor, metrics)) return false;
         var next = cursor.*;
         next.move_left(root, metrics) catch return true;
 
         const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
-        if(next_is_white_space) return true;
+        if (next_is_white_space) return true;
 
         const curr_is_non_word = is_non_word_char_at_cursor(root, cursor, metrics);
         const next_is_non_word = is_non_word_char_at_cursor(root, &next, metrics);
@@ -1987,12 +1987,12 @@ pub const Editor = struct {
     }
 
     fn is_word_boundary_right_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
-        if(is_white_space_at_cursor(root, cursor, metrics)) return false;
+        if (is_white_space_at_cursor(root, cursor, metrics)) return false;
         var next = cursor.*;
         next.move_right(root, metrics) catch return true;
 
         const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
-        if(next_is_white_space) return true;
+        if (next_is_white_space) return true;
 
         const curr_is_non_word = is_non_word_char_at_cursor(root, cursor, metrics);
         const next_is_non_word = is_non_word_char_at_cursor(root, &next, metrics);
@@ -2427,7 +2427,7 @@ pub const Editor = struct {
 
         if (all_stop)
             return error.Stop;
-        return .{text.items, root};
+        return .{ text.items, root };
     }
 
     pub fn cut_internal_vim(self: *Self, _: Context) Result {
@@ -2458,7 +2458,7 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const cut_internal_vim_meta: Meta = .{ .description = "Cut selection or current line to internal clipboard (vim)" };
- 
+
     pub fn cut(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         const b = self.buf_for_update() catch return;
@@ -2632,10 +2632,10 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
 
-        if(std.mem.eql(u8, text[text.len-1..], "\n")) text = text[0..text.len-1];
+        if (std.mem.eql(u8, text[text.len - 1 ..], "\n")) text = text[0 .. text.len - 1];
 
         if (std.mem.indexOfScalar(u8, text, '\n')) |idx| {
-            if(idx == 0) {
+            if (idx == 0) {
                 for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
                     try move_cursor_end(root, &cursel.cursor, self.metrics);
                     root = try self.insert(root, cursel, "\n", b.allocator);
@@ -2643,8 +2643,8 @@ pub const Editor = struct {
                 text = text[1..];
             }
             if (self.cursels.items.len == 1) {
-            const primary = self.get_primary();
-            root = try self.insert_line_vim(root, primary, text, b.allocator);
+                const primary = self.get_primary();
+                root = try self.insert_line_vim(root, primary, text, b.allocator);
             } else {
                 for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
                     root = try self.insert_line_vim(root, cursel, text, b.allocator);
@@ -2652,15 +2652,15 @@ pub const Editor = struct {
             }
         } else {
             if (self.cursels.items.len == 1) {
-            const primary = self.get_primary();
-            root = try self.insert(root, primary, text, b.allocator);
+                const primary = self.get_primary();
+                root = try self.insert(root, primary, text, b.allocator);
             } else {
                 for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
                     root = try self.insert(root, cursel, text, b.allocator);
                 };
             }
         }
-        
+
         try self.update_buf(root);
         self.clamp();
         self.need_render();
@@ -2677,7 +2677,7 @@ pub const Editor = struct {
 
     pub fn cut_forward_internal(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const text, const root= try self.cut_to(move_cursor_right, b.root);
+        const text, const root = try self.cut_to(move_cursor_right, b.root);
         self.set_clipboard_internal(text);
         try self.update_buf(root);
         self.clamp();
@@ -2702,7 +2702,7 @@ pub const Editor = struct {
 
     pub fn cut_word_left_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const text, const root= try self.cut_to(move_cursor_word_left_vim, b.root);
+        const text, const root = try self.cut_to(move_cursor_word_left_vim, b.root);
         self.set_clipboard_internal(text);
         try self.update_buf(root);
         self.clamp();
@@ -2719,7 +2719,7 @@ pub const Editor = struct {
 
     pub fn cut_word_right_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const text, const root= try self.cut_to(move_cursor_word_right_vim, b.root);
+        const text, const root = try self.cut_to(move_cursor_word_right_vim, b.root);
         self.set_clipboard_internal(text);
         try self.update_buf(root);
         self.clamp();
@@ -2869,7 +2869,6 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const move_word_left_vim_meta: Meta = .{ .description = "Move cursor left by word (vim)" };
-
 
     pub fn move_word_right(self: *Self, _: Context) Result {
         const root = try self.buf_root();
