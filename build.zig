@@ -597,7 +597,7 @@ fn gen_version_info(
         defer buf.deinit();
         try buf.appendSlice(branch);
         try buf.appendSlice("@{upstream}");
-        break :blk try b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", buf.items }, &code, .Ignore);
+        break :blk (b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", buf.items }, &code, .Ignore) catch "");
     };
     const tracking_remote_name = if (std.mem.indexOfScalar(u8, tracking_branch_, '/')) |pos| tracking_branch_[0..pos] else "";
     const tracking_remote_ = if (tracking_remote_name.len > 0) blk: {
