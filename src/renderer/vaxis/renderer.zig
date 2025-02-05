@@ -26,6 +26,7 @@ no_alternate: bool,
 event_buffer: std.ArrayList(u8),
 input_buffer: std.ArrayList(u8),
 mods: vaxis.Key.Modifiers = .{},
+queries_done: bool,
 
 bracketed_paste: bool = false,
 bracketed_paste_buffer: std.ArrayList(u8),
@@ -62,6 +63,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
         .handler_ctx = handler_ctx,
         .logger = log.logger(log_name),
         .loop = undefined,
+        .queries_done = false,
     };
 }
 
@@ -153,6 +155,15 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
     const event = std.mem.bytesAsValue(vaxis.Event, input_);
     switch (event.*) {
         .key_press => |key__| {
+            // Check for a cursor position response for our explicity width query. This will
+            // always be an F3 key with shift = true, and we must be looking for queries
+            if (key__.codepoint == vaxis.Key.f3 and key__.mods.shift and !self.queries_done) {
+                self.logger.print("explicit width capability detected", .{});
+                self.vx.caps.explicit_width = true;
+                self.vx.caps.unicode = .unicode;
+                self.vx.screen.width_method = .unicode;
+                return;
+            }
             const key_ = filter_mods(normalize_shifted_alphas(key__));
             try self.sync_mod_state(key_.codepoint, key_.mods);
             const cbor_msg = try self.fmtmsg(.{
@@ -254,6 +265,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
             self.vx.caps.sgr_pixels = true;
         },
         .cap_da1 => {
+            self.queries_done = true;
             self.vx.enableDetectedFeatures(self.tty.anyWriter()) catch |e| self.logger.err("enable features", e);
             try self.vx.setMouseMode(self.tty.anyWriter(), true);
         },
