@@ -38,6 +38,7 @@ const menu_commands = if (build_options.gui) &[_][]const u8{
     "toggle_input_mode",
     "change_theme",
     "change_fontface",
+    "open_version_info",
     "quit",
 } else &[_][]const u8{
     "open_help",
@@ -49,6 +50,7 @@ const menu_commands = if (build_options.gui) &[_][]const u8{
     "open_keybind_config",
     "toggle_input_mode",
     "change_theme",
+    "open_version_info",
     "quit",
 };
 
