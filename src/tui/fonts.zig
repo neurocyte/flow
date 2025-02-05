@@ -223,4 +223,10 @@ pub const font_test_text: []const u8 =
     \\
     \\🙂‍↔
     \\
+    \\
+    \\ recommended fonts for terminals with no nerdfont fallback support (e.g. flow-gui):
+    \\
+    \\ "IosevkaTerm Nerd Font" => https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/IosevkaTerm.zip
+    \\ "Cascadia Code NF" => https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip
+    \\
 ;
