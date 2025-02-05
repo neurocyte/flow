@@ -210,6 +210,7 @@ pub fn nudge_insert(self: *Self, nudge: Selection) void {
     } else {
         self.row += rows;
     }
+    self.target = self.col;
 }
 
 pub fn nudge_delete(self: *Self, nudge: Selection) bool {
@@ -222,6 +223,7 @@ pub fn nudge_delete(self: *Self, nudge: Selection) bool {
                 return false;
             }
             self.col -= nudge.end.col - nudge.begin.col;
+            self.target = self.col;
             return true;
         }
     }
@@ -230,6 +232,7 @@ pub fn nudge_delete(self: *Self, nudge: Selection) bool {
         if (self.col < nudge.end.col) return false;
         self.row -= nudge.end.row - nudge.begin.row;
         self.col -= nudge.end.col;
+        self.target = self.col;
         return true;
     }
     self.row -= nudge.end.row - nudge.begin.row;
