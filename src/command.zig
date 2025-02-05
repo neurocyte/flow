@@ -26,7 +26,7 @@ const Vtable = struct {
     meta: Metadata,
 };
 
-const Metadata = struct {
+pub const Metadata = struct {
     description: []const u8 = &[_]u8{},
     arguments: []const ArgumentType = &[_]ArgumentType{},
 };
@@ -216,7 +216,7 @@ fn getTargetType(comptime Namespace: type) type {
 fn getCommands(comptime Namespace: type) []const CmdDef(*getTargetType(Namespace)) {
     @setEvalBranchQuota(10_000);
     comptime switch (@typeInfo(Namespace)) {
-        .Struct => |info| {
+        .@"struct" => |info| {
             var count = 0;
             const Target = getTargetType(Namespace);
             // @compileLog(Namespace, Target);
@@ -257,14 +257,14 @@ pub fn Collection(comptime Namespace: type) type {
         fields_var[i] = .{
             .name = cmd.name,
             .type = Clsr,
-            .default_value = null,
+            .default_value_ptr = null,
             .is_comptime = false,
             .alignment = if (@sizeOf(Clsr) > 0) @alignOf(Clsr) else 0,
         };
     }
     const fields: [cmds.len]std.builtin.Type.StructField = fields_var;
     const Fields = @Type(.{
-        .Struct = .{
+        .@"struct" = .{
             .is_tuple = false,
             .layout = .auto,
             .decls = &.{},

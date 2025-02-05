@@ -82,13 +82,14 @@ fn insert_bytes(self: *Self, bytes: []const u8) void {
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Meta = command.Metadata;
     const Result = command.Result;
 
     pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
         self.input = null;
         self.update_mini_mode_text();
     }
-    pub const mini_mode_reset_meta = .{ .description = "Clear input" };
+    pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
     pub fn mini_mode_cancel(self: *Self, _: Ctx) Result {
         self.input = null;
@@ -96,7 +97,7 @@ const cmds = struct {
         self.goto();
         command.executeName("exit_mini_mode", .{}) catch {};
     }
-    pub const mini_mode_cancel_meta = .{ .description = "Cancel input" };
+    pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
     pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
         if (self.input) |linenum| {
@@ -106,7 +107,7 @@ const cmds = struct {
             self.goto();
         }
     }
-    pub const mini_mode_delete_backwards_meta = .{ .description = "Delete backwards" };
+    pub const mini_mode_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
 
     pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
         var keypress: usize = 0;
@@ -119,7 +120,7 @@ const cmds = struct {
         self.update_mini_mode_text();
         self.goto();
     }
-    pub const mini_mode_insert_code_point_meta = .{ .arguments = &.{.integer} };
+    pub const mini_mode_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
@@ -129,5 +130,5 @@ const cmds = struct {
         self.update_mini_mode_text();
         self.goto();
     }
-    pub const mini_mode_insert_bytes_meta = .{ .arguments = &.{.string} };
+    pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 };

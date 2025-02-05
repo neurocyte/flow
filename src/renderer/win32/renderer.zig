@@ -18,8 +18,38 @@ pub const StyleBits = @import("tuirenderer").style;
 const gui = @import("gui");
 const DropWriter = gui.DropWriter;
 pub const style = StyleBits;
+pub const styles = @import("tuirenderer").styles;
 
-pub const panic = win32.messageBoxThenPanic(.{ .title = "Flow Panic" });
+pub const panic = messageBoxThenPanic(.{ .title = "Flow Panic" });
+
+threadlocal var thread_is_panicing = false;
+fn messageBoxThenPanic(
+    opt: struct {
+        title: [:0]const u8,
+        style: win32.MESSAGEBOX_STYLE = .{ .ICONASTERISK = 1 },
+        // TODO: add option/logic to include the stacktrace in the messagebox
+    },
+) std.builtin.PanicFn {
+    return struct {
+        pub fn panic(
+            msg: []const u8,
+            _: ?*std.builtin.StackTrace,
+            ret_addr: ?usize,
+        ) noreturn {
+            if (!thread_is_panicing) {
+                thread_is_panicing = true;
+                var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+                const msg_z: [:0]const u8 = if (std.fmt.allocPrintZ(
+                    arena.allocator(),
+                    "{s}",
+                    .{msg},
+                )) |msg_z| msg_z else |_| "failed allocate error message";
+                _ = win32.MessageBoxA(null, msg_z, opt.title, opt.style);
+            }
+            std.debug.defaultPanic(msg, ret_addr);
+        }
+    }.panic;
+}
 
 allocator: std.mem.Allocator,
 vx: vaxis.Vaxis,
@@ -35,7 +65,7 @@ thread: ?std.Thread = null,
 
 hwnd: ?win32.HWND = null,
 title_buf: std.ArrayList(u16),
-style: ?Style = null,
+style_: ?Style = null,
 
 const global = struct {
     var init_called: bool = false;
@@ -344,12 +374,12 @@ fn update_window_title(self: *Self) void {
 }
 
 pub fn set_terminal_style(self: *Self, style_: Style) void {
-    self.style = style_;
+    self.style_ = style_;
     self.update_window_style();
 }
 fn update_window_style(self: *Self) void {
     const hwnd = self.hwnd orelse return;
-    if (self.style) |style_| {
+    if (self.style_) |style_| {
         if (style_.bg) |color| gui.set_window_background(hwnd, @intCast(color.color));
     }
 }

@@ -145,7 +145,7 @@ fn getConfig() *gui_config {
 }
 
 fn getFieldDefault(field: std.builtin.Type.StructField) ?*const field.type {
-    return @alignCast(@ptrCast(field.default_value orelse return null));
+    return @alignCast(@ptrCast(field.default_value_ptr orelse return null));
 }
 
 fn getDefaultFontFace() FontFace {

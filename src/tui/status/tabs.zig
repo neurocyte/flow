@@ -425,7 +425,7 @@ const Tab = struct {
 
 const spacer = struct {
     plane: Plane,
-    layout: Widget.Layout,
+    layout_: Widget.Layout,
     on_event: ?EventHandler,
     content: []const u8,
     fg: colors,
@@ -444,7 +444,7 @@ const spacer = struct {
         const self: *Self = try allocator.create(Self);
         self.* = .{
             .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-            .layout = .{ .static = self.plane.egc_chunk_width(content, 0, 1) },
+            .layout_ = .{ .static = self.plane.egc_chunk_width(content, 0, 1) },
             .on_event = event_handler,
             .content = content,
             .fg = fg,
@@ -459,7 +459,7 @@ const spacer = struct {
     }
 
     pub fn layout(self: *Self) Widget.Layout {
-        return self.layout;
+        return self.layout_;
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme) bool {

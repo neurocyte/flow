@@ -88,7 +88,7 @@ fn ft_func_name(comptime lang: []const u8) []const u8 {
 
 const LangFn = *const fn () callconv(.C) ?*const treez.Language;
 
-const FirstLineMatch = struct {
+pub const FirstLineMatch = struct {
     prefix: ?[]const u8 = null,
     content: ?[]const u8 = null,
 };
@@ -105,7 +105,7 @@ fn vec(comptime args: anytype) []const []const u8 {
 
 fn load_file_types(comptime Namespace: type) []const FileType {
     comptime switch (@typeInfo(Namespace)) {
-        .Struct => |info| {
+        .@"struct" => |info| {
             var count = 0;
             for (info.decls) |_| {
                 // @compileLog(decl.name, @TypeOf(@field(Namespace, decl.name)));

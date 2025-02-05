@@ -12,6 +12,7 @@ pub const Cell = @import("Cell.zig");
 pub const CursorShape = vaxis.Cell.CursorShape;
 
 pub const style = @import("style.zig").StyleBits;
+pub const styles = @import("style.zig");
 
 const Self = @This();
 pub const log_name = "vaxis";
@@ -80,13 +81,14 @@ var panic_cleanup: ?struct {
     vx: *vaxis.Vaxis,
 } = null;
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+    _ = error_return_trace; // TODO: what to do with this in zig-0.14?
     const cleanup = panic_cleanup;
     panic_cleanup = null;
     if (cleanup) |self| {
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
     }
-    return std.builtin.default_panic(msg, error_return_trace, ret_addr);
+    return std.debug.defaultPanic(msg, ret_addr);
 }
 
 pub fn run(self: *Self) !void {

@@ -243,28 +243,29 @@ const Commands = command.Collection(cmds);
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Meta = command.Metadata;
     const Result = command.Result;
 
     pub fn save_all(_: *Self, _: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
             bm.save_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
-    pub const save_all_meta = .{ .description = "Save all changed files" };
+    pub const save_all_meta: Meta = .{ .description = "Save all changed files" };
 
     pub fn home_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
-    pub const home_menu_down_meta = .{};
+    pub const home_menu_down_meta: Meta = .{};
 
     pub fn home_menu_up(self: *Self, _: Ctx) Result {
         self.menu.select_up();
     }
-    pub const home_menu_up_meta = .{};
+    pub const home_menu_up_meta: Meta = .{};
 
     pub fn home_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
     }
-    pub const home_menu_activate_meta = .{};
+    pub const home_menu_activate_meta: Meta = .{};
 
     pub fn home_sheeran(self: *Self, _: Ctx) Result {
         self.fire = if (self.fire) |*fire| ret: {
@@ -272,7 +273,7 @@ const cmds = struct {
             break :ret null;
         } else try Fire.init(self.allocator, self.plane);
     }
-    pub const home_sheeran_meta = .{};
+    pub const home_sheeran_meta: Meta = .{};
 };
 
 const Fire = struct {

@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
+const styles = @import("renderer").styles;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 
@@ -52,7 +53,7 @@ pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) b
     self.plane.set_style(style_label);
     self.plane.fill(" ");
     self.plane.home();
-    self.plane.on_styles(style.bold);
+    self.plane.on_styles(styles.bold);
     var buf: [31:0]u8 = undefined;
     if (!is_mini_mode() and !is_overlay_mode()) {
         render_logo(self, theme, style_label);
@@ -60,7 +61,7 @@ pub fn render(_: *void, self: *Button.State(void), theme: *const Widget.Theme) b
         _ = self.plane.putstr("  ") catch {};
     }
     self.plane.set_style(style_label);
-    self.plane.on_styles(style.bold);
+    self.plane.on_styles(styles.bold);
     _ = self.plane.putstr(std.fmt.bufPrintZ(&buf, "{s} ", .{tui.get_mode()}) catch return false) catch {};
     if (is_mini_mode())
         render_separator(self, theme);

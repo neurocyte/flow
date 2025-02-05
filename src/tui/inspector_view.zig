@@ -7,6 +7,7 @@ const syntax = @import("syntax");
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
+const styles = @import("renderer").styles;
 const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
@@ -168,31 +169,31 @@ fn show_color(self: *Self, tag: []const u8, c_: ?Widget.Theme.Color) void {
 fn show_font(self: *Self, font: ?Widget.Theme.FontStyle) void {
     if (font) |fs| switch (fs) {
         .normal => {
-            self.plane.set_styles(style.normal);
+            self.plane.set_styles(styles.normal);
             _ = self.plane.print(" normal", .{}) catch return;
         },
         .bold => {
-            self.plane.set_styles(style.bold);
+            self.plane.set_styles(styles.bold);
             _ = self.plane.print(" bold", .{}) catch return;
         },
         .italic => {
-            self.plane.set_styles(style.italic);
+            self.plane.set_styles(styles.italic);
             _ = self.plane.print(" italic", .{}) catch return;
         },
         .underline => {
-            self.plane.set_styles(style.underline);
+            self.plane.set_styles(styles.underline);
             _ = self.plane.print(" underline", .{}) catch return;
         },
         .undercurl => {
-            self.plane.set_styles(style.undercurl);
+            self.plane.set_styles(styles.undercurl);
             _ = self.plane.print(" undercurl", .{}) catch return;
         },
         .strikethrough => {
-            self.plane.set_styles(style.struck);
+            self.plane.set_styles(styles.struck);
             _ = self.plane.print(" strikethrough", .{}) catch return;
         },
     };
-    self.plane.set_styles(style.normal);
+    self.plane.set_styles(styles.normal);
 }
 
 fn reset_style(self: *Self) void {

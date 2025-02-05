@@ -276,7 +276,7 @@ pub const Editor = struct {
     selection_mode: SelectMode = .char,
     clipboard: ?[]const u8 = null,
     target_column: ?Cursor = null,
-    filter: ?struct {
+    filter_: ?struct {
         before_root: Buffer.Root,
         work_root: Buffer.Root,
         begin: Cursor,
@@ -356,6 +356,7 @@ pub const Editor = struct {
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
     const Context = command.Context;
+    const Meta = command.Metadata;
     const Result = command.Result;
 
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
@@ -639,7 +640,7 @@ pub const Editor = struct {
         }
         self.clamp();
     }
-    pub const pop_cursor_meta = .{ .description = "Remove last added cursor" };
+    pub const pop_cursor_meta: Meta = .{ .description = "Remove last added cursor" };
 
     pub fn get_primary(self: *const Self) *CurSel {
         var idx = self.cursels.items.len;
@@ -743,12 +744,12 @@ pub const Editor = struct {
     pub fn pause_undo_history(self: *Self, _: Context) Result {
         self.pause_undo = true;
     }
-    pub const pause_undo_history_meta = .{ .description = "Pause undo history" };
+    pub const pause_undo_history_meta: Meta = .{ .description = "Pause undo history" };
 
     pub fn resume_undo_history(self: *Self, _: Context) Result {
         self.pause_undo = false;
     }
-    pub const resume_undo_history_meta = .{ .description = "Resume undo history" };
+    pub const resume_undo_history_meta: Meta = .{ .description = "Resume undo history" };
 
     fn find_first_non_ws(root: Buffer.Root, row: usize, metrics: Buffer.Metrics) usize {
         const Ctx = struct {
@@ -2178,7 +2179,7 @@ pub const Editor = struct {
             return error.InvalidDragToArgument;
         return self.primary_drag(y, x);
     }
-    pub const drag_to_meta = .{ .arguments = &.{ .integer, .integer } };
+    pub const drag_to_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
 
     pub fn secondary_click(self: *Self, y: c_int, x: c_int) !void {
         return self.primary_drag(y, x);
@@ -2272,7 +2273,7 @@ pub const Editor = struct {
         else
             self.scroll_up();
     }
-    pub const scroll_up_pageup_meta = .{};
+    pub const scroll_up_pageup_meta: Meta = .{};
 
     pub fn scroll_down_pagedown(self: *Self, _: Context) Result {
         if (self.fast_scroll)
@@ -2280,7 +2281,7 @@ pub const Editor = struct {
         else
             self.scroll_down();
     }
-    pub const scroll_down_pagedown_meta = .{};
+    pub const scroll_down_pagedown_meta: Meta = .{};
 
     pub fn scroll_to(self: *Self, row: usize) void {
         self.update_scroll_dest_abs(row);
@@ -2295,7 +2296,7 @@ pub const Editor = struct {
     pub fn scroll_view_center(self: *Self, _: Context) Result {
         return self.scroll_view_offset(self.view.rows / 2);
     }
-    pub const scroll_view_center_meta = .{ .description = "Scroll cursor to center of view" };
+    pub const scroll_view_center_meta: Meta = .{ .description = "Scroll cursor to center of view" };
 
     pub fn scroll_view_center_cycle(self: *Self, _: Context) Result {
         const cursor_row = self.get_primary().cursor.row;
@@ -2306,17 +2307,17 @@ pub const Editor = struct {
         else
             self.scroll_view_offset(self.view.rows / 2);
     }
-    pub const scroll_view_center_cycle_meta = .{ .description = "Scroll cursor to center/top/bottom of view" };
+    pub const scroll_view_center_cycle_meta: Meta = .{ .description = "Scroll cursor to center/top/bottom of view" };
 
     pub fn scroll_view_top(self: *Self, _: Context) Result {
         return self.scroll_view_offset(scroll_cursor_min_border_distance);
     }
-    pub const scroll_view_top_meta = .{};
+    pub const scroll_view_top_meta: Meta = .{};
 
     pub fn scroll_view_bottom(self: *Self, _: Context) Result {
         return self.scroll_view_offset(if (self.view.rows > scroll_cursor_min_border_distance) self.view.rows - scroll_cursor_min_border_distance else 0);
     }
-    pub const scroll_view_bottom_meta = .{};
+    pub const scroll_view_bottom_meta: Meta = .{};
 
     fn set_clipboard(self: *Self, text: []const u8) void {
         if (self.clipboard) |old|
@@ -2466,8 +2467,14 @@ pub const Editor = struct {
             if (primary.selection) |_| {} else {
                 const sel = primary.enable_selection(root, self.metrics) catch return;
                 try move_cursor_begin(root, &sel.begin, self.metrics);
-                try move_cursor_end(root, &sel.end, self.metrics);
-                try move_cursor_right(root, &sel.end, self.metrics);
+                move_cursor_end(root, &sel.end, self.metrics) catch |e| switch (e) {
+                    error.Stop => {},
+                    else => return e,
+                };
+                move_cursor_right(root, &sel.end, self.metrics) catch |e| switch (e) {
+                    error.Stop => {},
+                    else => return e,
+                };
             };
         var first = true;
         var text = std.ArrayList(u8).init(self.allocator);
@@ -2484,7 +2491,7 @@ pub const Editor = struct {
         self.set_clipboard(text.items);
         self.clamp();
     }
-    pub const cut_meta = .{ .description = "Cut selection or current line to clipboard" };
+    pub const cut_meta: Meta = .{ .description = "Cut selection or current line to clipboard" };
 
     pub fn copy(self: *Self, _: Context) Result {
         const primary = self.get_primary();
@@ -2518,7 +2525,7 @@ pub const Editor = struct {
             self.set_clipboard(text.items);
         }
     }
-    pub const copy_meta = .{ .description = "Copy selection to clipboard" };
+    pub const copy_meta: Meta = .{ .description = "Copy selection to clipboard" };
 
     pub fn copy_internal_vim(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
@@ -2613,7 +2620,7 @@ pub const Editor = struct {
         self.clamp();
         self.need_render();
     }
-    pub const paste_meta = .{ .description = "Paste from internal clipboard" };
+    pub const paste_meta: Meta = .{ .description = "Paste from internal clipboard" };
 
     pub fn paste_internal_vim(self: *Self, ctx: Context) Result {
         var text: []const u8 = undefined;
@@ -2666,7 +2673,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const delete_forward_meta = .{ .description = "Delete next character" };
+    pub const delete_forward_meta: Meta = .{ .description = "Delete next character" };
 
     pub fn cut_forward_internal(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2683,7 +2690,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const delete_backward_meta = .{ .description = "Delete previous character" };
+    pub const delete_backward_meta: Meta = .{ .description = "Delete previous character" };
 
     pub fn delete_word_left(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2691,7 +2698,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const delete_word_left_meta = .{ .description = "Delete previous word" };
+    pub const delete_word_left_meta: Meta = .{ .description = "Delete previous word" };
 
     pub fn cut_word_left_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2708,7 +2715,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const delete_word_right_meta = .{ .description = "Delete next word" };
+    pub const delete_word_right_meta: Meta = .{ .description = "Delete next word" };
 
     pub fn cut_word_right_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2725,7 +2732,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const delete_to_begin_meta = .{ .description = "Delete to beginning of line" };
+    pub const delete_to_begin_meta: Meta = .{ .description = "Delete to beginning of line" };
 
     pub fn delete_to_end(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2733,7 +2740,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const delete_to_end_meta = .{ .description = "Delete to end of line" };
+    pub const delete_to_end_meta: Meta = .{ .description = "Delete to end of line" };
 
     pub fn join_next_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2742,21 +2749,21 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const join_next_line_meta = .{ .description = "Join next line" };
+    pub const join_next_line_meta: Meta = .{ .description = "Join next line" };
 
     pub fn move_left(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_left) catch {};
         self.clamp();
     }
-    pub const move_left_meta = .{ .description = "Move cursor left" };
+    pub const move_left_meta: Meta = .{ .description = "Move cursor left" };
 
     pub fn move_right(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_right) catch {};
         self.clamp();
     }
-    pub const move_right_meta = .{ .description = "Move cursor right" };
+    pub const move_right_meta: Meta = .{ .description = "Move cursor right" };
 
     fn move_cursor_left_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         move_cursor_left_unless(root, cursor, is_eol_left, metrics);
@@ -2771,14 +2778,14 @@ pub const Editor = struct {
         self.with_cursors_const(root, move_cursor_left_vim) catch {};
         self.clamp();
     }
-    pub const move_left_vim_meta = .{ .description = "Move cursor left (vim)" };
+    pub const move_left_vim_meta: Meta = .{ .description = "Move cursor left (vim)" };
 
     pub fn move_right_vim(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_right_vim) catch {};
         self.clamp();
     }
-    pub const move_right_vim_meta = .{ .description = "Move cursor right (vim)" };
+    pub const move_right_vim_meta: Meta = .{ .description = "Move cursor right (vim)" };
 
     fn move_cursor_word_begin(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         if (is_non_word_char_at_cursor(root, cursor, metrics)) {
@@ -2854,7 +2861,7 @@ pub const Editor = struct {
         self.with_cursors_const(root, move_cursor_word_left) catch {};
         self.clamp();
     }
-    pub const move_word_left_meta = .{ .description = "Move cursor left by word" };
+    pub const move_word_left_meta: Meta = .{ .description = "Move cursor left by word" };
 
     pub fn move_word_left_vim(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -2869,14 +2876,14 @@ pub const Editor = struct {
         self.with_cursors_const(root, move_cursor_word_right) catch {};
         self.clamp();
     }
-    pub const move_word_right_meta = .{ .description = "Move cursor right by word" };
+    pub const move_word_right_meta: Meta = .{ .description = "Move cursor right by word" };
 
     pub fn move_word_right_vim(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_word_right_vim) catch {};
         self.clamp();
     }
-    pub const move_word_right_vim_meta = .{ .description = "Move cursor right by word (vim)" };
+    pub const move_word_right_vim_meta: Meta = .{ .description = "Move cursor right by word (vim)" };
 
     pub fn move_word_right_end_vim(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -2920,21 +2927,21 @@ pub const Editor = struct {
         self.with_cursors_const_arg(root, move_cursor_to_char_left, ctx) catch {};
         self.clamp();
     }
-    pub const move_to_char_left_meta = .{ .arguments = &.{.integer} };
+    pub const move_to_char_left_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn move_to_char_right(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const_arg(root, move_cursor_to_char_right, ctx) catch {};
         self.clamp();
     }
-    pub const move_to_char_right_meta = .{ .arguments = &.{.integer} };
+    pub const move_to_char_right_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn move_up(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_up) catch {};
         self.clamp();
     }
-    pub const move_up_meta = .{ .description = "Move cursor up" };
+    pub const move_up_meta: Meta = .{ .description = "Move cursor up" };
 
     pub fn add_cursor_up(self: *Self, _: Context) Result {
         try self.push_cursor();
@@ -2943,14 +2950,14 @@ pub const Editor = struct {
         move_cursor_up(root, &primary.cursor, self.metrics) catch {};
         self.clamp();
     }
-    pub const add_cursor_up_meta = .{ .description = "Add cursor up" };
+    pub const add_cursor_up_meta: Meta = .{ .description = "Add cursor up" };
 
     pub fn move_down(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_down) catch {};
         self.clamp();
     }
-    pub const move_down_meta = .{ .description = "Move cursor down" };
+    pub const move_down_meta: Meta = .{ .description = "Move cursor down" };
 
     pub fn add_cursor_down(self: *Self, _: Context) Result {
         try self.push_cursor();
@@ -2959,7 +2966,7 @@ pub const Editor = struct {
         move_cursor_down(root, &primary.cursor, self.metrics) catch {};
         self.clamp();
     }
-    pub const add_cursor_down_meta = .{ .description = "Add cursor down" };
+    pub const add_cursor_down_meta: Meta = .{ .description = "Add cursor down" };
 
     pub fn add_cursor_next_match(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -2978,7 +2985,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const add_cursor_next_match_meta = .{ .description = "Add cursor at next highlighted match" };
+    pub const add_cursor_next_match_meta: Meta = .{ .description = "Add cursor at next highlighted match" };
 
     pub fn add_cursor_all_matches(self: *Self, _: Context) Result {
         if (self.matches.items.len == 0) return;
@@ -2994,7 +3001,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const add_cursor_all_matches_meta = .{ .description = "Add cursors to all highlighted matches" };
+    pub const add_cursor_all_matches_meta: Meta = .{ .description = "Add cursors to all highlighted matches" };
 
     fn add_cursors_to_cursel_line_ends(self: *Self, root: Buffer.Root, cursel: *CurSel) !void {
         const sel = try cursel.enable_selection(root, self.metrics);
@@ -3022,7 +3029,7 @@ pub const Editor = struct {
         self.collapse_cursors();
         self.clamp();
     }
-    pub const add_cursors_to_line_ends_meta = .{ .description = "Add cursors to all lines in selection" };
+    pub const add_cursors_to_line_ends_meta: Meta = .{ .description = "Add cursors to all lines in selection" };
 
     fn pull_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
@@ -3049,7 +3056,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const pull_up_meta = .{ .description = "Pull line up" };
+    pub const pull_up_meta: Meta = .{ .description = "Pull line up" };
 
     fn pull_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
@@ -3076,7 +3083,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const pull_down_meta = .{ .description = "Pull line down" };
+    pub const pull_down_meta: Meta = .{ .description = "Pull line down" };
 
     fn dupe_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
@@ -3098,7 +3105,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const dupe_up_meta = .{ .description = "Duplicate line or selection up/backwards" };
+    pub const dupe_up_meta: Meta = .{ .description = "Duplicate line or selection up/backwards" };
 
     fn dupe_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
@@ -3119,7 +3126,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const dupe_down_meta = .{ .description = "Duplicate line or selection down/forwards" };
+    pub const dupe_down_meta: Meta = .{ .description = "Duplicate line or selection down/forwards" };
 
     fn toggle_cursel_prefix(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
@@ -3147,13 +3154,13 @@ pub const Editor = struct {
         const root = try self.with_cursels_mut(b.root, toggle_cursel_prefix, b.allocator);
         try self.update_buf(root);
     }
-    pub const toggle_prefix_meta = .{ .arguments = &.{.string} };
+    pub const toggle_prefix_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn toggle_comment(self: *Self, _: Context) Result {
         const comment = if (self.syntax) |syn| syn.file_type.comment else "//";
         return self.toggle_prefix(command.fmt(.{comment}));
     }
-    pub const toggle_comment_meta = .{ .description = "Toggle comment" };
+    pub const toggle_comment_meta: Meta = .{ .description = "Toggle comment" };
 
     fn indent_cursor(self: *Self, root: Buffer.Root, cursor: Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
         const space = "                                ";
@@ -3185,7 +3192,7 @@ pub const Editor = struct {
         const root = try self.with_cursels_mut(b.root, indent_cursel, b.allocator);
         try self.update_buf(root);
     }
-    pub const indent_meta = .{ .description = "Indent current line" };
+    pub const indent_meta: Meta = .{ .description = "Indent current line" };
 
     fn unindent_cursor(self: *Self, root: Buffer.Root, cursor: *Cursor, cursor_protect: ?*Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
         var newroot = root;
@@ -3238,7 +3245,7 @@ pub const Editor = struct {
             self.restore_cursels();
         try self.update_buf(root);
     }
-    pub const unindent_meta = .{ .description = "Unindent current line" };
+    pub const unindent_meta: Meta = .{ .description = "Unindent current line" };
 
     pub fn move_scroll_up(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -3246,7 +3253,7 @@ pub const Editor = struct {
         self.view.move_up() catch {};
         self.clamp();
     }
-    pub const move_scroll_up_meta = .{ .description = "Move and scroll up" };
+    pub const move_scroll_up_meta: Meta = .{ .description = "Move and scroll up" };
 
     pub fn move_scroll_down(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -3254,17 +3261,17 @@ pub const Editor = struct {
         self.view.move_down(root) catch {};
         self.clamp();
     }
-    pub const move_scroll_down_meta = .{ .description = "Move and scroll down" };
+    pub const move_scroll_down_meta: Meta = .{ .description = "Move and scroll down" };
 
     pub fn move_scroll_left(self: *Self, _: Context) Result {
         self.view.move_left() catch {};
     }
-    pub const move_scroll_left_meta = .{ .description = "Scroll left" };
+    pub const move_scroll_left_meta: Meta = .{ .description = "Scroll left" };
 
     pub fn move_scroll_right(self: *Self, _: Context) Result {
         self.view.move_right() catch {};
     }
-    pub const move_scroll_right_meta = .{ .description = "Scroll right" };
+    pub const move_scroll_right_meta: Meta = .{ .description = "Scroll right" };
 
     pub fn move_scroll_page_up(self: *Self, _: Context) Result {
         if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
@@ -3276,7 +3283,7 @@ pub const Editor = struct {
             return self.move_page_up(.{});
         }
     }
-    pub const move_scroll_page_up_meta = .{ .description = "Move and scroll page up" };
+    pub const move_scroll_page_up_meta: Meta = .{ .description = "Move and scroll page up" };
 
     pub fn move_scroll_page_down(self: *Self, _: Context) Result {
         if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
@@ -3288,7 +3295,7 @@ pub const Editor = struct {
             return self.move_page_down(.{});
         }
     }
-    pub const move_scroll_page_down_meta = .{ .description = "Move and scroll page down" };
+    pub const move_scroll_page_down_meta: Meta = .{ .description = "Move and scroll page down" };
 
     pub fn move_scroll_half_page_up(self: *Self, _: Context) Result {
         if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
@@ -3300,7 +3307,7 @@ pub const Editor = struct {
             return self.move_half_page_up(.{});
         }
     }
-    pub const move_scroll_half_page_up_meta = .{ .description = "Move and scroll half a page up" };
+    pub const move_scroll_half_page_up_meta: Meta = .{ .description = "Move and scroll half a page up" };
 
     pub fn move_scroll_half_page_down(self: *Self, _: Context) Result {
         if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
@@ -3312,28 +3319,28 @@ pub const Editor = struct {
             return self.move_half_page_down(.{});
         }
     }
-    pub const move_scroll_half_page_down_meta = .{ .description = "Move and scroll half a page down" };
+    pub const move_scroll_half_page_down_meta: Meta = .{ .description = "Move and scroll half a page down" };
 
     pub fn smart_move_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_cursors_const(root, smart_move_cursor_begin);
         self.clamp();
     }
-    pub const smart_move_begin_meta = .{ .description = "Move cursor to beginning of line (smart)" };
+    pub const smart_move_begin_meta: Meta = .{ .description = "Move cursor to beginning of line (smart)" };
 
     pub fn move_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_cursors_const(root, move_cursor_begin);
         self.clamp();
     }
-    pub const move_begin_meta = .{ .description = "Move cursor to beginning of line" };
+    pub const move_begin_meta: Meta = .{ .description = "Move cursor to beginning of line" };
 
     pub fn move_end(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_cursors_const(root, move_cursor_end);
         self.clamp();
     }
-    pub const move_end_meta = .{ .description = "Move cursor to end of line" };
+    pub const move_end_meta: Meta = .{ .description = "Move cursor to end of line" };
 
     pub fn move_page_up(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3341,7 +3348,7 @@ pub const Editor = struct {
         try self.with_cursors_and_view_const(root, move_cursor_page_up, &self.view);
         self.clamp();
     }
-    pub const move_page_up_meta = .{ .description = "Move cursor page up" };
+    pub const move_page_up_meta: Meta = .{ .description = "Move cursor page up" };
 
     pub fn move_page_down(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3350,7 +3357,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const move_page_down_meta = .{ .description = "Move cursor page down" };
+    pub const move_page_down_meta: Meta = .{ .description = "Move cursor page down" };
 
     pub fn move_half_page_up(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3358,7 +3365,7 @@ pub const Editor = struct {
         try self.with_cursors_and_view_const(root, move_cursor_page_up, &self.view);
         self.clamp();
     }
-    pub const move_half_page_up_meta = .{ .description = "Move cursor half a page up" };
+    pub const move_half_page_up_meta: Meta = .{ .description = "Move cursor half a page up" };
 
     pub fn move_half_page_down(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3367,7 +3374,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const move_half_page_down_meta = .{ .description = "Move cursor half a page down" };
+    pub const move_half_page_down_meta: Meta = .{ .description = "Move cursor half a page down" };
 
     pub fn move_buffer_begin(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3376,7 +3383,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const move_buffer_begin_meta = .{ .description = "Move cursor to start of file" };
+    pub const move_buffer_begin_meta: Meta = .{ .description = "Move cursor to start of file" };
 
     pub fn move_buffer_end(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3386,27 +3393,27 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const move_buffer_end_meta = .{ .description = "Move cursor to end of file" };
+    pub const move_buffer_end_meta: Meta = .{ .description = "Move cursor to end of file" };
 
     pub fn cancel(self: *Self, _: Context) Result {
         self.cancel_all_selections();
         self.cancel_all_matches();
     }
-    pub const cancel_meta = .{ .description = "Cancel current action" };
+    pub const cancel_meta: Meta = .{ .description = "Cancel current action" };
 
     pub fn select_up(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_up);
         self.clamp();
     }
-    pub const select_up_meta = .{ .description = "Select up" };
+    pub const select_up_meta: Meta = .{ .description = "Select up" };
 
     pub fn select_down(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_down);
         self.clamp();
     }
-    pub const select_down_meta = .{ .description = "Select down" };
+    pub const select_down_meta: Meta = .{ .description = "Select down" };
 
     pub fn select_scroll_up(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -3414,7 +3421,7 @@ pub const Editor = struct {
         self.view.move_up() catch {};
         self.clamp();
     }
-    pub const select_scroll_up_meta = .{ .description = "Select and scroll up" };
+    pub const select_scroll_up_meta: Meta = .{ .description = "Select and scroll up" };
 
     pub fn select_scroll_down(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -3422,84 +3429,84 @@ pub const Editor = struct {
         self.view.move_down(root) catch {};
         self.clamp();
     }
-    pub const select_scroll_down_meta = .{ .description = "Select and scroll down" };
+    pub const select_scroll_down_meta: Meta = .{ .description = "Select and scroll down" };
 
     pub fn select_left(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_left);
         self.clamp();
     }
-    pub const select_left_meta = .{ .description = "Select left" };
+    pub const select_left_meta: Meta = .{ .description = "Select left" };
 
     pub fn select_right(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_right);
         self.clamp();
     }
-    pub const select_right_meta = .{ .description = "Select right" };
+    pub const select_right_meta: Meta = .{ .description = "Select right" };
 
     pub fn select_word_left(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_word_left);
         self.clamp();
     }
-    pub const select_word_left_meta = .{ .description = "Select left by word" };
+    pub const select_word_left_meta: Meta = .{ .description = "Select left by word" };
 
     pub fn select_word_right(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_word_right);
         self.clamp();
     }
-    pub const select_word_right_meta = .{ .description = "Select right by word" };
+    pub const select_word_right_meta: Meta = .{ .description = "Select right by word" };
 
     pub fn select_word_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_word_begin);
         self.clamp();
     }
-    pub const select_word_begin_meta = .{ .description = "Select to beginning of word" };
+    pub const select_word_begin_meta: Meta = .{ .description = "Select to beginning of word" };
 
     pub fn select_word_end(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_word_end);
         self.clamp();
     }
-    pub const select_word_end_meta = .{ .description = "Select to end of word" };
+    pub const select_word_end_meta: Meta = .{ .description = "Select to end of word" };
 
     pub fn select_to_char_left(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
         self.with_selections_const_arg(root, move_cursor_to_char_left, ctx) catch {};
         self.clamp();
     }
-    pub const select_to_char_left_meta = .{ .arguments = &.{.integer} };
+    pub const select_to_char_left_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn select_to_char_right(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
         self.with_selections_const_arg(root, move_cursor_to_char_right, ctx) catch {};
         self.clamp();
     }
-    pub const select_to_char_right_meta = .{ .arguments = &.{.integer} };
+    pub const select_to_char_right_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn select_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_begin);
         self.clamp();
     }
-    pub const select_begin_meta = .{ .description = "Select to beginning of line" };
+    pub const select_begin_meta: Meta = .{ .description = "Select to beginning of line" };
 
     pub fn smart_select_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, smart_move_cursor_begin);
         self.clamp();
     }
-    pub const smart_select_begin_meta = .{ .description = "Select to beginning of line (smart)" };
+    pub const smart_select_begin_meta: Meta = .{ .description = "Select to beginning of line (smart)" };
 
     pub fn select_end(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_end);
         self.clamp();
     }
-    pub const select_end_meta = .{ .description = "Select to end of line" };
+    pub const select_end_meta: Meta = .{ .description = "Select to end of line" };
 
     pub fn select_buffer_begin(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3508,7 +3515,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const select_buffer_begin_meta = .{ .description = "Select to start of file" };
+    pub const select_buffer_begin_meta: Meta = .{ .description = "Select to start of file" };
 
     pub fn select_buffer_end(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3517,7 +3524,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const select_buffer_end_meta = .{ .description = "Select to end of file" };
+    pub const select_buffer_end_meta: Meta = .{ .description = "Select to end of file" };
 
     pub fn select_page_up(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3526,7 +3533,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const select_page_up_meta = .{ .description = "Select page up" };
+    pub const select_page_up_meta: Meta = .{ .description = "Select page up" };
 
     pub fn select_page_down(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3535,7 +3542,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const select_page_down_meta = .{ .description = "Select page down" };
+    pub const select_page_down_meta: Meta = .{ .description = "Select page down" };
 
     pub fn select_half_page_up(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3544,7 +3551,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const select_half_page_up_meta = .{ .description = "Select half a page up" };
+    pub const select_half_page_up_meta: Meta = .{ .description = "Select half a page up" };
 
     pub fn select_half_page_down(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3553,7 +3560,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const select_half_page_down_meta = .{ .description = "Select half a page down" };
+    pub const select_half_page_down_meta: Meta = .{ .description = "Select half a page down" };
 
     pub fn select_all(self: *Self, _: Context) Result {
         try self.send_editor_jump_source();
@@ -3566,7 +3573,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const select_all_meta = .{ .description = "Select all" };
+    pub const select_all_meta: Meta = .{ .description = "Select all" };
 
     fn select_word_at_cursor(self: *Self, cursel: *CurSel) !*Selection {
         const root = try self.buf_root();
@@ -3600,7 +3607,7 @@ pub const Editor = struct {
         try self.with_cursels_const(root, selection_reverse);
         self.clamp();
     }
-    pub const selections_reverse_meta = .{ .description = "Reverse selection" };
+    pub const selections_reverse_meta: Meta = .{ .description = "Reverse selection" };
 
     fn node_at_selection(self: *Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
         const syn = self.syntax orelse return error.Stop;
@@ -3647,7 +3654,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const expand_selection_meta = .{ .description = "Expand selection to AST parent node" };
+    pub const expand_selection_meta: Meta = .{ .description = "Expand selection to AST parent node" };
 
     fn shrink_selection_to_child_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         const sel = (try cursel.enable_selection(root, metrics)).*;
@@ -3682,7 +3689,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const shrink_selection_meta = .{ .description = "Shrink selection to first AST child node" };
+    pub const shrink_selection_meta: Meta = .{ .description = "Shrink selection to first AST child node" };
 
     fn select_next_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         const sel = (try cursel.enable_selection(root, metrics)).*;
@@ -3717,7 +3724,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const select_next_sibling_meta = .{ .description = "Move selection to next AST sibling node" };
+    pub const select_next_sibling_meta: Meta = .{ .description = "Move selection to next AST sibling node" };
 
     fn select_prev_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         const sel = (try cursel.enable_selection(root, metrics)).*;
@@ -3752,7 +3759,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const select_prev_sibling_meta = .{ .description = "Move selection to previous AST sibling node" };
+    pub const select_prev_sibling_meta: Meta = .{ .description = "Move selection to previous AST sibling node" };
 
     pub fn insert_chars(self: *Self, ctx: Context) Result {
         var chars: []const u8 = undefined;
@@ -3766,7 +3773,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const insert_chars_meta = .{ .arguments = &.{.string} };
+    pub const insert_chars_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn insert_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -3777,7 +3784,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const insert_line_meta = .{ .description = "Insert line" };
+    pub const insert_line_meta: Meta = .{ .description = "Insert line" };
 
     pub fn smart_insert_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -3797,7 +3804,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const smart_insert_line_meta = .{ .description = "Insert line (smart)" };
+    pub const smart_insert_line_meta: Meta = .{ .description = "Insert line (smart)" };
 
     pub fn insert_line_before(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -3810,7 +3817,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const insert_line_before_meta = .{ .description = "Insert line before" };
+    pub const insert_line_before_meta: Meta = .{ .description = "Insert line before" };
 
     pub fn smart_insert_line_before(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -3833,7 +3840,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const smart_insert_line_before_meta = .{ .description = "Insert line before (smart)" };
+    pub const smart_insert_line_before_meta: Meta = .{ .description = "Insert line before (smart)" };
 
     pub fn insert_line_after(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -3845,7 +3852,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const insert_line_after_meta = .{ .description = "Insert line after" };
+    pub const insert_line_after_meta: Meta = .{ .description = "Insert line after" };
 
     pub fn smart_insert_line_after(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -3867,29 +3874,29 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const smart_insert_line_after_meta = .{ .description = "Insert line after (smart)" };
+    pub const smart_insert_line_after_meta: Meta = .{ .description = "Insert line after (smart)" };
 
     pub fn enable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = true;
     }
-    pub const enable_fast_scroll_meta = .{ .description = "Enable fast scroll mode" };
+    pub const enable_fast_scroll_meta: Meta = .{ .description = "Enable fast scroll mode" };
 
     pub fn disable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = false;
     }
-    pub const disable_fast_scroll_meta = .{};
+    pub const disable_fast_scroll_meta: Meta = .{};
 
     pub fn enable_jump_mode(self: *Self, _: Context) Result {
         self.jump_mode = true;
         tui.rdr().request_mouse_cursor_pointer(true);
     }
-    pub const enable_jump_mode_meta = .{ .description = "Enable jump/hover mode" };
+    pub const enable_jump_mode_meta: Meta = .{ .description = "Enable jump/hover mode" };
 
     pub fn disable_jump_mode(self: *Self, _: Context) Result {
         self.jump_mode = false;
         tui.rdr().request_mouse_cursor_text(true);
     }
-    pub const disable_jump_mode_meta = .{};
+    pub const disable_jump_mode_meta: Meta = .{};
 
     fn update_syntax(self: *Self) !void {
         const root = try self.buf_root();
@@ -4023,7 +4030,7 @@ pub const Editor = struct {
             return self.logger.print("line {d}: {any}", .{ primary.cursor.row, e });
         self.logger.print("line {d}:{s}", .{ primary.cursor.row, std.fmt.fmtSliceEscapeLower(tree.items) });
     }
-    pub const dump_current_line_meta = .{ .description = "Debug: dump current line" };
+    pub const dump_current_line_meta: Meta = .{ .description = "Debug: dump current line" };
 
     pub fn dump_current_line_tree(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
@@ -4034,19 +4041,19 @@ pub const Editor = struct {
             return self.logger.print("line {d} ast: {any}", .{ primary.cursor.row, e });
         self.logger.print("line {d} ast:{s}", .{ primary.cursor.row, std.fmt.fmtSliceEscapeLower(tree.items) });
     }
-    pub const dump_current_line_tree_meta = .{ .description = "Debug: dump current line (tree)" };
+    pub const dump_current_line_tree_meta: Meta = .{ .description = "Debug: dump current line (tree)" };
 
     pub fn undo(self: *Self, _: Context) Result {
         try self.restore_undo();
         self.clamp();
     }
-    pub const undo_meta = .{ .description = "Undo" };
+    pub const undo_meta: Meta = .{ .description = "Undo" };
 
     pub fn redo(self: *Self, _: Context) Result {
         try self.restore_redo();
         self.clamp();
     }
-    pub const redo_meta = .{ .description = "Redo" };
+    pub const redo_meta: Meta = .{ .description = "Redo" };
 
     pub fn open_buffer_from_file(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
@@ -4055,7 +4062,7 @@ pub const Editor = struct {
             self.clamp();
         } else return error.InvalidOpenBufferFromFileArgument;
     }
-    pub const open_buffer_from_file_meta = .{ .arguments = &.{.string} };
+    pub const open_buffer_from_file_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn open_scratch_buffer(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
@@ -4072,7 +4079,7 @@ pub const Editor = struct {
             self.clamp();
         } else return error.InvalidOpenScratchBufferArgument;
     }
-    pub const open_scratch_buffer_meta = .{ .arguments = &.{ .string, .string } };
+    pub const open_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
     pub fn save_file(self: *Self, ctx: Context) Result {
         var then = false;
@@ -4094,7 +4101,7 @@ pub const Editor = struct {
         if (then)
             return command.executeName(cmd, .{ .args = .{ .buf = args } });
     }
-    pub const save_file_meta = .{ .description = "Save file" };
+    pub const save_file_meta: Meta = .{ .description = "Save file" };
 
     pub fn save_file_as(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
@@ -4102,7 +4109,7 @@ pub const Editor = struct {
             try self.save_as(file_path);
         } else return error.InvalidSafeFileAsArgument;
     }
-    pub const save_file_as_meta = .{ .arguments = &.{.string} };
+    pub const save_file_as_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn close_file(self: *Self, _: Context) Result {
         const buffer_ = self.buffer;
@@ -4112,7 +4119,7 @@ pub const Editor = struct {
         if (buffer_) |buffer|
             self.buffer_manager.close_buffer(buffer);
     }
-    pub const close_file_meta = .{ .description = "Close file" };
+    pub const close_file_meta: Meta = .{ .description = "Close file" };
 
     pub fn close_file_without_saving(self: *Self, _: Context) Result {
         const buffer_ = self.buffer;
@@ -4122,7 +4129,7 @@ pub const Editor = struct {
         if (buffer_) |buffer|
             self.buffer_manager.close_buffer(buffer);
     }
-    pub const close_file_without_saving_meta = .{ .description = "Close file without saving" };
+    pub const close_file_without_saving_meta: Meta = .{ .description = "Close file without saving" };
 
     pub fn find_query(self: *Self, ctx: Context) Result {
         var query: []const u8 = undefined;
@@ -4131,7 +4138,7 @@ pub const Editor = struct {
             self.clamp();
         } else return error.InvalidFindQueryArgument;
     }
-    pub const find_query_meta = .{ .arguments = &.{.string} };
+    pub const find_query_meta: Meta = .{ .arguments = &.{.string} };
 
     fn find_in(self: *Self, query: []const u8, comptime find_f: ripgrep.FindF, write_buffer: bool) !void {
         const root = try self.buf_root();
@@ -4390,7 +4397,7 @@ pub const Editor = struct {
             self.clamp();
         }
     }
-    pub const move_cursor_next_match_meta = .{ .description = "Move cursor to next hightlighted match" };
+    pub const move_cursor_next_match_meta: Meta = .{ .description = "Move cursor to next hightlighted match" };
 
     pub fn goto_next_match(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
@@ -4404,7 +4411,7 @@ pub const Editor = struct {
         try self.move_cursor_next_match(ctx);
         try self.send_editor_jump_destination();
     }
-    pub const goto_next_match_meta = .{ .description = "Goto to next hightlighted match" };
+    pub const goto_next_match_meta: Meta = .{ .description = "Goto to next hightlighted match" };
 
     pub fn move_cursor_prev_match(self: *Self, _: Context) Result {
         const primary = self.get_primary();
@@ -4419,7 +4426,7 @@ pub const Editor = struct {
             self.clamp();
         }
     }
-    pub const move_cursor_prev_match_meta = .{ .description = "Move cursor to previous hightlighted match" };
+    pub const move_cursor_prev_match_meta: Meta = .{ .description = "Move cursor to previous hightlighted match" };
 
     pub fn goto_prev_match(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
@@ -4433,7 +4440,7 @@ pub const Editor = struct {
         try self.move_cursor_prev_match(ctx);
         try self.send_editor_jump_destination();
     }
-    pub const goto_prev_match_meta = .{ .description = "Goto to previous hightlighted match" };
+    pub const goto_prev_match_meta: Meta = .{ .description = "Goto to previous hightlighted match" };
 
     pub fn goto_next_diagnostic(self: *Self, _: Context) Result {
         if (self.diagnostics.items.len == 0) {
@@ -4449,7 +4456,7 @@ pub const Editor = struct {
         }
         return self.goto_diagnostic(&self.diagnostics.items[0]);
     }
-    pub const goto_next_diagnostic_meta = .{ .description = "Goto to next diagnostic" };
+    pub const goto_next_diagnostic_meta: Meta = .{ .description = "Goto to next diagnostic" };
 
     pub fn goto_prev_diagnostic(self: *Self, _: Context) Result {
         if (self.diagnostics.items.len == 0) {
@@ -4467,7 +4474,7 @@ pub const Editor = struct {
             if (i == 0) return self.goto_diagnostic(&self.diagnostics.items[self.diagnostics.items.len - 1]);
         }
     }
-    pub const goto_prev_diagnostic_meta = .{ .description = "Goto to previous diagnostic" };
+    pub const goto_prev_diagnostic_meta: Meta = .{ .description = "Goto to previous diagnostic" };
 
     fn goto_diagnostic(self: *Self, diag: *const Diagnostic) !void {
         const root = self.buf_root() catch return;
@@ -4503,7 +4510,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const goto_line_meta = .{ .arguments = &.{.integer} };
+    pub const goto_line_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn goto_column(self: *Self, ctx: Context) Result {
         var column: usize = 0;
@@ -4514,7 +4521,7 @@ pub const Editor = struct {
         try primary.cursor.move_to(root, primary.cursor.row, @intCast(if (column < 1) 0 else column - 1), self.metrics);
         self.clamp();
     }
-    pub const goto_column_meta = .{ .arguments = &.{.integer} };
+    pub const goto_column_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn goto_line_and_column(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
@@ -4555,49 +4562,49 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
         self.need_render();
     }
-    pub const goto_line_and_column_meta = .{ .arguments = &.{ .integer, .integer } };
+    pub const goto_line_and_column_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
 
     pub fn goto_definition(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         return project_manager.goto_definition(file_path, primary.cursor.row, primary.cursor.col);
     }
-    pub const goto_definition_meta = .{ .description = "Language: Goto definition" };
+    pub const goto_definition_meta: Meta = .{ .description = "Language: Goto definition" };
 
     pub fn goto_declaration(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         return project_manager.goto_declaration(file_path, primary.cursor.row, primary.cursor.col);
     }
-    pub const goto_declaration_meta = .{ .description = "Language: Goto declaration" };
+    pub const goto_declaration_meta: Meta = .{ .description = "Language: Goto declaration" };
 
     pub fn goto_implementation(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         return project_manager.goto_implementation(file_path, primary.cursor.row, primary.cursor.col);
     }
-    pub const goto_implementation_meta = .{ .description = "Language: Goto implementation" };
+    pub const goto_implementation_meta: Meta = .{ .description = "Language: Goto implementation" };
 
     pub fn goto_type_definition(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         return project_manager.goto_type_definition(file_path, primary.cursor.row, primary.cursor.col);
     }
-    pub const goto_type_definition_meta = .{ .description = "Language: Goto type definition" };
+    pub const goto_type_definition_meta: Meta = .{ .description = "Language: Goto type definition" };
 
     pub fn references(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         return project_manager.references(file_path, primary.cursor.row, primary.cursor.col);
     }
-    pub const references_meta = .{ .description = "Language: Find all references" };
+    pub const references_meta: Meta = .{ .description = "Language: Find all references" };
 
     pub fn completion(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         return project_manager.completion(file_path, primary.cursor.row, primary.cursor.col);
     }
-    pub const completion_meta = .{ .description = "Language: Show completions at cursor" };
+    pub const completion_meta: Meta = .{ .description = "Language: Show completions at cursor" };
 
     pub fn rename_symbol(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
@@ -4606,7 +4613,7 @@ pub const Editor = struct {
         const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
         return project_manager.rename_symbol(file_path, primary.cursor.row, col);
     }
-    pub const rename_symbol_meta = .{ .description = "Language: Rename symbol at cursor" };
+    pub const rename_symbol_meta: Meta = .{ .description = "Language: Rename symbol at cursor" };
 
     pub fn add_cursor_from_selection(self: *Self, sel_: Selection, op: enum { cancel, push }) !void {
         switch (op) {
@@ -4701,7 +4708,7 @@ pub const Editor = struct {
         const primary = self.get_primary();
         return self.hover_at(primary.cursor.row, primary.cursor.col);
     }
-    pub const hover_meta = .{ .description = "Language: Show documentation for symbol (hover)" };
+    pub const hover_meta: Meta = .{ .description = "Language: Show documentation for symbol (hover)" };
 
     pub fn hover_at_abs(self: *Self, y: usize, x: usize) Result {
         const row: usize = self.view.row + y;
@@ -4797,7 +4804,7 @@ pub const Editor = struct {
             return error.InvalidSelectArgument;
         self.get_primary().selection = sel;
     }
-    pub const select_meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
+    pub const select_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
 
     fn get_formatter(self: *Self) ?[]const []const u8 {
         if (self.syntax) |syn| if (syn.file_type.formatter) |fmtr| if (fmtr.len > 0) return fmtr;
@@ -4819,17 +4826,17 @@ pub const Editor = struct {
         }
         return tp.exit("no formatter");
     }
-    pub const format_meta = .{ .description = "Language: Format file or selection" };
+    pub const format_meta: Meta = .{ .description = "Language: Format file or selection" };
 
     pub fn filter(self: *Self, ctx: Context) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
             return error.InvalidFilterArgument;
         try self.filter_cmd(ctx.args);
     }
-    pub const filter_meta = .{ .arguments = &.{.string} };
+    pub const filter_meta: Meta = .{ .arguments = &.{.string} };
 
     fn filter_cmd(self: *Self, cmd: tp.message) !void {
-        if (self.filter) |_| return error.Stop;
+        if (self.filter_) |_| return error.Stop;
         const root = self.buf_root() catch return;
         const buf_a_ = try self.buf_a();
         const primary = self.get_primary();
@@ -4840,7 +4847,7 @@ pub const Editor = struct {
         };
         const reversed = sel.begin.right_of(sel.end);
         sel.normalize();
-        self.filter = .{
+        self.filter_ = .{
             .before_root = root,
             .work_root = root,
             .begin = sel.begin,
@@ -4850,7 +4857,7 @@ pub const Editor = struct {
             .whole_file = if (primary.selection) |_| null else std.ArrayList(u8).init(self.allocator),
         };
         errdefer self.filter_deinit();
-        const state = &self.filter.?;
+        const state = &self.filter_.?;
         var buf: [1024]u8 = undefined;
         const json = try cmd.to_json(&buf);
         self.logger.print("filter: start {s}", .{json});
@@ -4867,7 +4874,7 @@ pub const Editor = struct {
     }
 
     fn filter_stdout(self: *Self, bytes: []const u8) !void {
-        const state = if (self.filter) |*s| s else return error.Stop;
+        const state = if (self.filter_) |*s| s else return error.Stop;
         errdefer self.filter_deinit();
         const buf_a_ = try self.buf_a();
         if (state.whole_file) |*buf| {
@@ -4903,7 +4910,7 @@ pub const Editor = struct {
     fn filter_done(self: *Self) !void {
         const b = try self.buf_for_update();
         const root = self.buf_root() catch return;
-        const state = if (self.filter) |*s| s else return error.Stop;
+        const state = if (self.filter_) |*s| s else return error.Stop;
         if (state.before_root != root) return error.Stop;
         defer self.filter_deinit();
         const primary = self.get_primary();
@@ -4935,9 +4942,9 @@ pub const Editor = struct {
     }
 
     fn filter_deinit(self: *Self) void {
-        const state = if (self.filter) |*s| s else return;
+        const state = if (self.filter_) |*s| s else return;
         if (state.whole_file) |*buf| buf.deinit();
-        self.filter = null;
+        self.filter_ = null;
     }
 
     fn to_upper_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
@@ -4966,7 +4973,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const to_upper_meta = .{ .description = "Convert selection or word to upper case" };
+    pub const to_upper_meta: Meta = .{ .description = "Convert selection or word to upper case" };
 
     fn to_lower_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
@@ -4994,7 +5001,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const to_lower_meta = .{ .description = "Convert selection or word to lower case" };
+    pub const to_lower_meta: Meta = .{ .description = "Convert selection or word to lower case" };
 
     fn switch_case_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
@@ -5011,7 +5018,7 @@ pub const Editor = struct {
             self_: *Self,
             result: *std.ArrayList(u8),
 
-            const Error = @typeInfo(@typeInfo(@TypeOf(CaseData.toUpperStr)).Fn.return_type.?).ErrorUnion.error_set;
+            const Error = @typeInfo(@typeInfo(@TypeOf(CaseData.toUpperStr)).@"fn".return_type.?).error_union.error_set;
             pub fn write(writer: *@This(), bytes: []const u8) Error!void {
                 const cd = writer.self_.get_case_data();
                 const flipped = if (cd.isLowerStr(bytes))
@@ -5041,7 +5048,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const switch_case_meta = .{ .description = "Switch the case of selection or character at cursor" };
+    pub const switch_case_meta: Meta = .{ .description = "Switch the case of selection or character at cursor" };
 
     pub fn forced_mark_clean(self: *Self, _: Context) Result {
         if (self.buffer) |b| {
@@ -5049,7 +5056,7 @@ pub const Editor = struct {
             self.update_event() catch {};
         }
     }
-    pub const forced_mark_clean_meta = .{ .description = "Force current file to be marked as clean" };
+    pub const forced_mark_clean_meta: Meta = .{ .description = "Force current file to be marked as clean" };
 
     pub fn toggle_eol_mode(self: *Self, _: Context) Result {
         if (self.buffer) |b| {
@@ -5060,7 +5067,7 @@ pub const Editor = struct {
             self.update_event() catch {};
         }
     }
-    pub const toggle_eol_mode_meta = .{ .description = "Toggle end of line sequence" };
+    pub const toggle_eol_mode_meta: Meta = .{ .description = "Toggle end of line sequence" };
 
     pub fn toggle_syntax_highlighting(self: *Self, _: Context) Result {
         self.syntax_no_render = !self.syntax_no_render;
@@ -5076,12 +5083,12 @@ pub const Editor = struct {
         }
         self.logger.print("syntax highlighting {s}", .{if (self.syntax_no_render) "disabled" else "enabled"});
     }
-    pub const toggle_syntax_highlighting_meta = .{ .description = "Toggle syntax highlighting" };
+    pub const toggle_syntax_highlighting_meta: Meta = .{ .description = "Toggle syntax highlighting" };
 
     pub fn toggle_syntax_timing(self: *Self, _: Context) Result {
         self.syntax_report_timing = !self.syntax_report_timing;
     }
-    pub const toggle_syntax_timing_meta = .{ .description = "Toggle tree-sitter timing reports" };
+    pub const toggle_syntax_timing_meta: Meta = .{ .description = "Toggle tree-sitter timing reports" };
 
     pub fn set_file_type(self: *Self, ctx: Context) Result {
         var file_type: []const u8 = undefined;
@@ -5120,7 +5127,7 @@ pub const Editor = struct {
         try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc);
         self.logger.print("file type {s}", .{file_type});
     }
-    pub const set_file_type_meta = .{ .arguments = &.{.string} };
+    pub const set_file_type_meta: Meta = .{ .arguments = &.{.string} };
 };
 
 pub fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager) !Widget {
@@ -5200,7 +5207,7 @@ pub const EditorWidget = struct {
         var xpx: c_int = undefined;
         var ypx: c_int = undefined;
         var pos: u32 = 0;
-        var bytes: []u8 = "";
+        var bytes: []const u8 = "";
 
         if (try m.match(.{ "M", tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
             const hover_y, const hover_x = self.editor.plane.abs_yx_to_rel(y, x);
