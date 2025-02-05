@@ -214,6 +214,7 @@
             ["k", "open_keybind_config"],
             ["t", "change_theme"],
             ["f", "change_fontface"],
+            ["v", "open_version_info"],
             ["q", "quit"],
             ["ctrl+f ctrl+f ctrl+f ctrl+f ctrl+f", "home_sheeran"],
             ["ctrl+j", "toggle_panel"],
