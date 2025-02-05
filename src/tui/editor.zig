@@ -2457,7 +2457,7 @@ pub const Editor = struct {
         self.set_clipboard_internal(text.items);
         self.clamp();
     }
-    pub const cut_internal_vim_meta = .{ .description = "Cut selection or current line to internal clipboard (vim)" };
+    pub const cut_internal_vim_meta: Meta = .{ .description = "Cut selection or current line to internal clipboard (vim)" };
  
     pub fn cut(self: *Self, _: Context) Result {
         const primary = self.get_primary();
@@ -2551,7 +2551,7 @@ pub const Editor = struct {
             self.set_clipboard_internal(text.items);
         }
     }
-    pub const copy_internal_vim_meta = .{ .description = "Copy selection to internal clipboard (vim)" };
+    pub const copy_internal_vim_meta: Meta = .{ .description = "Copy selection to internal clipboard (vim)" };
 
     pub fn copy_line_internal_vim(self: *Self, _: Context) Result {
         const primary = self.get_primary();
@@ -2585,7 +2585,7 @@ pub const Editor = struct {
             self.set_clipboard_internal(text.items);
         }
     }
-    pub const copy_line_internal_vim_meta = .{ .description = "Copy line to internal clipboard (vim)" };
+    pub const copy_line_internal_vim_meta: Meta = .{ .description = "Copy line to internal clipboard (vim)" };
 
     pub fn paste(self: *Self, ctx: Context) Result {
         var text: []const u8 = undefined;
@@ -2665,7 +2665,7 @@ pub const Editor = struct {
         self.clamp();
         self.need_render();
     }
-    pub const paste_internal_vim_meta = .{ .description = "Paste from internal clipboard (vim)" };
+    pub const paste_internal_vim_meta: Meta = .{ .description = "Paste from internal clipboard (vim)" };
 
     pub fn delete_forward(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2682,7 +2682,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const cut_forward_internal_meta = .{ .description = "Cut next character to internal clipboard" };
+    pub const cut_forward_internal_meta: Meta = .{ .description = "Cut next character to internal clipboard" };
 
     pub fn delete_backward(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2707,7 +2707,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const cut_word_left_vim_meta = .{ .description = "Cut previous word to internal clipboard (vim)" };
+    pub const cut_word_left_vim_meta: Meta = .{ .description = "Cut previous word to internal clipboard (vim)" };
 
     pub fn delete_word_right(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2724,7 +2724,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const cut_word_right_vim_meta = .{ .description = "Cut next word to internal clipboard (vim)" };
+    pub const cut_word_right_vim_meta: Meta = .{ .description = "Cut next word to internal clipboard (vim)" };
 
     pub fn delete_to_begin(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2868,7 +2868,7 @@ pub const Editor = struct {
         self.with_cursors_const(root, move_cursor_word_left_vim) catch {};
         self.clamp();
     }
-    pub const move_word_left_vim_meta = .{ .description = "Move cursor left by word (vim)" };
+    pub const move_word_left_vim_meta: Meta = .{ .description = "Move cursor left by word (vim)" };
 
 
     pub fn move_word_right(self: *Self, _: Context) Result {
@@ -2890,7 +2890,7 @@ pub const Editor = struct {
         self.with_cursors_const(root, move_cursor_word_right_end_vim) catch {};
         self.clamp();
     }
-    pub const move_word_right_end_vim_meta = .{ .description = "Move cursor right by end of word (vim)" };
+    pub const move_word_right_end_vim_meta: Meta = .{ .description = "Move cursor right by end of word (vim)" };
 
     fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;
