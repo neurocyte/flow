@@ -99,6 +99,7 @@
             ["alt+down", "pull_down"],
             ["alt+enter", "insert_line"],
             ["alt+f10", "gutter_mode_next"],
+            ["alt+shift+f10", "gutter_style_next"],
             ["alt+f12", "goto_declaration"],
             ["alt+shift+p", "open_command_palette"],
             ["alt+shift+d", "dupe_up"],
