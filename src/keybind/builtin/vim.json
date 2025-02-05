@@ -9,17 +9,21 @@
         "name": "NORMAL",
         "line_numbers": "relative",
         "cursor": "block",
+        "selection": "normal",
         "press": [
-            ["b", "move_word_left"],
+            ["b", "move_word_left_vim"],
             ["w", "move_word_right_vim"],
-            ["e", "move_word_right"],
-            ["x", "delete_forward"],
+            ["W", "move_word_right"],
+            ["B", "move_word_left"],
+            ["e", "move_word_right_end_vim"],
+            ["x", "cut_forward_internal"],
+            ["s", ["cut_forward_internal"], ["enter_mode", "insert"]],
             ["u", "undo"],
 
             ["j", "move_down"],
             ["k", "move_up"],
             ["l", "move_right_vim"],
-            ["h", "move_left"],
+            ["h", "move_left_vim"],
             ["<Space>", "move_right_vim"],
 
             ["i", "enter_mode", "insert"],
@@ -30,13 +34,14 @@
             ["O", ["smart_insert_line_before"], ["enter_mode", "insert"]],
 
             ["v", "enter_mode", "visual"],
+            ["V", ["move_begin"], ["enter_mode", "visual"], ["select_end"]],
 
-            ["/", "find"],
             ["n", "goto_next_match"],
             ["0", "move_begin"],
+            ["^", "smart_move_begin"],
             ["$", "move_end"],
             [":", "open_command_palette"],
-            ["p", "paste"],
+            ["p", "paste_internal_vim"],
 
             ["gd", "goto_definition"],
             ["gi", "goto_implementation"],
@@ -47,10 +52,12 @@
             ["G", "move_buffer_end"],
 
             ["d$", "delete_to_end"],
-            ["dd", "cut"],
+            ["dw", "cut_word_right_vim"],
+            ["db", "cut_word_left_vim"],
+            ["dd", "cut_internal_vim"],
             ["\"_dd", "delete_line"],
 
-            ["yy", "copy_line"],
+            ["yy", ["copy_line_internal_vim"], ["cancel"]],
 
             ["<C-u>", "move_scroll_page_up"],
             ["<C-d>", "move_scroll_page_down"],
@@ -60,10 +67,12 @@
             ["<C-i>", "jump_forward"],
             ["<C-y>", "redo"],
 
+            ["/", "find"],
+
             ["<C-k>", "TODO"],
 
-            ["<C-CR>", "smart_insert_line_after"],
-            ["<CR>", "smart_insert_line"]
+            ["<C-CR>", ["move_down"], ["move_begin"]],
+            ["<CR>", ["move_down"], ["move_begin"]]
         ]
     },
     "visual": {
@@ -71,9 +80,20 @@
         "on_match_failure": "ignore",
         "name": "VISUAL",
         "line_numbers": "relative",
-        "cursor": "underline",
+        "cursor": "block",
+        "selection": "normal",
         "press": [
-            ["<Esc>", "enter_mode", "normal"]
+            ["<Esc>", "enter_mode", "normal"],
+            ["k", "select_up"],
+            ["j", "select_down"],
+            ["h", "select_left"],
+            ["l", "select_right"],
+
+            ["y", ["copy_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
+
+            ["x", ["cut_forward_internal"], ["cancel"], ["enter_mode", "normal"]],
+            ["d", ["cut_forward_internal"], ["cancel"], ["enter_mode", "normal"]],
+            ["s", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]]
         ]
     },
     "insert": {
@@ -86,7 +106,10 @@
             ["<Esc>", "enter_mode", "normal"],
             ["<Del>", "delete_forward"],
             ["<BS>", "delete_backward"],
-            ["<CR>", "insert_line_after"]
+            ["<CR>", "smart_insert_line"],
+
+            ["<C-BS>", "delete_word_left"],
+            ["<C-Del", "delete_word_right"]
         ]
     },
     "home": {
