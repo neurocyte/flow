@@ -80,7 +80,7 @@ pub const css = .{
 
 pub const diff = .{
     .description = "Diff",
-    .extensions = .{ "diff", "patch" },
+    .extensions = .{ "diff", "patch", "rej" },
     .comment = "#",
 };
 
