@@ -177,7 +177,7 @@ pub fn build_exe(
 
     var version_info = std.ArrayList(u8).init(b.allocator);
     defer version_info.deinit();
-    gen_version_info(b, target, version_info.writer()) catch {
+    gen_version_info(b, target, version_info.writer(), optimize) catch {
         version_info.clearAndFree();
         version_info.appendSlice("unknown") catch {};
     };
@@ -586,6 +586,7 @@ fn gen_version_info(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     writer: anytype,
+    optimize: std.builtin.OptimizeMode,
 ) !void {
     var code: u8 = 0;
 
@@ -629,7 +630,7 @@ fn gen_version_info(
         try writer.print("branch: {s} at {s}\n", .{ branch, remote });
 
     try writer.print("built with: zig {s} ({s})\n", .{ builtin.zig_version_string, @tagName(builtin.zig_backend) });
-    try writer.print("build mode: {s}\n", .{@tagName(builtin.mode)});
+    try writer.print("build mode: {s}\n", .{@tagName(optimize)});
 
     if (log.len > 0)
         try writer.print("\nwith the following diverging commits:\n{s}\n", .{log});
