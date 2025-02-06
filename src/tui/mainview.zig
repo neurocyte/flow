@@ -241,6 +241,7 @@ fn check_all_not_dirty(self: *const Self) command.Result {
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
+    const Meta = command.Metadata;
     const Result = command.Result;
 
     pub fn quit(self: *Self, _: Ctx) Result {

@@ -26,7 +26,7 @@ const Vtable = struct {
     meta: Metadata,
 };
 
-const Metadata = struct {
+pub const Metadata = struct {
     description: []const u8 = &[_]u8{},
     arguments: []const ArgumentType = &[_]ArgumentType{},
 };
