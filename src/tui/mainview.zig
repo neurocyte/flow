@@ -595,6 +595,13 @@ const cmds = struct {
     }
     pub const gutter_style_next_meta: Meta = .{ .description = "Next line number style" };
 
+    pub fn toggle_inline_diagnostics(_: *Self, _: Ctx) Result {
+        const config = tui.config_mut();
+        config.inline_diagnostics = !config.inline_diagnostics;
+        try tui.save_config();
+    }
+    pub const toggle_inline_diagnostics_meta: Meta = .{ .description = "Toggle display of diagnostics inline" };
+
     pub fn goto_next_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(filelist_view)) {
             switch (self.file_list_type) {

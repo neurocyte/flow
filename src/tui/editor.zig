@@ -1010,7 +1010,8 @@ pub const Editor = struct {
         self.render_syntax(theme, cache, root) catch {};
         self.render_cursors(theme, ctx_.cell_map) catch {};
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
-        self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
+        if (tui.config().inline_diagnostics)
+            self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
     }
 
     fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
