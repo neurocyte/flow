@@ -426,7 +426,7 @@ fn int_width(n_: usize) usize {
 fn print_digits(self: *Self, n_: anytype, style_: DigitStyle) !void {
     var n = n_;
     var buf: [12][]const u8 = undefined;
-    var digits: std.ArrayListUnmanaged([]const u8) = .initBuffer(&buf);
+    var digits = std.ArrayListUnmanaged([]const u8).initBuffer(&buf);
     while (true) {
         digits.addOneAssumeCapacity().* = get_digit(n % 10, style_);
         n /= 10;
