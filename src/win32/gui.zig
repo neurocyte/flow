@@ -3,9 +3,7 @@ const tracy = @import("tracy");
 const build_options = @import("build_options");
 const root = @import("root");
 
-const c = @cImport({
-    @cInclude("ResourceNames.h");
-});
+const ID_ICON_FLOW = 1;
 
 const win32 = @import("win32").everything;
 const win32ext = @import("win32ext.zig");
@@ -118,7 +116,7 @@ fn getIcons(dpi: XY(u32)) Icons {
     });
     const small = win32.LoadImageW(
         win32.GetModuleHandleW(null),
-        @ptrFromInt(c.ID_ICON_FLOW),
+        @ptrFromInt(ID_ICON_FLOW),
         .ICON,
         small_x,
         small_y,
@@ -126,7 +124,7 @@ fn getIcons(dpi: XY(u32)) Icons {
     ) orelse win32.panicWin32("LoadImage for small icon", win32.GetLastError());
     const large = win32.LoadImageW(
         win32.GetModuleHandleW(null),
-        @ptrFromInt(c.ID_ICON_FLOW),
+        @ptrFromInt(ID_ICON_FLOW),
         .ICON,
         large_x,
         large_y,

@@ -1,4 +1,4 @@
-#include "ResourceNames.h"
+#define ID_ICON_FLOW 1
 
 // LANG_NEUTRAL(0), SUBLANG_NEUTRAL(0)
 LANGUAGE 0, 0
