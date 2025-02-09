@@ -23,7 +23,7 @@ jobs:
           # linux builds using musl target triples
           zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/linux-aarch64
           zig build -Doptimize=ReleaseSafe -Dtarget=arm-linux-musleabihf --prefix zig-out/linux-arm
-          zig build -Doptimize=ReleaseSafe -Dtarget=i386-linux-musl --prefix zig-out/linux-x86
+          zig build -Doptimize=ReleaseSafe -Dtarget=i686-linux-musl --prefix zig-out/linux-x86
           zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl --prefix zig-out/linux-x86_64
 
           # macos builds
