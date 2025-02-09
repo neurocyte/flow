@@ -21,6 +21,6 @@ jobs:
 
       - name: Merge Upstream Changes
         run: |
-          git checkout main
-          git merge upstream/main --no-edit
-          git push origin main
+          git checkout master  # Use `master` instead of `main`
+          git merge upstream/master --no-edit
+          git push origin master
