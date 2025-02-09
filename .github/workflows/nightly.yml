@@ -16,14 +16,14 @@ jobs:
       - name: set up zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.13.0  # use the required zig version
+          version: 0.13.0  # required zig version
 
       - name: build for all platforms
         run: |
           # linux builds using musl target triples
           zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/linux-aarch64
           zig build -Doptimize=ReleaseSafe -Dtarget=arm-linux-musleabihf --prefix zig-out/linux-arm
-          zig build -Doptimize=ReleaseSafe -Dtarget=i686-linux-musl --prefix zig-out/linux-x86
+          zig build -Doptimize=ReleaseSafe -Dtarget=x86-linux-musl --prefix zig-out/linux-x86
           zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl --prefix zig-out/linux-x86_64
 
           # macos builds
