@@ -14,56 +14,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: neurocyte/flow
-          ref: main
+          ref: master
 
       - name: Set up Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.13.0  # Ensuring the required version is installed
 
-      - name: Build Linux Binaries
-        run: |
-          zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux --prefix zig-out/linux-aarch64
-          zig build -Doptimize=ReleaseSafe -Dtarget=arm-linux --prefix zig-out/linux-arm
-          zig build -Doptimize=ReleaseSafe -Dtarget=x86-linux --prefix zig-out/linux-x86
-          zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux --prefix zig-out/linux-x86_64
+      - name: Build Flow
+        run: zig build -Doptimize=ReleaseSafe
 
-      - name: Build macOS Binaries
-        run: |
-          zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-macos --prefix zig-out/macos-aarch64
-          zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos --prefix zig-out/macos-x86_64
-
-      - name: Build Windows Binaries
-        run: |
-          zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-windows --prefix zig-out/windows-aarch64
-          zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows --prefix zig-out/windows-x86_64
-
-      - name: Package Releases
-        run: |
-          for arch in linux-aarch64 linux-arm linux-x86 linux-x86_64; do
-            tar -czvf flow-nightly-${arch}.tar.gz -C zig-out/${arch}/bin flow
-            sha256sum flow-nightly-${arch}.tar.gz > flow-nightly-${arch}.tar.gz.sha256
-          done
-          
-          for arch in macos-aarch64 macos-x86_64; do
-            tar -czvf flow-nightly-${arch}.tar.gz -C zig-out/${arch}/bin flow
-            sha256sum flow-nightly-${arch}.tar.gz > flow-nightly-${arch}.tar.gz.sha256
-          done
-
-          for arch in windows-aarch64 windows-x86_64; do
-            zip -r flow-nightly-${arch}.zip zig-out/${arch}/bin/flow.exe
-            sha256sum flow-nightly-${arch}.zip > flow-nightly-${arch}.zip.sha256
-          done
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4  # Fixed: Using v4 instead of v3
         with:
           name: flow-nightly
-          path: |
-            flow-nightly-*.tar.gz
-            flow-nightly-*.tar.gz.sha256
-            flow-nightly-*.zip
-            flow-nightly-*.zip.sha256
+          path: zig-out/bin/flow
 
       - name: Create Nightly Release
         uses: softprops/action-gh-release@v2
@@ -73,10 +38,6 @@ jobs:
           body: "Automated nightly build of Flow."
           draft: false
           prerelease: true
-          files: |
-            flow-nightly-*.tar.gz
-            flow-nightly-*.tar.gz.sha256
-            flow-nightly-*.zip
-            flow-nightly-*.zip.sha256
+          files: zig-out/bin/flow
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
