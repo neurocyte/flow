@@ -1,73 +1,79 @@
-name: Nightly Build
+name: nightly build
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Runs every day at midnight UTC
-  workflow_dispatch:  # Allows manual triggering
+    - cron: '0 0 * * *'  # runs every day at midnight utc
+  workflow_dispatch:   # allows manual triggering
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout latest code
+      - name: checkout latest code
         uses: actions/checkout@v4
 
-      - name: Set up Zig
+      - name: set up zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.13.0  # Ensure correct Zig version
+          version: 0.13.0  # use the required zig version
 
-      - name: Build for All Platforms
+      - name: build for all platforms
         run: |
-          zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux --prefix zig-out/linux-aarch64
-          zig build -Doptimize=ReleaseSafe -Dtarget=arm-linux --prefix zig-out/linux-arm
-          zig build -Doptimize=ReleaseSafe -Dtarget=x86-linux --prefix zig-out/linux-x86
-          zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux --prefix zig-out/linux-x86_64
+          # linux builds using musl target triples
+          zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/linux-aarch64
+          zig build -Doptimize=ReleaseSafe -Dtarget=arm-linux-musleabihf --prefix zig-out/linux-arm
+          zig build -Doptimize=ReleaseSafe -Dtarget=i386-linux-musl --prefix zig-out/linux-x86
+          zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl --prefix zig-out/linux-x86_64
+
+          # macos builds
           zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-macos --prefix zig-out/macos-aarch64
           zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos --prefix zig-out/macos-x86_64
+
+          # windows builds
           zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-windows --prefix zig-out/windows-aarch64
           zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows --prefix zig-out/windows-x86_64
 
-      - name: Package Releases
+      - name: package releases
         run: |
+          mkdir -p release_artifacts
+
+          # package linux builds as tar.gz and generate sha256 checksums
           for arch in linux-aarch64 linux-arm linux-x86 linux-x86_64; do
-            tar -czvf flow-nightly-${arch}.tar.gz -C zig-out/${arch}/bin flow
-            sha256sum flow-nightly-${arch}.tar.gz > flow-nightly-${arch}.tar.gz.sha256
+            tar -czvf release_artifacts/flow-nightly-${arch}.tar.gz -C zig-out/${arch}/bin flow
+            sha256sum release_artifacts/flow-nightly-${arch}.tar.gz > release_artifacts/flow-nightly-${arch}.tar.gz.sha256
           done
-          
+
+          # package macos builds as tar.gz and generate checksums
           for arch in macos-aarch64 macos-x86_64; do
-            tar -czvf flow-nightly-${arch}.tar.gz -C zig-out/${arch}/bin flow
-            sha256sum flow-nightly-${arch}.tar.gz > flow-nightly-${arch}.tar.gz.sha256
+            tar -czvf release_artifacts/flow-nightly-${arch}.tar.gz -C zig-out/${arch}/bin flow
+            sha256sum release_artifacts/flow-nightly-${arch}.tar.gz > release_artifacts/flow-nightly-${arch}.tar.gz.sha256
           done
 
+          # package windows builds as zip and generate checksums
           for arch in windows-aarch64 windows-x86_64; do
-            zip -r flow-nightly-${arch}.zip zig-out/${arch}/bin/flow.exe
-            sha256sum flow-nightly-${arch}.zip > flow-nightly-${arch}.zip.sha256
+            zip -r release_artifacts/flow-nightly-${arch}.zip zig-out/${arch}/bin/flow.exe
+            sha256sum release_artifacts/flow-nightly-${arch}.zip > release_artifacts/flow-nightly-${arch}.zip.sha256
           done
 
-      - name: Upload Artifacts
+      - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: flow-nightly
-          path: |
-            flow-nightly-*.tar.gz
-            flow-nightly-*.tar.gz.sha256
-            flow-nightly-*.zip
-            flow-nightly-*.zip.sha256
+          path: release_artifacts/
 
-      - name: Create Nightly Release
+      - name: create nightly release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly-${{ github.run_id }}
-          name: Nightly Build ${{ github.run_id }}
-          body: "Automated nightly build of Flow."
+          name: nightly build ${{ github.run_id }}
+          body: "automated nightly build of flow."
           draft: false
           prerelease: true
           files: |
-            flow-nightly-*.tar.gz
-            flow-nightly-*.tar.gz.sha256
-            flow-nightly-*.zip
-            flow-nightly-*.zip.sha256
+            release_artifacts/*.tar.gz
+            release_artifacts/*.tar.gz.sha256
+            release_artifacts/*.zip
+            release_artifacts/*.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
