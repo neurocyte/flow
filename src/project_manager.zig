@@ -442,8 +442,11 @@ const Process = struct {
         var message = std.ArrayList(u8).init(self.allocator);
         const writer = message.writer();
         try cbor.writeArrayHeader(writer, recent_projects.items.len);
-        for (recent_projects.items) |project|
+        for (recent_projects.items) |project| {
+            try cbor.writeArrayHeader(writer, 2);
             try cbor.writeValue(writer, project.name);
+            try cbor.writeValue(writer, if (self.projects.get(project.name)) |_| true else false);
+        }
         from.send_raw(.{ .buf = message.items }) catch return error.ClientFailed;
     }
 

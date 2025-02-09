@@ -11,6 +11,7 @@ pub const description = "project";
 
 pub const Entry = struct {
     label: []const u8,
+    open: bool,
 };
 
 pub const Match = struct {
@@ -31,9 +32,14 @@ pub fn load_entries(palette: *Type) !usize {
     var len = try cbor.decodeArrayHeader(&iter);
     while (len > 0) : (len -= 1) {
         var name_: []const u8 = undefined;
-        if (try cbor.matchValue(&iter, cbor.extract(&name_))) {
-            (try palette.entries.addOne()).* = .{ .label = try palette.allocator.dupe(u8, name_) };
-        } else return error.InvalidMessageField;
+        var open: bool = false;
+        if (try cbor.decodeArrayHeader(&iter) != 2)
+            return error.InvalidMessageField;
+        if (!try cbor.matchValue(&iter, cbor.extract(&name_)))
+            return error.InvalidMessageField;
+        if (!try cbor.matchValue(&iter, cbor.extract(&open)))
+            return error.InvalidMessageField;
+        (try palette.entries.addOne()).* = .{ .label = try palette.allocator.dupe(u8, name_), .open = open };
     }
     return 1;
 }
@@ -43,6 +49,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     defer value.deinit();
     const writer = value.writer();
     try cbor.writeValue(writer, entry.label);
+    try cbor.writeValue(writer, if (entry.open) "-" else "");
     try cbor.writeValue(writer, matches orelse &[_]usize{});
     try palette.menu.add_item_with_handler(value.items, select);
     palette.items += 1;
