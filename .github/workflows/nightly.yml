@@ -56,6 +56,18 @@ jobs:
             sha256sum release_artifacts/flow-nightly-${arch}.zip > release_artifacts/flow-nightly-${arch}.zip.sha256
           done
 
+      - name: sign artifacts
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          # import the gpg key
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          # sign each tar.gz and zip file; produces .sig files in ascii-armored format
+          for file in release_artifacts/*.tar.gz release_artifacts/*.zip; do
+            gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --detach-sign --armor -o "${file}.sig" "$file"
+          done
+
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -73,7 +85,9 @@ jobs:
           files: |
             release_artifacts/*.tar.gz
             release_artifacts/*.tar.gz.sha256
+            release_artifacts/*.tar.gz.sig
             release_artifacts/*.zip
             release_artifacts/*.zip.sha256
+            release_artifacts/*.zip.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
