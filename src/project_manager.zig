@@ -423,6 +423,7 @@ const Process = struct {
     fn close(self: *Process, project_directory: []const u8) error{}!void {
         if (self.projects.fetchRemove(project_directory)) |kv| {
             self.allocator.free(kv.key);
+            self.persist_project(kv.value) catch {};
             kv.value.deinit();
             self.allocator.destroy(kv.value);
             self.logger.print("closed: {s}", .{project_directory});
@@ -629,6 +630,8 @@ const Process = struct {
     }
 
     fn persist_project(self: *Process, project: *Project) !void {
+        const no_persist = tp.env.get().is("no-persist");
+        if (no_persist and !project.persistent) return;
         tp.trace(tp.channel.debug, .{ "persist_project", project.name });
         self.logger.print("saving: {s}", .{project.name});
         const file_name = try get_project_state_file_path(self.allocator, project);
