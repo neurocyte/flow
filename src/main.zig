@@ -52,6 +52,7 @@ pub fn main() anyerror!void {
         ;
 
         pub const descriptions = .{
+            .project = "Set project directory (default: cwd)",
             .frame_rate = "Set target frame rate (default: 60)",
             .debug_wait = "Wait for key press before starting UI",
             .debug_dump_on_error = "Dump stack traces on errors",
@@ -74,6 +75,7 @@ pub fn main() anyerror!void {
         pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds" };
 
         pub const switches = .{
+            .project = 'p',
             .frame_rate = 'f',
             .trace_level = 't',
             .language = 'l',
@@ -82,6 +84,7 @@ pub fn main() anyerror!void {
             .version = 'v',
         };
 
+        project: ?[]const u8,
         frame_rate: ?usize,
         debug_wait: bool,
         debug_dump_on_error: bool,
@@ -267,11 +270,15 @@ pub fn main() anyerror!void {
     var have_project = false;
     var files = std.ArrayList(Dest).init(a);
     defer files.deinit();
+    if (args.project) |project| {
+        try tui_proc.send(.{ "cmd", "open_project_dir", .{project} });
+        have_project = true;
+    }
     for (dests.items) |dest| {
         if (dest.file.len == 0) continue;
         if (is_directory(dest.file)) {
             if (have_project) {
-                std.debug.print("more than one directory is not allowed\n", .{});
+                std.debug.print("more than one project directory is not allowed\n", .{});
                 exit(1);
             }
             try tui_proc.send(.{ "cmd", "open_project_dir", .{dest.file} });
