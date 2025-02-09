@@ -2,8 +2,10 @@ const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian");
 const project_manager = @import("project_manager");
+const command = @import("command");
 
 pub const Type = @import("palette.zig").Create(@This());
+const module_name = @typeName(@This());
 
 pub const label = "Search projects";
 pub const name = " project";
@@ -44,6 +46,10 @@ pub fn load_entries(palette: *Type) !usize {
     return 1;
 }
 
+pub fn clear_entries(palette: *Type) void {
+    palette.entries.clearRetainingCapacity();
+}
+
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
     var value = std.ArrayList(u8).init(palette.allocator);
     defer value.deinit();
@@ -61,4 +67,12 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     if (!(cbor.matchString(&iter, &name_) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("open_recent_project", e);
     tp.self_pid().send(.{ "cmd", "change_project", .{name_} }) catch |e| menu.*.opts.ctx.logger.err("open_recent_project", e);
+}
+
+pub fn delete_item(menu: *Type.MenuState, button: *Type.ButtonState) bool {
+    var name_: []const u8 = undefined;
+    var iter = button.opts.label;
+    if (!(cbor.matchString(&iter, &name_) catch false)) return false;
+    command.executeName("close_project", command.fmt(.{name_})) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    return true; //refresh list
 }

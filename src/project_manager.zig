@@ -64,6 +64,12 @@ pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSyste
     return send(.{ "open", project_directory });
 }
 
+pub fn close(project_directory: []const u8) (ProjectManagerError || error{CloseCurrentProject})!void {
+    const current_project = tp.env.get().str("project");
+    if (std.mem.eql(u8, current_project, project_directory)) return error.CloseCurrentProject;
+    return send(.{ "close", project_directory });
+}
+
 pub fn request_n_most_recent_file(allocator: std.mem.Allocator, n: usize) (CallError || ProjectError || cbor.Error)!?[]const u8 {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -339,6 +345,8 @@ const Process = struct {
             self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
         } else if (try cbor.match(m.buf, .{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "close", tp.extract(&project_directory) })) {
+            self.close(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_n_most_recent_file", tp.extract(&project_directory), tp.extract(&n) })) {
             self.request_n_most_recent_file(from, project_directory, n) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
@@ -409,6 +417,15 @@ const Process = struct {
             project.sort_files_by_mtime();
         } else {
             self.logger.print("switched to: {s}", .{project_directory});
+        }
+    }
+
+    fn close(self: *Process, project_directory: []const u8) error{}!void {
+        if (self.projects.fetchRemove(project_directory)) |kv| {
+            self.allocator.free(kv.key);
+            kv.value.deinit();
+            self.allocator.destroy(kv.value);
+            self.logger.print("closed: {s}", .{project_directory});
         }
     }
 
