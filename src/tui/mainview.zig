@@ -274,6 +274,21 @@ const cmds = struct {
     }
     pub const open_project_dir_meta: Meta = .{ .arguments = &.{.string} };
 
+    pub fn close_project(_: *Self, ctx: Ctx) Result {
+        var project_dir: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&project_dir)}))
+            return;
+        project_manager.close(project_dir) catch |e| switch (e) {
+            error.CloseCurrentProject => {
+                const logger = log.logger("project");
+                defer logger.deinit();
+                logger.print_err("project", "cannot close current project", .{});
+            },
+            else => return e,
+        };
+    }
+    pub const close_project_meta: Meta = .{ .arguments = &.{.string} };
+
     pub fn change_project(self: *Self, ctx: Ctx) Result {
         var project_dir: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))

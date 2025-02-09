@@ -64,6 +64,12 @@ pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSyste
     return send(.{ "open", project_directory });
 }
 
+pub fn close(project_directory: []const u8) (ProjectManagerError || error{CloseCurrentProject})!void {
+    const current_project = tp.env.get().str("project");
+    if (std.mem.eql(u8, current_project, project_directory)) return error.CloseCurrentProject;
+    return send(.{ "close", project_directory });
+}
+
 pub fn request_n_most_recent_file(allocator: std.mem.Allocator, n: usize) (CallError || ProjectError || cbor.Error)!?[]const u8 {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -339,6 +345,8 @@ const Process = struct {
             self.logger.print_err("lsp-handling", "child '{s}' terminated", .{path});
         } else if (try cbor.match(m.buf, .{ "open", tp.extract(&project_directory) })) {
             self.open(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "close", tp.extract(&project_directory) })) {
+            self.close(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_n_most_recent_file", tp.extract(&project_directory), tp.extract(&n) })) {
             self.request_n_most_recent_file(from, project_directory, n) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
@@ -412,6 +420,16 @@ const Process = struct {
         }
     }
 
+    fn close(self: *Process, project_directory: []const u8) error{}!void {
+        if (self.projects.fetchRemove(project_directory)) |kv| {
+            self.allocator.free(kv.key);
+            self.persist_project(kv.value) catch {};
+            kv.value.deinit();
+            self.allocator.destroy(kv.value);
+            self.logger.print("closed: {s}", .{project_directory});
+        }
+    }
+
     fn loaded(self: *Process, project_directory: []const u8) OutOfMemoryError!void {
         const project = self.projects.get(project_directory) orelse return;
         try project.merge_pending_files();
@@ -442,8 +460,11 @@ const Process = struct {
         var message = std.ArrayList(u8).init(self.allocator);
         const writer = message.writer();
         try cbor.writeArrayHeader(writer, recent_projects.items.len);
-        for (recent_projects.items) |project|
+        for (recent_projects.items) |project| {
+            try cbor.writeArrayHeader(writer, 2);
             try cbor.writeValue(writer, project.name);
+            try cbor.writeValue(writer, if (self.projects.get(project.name)) |_| true else false);
+        }
         from.send_raw(.{ .buf = message.items }) catch return error.ClientFailed;
     }
 
@@ -609,6 +630,8 @@ const Process = struct {
     }
 
     fn persist_project(self: *Process, project: *Project) !void {
+        const no_persist = tp.env.get().is("no-persist");
+        if (no_persist and !project.persistent) return;
         tp.trace(tp.channel.debug, .{ "persist_project", project.name });
         self.logger.print("saving: {s}", .{project.name});
         const file_name = try get_project_state_file_path(self.allocator, project);
