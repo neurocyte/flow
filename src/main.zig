@@ -53,6 +53,7 @@ pub fn main() anyerror!void {
 
         pub const descriptions = .{
             .project = "Set project directory (default: cwd)",
+            .no_persist = "Do not persist new projects",
             .frame_rate = "Set target frame rate (default: 60)",
             .debug_wait = "Wait for key press before starting UI",
             .debug_dump_on_error = "Dump stack traces on errors",
@@ -76,6 +77,7 @@ pub fn main() anyerror!void {
 
         pub const switches = .{
             .project = 'p',
+            .no_persist = 'N',
             .frame_rate = 'f',
             .trace_level = 't',
             .language = 'l',
@@ -85,6 +87,7 @@ pub fn main() anyerror!void {
         };
 
         project: ?[]const u8,
+        no_persist: bool,
         frame_rate: ?usize,
         debug_wait: bool,
         debug_dump_on_error: bool,
@@ -202,6 +205,7 @@ pub fn main() anyerror!void {
     log.set_std_log_pid(log_proc.ref());
     defer log.set_std_log_pid(null);
 
+    env.set("no-persist", args.no_persist);
     env.set("restore-session", args.restore_session);
     env.set("no-alternate", args.no_alternate);
     env.set("show-input", args.show_input);

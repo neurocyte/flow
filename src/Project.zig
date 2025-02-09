@@ -20,6 +20,7 @@ open_time: i64,
 language_servers: std.StringHashMap(LSP),
 file_language_server: std.StringHashMap(LSP),
 tasks: std.ArrayList(Task),
+persistent: bool = false,
 
 const Self = @This();
 
@@ -130,6 +131,7 @@ pub fn restore_state(self: *Self, data: []const u8) !void {
         error.InvalidType => return self.restore_state_v0(data),
         else => return tp.trace(tp.channel.debug, .{ "restore_state", "unknown format", data }),
     };
+    self.persistent = true;
     return self.restore_state_v1(data);
 }
 
