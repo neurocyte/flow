@@ -4518,7 +4518,9 @@ pub const Editor = struct {
             return error.InvalidGotoColumnArgument;
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        try primary.cursor.move_to(root, primary.cursor.row, @intCast(if (column < 1) 0 else column - 1), self.metrics);
+        column = if (column < 1) 0 else column - 1;
+        column = try root.pos_to_width(primary.cursor.row, column, self.metrics);
+        try primary.cursor.move_to(root, primary.cursor.row, column, self.metrics);
         self.clamp();
     }
     pub const goto_column_meta = .{ .arguments = &.{.integer} };
