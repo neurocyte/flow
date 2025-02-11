@@ -90,7 +90,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
     }
-    return std.debug.defaultPanic(msg, ret_addr);
+    return std.debug.defaultPanic(msg, ret_addr orelse @returnAddress());
 }
 
 pub fn run(self: *Self) !void {
