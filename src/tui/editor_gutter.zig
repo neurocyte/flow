@@ -23,8 +23,8 @@ plane: Plane,
 parent: Widget,
 
 lines: u32 = 0,
-rows: u32 = 1,
-row: u32 = 1,
+view_rows: u32 = 1,
+view_top: u32 = 1,
 line: usize = 0,
 linenum: bool,
 relative: bool,
@@ -80,7 +80,7 @@ fn diff_symbols_clear(self: *Self) void {
 pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "E", "update", tp.more }))
         return self.diff_update() catch |e| return tp.exit_error(e, @errorReturnTrace());
-    if (try m.match(.{ "E", "view", tp.extract(&self.lines), tp.extract(&self.rows), tp.extract(&self.row) }))
+    if (try m.match(.{ "E", "view", tp.extract(&self.lines), tp.extract(&self.view_rows), tp.extract(&self.view_top) }))
         return self.update_width();
     if (try m.match(.{ "E", "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.more }))
         return self.update_width();
@@ -149,8 +149,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 pub fn render_none(self: *Self, theme: *const Widget.Theme) void {
     var pos: usize = 0;
-    var linenum = self.row + 1;
-    var rows = self.rows;
+    var linenum = self.view_top + 1;
+    var rows = self.view_rows;
     var diff_symbols = self.diff_symbols.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
@@ -164,8 +164,8 @@ pub fn render_none(self: *Self, theme: *const Widget.Theme) void {
 
 pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
     var pos: usize = 0;
-    var linenum = self.row + 1;
-    var rows = self.rows;
+    var linenum = self.view_top + 1;
+    var rows = self.view_rows;
     var diff_symbols = self.diff_symbols.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
@@ -187,12 +187,12 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
 }
 
 pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
-    const row: isize = @intCast(self.row + 1);
+    const row: isize = @intCast(self.view_top + 1);
     const line: isize = @intCast(self.line + 1);
     var pos: usize = 0;
     var linenum: isize = row - line;
-    var abs_linenum = self.row + 1;
-    var rows = self.rows;
+    var abs_linenum = self.view_top + 1;
+    var rows = self.view_rows;
     var diff_symbols = self.diff_symbols.items;
     while (rows > 0) : (rows -= 1) {
         if (pos > self.lines - @as(u32, @intCast(row))) return;
@@ -259,7 +259,7 @@ fn render_diagnostics(self: *Self, theme: *const Widget.Theme) void {
 
 fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widget.Theme) void {
     const row = diag.sel.begin.row;
-    if (!(self.row < row and row < self.row + self.rows)) return;
+    if (!(self.view_top < row and row < self.view_top + self.view_rows)) return;
     const style_ = switch (diag.get_severity()) {
         .Error => theme.editor_error,
         .Warning => theme.editor_warning,
@@ -272,7 +272,7 @@ fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widg
         .Information => "",
         .Hint => "",
     };
-    const y = row - self.row;
+    const y = row - self.view_top;
     self.plane.cursor_move_yx(@intCast(y), 0) catch return;
     var cell = self.plane.cell_init();
     _ = self.plane.at_cursor_cell(&cell) catch return;
@@ -283,7 +283,7 @@ fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widg
 
 fn primary_click(self: *const Self, y_: i32) error{Exit}!bool {
     const y = self.editor.plane.abs_y_to_rel(y_);
-    var line = self.row + 1;
+    var line = self.view_top + 1;
     line += @intCast(y);
     if (line > self.lines) line = self.lines;
     try command.executeName("goto_line", command.fmt(.{line}));
