@@ -62,7 +62,7 @@
             ["dd", "cut_internal_vim"],
             ["\"_dd", "delete_line"],
 
-            ["cc", ["delete_line"], ["enter_mode", "insert"]],
+            ["cc", ["cut_internal_vim"], ["enter_mode", "insert"]],
             ["C", ["delete_to_end"], ["enter_mode", "insert"]],
             ["D", "delete_to_end"],
             ["cw", ["cut_word_right_vim"], ["enter_mode", "insert"]],

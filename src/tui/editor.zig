@@ -2088,6 +2088,10 @@ pub const Editor = struct {
         cursor.move_end(root, metrics);
     }
 
+    fn move_cursor_end_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        move_cursor_right_until(root, cursor, is_eol_vim, metrics);
+    }
+
     fn move_cursor_up(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
         try cursor.move_up(root, metrics);
     }
@@ -2775,6 +2779,15 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const delete_to_end_meta = .{ .description = "Delete to end of line" };
+
+    pub fn cut_to_end_vim(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const text, const root = try self.cut_to(move_cursor_end_vim, b.root);
+        self.set_clipboard_internal(text);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const cut_to_end_vim_meta = .{ .description = "Cut to end of line (vim)" };
 
     pub fn join_next_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
