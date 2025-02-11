@@ -61,7 +61,7 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     buffer_name.writer().print("*{s}*", .{task}) catch {};
     project_manager.add_task(task) catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{buffer_name.items} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{ buffer_name.items, "", "conf" } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{task} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
