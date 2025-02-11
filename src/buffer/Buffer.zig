@@ -50,6 +50,10 @@ curr_history: ?*UndoNode = null,
 mtime: i64,
 utime: i64,
 
+file_type_name: ?[]const u8 = null,
+file_type_icon: ?[]const u8 = null,
+file_type_color: ?u24 = null,
+
 pub const EolMode = enum { lf, crlf };
 pub const EolModeTag = @typeInfo(EolMode).Enum.tag_type;
 
