@@ -13,13 +13,19 @@ https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f
 - Linux, MacOS, Windows, Android (Termux) or FreeBSD.
 - A UTF-8 locale
 
-# Download
+# Download / Install
+
+```shell
+curl -fsSL https://flow-control.dev/install | sh
+```
 
 Binary release builds are found here: [neurocyte/flow/releases](https://github.com/neurocyte/flow/releases)
 
 Nightly binary builds are found here: [neurocyte/flow-nightly/releases](https://github.com/neurocyte/flow-nightly/releases)
 
 Or check your favorite local system package repository.
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/flow-control.svg)](https://repology.org/project/flow-control/versions)
 
 # Building
 

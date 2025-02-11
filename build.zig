@@ -509,6 +509,7 @@ pub fn build_exe(
     exe.root_module.addImport("renderer", renderer_mod);
     exe.root_module.addImport("input", input_mod);
     exe.root_module.addImport("syntax", syntax_mod);
+    exe.root_module.addImport("color", color_mod);
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
 
     if (target.result.os.tag == .windows) {

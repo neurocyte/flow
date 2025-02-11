@@ -1,6 +1,7 @@
 const std = @import("std");
 const syntax = @import("syntax");
 const builtin = @import("builtin");
+const RGB = @import("color").RGB;
 
 const bin_path = @import("bin_path.zig");
 
@@ -23,14 +24,19 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tt
     }
 
     try tty_config.setColor(writer, .yellow);
-    try write_string(writer, "Language", max_language_len + 1);
+    try write_string(writer, "    Language", max_language_len + 1 + 4);
     try write_string(writer, "Extensions", max_extensions_len + 1 + checkmark_width);
     try write_string(writer, "Language Server", max_langserver_len + 1 + checkmark_width);
-    try write_string(writer, "Formatter", max_formatter_len);
+    try write_string(writer, "Formatter", null);
     try tty_config.setColor(writer, .reset);
     try writer.writeAll("\n");
 
     for (syntax.FileType.file_types) |file_type| {
+        try writer.writeAll(" ");
+        try setColorRgb(writer, file_type.color);
+        try writer.writeAll(file_type.icon);
+        try tty_config.setColor(writer, .reset);
+        try writer.writeAll("  ");
         try write_string(writer, file_type.name, max_language_len + 1);
         try write_segmented(writer, file_type.extensions, ",", max_extensions_len + 1, tty_config);
 
@@ -42,7 +48,7 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tt
         if (file_type.formatter) |formatter|
             try write_checkmark(writer, can_execute(allocator, formatter[0]), tty_config);
 
-        try write_segmented(writer, file_type.formatter, " ", max_formatter_len, tty_config);
+        try write_segmented(writer, file_type.formatter, " ", null, tty_config);
         try writer.writeAll("\n");
     }
 }
@@ -58,9 +64,9 @@ fn args_string_length(args_: ?[]const []const u8) usize {
     return len;
 }
 
-fn write_string(writer: anytype, string: []const u8, pad: usize) !void {
+fn write_string(writer: anytype, string: []const u8, pad: ?usize) !void {
     try writer.writeAll(string);
-    try write_padding(writer, string.len, pad);
+    if (pad) |pad_| try write_padding(writer, string.len, pad_);
 }
 
 fn write_checkmark(writer: anytype, success: bool, tty_config: std.io.tty.Config) !void {
@@ -72,7 +78,7 @@ fn write_segmented(
     writer: anytype,
     args_: ?[]const []const u8,
     sep: []const u8,
-    pad: usize,
+    pad: ?usize,
     tty_config: std.io.tty.Config,
 ) !void {
     const args = args_ orelse return;
@@ -87,7 +93,7 @@ fn write_segmented(
         try writer.writeAll(arg);
     }
     try tty_config.setColor(writer, .reset);
-    try write_padding(writer, len, pad);
+    if (pad) |pad_| try write_padding(writer, len, pad_);
 }
 
 fn write_padding(writer: anytype, len: usize, pad_len: usize) !void {
@@ -98,4 +104,10 @@ fn can_execute(allocator: std.mem.Allocator, binary_name: []const u8) bool {
     const resolved_binary_path = bin_path.find_binary_in_path(allocator, binary_name) catch return false;
     defer if (resolved_binary_path) |path| allocator.free(path);
     return resolved_binary_path != null;
+}
+
+fn setColorRgb(writer: anytype, color: u24) !void {
+    const fg_rgb_legacy = "\x1b[38;2;{d};{d};{d}m";
+    const rgb = RGB.from_u24(color);
+    try writer.print(fg_rgb_legacy, .{ rgb.r, rgb.g, rgb.b });
 }
