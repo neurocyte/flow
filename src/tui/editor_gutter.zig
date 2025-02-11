@@ -195,7 +195,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
     var rows = self.view_rows;
     var diff_symbols = self.diff_symbols.items;
     while (rows > 0) : (rows -= 1) {
-        if (pos > self.lines - @as(u32, @intCast(row))) return;
+        if (self.lines > @as(u32, @intCast(row)) and pos > self.lines - @as(u32, @intCast(row))) return;
         self.plane.set_style(if (linenum == 0) theme.editor_gutter_active else theme.editor_gutter);
         const val = @abs(if (linenum == 0) line else linenum);
 
