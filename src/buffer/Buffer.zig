@@ -62,6 +62,7 @@ const UndoNode = struct {
     next: ?*UndoNode = null,
     branches: ?*UndoBranch = null,
     meta: []const u8,
+    file_eol_mode: EolMode,
 };
 
 const UndoBranch = struct {
@@ -1248,6 +1249,7 @@ pub fn reset_to_last_saved(self: *Self) void {
     if (self.last_save) |last_save| {
         self.store_undo(&[_]u8{}) catch {};
         self.root = last_save;
+        self.file_eol_mode = self.last_save_eol_mode;
         self.mtime = std.time.milliTimestamp();
     }
 }
@@ -1385,6 +1387,7 @@ fn create_undo(self: *const Self, root: Root, meta_: []const u8) error{OutOfMemo
     h.* = UndoNode{
         .root = root,
         .meta = meta,
+        .file_eol_mode = self.file_eol_mode,
     };
     return h;
 }
@@ -1420,6 +1423,7 @@ pub fn undo(self: *Self, meta: []const u8) error{Stop}![]const u8 {
     self.undo_history = h.next;
     self.curr_history = h;
     self.root = h.root;
+    self.file_eol_mode = h.file_eol_mode;
     self.push_redo(r);
     self.mtime = std.time.milliTimestamp();
     return h.meta;
@@ -1432,6 +1436,7 @@ pub fn redo(self: *Self) error{Stop}![]const u8 {
     self.redo_history = h.next;
     self.curr_history = h;
     self.root = h.root;
+    self.file_eol_mode = h.file_eol_mode;
     self.push_undo(u);
     self.mtime = std.time.milliTimestamp();
     return h.meta;
