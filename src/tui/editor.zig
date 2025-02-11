@@ -2039,6 +2039,14 @@ pub const Editor = struct {
         return false;
     }
 
+    fn is_eol_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        const line_width = root.line_width(cursor.row, metrics) catch return true;
+        if (line_width == 0) return true;
+        if (cursor.col == line_width)
+            return true;
+        return false;
+    }
+
     fn move_cursor_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try cursor.move_left(root, metrics);
     }
@@ -2084,8 +2092,18 @@ pub const Editor = struct {
         try cursor.move_up(root, metrics);
     }
 
+    fn move_cursor_up_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        try cursor.move_up(root, metrics);
+        if(is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
+    }
+
     fn move_cursor_down(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
         try cursor.move_down(root, metrics);
+    }
+
+    fn move_cursor_down_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        try cursor.move_down(root, metrics);
+        if(is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
     fn move_cursor_buffer_begin(_: Buffer.Root, cursor: *Cursor, _: Buffer.Metrics) !void {
@@ -2108,8 +2126,18 @@ pub const Editor = struct {
         cursor.move_half_page_up(root, view, metrics);
     }
 
+    fn move_cursor_half_page_up_vim(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
+        cursor.move_half_page_up(root, view, metrics);
+        if(is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
+    }
+
     fn move_cursor_half_page_down(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
         cursor.move_half_page_down(root, view, metrics);
+    }
+
+    fn move_cursor_half_page_down_vim(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
+        cursor.move_half_page_down(root, view, metrics);
+        if(is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
     pub fn primary_click(self: *Self, y: c_int, x: c_int) !void {
@@ -2948,6 +2976,13 @@ pub const Editor = struct {
     }
     pub const move_up_meta = .{ .description = "Move cursor up" };
 
+    pub fn move_up_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const(root, move_cursor_up_vim) catch {};
+        self.clamp();
+    }
+    pub const move_up_vim_meta = .{ .description = "Move cursor up (vim)" };
+
     pub fn add_cursor_up(self: *Self, _: Context) Result {
         try self.push_cursor();
         const primary = self.get_primary();
@@ -2963,6 +2998,13 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const move_down_meta = .{ .description = "Move cursor down" };
+
+    pub fn move_down_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const(root, move_cursor_down_vim) catch {};
+        self.clamp();
+    }
+    pub const move_down_vim_meta = .{ .description = "Move cursor down (vim)" };
 
     pub fn add_cursor_down(self: *Self, _: Context) Result {
         try self.push_cursor();
@@ -3314,6 +3356,18 @@ pub const Editor = struct {
     }
     pub const move_scroll_half_page_up_meta = .{ .description = "Move and scroll half a page up" };
 
+    pub fn move_scroll_half_page_up_vim(self: *Self, _: Context) Result {
+        if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
+            const root = try self.buf_root();
+            self.with_cursors_and_view_const(root, move_cursor_half_page_up_vim, &self.view) catch {};
+            const new_cursor_row = self.get_primary().cursor.row;
+            self.update_scroll_dest_abs(if (cursor.row > new_cursor_row) 0 else new_cursor_row - cursor.row);
+        } else {
+            return self.move_half_page_up(.{});
+        }
+    }
+    pub const move_scroll_half_page_up_vim_meta = .{ .description = "Move and scroll half a page up (vim)" };
+
     pub fn move_scroll_half_page_down(self: *Self, _: Context) Result {
         if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
             const root = try self.buf_root();
@@ -3325,6 +3379,18 @@ pub const Editor = struct {
         }
     }
     pub const move_scroll_half_page_down_meta = .{ .description = "Move and scroll half a page down" };
+
+    pub fn move_scroll_half_page_down_vim(self: *Self, _: Context) Result {
+        if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
+            const root = try self.buf_root();
+            self.with_cursors_and_view_const(root, move_cursor_half_page_down_vim, &self.view) catch {};
+            const new_cursor_row = self.get_primary().cursor.row;
+            self.update_scroll_dest_abs(if (cursor.row > new_cursor_row) 0 else new_cursor_row - cursor.row);
+        } else {
+            return self.move_half_page_down(.{});
+        }
+    }
+    pub const move_scroll_half_page_down_vim_meta = .{ .description = "Move and scroll half a page down (vim)" };
 
     pub fn smart_move_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -3405,6 +3471,16 @@ pub const Editor = struct {
         self.cancel_all_matches();
     }
     pub const cancel_meta = .{ .description = "Cancel current action" };
+
+    pub fn select_line_vim(self: *Self, _: Context) Result {
+        const primary = self.get_primary();
+        const root = self.buf_root() catch return;
+        primary.disable_selection(root, self.metrics);
+        self.selection_mode = .line;
+        try self.select_line_around_cursor(primary);
+        self.clamp();
+    }
+    pub const select_line_vim_meta = .{ .description = "Select the line around the cursor (vim)" };
 
     pub fn select_up(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -3598,6 +3674,14 @@ pub const Editor = struct {
         try move_cursor_begin(root, &sel.begin, self.metrics);
         try move_cursor_end(root, &sel.end, self.metrics);
         cursel.cursor = sel.end;
+    }
+
+    fn select_line_around_cursor(self: *Self, cursel: *CurSel) !void {
+        const root = try self.buf_root();
+        const sel = try cursel.enable_selection(root, self.metrics);
+        sel.normalize();
+        try move_cursor_begin(root, &sel.begin, self.metrics);
+        try move_cursor_end(root, &sel.end, self.metrics);
     }
 
     fn selection_reverse(_: Buffer.Root, cursel: *CurSel) !void {
