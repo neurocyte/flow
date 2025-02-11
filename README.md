@@ -25,6 +25,8 @@ Nightly binary builds are found here: [neurocyte/flow-nightly/releases](https://
 
 Or check your favorite local system package repository.
 
+[![Packaging status](https://repology.org/badge/vertical-allrepos/flow-control.svg)](https://repology.org/project/flow-control/versions)
+
 # Building
 
 Make sure your system meets the requirements listed above.
