@@ -62,6 +62,12 @@
             ["dd", "cut_internal_vim"],
             ["\"_dd", "delete_line"],
 
+            ["cc", ["delete_line"], ["enter_mode", "insert"]],
+            ["C", ["delete_to_end"], ["enter_mode", "insert"]],
+            ["D", "delete_to_end"],
+            ["cw", ["cut_word_right_vim"], ["enter_mode", "insert"]],
+            ["cb", ["cut_word_left_vim"], ["enter_mode", "insert"]],
+
             ["yy", ["copy_line_internal_vim"], ["cancel"]],
 
             ["<C-u>", "move_scroll_half_page_up_vim"],
@@ -115,7 +121,11 @@
 
             ["x", ["cut_forward_internal"], ["cancel"], ["enter_mode", "normal"]],
             ["d", ["cut_forward_internal"], ["cancel"], ["enter_mode", "normal"]],
-            ["s", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]]
+            ["s", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]],
+
+            ["c", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]],
+            ["C", ["delete_to_end"], ["enter_mode", "insert"]],
+            ["D", "delete_to_end"]
         ]
     },
     "visual line": {
@@ -147,7 +157,11 @@
 
             ["x", ["cut_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
             ["d", ["cut_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
-            ["s", ["cut_internal_vim"], ["cancel"], ["enter_mode", "insert"]]
+            ["s", ["cut_internal_vim"], ["cancel"], ["enter_mode", "insert"]],
+
+            ["c", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]],
+            ["C", ["delete_to_end"], ["enter_mode", "insert"]],
+            ["D", "delete_to_end"]
         ]
     },
     "insert": {
