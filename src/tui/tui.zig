@@ -1289,3 +1289,22 @@ pub fn message(comptime fmt: anytype, args: anytype) void {
     var buf: [256]u8 = undefined;
     tp.self_pid().send(.{ "message", std.fmt.bufPrint(&buf, fmt, args) catch @panic("too large") }) catch {};
 }
+
+pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) void {    var cell = self.cell_init();
+    _ = self.at_cursor_cell(&cell) catch return;
+    if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) {
+        cell.set_fg_rgb(@intCast(color)) catch {};
+    }
+    _ = self.cell_load(&cell, icon) catch {};
+    _ = self.putc(&cell) catch {};
+    self.cursor_move_rel(0, 1) catch {};
+}
+
+pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *const Widget.Theme) !void {
+    self.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+    var cell = self.cell_init();
+    _ = self.at_cursor_cell(&cell) catch return;
+    cell.set_style(theme_.editor_match);
+    _ = self.putc(&cell) catch {};
+}
+

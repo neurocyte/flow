@@ -90,7 +90,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.
     if (!(cbor.matchString(&iter, &description_) catch false)) @panic("invalid file_type description");
     if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid file_type icon");
     if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid file_type color");
-    render_file_icon(button, icon, color);
+    tui.render_file_icon(&button.plane, icon, color);
     button.plane.set_style(style_label);
     _ = button.plane.print(" {s} ", .{description_}) catch {};
 
@@ -104,29 +104,10 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            render_match_cell(button, 0, index + 4, theme) catch break;
+            tui.render_match_cell(&button.plane, 0, index + 4, theme) catch break;
         } else break;
     }
     return false;
-}
-
-fn render_match_cell(button: *Type.ButtonState, y: usize, x: usize, theme: *const Widget.Theme) !void {
-    button.plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
-    var cell = button.plane.cell_init();
-    _ = button.plane.at_cursor_cell(&cell) catch return;
-    cell.set_style(theme.editor_match);
-    _ = button.plane.putc(&cell) catch {};
-}
-
-fn render_file_icon(button: *Type.ButtonState, icon: []const u8, color: u24) void {
-    var cell = button.plane.cell_init();
-    _ = button.plane.at_cursor_cell(&cell) catch return;
-    if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) {
-        cell.set_fg_rgb(@intCast(color)) catch {};
-    }
-    _ = button.plane.cell_load(&cell, icon) catch {};
-    _ = button.plane.putc(&cell) catch {};
-    button.plane.cursor_move_rel(0, 1) catch {};
 }
 
 fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {

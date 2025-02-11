@@ -542,13 +542,14 @@ pub const Editor = struct {
         return self.open_buffer(file_path, try self.buffer_manager.open_scratch(file_path, content), file_type);
     }
 
-    fn open_buffer(self: *Self, file_path: []const u8, new_buf: *Buffer, file_type: ?[]const u8) !void {
+    fn open_buffer(self: *Self, file_path: []const u8, new_buf: *Buffer, file_type_: ?[]const u8) !void {
         errdefer self.buffer_manager.retire(new_buf, null);
         self.cancel_all_selections();
         self.get_primary().reset();
         self.file_path = try self.allocator.dupe(u8, file_path);
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
+        const file_type = file_type_ orelse new_buf.file_type_name;
 
         if (new_buf.root.lines() > root_mod.max_syntax_lines) {
             self.logger.print("large file threshold {d} lines < file size {d} lines", .{
@@ -584,6 +585,11 @@ pub const Editor = struct {
         const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
         const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";
         const ftc = if (self.syntax) |syn| syn.file_type.color else 0x000000;
+        if (self.buffer) |buffer| {
+            buffer.file_type_name = ftn;
+            buffer.file_type_icon = fti;
+            buffer.file_type_color = ftc;
+        }
 
         if (self.buffer) |buffer| if (buffer.get_meta()) |meta|
             try self.extract_state(meta, .none);

@@ -139,18 +139,10 @@ pub fn Create(options: type) type {
             var len = cbor.decodeArrayHeader(&iter) catch return false;
             while (len > 0) : (len -= 1) {
                 if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-                    render_cell(&button.plane, 0, index + 1, theme.editor_match) catch break;
+                    tui.render_match_cell(&button.plane, 0, index + 1, theme) catch break;
                 } else break;
             }
             return false;
-        }
-
-        fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !void {
-            plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
-            var cell = plane.cell_init();
-            _ = plane.at_cursor_cell(&cell) catch return;
-            cell.set_style(style);
-            _ = plane.putc(&cell) catch {};
         }
 
         fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
