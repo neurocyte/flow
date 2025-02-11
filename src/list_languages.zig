@@ -26,7 +26,7 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tt
     try write_string(writer, "Language", max_language_len + 1);
     try write_string(writer, "Extensions", max_extensions_len + 1 + checkmark_width);
     try write_string(writer, "Language Server", max_langserver_len + 1 + checkmark_width);
-    try write_string(writer, "Formatter", max_formatter_len);
+    try write_string(writer, "Formatter", null);
     try tty_config.setColor(writer, .reset);
     try writer.writeAll("\n");
 
@@ -42,7 +42,7 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tt
         if (file_type.formatter) |formatter|
             try write_checkmark(writer, can_execute(allocator, formatter[0]), tty_config);
 
-        try write_segmented(writer, file_type.formatter, " ", max_formatter_len, tty_config);
+        try write_segmented(writer, file_type.formatter, " ", null, tty_config);
         try writer.writeAll("\n");
     }
 }
@@ -58,9 +58,9 @@ fn args_string_length(args_: ?[]const []const u8) usize {
     return len;
 }
 
-fn write_string(writer: anytype, string: []const u8, pad: usize) !void {
+fn write_string(writer: anytype, string: []const u8, pad: ?usize) !void {
     try writer.writeAll(string);
-    try write_padding(writer, string.len, pad);
+    if (pad) |pad_| try write_padding(writer, string.len, pad_);
 }
 
 fn write_checkmark(writer: anytype, success: bool, tty_config: std.io.tty.Config) !void {
@@ -72,7 +72,7 @@ fn write_segmented(
     writer: anytype,
     args_: ?[]const []const u8,
     sep: []const u8,
-    pad: usize,
+    pad: ?usize,
     tty_config: std.io.tty.Config,
 ) !void {
     const args = args_ orelse return;
@@ -87,7 +87,7 @@ fn write_segmented(
         try writer.writeAll(arg);
     }
     try tty_config.setColor(writer, .reset);
-    try write_padding(writer, len, pad);
+    if (pad) |pad_| try write_padding(writer, len, pad_);
 }
 
 fn write_padding(writer: anytype, len: usize, pad_len: usize) !void {
