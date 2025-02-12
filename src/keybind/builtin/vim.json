@@ -56,15 +56,15 @@
             ["gD", "goto_declaration"],
             ["G", "move_buffer_end"],
 
-            ["d$", "delete_to_end"],
+            ["d$", "cut_to_end_vim"],
             ["dw", "cut_word_right_vim"],
             ["db", "cut_word_left_vim"],
             ["dd", "cut_internal_vim"],
             ["\"_dd", "delete_line"],
 
             ["cc", ["cut_internal_vim"], ["enter_mode", "insert"]],
-            ["C", ["delete_to_end"], ["enter_mode", "insert"]],
-            ["D", "delete_to_end"],
+            ["C", ["cut_to_end_vim"], ["enter_mode", "insert"]],
+            ["D", "cut_to_end_vim"],
             ["cw", ["cut_word_right_vim"], ["enter_mode", "insert"]],
             ["cb", ["cut_word_left_vim"], ["enter_mode", "insert"]],
 
@@ -103,6 +103,12 @@
             ["h", "select_left"],
             ["l", "select_right"],
 
+            ["b", "select_word_left_vim"],
+            ["w", "select_word_right_vim"],
+            ["W", "select_word_right"],
+            ["B", "select_word_left"],
+            ["e", "select_word_right_end_vim"],
+
             ["0", "move_begin"],
             ["^", "smart_move_begin"],
             ["$", "move_end"],
@@ -124,8 +130,8 @@
             ["s", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]],
 
             ["c", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]],
-            ["C", ["delete_to_end"], ["enter_mode", "insert"]],
-            ["D", "delete_to_end"]
+            ["C", ["cut_to_end_vim"], ["enter_mode", "insert"]],
+            ["D", "cut_to_end_vim"]
         ]
     },
     "visual line": {
@@ -160,8 +166,8 @@
             ["s", ["cut_internal_vim"], ["cancel"], ["enter_mode", "insert"]],
 
             ["c", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]],
-            ["C", ["delete_to_end"], ["enter_mode", "insert"]],
-            ["D", "delete_to_end"]
+            ["C", ["cut_to_end_vim"], ["enter_mode", "insert"]],
+            ["D", "cut_to_end_vim"]
         ]
     },
     "insert": {
@@ -170,8 +176,8 @@
         "line_numbers": "absolute",
         "cursor": "beam",
         "press": [
-
-            ["<Esc>", "enter_mode", "normal"],
+            ["jk", "enter_mode", "normal"],
+            ["<Esc>", ["move_left_vim"], ["enter_mode", "normal"]],
             ["<Del>", "delete_forward"],
             ["<BS>", "delete_backward"],
             ["<CR>", "smart_insert_line"],

@@ -3536,12 +3536,33 @@ pub const Editor = struct {
     }
     pub const select_word_left_meta = .{ .description = "Select left by word" };
 
+    pub fn select_word_left_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_word_left_vim);
+        self.clamp();
+    }
+    pub const select_word_left_vim_meta = .{ .description = "Select left by word (vim)" };
+
     pub fn select_word_right(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_word_right);
         self.clamp();
     }
     pub const select_word_right_meta = .{ .description = "Select right by word" };
+
+    pub fn select_word_right_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_word_right_vim);
+        self.clamp();
+    }
+    pub const select_word_right_vim_meta = .{ .description = "Select right by word (vim)" };
+
+    pub fn select_word_right_end_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_selections_const(root, move_cursor_word_right_end_vim);
+        self.clamp();
+    }
+    pub const select_word_right_end_vim_meta = .{ .description = "Select right by end of word (vim)" };
 
     pub fn select_word_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
