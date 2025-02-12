@@ -59,3 +59,13 @@ pub fn utf8_sanitize(allocator: std.mem.Allocator, input: []const u8) error{
     for (input) |byte| try writer.writeAll(try raw_byte_to_utf8(byte, &buf));
     return output.toOwnedSlice(allocator);
 }
+
+pub const CaseData = @import("CaseData");
+var case_data: ?CaseData = null;
+var case_data_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+
+pub fn get_case_data() *CaseData {
+    if (case_data) |*cd| return cd;
+    case_data = CaseData.init(case_data_arena.allocator()) catch @panic("CaseData.init");
+    return &case_data.?;
+}
