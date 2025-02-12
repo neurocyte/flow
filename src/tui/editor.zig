@@ -9,7 +9,6 @@ const tracy = @import("tracy");
 const text_manip = @import("text_manip");
 const syntax = @import("syntax");
 const project_manager = @import("project_manager");
-const CaseData = @import("CaseData");
 const root_mod = @import("root");
 
 const Plane = @import("renderer").Plane;
@@ -350,8 +349,6 @@ pub const Editor = struct {
         } = null,
     } = null,
 
-    case_data: ?CaseData = null,
-
     const WhitespaceMode = enum { indent, leading, eol, tabs, visible, full, none };
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
@@ -469,7 +466,6 @@ pub const Editor = struct {
         self.handlers.deinit();
         self.logger.deinit();
         if (self.buffer) |p| self.buffer_manager.retire(p, meta.items);
-        if (self.case_data) |cd| cd.deinit();
     }
 
     fn from_whitespace_mode(whitespace_mode: []const u8) WhitespaceMode {
@@ -491,12 +487,6 @@ pub const Editor = struct {
 
     fn need_render(_: *Self) void {
         Widget.need_render();
-    }
-
-    fn get_case_data(self: *Self) *CaseData {
-        if (self.case_data) |*cd| return cd;
-        self.case_data = CaseData.init(self.allocator) catch @panic("CaseData.init");
-        return &self.case_data.?;
     }
 
     fn buf_for_update(self: *Self) !*const Buffer {
@@ -4967,7 +4957,7 @@ pub const Editor = struct {
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
-        const ucased = self.get_case_data().toUpperStr(allocator, cut_text) catch return error.Stop;
+        const ucased = Buffer.unicode.get_case_data().toUpperStr(allocator, cut_text) catch return error.Stop;
         defer allocator.free(ucased);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
@@ -4995,7 +4985,7 @@ pub const Editor = struct {
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
-        const ucased = self.get_case_data().toLowerStr(allocator, cut_text) catch return error.Stop;
+        const ucased = Buffer.unicode.get_case_data().toLowerStr(allocator, cut_text) catch return error.Stop;
         defer allocator.free(ucased);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
@@ -5026,9 +5016,9 @@ pub const Editor = struct {
             self_: *Self,
             result: *std.ArrayList(u8),
 
-            const Error = @typeInfo(@typeInfo(@TypeOf(CaseData.toUpperStr)).@"fn".return_type.?).error_union.error_set;
+            const Error = @typeInfo(@typeInfo(@TypeOf(Buffer.unicode.CaseData.toUpperStr)).@"fn".return_type.?).error_union.error_set;
             pub fn write(writer: *@This(), bytes: []const u8) Error!void {
-                const cd = writer.self_.get_case_data();
+                const cd = Buffer.unicode.get_case_data();
                 const flipped = if (cd.isLowerStr(bytes))
                     try cd.toUpperStr(writer.self_.allocator, bytes)
                 else

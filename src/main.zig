@@ -45,6 +45,8 @@ pub fn main() anyerror!void {
     }
 
     const a = std.heap.c_allocator;
+    const case_data = @import("Buffer").unicode.get_case_data();
+    _ = case_data; // no need to free case_data as it is globally static
 
     const Flags = struct {
         pub const description =
