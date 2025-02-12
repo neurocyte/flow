@@ -4,6 +4,14 @@ pub const agda = .{
     .comment = "--",
 };
 
+pub const astro = .{
+    .description = "Astro",
+    .icon = "",
+    .extensions = .{"astro"},
+    .comment = "//",
+    .language_server = .{ "astro-ls", "--stdio" },
+};
+
 pub const bash = .{
     .description = "Bash",
     .color = 0x3e474a,
