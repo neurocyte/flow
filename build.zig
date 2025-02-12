@@ -552,6 +552,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("renderer", renderer_mod);
     check_exe.root_module.addImport("input", input_mod);
     check_exe.root_module.addImport("syntax", syntax_mod);
+    check_exe.root_module.addImport("color", color_mod);
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     check_step.dependOn(&check_exe.step);
 
