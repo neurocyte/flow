@@ -170,8 +170,8 @@
         "line_numbers": "absolute",
         "cursor": "beam",
         "press": [
-            ["jk", "enter_mode", "normal"],
-            ["<Esc>", ["move_left_vim"], ["enter_mode", "normal"]],
+
+            ["<Esc>", "enter_mode", "normal"],
             ["<Del>", "delete_forward"],
             ["<BS>", "delete_backward"],
             ["<CR>", "smart_insert_line"],
