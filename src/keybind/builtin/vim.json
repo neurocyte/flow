@@ -125,11 +125,11 @@
 
             ["y", ["copy_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
 
-            ["x", ["cut_forward_internal"], ["cancel"], ["enter_mode", "normal"]],
-            ["d", ["cut_forward_internal"], ["cancel"], ["enter_mode", "normal"]],
-            ["s", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]],
+            ["x", ["cut_forward_internal"], ["enter_mode", "normal"]],
+            ["d", ["cut_forward_internal"], ["enter_mode", "normal"]],
+            ["s", ["cut_forward_internal"], ["enter_mode", "insert"]],
 
-            ["c", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]],
+            ["c", ["cut_forward_internal"], ["enter_mode", "insert"]],
             ["C", ["cut_to_end_vim"], ["enter_mode", "insert"]],
             ["D", "cut_to_end_vim"]
         ]
@@ -161,11 +161,11 @@
 
             ["y", ["copy_line_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
 
-            ["x", ["cut_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
-            ["d", ["cut_internal_vim"], ["cancel"], ["enter_mode", "normal"]],
-            ["s", ["cut_internal_vim"], ["cancel"], ["enter_mode", "insert"]],
+            ["x", ["cut_internal_vim"], ["enter_mode", "normal"]],
+            ["d", ["cut_internal_vim"], ["enter_mode", "normal"]],
+            ["s", ["cut_internal_vim"], ["enter_mode", "insert"]],
 
-            ["c", ["cut_forward_internal"], ["cancel"], ["enter_mode", "insert"]],
+            ["c", ["cut_internal_vim"], ["enter_mode", "insert"]],
             ["C", ["cut_to_end_vim"], ["enter_mode", "insert"]],
             ["D", "cut_to_end_vim"]
         ]
