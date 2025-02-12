@@ -102,7 +102,6 @@
         "line_numbers": "absolute",
         "cursor": "beam",
         "press": [
-            ["jk", "enter_mode", "normal"],
             ["<Esc>", "enter_mode", "normal"],
             ["<Del>", "delete_forward"],
             ["<BS>", "delete_backward"],
