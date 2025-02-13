@@ -868,7 +868,7 @@ const cmds = struct {
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
         self.rdr_.cursor_disable();
-        if (self.input_mode_outer_ == null) return;
+        if (self.input_mode_outer_ == null) return enter_mode_default(self, .{});
         if (self.input_mode_) |*mode| mode.deinit();
         self.input_mode_ = self.input_mode_outer_;
         self.input_mode_outer_ = null;
@@ -1290,7 +1290,8 @@ pub fn message(comptime fmt: anytype, args: anytype) void {
     tp.self_pid().send(.{ "message", std.fmt.bufPrint(&buf, fmt, args) catch @panic("too large") }) catch {};
 }
 
-pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) void {    var cell = self.cell_init();
+pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) void {
+    var cell = self.cell_init();
     _ = self.at_cursor_cell(&cell) catch return;
     if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) {
         cell.set_fg_rgb(@intCast(color)) catch {};
@@ -1307,4 +1308,3 @@ pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *con
     cell.set_style(theme_.editor_match);
     _ = self.putc(&cell) catch {};
 }
-

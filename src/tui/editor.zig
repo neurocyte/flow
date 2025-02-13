@@ -4073,7 +4073,10 @@ pub const Editor = struct {
         } else if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
             try self.open_scratch(file_path, "", null);
             self.clamp();
-        } else return error.InvalidOpenScratchBufferArgument;
+        } else {
+            try self.open_scratch("*scratch*", "", null);
+            self.clamp();
+        }
     }
     pub const open_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
