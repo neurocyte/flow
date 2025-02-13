@@ -2032,7 +2032,7 @@ pub const Editor = struct {
     fn is_eol_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         const line_width = root.line_width(cursor.row, metrics) catch return true;
         if (line_width == 0) return true;
-        if (cursor.col == line_width)
+        if (cursor.col >= line_width)
             return true;
         return false;
     }
@@ -3476,11 +3476,11 @@ pub const Editor = struct {
     pub const cancel_meta = .{ .description = "Cancel current action" };
 
     pub fn select_line_vim(self: *Self, _: Context) Result {
-        const primary = self.get_primary();
-        const root = self.buf_root() catch return;
-        primary.disable_selection(root, self.metrics);
         self.selection_mode = .line;
-        try self.select_line_around_cursor(primary);
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
+            try self.select_line_around_cursor(cursel);
+        self.collapse_cursors();
+ 
         self.clamp();
     }
     pub const select_line_vim_meta = .{ .description = "Select the line around the cursor (vim)" };
