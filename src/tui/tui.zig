@@ -868,7 +868,7 @@ const cmds = struct {
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
         self.rdr.cursor_disable();
-        if (self.input_mode_outer == null) return;
+        if (self.input_mode_outer == null) return enter_mode_default(self, .{});
         if (self.input_mode) |*mode| mode.deinit();
         self.input_mode = self.input_mode_outer;
         self.input_mode_outer = null;
