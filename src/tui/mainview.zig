@@ -465,7 +465,8 @@ const cmds = struct {
             }
         }
         try command.executeName("create_scratch_buffer", command.fmt(.{name.items}));
-        try command.executeName("change_file_type", .{});
+        if (tp.env.get().str("language").len == 0)
+            try command.executeName("change_file_type", .{});
     }
     pub const create_new_file_meta = .{ .description = "Create: New File…" };
 
