@@ -73,6 +73,7 @@ pub fn main() anyerror!void {
             .exec = "Execute a command on startup",
             .literal = "Disable :LINE and +LINE syntax",
             .scratch = "Open a scratch (temporary) buffer on start",
+            .new_file = "Create a new untitled file on start",
             .version = "Show build version and exit",
         };
 
@@ -87,6 +88,7 @@ pub fn main() anyerror!void {
             .exec = 'e',
             .literal = 'L',
             .scratch = 'S',
+            .new_file = 'n',
             .version = 'v',
         };
 
@@ -109,6 +111,7 @@ pub fn main() anyerror!void {
         exec: ?[]const u8,
         literal: bool,
         scratch: bool,
+        new_file: bool,
         version: bool,
     };
 
@@ -319,7 +322,9 @@ pub fn main() anyerror!void {
         try tui_proc.send(.{ "cmd", "show_home" });
     }
 
-    if (args.scratch) {
+    if (args.new_file) {
+        try tui_proc.send(.{ "cmd", "create_new_file", .{} });
+    } else if (args.scratch) {
         try tui_proc.send(.{ "cmd", "create_scratch_buffer", .{} });
     }
 
