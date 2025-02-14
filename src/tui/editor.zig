@@ -2778,7 +2778,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const cut_to_end_vim_meta = .{ .description = "Cut to end of line (vim)" };
+    pub const cut_to_end_vim_meta: Meta = .{ .description = "Cut to end of line (vim)" };
 
     pub fn join_next_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -2985,7 +2985,7 @@ pub const Editor = struct {
         self.with_cursors_const(root, move_cursor_up_vim) catch {};
         self.clamp();
     }
-    pub const move_up_vim_meta = .{ .description = "Move cursor up (vim)" };
+    pub const move_up_vim_meta: Meta = .{ .description = "Move cursor up (vim)" };
 
     pub fn add_cursor_up(self: *Self, _: Context) Result {
         try self.push_cursor();
@@ -3008,7 +3008,7 @@ pub const Editor = struct {
         self.with_cursors_const(root, move_cursor_down_vim) catch {};
         self.clamp();
     }
-    pub const move_down_vim_meta = .{ .description = "Move cursor down (vim)" };
+    pub const move_down_vim_meta: Meta = .{ .description = "Move cursor down (vim)" };
 
     pub fn add_cursor_down(self: *Self, _: Context) Result {
         try self.push_cursor();
@@ -3370,7 +3370,7 @@ pub const Editor = struct {
             return self.move_half_page_up(.{});
         }
     }
-    pub const move_scroll_half_page_up_vim_meta = .{ .description = "Move and scroll half a page up (vim)" };
+    pub const move_scroll_half_page_up_vim_meta: Meta = .{ .description = "Move and scroll half a page up (vim)" };
 
     pub fn move_scroll_half_page_down(self: *Self, _: Context) Result {
         if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
@@ -3394,7 +3394,7 @@ pub const Editor = struct {
             return self.move_half_page_down(.{});
         }
     }
-    pub const move_scroll_half_page_down_vim_meta = .{ .description = "Move and scroll half a page down (vim)" };
+    pub const move_scroll_half_page_down_vim_meta: Meta = .{ .description = "Move and scroll half a page down (vim)" };
 
     pub fn smart_move_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -3484,7 +3484,7 @@ pub const Editor = struct {
  
         self.clamp();
     }
-    pub const select_line_vim_meta = .{ .description = "Select the line around the cursor (vim)" };
+    pub const select_line_vim_meta: Meta = .{ .description = "Select the line around the cursor (vim)" };
 
     pub fn select_up(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -3542,7 +3542,7 @@ pub const Editor = struct {
         try self.with_selections_const(root, move_cursor_word_left_vim);
         self.clamp();
     }
-    pub const select_word_left_vim_meta = .{ .description = "Select left by word (vim)" };
+    pub const select_word_left_vim_meta: Meta = .{ .description = "Select left by word (vim)" };
 
     pub fn select_word_right(self: *Self, _: Context) Result {
         const root = try self.buf_root();
@@ -3556,14 +3556,14 @@ pub const Editor = struct {
         try self.with_selections_const(root, move_cursor_word_right_vim);
         self.clamp();
     }
-    pub const select_word_right_vim_meta = .{ .description = "Select right by word (vim)" };
+    pub const select_word_right_vim_meta: Meta = .{ .description = "Select right by word (vim)" };
 
     pub fn select_word_right_end_vim(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         try self.with_selections_const(root, move_cursor_word_right_end_vim);
         self.clamp();
     }
-    pub const select_word_right_end_vim_meta = .{ .description = "Select right by end of word (vim)" };
+    pub const select_word_right_end_vim_meta: Meta = .{ .description = "Select right by end of word (vim)" };
 
     pub fn select_word_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
