@@ -85,6 +85,9 @@
 
             ["<C-k>", "TODO"],
 
+            ["F", "move_to_char", "left"],
+            ["f", "move_to_char", "right"],
+
             ["<C-CR>", ["move_down"], ["move_begin"]],
             ["<CR>", ["move_down"], ["move_begin"]]
         ]
