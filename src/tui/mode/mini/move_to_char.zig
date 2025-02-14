@@ -30,13 +30,13 @@ const Operation = enum {
 };
 
 pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
-    var right: bool = true;
+    var direction: Direction = undefined;
     const select = if (tui.get_active_editor()) |editor| if (editor.get_primary().selection) |_| true else false else false;
-    _ = ctx.args.match(.{tp.extract(&right)}) catch return error.InvalidMoveToCharArgument;
+    _ = ctx.args.match(.{tp.extract(&direction)}) catch return error.InvalidMoveToCharArgument;
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
-        .direction = if (right) .right else .left,
+        .direction = direction,
         .operation = if (select) .select else .move,
     };
     try self.commands.init(self);
