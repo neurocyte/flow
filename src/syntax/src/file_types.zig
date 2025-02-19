@@ -389,6 +389,7 @@ pub const php = .{
     .extensions = .{"php"},
     .comment = "//",
     .injections = "tree-sitter-php/queries/injections.scm",
+    .language_server = .{"intelephense", "--stdio"},
 };
 
 pub const purescript = .{
