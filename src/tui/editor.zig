@@ -2088,7 +2088,7 @@ pub const Editor = struct {
 
     fn move_cursor_up_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
         try cursor.move_up(root, metrics);
-        if(is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
+        if (is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
     fn move_cursor_down(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
@@ -2097,7 +2097,7 @@ pub const Editor = struct {
 
     fn move_cursor_down_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
         try cursor.move_down(root, metrics);
-        if(is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
+        if (is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
     fn move_cursor_buffer_begin(_: Buffer.Root, cursor: *Cursor, _: Buffer.Metrics) !void {
@@ -2122,7 +2122,7 @@ pub const Editor = struct {
 
     fn move_cursor_half_page_up_vim(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
         cursor.move_half_page_up(root, view, metrics);
-        if(is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
+        if (is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
     fn move_cursor_half_page_down(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
@@ -2131,7 +2131,7 @@ pub const Editor = struct {
 
     fn move_cursor_half_page_down_vim(root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) !void {
         cursor.move_half_page_down(root, view, metrics);
-        if(is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
+        if (is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
     pub fn primary_click(self: *Self, y: c_int, x: c_int) !void {
@@ -3480,7 +3480,7 @@ pub const Editor = struct {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             try self.select_line_around_cursor(cursel);
         self.collapse_cursors();
- 
+
         self.clamp();
     }
     pub const select_line_vim_meta = .{ .description = "Select the line around the cursor (vim)" };
