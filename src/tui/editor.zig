@@ -2083,7 +2083,9 @@ pub const Editor = struct {
     }
 
     fn move_cursor_up(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
-        try cursor.move_up(root, metrics);
+        cursor.move_up(root, metrics) catch |e| switch (e) {
+            error.Stop => cursor.move_begin(),
+        };
     }
 
     fn move_cursor_up_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
@@ -2092,7 +2094,9 @@ pub const Editor = struct {
     }
 
     fn move_cursor_down(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
-        try cursor.move_down(root, metrics);
+        cursor.move_down(root, metrics) catch |e| switch (e) {
+            error.Stop => cursor.move_end(root, metrics),
+        };
     }
 
     fn move_cursor_down_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
