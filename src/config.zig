@@ -3,8 +3,7 @@ const builtin = @import("builtin");
 frame_rate: usize = 60,
 theme: []const u8 = "default",
 input_mode: []const u8 = "flow",
-gutter_line_numbers: bool = true,
-gutter_line_numbers_relative: bool = false,
+gutter_line_numbers_mode: ?LineNumberMode = null,
 gutter_line_numbers_style: DigitStyle = .ascii,
 gutter_symbols: bool = true,
 enable_terminal_cursor: bool = true,
@@ -33,4 +32,10 @@ pub const DigitStyle = enum {
     digital,
     subscript,
     superscript,
+};
+
+pub const LineNumberMode = enum {
+    none,
+    relative,
+    absolute,
 };

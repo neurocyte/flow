@@ -623,6 +623,13 @@ fn config_eql(comptime T: type, a: T, b: T) bool {
     }
     switch (@typeInfo(T)) {
         .bool, .int, .float, .@"enum" => return a == b,
+        .optional => |info| {
+            if (a == null and b == null)
+                return true;
+            if (a == null or b == null)
+                return false;
+            return config_eql(info.child, a.?, b.?);
+        },
         else => {},
     }
     @compileError("unsupported config type " ++ @typeName(T));
