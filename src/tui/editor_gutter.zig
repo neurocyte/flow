@@ -17,6 +17,7 @@ const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
 const ed = @import("editor.zig");
 const DigitStyle = @import("config").DigitStyle;
+const LineNumberMode = @import("config").LineNumberMode;
 
 allocator: Allocator,
 plane: Plane,
@@ -26,7 +27,6 @@ lines: u32 = 0,
 view_rows: u32 = 1,
 view_top: u32 = 1,
 line: usize = 0,
-linenum: bool,
 mode: ?LineNumberMode = null,
 render_style: DigitStyle,
 highlight: bool,
@@ -47,8 +47,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
         .parent = parent,
-        .linenum = tui.config().gutter_line_numbers,
-        .mode = if (tui.config().gutter_line_numbers_relative) .relative else null,
+        .mode = tui.config().gutter_line_numbers_mode,
         .render_style = tui.config().gutter_line_numbers_style,
         .highlight = tui.config().highlight_current_line_gutter,
         .symbols = tui.config().gutter_symbols,
@@ -111,7 +110,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 }
 
 fn update_width(self: *Self) void {
-    if (!self.linenum) return;
+    if (self.mode == .none) return;
     const width = int_width(self.lines);
     self.width = if (self.mode == .relative and width > 4) 4 else @max(width, 2);
     self.width += if (self.symbols) 3 else 1;
@@ -122,7 +121,7 @@ pub fn layout(self: *Self) Widget.Layout {
 }
 
 inline fn get_width(self: *Self) usize {
-    return if (self.linenum) self.width else if (self.symbols) 3 else 1;
+    return if (self.mode != .none) self.width else if (self.symbols) 3 else 1;
 }
 
 fn get_numbering_mode(self: *const Self) LineNumberMode {
@@ -132,8 +131,6 @@ fn get_numbering_mode(self: *const Self) LineNumberMode {
         .absolute => .absolute,
     };
 }
-
-const LineNumberMode = enum { relative, absolute };
 
 fn from_mode_enum(mode: anytype) LineNumberMode {
     return switch (mode) {
@@ -151,13 +148,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.home();
     self.plane.set_style(theme.editor_gutter);
     _ = self.plane.fill(" ");
-    if (self.linenum) {
-        switch (self.get_numbering_mode()) {
-            .relative => self.render_relative(theme),
-            .absolute => self.render_linear(theme),
-        }
-    } else {
-        self.render_none(theme);
+    switch (self.get_numbering_mode()) {
+        .none => self.render_none(theme),
+        .relative => self.render_relative(theme),
+        .absolute => self.render_linear(theme),
     }
     if (self.symbols)
         self.render_diagnostics(theme);
