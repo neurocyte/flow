@@ -11,7 +11,6 @@
             ["ctrl+minus", "adjust_fontsize", -1.0],
             ["f5", ["create_scratch_buffer", "*test*"], ["shell_execute_insert", "zig", "build", "test"]],
             ["f7", ["create_scratch_buffer", "*build*"], ["shell_execute_insert", "zig", "build"]],
-            ["alt+R", ["shell_execute_insert", "openssl", "rand", "-hex", "4"]],
             ["alt+d", ["shell_execute_log", "date"]]
         ]
     },
@@ -93,6 +92,7 @@
             ["alt+s", "filter", "sort"],
             ["alt+v", "paste"],
             ["alt+x", "open_command_palette"],
+            ["alt+R", ["shell_execute_insert", "openssl", "rand", "-hex", "4"]],
             ["alt+left", "jump_back"],
             ["alt+right", "jump_forward"],
             ["alt+up", "pull_up"],
