@@ -27,7 +27,7 @@ view_rows: u32 = 1,
 view_top: u32 = 1,
 line: usize = 0,
 linenum: bool,
-relative: bool,
+mode: ?LineNumberMode = null,
 render_style: DigitStyle,
 highlight: bool,
 symbols: bool,
@@ -48,7 +48,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
         .parent = parent,
         .linenum = tui.config().gutter_line_numbers,
-        .relative = tui.config().gutter_line_numbers_relative,
+        .mode = if (tui.config().gutter_line_numbers_relative) .relative else null,
         .render_style = tui.config().gutter_line_numbers_style,
         .highlight = tui.config().highlight_current_line_gutter,
         .symbols = tui.config().gutter_symbols,
@@ -113,7 +113,7 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn update_width(self: *Self) void {
     if (!self.linenum) return;
     const width = int_width(self.lines);
-    self.width = if (self.relative and width > 4) 4 else @max(width, 2);
+    self.width = if (self.mode == .relative and width > 4) 4 else @max(width, 2);
     self.width += if (self.symbols) 3 else 1;
 }
 
@@ -125,6 +125,24 @@ inline fn get_width(self: *Self) usize {
     return if (self.linenum) self.width else if (self.symbols) 3 else 1;
 }
 
+fn get_numbering_mode(self: *const Self) LineNumberMode {
+    return self.mode orelse switch (if (tui.input_mode()) |mode| mode.line_numbers else .absolute) {
+        .relative => .relative,
+        .inherit => if (tui.input_mode_outer()) |mode| from_mode_enum(mode.line_numbers) else .absolute,
+        .absolute => .absolute,
+    };
+}
+
+const LineNumberMode = enum { relative, absolute };
+
+fn from_mode_enum(mode: anytype) LineNumberMode {
+    return switch (mode) {
+        .relative => .relative,
+        .inherit => .absolute,
+        .absolute => .absolute,
+    };
+}
+
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const frame = tracy.initZone(@src(), .{ .name = "gutter render" });
     defer frame.deinit();
@@ -134,11 +152,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_style(theme.editor_gutter);
     _ = self.plane.fill(" ");
     if (self.linenum) {
-        const relative = self.relative or if (tui.input_mode()) |mode| mode.line_numbers == .relative else false;
-        if (relative)
-            self.render_relative(theme)
-        else
-            self.render_linear(theme);
+        switch (self.get_numbering_mode()) {
+            .relative => self.render_relative(theme),
+            .absolute => self.render_linear(theme),
+        }
     } else {
         self.render_none(theme);
     }

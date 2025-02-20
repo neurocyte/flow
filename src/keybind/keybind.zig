@@ -78,7 +78,7 @@ pub const Mode = struct {
 
     mode: []const u8,
     name: []const u8 = "",
-    line_numbers: LineNumbers = .absolute,
+    line_numbers: LineNumbers = .inherit,
     keybind_hints: *const KeybindHints,
     cursor_shape: ?CursorShape = null,
     selection_style: SelectionStyle,
@@ -365,7 +365,7 @@ const BindingSet = struct {
     syntax: KeySyntax = .flow,
     on_match_failure: OnMatchFailure = .ignore,
     name: []const u8,
-    line_numbers: LineNumbers = .absolute,
+    line_numbers: LineNumbers = .inherit,
     cursor_shape: ?CursorShape = null,
     selection_style: SelectionStyle,
     insert_command: []const u8 = "",
@@ -383,7 +383,7 @@ const BindingSet = struct {
             syntax: KeySyntax = .flow,
             on_match_failure: OnMatchFailure = .insert,
             name: ?[]const u8 = null,
-            line_numbers: LineNumbers = .absolute,
+            line_numbers: LineNumbers = .inherit,
             cursor: ?CursorShape = null,
             inherit: ?[]const u8 = null,
             selection: ?SelectionStyle = null,
@@ -663,6 +663,7 @@ const BindingSet = struct {
 };
 
 pub const LineNumbers = enum {
+    inherit,
     absolute,
     relative,
 };

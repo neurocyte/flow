@@ -590,7 +590,7 @@ const cmds = struct {
         if (self.widgets.get("editor_gutter")) |gutter_widget| {
             const gutter = gutter_widget.dynamic_cast(@import("editor_gutter.zig")) orelse return;
             gutter.linenum = ln;
-            gutter.relative = lnr;
+            gutter.mode = if(lnr) .relative else null;
         }
     }
     pub const gutter_mode_next_meta = .{ .description = "Next gutter mode" };
