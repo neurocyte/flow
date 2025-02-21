@@ -265,7 +265,8 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Symbol, pos: usize, 
 }
 
 fn render_diagnostics(self: *Self, theme: *const Widget.Theme) void {
-    for (self.editor.diagnostics.items) |*diag| self.render_diagnostic(diag, theme);
+    if (tui.config().inline_diagnostics)
+        for (self.editor.diagnostics.items) |*diag| self.render_diagnostic(diag, theme);
 }
 
 fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widget.Theme) void {
