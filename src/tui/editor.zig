@@ -3994,6 +3994,20 @@ pub const Editor = struct {
     }
     pub const smart_insert_line_after_meta: Meta = .{ .description = "Insert line after (smart)" };
 
+    pub fn smart_buffer_append(self: *Self, ctx: Context) Result {
+        var chars: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&chars)}))
+            return error.InvalidInsertCharsArgument;
+        const b = try self.buf_for_update();
+        var root = b.root;
+        var cursel: CurSel = .{};
+        cursel.cursor.move_buffer_end(root, self.metrics);
+        root = try self.insert(root, &cursel, chars, b.allocator);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const smart_buffer_append_meta: Meta = .{ .arguments = &.{.string} };
+
     pub fn enable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = true;
     }
