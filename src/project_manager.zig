@@ -913,10 +913,11 @@ const FilteredWalker = struct {
             var containing = top;
             var dirname_len = top.dirname_len;
             if (top.iter.next() catch {
-                var item = self.stack.pop();
-                if (self.stack.items.len != 0) {
-                    item.iter.dir.close();
-                }
+                var item_ = self.stack.pop();
+                if (item_) |*item|
+                    if (self.stack.items.len != 0) {
+                        item.iter.dir.close();
+                    };
                 continue;
             }) |base| {
                 self.name_buffer.shrinkRetainingCapacity(dirname_len);
@@ -947,10 +948,11 @@ const FilteredWalker = struct {
                     else => continue,
                 }
             } else {
-                var item = self.stack.pop();
-                if (self.stack.items.len != 0) {
-                    item.iter.dir.close();
-                }
+                var item_ = self.stack.pop();
+                if (item_) |*item|
+                    if (self.stack.items.len != 0) {
+                        item.iter.dir.close();
+                    };
             }
         }
         return null;

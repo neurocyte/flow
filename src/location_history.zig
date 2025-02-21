@@ -123,13 +123,13 @@ const Process = struct {
 
         if (isdupe(self.backwards.getLastOrNull(), entry)) {
             if (self.current) |current| self.forwards.append(current) catch {};
-            const top = self.backwards.pop();
-            self.allocator.free(top.file_path);
+            if (self.backwards.pop()) |top|
+                self.allocator.free(top.file_path);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "back", entry.file_path, entry.cursor.row, entry.cursor.col, self.backwards.items.len, self.forwards.items.len }));
         } else if (isdupe(self.forwards.getLastOrNull(), entry)) {
             if (self.current) |current| self.backwards.append(current) catch {};
-            const top = self.forwards.pop();
-            self.allocator.free(top.file_path);
+            if (self.forwards.pop()) |top|
+                self.allocator.free(top.file_path);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "forward", entry.file_path, entry.cursor.row, entry.cursor.col, self.backwards.items.len, self.forwards.items.len }));
         } else if (self.current) |current| {
             try self.backwards.append(current);

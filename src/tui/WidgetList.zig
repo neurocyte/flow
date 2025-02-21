@@ -104,7 +104,7 @@ pub fn remove_all(self: *Self) void {
 }
 
 pub fn pop(self: *Self) ?Widget {
-    return if (self.widgets.popOrNull()) |ws| ws.widget else null;
+    return if (self.widgets.pop()) |ws| ws.widget else null;
 }
 
 pub fn empty(self: *const Self) bool {

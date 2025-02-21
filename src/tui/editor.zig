@@ -629,7 +629,7 @@ pub const Editor = struct {
 
     pub fn pop_cursor(self: *Self, _: Context) Result {
         if (self.cursels.items.len > 1) {
-            const cursel = self.cursels.popOrNull() orelse return orelse return;
+            const cursel = self.cursels.pop() orelse return orelse return;
             if (cursel.selection) |sel| if (self.find_selection_match(sel)) |match| {
                 match.has_selection = false;
             };
