@@ -847,8 +847,7 @@ const cmds = struct {
             return error.InvalidShellOutputArgument;
         const buffer = self.buffer_manager.buffer_from_ref(buffer_ref) orelse return;
         if (self.get_active_editor()) |editor| if (editor.buffer) |eb| if (eb == buffer) {
-            editor.move_buffer_end(.{}) catch {};
-            editor.insert_chars(command.fmt(.{output})) catch {};
+            editor.smart_buffer_append(command.fmt(.{output})) catch {};
             tui.need_render();
             return;
         };
