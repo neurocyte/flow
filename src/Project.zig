@@ -418,7 +418,7 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
 pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) ClientError!void {
     for (self.files.items) |*file| {
         if (!std.mem.eql(u8, file.path, file_path)) continue;
-        from.send(.{ file.pos.row, file.pos.col }) catch return error.ClientFailed;
+        from.send(.{ file.pos.row + 1, file.pos.col + 1 }) catch return error.ClientFailed;
         return;
     }
 }
