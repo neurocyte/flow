@@ -1053,6 +1053,8 @@ fn replace_active_view(self: *Self, widget: Widget) !void {
 }
 
 fn create_editor(self: *Self) !void {
+    const frame = tracy.initZone(@src(), .{ .name = "create_editor" });
+    defer frame.deinit();
     try self.delete_active_view();
     command.executeName("enter_mode_default", .{}) catch {};
     var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager);
