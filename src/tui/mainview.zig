@@ -359,6 +359,12 @@ const cmds = struct {
         const same_file = if (self.get_active_file_path()) |fp| std.mem.eql(u8, fp, f) else false;
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
+        if (!same_file and !have_editor_metadata)
+            if (try project_manager.get_mru_position(self.allocator, f)) |pos| {
+                line = @intCast(pos.row);
+                column = @intCast(pos.col);
+            };
+
         if (!same_file) {
             if (self.get_active_editor()) |editor| {
                 editor.send_editor_jump_source() catch {};
@@ -374,9 +380,6 @@ const cmds = struct {
                 try command.executeName("scroll_view_center", .{});
             if (column) |col|
                 try command.executeName("goto_column", command.fmt(.{col}));
-        } else {
-            if (!same_file and !have_editor_metadata)
-                try project_manager.get_mru_position(f);
         }
         tui.need_render();
     }
@@ -572,7 +575,7 @@ const cmds = struct {
 
     pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
         const config = tui.config_mut();
-        const mode: ?@import("config").LineNumberMode = if (config.gutter_line_numbers_mode) |mode| switch(mode) {
+        const mode: ?@import("config").LineNumberMode = if (config.gutter_line_numbers_mode) |mode| switch (mode) {
             .absolute => .relative,
             .relative => .none,
             .none => null,
@@ -1053,6 +1056,8 @@ fn replace_active_view(self: *Self, widget: Widget) !void {
 }
 
 fn create_editor(self: *Self) !void {
+    const frame = tracy.initZone(@src(), .{ .name = "create_editor" });
+    defer frame.deinit();
     try self.delete_active_view();
     command.executeName("enter_mode_default", .{}) catch {};
     var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager);

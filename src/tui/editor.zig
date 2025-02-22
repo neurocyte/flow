@@ -525,14 +525,26 @@ pub const Editor = struct {
     }
 
     fn open(self: *Self, file_path: []const u8) !void {
-        return self.open_buffer(file_path, try self.buffer_manager.open_file(file_path), null);
+        const buffer: *Buffer = blk: {
+            const frame = tracy.initZone(@src(), .{ .name = "open_file" });
+            defer frame.deinit();
+            break :blk try self.buffer_manager.open_file(file_path);
+        };
+        return self.open_buffer(file_path, buffer, null);
     }
 
     fn open_scratch(self: *Self, file_path: []const u8, content: []const u8, file_type: ?[]const u8) !void {
-        return self.open_buffer(file_path, try self.buffer_manager.open_scratch(file_path, content), file_type);
+        const buffer: *Buffer = blk: {
+            const frame = tracy.initZone(@src(), .{ .name = "open_scratch" });
+            defer frame.deinit();
+            break :blk try self.buffer_manager.open_scratch(file_path, content);
+        };
+        return self.open_buffer(file_path, buffer, file_type);
     }
 
     fn open_buffer(self: *Self, file_path: []const u8, new_buf: *Buffer, file_type_: ?[]const u8) !void {
+        const frame = tracy.initZone(@src(), .{ .name = "open_buffer" });
+        defer frame.deinit();
         errdefer self.buffer_manager.retire(new_buf, null);
         self.cancel_all_selections();
         self.get_primary().reset();
@@ -553,12 +565,33 @@ pub const Editor = struct {
             const lang_override = file_type orelse tp.env.get().str("language");
             var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
-            try new_buf.root.store(content.writer(), new_buf.file_eol_mode);
-            const syn = if (lang_override.len > 0)
-                syntax.create_file_type(self.allocator, lang_override) catch null
-            else
-                syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch null;
-            if (syn) |syn_|
+            {
+                const frame_ = tracy.initZone(@src(), .{ .name = "store" });
+                defer frame_.deinit();
+                try new_buf.root.store(content.writer(), new_buf.file_eol_mode);
+            }
+
+            const syn_file_type = blk: {
+                const frame_ = tracy.initZone(@src(), .{ .name = "guess" });
+                defer frame_.deinit();
+                break :blk if (lang_override.len > 0)
+                    syntax.FileType.get_by_name(lang_override)
+                else
+                    syntax.FileType.guess(self.file_path, content.items);
+            };
+
+            const syn = blk: {
+                const frame_ = tracy.initZone(@src(), .{ .name = "create" });
+                defer frame_.deinit();
+                break :blk if (syn_file_type) |ft|
+                    syntax.create(ft, self.allocator) catch null
+                else
+                    null;
+            };
+
+            if (syn) |syn_| {
+                const frame_ = tracy.initZone(@src(), .{ .name = "did_open" });
+                defer frame_.deinit();
                 project_manager.did_open(
                     file_path,
                     syn_.file_type,
@@ -567,6 +600,7 @@ pub const Editor = struct {
                     new_buf.is_ephemeral(),
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
+            }
             break :syntax syn;
         };
         self.syntax_no_render = tp.env.get().is("no-syntax");
@@ -581,8 +615,11 @@ pub const Editor = struct {
             buffer.file_type_color = ftc;
         }
 
-        if (self.buffer) |buffer| if (buffer.get_meta()) |meta|
+        if (self.buffer) |buffer| if (buffer.get_meta()) |meta| {
+            const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
+            defer frame_.deinit();
             try self.extract_state(meta, .none);
+        };
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc);
     }
 
@@ -4188,6 +4225,8 @@ pub const Editor = struct {
     pub const redo_meta: Meta = .{ .description = "Redo" };
 
     pub fn open_buffer_from_file(self: *Self, ctx: Context) Result {
+        const frame = tracy.initZone(@src(), .{ .name = "open_buffer_from_file" });
+        defer frame.deinit();
         var file_path: []const u8 = undefined;
         if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
             try self.open(file_path);

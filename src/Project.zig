@@ -36,9 +36,13 @@ pub const LspOrClientError = (LspError || ClientError);
 const File = struct {
     path: []const u8,
     mtime: i128,
+    pos: FilePos = .{},
+    visited: bool = false,
+};
+
+pub const FilePos = struct {
     row: usize = 0,
     col: usize = 0,
-    visited: bool = false,
 };
 
 const Task = struct {
@@ -94,9 +98,9 @@ pub fn write_state_v1(self: *Self, writer: anytype) !void {
         try cbor.writeArrayHeader(writer, 4);
         try cbor.writeValue(writer, file.path);
         try cbor.writeValue(writer, file.mtime);
-        try cbor.writeValue(writer, file.row);
-        try cbor.writeValue(writer, file.col);
-        tp.trace(tp.channel.debug, .{ "write_state_v1", "file", file.path, file.mtime, file.row, file.col });
+        try cbor.writeValue(writer, file.pos.row);
+        try cbor.writeValue(writer, file.pos.col);
+        tp.trace(tp.channel.debug, .{ "write_state_v1", "file", file.path, file.mtime, file.pos.row, file.pos.col });
     }
     try cbor.writeArrayHeader(writer, self.tasks.items.len);
     tp.trace(tp.channel.debug, .{ "write_state_v1", "tasks", self.tasks.items.len });
@@ -374,7 +378,7 @@ pub fn merge_pending_files(self: *Self) OutOfMemoryError!void {
     self.files = self.pending;
     self.pending = std.ArrayList(File).init(self.allocator);
     for (existing) |*file| {
-        self.update_mru_internal(file.path, file.mtime, file.row, file.col) catch {};
+        self.update_mru_internal(file.path, file.mtime, file.pos.row, file.pos.col) catch {};
         self.allocator.free(file.path);
     }
     self.allocator.free(existing);
@@ -390,8 +394,8 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
         if (!std.mem.eql(u8, file.path, file_path)) continue;
         file.mtime = mtime;
         if (row != 0) {
-            file.row = row;
-            file.col = col;
+            file.pos.row = row;
+            file.pos.col = col;
             file.visited = true;
         }
         return;
@@ -400,8 +404,7 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
         (try self.files.addOne()).* = .{
             .path = try self.allocator.dupe(u8, file_path),
             .mtime = mtime,
-            .row = row,
-            .col = col,
+            .pos = .{ .row = row, .col = col },
             .visited = true,
         };
     } else {
@@ -415,8 +418,7 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
 pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) ClientError!void {
     for (self.files.items) |*file| {
         if (!std.mem.eql(u8, file.path, file_path)) continue;
-        if (file.row != 0)
-            from.send(.{ "cmd", "goto_line_and_column", .{ file.row + 1, file.col + 1 } }) catch return error.ClientFailed;
+        from.send(.{ file.pos.row + 1, file.pos.col + 1 }) catch return error.ClientFailed;
         return;
     }
 }
