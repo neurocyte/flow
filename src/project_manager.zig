@@ -16,6 +16,8 @@ const Self = @This();
 const module_name = @typeName(Self);
 const request_timeout = std.time.ns_per_s * 5;
 
+pub const FilePos = Project.FilePos;
+
 pub const Error = ProjectError || ProjectManagerError;
 
 pub const ProjectError = error{NoProject};
@@ -226,11 +228,16 @@ pub fn update_mru(file_path: []const u8, row: usize, col: usize, ephemeral: bool
     return send(.{ "update_mru", project, file_path, row, col });
 }
 
-pub fn get_mru_position(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
+pub fn get_mru_position(allocator: std.mem.Allocator, file_path: []const u8) (ProjectManagerError || ProjectError || CallError || cbor.Error)!?Project.FilePos {
+    const frame = tracy.initZone(@src(), .{ .name = "get_mru_position" });
+    defer frame.deinit();
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "get_mru_position", project, file_path });
+    const rsp = try (try get()).pid.call(allocator, request_timeout, .{ "get_mru_position", project, file_path });
+    defer allocator.free(rsp.buf);
+    var pos: Project.FilePos = undefined;
+    return if (try cbor.match(rsp.buf, .{ tp.extract(&pos.row), tp.extract(&pos.col) })) pos else null;
 }
 
 const Process = struct {
