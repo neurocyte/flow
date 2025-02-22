@@ -572,7 +572,7 @@ const cmds = struct {
 
     pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
         const config = tui.config_mut();
-        const mode: ?@import("config").LineNumberMode = if (config.gutter_line_numbers_mode) |mode| switch(mode) {
+        const mode: ?@import("config").LineNumberMode = if (config.gutter_line_numbers_mode) |mode| switch (mode) {
             .absolute => .relative,
             .relative => .none,
             .none => null,
