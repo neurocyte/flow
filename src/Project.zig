@@ -421,6 +421,7 @@ pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) Cl
         from.send(.{ file.pos.row + 1, file.pos.col + 1 }) catch return error.ClientFailed;
         return;
     }
+    from.send(.{"none"}) catch return error.ClientFailed;
 }
 
 pub fn request_tasks(self: *Self, from: tp.pid_ref) ClientError!void {
