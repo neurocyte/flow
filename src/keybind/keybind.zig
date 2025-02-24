@@ -386,6 +386,7 @@ const BindingSet = struct {
             line_numbers: LineNumbers = .inherit,
             cursor: ?CursorShape = null,
             inherit: ?[]const u8 = null,
+            inherits: ?[][]const u8 = null,
             selection: ?SelectionStyle = null,
         };
         const parsed = try std.json.parseFromValue(JsonConfig, allocator, mode_bindings, .{
@@ -400,7 +401,12 @@ const BindingSet = struct {
         self.selection_style = parsed.value.selection orelse .normal;
         try self.load_event(allocator, &self.press, input.event.press, parsed.value.press);
         try self.load_event(allocator, &self.release, input.event.release, parsed.value.release);
-        if (parsed.value.inherit) |sibling_fallback| {
+        if (parsed.value.inherits) |sibling_fallbacks| {
+            for (sibling_fallbacks) |sibling_fallback| if (namespace.get_mode(sibling_fallback)) |sib| {
+                for (sib.press.items) |binding| try append_if_not_match(allocator, &self.press, binding);
+                for (sib.release.items) |binding| try append_if_not_match(allocator, &self.release, binding);
+            };
+        } else if (parsed.value.inherit) |sibling_fallback| {
             if (namespace.get_mode(sibling_fallback)) |sib| {
                 for (sib.press.items) |binding| try append_if_not_match(allocator, &self.press, binding);
                 for (sib.release.items) |binding| try append_if_not_match(allocator, &self.release, binding);
