@@ -69,6 +69,24 @@ like this:
 This allows you to make only minor additions/changes to an existing builtin
 mode without copying the whole mode and is easier to keep up-to-date.
 
+Additionally, individual sub-modes may inherit all non-conflicting keybindings
+from another sub-mode of the same mode by adding an `inherit` option to the
+sub-mode section like this:
+
+```
+    "normal": {
+        "inherit": "project",
+        ...
+```
+
+Multiple inheritance is supported with the `inherits` options like this:
+
+```
+    "normal": {
+        "inherits": ["project", "tasks"],
+        ...
+```
+
 ## Flow mode
 
 The default input mode, called just flow, is based on common GUI
