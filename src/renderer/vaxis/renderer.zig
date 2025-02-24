@@ -95,6 +95,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
 
 pub fn run(self: *Self) !void {
     self.vx.sgr = .legacy;
+    self.vx.conpty_hacks = true;
 
     panic_cleanup = .{ .allocator = self.allocator, .tty = &self.tty, .vx = &self.vx };
     if (!self.no_alternate) try self.vx.enterAltScreen(self.tty.anyWriter());
