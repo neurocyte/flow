@@ -1977,12 +1977,16 @@ pub const Editor = struct {
         return (c.len == 0) or (c[0] == ' ') or (c[0] == '\t');
     }
 
+    fn is_whitespace_or_eol(c: []const u8) bool {
+        return is_whitespace(c) or c[0] == '\n';
+    }
+
     fn is_whitespace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         return cursor.test_at(root, is_whitespace, metrics);
     }
 
     fn is_non_whitespace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
-        return !cursor.test_at(root, is_whitespace, metrics);
+        return !cursor.test_at(root, is_whitespace_or_eol, metrics);
     }
 
     fn is_word_boundary_left_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
@@ -2827,7 +2831,10 @@ pub const Editor = struct {
     pub fn join_next_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         try self.with_cursors_const(b.root, move_cursor_end);
-        const root = try self.delete_to(move_cursor_right, b.root, b.allocator);
+        var root = try self.delete_to(move_cursor_right_until_non_whitespace, b.root, b.allocator);
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            root = try self.insert(root, cursel, " ", b.allocator);
+        };
         try self.update_buf(root);
         self.clamp();
     }
@@ -2936,6 +2943,10 @@ pub const Editor = struct {
         else
             move_cursor_right_until(root, cursor, is_word_boundary_right, metrics);
         try move_cursor_right(root, cursor, metrics);
+    }
+
+    pub fn move_cursor_right_until_non_whitespace(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        move_cursor_right_until(root, cursor, is_non_whitespace_at_cursor, metrics);
     }
 
     pub fn move_word_left(self: *Self, _: Context) Result {
