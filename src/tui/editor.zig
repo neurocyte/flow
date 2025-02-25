@@ -1973,21 +1973,25 @@ pub const Editor = struct {
         return false;
     }
 
-    fn is_white_space(c: []const u8) bool {
+    fn is_whitespace(c: []const u8) bool {
         return (c.len == 0) or (c[0] == ' ') or (c[0] == '\t');
     }
 
-    fn is_white_space_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
-        return cursor.test_at(root, is_white_space, metrics);
+    fn is_whitespace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return cursor.test_at(root, is_whitespace, metrics);
+    }
+
+    fn is_non_whitespace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return !cursor.test_at(root, is_whitespace, metrics);
     }
 
     fn is_word_boundary_left_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
-        if (is_white_space_at_cursor(root, cursor, metrics)) return false;
+        if (is_whitespace_at_cursor(root, cursor, metrics)) return false;
         var next = cursor.*;
         next.move_left(root, metrics) catch return true;
 
-        const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
-        if (next_is_white_space) return true;
+        const next_is_whitespace = is_whitespace_at_cursor(root, &next, metrics);
+        if (next_is_whitespace) return true;
 
         const curr_is_non_word = is_non_word_char_at_cursor(root, cursor, metrics);
         const next_is_non_word = is_non_word_char_at_cursor(root, &next, metrics);
@@ -2020,12 +2024,12 @@ pub const Editor = struct {
     }
 
     fn is_word_boundary_right_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
-        if (is_white_space_at_cursor(root, cursor, metrics)) return false;
+        if (is_whitespace_at_cursor(root, cursor, metrics)) return false;
         var next = cursor.*;
         next.move_right(root, metrics) catch return true;
 
-        const next_is_white_space = is_white_space_at_cursor(root, &next, metrics);
-        if (next_is_white_space) return true;
+        const next_is_whitespace = is_whitespace_at_cursor(root, &next, metrics);
+        if (next_is_whitespace) return true;
 
         const curr_is_non_word = is_non_word_char_at_cursor(root, cursor, metrics);
         const next_is_non_word = is_non_word_char_at_cursor(root, &next, metrics);
