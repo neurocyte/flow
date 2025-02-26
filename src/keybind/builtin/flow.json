@@ -161,6 +161,16 @@
             ["tab", "indent"],
             ["ctrl+space", "enter_mode", "select"],
 
+            ["\"", "smart_insert_pair", "\"", "\""],
+            ["'", "smart_insert_pair", "'", "'"],
+            ["(", "smart_insert_pair", "(", ")"],
+            ["[", "smart_insert_pair", "[", "]"],
+            ["{", "smart_insert_pair", "{", "}"],
+            ["‘", "smart_insert_pair", "‘", "’"],
+            ["“", "smart_insert_pair", "“", "”"],
+            ["‚", "smart_insert_pair", "‚", "‘"],
+            ["«", "smart_insert_pair", "«", "»"],
+
             ["left_control", "enable_jump_mode"],
             ["right_control", "enable_jump_mode"],
             ["left_alt", "enable_fast_scroll"],

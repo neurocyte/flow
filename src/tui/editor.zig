@@ -616,7 +616,7 @@ pub const Editor = struct {
         }
 
         if (self.buffer) |buffer| if (buffer.get_meta()) |meta| {
-            const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
+            const frame_ = tracy.initZone(@src(), .{ .name = extract_state });
             defer frame_.deinit();
             try self.extract_state(meta, .none);
         };
@@ -4059,6 +4059,31 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const smart_buffer_append_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn smart_insert_pair(self: *Self, ctx: Context) Result {
+        var chars_left: []const u8 = undefined;
+        var chars_right: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&chars_left), tp.extract(&chars_right) }))
+            return error.InvalidSmartInsertPairArguments;
+        const b = try self.buf_for_update();
+        var root = b.root;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |*sel| {
+                var begin: CurSel = .{ .cursor = sel.begin };
+                root = try self.insert(root, &begin, chars_left, b.allocator);
+                var end: CurSel = .{ .cursor = sel.end };
+                root = try self.insert(root, &end, chars_right, b.allocator);
+                sel.end.move_left(root, self.metrics) catch {};
+            } else {
+                root = try self.insert(root, cursel, chars_left, b.allocator);
+                root = try self.insert(root, cursel, chars_right, b.allocator);
+            }
+            cursel.cursor.move_left(root, self.metrics) catch {};
+        };
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const smart_insert_pair_meta = .{ .arguments = &.{.string} };
 
     pub fn enable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = true;
