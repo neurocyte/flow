@@ -156,6 +156,7 @@ const TabBar = struct {
 
     fn update_tabs(self: *Self) !void {
         try self.update_tab_buffers();
+        const prev_widget_count = self.widget_list.widgets.items.len;
         while (self.widget_list.pop()) |widget| if (widget.dynamic_cast(Button.State(Tab)) == null)
             widget.deinit(self.widget_list.allocator);
         var first = true;
@@ -169,6 +170,8 @@ const TabBar = struct {
             if (tab.widget.dynamic_cast(Button.State(Tab))) |btn|
                 try btn.update_label(Tab.name_from_buffer(tab.buffer));
         }
+        if (prev_widget_count != self.widget_list.widgets.items.len)
+            tui.refresh_hover();
     }
 
     fn update_tab_buffers(self: *Self) !void {
