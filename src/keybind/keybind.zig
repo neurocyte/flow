@@ -173,6 +173,7 @@ const LoadError = (error{ NotFound, NotAnObject } || std.json.ParseError(std.jso
 const Namespace = struct {
     name: []const u8,
     fallback: ?*const Namespace = null,
+    no_defaults: bool = false,
     modes: std.StringHashMapUnmanaged(BindingSet),
 
     init_command: ?Command = null,
@@ -201,7 +202,7 @@ const Namespace = struct {
             try self.load_settings(allocator, mode_entry.value_ptr.*);
         }
 
-        if (!std.mem.eql(u8, self.name, default_namespace) and self.fallback == null)
+        if (!self.no_defaults and !std.mem.eql(u8, self.name, default_namespace) and self.fallback == null)
             self.fallback = try get_or_load_namespace(default_namespace);
 
         var modes = parsed.value.object.iterator();
@@ -224,12 +225,14 @@ const Namespace = struct {
             init_command: ?[]const std.json.Value = null,
             deinit_command: ?[]const std.json.Value = null,
             inherit: ?[]const u8 = null,
+            no_defaults: ?bool = null,
         };
         const parsed = try std.json.parseFromValue(JsonSettings, allocator, settings_value, .{
             .ignore_unknown_fields = true,
         });
         defer parsed.deinit();
         self.fallback = if (parsed.value.inherit) |fallback| try get_or_load_namespace(fallback) else null;
+        self.no_defaults = parsed.value.no_defaults orelse false;
         if (parsed.value.init_command) |cmd| self.init_command = try Command.load(allocator, cmd);
         if (parsed.value.deinit_command) |cmd| self.deinit_command = try Command.load(allocator, cmd);
     }
