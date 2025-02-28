@@ -615,7 +615,7 @@ pub const Editor = struct {
         }
 
         if (self.buffer) |buffer| if (buffer.get_meta()) |meta| {
-            const frame_ = tracy.initZone(@src(), .{ .name = extract_state });
+            const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
             defer frame_.deinit();
             try self.extract_state(meta, .none);
         };
