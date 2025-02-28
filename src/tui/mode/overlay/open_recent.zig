@@ -293,12 +293,12 @@ const cmds = struct {
     pub fn palette_menu_pagedown(self: *Self, _: Ctx) Result {
         self.menu.select_last();
     }
-    pub const palette_menu_pagedown_meta = .{};
+    pub const palette_menu_pagedown_meta: Meta = .{};
 
     pub fn palette_menu_pageup(self: *Self, _: Ctx) Result {
         self.menu.select_first();
     }
-    pub const palette_menu_pageup_meta = .{};
+    pub const palette_menu_pageup_meta: Meta = .{};
 
     pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();

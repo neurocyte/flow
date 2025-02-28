@@ -4083,7 +4083,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const smart_insert_pair_meta = .{ .arguments = &.{.string} };
+    pub const smart_insert_pair_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn enable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = true;
