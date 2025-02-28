@@ -32,7 +32,11 @@ pub fn load_entries(palette: *Type) !usize {
             (try palette.entries.addOne()).* = .{ .label = try palette.allocator.dupe(u8, task), .hint = "" };
         } else return error.InvalidTaskMessageField;
     }
-    return if (palette.entries.items.len == 0) label.len else 1;
+    return if (palette.entries.items.len == 0) label.len else blk: {
+        var longest: usize = 0;
+        for (palette.entries.items) |item| longest = @max(longest, item.label.len);
+        break :blk if (longest < label.len) return label.len - longest + 1 else 1;
+    };
 }
 
 pub fn clear_entries(palette: *Type) void {
