@@ -4294,14 +4294,22 @@ pub const Editor = struct {
     }
     pub const open_scratch_buffer_meta = .{ .arguments = &.{ .string, .string } };
 
-    pub fn format_and_save_file(self: *Self, ctx: Context, format_file: bool) Result {
+    pub const SaveOption = enum { default, format, no_format };
+
+    pub fn save_file(self: *Self, ctx: Context) Result {
+        var option: SaveOption = .default;
         var then = false;
         var cmd: []const u8 = undefined;
         var args: []const u8 = undefined;
-        if (ctx.args.match(.{ "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
+        if (ctx.args.match(.{ tp.extract(&option), "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
             then = true;
+        } else if (ctx.args.match(.{ "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
+            then = true;
+        } else {
+            _ = ctx.args.match(.{tp.extract(&option)}) catch false;
         }
-        if (format_file and tui.config().enable_format_on_save) if (self.get_formatter()) |_| {
+
+        if ((option == .default and tui.config().enable_format_on_save) or option == .format) if (self.get_formatter()) |_| {
             self.need_save_after_filter = .{ .then = if (then) .{ .cmd = cmd, .args = args } else null };
             const primary = self.get_primary();
             const sel = primary.selection;
@@ -4314,14 +4322,15 @@ pub const Editor = struct {
         if (then)
             return command.executeName(cmd, .{ .args = .{ .buf = args } });
     }
-
-    pub fn save_file(self: *Self, ctx: Context) Result {
-        return self.format_and_save_file(ctx, true);
-    }
     pub const save_file_meta = .{ .description = "Save file" };
 
-    pub fn save_file_without_formatting(self: *Self, ctx: Context) Result {
-        return self.format_and_save_file(ctx, false);
+    pub fn save_file_with_formatting(self: *Self, _: Context) Result {
+        return self.save_file(Context.fmt(.{"format"}));
+    }
+    pub const save_file_with_formatting_meta = .{ .description = "Save file with formatting" };
+
+    pub fn save_file_without_formatting(self: *Self, _: Context) Result {
+        return self.save_file(Context.fmt(.{"no_format"}));
     }
     pub const save_file_without_formatting_meta = .{ .description = "Save file without formatting" };
 
