@@ -402,9 +402,13 @@ pub const Editor = struct {
             try self.open(file_path);
         self.clipboard = if (clipboard.len > 0) try self.allocator.dupe(u8, clipboard) else null;
         self.last_find_query = if (query.len > 0) try self.allocator.dupe(u8, clipboard) else null;
+        const rows = self.view.rows;
+        const cols = self.view.cols;
         if (!try self.view.extract(&view_cbor))
             return error.RestoreView;
         self.scroll_dest = self.view.row;
+        self.view.rows = rows;
+        self.view.cols = cols;
 
         if (cursels_cbor.len > 0)
             self.clear_all_cursors();
@@ -4295,14 +4299,22 @@ pub const Editor = struct {
     }
     pub const open_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
+    pub const SaveOption = enum { default, format, no_format };
+
     pub fn save_file(self: *Self, ctx: Context) Result {
+        var option: SaveOption = .default;
         var then = false;
         var cmd: []const u8 = undefined;
         var args: []const u8 = undefined;
-        if (ctx.args.match(.{ "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
+        if (ctx.args.match(.{ tp.extract(&option), "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
             then = true;
+        } else if (ctx.args.match(.{ "then", .{ tp.extract(&cmd), tp.extract_cbor(&args) } }) catch false) {
+            then = true;
+        } else {
+            _ = ctx.args.match(.{tp.extract(&option)}) catch false;
         }
-        if (tui.config().enable_format_on_save) if (self.get_formatter()) |_| {
+
+        if ((option == .default and tui.config().enable_format_on_save) or option == .format) if (self.get_formatter()) |_| {
             self.need_save_after_filter = .{ .then = if (then) .{ .cmd = cmd, .args = args } else null };
             const primary = self.get_primary();
             const sel = primary.selection;
@@ -4316,6 +4328,16 @@ pub const Editor = struct {
             return command.executeName(cmd, .{ .args = .{ .buf = args } });
     }
     pub const save_file_meta: Meta = .{ .description = "Save file" };
+
+    pub fn save_file_with_formatting(self: *Self, _: Context) Result {
+        return self.save_file(Context.fmt(.{"format"}));
+    }
+    pub const save_file_with_formatting_meta = .{ .description = "Save file with formatting" };
+
+    pub fn save_file_without_formatting(self: *Self, _: Context) Result {
+        return self.save_file(Context.fmt(.{"no_format"}));
+    }
+    pub const save_file_without_formatting_meta = .{ .description = "Save file without formatting" };
 
     pub fn save_file_as(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
