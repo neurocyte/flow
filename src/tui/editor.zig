@@ -401,9 +401,13 @@ pub const Editor = struct {
             try self.open(file_path);
         self.clipboard = if (clipboard.len > 0) try self.allocator.dupe(u8, clipboard) else null;
         self.last_find_query = if (query.len > 0) try self.allocator.dupe(u8, clipboard) else null;
+        const rows = self.view.rows;
+        const cols = self.view.cols;
         if (!try self.view.extract(&view_cbor))
             return error.RestoreView;
         self.scroll_dest = self.view.row;
+        self.view.rows = rows;
+        self.view.cols = cols;
 
         if (cursels_cbor.len > 0)
             self.clear_all_cursors();
