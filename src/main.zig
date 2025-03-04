@@ -6,6 +6,7 @@ const builtin = @import("builtin");
 
 const bin_path = @import("bin_path.zig");
 const list_languages = @import("list_languages.zig");
+pub const file_link = @import("file_link.zig");
 
 const c = @cImport({
     @cInclude("locale.h");
@@ -230,92 +231,60 @@ pub fn main() anyerror!void {
     const tui_proc = try tui.spawn(a, &ctx, &eh, &env);
     defer tui_proc.deinit();
 
-    const Dest = struct {
-        file: []const u8 = "",
-        line: ?usize = null,
-        column: ?usize = null,
-        end_column: ?usize = null,
-    };
-    var dests = std.ArrayList(Dest).init(a);
-    defer dests.deinit();
-    var prev: ?*Dest = null;
+    var links = std.ArrayList(file_link.Dest).init(a);
+    defer links.deinit();
+    var prev: ?*file_link.Dest = null;
     var line_next: ?usize = null;
     for (positional_args.items) |arg| {
         if (arg.len == 0) continue;
 
         if (!args.literal and arg[0] == '+') {
             const line = try std.fmt.parseInt(usize, arg[1..], 10);
-            if (prev) |p| {
-                p.line = line;
-            } else {
-                line_next = line;
-            }
+            if (prev) |p| switch (p.*) {
+                .file => |*file| {
+                    file.line = line;
+                    continue;
+                },
+                else => {},
+            };
+            line_next = line;
             continue;
         }
 
-        const curr = try dests.addOne();
-        curr.* = .{};
+        const curr = try links.addOne();
+        curr.* = if (!args.literal) try file_link.parse(arg) else .{ .file = .{ .path = arg } };
         prev = curr;
+
         if (line_next) |line| {
-            curr.line = line;
-            line_next = null;
-        }
-        if (!args.literal) {
-            var it = std.mem.splitScalar(u8, arg, ':');
-            curr.file = it.first();
-            if (it.next()) |line_|
-                curr.line = std.fmt.parseInt(usize, line_, 10) catch blk: {
-                    curr.file = arg;
-                    break :blk null;
-                };
-            if (curr.line) |_| {
-                if (it.next()) |col_|
-                    curr.column = std.fmt.parseInt(usize, col_, 10) catch null;
-                if (it.next()) |col_|
-                    curr.end_column = std.fmt.parseInt(usize, col_, 10) catch null;
+            switch (curr.*) {
+                .file => |*file| {
+                    file.line = line;
+                    line_next = null;
+                },
+                else => {},
             }
-        } else {
-            curr.file = arg;
         }
     }
 
     var have_project = false;
-    var files = std.ArrayList(Dest).init(a);
-    defer files.deinit();
     if (args.project) |project| {
         try tui_proc.send(.{ "cmd", "open_project_dir", .{project} });
         have_project = true;
     }
-    for (dests.items) |dest| {
-        if (dest.file.len == 0) continue;
-        if (is_directory(dest.file)) {
+    for (links.items) |link| switch (link) {
+        .dir => |dir| {
             if (have_project) {
                 std.debug.print("more than one project directory is not allowed\n", .{});
                 exit(1);
             }
-            try tui_proc.send(.{ "cmd", "open_project_dir", .{dest.file} });
-
+            try tui_proc.send(.{ "cmd", "open_project_dir", .{dir.path} });
             have_project = true;
-        } else {
-            const curr = try files.addOne();
-            curr.* = dest;
-        }
-    }
+        },
+        else => {},
+    };
 
-    for (files.items) |dest| {
-        if (dest.file.len == 0) continue;
-
-        if (dest.line) |l| {
-            if (dest.column) |col| {
-                try tui_proc.send(.{ "cmd", "navigate", .{ .file = dest.file, .line = l, .column = col } });
-                if (dest.end_column) |end|
-                    try tui_proc.send(.{ "A", l, col - 1, end - 1 });
-            } else {
-                try tui_proc.send(.{ "cmd", "navigate", .{ .file = dest.file, .line = l } });
-            }
-        } else {
-            try tui_proc.send(.{ "cmd", "navigate", .{ .file = dest.file } });
-        }
+    for (links.items) |link| {
+        try file_link.navigate(tui_proc.ref(), &link);
     } else {
         if (!have_project)
             try tui_proc.send(.{ "cmd", "open_project_cwd" });
@@ -887,6 +856,14 @@ pub fn is_directory(rel_path: []const u8) bool {
     const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch return false;
     var dir = std.fs.openDirAbsolute(abs_path, .{}) catch return false;
     dir.close();
+    return true;
+}
+
+pub fn is_file(rel_path: []const u8) bool {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch return false;
+    var file = std.fs.openFileAbsolute(abs_path, .{ .mode = .read_only }) catch return false;
+    defer file.close();
     return true;
 }
 
