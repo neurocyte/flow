@@ -2815,7 +2815,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const smart_delete_backward_meta = .{ .description = "Delete previous character (smart)" };
+    pub const smart_delete_backward_meta: Meta = .{ .description = "Delete previous character (smart)" };
 
     pub fn delete_word_left(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -4175,7 +4175,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const smart_insert_pair_close_meta = .{ .arguments = &.{ .string, .string } };
+    pub const smart_insert_pair_close_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
     pub fn enable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = true;
@@ -4420,12 +4420,12 @@ pub const Editor = struct {
     pub fn save_file_with_formatting(self: *Self, _: Context) Result {
         return self.save_file(Context.fmt(.{"format"}));
     }
-    pub const save_file_with_formatting_meta = .{ .description = "Save file with formatting" };
+    pub const save_file_with_formatting_meta: Meta = .{ .description = "Save file with formatting" };
 
     pub fn save_file_without_formatting(self: *Self, _: Context) Result {
         return self.save_file(Context.fmt(.{"no_format"}));
     }
-    pub const save_file_without_formatting_meta = .{ .description = "Save file without formatting" };
+    pub const save_file_without_formatting_meta: Meta = .{ .description = "Save file without formatting" };
 
     pub fn save_file_as(self: *Self, ctx: Context) Result {
         var file_path: []const u8 = undefined;
