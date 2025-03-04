@@ -2773,6 +2773,49 @@ pub const Editor = struct {
     }
     pub const delete_backward_meta = .{ .description = "Delete previous character" };
 
+    pub fn smart_delete_backward(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        var all_stop = true;
+        var root = b.root;
+
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |_| {
+                root = self.delete_selection(root, cursel, b.allocator) catch continue;
+                all_stop = false;
+                continue;
+            }
+            with_selection_const(root, move_cursor_left, cursel, self.metrics) catch continue;
+
+            if (cursel.selection) |*sel| {
+                const egc_left, _, _ = sel.end.egc_at(root, self.metrics) catch {
+                    root = self.delete_selection(root, cursel, b.allocator) catch continue;
+                    all_stop = false;
+                    continue;
+                };
+                const egc_right, _, _ = sel.begin.egc_at(root, self.metrics) catch {
+                    root = self.delete_selection(root, cursel, b.allocator) catch continue;
+                    all_stop = false;
+                    continue;
+                };
+
+                for (Buffer.unicode.char_pairs) |pair| if (std.mem.eql(u8, egc_left, pair[0]) and std.mem.eql(u8, egc_right, pair[1])) {
+                    sel.begin.move_right(root, self.metrics) catch {};
+                    break;
+                };
+            }
+
+            root = self.delete_selection(root, cursel, b.allocator) catch continue;
+            all_stop = false;
+        };
+
+        if (all_stop)
+            return error.Stop;
+
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const smart_delete_backward_meta = .{ .description = "Delete previous character (smart)" };
+
     pub fn delete_word_left(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         const root = try self.delete_to(move_cursor_word_left_space, b.root, b.allocator);

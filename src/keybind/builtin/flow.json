@@ -149,7 +149,7 @@
             ["escape", "cancel"],
             ["enter", "smart_insert_line"],
             ["delete", "delete_forward"],
-            ["backspace", "delete_backward"],
+            ["backspace", "smart_delete_backward"],
             ["left", "move_left"],
             ["right", "move_right"],
             ["up", "move_up"],
