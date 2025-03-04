@@ -4069,6 +4069,7 @@ pub const Editor = struct {
         if (!try ctx.args.match(.{ tp.extract(&chars_left), tp.extract(&chars_right) }))
             return error.InvalidSmartInsertPairArguments;
         const b = try self.buf_for_update();
+        var move: enum { left, right } = .left;
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |*sel| {
@@ -4077,16 +4078,60 @@ pub const Editor = struct {
                 var end: CurSel = .{ .cursor = sel.end };
                 root = try self.insert(root, &end, chars_right, b.allocator);
                 sel.end.move_left(root, self.metrics) catch {};
-            } else {
-                root = try self.insert(root, cursel, chars_left, b.allocator);
-                root = try self.insert(root, cursel, chars_right, b.allocator);
+            } else blk: {
+                const egc, _, _ = cursel.cursor.egc_at(root, self.metrics) catch {
+                    root = try self.insert(root, cursel, chars_left, b.allocator);
+                    root = try self.insert(root, cursel, chars_right, b.allocator);
+                    break :blk;
+                };
+                if (std.mem.eql(u8, egc, chars_left)) {
+                    move = .right;
+                } else {
+                    root = try self.insert(root, cursel, chars_left, b.allocator);
+                    root = try self.insert(root, cursel, chars_right, b.allocator);
+                }
             }
-            cursel.cursor.move_left(root, self.metrics) catch {};
+            switch (move) {
+                .left => cursel.cursor.move_left(root, self.metrics) catch {},
+                .right => cursel.cursor.move_right(root, self.metrics) catch {},
+            }
         };
         try self.update_buf(root);
         self.clamp();
     }
-    pub const smart_insert_pair_meta = .{ .arguments = &.{.string} };
+    pub const smart_insert_pair_meta = .{ .arguments = &.{ .string, .string } };
+
+    pub fn smart_insert_pair_close(self: *Self, ctx: Context) Result {
+        var chars_left: []const u8 = undefined;
+        var chars_right: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&chars_left), tp.extract(&chars_right) }))
+            return error.InvalidSmartInsertPairArguments;
+        const b = try self.buf_for_update();
+        var root = b.root;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |*sel| {
+                var begin: CurSel = .{ .cursor = sel.begin };
+                root = try self.insert(root, &begin, chars_left, b.allocator);
+                var end: CurSel = .{ .cursor = sel.end };
+                root = try self.insert(root, &end, chars_right, b.allocator);
+                sel.begin.move_left(root, self.metrics) catch {};
+                cursel.disable_selection(root, self.metrics);
+            } else blk: {
+                const egc, _, _ = cursel.cursor.egc_at(root, self.metrics) catch {
+                    root = try self.insert(root, cursel, chars_right, b.allocator);
+                    break :blk;
+                };
+                if (std.mem.eql(u8, egc, chars_right)) {
+                    cursel.cursor.move_right(root, self.metrics) catch {};
+                } else {
+                    root = try self.insert(root, cursel, chars_right, b.allocator);
+                }
+            }
+        };
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const smart_insert_pair_close_meta = .{ .arguments = &.{ .string, .string } };
 
     pub fn enable_fast_scroll(self: *Self, _: Context) Result {
         self.fast_scroll = true;
