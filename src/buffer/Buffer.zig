@@ -524,7 +524,7 @@ const Node = union(enum) {
         if (!found) return error.NotFound;
     }
 
-    pub fn ecg_at(self: *const Node, line: usize, col: usize, metrics: Metrics) error{NotFound}!struct { []const u8, usize, usize } {
+    pub fn egc_at(self: *const Node, line: usize, col: usize, metrics: Metrics) error{NotFound}!struct { []const u8, usize, usize } {
         const ctx_ = struct {
             col: usize,
             at: ?[]const u8 = null,
@@ -545,8 +545,8 @@ const Node = union(enum) {
     }
 
     pub fn test_at(self: *const Node, pred: *const fn (c: []const u8) bool, line: usize, col: usize, metrics: Metrics) bool {
-        const ecg, _, _ = self.ecg_at(line, col, metrics) catch return false;
-        return pred(ecg);
+        const egc, _, _ = self.egc_at(line, col, metrics) catch return false;
+        return pred(egc);
     }
 
     pub fn get_line_width_map(self: *const Node, line: usize, map: *ArrayList(usize), metrics: Metrics) error{ Stop, NoSpaceLeft }!void {

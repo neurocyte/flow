@@ -45,6 +45,10 @@ fn create() SpawnError!Self {
     return .{ .pid = tp.env.get().proc(module_name) };
 }
 
+pub fn start() SpawnError!void {
+    _ = try get();
+}
+
 pub fn shutdown() void {
     const pid = tp.env.get().proc(module_name);
     if (pid.expired()) {

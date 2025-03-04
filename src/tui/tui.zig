@@ -133,6 +133,8 @@ fn init(allocator: Allocator) !*Self {
     self.rdr_.dispatch_event = dispatch_event;
     try self.rdr_.run();
 
+    try project_manager.start();
+
     try frame_clock.start();
     try self.commands.init(self);
     errdefer self.deinit();
@@ -895,6 +897,15 @@ const cmds = struct {
     pub const move_to_char_meta: Meta = .{ .description = "Move cursor to matching character" };
 
     pub fn open_file(self: *Self, ctx: Ctx) Result {
+        if (get_active_selection(self.allocator)) |text| {
+            defer self.allocator.free(text);
+            const link = try root.file_link.parse(text);
+            switch (link) {
+                .file => |file| if (file.exists)
+                    return root.file_link.navigate(tp.self_pid(), &link),
+                else => {},
+            }
+        }
         return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
     }
     pub const open_file_meta: Meta = .{ .description = "Open file" };
