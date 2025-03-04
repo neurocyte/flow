@@ -176,6 +176,10 @@ fn is_at_end(self: *const Self, root: Buffer.Root, metrics: Metrics) bool {
     return if (self.row < root.lines()) self.col == root.line_width(self.row, metrics) catch 0 else true;
 }
 
+pub fn egc_at(self: *const Self, root: Buffer.Root, metrics: Metrics) error{NotFound}!struct { []const u8, usize, usize } {
+    return root.egc_at(self.row, self.col, metrics);
+}
+
 pub fn test_at(self: *const Self, root: Buffer.Root, pred: *const fn (c: []const u8) bool, metrics: Metrics) bool {
     return root.test_at(pred, self.row, self.col, metrics);
 }
