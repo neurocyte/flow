@@ -133,6 +133,8 @@ fn init(allocator: Allocator) !*Self {
     self.rdr.dispatch_event = dispatch_event;
     try self.rdr.run();
 
+    try project_manager.start();
+
     try frame_clock.start();
     try self.commands.init(self);
     errdefer self.deinit();
