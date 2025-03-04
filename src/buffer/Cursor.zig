@@ -40,7 +40,7 @@ fn move_right_no_target(self: *Self, root: Buffer.Root, metrics: Metrics) !void 
     const lines = root.lines();
     if (lines <= self.row) return error.Stop;
     if (self.col < root.line_width(self.row, metrics) catch 0) {
-        _, const wcwidth, const offset = root.ecg_at(self.row, self.col, metrics) catch return error.Stop;
+        _, const wcwidth, const offset = root.egc_at(self.row, self.col, metrics) catch return error.Stop;
         self.col += wcwidth - offset;
     } else if (self.row < lines - 1) {
         self.col = 0;
@@ -59,7 +59,7 @@ fn move_left_no_target(self: *Self, root: Buffer.Root, metrics: Metrics) !void {
         self.row -= 1;
         self.col = root.line_width(self.row, metrics) catch 0;
     } else {
-        _, const wcwidth, _ = root.ecg_at(self.row, self.col - 1, metrics) catch return error.Stop;
+        _, const wcwidth, _ = root.egc_at(self.row, self.col - 1, metrics) catch return error.Stop;
         if (self.col > wcwidth) self.col -= wcwidth else self.col = 0;
     }
 }

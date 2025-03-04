@@ -2994,7 +2994,7 @@ pub const Editor = struct {
             return error.Stop;
         try move_cursor_left(root, cursor, metrics);
         while (true) {
-            const curr_egc, _, _ = root.ecg_at(cursor.row, cursor.col, metrics) catch return error.Stop;
+            const curr_egc, _, _ = root.egc_at(cursor.row, cursor.col, metrics) catch return error.Stop;
             if (std.mem.eql(u8, curr_egc, egc))
                 return;
             if (is_eol_left(root, cursor, metrics))
@@ -3009,7 +3009,7 @@ pub const Editor = struct {
             return error.Stop;
         try move_cursor_right(root, cursor, metrics);
         while (true) {
-            const curr_egc, _, _ = root.ecg_at(cursor.row, cursor.col, metrics) catch return error.Stop;
+            const curr_egc, _, _ = root.egc_at(cursor.row, cursor.col, metrics) catch return error.Stop;
             if (std.mem.eql(u8, curr_egc, egc))
                 return;
             if (is_eol_right(root, cursor, metrics))
