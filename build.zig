@@ -595,6 +595,7 @@ fn gen_version_info(
     var code: u8 = 0;
 
     const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags" }, &code, .Ignore);
+    const date_ = try b.runAllowFail(&[_][]const u8{ "git", "show", "-s", "--format=%ci", "HEAD" }, &code, .Ignore);
     const branch_ = try b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", "HEAD" }, &code, .Ignore);
     const branch = std.mem.trimRight(u8, branch_, "\r\n ");
     const tracking_branch_ = blk: {
@@ -615,6 +616,7 @@ fn gen_version_info(
     const log_ = b.runAllowFail(&[_][]const u8{ "git", "log", "--pretty=oneline", "@{u}..." }, &code, .Ignore) catch "";
     const diff_ = b.runAllowFail(&[_][]const u8{ "git", "diff", "--stat", "--patch", "HEAD" }, &code, .Ignore) catch "(git diff failed)";
     const version = std.mem.trimRight(u8, describe, "\r\n ");
+    const date = std.mem.trimRight(u8, date_, "\r\n ");
     const tracking_branch = std.mem.trimRight(u8, tracking_branch_, "\r\n ");
     const tracking_remote = std.mem.trimRight(u8, tracking_remote_, "\r\n ");
     const remote = std.mem.trimRight(u8, remote_, "\r\n ");
@@ -622,9 +624,10 @@ fn gen_version_info(
     const diff = std.mem.trimRight(u8, diff_, "\r\n ");
     const target_triple = try target.result.zigTriple(b.allocator);
 
-    try writer.print("Flow Control: a programmer's text editor\n\nversion: {s}{s}\ntarget: {s}\n", .{
+    try writer.print("Flow Control: a programmer's text editor\n\nversion: {s}{s}\ncommitted: {s}\ntarget: {s}\n", .{
         version,
         if (diff.len > 0) "-dirty" else "",
+        date,
         target_triple,
     });
 
