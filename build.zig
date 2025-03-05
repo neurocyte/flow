@@ -583,7 +583,7 @@ pub fn build_exe(
     });
 
     lint_step.dependOn(&lints.step);
-    // b.default_step.dependOn(lint_step);
+    b.default_step.dependOn(lint_step);
 }
 
 fn gen_version_info(
