@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const tree_sitter_dep = b.dependency("tree-sitter", .{
+    const tree_sitter_dep = b.dependency("tree_sitter", .{
         .target = target,
         .optimize = optimize,
     });
