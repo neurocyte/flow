@@ -4020,12 +4020,18 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            var indent_extra = true;
             const smart_brace_indent = blk: {
                 var sel = Selection.from_cursor(&cursel.cursor);
                 move_cursor_left(root, &sel.begin, self.metrics) catch break :blk false;
                 const egc_left, _, _ = sel.end.egc_at(root, self.metrics) catch break :blk false;
                 const egc_right, _, _ = sel.begin.egc_at(root, self.metrics) catch break :blk false;
-                break :blk std.mem.eql(u8, egc_right, "{") and std.mem.eql(u8, egc_left, "}");
+                if (std.mem.eql(u8, egc_right, "[") and std.mem.eql(u8, egc_left, "]")) {
+                    indent_extra = false;
+                    break :blk true;
+                }
+                break :blk (std.mem.eql(u8, egc_right, "{") and std.mem.eql(u8, egc_left, "}")) or
+                    (std.mem.eql(u8, egc_right, "(") and std.mem.eql(u8, egc_left, ")"));
             };
 
             root = try self.cursel_smart_insert_line(root, cursel, b.allocator);
@@ -4034,7 +4040,8 @@ pub const Editor = struct {
                 const cursor = cursel.cursor;
                 root = try self.cursel_smart_insert_line(root, cursel, b.allocator);
                 cursel.cursor = cursor;
-                root = try self.indent_cursel(root, cursel, b.allocator);
+                if (indent_extra)
+                    root = try self.indent_cursel(root, cursel, b.allocator);
             }
         };
         try self.update_buf(root);
