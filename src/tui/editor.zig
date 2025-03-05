@@ -4003,20 +4003,39 @@ pub const Editor = struct {
     }
     pub const insert_line_meta: Meta = .{ .description = "Insert line" };
 
+    fn cursel_smart_insert_line(self: *Self, root: Buffer.Root, cursel: *CurSel, b_allocator: std.mem.Allocator) !Buffer.Root {
+        var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+        var sfa = std.heap.stackFallback(512, self.allocator);
+        const allocator = sfa.get();
+        var stream = std.ArrayList(u8).init(allocator);
+        defer stream.deinit();
+        var writer = stream.writer();
+        _ = try writer.write("\n");
+        while (leading_ws > 0) : (leading_ws -= 1)
+            _ = try writer.write(" ");
+        return self.insert(root, cursel, stream.items, b_allocator);
+    }
+
     pub fn smart_insert_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
-            var sfa = std.heap.stackFallback(512, self.allocator);
-            const allocator = sfa.get();
-            var stream = std.ArrayList(u8).init(allocator);
-            defer stream.deinit();
-            var writer = stream.writer();
-            _ = try writer.write("\n");
-            while (leading_ws > 0) : (leading_ws -= 1)
-                _ = try writer.write(" ");
-            root = try self.insert(root, cursel, stream.items, b.allocator);
+            const smart_brace_indent = blk: {
+                var sel = Selection.from_cursor(&cursel.cursor);
+                move_cursor_left(root, &sel.begin, self.metrics) catch break :blk false;
+                const egc_left, _, _ = sel.end.egc_at(root, self.metrics) catch break :blk false;
+                const egc_right, _, _ = sel.begin.egc_at(root, self.metrics) catch break :blk false;
+                break :blk std.mem.eql(u8, egc_right, "{") and std.mem.eql(u8, egc_left, "}");
+            };
+
+            root = try self.cursel_smart_insert_line(root, cursel, b.allocator);
+
+            if (smart_brace_indent) {
+                const cursor = cursel.cursor;
+                root = try self.cursel_smart_insert_line(root, cursel, b.allocator);
+                cursel.cursor = cursor;
+                root = try self.indent_cursel(root, cursel, b.allocator);
+            }
         };
         try self.update_buf(root);
         self.clamp();
