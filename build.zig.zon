@@ -1,7 +1,8 @@
 .{
-    .name = "flow",
+    .name = .flow,
     .version = "0.2.0",
-    .minimum_zig_version = "0.14.0-dev.3091",
+    .minimum_zig_version = "0.14.0",
+    .fingerprint = 0x52c0d670590aa80f,
 
     .dependencies = .{
         .syntax = .{ .path = "src/syntax" },
@@ -18,8 +19,8 @@
             .hash = "1220220dbc7fe91c1c54438193ca765cebbcb7d58f35cdcaee404a9d2245a42a4362",
         },
         .thespian = .{
-            .url = "https://github.com/neurocyte/thespian/archive/a3f0f5b089534a29f146768345eb32428f59f521.tar.gz",
-            .hash = "1220839522cd1d8b19c62488127f763a202c69b0ad629666280724902c23f10bd29f",
+            .url = "https://github.com/neurocyte/thespian/archive/78c9c1292c683478d8ac98d8318bc098442cc0b9.tar.gz",
+            .hash = "thespian-0.0.1-owFOjsnnBgBCsKhYw9XeHnQw0Um9SJQECEZ0aqomc04m",
         },
         .themes = .{
             .url = "https://github.com/neurocyte/flow-themes/releases/download/master-59bf204551bcb238faddd06779063570e7e6d431/flow-themes.tar.gz",

@@ -31,7 +31,7 @@ Or check your favorite local system package repository.
 
 Make sure your system meets the requirements listed above.
 
-Flow builds with zig 0.14.0-dev.3091 at this time. Build with:
+Flow builds with zig 0.14.0 at this time. Build with:
 
 ```shell
 zig build -Doptimize=ReleaseSafe
