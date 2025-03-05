@@ -93,8 +93,10 @@ pub fn addP(self: *Self, w_: Widget) !*Widget {
 }
 
 pub fn remove(self: *Self, w: Widget) void {
-    for (self.widgets.items, 0..) |p, i| if (p.widget.ptr == w.ptr)
+    for (self.widgets.items, 0..) |p, i| if (p.widget.ptr == w.ptr) {
         self.widgets.orderedRemove(i).widget.deinit(self.allocator);
+        return;
+    };
 }
 
 pub fn remove_all(self: *Self) void {

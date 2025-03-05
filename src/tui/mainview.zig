@@ -28,6 +28,7 @@ const home = @import("home.zig");
 const logview = @import("logview.zig");
 const filelist_view = @import("filelist_view.zig");
 const info_view = @import("info_view.zig");
+const input_view = @import("inputview.zig");
 
 const Self = @This();
 const Commands = command.Collection(cmds);
@@ -514,6 +515,8 @@ const cmds = struct {
             try self.toggle_panel_view(info_view, false)
         else if (self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, false)
+        else if (self.is_panel_view_showing(input_view))
+            try self.toggle_panel_view(input_view, false)
         else
             try self.toggle_panel_view(logview, false);
     }
@@ -530,7 +533,7 @@ const cmds = struct {
     pub const show_logview_meta: Meta = .{ .description = "View log" };
 
     pub fn toggle_inputview(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(@import("inputview.zig"), false);
+        try self.toggle_panel_view(input_view, false);
     }
     pub const toggle_inputview_meta: Meta = .{ .description = "Toggle raw input log" };
 
