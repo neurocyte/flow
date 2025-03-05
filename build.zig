@@ -206,7 +206,16 @@ pub fn build_exe(
         .optimize = optimize,
     });
 
-    const tracy_dep = if (tracy_enabled) b.dependency("tracy", .{
+    const thespian_dep = b.dependency("thespian", .{
+        .target = target,
+        .optimize = optimize_deps,
+        .enable_tracy = tracy_enabled,
+    });
+
+    const thespian_mod = thespian_dep.module("thespian");
+    const cbor_mod = thespian_dep.module("cbor");
+
+    const tracy_dep = if (tracy_enabled) thespian_dep.builder.dependency("tracy", .{
         .target = target,
         .optimize = optimize,
     }) else undefined;
@@ -233,15 +242,6 @@ pub fn build_exe(
         .use_tree_sitter = use_tree_sitter,
     });
     const syntax_mod = syntax_dep.module("syntax");
-
-    const thespian_dep = b.dependency("thespian", .{
-        .target = target,
-        .optimize = optimize_deps,
-        .enable_tracy = tracy_enabled,
-    });
-
-    const thespian_mod = thespian_dep.module("thespian");
-    const cbor_mod = thespian_dep.module("cbor");
 
     const help_mod = b.createModule(.{
         .root_source_file = b.path("help.md"),

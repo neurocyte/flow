@@ -9,10 +9,6 @@
             .url = "https://github.com/n0s4/flags/archive/b3905aa990719ff567f1c5a2f89e6dd3292d8533.tar.gz",
             .hash = "1220930a42f8da3fb7f723e3ad3f6dcc6db76327dd8d26274566423192d53e91b2bb",
         },
-        .tracy = .{
-            .url = "https://github.com/neurocyte/zig-tracy/archive/e04e31c64498149a324491b8534758e6af43a5c2.tar.gz",
-            .hash = "1220d0fb2bff7b453dbb39d1db3eb472b6680e2564f2b23b0e947671be47bbdd188f",
-        },
         .dizzy = .{
             .url = "https://github.com/neurocyte/dizzy/archive/455d18369cbb2a0458ba70be919cd378338d695e.tar.gz",
             .hash = "1220220dbc7fe91c1c54438193ca765cebbcb7d58f35cdcaee404a9d2245a42a4362",
