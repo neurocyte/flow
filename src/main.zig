@@ -56,7 +56,7 @@ pub fn main() anyerror!void {
             \\
             \\Pass in file names to be opened with an optional :LINE or :LINE:COL appended to the
             \\file name to specify a specific location, or pass +<LINE> separately to set the line.
-        ;
+            ;
 
         pub const descriptions = .{
             .project = "Set project directory (default: cwd)",
