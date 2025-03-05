@@ -38,8 +38,8 @@ widgets: *WidgetList,
 widgets_widget: Widget,
 floating_views: WidgetStack,
 commands: Commands = undefined,
-top_bar: ?*Widget = null,
-bottom_bar: ?*Widget = null,
+top_bar: ?Widget = null,
+bottom_bar: ?Widget = null,
 active_editor: ?usize = null,
 editors: std.ArrayListUnmanaged(*ed.Editor) = .{},
 views: *WidgetList,
@@ -79,7 +79,7 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
     self.widgets = widgets;
     self.widgets_widget = widgets.widget();
     if (tui.config().top_bar.len > 0)
-        self.top_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().top_bar, .none, null));
+        self.top_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().top_bar, .none, null))).*;
 
     const views = try WidgetList.createH(allocator, self.plane, @typeName(Self), .dynamic);
     self.views = views;
@@ -89,7 +89,7 @@ pub fn create(allocator: std.mem.Allocator) !Widget {
     try widgets.add(self.views_widget);
 
     if (tui.config().bottom_bar.len > 0) {
-        self.bottom_bar = try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)));
+        self.bottom_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)))).*;
     }
     if (tp.env.get().is("show-input"))
         self.toggle_inputview_async();
@@ -1054,8 +1054,8 @@ fn create_editor(self: *Self) !void {
     var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager);
     errdefer editor_widget.deinit(self.allocator);
     const editor = editor_widget.get("editor") orelse @panic("mainview editor not found");
-    if (self.top_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
-    if (self.bottom_bar) |bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
+    if (self.top_bar) |*bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
+    if (self.bottom_bar) |*bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
     editor.subscribe(EventHandler.bind(self, handle_editor_event)) catch @panic("subscribe unsupported");
     try self.replace_active_view(editor_widget);
     if (editor.dynamic_cast(ed.EditorWidget)) |p|
