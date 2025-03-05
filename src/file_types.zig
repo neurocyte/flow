@@ -1,7 +1,18 @@
+const file_type = @import("file_type.zig");
+const FirstLineMatch = file_type.FirstLineMatch;
+
 pub const agda = .{
     .description = "Agda",
     .extensions = .{"agda"},
     .comment = "--",
+};
+
+pub const astro = .{
+    .description = "Astro",
+    .icon = "",
+    .extensions = .{"astro"},
+    .comment = "//",
+    .language_server = .{ "astro-ls", "--stdio" },
 };
 
 pub const bash = .{
@@ -10,7 +21,7 @@ pub const bash = .{
     .icon = "󱆃",
     .extensions = .{ "sh", "bash", ".profile" },
     .comment = "#",
-    .first_line_matches = .{ .prefix = "#!", .content = "sh" },
+    .first_line_matches = FirstLineMatch{ .prefix = "#!", .content = "sh" },
     .formatter = .{ "shfmt", "--indent", "4" },
     .language_server = .{ "bash-language-server", "start" },
 };
@@ -37,7 +48,7 @@ pub const conf = .{
     .description = "Config",
     .color = 0x000000,
     .icon = "",
-    .extensions = .{ "conf", "config", ".gitconfig" },
+    .extensions = .{ "conf", "config", ".gitconfig", "gui_config" },
     .highlights = fish.highlights,
     .comment = "#",
     .parser = fish.parser,
@@ -80,7 +91,7 @@ pub const css = .{
 
 pub const diff = .{
     .description = "Diff",
-    .extensions = .{ "diff", "patch" },
+    .extensions = .{ "diff", "patch", "rej" },
     .comment = "#",
 };
 
@@ -227,6 +238,7 @@ pub const julia = .{
     .extensions = .{"jl"},
     .comment = "#",
     .language_server = .{ "julia", "-e", "using LanguageServer; runserver()" },
+    .formatter = .{ "julia", "-e", "using JuliaFormatter; print(format_text(read(stdin, String)))" },
 };
 
 pub const kdl = .{
@@ -244,7 +256,7 @@ pub const lua = .{
     .extensions = .{"lua"},
     .comment = "--",
     .injections = "tree-sitter-lua/queries/injections.scm",
-    .first_line_matches = .{ .prefix = "--", .content = "lua" },
+    .first_line_matches = FirstLineMatch{ .prefix = "--", .content = "lua" },
     .language_server = .{"lua-lsp"},
 };
 
@@ -254,7 +266,7 @@ pub const mail = .{
     .extensions = .{ "eml", "mbox" },
     .comment = ">",
     .highlights = "tree-sitter-mail/queries/mail/highlights.scm",
-    .first_line_matches = .{ .prefix = "From" },
+    .first_line_matches = FirstLineMatch{ .prefix = "From" },
 };
 
 pub const make = .{
@@ -380,6 +392,7 @@ pub const php = .{
     .extensions = .{"php"},
     .comment = "//",
     .injections = "tree-sitter-php/queries/injections.scm",
+    .language_server = .{ "intelephense", "--stdio" },
 };
 
 pub const purescript = .{
@@ -397,7 +410,7 @@ pub const python = .{
     .icon = "󰌠",
     .extensions = .{ "py", "pyi" },
     .comment = "#",
-    .first_line_matches = .{ .prefix = "#!", .content = "python" },
+    .first_line_matches = FirstLineMatch{ .prefix = "#!", .content = "python" },
     .language_server = .{"pylsp"},
 };
 
@@ -424,12 +437,20 @@ pub const rust = .{
     .comment = "//",
     .injections = "tree-sitter-rust/queries/injections.scm",
     .language_server = .{"rust-analyzer"},
+    .formatter = .{"rustfmt"},
 };
 
 pub const scheme = .{
     .description = "Scheme",
     .extensions = .{ "scm", "ss", "el" },
     .comment = ";",
+};
+
+pub const sql = .{
+    .description = "SQL",
+    .icon = "󰆼",
+    .extensions = .{"sql"},
+    .comment = "--",
 };
 
 pub const @"ssh-config" = .{
@@ -446,6 +467,16 @@ pub const swift = .{
     .comment = "//",
     .language_server = .{"sourcekit-lsp"},
     .formatter = .{"swift-format"},
+};
+
+pub const verilog = .{
+    .description = "SystemVerilog",
+    .extensions = .{ "sv", "svh" },
+    .comment = "//",
+    .highlights = "nvim-treesitter/queries/verilog/highlights.scm",
+    .injections = "nvim-treesitter/queries/verilog/injections.scm",
+    .language_server = .{"verible-verilog-ls"},
+    .formatter = .{ "verible-verilog-format", "-" },
 };
 
 pub const toml = .{
@@ -492,7 +523,7 @@ pub const xml = .{
     .extensions = .{"xml"},
     .comment = "<!--",
     .highlights = "tree-sitter-xml/queries/xml/highlights.scm",
-    .first_line_matches = .{ .prefix = "<?xml " },
+    .first_line_matches = FirstLineMatch{ .prefix = "<?xml " },
     .formatter = .{ "xmllint", "--format", "-" },
 };
 

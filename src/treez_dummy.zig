@@ -95,10 +95,39 @@ pub const Node = struct {
         return "";
     }
     pub fn freeSExpressionString(_: []const u8) void {}
-    pub fn getParent(_: *const @This()) *Node {
-        return &dummy;
+    pub fn getParent(_: *const @This()) Node {
+        return dummy;
+    }
+    pub fn getChild(_: *const @This(), _: usize) Node {
+        return dummy;
+    }
+    pub fn getChildCount(_: *const @This()) usize {
+        return 0;
+    }
+    pub fn getNamedChild(_: *const @This(), _: usize) Node {
+        return dummy;
+    }
+    pub fn getNamedChildCount(_: *const @This()) usize {
+        return 0;
     }
     pub fn isNull(_: *const @This()) bool {
         return true;
     }
+    pub const externs = struct {
+        pub fn ts_node_next_sibling(_: Node) Node {
+            return Node.dummy;
+        }
+        pub fn ts_node_prev_sibling(_: Node) Node {
+            return Node.dummy;
+        }
+        pub fn ts_node_next_named_sibling(_: Node) Node {
+            return Node.dummy;
+        }
+        pub fn ts_node_prev_named_sibling(_: Node) Node {
+            return Node.dummy;
+        }
+        pub fn ts_node_descendant_for_point_range(_: *const Node, _: Point, _: Point) Node {
+            return Node.dummy;
+        }
+    };
 };

@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const tree_sitter_dep = b.dependency("tree-sitter", .{
+    const tree_sitter_dep = b.dependency("tree_sitter", .{
         .target = target,
         .optimize = optimize,
     });
@@ -19,6 +19,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "treez", .module = tree_sitter_dep.module("treez") },
         ts_queryfile(b, tree_sitter_dep, "queries/cmake/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-agda/queries/highlights.scm"),
+        ts_queryfile(b, tree_sitter_dep, "tree-sitter-astro/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-bash/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-c-sharp/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-c/queries/highlights.scm"),
@@ -65,6 +66,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-scala/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-scheme/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-superhtml/tree-sitter-superhtml/queries/highlights.scm"),
+        ts_queryfile(b, tree_sitter_dep, "tree-sitter-sql/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-swift/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-toml/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-typescript/queries/highlights.scm"),
@@ -76,8 +78,10 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-zig/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-ziggy/tree-sitter-ziggy/queries/highlights.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-ziggy/tree-sitter-ziggy-schema/queries/highlights.scm"),
+        ts_queryfile(b, tree_sitter_dep, "nvim-treesitter/queries/verilog/highlights.scm"),
 
         ts_queryfile(b, tree_sitter_dep, "queries/cmake/injections.scm"),
+        ts_queryfile(b, tree_sitter_dep, "tree-sitter-astro/queries/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-cpp/queries/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-elixir/queries/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-gitcommit/queries/injections.scm"),
@@ -102,6 +106,7 @@ pub fn build(b: *std.Build) void {
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-typst/queries/typst/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-vim/queries/vim/injections.scm"),
         ts_queryfile(b, tree_sitter_dep, "tree-sitter-zig/queries/injections.scm"),
+        ts_queryfile(b, tree_sitter_dep, "nvim-treesitter/queries/verilog/injections.scm"),
     } else &.{
         .{ .name = "build_options", .module = options_mod },
     };

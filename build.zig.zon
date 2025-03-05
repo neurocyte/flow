@@ -1,11 +1,13 @@
 .{
-    .name = "flow-syntax",
-    .version = "0.0.1",
+    .name = .flow_syntax,
+    .version = "0.1.0",
+    .fingerprint = 0x3ba2584ea1cec85f,
+    .minimum_zig_version = "0.14.0-dev.3451+d8d2aa9af",
 
     .dependencies = .{
-        .@"tree-sitter" = .{
-            .url = "https://github.com/neurocyte/tree-sitter/releases/download/master-aea6072c6178d5cd0c97fff33e130f632f355bc2/source.tar.gz",
-            .hash = "12204c99c6093230023380068f386f7eb32ab83df9a8eb8b586ffe5aa44afa34ff0e",
+        .tree_sitter = .{
+            .url = "https://github.com/neurocyte/tree-sitter/releases/download/master-86dd4d2536f2748c5b4ea0e1e70678039a569aac/source.tar.gz",
+            .hash = "N-V-__8AACablCbp-6lsRoKDEp6Xd2dHLe4AsW81blkSQxzs",
         },
     },
     .paths = .{
