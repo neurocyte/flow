@@ -224,15 +224,6 @@ fn close_all_panel_views(self: *Self) void {
     tui.resize();
 }
 
-fn toggle_view(self: *Self, view: anytype) !void {
-    if (self.widgets.get(@typeName(view))) |w| {
-        self.widgets.remove(w.*);
-    } else {
-        try self.widgets.add(try view.create(self.allocator, self.plane));
-    }
-    tui.resize();
-}
-
 fn check_all_not_dirty(self: *const Self) command.Result {
     if (self.buffer_manager.is_dirty())
         return tp.exit("unsaved changes");
