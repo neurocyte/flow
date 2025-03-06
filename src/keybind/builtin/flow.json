@@ -10,7 +10,6 @@
             ["ctrl+w", "quit"],
             ["ctrl+o", "open_file"],
             ["ctrl+e", "open_recent"],
-            ["ctrl+p", "open_command_palette"],
             ["ctrl+k ctrl+t", "change_theme"],
             ["ctrl+shift+p", "open_command_palette"],
             ["ctrl+shift+q", "quit_without_saving"],
