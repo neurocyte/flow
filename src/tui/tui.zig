@@ -676,11 +676,12 @@ const cmds = struct {
     const Ctx = command.Context;
     const Meta = command.Metadata;
     const Result = command.Result;
+    const Meta = command.Metadata;
 
     pub fn restart(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("restart");
     }
-    pub const restart_meta: Meta = .{ .description = "Restart flow (without saving)" };
+    pub const restart_meta: Meta = .{ .description = "Restart (without saving)" };
 
     pub fn force_terminate(self: *Self, _: Ctx) Result {
         self.deinit();
@@ -711,7 +712,7 @@ const cmds = struct {
         self.logger.print("theme: {s}", .{self.theme_.description});
         try save_config();
     }
-    pub const theme_next_meta: Meta = .{ .description = "Switch to next color theme" };
+    pub const theme_next_meta: Meta = .{ .description = "Next color theme" };
 
     pub fn theme_prev(self: *Self, _: Ctx) Result {
         self.theme_ = get_prev_theme_by_name(self.theme_.name);
@@ -720,7 +721,7 @@ const cmds = struct {
         self.logger.print("theme: {s}", .{self.theme_.description});
         try save_config();
     }
-    pub const theme_prev_meta: Meta = .{ .description = "Switch to previous color theme" };
+    pub const theme_prev_meta: Meta = .{ .description = "Previous color theme" };
 
     pub fn toggle_whitespace_mode(self: *Self, _: Ctx) Result {
         self.config_.whitespace_mode = if (std.mem.eql(u8, self.config_.whitespace_mode, "none"))
@@ -743,7 +744,7 @@ const cmds = struct {
         _ = try self.send_widgets(tp.self_pid(), m);
         self.logger.print("whitespace rendering {s}", .{self.config_.whitespace_mode});
     }
-    pub const toggle_whitespace_mode_meta: Meta = .{ .description = "Switch to next whitespace rendering mode" };
+    pub const toggle_whitespace_mode_meta: Meta = .{ .description = "Next whitespace mode" };
 
     pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
         var it = std.mem.splitScalar(u8, self.config_.input_mode, '/');
@@ -766,7 +767,7 @@ const cmds = struct {
         try keybind.set_namespace(self.config_.input_mode);
         return self.refresh_input_mode();
     }
-    pub const toggle_input_mode_meta: Meta = .{ .description = "Switch to next input mode" };
+    pub const toggle_input_mode_meta: Meta = .{ .description = "Switch input mode" };
 
     pub fn enter_mode(self: *Self, ctx: Ctx) Result {
         var mode: []const u8 = undefined;
@@ -795,22 +796,27 @@ const cmds = struct {
     pub fn open_command_palette(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/command_palette.zig").Type);
     }
-    pub const open_command_palette_meta: Meta = .{ .description = "Show/Run commands" };
+    pub const open_command_palette_meta: Meta = .{ .description = "Command palette" };
 
     pub fn insert_command_name(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type);
     }
-    pub const insert_command_name_meta: Meta = .{ .description = "Insert command name" };
+    pub const insert_command_name_meta: Meta = .{ .description = "Show active keybindings" };
+
+    pub fn find_file(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
+    }
+    pub const find_file_meta: Meta = .{ .description = "Find file" };
 
     pub fn open_recent(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
     }
-    pub const open_recent_meta: Meta = .{ .description = "Open recent file" };
+    pub const open_recent_meta: Meta = .{ .description = "Open recent" };
 
     pub fn open_recent_project(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/open_recent_project.zig").Type);
     }
-    pub const open_recent_project_meta: Meta = .{ .description = "Open recent project" };
+    pub const open_recent_project_meta: Meta = .{ .description = "Open project" };
 
     pub fn switch_buffers(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/buffer_palette.zig").Type);
@@ -820,7 +826,7 @@ const cmds = struct {
     pub fn select_task(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
     }
-    pub const select_task_meta: Meta = .{ .description = "Select a task to run" };
+    pub const select_task_meta: Meta = .{ .description = "Run task" };
 
     pub fn add_task(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, struct {
@@ -840,7 +846,7 @@ const cmds = struct {
             }
         }, ctx);
     }
-    pub const add_task_meta: Meta = .{ .description = "Add a task to run" };
+    pub const add_task_meta: Meta = .{ .description = "Add task" };
 
     pub fn delete_task(_: *Self, ctx: Ctx) Result {
         var task: []const u8 = undefined;
@@ -853,7 +859,7 @@ const cmds = struct {
     pub fn change_theme(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/theme_palette.zig").Type);
     }
-    pub const change_theme_meta: Meta = .{ .description = "Select color theme" };
+    pub const change_theme_meta: Meta = .{ .description = "Change color theme" };
 
     pub fn change_file_type(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/file_type_palette.zig").Type);
@@ -864,7 +870,7 @@ const cmds = struct {
         if (build_options.gui)
             self.rdr_.get_fontfaces();
     }
-    pub const change_fontface_meta: Meta = .{ .description = "Select font face" };
+    pub const change_fontface_meta: Meta = .{ .description = "Change font" };
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
         self.rdr_.cursor_disable();
@@ -879,12 +885,12 @@ const cmds = struct {
     pub fn find(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/find.zig"), ctx);
     }
-    pub const find_meta: Meta = .{ .description = "Find in current file" };
+    pub const find_meta: Meta = .{ .description = "Find" };
 
     pub fn find_in_files(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/find_in_files.zig"), ctx);
     }
-    pub const find_in_files_meta: Meta = .{ .description = "Find in all project files" };
+    pub const find_in_files_meta: Meta = .{ .description = "Find in files" };
 
     pub fn goto(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/goto.zig"), ctx);
@@ -894,7 +900,7 @@ const cmds = struct {
     pub fn move_to_char(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/move_to_char.zig"), ctx);
     }
-    pub const move_to_char_meta: Meta = .{ .description = "Move cursor to matching character" };
+    pub const move_to_char_meta: Meta = .{ .description = "Move to character" };
 
     pub fn open_file(self: *Self, ctx: Ctx) Result {
         if (get_active_selection(self.allocator)) |text| {

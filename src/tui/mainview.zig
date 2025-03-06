@@ -240,7 +240,7 @@ const cmds = struct {
         try self.check_all_not_dirty();
         try tp.self_pid().send("quit");
     }
-    pub const quit_meta: Meta = .{ .description = "Quit (exit) Flow Control" };
+    pub const quit_meta: Meta = .{ .description = "Quit" };
 
     pub fn quit_without_saving(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("quit");
@@ -399,19 +399,19 @@ const cmds = struct {
         try command.executeName("open_scratch_buffer", command.fmt(.{ "version", root.version_info, "diff" }));
         tui.need_render();
     }
-    pub const open_version_info_meta: Meta = .{ .description = "Show build version information" };
+    pub const open_version_info_meta: Meta = .{ .description = "Version" };
 
     pub fn open_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("config"));
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - 5] } });
     }
-    pub const open_config_meta: Meta = .{ .description = "Edit configuration file" };
+    pub const open_config_meta: Meta = .{ .description = "Edit configuration" };
 
     pub fn open_gui_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("gui_config"));
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - ".json".len] } });
     }
-    pub const open_gui_config_meta: Meta = .{ .description = "Edit gui configuration file" };
+    pub const open_gui_config_meta: Meta = .{ .description = "Edit gui configuration" };
 
     pub fn open_tabs_style_config(self: *Self, _: Ctx) Result {
         const Style = @import("status/tabs.zig").Style;
@@ -433,7 +433,7 @@ const cmds = struct {
         }));
         if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
     }
-    pub const open_tabs_style_config_meta: Meta = .{ .description = "Edit tab styles configuration file" };
+    pub const open_tabs_style_config_meta: Meta = .{ .description = "Edit tab style" };
 
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
         const args = try ctx.args.clone(self.allocator);
@@ -463,7 +463,7 @@ const cmds = struct {
         if (tp.env.get().str("language").len == 0)
             try command.executeName("change_file_type", .{});
     }
-    pub const create_new_file_meta: Meta = .{ .description = "Create: New File…" };
+    pub const create_new_file_meta: Meta = .{ .description = "New file" };
 
     pub fn delete_buffer(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
