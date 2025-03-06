@@ -89,7 +89,7 @@ fn build_release(
         .{ .cpu_arch = .x86_64, .os_tag = .windows },
         .{ .cpu_arch = .aarch64, .os_tag = .windows },
     };
-    const optimize = .ReleaseSafe;
+    const optimize = .ReleaseFast;
 
     var version = std.ArrayList(u8).init(b.allocator);
     defer version.deinit();
