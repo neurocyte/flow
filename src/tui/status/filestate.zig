@@ -132,7 +132,7 @@ fn render_mini_mode(plane: *Plane, theme: *const Widget.Theme) void {
 fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
     plane.on_styles(styles.italic);
     _ = plane.putstr(" ") catch {};
-    if (self.file_icon.len > 0) {
+    if (self.file_icon.len > 0 and tui.config().show_fileicons) {
         self.render_file_icon(plane, theme);
         _ = plane.print(" ", .{}) catch {};
     }
@@ -144,7 +144,7 @@ fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
 fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
     plane.on_styles(styles.italic);
     _ = plane.putstr(" ") catch {};
-    if (self.file_icon.len > 0) {
+    if (self.file_icon.len > 0 and tui.config().show_fileicons) {
         self.render_file_icon(plane, theme);
         _ = plane.print(" ", .{}) catch {};
     }
