@@ -70,7 +70,7 @@ pub fn Create(options: type) type {
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = std.ArrayList(Entry).init(allocator),
             };
-            self.menu.scrollbar.?.style_factory = scrollbar_style;
+            if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
             self.longest_hint = try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
@@ -173,7 +173,8 @@ pub fn Create(options: type) type {
         }
 
         fn update_scrollbar(self: *Self) void {
-            self.menu.scrollbar.?.set(@intCast(@max(self.total_items, 1) - 1), @intCast(self.view_rows), @intCast(self.view_pos));
+            if (self.menu.scrollbar) |scrollbar|
+                scrollbar.set(@intCast(@max(self.total_items, 1) - 1), @intCast(self.view_rows), @intCast(self.view_pos));
         }
 
         fn mouse_click_button4(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {

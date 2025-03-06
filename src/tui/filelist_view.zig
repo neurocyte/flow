@@ -61,7 +61,7 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
             .on_click5 = mouse_click_button5,
         }),
     };
-    self.menu.scrollbar.?.style_factory = scrollbar_style;
+    if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
     try self.commands.init(self);
     return Widget.to(self);
 }
@@ -184,7 +184,8 @@ fn handle_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {
 }
 
 fn update_scrollbar(self: *Self) void {
-    self.menu.scrollbar.?.set(@intCast(self.entries.items.len), @intCast(self.view_rows), @intCast(self.view_pos));
+    if (self.menu.scrollbar) |scrollbar|
+        scrollbar.set(@intCast(self.entries.items.len), @intCast(self.view_rows), @intCast(self.view_pos));
 }
 
 fn mouse_click_button4(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {

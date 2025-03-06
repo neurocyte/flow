@@ -5512,7 +5512,8 @@ pub const EditorWidget = struct {
         const editorWidget = Widget.to(self);
         try container.add(try editor_gutter.create(allocator, container.widget(), editorWidget, &self.editor));
         try container.add(editorWidget);
-        try container.add(try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.to_unowned(container)));
+        if (tui.config().show_scrollbars)
+            try container.add(try scrollbar_v.create(allocator, container.plane, editorWidget, EventHandler.to_unowned(container)));
         return container.widget();
     }
 

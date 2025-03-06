@@ -6,6 +6,7 @@ const WidgetList = @import("WidgetList.zig");
 const Button = @import("Button.zig");
 const scrollbar_v = @import("scrollbar_v.zig");
 const Plane = @import("renderer").Plane;
+const tui = @import("tui.zig");
 
 pub const Container = WidgetList;
 pub const scroll_lines = 3;
@@ -61,7 +62,10 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
         .menu = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),
         .container = container,
         .container_widget = container.widget(),
-        .scrollbar = if (opts.on_scroll) |on_scroll| (try scrollbar_v.create(allocator, parent, null, on_scroll)).dynamic_cast(scrollbar_v).? else null,
+        .scrollbar = if (tui.config().show_scrollbars)
+            if (opts.on_scroll) |on_scroll| (try scrollbar_v.create(allocator, parent, null, on_scroll)).dynamic_cast(scrollbar_v).? else null
+        else
+            null,
         .opts = opts,
     };
     self.menu.ctx = self;

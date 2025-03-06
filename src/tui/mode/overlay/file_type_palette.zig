@@ -90,9 +90,12 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.
     if (!(cbor.matchString(&iter, &description_) catch false)) @panic("invalid file_type description");
     if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid file_type icon");
     if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid file_type color");
-    tui.render_file_icon(&button.plane, icon, color);
+    if (tui.config().show_fileicons) {
+        tui.render_file_icon(&button.plane, icon, color);
+        _ = button.plane.print(" ", .{}) catch {};
+    }
     button.plane.set_style(style_label);
-    _ = button.plane.print(" {s} ", .{description_}) catch {};
+    _ = button.plane.print("{s} ", .{description_}) catch {};
 
     var name_: []const u8 = undefined;
     if (!(cbor.matchString(&iter, &name_) catch false))
