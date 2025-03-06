@@ -676,7 +676,6 @@ const cmds = struct {
     const Ctx = command.Context;
     const Meta = command.Metadata;
     const Result = command.Result;
-    const Meta = command.Metadata;
 
     pub fn restart(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("restart");
