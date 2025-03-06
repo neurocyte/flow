@@ -511,13 +511,16 @@
     "home": {
         "on_match_failure": "ignore",
         "press": [
+            ["f", "find_file"],
+            ["g", "find_in_files"],
             [":", "open_command_palette"],
-            [";", "open_command_palette"],
-            ["shift+;", "open_command_palette"],
             ["b", "open_keybind_config"],
             ["j", "home_menu_down"],
             ["k", "home_menu_up"],
-            ["f", "change_fontface"],
+            ["F", "change_fontface"],
+            ["h", "open_help"],
+            ["v", "open_version_info"],
+            ["q", "quit"],
             ["space", "home_menu_activate"]
         ]
     } 
