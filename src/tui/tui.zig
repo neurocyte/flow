@@ -802,6 +802,11 @@ const cmds = struct {
     }
     pub const insert_command_name_meta = .{ .description = "Insert command name" };
 
+    pub fn find_file(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
+    }
+    pub const find_file_meta: Meta = .{ .description = "Find file" };
+
     pub fn open_recent(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
     }
