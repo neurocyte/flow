@@ -1,6 +1,8 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const tp = @import("thespian");
+const log = @import("log");
+const cbor = @import("cbor");
 
 const Plane = @import("renderer").Plane;
 const root = @import("root");
@@ -14,6 +16,52 @@ const keybind = @import("keybind");
 
 const fonts = @import("fonts.zig");
 
+const style = struct {
+    title: []const u8 = root.application_title,
+    subtext: []const u8 = root.application_subtext,
+
+    centered: bool = false,
+
+    menu_commands: []const u8 = splice(if (build_options.gui)
+        \\find_file
+        \\create_new_file
+        \\open_file
+        \\open_recent_project
+        \\find_in_files
+        \\open_command_palette
+        \\select_task
+        \\add_task
+        \\open_config
+        \\open_gui_config
+        \\change_fontface
+        \\open_keybind_config
+        \\toggle_input_mode
+        \\change_theme
+        \\open_help
+        \\open_version_info
+        \\quit
+    else
+        \\find_file
+        \\create_new_file
+        \\open_file
+        \\open_recent_project
+        \\find_in_files
+        \\open_command_palette
+        \\select_task
+        \\add_task
+        \\open_config
+        \\open_keybind_config
+        \\toggle_input_mode
+        \\change_theme
+        \\open_help
+        \\open_version_info
+        \\quit
+    ),
+
+    include_files: []const u8 = "",
+};
+pub const Style = style;
+
 allocator: std.mem.Allocator,
 plane: Plane,
 parent: Plane,
@@ -21,54 +69,24 @@ fire: ?Fire = null,
 commands: Commands = undefined,
 menu: *Menu.State(*Self),
 menu_w: usize = 0,
+menu_len: usize = 0,
 max_desc_len: usize = 0,
 input_namespace: []const u8,
 
+home_style: style,
+home_style_bufs: [][]const u8,
+
 const Self = @This();
 
-const menu_commands = if (build_options.gui) &[_][]const u8{
-    "find_file",
-    "create_new_file",
-    "open_file",
-    "open_recent_project",
-    "find_in_files",
-    "open_command_palette",
-    "select_task",
-    "add_task",
-    "open_config",
-    "open_gui_config",
-    "change_fontface",
-    "open_keybind_config",
-    "toggle_input_mode",
-    "change_theme",
-    "open_help",
-    "open_version_info",
-    "quit",
-} else &[_][]const u8{
-    "find_file",
-    "create_new_file",
-    "open_file",
-    "open_recent_project",
-    "find_in_files",
-    "open_command_palette",
-    "select_task",
-    "add_task",
-    "open_config",
-    "open_keybind_config",
-    "toggle_input_mode",
-    "change_theme",
-    "open_help",
-    "open_version_info",
-    "quit",
-};
-
 pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
+    const logger = log.logger("home");
     const self: *Self = try allocator.create(Self);
     var n = try Plane.init(&(Widget.Box{}).opts("editor"), parent.plane.*);
     errdefer n.deinit();
 
     command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
     const keybind_mode = tui.get_keybind_mode() orelse @panic("no active keybind mode");
+    const home_style, const home_style_bufs = root.read_config(style, allocator);
 
     const w = Widget.to(self);
     self.* = .{
@@ -77,15 +95,32 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .plane = n,
         .menu = try Menu.create(*Self, allocator, w.plane.*, .{ .ctx = self, .on_render = menu_on_render }),
         .input_namespace = keybind.get_namespace(),
+        .home_style = home_style,
+        .home_style_bufs = home_style_bufs,
     };
     try self.commands.init(self);
-    self.get_max_desc_len(keybind_mode.keybind_hints);
-    inline for (menu_commands) |command_name| try self.add_menu_command(command_name, self.menu, keybind_mode.keybind_hints);
+    var it = std.mem.splitAny(u8, self.home_style.menu_commands, "\n ");
+    while (it.next()) |command_name| {
+        self.menu_len += 1;
+        const id = command.get_id(command_name) orelse {
+            logger.print("{s} is not defined", .{command_name});
+            continue;
+        };
+        const description = command.get_description(id) orelse {
+            logger.print("{s} has no description", .{command_name});
+            continue;
+        };
+        var hints = std.mem.splitScalar(u8, keybind_mode.keybind_hints.get(command_name) orelse "", ',');
+        const hint = hints.first();
+        self.max_desc_len = @max(self.max_desc_len, description.len + hint.len + 5);
+        try self.add_menu_command(command_name, description, hint, self.menu);
+    }
     self.position_menu(15, 9);
     return w;
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+    root.free_config(self.allocator, self.home_style_bufs);
     self.menu.deinit(allocator);
     self.commands.deinit();
     self.plane.deinit();
@@ -93,36 +128,32 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     allocator.destroy(self);
 }
 
-fn get_max_desc_len(self: *Self, hints_map: anytype) void {
-    inline for (menu_commands) |command_name| {
-        const id = command.get_id(command_name) orelse @panic(command_name ++ " is not defined");
-        const description = command.get_description(id) orelse @panic(command_name ++ " has no description");
-        var hints = std.mem.splitScalar(u8, hints_map.get(command_name) orelse "", ',');
-        const hint = hints.first();
-        self.max_desc_len = @max(self.max_desc_len, description.len + hint.len + 5);
-    }
-}
-
-fn add_menu_command(self: *Self, comptime command_name: []const u8, menu: anytype, hints_map: anytype) !void {
-    const id = command.get_id(command_name) orelse @panic(command_name ++ " is not defined");
-    const description = command.get_description(id) orelse @panic(command_name ++ " has no description");
-    var hints = std.mem.splitScalar(u8, hints_map.get(command_name) orelse "", ',');
-    const hint = hints.first();
+fn add_menu_command(self: *Self, command_name: []const u8, description: []const u8, hint: []const u8, menu: anytype) !void {
     const label_len = description.len + hint.len;
     var buf: [64]u8 = undefined;
-    var fis = std.io.fixedBufferStream(&buf);
-    const writer = fis.writer();
-    const leader = if (hint.len > 0) "." else " ";
-    _ = try writer.write(description);
-    _ = try writer.write(" ");
-    _ = try writer.write(leader);
-    _ = try writer.write(leader);
-    for (0..(self.max_desc_len - label_len - 5)) |_|
+    {
+        var fis = std.io.fixedBufferStream(&buf);
+        const writer = fis.writer();
+        const leader = if (hint.len > 0) "." else " ";
+        _ = try writer.write(description);
+        _ = try writer.write(" ");
         _ = try writer.write(leader);
-    try writer.print(" :{s}", .{hint});
-    const label = fis.getWritten();
-    try menu.add_item_with_handler(label, menu_action(command_name));
-    self.menu_w = @max(self.menu_w, label.len + 1);
+        _ = try writer.write(leader);
+        for (0..(self.max_desc_len - label_len - 5)) |_|
+            _ = try writer.write(leader);
+        try writer.print(" :{s}", .{hint});
+        const label = fis.getWritten();
+        self.menu_w = @max(self.menu_w, label.len + 1);
+    }
+
+    var value = std.ArrayList(u8).init(self.allocator);
+    defer value.deinit();
+    const writer = value.writer();
+    try cbor.writeValue(writer, description);
+    try cbor.writeValue(writer, hint);
+    try cbor.writeValue(writer, command_name);
+
+    try menu.add_item_with_handler(value.items, menu_action);
 }
 
 pub fn update(self: *Self) void {
@@ -143,7 +174,33 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+fn menu_on_render(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+    var description: []const u8 = undefined;
+    var hint: []const u8 = undefined;
+    var command_name: []const u8 = undefined;
+    var iter = button.opts.label; // label contains cbor
+    if (!(cbor.matchString(&iter, &description) catch false))
+        description = "#ERROR#";
+    if (!(cbor.matchString(&iter, &hint) catch false))
+        hint = "";
+    if (!(cbor.matchString(&iter, &command_name) catch false))
+        command_name = "";
+
+    const label_len = description.len + hint.len;
+    var buf: [64]u8 = undefined;
+    const leader = blk: {
+        var fis = std.io.fixedBufferStream(&buf);
+        const writer = fis.writer();
+        const leader = if (hint.len > 0) "." else " ";
+        _ = writer.write(" ") catch return false;
+        _ = writer.write(leader) catch return false;
+        _ = writer.write(leader) catch return false;
+        for (0..(self.max_desc_len - label_len - 5)) |_|
+            _ = writer.write(leader) catch return false;
+        writer.print(" ", .{}) catch return false;
+        break :blk fis.getWritten();
+    };
+
     const style_base = theme.editor;
     const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else style_base;
     if (button.active or button.hover or selected) {
@@ -159,8 +216,9 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
         button.plane.home();
     }
     const style_text = if (tui.find_scope_style(theme, "keyword")) |sty| sty.style else style_label;
+    const style_leader = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
     const style_keybind = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
-    const sep = std.mem.indexOfScalar(u8, button.opts.label, ':') orelse button.opts.label.len;
+
     if (button.active) {
         button.plane.set_style(style_label);
     } else if (button.hover or selected) {
@@ -169,22 +227,35 @@ fn menu_on_render(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *c
         button.plane.set_style_bg_transparent(style_text);
     }
     const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s}{s}", .{ pointer, button.opts.label[0..sep] }) catch {};
+    _ = button.plane.print("{s}{s}", .{ pointer, description }) catch {};
+    if (button.active or button.hover or selected) {
+        button.plane.set_style(style_leader);
+    } else {
+        button.plane.set_style_bg_transparent(style_leader);
+    }
+    _ = button.plane.print("{s}", .{leader}) catch {};
     if (button.active or button.hover or selected) {
         button.plane.set_style(style_keybind);
     } else {
         button.plane.set_style_bg_transparent(style_keybind);
     }
-    _ = button.plane.print("{s}", .{button.opts.label[sep + 1 ..]}) catch {};
+    _ = button.plane.print("{s}", .{hint}) catch {};
     return false;
 }
 
-fn menu_action(comptime command_name: []const u8) *const fn (_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-    return struct {
-        fn action(_: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
-            command.executeName(command_name, .{}) catch {};
-        }
-    }.action;
+fn menu_action(_: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
+    var description: []const u8 = undefined;
+    var hint: []const u8 = undefined;
+    var command_name: []const u8 = undefined;
+    var iter = button.opts.label; // label contains cbor
+    if (!(cbor.matchString(&iter, &description) catch false))
+        description = "#ERROR#";
+    if (!(cbor.matchString(&iter, &hint) catch false))
+        hint = "";
+    if (!(cbor.matchString(&iter, &command_name) catch false))
+        command_name = "";
+
+    command.executeName(command_name, .{}) catch {};
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -199,35 +270,35 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
 
     if (self.plane.dim_x() > 120 and self.plane.dim_y() > 22) {
-        self.plane.cursor_move_yx(2, 4) catch return false;
-        fonts.print_string_large(&self.plane, root.application_title, style_title) catch return false;
+        self.plane.cursor_move_yx(2, self.centerI(4, self.home_style.title.len * 8)) catch return false;
+        fonts.print_string_large(&self.plane, self.home_style.title, style_title) catch return false;
 
-        self.plane.cursor_move_yx(10, 8) catch return false;
-        fonts.print_string_medium(&self.plane, root.application_subtext, style_subtext) catch return false;
+        self.plane.cursor_move_yx(10, self.centerI(8, self.home_style.subtext.len * 4)) catch return false;
+        fonts.print_string_medium(&self.plane, self.home_style.subtext, style_subtext) catch return false;
 
-        self.position_menu(15, 10);
+        self.position_menu(self.v_center(15, self.menu_len, 15), self.center(10, self.menu_w));
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
-        self.plane.cursor_move_yx(2, 4) catch return false;
-        fonts.print_string_medium(&self.plane, root.application_title, style_title) catch return false;
+        self.plane.cursor_move_yx(2, self.centerI(4, self.home_style.title.len * 4)) catch return false;
+        fonts.print_string_medium(&self.plane, self.home_style.title, style_title) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
-        self.plane.cursor_move_yx(7, 6) catch return false;
-        _ = self.plane.print(root.application_subtext, .{}) catch {};
+        self.plane.cursor_move_yx(7, self.centerI(6, self.home_style.subtext.len)) catch return false;
+        _ = self.plane.print("{s}", .{self.home_style.subtext}) catch {};
         self.plane.set_style(theme.editor);
 
-        self.position_menu(9, 8);
+        self.position_menu(self.v_center(9, self.menu_len, 9), self.center(8, self.menu_w));
     } else {
         self.plane.set_style_bg_transparent(style_title);
-        self.plane.cursor_move_yx(1, 4) catch return false;
-        _ = self.plane.print(root.application_title, .{}) catch return false;
+        self.plane.cursor_move_yx(1, self.centerI(4, self.home_style.title.len)) catch return false;
+        _ = self.plane.print("{s}", .{self.home_style.title}) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
-        self.plane.cursor_move_yx(3, 6) catch return false;
-        _ = self.plane.print(root.application_subtext, .{}) catch {};
+        self.plane.cursor_move_yx(3, self.centerI(6, self.home_style.subtext.len)) catch return false;
+        _ = self.plane.print("{s}", .{self.home_style.subtext}) catch {};
         self.plane.set_style(theme.editor);
 
         const x = @min(self.plane.dim_x() -| 32, 8);
-        self.position_menu(5, x);
+        self.position_menu(self.v_center(5, self.menu_len, 5), self.center(x, self.menu_w));
     }
     const more = self.menu.render(theme);
 
@@ -237,6 +308,24 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 fn position_menu(self: *Self, y: usize, x: usize) void {
     const box = Widget.Box.from(self.plane);
     self.menu.resize(.{ .y = box.y + y, .x = box.x + x, .w = self.menu_w });
+}
+
+fn center(self: *Self, non_centered: usize, w: usize) usize {
+    if (!self.home_style.centered) return non_centered;
+    const box = Widget.Box.from(self.plane);
+    const x = if (box.w > w) (box.w - w) / 2 else 0;
+    return box.x + x;
+}
+
+fn centerI(self: *Self, non_centered: usize, w: usize) c_int {
+    return @intCast(self.center(non_centered, w));
+}
+
+fn v_center(self: *Self, non_centered: usize, h: usize, minoffset: usize) usize {
+    if (!self.home_style.centered) return non_centered;
+    const box = Widget.Box.from(self.plane);
+    const y = if (box.h > h) (box.h - h) / 2 else 0;
+    return box.y + @max(y, minoffset);
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
@@ -286,3 +375,18 @@ const cmds = struct {
 };
 
 const Fire = @import("Fire.zig");
+
+fn splice(in: []const u8) []const u8 {
+    var out: []const u8 = "";
+    var it = std.mem.splitAny(u8, in, "\n ");
+    var first = true;
+    while (it.next()) |item| {
+        if (first) {
+            first = false;
+        } else {
+            out = out ++ " ";
+        }
+        out = out ++ item;
+    }
+    return out;
+}
