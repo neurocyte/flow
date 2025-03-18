@@ -10,6 +10,7 @@ const Self = @This();
 
 pub const Edit = treez.InputEdit;
 pub const FileType = @import("file_type.zig");
+pub const QueryCache = @import("QueryCache.zig");
 pub const Range = treez.Range;
 pub const Point = treez.Point;
 const Input = treez.Input;
@@ -26,34 +27,37 @@ query: *Query,
 injections: ?*Query,
 tree: ?*treez.Tree = null,
 
-pub fn create(file_type: *const FileType, allocator: std.mem.Allocator) !*Self {
+pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, query_cache: *QueryCache) !*Self {
+    const query = try query_cache.get(file_type, .highlights);
+    const injections = try query_cache.get(file_type, .injections);
     const self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
         .lang = file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{file_type.name}),
         .file_type = file_type,
         .parser = try Parser.create(),
-        .query = try Query.create(self.lang, file_type.highlights),
-        .injections = if (file_type.injections) |injections| try Query.create(self.lang, injections) else null,
+        .query = query,
+        .injections = injections,
     };
-    errdefer self.destroy();
+    errdefer self.destroy(query_cache);
     try self.parser.setLanguage(self.lang);
     return self;
 }
 
-pub fn create_file_type(allocator: std.mem.Allocator, lang_name: []const u8) !*Self {
+pub fn create_file_type(allocator: std.mem.Allocator, lang_name: []const u8, query_cache: *QueryCache) !*Self {
     const file_type = FileType.get_by_name(lang_name) orelse return error.NotFound;
-    return create(file_type, allocator);
+    return create(file_type, allocator, query_cache);
 }
 
-pub fn create_guess_file_type(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8) !*Self {
+pub fn create_guess_file_type(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8, query_cache: *QueryCache) !*Self {
     const file_type = FileType.guess(file_path, content) orelse return error.NotFound;
-    return create(file_type, allocator);
+    return create(file_type, allocator, query_cache);
 }
 
-pub fn destroy(self: *Self) void {
+pub fn destroy(self: *Self, query_cache: *QueryCache) void {
     if (self.tree) |tree| tree.destroy();
-    self.query.destroy();
+    query_cache.release(self.query, .highlights);
+    if (self.injections) |injections| query_cache.release(injections, .injections);
     self.parser.destroy();
     self.allocator.destroy(self);
 }

@@ -464,7 +464,7 @@ pub const Editor = struct {
         if (self.buffer) |_| self.write_state(meta.writer()) catch {};
         for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
         self.diagnostics.deinit();
-        if (self.syntax) |syn| syn.destroy();
+        if (self.syntax) |syn| syn.destroy(tui.query_cache());
         self.cursels.deinit();
         self.matches.deinit();
         self.handlers.deinit();
@@ -588,7 +588,7 @@ pub const Editor = struct {
                 const frame_ = tracy.initZone(@src(), .{ .name = "create" });
                 defer frame_.deinit();
                 break :blk if (syn_file_type) |ft|
-                    syntax.create(ft, self.allocator) catch null
+                    syntax.create(ft, self.allocator, tui.query_cache()) catch null
                 else
                     null;
             };
@@ -4301,7 +4301,7 @@ pub const Editor = struct {
             var content = std.ArrayList(u8).init(self.allocator);
             defer content.deinit();
             try root.store(content.writer(), eol_mode);
-            self.syntax = syntax.create_guess_file_type(self.allocator, content.items, self.file_path) catch |e| switch (e) {
+            self.syntax = syntax.create_guess_file_type(self.allocator, content.items, self.file_path, tui.query_cache()) catch |e| switch (e) {
                 error.NotFound => null,
                 else => return e,
             };
@@ -5447,7 +5447,7 @@ pub const Editor = struct {
         if (!try ctx.args.match(.{tp.extract(&file_type)}))
             return error.InvalidSetFileTypeArgument;
 
-        if (self.syntax) |syn| syn.destroy();
+        if (self.syntax) |syn| syn.destroy(tui.query_cache());
         self.syntax_last_rendered_root = null;
         self.syntax_refresh_full = true;
         self.syntax_incremental_reparse = false;
@@ -5457,7 +5457,7 @@ pub const Editor = struct {
             defer content.deinit();
             const root = try self.buf_root();
             try root.store(content.writer(), try self.buf_eol_mode());
-            const syn = syntax.create_file_type(self.allocator, file_type) catch null;
+            const syn = syntax.create_file_type(self.allocator, file_type, tui.query_cache()) catch null;
             if (syn) |syn_| if (self.file_path) |file_path|
                 project_manager.did_open(
                     file_path,

@@ -12,6 +12,7 @@ pub const renderer = @import("renderer");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const keybind = @import("keybind");
+const syntax = @import("syntax");
 
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
@@ -56,6 +57,7 @@ default_cursor: keybind.CursorShape = .default,
 fontface_: []const u8 = "",
 fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
 enable_mouse_idle_timer: bool = false,
+query_cache_: *syntax.QueryCache,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -120,6 +122,7 @@ fn init(allocator: Allocator) !*Self {
         )),
         .theme_ = theme_,
         .no_sleep = tp.env.get().is("no-sleep"),
+        .query_cache_ = try syntax.QueryCache.create(allocator, .{}),
     };
     instance_ = self;
     defer instance_ = null;
@@ -211,6 +214,7 @@ fn deinit(self: *Self) void {
     self.rdr_.stop();
     self.rdr_.deinit();
     self.logger.deinit();
+    self.query_cache_.deinit();
     self.allocator.destroy(self);
 }
 
@@ -1050,6 +1054,10 @@ pub fn input_mode_outer() ?*Mode {
 
 pub fn mini_mode() ?*MiniMode {
     return if (current().mini_mode_) |*p| p else null;
+}
+
+pub fn query_cache() *syntax.QueryCache {
+    return current().query_cache_;
 }
 
 pub fn config() *const @import("config") {
