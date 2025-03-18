@@ -4143,10 +4143,14 @@ pub const Editor = struct {
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |*sel| {
+                const chars_begin, const chars_end = if (sel.is_reversed())
+                    .{ chars_right, chars_left }
+                else
+                    .{ chars_left, chars_right };
                 var begin: CurSel = .{ .cursor = sel.begin };
-                root = try self.insert(root, &begin, chars_left, b.allocator);
+                root = try self.insert(root, &begin, chars_begin, b.allocator);
                 var end: CurSel = .{ .cursor = sel.end };
-                root = try self.insert(root, &end, chars_right, b.allocator);
+                root = try self.insert(root, &end, chars_end, b.allocator);
                 sel.end.move_left(root, self.metrics) catch {};
             } else blk: {
                 const egc, _, _ = cursel.cursor.egc_at(root, self.metrics) catch {
@@ -4180,11 +4184,14 @@ pub const Editor = struct {
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |*sel| {
+                const chars_begin, const chars_end = if (sel.is_reversed())
+                    .{ chars_right, chars_left }
+                else
+                    .{ chars_left, chars_right };
                 var begin: CurSel = .{ .cursor = sel.begin };
-                root = try self.insert(root, &begin, chars_left, b.allocator);
+                root = try self.insert(root, &begin, chars_begin, b.allocator);
                 var end: CurSel = .{ .cursor = sel.end };
-                root = try self.insert(root, &end, chars_right, b.allocator);
-                sel.begin.move_left(root, self.metrics) catch {};
+                root = try self.insert(root, &end, chars_end, b.allocator);
                 cursel.disable_selection(root, self.metrics);
             } else blk: {
                 const egc, _, _ = cursel.cursor.egc_at(root, self.metrics) catch {
