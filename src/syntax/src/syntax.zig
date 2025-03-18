@@ -23,7 +23,7 @@ lang: *const Language,
 file_type: *const FileType,
 parser: *Parser,
 query: *Query,
-injections: *Query,
+injections: ?*Query,
 tree: ?*treez.Tree = null,
 
 pub fn create(file_type: *const FileType, allocator: std.mem.Allocator) !*Self {
@@ -34,7 +34,7 @@ pub fn create(file_type: *const FileType, allocator: std.mem.Allocator) !*Self {
         .file_type = file_type,
         .parser = try Parser.create(),
         .query = try Query.create(self.lang, file_type.highlights),
-        .injections = try Query.create(self.lang, file_type.highlights),
+        .injections = if (file_type.injections) |injections| try Query.create(self.lang, injections) else null,
     };
     errdefer self.destroy();
     try self.parser.setLanguage(self.lang);
