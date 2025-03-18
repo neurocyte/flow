@@ -13,10 +13,14 @@ pub const Context = struct {
     args: tp.message = .{},
 
     pub fn fmt(value: anytype) Context {
-        return .{ .args = tp.message.fmtbuf(&context_buffer, value) catch @panic("command.Context.fmt failed") };
+        context_buffer.clearRetainingCapacity();
+        cbor.writeValue(context_buffer.writer(), value) catch @panic("command.Context.fmt failed");
+        return .{ .args = .{ .buf = context_buffer.items } };
     }
 };
-threadlocal var context_buffer: [tp.max_message_size]u8 = undefined;
+
+const context_buffer_allocator = std.heap.c_allocator;
+threadlocal var context_buffer: std.ArrayList(u8) = std.ArrayList(u8).init(context_buffer_allocator);
 pub const fmt = Context.fmt;
 
 const Vtable = struct {
