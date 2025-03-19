@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import platform
+import subprocess
+import json
+import re
+import shutil
+from pathlib import Path
+
+def get_system_info():
+    arch = platform.machine()
+    os_name = platform.system()
+    
+    # Normalize OS names
+    if os_name == "Linux":
+        os_name = "linux"
+    elif os_name == "Darwin":
+        os_name = "macos"
+    elif os_name == "FreeBSD":
+        os_name = "freebsd"
+        if arch == "amd64":
+            arch = "x86_64"
+
+    # Normalize architecture names
+    if arch == "arm64":
+        arch = "aarch64"
+        
+    return os_name, arch
+
+def get_zig(zigdir, version, zigver):
+    os.makedirs(zigdir, exist_ok=True)
+    
+    tarball = f"https://ziglang.org/download/{version}/{zigver}.tar.xz"
+    if re.search(r'-dev\.', version):
+        tarball = f"https://ziglang.org/builds/{zigver}.tar.xz"
+    
+    if not os.path.isdir(os.path.join(zigdir, zigver)):
+        print(f"Downloading Zig {version}...")
+        # Download and extract tarball
+        curl_cmd = ["curl", tarball, "--output", "-"]
+        tar_cmd = ["tar", "-xJ", "-C", zigdir]
+        
+        curl_proc = subprocess.Popen(curl_cmd, stdout=subprocess.PIPE)
+        subprocess.run(tar_cmd, stdin=curl_proc.stdout, check=True)
+        curl_proc.stdout.close()
+        curl_proc.wait()
+
+def update_zig(script_path, version, version_file):
+    # Get latest version from ziglang.org
+    curl_cmd = ["curl", "-L", "--silent", "https://ziglang.org/download/index.json"]
+    result = subprocess.run(curl_cmd, capture_output=True, text=True, check=True)
+    
+    data = json.loads(result.stdout)
+    new_version = data["master"]["version"]
+    
+    # Write new version to file
+    with open(version_file, 'w') as f:
+        f.write(new_version)
+    
+    if new_version != version:
+        print(f"zig version updated from {version} to {new_version}")
+        print("rebuilding to update cdb...")
+        subprocess.run([sys.argv[0], "cdb"], check=True)
+        sys.exit(0)
+    else:
+        print(f"zig version {version} is up-to-date")
+        sys.exit(0)
+
+def generate_cdb(zig_path):
+    # Clean up
+    shutil.rmtree(".zig-cache", ignore_errors=True)
+    shutil.rmtree(".cache/cdb", ignore_errors=True)
+    
+    # Build
+    subprocess.run([zig_path, "build"], check=True)
+    
+    # Generate compile_commands.json
+    cdb_files = list(Path(".cache/cdb").glob("*"))
+    
+    # Combine all cdb files
+    json_data = []
+    for cdb_file in cdb_files:
+        with open(cdb_file, 'r') as f:
+            json_data.extend(json.loads(f.read()))
+    
+    # Write to compile_commands.json, filtering out no-default-config entries
+    filtered_data = [entry for entry in json_data if "no-default-config" not in json.dumps(entry)]
+    
+    with open("compile_commands.json", 'w') as f:
+        json.dump(filtered_data, f, indent=2)
+    
+    sys.exit(0)
+
+def main():
+    # Get script directory
+    script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    basedir = script_dir
+    zigdir = os.path.join(basedir, ".cache", "zig")
+    
+    # Read version from file
+    version_file = os.path.join(basedir, "build.zig.version")
+    with open(version_file, 'r') as f:
+        version = f.read().strip()
+    
+    # Get system info
+    os_name, arch = get_system_info()
+    
+    # Set Zig version and path
+    zigver = f"zig-{os_name}-{arch}-{version}"
+    zig_path = os.path.join(zigdir, zigver, "zig")
+    
+    # Parse command line arguments
+    args = sys.argv[1:]
+    
+    # Handle update command
+    if args and args[0] == "update":
+        update_zig(sys.argv[0], version,  version_file)
+    
+    # Download and extract Zig
+    get_zig(zigdir, version, zigver)
+    
+    # Handle cdb command
+    if args and args[0] == "cdb":
+        generate_cdb(zig_path)
+    
+    # Execute Zig with arguments
+    os.execv(zig_path, [zig_path] + args)
+
+if __name__ == "__main__":
+    main()
