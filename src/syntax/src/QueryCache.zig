@@ -75,11 +75,13 @@ fn release_ref_unlocked_and_maybe_destroy(self: *Self) void {
     while (iter_highlights.next()) |p| {
         self.allocator.free(p.key_ptr.*);
         if (p.value_ptr.*.query) |q| q.destroy();
+        self.allocator.destroy(p.value_ptr.*);
     }
     var iter_injections = self.injections.iterator();
     while (iter_injections.next()) |p| {
         self.allocator.free(p.key_ptr.*);
         if (p.value_ptr.*.query) |q| q.destroy();
+        self.allocator.destroy(p.value_ptr.*);
     }
     self.highlights.deinit(self.allocator);
     self.injections.deinit(self.allocator);
