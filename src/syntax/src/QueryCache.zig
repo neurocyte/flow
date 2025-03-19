@@ -13,8 +13,8 @@ const Query = treez.Query;
 
 allocator: std.mem.Allocator,
 mutex: ?std.Thread.Mutex,
-highlights: std.StringHashMapUnmanaged(CacheEntry) = .{},
-injections: std.StringHashMapUnmanaged(CacheEntry) = .{},
+highlights: std.StringHashMapUnmanaged(*CacheEntry) = .{},
+injections: std.StringHashMapUnmanaged(*CacheEntry) = .{},
 ref_count: usize = 1,
 
 const CacheEntry = struct {
@@ -95,21 +95,26 @@ fn get_cache_entry(self: *Self, file_type: *const FileType, comptime query_type:
         .injections => &self.injections,
     };
 
-    return if (hash.getPtr(file_type.name)) |entry| entry else blk: {
+    return if (hash.get(file_type.name)) |entry| entry else blk: {
         const entry_ = try hash.getOrPut(self.allocator, try self.allocator.dupe(u8, file_type.name));
-        entry_.value_ptr.* = .{
+
+        const q = try self.allocator.create(CacheEntry);
+        q.* = .{
             .query = null,
             .mutex = if (self.mutex) |_| .{} else null,
             .file_type = file_type,
             .query_type = query_type,
         };
-        break :blk entry_.value_ptr;
+        entry_.value_ptr.* = q;
+
+        break :blk q;
     };
 }
 
 fn get_cached_query(_: *Self, entry: *CacheEntry) QueryParseError!?*Query {
     if (entry.mutex) |*mtx| mtx.lock();
     defer if (entry.mutex) |*mtx| mtx.unlock();
+
     return if (entry.query) |query| query else blk: {
         const lang = entry.file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{entry.file_type.name});
         entry.query = try Query.create(lang, switch (entry.query_type) {
