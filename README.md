@@ -51,6 +51,81 @@ zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/aa
 
 When cross-compiling zig will build a binary with generic CPU support.
 
+# Using [just runner](https://github.com/casey/just?tab=readme-ov-file#installation) tasks
+
+This guide explains how to use the project's command-line tasks defined in the [justfile](justfile).
+
+## Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `just` | Shows a list of all available commands |
+| `just zig <cmd>` | Runs a Zig command using the project's wrapper |
+| `just build <cmd>` | Executes a raw build command |
+| `just test` | Runs the test suite with incremental compilation |
+| `just lint` | Runs the linter with incremental compilation |
+| `just run` | Builds and runs the project with incremental compilation |
+| `just build-debug` | Builds a debug version with verbose output and full summary |
+| `just release-android` | Builds an optimized release for aarch64-linux-musl target |
+| `just do-update` | Updates the Zig toolchain |
+| `just do-cdb` | Compiles the compilation database |
+
+## Basic Usage
+
+To get started, run `just` without any arguments to see all available commands:
+
+```bash
+just
+```
+
+For running tests or linting the codebase:
+
+```bash
+just test
+just lint
+```
+
+To build and run the project:
+
+```bash
+just run
+```
+
+## Advanced Usage
+
+For Android builds:
+
+```bash
+just release-android
+```
+
+For debugging with verbose output:
+
+```bash
+just build-debug
+```
+
+To pass custom arguments to Zig:
+
+```bash
+just zig build -j4
+just build -Doptimize=ReleaseSafe
+```
+
+## Maintenance
+
+Update the Zig toolchain:
+
+```bash
+just do-update
+```
+
+Generate a compilation database for IDE integration:
+
+```bash
+just do-cdb
+```
+
 # Running Flow Control
 
 The binary is:
