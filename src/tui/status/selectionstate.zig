@@ -69,7 +69,7 @@ fn format(self: *Self) void {
         sel.normalize();
         const lines = sel.end.row - sel.begin.row;
         if (lines == 0) {
-            std.fmt.format(writer, "({d} selected)", .{sel.end.col - sel.begin.col}) catch {};
+            std.fmt.format(writer, "({d} columns selected)", .{sel.end.col - sel.begin.col}) catch {};
         } else {
             std.fmt.format(writer, "({d} lines selected)", .{if (sel.end.col == 0) lines else lines + 1}) catch {};
         }
