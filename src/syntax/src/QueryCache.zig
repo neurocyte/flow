@@ -8,6 +8,7 @@ else
 
 const Self = @This();
 
+pub const tss = @import("ts_serializer.zig");
 pub const FileType = @import("file_type.zig");
 const Query = treez.Query;
 
@@ -20,8 +21,19 @@ ref_count: usize = 1,
 const CacheEntry = struct {
     mutex: ?std.Thread.Mutex,
     query: ?*Query,
-    file_type: *const FileType,
+    query_arena: ?*std.heap.ArenaAllocator,
     query_type: QueryType,
+    file_type: *const FileType,
+
+    fn destroy(self: *@This(), allocator: std.mem.Allocator) void {
+        if (self.query_arena) |a| {
+            a.deinit();
+            allocator.destroy(a);
+        } else if (self.query) |q|
+            q.destroy();
+        self.query_arena = null;
+        self.query = null;
+    }
 };
 
 pub const QueryType = enum {
@@ -43,7 +55,7 @@ const CacheError = error{
     OutOfMemory,
 };
 
-pub const Error = CacheError || QueryParseError;
+pub const Error = CacheError || QueryParseError || QuerySerializeError;
 
 pub fn create(allocator: std.mem.Allocator, opts: struct { lock: bool = false }) !*Self {
     const self = try allocator.create(Self);
@@ -74,13 +86,13 @@ fn release_ref_unlocked_and_maybe_destroy(self: *Self) void {
     var iter_highlights = self.highlights.iterator();
     while (iter_highlights.next()) |p| {
         self.allocator.free(p.key_ptr.*);
-        if (p.value_ptr.*.query) |q| q.destroy();
+        p.value_ptr.*.destroy(self.allocator);
         self.allocator.destroy(p.value_ptr.*);
     }
     var iter_injections = self.injections.iterator();
     while (iter_injections.next()) |p| {
         self.allocator.free(p.key_ptr.*);
-        if (p.value_ptr.*.query) |q| q.destroy();
+        p.value_ptr.*.destroy(self.allocator);
         self.allocator.destroy(p.value_ptr.*);
     }
     self.highlights.deinit(self.allocator);
@@ -103,6 +115,7 @@ fn get_cache_entry(self: *Self, file_type: *const FileType, comptime query_type:
         const q = try self.allocator.create(CacheEntry);
         q.* = .{
             .query = null,
+            .query_arena = null,
             .mutex = if (self.mutex) |_| .{} else null,
             .file_type = file_type,
             .query_type = query_type,
@@ -113,16 +126,20 @@ fn get_cache_entry(self: *Self, file_type: *const FileType, comptime query_type:
     };
 }
 
-fn get_cached_query(_: *Self, entry: *CacheEntry) QueryParseError!?*Query {
+fn get_cached_query(self: *Self, entry: *CacheEntry) Error!?*Query {
     if (entry.mutex) |*mtx| mtx.lock();
     defer if (entry.mutex) |*mtx| mtx.unlock();
 
     return if (entry.query) |query| query else blk: {
         const lang = entry.file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{entry.file_type.name});
-        entry.query = try Query.create(lang, switch (entry.query_type) {
-            .highlights => entry.file_type.highlights,
-            .injections => if (entry.file_type.injections) |injections| injections else return null,
-        });
+        const queries = FileType.queries.get(entry.file_type.name) orelse return null;
+        const query_bin = switch (entry.query_type) {
+            .highlights => queries.highlights_bin,
+            .injections => queries.injections_bin orelse return null,
+        };
+        const query, const arena = try deserialize_query(query_bin, lang, self.allocator);
+        entry.query = query;
+        entry.query_arena = arena;
         break :blk entry.query.?;
     };
 }
@@ -157,4 +174,18 @@ pub fn release(self: *Self, query: *Query, comptime query_type: QueryType) void 
     _ = query;
     _ = query_type;
     self.release_ref_unlocked_and_maybe_destroy();
+}
+
+pub const QuerySerializeError = (tss.SerializeError || tss.DeserializeError);
+
+fn deserialize_query(query_bin: []const u8, language: ?*const treez.Language, allocator: std.mem.Allocator) QuerySerializeError!struct { *Query, *std.heap.ArenaAllocator } {
+    std.log.warn("deserialize_query", .{});
+
+    var ts_query_out, const arena = try tss.fromCbor(query_bin, allocator);
+    std.log.warn("decoded TSQuery", .{});
+
+    ts_query_out.language = @intFromPtr(language);
+
+    const query_out: *Query = @alignCast(@ptrCast(ts_query_out));
+    return .{ query_out, arena };
 }

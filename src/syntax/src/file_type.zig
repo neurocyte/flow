@@ -1,4 +1,5 @@
 const std = @import("std");
+const cbor = @import("cbor");
 const build_options = @import("build_options");
 
 const treez = if (build_options.use_tree_sitter)
@@ -14,8 +15,6 @@ name: []const u8,
 description: []const u8,
 lang_fn: LangFn,
 extensions: []const []const u8,
-highlights: [:0]const u8,
-injections: ?[:0]const u8,
 first_line_matches: ?FirstLineMatch = null,
 comment: []const u8,
 formatter: ?[]const []const u8,
@@ -124,22 +123,6 @@ fn load_file_types(comptime Namespace: type) []const FileType {
                     .lang_fn = if (@hasField(@TypeOf(args), "parser")) args.parser else get_parser(lang),
                     .extensions = vec(args.extensions),
                     .comment = args.comment,
-                    .highlights = if (build_options.use_tree_sitter)
-                        if (@hasField(@TypeOf(args), "highlights"))
-                            @embedFile(args.highlights)
-                        else if (@hasField(@TypeOf(args), "highlights_list"))
-                            @embedFile(args.highlights_list[0]) ++ "\n" ++ @embedFile(args.highlights_list[1])
-                        else
-                            @embedFile("tree-sitter-" ++ lang ++ "/queries/highlights.scm")
-                    else
-                        "",
-                    .injections = if (build_options.use_tree_sitter)
-                        if (@hasField(@TypeOf(args), "injections"))
-                            @embedFile(args.injections)
-                        else
-                            null
-                    else
-                        null,
                     .first_line_matches = if (@hasField(@TypeOf(args), "first_line_matches")) args.first_line_matches else null,
                     .formatter = if (@hasField(@TypeOf(args), "formatter")) vec(args.formatter) else null,
                     .language_server = if (@hasField(@TypeOf(args), "language_server")) vec(args.language_server) else null,
@@ -151,4 +134,64 @@ fn load_file_types(comptime Namespace: type) []const FileType {
         },
         else => @compileError("expected tuple or struct type"),
     };
+}
+
+pub const FileTypeQueries = struct {
+    highlights_bin: []const u8,
+    injections_bin: ?[]const u8,
+};
+
+pub const queries = std.static_string_map.StaticStringMap(FileTypeQueries).initComptime(load_queries());
+
+fn load_queries() []const struct { []const u8, FileTypeQueries } {
+    if (!build_options.use_tree_sitter) return &.{};
+    @setEvalBranchQuota(16000);
+    const queries_cb = @embedFile("syntax_bin_queries");
+    var iter: []const u8 = queries_cb;
+    var len = cbor.decodeMapHeader(&iter) catch |e| {
+        @compileLog("cbor.decodeMapHeader", e);
+        @compileError("invalid syntax_bin_queries");
+    };
+    var construct_types: [len]struct { []const u8, FileTypeQueries } = undefined;
+    var i = 0;
+    while (len > 0) : (len -= 1) {
+        var lang: []const u8 = undefined;
+        if (!try cbor.matchString(&iter, &lang))
+            @compileError("invalid language name field");
+        construct_types[i] = .{ lang, .{
+            .highlights_bin = blk: {
+                var iter_: []const u8 = iter;
+                break :blk get_query_value_bin(&iter_, "highlights") orelse @compileError("missing highlights for " ++ lang);
+            },
+            .injections_bin = blk: {
+                var iter_: []const u8 = iter;
+                break :blk get_query_value_bin(&iter_, "injections");
+            },
+        } };
+        try cbor.skipValue(&iter);
+        i += 1;
+    }
+    const types = construct_types;
+    return &types;
+}
+
+fn get_query_value_bin(iter: *[]const u8, comptime query: []const u8) ?[]const u8 {
+    var len = cbor.decodeMapHeader(iter) catch |e| {
+        @compileLog("cbor.decodeMapHeader", e);
+        @compileError("invalid query map in syntax_bin_queries");
+    };
+    while (len > 0) : (len -= 1) {
+        var query_name: []const u8 = undefined;
+        if (!try cbor.matchString(iter, &query_name))
+            @compileError("invalid query name field");
+        if (std.mem.eql(u8, query_name, query)) {
+            var query_value: []const u8 = undefined;
+            if (try cbor.matchValue(iter, cbor.extract(&query_value)))
+                return query_value;
+            @compileError("invalid query value field");
+        } else {
+            try cbor.skipValue(iter);
+        }
+    }
+    return null;
 }
