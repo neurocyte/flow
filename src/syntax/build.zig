@@ -14,6 +14,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const tree_sitter_host_dep = b.dependency("tree_sitter", .{
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+
     const cbor_dep = b.dependency("cbor", .{
         .target = target,
         .optimize = optimize,
@@ -21,12 +26,12 @@ pub fn build(b: *std.Build) void {
 
     const ts_bin_query_gen = b.addExecutable(.{
         .name = "ts_bin_query_gen",
-        .target = target,
+        .target = b.graph.host,
         .root_source_file = b.path("src/ts_bin_query_gen.zig"),
     });
     ts_bin_query_gen.linkLibC();
     ts_bin_query_gen.root_module.addImport("cbor", cbor_dep.module("cbor"));
-    ts_bin_query_gen.root_module.addImport("treez", tree_sitter_dep.module("treez"));
+    ts_bin_query_gen.root_module.addImport("treez", tree_sitter_host_dep.module("treez"));
     ts_bin_query_gen.root_module.addImport("build_options", options_mod);
 
     ts_queryfile(b, tree_sitter_dep, ts_bin_query_gen, "queries/cmake/highlights.scm");
