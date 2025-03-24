@@ -59,6 +59,7 @@ pub fn main() anyerror!void {
     }
 
     try output_file.writeAll(output.items);
+    std.log.info("file_types total {d} bytes", .{output.items.len});
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
