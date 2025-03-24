@@ -15,7 +15,7 @@ const debug_lsp = true;
 
 const OutOfMemoryError = error{OutOfMemory};
 const SendError = error{SendFailed};
-const CallError = tp.CallError;
+const SpawnError = error{ThespianSpawnFailed};
 
 pub fn open(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidLspCommand } || cbor.Error)!Self {
     return .{ .allocator = allocator, .pid = try Process.create(allocator, project, cmd) };
@@ -31,12 +31,18 @@ pub fn term(self: Self) void {
     self.pid.deinit();
 }
 
-pub fn send_request(self: Self, allocator: std.mem.Allocator, method: []const u8, m: anytype) CallError!tp.message {
+pub fn send_request(
+    self: Self,
+    allocator: std.mem.Allocator,
+    method: []const u8,
+    m: anytype,
+    ctx: anytype,
+) (OutOfMemoryError || SpawnError)!void {
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
     const request_timeout: u64 = @intCast(std.time.ns_per_s * tp.env.get().num("lsp-request-timeout"));
-    return self.pid.call(allocator, request_timeout, .{ "REQ", method, cb.items });
+    return RequestContext(@TypeOf(ctx)).send(allocator, self.pid.ref(), ctx, request_timeout, tp.message.fmt(.{ "REQ", method, cb.items }));
 }
 
 pub fn send_notification(self: Self, method: []const u8, m: anytype) (OutOfMemoryError || SendError)!void {
@@ -52,6 +58,58 @@ pub fn send_notification_raw(self: Self, method: []const u8, cb: []const u8) Sen
 
 pub fn close(self: *Self) void {
     self.deinit();
+}
+
+fn RequestContext(T: type) type {
+    return struct {
+        receiver: ReceiverT,
+        ctx: T,
+        to: tp.pid,
+        request: tp.message,
+        response: ?tp.message,
+        a: std.mem.Allocator,
+
+        const Self = @This();
+        const ReceiverT = tp.Receiver(*@This());
+
+        fn send(a: std.mem.Allocator, to: tp.pid_ref, ctx: T, timeout_ns: u64, request: tp.message) (OutOfMemoryError || SpawnError)!void {
+            _ = timeout_ns;
+            const self = try a.create(@This());
+            self.* = .{
+                .receiver = undefined,
+                .ctx = if (@hasDecl(T, "clone")) ctx.clone() else ctx,
+                .to = to.clone(),
+                .request = try request.clone(std.heap.c_allocator),
+                .response = null,
+                .a = a,
+            };
+            self.receiver = ReceiverT.init(receive_, self);
+            const proc = try tp.spawn_link(a, self, start, @typeName(@This()));
+            defer proc.deinit();
+        }
+
+        fn deinit(self: *@This()) void {
+            self.ctx.deinit();
+            std.heap.c_allocator.free(self.request.buf);
+            self.to.deinit();
+            self.a.destroy(self);
+        }
+
+        fn start(self: *@This()) tp.result {
+            _ = tp.set_trap(true);
+            if (@hasDecl(T, "link")) try self.ctx.link();
+            errdefer self.deinit();
+            try self.to.link();
+            try self.to.send_raw(self.request);
+            tp.receive(&self.receiver);
+        }
+
+        fn receive_(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
+            defer self.deinit();
+            self.ctx.receive(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            return tp.exit_normal();
+        }
+    };
 }
 
 const Process = struct {

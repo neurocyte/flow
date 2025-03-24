@@ -25,7 +25,6 @@ persistent: bool = false,
 const Self = @This();
 
 const OutOfMemoryError = error{OutOfMemory};
-const CallError = tp.CallError;
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
 pub const InvalidMessageError = error{ InvalidMessage, InvalidMessageField, InvalidTargetURI };
 pub const StartLspError = (error{ ThespianSpawnFailed, Timeout, InvalidLspCommand } || LspError || OutOfMemoryError || cbor.Error);
@@ -234,11 +233,8 @@ fn get_language_server_instance(self: *Self, language_server: []const u8) StartL
     defer self.allocator.free(uri);
     const basename_begin = std.mem.lastIndexOfScalar(u8, self.name, std.fs.path.sep);
     const basename = if (basename_begin) |begin| self.name[begin + 1 ..] else self.name;
-    const response = try self.send_lsp_init_request(lsp, self.name, basename, uri);
-    defer self.allocator.free(response.buf);
-    lsp.send_notification("initialized", .{}) catch return error.LspFailed;
-    if (lsp.pid.expired()) return error.LspFailed;
-    log.logger("lsp").print("initialized LSP: {s}", .{fmt_lsp_name_func(language_server)});
+
+    try self.send_lsp_init_request(lsp, self.name, basename, uri, language_server);
     try self.language_servers.put(try self.allocator.dupe(u8, language_server), lsp);
     return lsp;
 }
@@ -620,27 +616,43 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
-    const response = lsp.send_request(self.allocator, method, .{
+
+    const handler: struct {
+        from: tp.pid,
+        name: []const u8,
+
+        pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.name);
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) !void {
+            var link: []const u8 = undefined;
+            var locations: []const u8 = undefined;
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.array })) {
+                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
+                    try navigate_to_location_link(self_.from.ref(), link);
+                } else if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&locations) })) {
+                    try send_reference_list(self_.from.ref(), locations, self_.name);
+                }
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+                return;
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&link) })) {
+                try navigate_to_location_link(self_.from.ref(), link);
+            }
+        }
+    } = .{
+        .from = from.clone(),
+        .name = try std.heap.c_allocator.dupe(u8, self.name),
+    };
+
+    lsp.send_request(self.allocator, method, .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
-    }) catch return error.LspFailed;
-    defer self.allocator.free(response.buf);
-    var link: []const u8 = undefined;
-    var locations: []const u8 = undefined;
-    if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.array })) {
-        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
-            try self.navigate_to_location_link(from, link);
-        } else if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&locations) })) {
-            try self.send_reference_list(from, locations);
-        }
-    } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
-        return;
-    } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&link) })) {
-        try self.navigate_to_location_link(from, link);
-    }
+    }, handler) catch return error.LspFailed;
 }
 
-fn navigate_to_location_link(_: *Self, from: tp.pid_ref, location_link: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = location_link;
     var targetUri: ?[]const u8 = null;
     var targetRange: ?Range = null;
@@ -704,21 +716,36 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     defer self.allocator.free(uri);
     log.logger("lsp").print("finding references...", .{});
 
-    const response = lsp.send_request(self.allocator, "textDocument/references", .{
+    const handler: struct {
+        from: tp.pid,
+        name: []const u8,
+
+        pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.name);
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) !void {
+            var locations: []const u8 = undefined;
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+                return;
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
+                try send_reference_list(self_.from.ref(), locations, self_.name);
+            }
+        }
+    } = .{
+        .from = from.clone(),
+        .name = try std.heap.c_allocator.dupe(u8, self.name),
+    };
+
+    lsp.send_request(self.allocator, "textDocument/references", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
         .context = .{ .includeDeclaration = true },
-    }) catch return error.LspFailed;
-    defer self.allocator.free(response.buf);
-    var locations: []const u8 = undefined;
-    if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
-        return;
-    } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
-        try self.send_reference_list(from, locations);
-    }
+    }, handler) catch return error.LspFailed;
 }
 
-fn send_reference_list(self: *Self, to: tp.pid_ref, locations: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
+fn send_reference_list(to: tp.pid_ref, locations: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
     defer to.send(.{ "REF", "done" }) catch {};
     var iter = locations;
     var len = try cbor.decodeArrayHeader(&iter);
@@ -726,13 +753,14 @@ fn send_reference_list(self: *Self, to: tp.pid_ref, locations: []const u8) (Clie
     while (len > 0) : (len -= 1) {
         var location: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract_cbor(&location))) {
-            try self.send_reference(to, location);
+            try send_reference(to, location, name);
         } else return error.InvalidMessageField;
     }
     log.logger("lsp").print("found {d} references", .{count});
 }
 
-fn send_reference(self: *Self, to: tp.pid_ref, location: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
+fn send_reference(to: tp.pid_ref, location: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
+    const allocator = std.heap.c_allocator;
     var iter = location;
     var targetUri: ?[]const u8 = null;
     var targetRange: ?Range = null;
@@ -767,10 +795,10 @@ fn send_reference(self: *Self, to: tp.pid_ref, location: []const u8) (ClientErro
             file_path[i] = '\\';
         };
     }
-    const line = try self.get_line_of_file(self.allocator, file_path, targetRange.?.start.line);
-    defer self.allocator.free(line);
-    const file_path_ = if (file_path.len > self.name.len and std.mem.eql(u8, self.name, file_path[0..self.name.len]))
-        file_path[self.name.len + 1 ..]
+    const line = try get_line_of_file(allocator, file_path, targetRange.?.start.line);
+    defer allocator.free(line);
+    const file_path_ = if (file_path.len > name.len and std.mem.eql(u8, name, file_path[0..name.len]))
+        file_path[name.len + 1 ..]
     else
         file_path;
     to.send(.{
@@ -788,24 +816,44 @@ pub fn completion(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
-    const response = lsp.send_request(self.allocator, "textDocument/completion", .{
+
+    const handler: struct {
+        from: tp.pid,
+        file_path: []const u8,
+        row: usize,
+        col: usize,
+
+        pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.file_path);
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) !void {
+            var result: []const u8 = undefined;
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+                try send_content_msg_empty(self_.from.ref(), "hover", self_.file_path, self_.row, self_.col);
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.array })) {
+                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+                    try send_completion_items(self_.from.ref(), self_.file_path, self_.row, self_.col, result, false);
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
+                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+                    try send_completion_list(self_.from.ref(), self_.file_path, self_.row, self_.col, result);
+            }
+        }
+    } = .{
+        .from = from.clone(),
+        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
+        .row = row,
+        .col = col,
+    };
+
+    lsp.send_request(self.allocator, "textDocument/completion", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
-    }) catch return error.LspFailed;
-    defer self.allocator.free(response.buf);
-    var result: []const u8 = undefined;
-    if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
-        try send_content_msg_empty(from, "hover", file_path, row, col);
-    } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.array })) {
-        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
-            try self.send_completion_items(from, file_path, row, col, result, false);
-    } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
-        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
-            try self.send_completion_list(from, file_path, row, col, result);
-    }
+    }, handler) catch return error.LspFailed;
 }
 
-fn send_completion_list(self: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, result: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn send_completion_list(to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, result: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = result;
     var len = cbor.decodeMapHeader(&iter) catch return;
     var items: []const u8 = "";
@@ -821,20 +869,20 @@ fn send_completion_list(self: *Self, to: tp.pid_ref, file_path: []const u8, row:
             try cbor.skipValue(&iter);
         }
     }
-    return self.send_completion_items(to, file_path, row, col, items, is_incomplete) catch error.ClientFailed;
+    return send_completion_items(to, file_path, row, col, items, is_incomplete) catch error.ClientFailed;
 }
 
-fn send_completion_items(self: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, items: []const u8, is_incomplete: bool) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn send_completion_items(to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, items: []const u8, is_incomplete: bool) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = items;
     var len = cbor.decodeArrayHeader(&iter) catch return;
     var item: []const u8 = "";
     while (len > 0) : (len -= 1) {
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidMessageField;
-        self.send_completion_item(to, file_path, row, col, item, if (len > 1) true else is_incomplete) catch return error.ClientFailed;
+        send_completion_item(to, file_path, row, col, item, if (len > 1) true else is_incomplete) catch return error.ClientFailed;
     }
 }
 
-fn send_completion_item(_: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, item: []const u8, is_incomplete: bool) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, item: []const u8, is_incomplete: bool) (ClientError || InvalidMessageError || cbor.Error)!void {
     var label: []const u8 = "";
     var label_detail: []const u8 = "";
     var label_description: []const u8 = "";
@@ -948,57 +996,74 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
-    const response = lsp.send_request(self.allocator, "textDocument/rename", .{
+
+    const handler: struct {
+        from: tp.pid,
+        file_path: []const u8,
+
+        pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.file_path);
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) !void {
+            const allocator = std.heap.c_allocator;
+            var result: []const u8 = undefined;
+            // buffer the renames in order to send as a single, atomic message
+            var renames = std.ArrayList(Rename).init(allocator);
+            defer renames.deinit();
+
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
+                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
+                    try decode_rename_symbol_map(result, &renames);
+                    // write the renames message manually since there doesn't appear to be an array helper
+                    var msg_buf = std.ArrayList(u8).init(allocator);
+                    defer msg_buf.deinit();
+                    const w = msg_buf.writer();
+                    try cbor.writeArrayHeader(w, 3);
+                    try cbor.writeValue(w, "cmd");
+                    try cbor.writeValue(w, "rename_symbol_item");
+                    try cbor.writeArrayHeader(w, renames.items.len);
+                    for (renames.items) |rename| {
+                        if (!std.mem.eql(u8, rename.uri[0..7], "file://")) return error.InvalidTargetURI;
+                        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                        var file_path_ = std.Uri.percentDecodeBackwards(&file_path_buf, rename.uri[7..]);
+                        if (builtin.os.tag == .windows) {
+                            if (file_path_[0] == '/') file_path_ = file_path_[1..];
+                            for (file_path_, 0..) |c, i| if (c == '/') {
+                                file_path_[i] = '\\';
+                            };
+                        }
+                        const line = try get_line_of_file(allocator, self_.file_path, rename.range.start.line);
+                        try cbor.writeValue(w, .{
+                            file_path_,
+                            rename.range.start.line,
+                            rename.range.start.character,
+                            rename.range.end.line,
+                            rename.range.end.character,
+                            rename.new_text,
+                            line,
+                        });
+                    }
+                    self_.from.send_raw(.{ .buf = msg_buf.items }) catch return error.ClientFailed;
+                }
+            }
+        }
+    } = .{
+        .from = from.clone(),
+        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
+    };
+
+    lsp.send_request(self.allocator, "textDocument/rename", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
         .newName = "PLACEHOLDER",
-    }) catch return error.LspFailed;
-    defer self.allocator.free(response.buf);
-    var result: []const u8 = undefined;
-    // buffer the renames in order to send as a single, atomic message
-    var renames = std.ArrayList(Rename).init(self.allocator);
-    defer renames.deinit();
-
-    if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
-        if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
-            try self.decode_rename_symbol_map(result, &renames);
-            // write the renames message manually since there doesn't appear to be an array helper
-            var msg_buf = std.ArrayList(u8).init(self.allocator);
-            defer msg_buf.deinit();
-            const w = msg_buf.writer();
-            try cbor.writeArrayHeader(w, 3);
-            try cbor.writeValue(w, "cmd");
-            try cbor.writeValue(w, "rename_symbol_item");
-            try cbor.writeArrayHeader(w, renames.items.len);
-            for (renames.items) |rename| {
-                if (!std.mem.eql(u8, rename.uri[0..7], "file://")) return error.InvalidTargetURI;
-                var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-                var file_path_ = std.Uri.percentDecodeBackwards(&file_path_buf, rename.uri[7..]);
-                if (builtin.os.tag == .windows) {
-                    if (file_path_[0] == '/') file_path_ = file_path_[1..];
-                    for (file_path_, 0..) |c, i| if (c == '/') {
-                        file_path_[i] = '\\';
-                    };
-                }
-                const line = try self.get_line_of_file(self.allocator, file_path, rename.range.start.line);
-                try cbor.writeValue(w, .{
-                    file_path_,
-                    rename.range.start.line,
-                    rename.range.start.character,
-                    rename.range.end.line,
-                    rename.range.end.character,
-                    rename.new_text,
-                    line,
-                });
-            }
-            from.send_raw(.{ .buf = msg_buf.items }) catch return error.ClientFailed;
-        }
-    }
+    }, handler) catch return error.LspFailed;
 }
 
 // decode a WorkspaceEdit record which may have shape {"changes": {}} or {"documentChanges": []}
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspaceEdit
-fn decode_rename_symbol_map(self: *Self, result: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_map(result: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = result;
     var len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
     var changes: []const u8 = "";
@@ -1007,11 +1072,11 @@ fn decode_rename_symbol_map(self: *Self, result: []const u8, renames: *std.Array
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
         if (std.mem.eql(u8, field_name, "changes")) {
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidMessageField;
-            try self.decode_rename_symbol_changes(changes, renames);
+            try decode_rename_symbol_changes(changes, renames);
             return;
         } else if (std.mem.eql(u8, field_name, "documentChanges")) {
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&changes)))) return error.InvalidMessageField;
-            try self.decode_rename_symbol_doc_changes(changes, renames);
+            try decode_rename_symbol_doc_changes(changes, renames);
             return;
         } else {
             try cbor.skipValue(&iter);
@@ -1020,17 +1085,17 @@ fn decode_rename_symbol_map(self: *Self, result: []const u8, renames: *std.Array
     return error.ClientFailed;
 }
 
-fn decode_rename_symbol_changes(self: *Self, changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_changes(changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = changes;
     var files_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
     while (files_len > 0) : (files_len -= 1) {
         var file_uri: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &file_uri))) return error.InvalidMessage;
-        try decode_rename_symbol_item(self, file_uri, &iter, renames);
+        try decode_rename_symbol_item(file_uri, &iter, renames);
     }
 }
 
-fn decode_rename_symbol_doc_changes(self: *Self, changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_doc_changes(changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = changes;
     var changes_len = cbor.decodeArrayHeader(&iter) catch return error.InvalidMessage;
     while (changes_len > 0) : (changes_len -= 1) {
@@ -1050,14 +1115,14 @@ fn decode_rename_symbol_doc_changes(self: *Self, changes: []const u8, renames: *
                 }
             } else if (std.mem.eql(u8, field_name, "edits")) {
                 if (file_uri.len == 0) return error.InvalidMessage;
-                try decode_rename_symbol_item(self, file_uri, &iter, renames);
+                try decode_rename_symbol_item(file_uri, &iter, renames);
             }
         }
     }
 }
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textEdit
-fn decode_rename_symbol_item(_: *Self, file_uri: []const u8, iter: *[]const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_item(file_uri: []const u8, iter: *[]const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var text_edits_len = cbor.decodeArrayHeader(iter) catch return error.InvalidMessage;
     while (text_edits_len > 0) : (text_edits_len -= 1) {
         var m_range: ?Range = null;
@@ -1088,20 +1153,39 @@ pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, c
     defer self.allocator.free(uri);
     // log.logger("lsp").print("fetching hover information...", .{});
 
-    const response = lsp.send_request(self.allocator, "textDocument/hover", .{
+    const handler: struct {
+        from: tp.pid,
+        file_path: []const u8,
+        row: usize,
+        col: usize,
+
+        pub fn deinit(self_: *@This()) void {
+            self_.from.deinit();
+            std.heap.c_allocator.free(self_.file_path);
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) !void {
+            var result: []const u8 = undefined;
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+                try send_content_msg_empty(self_.from.ref(), "hover", self_.file_path, self_.row, self_.col);
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&result) })) {
+                try send_hover(self_.from.ref(), self_.file_path, self_.row, self_.col, result);
+            }
+        }
+    } = .{
+        .from = from.clone(),
+        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
+        .row = row,
+        .col = col,
+    };
+
+    lsp.send_request(self.allocator, "textDocument/hover", .{
         .textDocument = .{ .uri = uri },
         .position = .{ .line = row, .character = col },
-    }) catch return error.LspFailed;
-    defer self.allocator.free(response.buf);
-    var result: []const u8 = undefined;
-    if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
-        try send_content_msg_empty(from, "hover", file_path, row, col);
-    } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&result) })) {
-        try self.send_hover(from, file_path, row, col, result);
-    }
+    }, handler) catch return error.LspFailed;
 }
 
-fn send_hover(self: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, result: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn send_hover(to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, result: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = result;
     var len = cbor.decodeMapHeader(&iter) catch return;
     var contents: []const u8 = "";
@@ -1120,11 +1204,10 @@ fn send_hover(self: *Self, to: tp.pid_ref, file_path: []const u8, row: usize, co
         }
     }
     if (contents.len > 0)
-        return self.send_contents(to, "hover", file_path, row, col, contents, range);
+        return send_contents(to, "hover", file_path, row, col, contents, range);
 }
 
 fn send_contents(
-    self: *Self,
     to: tp.pid_ref,
     tag: []const u8,
     file_path: []const u8,
@@ -1147,7 +1230,7 @@ fn send_contents(
     };
 
     if (is_list) {
-        var content = std.ArrayList(u8).init(self.allocator);
+        var content = std.ArrayList(u8).init(std.heap.c_allocator);
         defer content.deinit();
         while (len > 0) : (len -= 1) {
             if (try cbor.matchValue(&iter, cbor.extract(&value))) {
@@ -1364,8 +1447,30 @@ pub fn send_lsp_response(self: *Self, from: tp.pid_ref, cbor_id: []const u8, res
     from.send_raw(.{ .buf = cb.items }) catch return error.ClientFailed;
 }
 
-fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8) CallError!tp.message {
-    return lsp.send_request(self.allocator, "initialize", .{
+fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8) !void {
+    const handler: struct {
+        language_server: []const u8,
+        lsp: LSP,
+
+        pub fn deinit(self_: *@This()) void {
+            self_.lsp.pid.deinit();
+            std.heap.c_allocator.free(self_.language_server);
+        }
+
+        pub fn receive(self_: @This(), _: tp.message) !void {
+            self_.lsp.send_notification("initialized", .{}) catch return error.LspFailed;
+            if (self_.lsp.pid.expired()) return error.LspFailed;
+            log.logger("lsp").print("initialized LSP: {s}", .{fmt_lsp_name_func(self_.language_server)});
+        }
+    } = .{
+        .language_server = try std.heap.c_allocator.dupe(u8, language_server),
+        .lsp = .{
+            .allocator = lsp.allocator,
+            .pid = lsp.pid.clone(),
+        },
+    };
+
+    try lsp.send_request(self.allocator, "initialize", .{
         .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
         .rootPath = project_path,
         .rootUri = project_uri,
@@ -1667,7 +1772,7 @@ fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, projec
                 },
             },
         },
-    });
+    }, handler);
 }
 
 fn fmt_lsp_name_func(bytes: []const u8) std.fmt.Formatter(format_lsp_name_func) {
@@ -1698,7 +1803,7 @@ const eol = '\n';
 
 pub const GetLineOfFileError = (OutOfMemoryError || std.fs.File.OpenError || std.fs.File.Reader.Error);
 
-fn get_line_of_file(self: *Self, allocator: std.mem.Allocator, file_path: []const u8, line_: usize) GetLineOfFileError![]const u8 {
+fn get_line_of_file(allocator: std.mem.Allocator, file_path: []const u8, line_: usize) GetLineOfFileError![]const u8 {
     const line = line_ + 1;
     const file = try std.fs.cwd().openFile(file_path, .{ .mode = .read_only });
     defer file.close();
@@ -1712,13 +1817,13 @@ fn get_line_of_file(self: *Self, allocator: std.mem.Allocator, file_path: []cons
     var line_count: usize = 1;
     for (0..buf.len) |i| {
         if (line_count == line)
-            return self.get_line(allocator, buf[i..]);
+            return get_line(allocator, buf[i..]);
         if (buf[i] == eol) line_count += 1;
     }
     return allocator.dupe(u8, "");
 }
 
-pub fn get_line(_: *Self, allocator: std.mem.Allocator, buf: []const u8) ![]const u8 {
+pub fn get_line(allocator: std.mem.Allocator, buf: []const u8) ![]const u8 {
     for (0..buf.len) |i| {
         if (buf[i] == eol) return allocator.dupe(u8, buf[0..i]);
     }
