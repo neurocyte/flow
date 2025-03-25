@@ -52,7 +52,7 @@ const @"style.config" = struct {
 };
 pub const Style = @"style.config";
 
-pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const self = try allocator.create(TabBar);
     self.* = try TabBar.init(allocator, parent, event_handler);
     return Widget.to(self);

@@ -242,6 +242,12 @@ pub fn get_digit(n: anytype, style_: DigitStyle) []const u8 {
     };
 }
 
+pub fn get_digit_ascii(char: []const u8, style_: DigitStyle) []const u8 {
+    if (char.len == 0) return " ";
+    if (char[0] > '9' or char[0] < '0') return char;
+    return get_digit(char[0] - '0', style_);
+}
+
 const digits_ascii: [10][]const u8 = .{ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" };
 const digits_digtl: [10][]const u8 = .{ "🯰", "🯱", "🯲", "🯳", "🯴", "🯵", "🯶", "🯷", "🯸", "🯹" };
 const digits_subsc: [10][]const u8 = .{ "₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉" };

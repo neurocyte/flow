@@ -38,7 +38,7 @@ utf8_sanitized: bool = false,
 const project_icon = "";
 const Self = @This();
 
-pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const btn = try Button.create(Self, allocator, parent, .{
         .ctx = .{
             .allocator = allocator,

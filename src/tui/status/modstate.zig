@@ -19,7 +19,7 @@ const Self = @This();
 
 pub const width = 8;
 
-pub fn create(allocator: Allocator, parent: Plane, _: ?EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, _: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),

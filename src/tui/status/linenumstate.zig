@@ -9,6 +9,9 @@ const EventHandler = @import("EventHandler");
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
+const fonts = @import("../fonts.zig");
+
+const DigitStyle = fonts.DigitStyle;
 
 const utf8_sanitized_warning = "  UTF";
 
@@ -19,12 +22,32 @@ buf: [256]u8 = undefined,
 rendered: [:0]const u8 = "",
 eol_mode: Buffer.EolMode = .lf,
 utf8_sanitized: bool = false,
+padding: ?usize,
+leader: ?Leader,
+style: ?DigitStyle,
 
+const Leader = enum {
+    space,
+    zero,
+};
 const Self = @This();
 
-pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
+    const padding: ?usize, const leader: ?Leader, const style: ?DigitStyle = if (arg) |fmt| blk: {
+        var it = std.mem.splitScalar(u8, fmt, ',');
+        break :blk .{
+            if (it.next()) |size| std.fmt.parseInt(usize, size, 10) catch null else null,
+            if (it.next()) |leader| std.meta.stringToEnum(Leader, leader) orelse null else null,
+            if (it.next()) |style| std.meta.stringToEnum(DigitStyle, style) orelse null else null,
+        };
+    } else .{ null, null, null };
+
     return Button.create_widget(Self, allocator, parent, .{
-        .ctx = .{},
+        .ctx = .{
+            .padding = padding,
+            .leader = leader,
+            .style = style,
+        },
         .label = "",
         .on_click = on_click,
         .on_layout = layout,
@@ -67,9 +90,28 @@ fn format(self: *Self) void {
         .lf => "",
         .crlf => " [␍␊]",
     };
-    std.fmt.format(writer, "{s} Ln {d}, Col {d} ", .{ eol_mode, self.line + 1, self.column + 1 }) catch {};
+    std.fmt.format(writer, "{s} Ln ", .{eol_mode}) catch {};
+    self.format_count(writer, self.line + 1, self.padding orelse 0) catch {};
+    std.fmt.format(writer, ", Col ", .{}) catch {};
+    self.format_count(writer, self.column + 1, self.padding orelse 0) catch {};
+    std.fmt.format(writer, " ", .{}) catch {};
     self.rendered = @ptrCast(fbs.getWritten());
     self.buf[self.rendered.len] = 0;
+}
+
+fn format_count(self: *Self, writer: anytype, value: usize, width: usize) !void {
+    var buf: [64]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const writer_ = fbs.writer();
+    try std.fmt.format(writer_, "{d}", .{value});
+    const value_str = fbs.getWritten();
+
+    const char: []const u8 = switch (self.leader orelse .space) {
+        .space => " ",
+        .zero => "0",
+    };
+    for (0..(@max(value_str.len, width) - value_str.len)) |_| try writer.writeAll(fonts.get_digit_ascii(char, self.style orelse .ascii));
+    for (value_str, 0..) |_, i| try writer.writeAll(fonts.get_digit_ascii(value_str[i .. i + 1], self.style orelse .ascii));
 }
 
 pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {

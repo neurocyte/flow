@@ -13,11 +13,17 @@ const Self = @This();
 
 pub fn Create(comptime layout_: Widget.Layout) @import("widget.zig").CreateFunction {
     return struct {
-        fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
+        fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
+            const layout__ = if (layout_ == .static) blk: {
+                if (arg) |str_size| {
+                    const size = std.fmt.parseInt(usize, str_size, 10) catch break :blk layout_;
+                    break :blk Widget.Layout{ .static = size };
+                } else break :blk layout_;
+            } else layout_;
             const self: *Self = try allocator.create(Self);
             self.* = .{
                 .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-                .layout_ = layout_,
+                .layout_ = layout__,
                 .on_event = event_handler,
             };
             return Widget.to(self);

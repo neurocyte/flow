@@ -12,7 +12,7 @@ const Button = @import("../Button.zig");
 const tui = @import("../tui.zig");
 const CreateError = @import("widget.zig").CreateError;
 
-pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler) CreateError!Widget {
+pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, _: ?[]const u8) CreateError!Widget {
     return Button.create_widget(void, allocator, parent, .{
         .ctx = {},
         .label = tui.get_mode(),
