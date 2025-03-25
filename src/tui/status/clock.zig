@@ -9,16 +9,22 @@ const Plane = @import("renderer").Plane;
 const Widget = @import("../Widget.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
+const fonts = @import("../fonts.zig");
+
+const DigitStyle = fonts.DigitStyle;
 
 allocator: std.mem.Allocator,
 plane: Plane,
 tick_timer: ?tp.Cancellable = null,
 on_event: ?EventHandler,
 tz: zeit.timezone.TimeZone,
+style: ?DigitStyle,
 
 const Self = @This();
 
-pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
+    const style: ?DigitStyle = if (arg) |style| std.meta.stringToEnum(DigitStyle, style) orelse null else null;
+
     var env = std.process.getEnvMap(allocator) catch |e| {
         std.log.err("clock: std.process.getEnvMap failed with {any}", .{e});
         return error.WidgetInitFailed;
@@ -33,6 +39,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
             std.log.err("clock: zeit.local failed with {any}", .{e});
             return error.WidgetInitFailed;
         },
+        .style = style,
     };
     try tui.message_filters().add(MessageFilter.bind(self, receive_tick));
     self.update_tick_timer(.init);
@@ -74,7 +81,14 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     const now = zeit.instant(.{ .timezone = &self.tz }) catch return false;
     const dt = now.time();
-    _ = self.plane.print("{d:0>2}:{d:0>2}", .{ dt.hour, dt.minute }) catch {};
+
+    var buf: [64]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const writer = fbs.writer();
+    std.fmt.format(writer, "{d:0>2}:{d:0>2}", .{ dt.hour, dt.minute }) catch {};
+
+    const value_str = fbs.getWritten();
+    for (value_str, 0..) |_, i| _ = self.plane.putstr(fonts.get_digit_ascii(value_str[i .. i + 1], self.style orelse .ascii)) catch {};
     return false;
 }
 
