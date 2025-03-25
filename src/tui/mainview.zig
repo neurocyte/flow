@@ -115,6 +115,11 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var end_line: usize = undefined;
     var end_pos: usize = undefined;
     var lines: []const u8 = undefined;
+    var same_file: bool = undefined;
+    var goto_args: []const u8 = undefined;
+    var line: i64 = undefined;
+    var column: i64 = undefined;
+
     if (try m.match(.{ "REF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
         try self.add_find_in_files_result(.references, path, begin_line, begin_pos, end_line, end_pos, lines, .Information);
         return true;
@@ -138,6 +143,12 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 .begin = .{ .row = begin_line, .col = begin_pos },
                 .end = .{ .row = end_line, .col = end_pos },
             });
+        return true;
+    } else if (try m.match(.{ "navigate_complete", tp.extract(&same_file), tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column) })) {
+        cmds.navigate_complete(self, same_file, path, goto_args, line, column) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        return true;
+    } else if (try m.match(.{ "navigate_complete", tp.extract(&same_file), tp.extract(&path), tp.extract(&goto_args), tp.null_, tp.null_ })) {
+        cmds.navigate_complete(self, same_file, path, goto_args, null, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     }
     return if (try self.floating_views.send(from_, m)) true else self.widgets.send(from_, m);
@@ -371,12 +382,42 @@ const cmds = struct {
         const same_file = if (self.get_active_file_path()) |fp| std.mem.eql(u8, fp, f) else false;
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
-        if (!same_file and !have_editor_metadata and line == null)
-            if (try project_manager.get_mru_position(self.allocator, f)) |pos| {
-                line = @intCast(pos.row);
-                column = @intCast(pos.col);
+        if (!same_file and !have_editor_metadata and line == null) {
+            const ctx_: struct {
+                allocator: std.mem.Allocator,
+                from: tp.pid,
+                same_file: bool,
+                path: []const u8,
+                goto_args: []const u8,
+
+                pub fn deinit(ctx_: *@This()) void {
+                    ctx_.from.deinit();
+                    ctx_.allocator.free(ctx_.path);
+                    ctx_.allocator.free(ctx_.goto_args);
+                }
+                pub fn receive(ctx_: @This(), rsp: tp.message) !void {
+                    var line_: ?i64 = null;
+                    var column_: ?i64 = null;
+                    _ = try cbor.match(rsp.buf, .{ tp.extract(&line_), tp.extract(&column_) });
+                    try ctx_.from.send(.{ "navigate_complete", ctx_.same_file, ctx_.path, ctx_.goto_args, line_, column_ });
+                }
+            } = .{
+                .allocator = self.allocator,
+                .from = tp.self_pid().clone(),
+                .same_file = same_file,
+                .path = try self.allocator.dupe(u8, f),
+                .goto_args = try self.allocator.dupe(u8, goto_args),
             };
 
+            try project_manager.get_mru_position(self.allocator, f, ctx_);
+            return;
+        }
+
+        return cmds.navigate_complete(self, same_file, f, goto_args, line, column);
+    }
+    pub const navigate_meta: Meta = .{ .arguments = &.{.object} };
+
+    fn navigate_complete(self: *Self, same_file: bool, f: []const u8, goto_args: []const u8, line: ?i64, column: ?i64) Result {
         if (!same_file) {
             if (self.get_active_editor()) |editor| {
                 editor.send_editor_jump_source() catch {};
@@ -395,7 +436,6 @@ const cmds = struct {
         }
         tui.need_render();
     }
-    pub const navigate_meta: Meta = .{ .arguments = &.{.object} };
 
     pub fn open_help(self: *Self, _: Ctx) Result {
         tui.reset_drag_context();
