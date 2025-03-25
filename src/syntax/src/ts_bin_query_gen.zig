@@ -43,7 +43,7 @@ pub fn main() anyerror!void {
 
         try cbor.writeValue(writer, "highlights");
         try cbor.writeValue(writer, highlights_cb);
-        std.log.info("file_type {s} highlights {d} bytes", .{ file_type.name, highlights_cb.len });
+        // std.log.info("file_type {s} highlights {d} bytes", .{ file_type.name, highlights_cb.len });
 
         if (file_type.injections) |injections| {
             const injections_in = try treez.Query.create(lang, injections);
@@ -54,12 +54,12 @@ pub fn main() anyerror!void {
 
             try cbor.writeValue(writer, "injections");
             try cbor.writeValue(writer, injections_cb);
-            std.log.info("file_type {s} injections {d} bytes", .{ file_type.name, injections_cb.len });
+            // std.log.info("file_type {s} injections {d} bytes", .{ file_type.name, injections_cb.len });
         }
     }
 
     try output_file.writeAll(output.items);
-    std.log.info("file_types total {d} bytes", .{output.items.len});
+    // std.log.info("file_types total {d} bytes", .{output.items.len});
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
