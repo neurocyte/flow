@@ -114,7 +114,6 @@ fn init(allocator: Allocator) InitError!*Self {
     if (frame_rate != 0)
         conf.frame_rate = frame_rate;
     tp.env.get().num_set("frame-rate", @intCast(conf.frame_rate));
-    tp.env.get().num_set("lsp-request-timeout", @intCast(conf.lsp_request_timeout));
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 

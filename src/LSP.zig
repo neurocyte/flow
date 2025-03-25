@@ -41,8 +41,7 @@ pub fn send_request(
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
-    const request_timeout: u64 = @intCast(std.time.ns_per_s * tp.env.get().num("lsp-request-timeout"));
-    return RequestContext(@TypeOf(ctx)).send(allocator, self.pid.ref(), ctx, request_timeout, tp.message.fmt(.{ "REQ", method, cb.items }));
+    return RequestContext(@TypeOf(ctx)).send(allocator, self.pid.ref(), ctx, tp.message.fmt(.{ "REQ", method, cb.items }));
 }
 
 pub fn send_notification(self: Self, method: []const u8, m: anytype) (OutOfMemoryError || SendError)!void {
@@ -72,8 +71,7 @@ fn RequestContext(T: type) type {
         const Self = @This();
         const ReceiverT = tp.Receiver(*@This());
 
-        fn send(a: std.mem.Allocator, to: tp.pid_ref, ctx: T, timeout_ns: u64, request: tp.message) (OutOfMemoryError || SpawnError)!void {
-            _ = timeout_ns;
+        fn send(a: std.mem.Allocator, to: tp.pid_ref, ctx: T, request: tp.message) (OutOfMemoryError || SpawnError)!void {
             const self = try a.create(@This());
             self.* = .{
                 .receiver = undefined,

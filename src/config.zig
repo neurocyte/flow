@@ -25,8 +25,6 @@ bottom_bar: []const u8 = "mode file log selection diagnostics keybind linenumber
 show_scrollbars: bool = true,
 show_fileicons: bool = true,
 
-lsp_request_timeout: usize = 10,
-
 include_files: []const u8 = "",
 
 pub const DigitStyle = enum {
