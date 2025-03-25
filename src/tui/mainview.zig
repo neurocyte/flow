@@ -60,7 +60,9 @@ const FileListType = enum {
     find_in_files,
 };
 
-pub fn create(allocator: std.mem.Allocator) !Widget {
+pub const CreateError = error{ OutOfMemory, ThespianSpawnFailed };
+
+pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     const self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,

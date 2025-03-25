@@ -20,7 +20,7 @@ const widgets = std.static_string_map.StaticStringMap(CreateFunction).initCompti
     .{ "keybind", @import("keybindstate.zig").create },
     .{ "tabs", @import("tabs.zig").create },
 });
-pub const CreateError = error{ OutOfMemory, Exit };
+pub const CreateError = error{ OutOfMemory, WidgetInitFailed };
 pub const CreateFunction = *const fn (allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) CreateError!Widget;
 
 pub fn create(name: []const u8, allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) CreateError!?Widget {

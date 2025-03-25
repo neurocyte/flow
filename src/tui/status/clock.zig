@@ -19,14 +19,20 @@ tz: zeit.timezone.TimeZone,
 const Self = @This();
 
 pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) @import("widget.zig").CreateError!Widget {
-    var env = std.process.getEnvMap(allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    var env = std.process.getEnvMap(allocator) catch |e| {
+        std.log.err("clock: std.process.getEnvMap failed with {any}", .{e});
+        return error.WidgetInitFailed;
+    };
     defer env.deinit();
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .on_event = event_handler,
-        .tz = zeit.local(allocator, &env) catch |e| return tp.exit_error(e, @errorReturnTrace()),
+        .tz = zeit.local(allocator, &env) catch |e| {
+            std.log.err("clock: zeit.local failed with {any}", .{e});
+            return error.WidgetInitFailed;
+        },
     };
     try tui.message_filters().add(MessageFilter.bind(self, receive_tick));
     self.update_tick_timer(.init);

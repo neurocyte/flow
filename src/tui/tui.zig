@@ -84,11 +84,24 @@ fn start(args: StartArgs) tp.result {
     tp.receive(&self.receiver);
 }
 
-fn init(allocator: Allocator) !*Self {
+const InitError = error{
+    OutOfMemory,
+    UnknownTheme,
+    ThespianMetronomeInitFailed,
+    ThespianMetronomeStartFailed,
+    ThespianTimeoutInitFailed,
+    ThespianSignalInitFailed,
+    ThespianSpawnFailed,
+} || renderer.Error ||
+    root.ConfigDirError ||
+    root.ConfigWriteError ||
+    keybind.LoadError;
+
+fn init(allocator: Allocator) InitError!*Self {
     var conf, const conf_bufs = root.read_config(@import("config"), allocator);
     defer root.free_config(allocator, conf_bufs);
 
-    const theme_ = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return tp.exit("unknown theme");
+    const theme_ = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return error.UnknownTheme;
     conf.theme = theme_.name;
     conf.whitespace_mode = try allocator.dupe(u8, conf.whitespace_mode);
     conf.input_mode = try allocator.dupe(u8, conf.input_mode);
@@ -161,7 +174,7 @@ fn init(allocator: Allocator) !*Self {
     return self;
 }
 
-fn init_input_namespace(self: *Self) !void {
+fn init_input_namespace(self: *Self) InitError!void {
     var mode_parts = std.mem.splitScalar(u8, self.config_.input_mode, '/');
     const namespace_name = mode_parts.first();
     keybind.set_namespace(namespace_name) catch {
@@ -172,7 +185,7 @@ fn init_input_namespace(self: *Self) !void {
     };
 }
 
-fn init_delayed(self: *Self) !void {
+fn init_delayed(self: *Self) command.Result {
     self.delayed_init_done = true;
     if (self.input_mode_) |_| {} else {
         if (self.delayed_init_input_mode) |delayed_init_input_mode| {
@@ -218,9 +231,9 @@ fn deinit(self: *Self) void {
     self.allocator.destroy(self);
 }
 
-fn listen_sigwinch(self: *Self) tp.result {
+fn listen_sigwinch(self: *Self) error{ThespianSignalInitFailed}!void {
     if (self.sigwinch_signal) |old| old.deinit();
-    self.sigwinch_signal = tp.signal.init(std.posix.SIG.WINCH, tp.message.fmt(.{"sigwinch"})) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    self.sigwinch_signal = try tp.signal.init(std.posix.SIG.WINCH, tp.message.fmt(.{"sigwinch"}));
 }
 
 fn update_mouse_idle_timer(self: *Self) void {
@@ -465,7 +478,7 @@ fn active_event_handler(self: *Self) ?EventHandler {
     return mode.event_handler orelse mode.input_handler;
 }
 
-fn dispatch_flush_input_event(self: *Self) !void {
+fn dispatch_flush_input_event(self: *Self) error{ Exit, NoSpaceLeft }!void {
     var buf: [32]u8 = undefined;
     const mode = self.input_mode_ orelse return;
     try mode.input_handler.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
@@ -627,7 +640,7 @@ pub fn refresh_hover() void {
     _ = self.update_hover(self.last_hover_y, self.last_hover_x) catch {};
 }
 
-pub fn save_config() !void {
+pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {
     const self = current();
     try root.write_config(self.config_, self.allocator);
 }

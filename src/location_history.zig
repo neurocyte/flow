@@ -16,7 +16,7 @@ pub const Selection = struct {
     end: Cursor = Cursor{},
 };
 
-pub fn create() !Self {
+pub fn create() error{ OutOfMemory, ThespianSpawnFailed }!Self {
     return .{ .pid = try Process.create() };
 }
 
@@ -45,7 +45,7 @@ const Process = struct {
         selection: ?Selection = null,
     };
 
-    pub fn create() !tp.pid {
+    pub fn create() error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
         const self = try outer_a.create(Process);
         self.* = .{
             .arena = std.heap.ArenaAllocator.init(outer_a),

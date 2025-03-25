@@ -20,6 +20,18 @@ const DropWriter = gui.DropWriter;
 pub const style = StyleBits;
 pub const styles = @import("tuirenderer").styles;
 
+pub const Error = error{
+    UnexpectedRendererEvent,
+    OutOfMemory,
+    IntegerTooLarge,
+    IntegerTooSmall,
+    InvalidType,
+    TooShort,
+    Utf8CannotEncodeSurrogateHalf,
+    CodepointTooLarge,
+    VaxisResizeError,
+} || std.Thread.SpawnError;
+
 pub const panic = messageBoxThenPanic(.{ .title = "Flow Panic" });
 
 threadlocal var thread_is_panicing = false;
@@ -80,7 +92,7 @@ pub fn init(
     handler_ctx: *anyopaque,
     no_alternate: bool,
     dispatch_initialized: *const fn (ctx: *anyopaque) void,
-) !Self {
+) Error!Self {
     std.debug.assert(!global.init_called);
     global.init_called = true;
 
@@ -116,16 +128,16 @@ pub fn deinit(self: *Self) void {
     self.title_buf.deinit();
 }
 
-pub fn run(self: *Self) !void {
+pub fn run(self: *Self) Error!void {
     if (self.thread) |_| return;
 
     // dummy resize to fully init vaxis
     const drop_writer = DropWriter{};
-    try self.vx.resize(
+    self.vx.resize(
         self.allocator,
         drop_writer.writer().any(),
         .{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
-    );
+    ) catch return error.VaxisResizeError;
 
     self.thread = try gui.start();
 }
@@ -164,7 +176,7 @@ pub fn stdplane(self: *Self) Plane {
     return plane;
 }
 
-pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
+pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     const Input = struct {
         kind: u8,
         codepoint: u21,

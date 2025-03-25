@@ -35,7 +35,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
     };
     logview.init(allocator);
     try tui.message_filters().add(MessageFilter.bind(self, receive_log));
-    try log.subscribe();
+    log.subscribe() catch return error.WidgetInitFailed;
     return Widget.to(self);
 }
 

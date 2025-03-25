@@ -41,7 +41,20 @@ logger: log.Logger,
 
 loop: Loop,
 
-pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool, _: *const fn (ctx: *anyopaque) void) !Self {
+pub const Error = error{
+    UnexpectedRendererEvent,
+    OutOfMemory,
+    IntegerTooLarge,
+    IntegerTooSmall,
+    InvalidType,
+    TooShort,
+    Utf8CannotEncodeSurrogateHalf,
+    CodepointTooLarge,
+    TtyInitError,
+    TtyWriteError,
+} || std.Thread.SpawnError;
+
+pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool, _: *const fn (ctx: *anyopaque) void) Error!Self {
     const opts: vaxis.Vaxis.Options = .{
         .kitty_keyboard_flags = .{
             .disambiguate = true,
@@ -54,7 +67,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
     };
     return .{
         .allocator = allocator,
-        .tty = try vaxis.Tty.init(),
+        .tty = vaxis.Tty.init() catch return error.TtyInitError,
         .vx = try vaxis.init(allocator, opts),
         .no_alternate = no_alternate,
         .event_buffer = std.ArrayList(u8).init(allocator),
@@ -93,19 +106,19 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
     return std.debug.defaultPanic(msg, ret_addr orelse @returnAddress());
 }
 
-pub fn run(self: *Self) !void {
+pub fn run(self: *Self) Error!void {
     self.vx.sgr = .legacy;
     self.vx.conpty_hacks = true;
 
     panic_cleanup = .{ .allocator = self.allocator, .tty = &self.tty, .vx = &self.vx };
-    if (!self.no_alternate) try self.vx.enterAltScreen(self.tty.anyWriter());
+    if (!self.no_alternate) self.vx.enterAltScreen(self.tty.anyWriter()) catch return error.TtyWriteError;
     if (builtin.os.tag == .windows) {
         try self.resize(.{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
     } else {
-        try self.sigwinch();
+        self.sigwinch() catch return error.TtyWriteError;
     }
-    try self.vx.setBracketedPaste(self.tty.anyWriter(), true);
-    try self.vx.queryTerminalSend(self.tty.anyWriter());
+    self.vx.setBracketedPaste(self.tty.anyWriter(), true) catch return error.TtyWriteError;
+    self.vx.queryTerminalSend(self.tty.anyWriter()) catch return error.TtyWriteError;
 
     self.loop = Loop.init(&self.tty, &self.vx);
     try self.loop.start();
@@ -122,8 +135,8 @@ pub fn sigwinch(self: *Self) !void {
     try self.resize(try vaxis.Tty.getWinsize(self.input_fd_blocking()));
 }
 
-fn resize(self: *Self, ws: vaxis.Winsize) !void {
-    try self.vx.resize(self.allocator, self.tty.anyWriter(), ws);
+fn resize(self: *Self, ws: vaxis.Winsize) error{ TtyWriteError, OutOfMemory }!void {
+    self.vx.resize(self.allocator, self.tty.anyWriter(), ws) catch return error.TtyWriteError;
     self.vx.queueRefresh();
     if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"resize"}));
 }
@@ -147,7 +160,7 @@ pub fn input_fd_blocking(self: Self) i32 {
     return self.tty.fd;
 }
 
-pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
+pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     var input_: []const u8 = undefined;
     var text_: []const u8 = undefined;
     if (!try cbor.match(msg, .{ "RDR", cbor.extract(&input_), cbor.extract(&text_) }))
@@ -268,7 +281,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
         .cap_da1 => {
             self.queries_done = true;
             self.vx.enableDetectedFeatures(self.tty.anyWriter()) catch |e| self.logger.err("enable features", e);
-            try self.vx.setMouseMode(self.tty.anyWriter(), true);
+            self.vx.setMouseMode(self.tty.anyWriter(), true) catch return error.TtyWriteError;
         },
         .cap_kitty_keyboard => {
             self.logger.print("kitty keyboard capability detected", .{});
@@ -287,7 +300,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) !void {
     }
 }
 
-fn fmtmsg(self: *Self, value: anytype) ![]const u8 {
+fn fmtmsg(self: *Self, value: anytype) std.ArrayList(u8).Writer.Error![]const u8 {
     self.event_buffer.clearRetainingCapacity();
     try cbor.writeValue(self.event_buffer.writer(), value);
     return self.event_buffer.items;
@@ -329,7 +342,7 @@ fn handle_bracketed_paste_end(self: *Self) !void {
     if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", self.bracketed_paste_buffer.items }));
 }
 
-fn handle_bracketed_paste_error(self: *Self, e: anytype) !void {
+fn handle_bracketed_paste_error(self: *Self, e: Error) !void {
     self.logger.err("bracketed paste", e);
     self.bracketed_paste_buffer.clearAndFree();
     self.bracketed_paste = false;
@@ -508,7 +521,7 @@ const Loop = struct {
     }
 
     /// spawns the input thread to read input from the tty
-    pub fn start(self: *Loop) !void {
+    pub fn start(self: *Loop) std.Thread.SpawnError!void {
         if (self.thread) |_| return;
         self.thread = try std.Thread.spawn(.{}, Loop.ttyRun, .{self});
     }

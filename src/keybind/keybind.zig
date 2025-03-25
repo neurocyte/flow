@@ -167,7 +167,7 @@ fn get_mode_binding_set(mode_name: []const u8, insert_command: []const u8) LoadE
     return binding_set;
 }
 
-const LoadError = (error{ NotFound, NotAnObject } || std.json.ParseError(std.json.Scanner) || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError);
+pub const LoadError = (error{ NotFound, NotAnObject } || std.json.ParseError(std.json.Scanner) || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError);
 
 ///A collection of modes that represent a switchable editor emulation
 const Namespace = struct {

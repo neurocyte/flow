@@ -551,7 +551,9 @@ fn read_nested_include_files(T: type, allocator: std.mem.Allocator, conf: *T, bu
     };
 }
 
-pub fn write_config(conf: anytype, allocator: std.mem.Allocator) !void {
+pub const ConfigWriteError = error{ CreateConfigFileFailed, WriteConfigFileFailed };
+
+pub fn write_config(conf: anytype, allocator: std.mem.Allocator) (ConfigDirError || ConfigWriteError)!void {
     config_mutex.lock();
     defer config_mutex.unlock();
     _ = allocator;
@@ -560,14 +562,20 @@ pub fn write_config(conf: anytype, allocator: std.mem.Allocator) !void {
     // return write_json_file(@TypeOf(conf), conf, allocator, try get_app_config_file_name(application_name, @typeName(@TypeOf(conf))));
 }
 
-fn write_text_config_file(comptime T: type, data: T, file_name: []const u8) !void {
-    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
+fn write_text_config_file(comptime T: type, data: T, file_name: []const u8) ConfigWriteError!void {
+    var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch |e| {
+        std.log.err("createFileAbsolute failed with {any} for: {s}", .{ e, file_name });
+        return error.CreateConfigFileFailed;
+    };
     defer file.close();
     const writer = file.writer();
-    return write_config_to_writer(T, data, writer);
+    write_config_to_writer(T, data, writer) catch |e| {
+        std.log.err("write file failed with {any} for: {s}", .{ e, file_name });
+        return error.WriteConfigFileFailed;
+    };
 }
 
-pub fn write_config_to_writer(comptime T: type, data: T, writer: anytype) !void {
+pub fn write_config_to_writer(comptime T: type, data: T, writer: anytype) @TypeOf(writer).Error!void {
     const default: T = .{};
     inline for (@typeInfo(T).@"struct".fields) |field_info| {
         if (config_eql(
@@ -650,7 +658,15 @@ pub fn get_config_dir() ![]const u8 {
     return get_app_config_dir(application_name);
 }
 
-fn get_app_config_dir(appname: []const u8) ![]const u8 {
+pub const ConfigDirError = error{
+    NoSpaceLeft,
+    MakeConfigDirFailed,
+    MakeHomeConfigDirFailed,
+    MakeAppConfigDirFailed,
+    AppConfigDirUnavailable,
+};
+
+fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
     const a = std.heap.c_allocator;
     const local = struct {
         var config_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
@@ -666,7 +682,7 @@ fn get_app_config_dir(appname: []const u8) ![]const u8 {
         const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/.config", .{home});
         std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
-            else => return e,
+            else => return error.MakeHomeConfigDirFailed,
         };
         break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/.config/{s}", .{ home, appname });
     } else if (builtin.os.tag == .windows) ret: {
@@ -675,7 +691,7 @@ fn get_app_config_dir(appname: []const u8) ![]const u8 {
             const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/{s}", .{ appdata, appname });
             std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
                 error.PathAlreadyExists => {},
-                else => return e,
+                else => return error.MakeAppConfigDirFailed,
             };
             break :ret dir;
         } else return error.AppConfigDirUnavailable;
@@ -684,7 +700,7 @@ fn get_app_config_dir(appname: []const u8) ![]const u8 {
     local.config_dir = config_dir;
     std.fs.makeDirAbsolute(config_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
-        else => return e,
+        else => return error.MakeConfigDirFailed,
     };
 
     var keybind_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
@@ -784,11 +800,11 @@ fn get_app_state_dir(appname: []const u8) ![]const u8 {
     return state_dir;
 }
 
-fn get_app_config_file_name(appname: []const u8, comptime base_name: []const u8) ![]const u8 {
+fn get_app_config_file_name(appname: []const u8, comptime base_name: []const u8) ConfigDirError![]const u8 {
     return get_app_config_dir_file_name(appname, base_name ++ ".json");
 }
 
-fn get_app_config_dir_file_name(appname: []const u8, comptime config_file_name: []const u8) ![]const u8 {
+fn get_app_config_dir_file_name(appname: []const u8, comptime config_file_name: []const u8) ConfigDirError![]const u8 {
     const local = struct {
         var config_file_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
