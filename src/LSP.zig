@@ -125,6 +125,10 @@ const Process = struct {
     log_file: ?std.fs.File = null,
     next_id: i32 = 0,
     requests: std.StringHashMap(tp.pid),
+    state: enum { init, running } = .init,
+    init_queue: std.ArrayListUnmanaged(struct { tp.pid, []const u8, []const u8, InitQueueType }) = .empty,
+
+    const InitQueueType = enum { request, notify };
 
     const Receiver = tp.Receiver(*Process);
 
@@ -161,6 +165,7 @@ const Process = struct {
     }
 
     fn deinit(self: *Process) void {
+        self.free_init_queue();
         var i = self.requests.iterator();
         while (i.next()) |req| {
             self.allocator.free(req.key_ptr.*);
@@ -236,12 +241,24 @@ const Process = struct {
         var code: u32 = 0;
         var cbor_id: []const u8 = "";
 
-        if (try cbor.match(m.buf, .{ "REQ", tp.extract(&method), tp.extract(&bytes) })) {
-            try self.send_request(from, method, bytes);
+        if (try cbor.match(m.buf, .{ "REQ", "initialize", tp.extract(&bytes) })) {
+            try self.send_request(from, "initialize", bytes);
+        } else if (try cbor.match(m.buf, .{ "REQ", tp.extract(&method), tp.extract(&bytes) })) {
+            switch (self.state) {
+                .init => try self.append_init_queue(from, method, bytes, .request), //queue requests
+                .running => try self.send_request(from, method, bytes),
+            }
         } else if (try cbor.match(m.buf, .{ "RSP", tp.extract_cbor(&cbor_id), tp.extract_cbor(&bytes) })) {
             try self.send_response(cbor_id, bytes);
+        } else if (try cbor.match(m.buf, .{ "NTFY", "initialized", tp.extract(&bytes) })) {
+            self.state = .running;
+            try self.send_notification("initialized", bytes);
+            try self.replay_init_queue();
         } else if (try cbor.match(m.buf, .{ "NTFY", tp.extract(&method), tp.extract(&bytes) })) {
-            try self.send_notification(method, bytes);
+            switch (self.state) {
+                .init => try self.append_init_queue(from, method, bytes, .notify), //queue requests
+                .running => try self.send_notification(method, bytes),
+            }
         } else if (try cbor.match(m.buf, .{"close"})) {
             self.write_log("### LSP close ###\n", .{});
             try self.close();
@@ -263,6 +280,34 @@ const Process = struct {
             self.write_log("{s}\n", .{tp.error_text()});
             return error.ExitUnexpected;
         }
+    }
+
+    fn append_init_queue(self: *Process, from: tp.pid_ref, method: []const u8, bytes: []const u8, type_: InitQueueType) !void {
+        const p = try self.init_queue.addOne(self.allocator);
+        p.* = .{
+            from.clone(),
+            try self.allocator.dupe(u8, method),
+            try self.allocator.dupe(u8, bytes),
+            type_,
+        };
+    }
+
+    fn replay_init_queue(self: *Process) !void {
+        defer self.free_init_queue();
+        for (self.init_queue.items) |*p|
+            switch (p[3]) {
+                .request => try self.send_request(p[0].ref(), p[1], p[2]),
+                .notify => try self.send_notification(p[1], p[2]),
+            };
+    }
+
+    fn free_init_queue(self: *Process) void {
+        for (self.init_queue.items) |*p| {
+            p[0].deinit();
+            self.allocator.free(p[1]);
+            self.allocator.free(p[2]);
+        }
+        self.init_queue.deinit(self.allocator);
     }
 
     fn receive_lsp_message(self: *Process, cb: []const u8) Error!void {
