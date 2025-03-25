@@ -126,7 +126,7 @@ const Process = struct {
     next_id: i32 = 0,
     requests: std.StringHashMap(tp.pid),
     state: enum { init, running } = .init,
-    init_queue: std.ArrayListUnmanaged(struct { tp.pid, []const u8, []const u8, InitQueueType }) = .empty,
+    init_queue: ?std.ArrayListUnmanaged(struct { tp.pid, []const u8, []const u8, InitQueueType }) = null,
 
     const InitQueueType = enum { request, notify };
 
@@ -283,7 +283,11 @@ const Process = struct {
     }
 
     fn append_init_queue(self: *Process, from: tp.pid_ref, method: []const u8, bytes: []const u8, type_: InitQueueType) !void {
-        const p = try self.init_queue.addOne(self.allocator);
+        const queue = if (self.init_queue) |*queue| queue else blk: {
+            self.init_queue = .empty;
+            break :blk &self.init_queue.?;
+        };
+        const p = try queue.addOne(self.allocator);
         p.* = .{
             from.clone(),
             try self.allocator.dupe(u8, method),
@@ -294,20 +298,25 @@ const Process = struct {
 
     fn replay_init_queue(self: *Process) !void {
         defer self.free_init_queue();
-        for (self.init_queue.items) |*p|
-            switch (p[3]) {
-                .request => try self.send_request(p[0].ref(), p[1], p[2]),
-                .notify => try self.send_notification(p[1], p[2]),
-            };
+        if (self.init_queue) |*queue| {
+            for (queue.items) |*p|
+                switch (p[3]) {
+                    .request => try self.send_request(p[0].ref(), p[1], p[2]),
+                    .notify => try self.send_notification(p[1], p[2]),
+                };
+        }
     }
 
     fn free_init_queue(self: *Process) void {
-        for (self.init_queue.items) |*p| {
-            p[0].deinit();
-            self.allocator.free(p[1]);
-            self.allocator.free(p[2]);
+        if (self.init_queue) |*queue| {
+            for (queue.items) |*p| {
+                p[0].deinit();
+                self.allocator.free(p[1]);
+                self.allocator.free(p[2]);
+            }
+            queue.deinit(self.allocator);
         }
-        self.init_queue.deinit(self.allocator);
+        self.init_queue = null;
     }
 
     fn receive_lsp_message(self: *Process, cb: []const u8) Error!void {
