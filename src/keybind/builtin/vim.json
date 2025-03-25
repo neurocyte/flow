@@ -116,6 +116,7 @@
             ["0", "move_begin"],
             ["^", "smart_move_begin"],
             ["$", "move_end"],
+            [":", "open_command_palette"],
 
             ["p", ["paste_internal_vim"], ["enter_mode", "normal"]],
             ["P", ["paste_internal_vim"], ["enter_mode", "normal"]],
@@ -153,6 +154,7 @@
             ["0", "move_begin"],
             ["^", "smart_move_begin"],
             ["$", "move_end"],
+            [":", "open_command_palette"],
 
             ["p", ["paste_internal_vim"], ["enter_mode", "normal"]],
             ["P", ["paste_internal_vim"], ["enter_mode", "normal"]],
