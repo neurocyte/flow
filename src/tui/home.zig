@@ -300,8 +300,15 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         const x = @min(self.plane.dim_x() -| 32, 8);
         self.position_menu(self.v_center(5, self.menu_len, 5), self.center(x, self.menu_w));
     }
-    const more = self.menu.render(theme);
 
+    self.plane.cursor_move_yx(
+        @intCast(self.plane.dim_y() - 2),
+        @intCast(@max(self.plane.dim_x(), root.version.len + 3) - root.version.len - 3),
+    ) catch {};
+    self.plane.set_style_bg_transparent(style_subtext);
+    _ = self.plane.print("{s}", .{root.version}) catch return false;
+
+    const more = self.menu.render(theme);
     return more or self.fire != null;
 }
 

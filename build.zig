@@ -17,6 +17,13 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     const lint_step = b.step("lint", "Run lints");
 
+    var version = std.ArrayList(u8).init(b.allocator);
+    defer version.deinit();
+    gen_version(b, version.writer()) catch {
+        version.clearAndFree();
+        version.appendSlice("unknown") catch {};
+    };
+
     return (if (release) &build_release else &build_development)(
         b,
         run_step,
@@ -29,6 +36,7 @@ pub fn build(b: *std.Build) void {
         use_llvm,
         pie,
         gui,
+        version.items,
     );
 }
 
@@ -44,6 +52,7 @@ fn build_development(
     use_llvm: ?bool,
     pie: ?bool,
     gui: bool,
+    version: []const u8,
 ) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
     const optimize = b.standardOptimizeOption(.{});
@@ -63,6 +72,7 @@ fn build_development(
         use_llvm,
         pie,
         gui,
+        version,
     );
 }
 
@@ -78,6 +88,7 @@ fn build_release(
     use_llvm: ?bool,
     pie: ?bool,
     _: bool, //gui
+    version: []const u8,
 ) void {
     const targets: []const std.Target.Query = &.{
         .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
@@ -91,11 +102,8 @@ fn build_release(
     };
     const optimize = .ReleaseFast;
 
-    var version = std.ArrayList(u8).init(b.allocator);
-    defer version.deinit();
-    gen_version(b, version.writer()) catch unreachable;
     const write_file_step = b.addWriteFiles();
-    const version_file = write_file_step.add("version", version.items);
+    const version_file = write_file_step.add("version", version);
     b.getInstallStep().dependOn(&b.addInstallFile(version_file, "version").step);
 
     for (targets) |t| {
@@ -120,6 +128,7 @@ fn build_release(
             use_llvm,
             pie,
             false, //gui
+            version,
         );
 
         if (t.os_tag == .windows)
@@ -138,6 +147,7 @@ fn build_release(
                 use_llvm,
                 pie,
                 true, //gui
+                version,
             );
     }
 }
@@ -157,6 +167,7 @@ pub fn build_exe(
     use_llvm: ?bool,
     pie: ?bool,
     gui: bool,
+    version: []const u8,
 ) void {
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
@@ -183,7 +194,8 @@ pub fn build_exe(
     };
 
     const wf = b.addWriteFiles();
-    const version_info_file = wf.add("version", version_info.items);
+    const version_file = wf.add("version", version);
+    const version_info_file = wf.add("version_info", version_info.items);
 
     const vaxis_dep = b.dependency("vaxis", .{
         .target = target,
@@ -511,6 +523,7 @@ pub fn build_exe(
     exe.root_module.addImport("input", input_mod);
     exe.root_module.addImport("syntax", syntax_mod);
     exe.root_module.addImport("color", color_mod);
+    exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
 
     if (target.result.os.tag == .windows) {
@@ -553,6 +566,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("input", input_mod);
     check_exe.root_module.addImport("syntax", syntax_mod);
     check_exe.root_module.addImport("color", color_mod);
+    check_exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     check_step.dependOn(&check_exe.step);
 

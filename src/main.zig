@@ -15,6 +15,7 @@ const c = @cImport({
 const build_options = @import("build_options");
 const log = @import("log");
 
+pub const version = @embedFile("version");
 pub const version_info = @embedFile("version_info");
 
 pub var max_diff_lines: usize = 50000;
