@@ -1,5 +1,6 @@
 const std = @import("std");
 const tui = @import("tui");
+const cbor = @import("cbor");
 const thespian = @import("thespian");
 const flags = @import("flags");
 const builtin = @import("builtin");
@@ -304,7 +305,27 @@ pub fn main() anyerror!void {
 
     if (args.exec) |exec_str| {
         var cmds = std.mem.splitScalar(u8, exec_str, ';');
-        while (cmds.next()) |cmd| try tui_proc.send(.{ "cmd", cmd, .{} });
+        while (cmds.next()) |cmd| {
+            var count_args_ = std.mem.splitScalar(u8, cmd, ':');
+            var count: usize = 0;
+            while (count_args_.next()) |_| count += 1;
+            if (count == 0) break;
+
+            var msg = std.ArrayList(u8).init(a);
+            defer msg.deinit();
+            const writer = msg.writer();
+
+            var cmd_args = std.mem.splitScalar(u8, cmd, ':');
+            const cmd_ = cmd_args.next();
+            try cbor.writeArrayHeader(writer, 3);
+            try cbor.writeValue(writer, "cmd");
+            try cbor.writeValue(writer, cmd_);
+            try cbor.writeArrayHeader(writer, count - 1);
+
+            while (cmd_args.next()) |arg| try cbor.writeValue(writer, arg);
+
+            try tui_proc.send_raw(.{ .buf = msg.items });
+        }
     }
 
     ctx.run();
@@ -348,7 +369,6 @@ fn trace_json(json: thespian.message.json_string_view) callconv(.C) void {
 extern fn ___tracy_emit_message(txt: [*]const u8, size: usize, callstack: c_int) void;
 
 fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.C) void {
-    const cbor = @import("cbor");
     const State = struct {
         file: std.fs.File,
         last_time: i64,
@@ -446,7 +466,6 @@ fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]
 }
 
 fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
-    const cbor = @import("cbor");
     var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
     defer file.close();
     const text = try file.readToEndAlloc(allocator, 64 * 1024);
@@ -482,7 +501,6 @@ fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
 }
 
 fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
-    const cbor = @import("cbor");
     var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
     defer file.close();
     const json = try file.readToEndAlloc(allocator, 64 * 1024);
@@ -503,7 +521,6 @@ fn read_cbor_config(
     file_name: []const u8,
     cb: []const u8,
 ) !void {
-    const cbor = @import("cbor");
     var iter = cb;
     var field_name: []const u8 = undefined;
     while (cbor.matchString(&iter, &field_name) catch |e| switch (e) {
@@ -614,7 +631,6 @@ fn config_eql(comptime T: type, a: T, b: T) bool {
 }
 
 fn write_json_file(comptime T: type, data: T, allocator: std.mem.Allocator, file_name: []const u8) !void {
-    const cbor = @import("cbor");
     var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
     defer file.close();
 
