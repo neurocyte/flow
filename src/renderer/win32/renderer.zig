@@ -30,6 +30,11 @@ pub const Error = error{
     Utf8CannotEncodeSurrogateHalf,
     CodepointTooLarge,
     VaxisResizeError,
+    InvalidFloatType,
+    InvalidArrayType,
+    InvalidPIntType,
+    JsonIncompatibleType,
+    NotAnObject,
 } || std.Thread.SpawnError;
 
 pub const panic = messageBoxThenPanic(.{ .title = "Flow Panic" });
