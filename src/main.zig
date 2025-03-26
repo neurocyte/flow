@@ -671,6 +671,34 @@ pub fn list_keybind_namespaces(allocator: std.mem.Allocator) ![]const []const u8
     return result.toOwnedSlice();
 }
 
+pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const u8 {
+    const file_name = get_theme_file_name(theme_name) catch return null;
+    var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
+    defer file.close();
+    return file.readToEndAlloc(allocator, 64 * 1024) catch null;
+}
+
+pub fn write_theme(theme_name: []const u8, content: []const u8) !void {
+    const file_name = try get_theme_file_name(theme_name);
+    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
+    defer file.close();
+    return file.writeAll(content);
+}
+
+pub fn list_themes(allocator: std.mem.Allocator) ![]const []const u8 {
+    var dir = try std.fs.openDirAbsolute(try get_theme_directory(), .{ .iterate = true });
+    defer dir.close();
+    var result = std.ArrayList([]const u8).init(allocator);
+    var iter = dir.iterateAssumeFirstIteration();
+    while (try iter.next()) |entry| {
+        switch (entry.kind) {
+            .file, .sym_link => try result.append(try allocator.dupe(u8, std.fs.path.stem(entry.name))),
+            else => continue,
+        }
+    }
+    return result.toOwnedSlice();
+}
+
 pub fn get_config_dir() ![]const u8 {
     return get_app_config_dir(application_name);
 }
@@ -722,6 +750,9 @@ fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
 
     var keybind_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
     std.fs.makeDirAbsolute(try std.fmt.bufPrint(&keybind_dir_buffer, "{s}/{s}", .{ config_dir, keybind_dir })) catch {};
+
+    var theme_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&theme_dir_buffer, "{s}/{s}", .{ config_dir, theme_dir })) catch {};
 
     return config_dir;
 }
@@ -866,6 +897,28 @@ pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
         var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
     return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}.json", .{ dir, namespace_name });
+}
+
+const theme_dir = "themes";
+
+fn get_theme_directory() ![]const u8 {
+    const local = struct {
+        var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    };
+    const a = std.heap.c_allocator;
+    if (std.process.getEnvVarOwned(a, "FLOW_THEMES_DIR") catch null) |dir| {
+        defer a.free(dir);
+        return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
+    }
+    return try std.fmt.bufPrint(&local.dir_buffer, "{s}/{s}", .{ try get_app_config_dir(application_name), theme_dir });
+}
+
+pub fn get_theme_file_name(theme_name: []const u8) ![]const u8 {
+    const dir = try get_theme_directory();
+    const local = struct {
+        var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    };
+    return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}.json", .{ dir, theme_name });
 }
 
 fn restart() noreturn {

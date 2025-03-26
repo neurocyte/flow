@@ -44,6 +44,7 @@ commands: Commands = undefined,
 logger: log.Logger,
 drag_source: ?*Widget = null,
 theme_: Widget.Theme,
+parsed_theme: ?std.json.Parsed(Widget.Theme),
 idle_frame_count: usize = 0,
 unrendered_input_events_count: usize = 0,
 init_timer: ?tp.timeout,
@@ -101,7 +102,7 @@ fn init(allocator: Allocator) InitError!*Self {
     var conf, const conf_bufs = root.read_config(@import("config"), allocator);
     defer root.free_config(allocator, conf_bufs);
 
-    const theme_ = get_theme_by_name(conf.theme) orelse get_theme_by_name("dark_modern") orelse return error.UnknownTheme;
+    const theme_, const parsed_theme = get_theme_by_name(allocator, conf.theme) orelse get_theme_by_name(allocator, "dark_modern") orelse return error.UnknownTheme;
     conf.theme = theme_.name;
     conf.whitespace_mode = try allocator.dupe(u8, conf.whitespace_mode);
     conf.input_mode = try allocator.dupe(u8, conf.input_mode);
@@ -135,6 +136,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .theme_ = theme_,
         .no_sleep = tp.env.get().is("no-sleep"),
         .query_cache_ = try syntax.QueryCache.create(allocator, .{}),
+        .parsed_theme = parsed_theme,
     };
     instance_ = self;
     defer instance_ = null;
@@ -687,6 +689,19 @@ fn refresh_input_mode(self: *Self) command.Result {
     self.input_mode_ = new_mode;
 }
 
+fn set_theme_by_name(self: *Self, name: []const u8) !void {
+    const old = self.parsed_theme;
+    defer if (old) |p| p.deinit();
+    self.theme_, self.parsed_theme = get_theme_by_name(self.allocator, name) orelse {
+        self.logger.print("theme not found: {s}", .{name});
+        return;
+    };
+    self.config_.theme = self.theme_.name;
+    self.set_terminal_style();
+    self.logger.print("theme: {s}", .{self.theme_.description});
+    try save_config();
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
@@ -709,32 +724,19 @@ const cmds = struct {
         var name: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&name)}))
             return tp.exit_error(error.InvalidSetThemeArgument, null);
-        self.theme_ = get_theme_by_name(name) orelse {
-            self.logger.print("theme not found: {s}", .{name});
-            return;
-        };
-        self.config_.theme = self.theme_.name;
-        self.set_terminal_style();
-        self.logger.print("theme: {s}", .{self.theme_.description});
-        try save_config();
+        return self.set_theme_by_name(name);
     }
     pub const set_theme_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn theme_next(self: *Self, _: Ctx) Result {
-        self.theme_ = get_next_theme_by_name(self.theme_.name);
-        self.config_.theme = self.theme_.name;
-        self.set_terminal_style();
-        self.logger.print("theme: {s}", .{self.theme_.description});
-        try save_config();
+        const name = get_next_theme_by_name(self.theme_.name);
+        return self.set_theme_by_name(name);
     }
     pub const theme_next_meta: Meta = .{ .description = "Next color theme" };
 
     pub fn theme_prev(self: *Self, _: Ctx) Result {
-        self.theme_ = get_prev_theme_by_name(self.theme_.name);
-        self.config_.theme = self.theme_.name;
-        self.set_terminal_style();
-        self.logger.print("theme: {s}", .{self.theme_.description});
-        try save_config();
+        const name = get_prev_theme_by_name(self.theme_.name);
+        return self.set_theme_by_name(name);
     }
     pub const theme_prev_meta: Meta = .{ .description = "Previous color theme" };
 
@@ -967,6 +969,13 @@ const cmds = struct {
     }
     pub const open_keybind_config_meta: Meta = .{ .description = "Edit key bindings" };
 
+    pub fn open_custom_theme(self: *Self, _: Ctx) Result {
+        const file_name = try self.get_or_create_theme_file(self.allocator);
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+        self.logger.print("restart flow to use changed theme", .{});
+    }
+    pub const open_custom_theme_meta: Meta = .{ .description = "Customize theme" };
+
     pub fn run_async(self: *Self, ctx: Ctx) Result {
         var iter = ctx.args.buf;
         var len = try cbor.decodeArrayHeader(&iter);
@@ -1173,33 +1182,38 @@ pub fn theme() *const Widget.Theme {
     return &current().theme_;
 }
 
-pub fn get_theme_by_name(name: []const u8) ?Widget.Theme {
+pub fn get_theme_by_name(allocator: std.mem.Allocator, name: []const u8) ?struct { Widget.Theme, ?std.json.Parsed(Widget.Theme) } {
+    if (load_theme_file(allocator, name) catch null) |parsed_theme| {
+        std.log.info("loaded theme from file: {s}", .{name});
+        return .{ parsed_theme.value, parsed_theme };
+    }
+
     for (Widget.themes) |theme_| {
         if (std.mem.eql(u8, theme_.name, name))
-            return theme_;
+            return .{ theme_, null };
     }
     return null;
 }
 
-pub fn get_next_theme_by_name(name: []const u8) Widget.Theme {
+fn get_next_theme_by_name(name: []const u8) []const u8 {
     var next = false;
     for (Widget.themes) |theme_| {
         if (next)
-            return theme_;
+            return theme_.name;
         if (std.mem.eql(u8, theme_.name, name))
             next = true;
     }
-    return Widget.themes[0];
+    return Widget.themes[0].name;
 }
 
-pub fn get_prev_theme_by_name(name: []const u8) Widget.Theme {
+fn get_prev_theme_by_name(name: []const u8) []const u8 {
     var prev: ?Widget.Theme = null;
     for (Widget.themes) |theme_| {
         if (std.mem.eql(u8, theme_.name, name))
-            return prev orelse Widget.themes[Widget.themes.len - 1];
+            return (prev orelse Widget.themes[Widget.themes.len - 1]).name;
         prev = theme_;
     }
-    return Widget.themes[Widget.themes.len - 1];
+    return Widget.themes[Widget.themes.len - 1].name;
 }
 
 pub fn find_scope_style(theme_: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Token {
@@ -1341,4 +1355,33 @@ pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *con
     _ = self.at_cursor_cell(&cell) catch return;
     cell.set_style(theme_.editor_match);
     _ = self.putc(&cell) catch {};
+}
+
+fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const u8 {
+    const theme_name = self.theme_.name;
+    if (root.read_theme(allocator, theme_name)) |content| {
+        allocator.free(content);
+    } else {
+        var buf = std.ArrayList(u8).init(self.allocator);
+        defer buf.deinit();
+        try std.json.stringify(self.theme_, .{ .whitespace = .indent_2 }, buf.writer());
+        try root.write_theme(
+            theme_name,
+            buf.items,
+        );
+    }
+    return try root.get_theme_file_name(theme_name);
+}
+
+fn load_theme_file(allocator: std.mem.Allocator, theme_name: []const u8) !?std.json.Parsed(Widget.Theme) {
+    return load_theme_file_internal(allocator, theme_name) catch |e| {
+        std.log.err("loaded theme from file failed: {}", .{e});
+        return e;
+    };
+}
+fn load_theme_file_internal(allocator: std.mem.Allocator, theme_name: []const u8) !?std.json.Parsed(Widget.Theme) {
+    _ = std.json.Scanner;
+    const json_str = root.read_theme(allocator, theme_name) orelse return null;
+    defer allocator.free(json_str);
+    return try std.json.parseFromSlice(Widget.Theme, allocator, json_str, .{ .allocate = .alloc_always });
 }
