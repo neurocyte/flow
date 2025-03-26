@@ -387,7 +387,7 @@
             ["f15", "goto_prev_match"],
             ["f9", "theme_prev"],
             ["f10", "theme_next"],
-            ["escape", "exit_mini_mode"],
+            ["escape", "mini_mode_cancel"],
             ["enter", "mini_mode_select"],
             ["backspace", "mini_mode_delete_backwards"]
         ]

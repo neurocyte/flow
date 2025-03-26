@@ -100,6 +100,7 @@ const cmds = struct {
     pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
     pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
+        command.executeName("close_find_in_files_results", .{}) catch {};
         command.executeName("exit_mini_mode", .{}) catch {};
     }
     pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };

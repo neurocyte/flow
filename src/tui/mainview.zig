@@ -597,6 +597,12 @@ const cmds = struct {
     }
     pub const show_inspector_view_meta: Meta = .{};
 
+    pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
+        if (self.file_list_type == .find_in_files and self.is_panel_view_showing(filelist_view))
+            try self.toggle_panel_view(filelist_view, false);
+    }
+    pub const close_find_in_files_results_meta: Meta = .{ .description = "Close find in files results view" };
+
     pub fn jump_back(self: *Self, _: Ctx) Result {
         try self.location_history_.back(location_jump);
     }
