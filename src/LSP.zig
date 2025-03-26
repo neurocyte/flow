@@ -227,6 +227,7 @@ const Process = struct {
         UnsupportedType,
         ExitNormal,
         ExitUnexpected,
+        InvalidMapType,
     });
 
     fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) Error!void {

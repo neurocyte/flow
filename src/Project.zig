@@ -26,7 +26,7 @@ const Self = @This();
 
 const OutOfMemoryError = error{OutOfMemory};
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
-pub const InvalidMessageError = error{ InvalidMessage, InvalidMessageField, InvalidTargetURI };
+pub const InvalidMessageError = error{ InvalidMessage, InvalidMessageField, InvalidTargetURI, InvalidMapType };
 pub const StartLspError = (error{ ThespianSpawnFailed, Timeout, InvalidLspCommand } || LspError || OutOfMemoryError || cbor.Error);
 pub const LspError = (error{ NoLsp, LspFailed } || OutOfMemoryError);
 pub const ClientError = (error{ClientFailed} || OutOfMemoryError);
@@ -131,7 +131,7 @@ pub fn restore_state(self: *Self, data: []const u8) !void {
     var iter: []const u8 = data;
     _ = cbor.matchValue(&iter, tp.string) catch {};
     _ = cbor.decodeArrayHeader(&iter) catch |e| switch (e) {
-        error.InvalidType => return self.restore_state_v0(data),
+        error.InvalidArrayType => return self.restore_state_v0(data),
         else => return tp.trace(tp.channel.debug, .{ "restore_state", "unknown format", data }),
     };
     self.persistent = true;
@@ -191,7 +191,18 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
     }
 }
 
-pub fn restore_state_v0(self: *Self, data: []const u8) error{ OutOfMemory, IntegerTooLarge, IntegerTooSmall, InvalidType, TooShort }!void {
+pub fn restore_state_v0(self: *Self, data: []const u8) error{
+    OutOfMemory,
+    IntegerTooLarge,
+    IntegerTooSmall,
+    InvalidType,
+    TooShort,
+    InvalidFloatType,
+    InvalidArrayType,
+    InvalidPIntType,
+    JsonIncompatibleType,
+    NotAnObject,
+}!void {
     tp.trace(tp.channel.debug, .{"restore_state_v0"});
     defer self.sort_files_by_mtime();
     var name: []const u8 = undefined;

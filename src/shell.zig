@@ -21,6 +21,11 @@ pub const Error = error{
     IntegerTooSmall,
     InvalidType,
     TooShort,
+    InvalidFloatType,
+    InvalidArrayType,
+    InvalidPIntType,
+    JsonIncompatibleType,
+    NotAnObject,
 };
 
 pub const OutputHandler = fn (context: usize, parent: tp.pid_ref, arg0: []const u8, output: []const u8) void;

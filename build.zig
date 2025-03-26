@@ -225,7 +225,12 @@ pub fn build_exe(
     });
 
     const thespian_mod = thespian_dep.module("thespian");
-    const cbor_mod = thespian_dep.module("cbor");
+
+    const cbor_dep = thespian_dep.builder.dependency("cbor", .{
+        .target = target,
+        .optimize = optimize_deps,
+    });
+    const cbor_mod = cbor_dep.module("cbor");
 
     const tracy_dep = if (tracy_enabled) thespian_dep.builder.dependency("tracy", .{
         .target = target,
