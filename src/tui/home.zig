@@ -3,6 +3,7 @@ const build_options = @import("build_options");
 const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
+const builtin = @import("builtin");
 
 const Plane = @import("renderer").Plane;
 const root = @import("root");
@@ -307,6 +308,15 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     ) catch {};
     self.plane.set_style_bg_transparent(style_subtext);
     _ = self.plane.print("{s}", .{root.version}) catch return false;
+    if (builtin.mode == .Debug) {
+        const debug_warning_text = "debug build";
+        self.plane.cursor_move_yx(
+            @intCast(self.plane.dim_y() - 3),
+            @intCast(@max(self.plane.dim_x(), debug_warning_text.len + 3) - debug_warning_text.len - 3),
+        ) catch {};
+        self.plane.set_style_bg_transparent(theme.editor_error);
+        _ = self.plane.print("{s}", .{debug_warning_text}) catch return false;
+    }
 
     const more = self.menu.render(theme);
     return more or self.fire != null;
