@@ -2495,7 +2495,14 @@ pub const Editor = struct {
                 continue;
             }
 
-            with_selection_const(root, move, cursel, self.metrics) catch continue;
+            switch (tui.get_selection_style()) {
+                .inclusive => {
+                    const sel = try cursel.enable_selection(root, self.metrics);
+                    cursel.cursor = sel.end;
+                    cursel.check_selection(root, self.metrics);
+                },
+                else => with_selection_const(root, move, cursel, self.metrics) catch continue,
+            }
             const cut_text, root = self.cut_selection(root, cursel) catch continue;
 
             if (first) {
