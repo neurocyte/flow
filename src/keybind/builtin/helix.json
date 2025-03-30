@@ -62,7 +62,7 @@
 
             ["shift+`", "switch_case"],
             ["shift+t", "till_prev_char"],
-            ["shift+f", "move_to_char", false],
+            ["shift+f", "move_to_char", "left"],
             ["shift+w", "move_next_long_word_start"],
             ["shift+b", "move_prev_long_word_start"],
             ["shift+e", "move_next_long_word_end"],
@@ -107,7 +107,7 @@
             ["l", "move_right"],
 
             ["t", "find_till_char"],
-            ["f", "move_to_char", true],
+            ["f", "move_to_char", "right"],
 
             ["`", "to_lower"],
 
