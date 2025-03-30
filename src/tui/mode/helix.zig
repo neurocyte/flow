@@ -5,6 +5,7 @@ const command = @import("command");
 const cmd = command.executeName;
 
 const tui = @import("../tui.zig");
+const Editor = @import("../editor.zig").Editor;
 
 var commands: Commands = undefined;
 
@@ -72,4 +73,24 @@ const cmds_ = struct {
         }, sel);
     }
     pub const save_selection_meta: Meta = .{ .description = "Save current selection to location history" };
+
+    pub fn extend_line_below(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+
+        const root = try ed.buf_root();
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            const sel = cursel.enable_selection_normal();
+            sel.normalize();
+
+            try Editor.move_cursor_begin(root, &sel.begin, ed.metrics);
+            try Editor.move_cursor_end(root, &sel.end, ed.metrics);
+            cursel.cursor = sel.end;
+            try cursel.selection.?.end.move_right(root, ed.metrics);
+            try cursel.cursor.move_right(root, ed.metrics);
+        };
+
+        ed.clamp();
+    }
+    pub const extend_line_below_meta: Meta = .{ .description = "Select current line, if already selected, extend to next line" };
 };
