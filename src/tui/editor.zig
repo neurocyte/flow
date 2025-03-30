@@ -103,7 +103,7 @@ pub const CurSel = struct {
         };
     }
 
-    fn enable_selection_normal(self: *Self) *Selection {
+    pub fn enable_selection_normal(self: *Self) *Selection {
         return if (self.selection) |*sel|
             sel
         else cod: {
@@ -501,7 +501,7 @@ pub const Editor = struct {
         return self.buffer orelse error.Stop;
     }
 
-    fn buf_root(self: *const Self) !Buffer.Root {
+    pub fn buf_root(self: *const Self) !Buffer.Root {
         return if (self.buffer) |p| p.root else error.Stop;
     }
 
@@ -1649,7 +1649,7 @@ pub const Editor = struct {
         self.view.col = dest.col;
     }
 
-    inline fn clamp(self: *Self) void {
+    pub inline fn clamp(self: *Self) void {
         self.clamp_abs(false);
     }
 
@@ -2101,7 +2101,7 @@ pub const Editor = struct {
             move_cursor_left(root, cursor, metrics) catch return;
     }
 
-    fn move_cursor_begin(_: Buffer.Root, cursor: *Cursor, _: Buffer.Metrics) !void {
+    pub fn move_cursor_begin(_: Buffer.Root, cursor: *Cursor, _: Buffer.Metrics) !void {
         cursor.move_begin();
     }
 
@@ -2124,7 +2124,7 @@ pub const Editor = struct {
             move_cursor_right(root, cursor, metrics) catch return;
     }
 
-    fn move_cursor_end(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+    pub fn move_cursor_end(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
         cursor.move_end(root, metrics);
     }
 
