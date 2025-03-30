@@ -204,7 +204,7 @@
             ["page_up", "move_scroll_page_up"],
             ["page_down", "move_scroll_page_down"],
 
-            ["space shift+f", "file_picker_in_current_directory"],
+            ["space shift+f", "find_file"],
             ["space shift+s", "workspace_symbol_picker"],
             ["space shift+d", "workspace_diagnostics_picker"],
             ["space shift+p", "system_paste"],
