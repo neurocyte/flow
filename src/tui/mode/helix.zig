@@ -6,6 +6,8 @@ const cmd = command.executeName;
 
 const tui = @import("../tui.zig");
 const Editor = @import("../editor.zig").Editor;
+const Buffer = @import("Buffer");
+const Cursor = Buffer.Cursor;
 
 var commands: Commands = undefined;
 
@@ -93,4 +95,38 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const extend_line_below_meta: Meta = .{ .description = "Select current line, if already selected, extend to next line" };
+
+    pub fn move_next_word_start(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            cursel.selection = null;
+        };
+
+        ed.with_selections_const(root, Editor.move_cursor_word_right_vim) catch {};
+        ed.clamp();
+    }
+
+    pub const move_next_word_start_meta: Meta = .{ .description = "Move next word start" };
+
+    pub fn move_prev_word_start(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            cursel.selection = null;
+        };
+
+        ed.with_selections_const(root, move_cursor_word_left_helix) catch {};
+        ed.clamp();
+    }
+    pub const move_prev_word_start_meta: Meta = .{ .description = "Move previous word start" };
 };
+
+pub fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    try Editor.move_cursor_left(root, cursor, metrics);
+    Editor.move_cursor_left_until(root, cursor, Editor.is_word_boundary_left_vim, metrics);
+}
