@@ -1775,7 +1775,7 @@ pub const Editor = struct {
         cursel.check_selection(root, metrics);
     }
 
-    fn with_selections_const(self: *Self, root: Buffer.Root, move: cursor_operator_const) error{Stop}!void {
+    pub fn with_selections_const(self: *Self, root: Buffer.Root, move: cursor_operator_const) error{Stop}!void {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             with_selection_const(root, move, cursel, self.metrics) catch {
@@ -1994,7 +1994,7 @@ pub const Editor = struct {
         return !cursor.test_at(root, is_whitespace_or_eol, metrics);
     }
 
-    fn is_word_boundary_left_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    pub fn is_word_boundary_left_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         if (is_whitespace_at_cursor(root, cursor, metrics)) return false;
         var next = cursor.*;
         next.move_left(root, metrics) catch return true;
@@ -2087,11 +2087,11 @@ pub const Editor = struct {
         return false;
     }
 
-    fn move_cursor_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    pub fn move_cursor_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try cursor.move_left(root, metrics);
     }
 
-    fn move_cursor_left_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, metrics: Buffer.Metrics) void {
+    pub fn move_cursor_left_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, metrics: Buffer.Metrics) void {
         while (!pred(root, cursor, metrics))
             move_cursor_left(root, cursor, metrics) catch return;
     }
