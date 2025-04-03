@@ -96,7 +96,7 @@ pub const CurSel = struct {
         self.* = .{};
     }
 
-    fn enable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
+    pub fn enable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
         return switch (tui.get_selection_style()) {
             .normal => self.enable_selection_normal(),
             .inclusive => try self.enable_selection_inclusive(root, metrics),
@@ -147,7 +147,7 @@ pub const CurSel = struct {
         }
     }
 
-    fn check_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
+    pub fn check_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
         if (self.selection) |sel| if (sel.empty()) {
             self.disable_selection(root, metrics);
         };
@@ -2110,7 +2110,7 @@ pub const Editor = struct {
         return if (cursor.col == first) cursor.move_begin() else cursor.move_to(root, cursor.row, first, metrics);
     }
 
-    fn move_cursor_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    pub fn move_cursor_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try cursor.move_right(root, metrics);
     }
 
