@@ -146,8 +146,8 @@
             ["a", ["move_right"], ["enter_mode", "insert"]],
             ["o", ["smart_insert_line_after"], ["enter_mode", "insert"]],
 
-            ["d", "cut_forward_internal"],
-            ["c", ["cut_forward_internal"], ["enter_mode", "insert"]],
+            ["d", "cut_forward_internal_inclusive"],
+            ["c", ["cut_forward_internal_inclusive"], ["enter_mode", "insert"]],
 
             ["s", "select_regex"],
             [";", "collapse_selections"],

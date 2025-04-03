@@ -124,6 +124,17 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const move_prev_word_start_meta: Meta = .{ .description = "Move previous word start" };
+
+    pub fn cut_forward_internal_inclusive(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const b = try ed.buf_for_update();
+        const text, const root = try ed.cut_to(move_noop, b.root);
+        ed.set_clipboard_internal(text);
+        try ed.update_buf(root);
+        ed.clamp();
+    }
+    pub const cut_forward_internal_inclusive_meta: Meta = .{ .description = "Cut next character to internal clipboard (inclusive)" };
 };
 
 fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
@@ -148,3 +159,5 @@ fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buff
         try move_cursor_word_left_helix(root, cursor, metrics);
     }
 }
+
+fn move_noop(_: Buffer.Root, _: *Cursor, _: Buffer.Metrics) error{Stop}!void {}
