@@ -371,10 +371,10 @@
             ["shift+1", "shell_insert_output"],
             ["shift+4", "shell_keep_pipe"],
 
-            ["h", "select_left"],
+            ["h", "select_left_helix"],
             ["j", "select_down"],
             ["k", "select_up"],
-            ["l", "select_right"],
+            ["l", "select_right_helix"],
             ["left", "select_left"],
             ["down", "select_down"],
             ["up", "select_up"],

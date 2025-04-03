@@ -8,6 +8,7 @@ const tui = @import("../tui.zig");
 const Editor = @import("../editor.zig").Editor;
 const Buffer = @import("Buffer");
 const Cursor = Buffer.Cursor;
+const Selection = Buffer.Selection;
 
 var commands: Commands = undefined;
 
@@ -135,6 +136,62 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const cut_forward_internal_inclusive_meta: Meta = .{ .description = "Cut next character to internal clipboard (inclusive)" };
+
+    pub fn select_right_helix(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            const sel = try cursel.enable_selection(root, ed.metrics);
+
+            // handling left to right transition
+            const sel_begin: i32 = @intCast(sel.begin.col);
+            const sel_end: i32 = @intCast(sel.end.col);
+            if ((sel_begin - sel_end) == 1) {
+                try Editor.move_cursor_right(root, &sel.end, ed.metrics);
+                sel.begin.col -= 1;
+            }
+
+            try Editor.move_cursor_right(root, &sel.end, ed.metrics);
+            cursel.cursor = sel.end;
+            cursel.check_selection(root, ed.metrics);
+        };
+        ed.clamp();
+    }
+    pub const select_right_helix_meta: Meta = .{ .description = "Select right" };
+
+    pub fn select_left_helix(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            var sel: *Selection = undefined;
+            const non_selected = cursel.selection == null;
+            if (non_selected) {
+                cursel.selection = Selection.from_cursor(&cursel.cursor);
+                try cursel.selection.?.begin.move_right(root, ed.metrics);
+            }
+            sel = &cursel.selection.?;
+
+            try Editor.move_cursor_left(root, &sel.end, ed.metrics);
+            cursel.cursor = sel.end;
+
+            // handling right to left transition
+            const sel_begin: i32 = @intCast(sel.begin.col);
+            const sel_end: i32 = @intCast(sel.end.col);
+            if ((sel_begin - sel_end) == 0) {
+                try sel.begin.move_right(root, ed.metrics);
+                try Editor.move_cursor_left(root, &sel.end, ed.metrics);
+                cursel.cursor = sel.end;
+            }
+
+            cursel.check_selection(root, ed.metrics);
+        };
+        ed.clamp();
+    }
+    pub const select_left_helix_meta: Meta = .{ .description = "Select left" };
 };
 
 fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
