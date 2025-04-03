@@ -126,7 +126,25 @@ const cmds_ = struct {
     pub const move_prev_word_start_meta: Meta = .{ .description = "Move previous word start" };
 };
 
-pub fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     try Editor.move_cursor_left(root, cursor, metrics);
-    Editor.move_cursor_left_until(root, cursor, Editor.is_word_boundary_left_vim, metrics);
+
+    // Consume " "
+    while (Editor.is_whitespace_at_cursor(root, cursor, metrics)) {
+        try Editor.move_cursor_left(root, cursor, metrics);
+    }
+
+    var next = cursor.*;
+    next.move_left(root, metrics) catch return;
+    var next_next = next;
+    next_next.move_left(root, metrics) catch return;
+
+    const cur = next.test_at(root, Editor.is_not_word_char, metrics);
+    const nxt = next_next.test_at(root, Editor.is_not_word_char, metrics);
+    if (cur != nxt) {
+        try Editor.move_cursor_left(root, cursor, metrics);
+        return;
+    } else {
+        try move_cursor_word_left_helix(root, cursor, metrics);
+    }
 }
