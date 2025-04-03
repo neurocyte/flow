@@ -493,7 +493,7 @@ pub const Editor = struct {
         Widget.need_render();
     }
 
-    fn buf_for_update(self: *Self) !*const Buffer {
+    pub fn buf_for_update(self: *Self) !*const Buffer {
         if (!self.pause_undo) {
             self.cursels_saved.clearAndFree();
             self.cursels_saved = try self.cursels.clone();
@@ -709,7 +709,7 @@ pub const Editor = struct {
         return meta.toOwnedSlice();
     }
 
-    fn update_buf(self: *Self, root: Buffer.Root) !void {
+    pub fn update_buf(self: *Self, root: Buffer.Root) !void {
         const b = self.buffer orelse return error.Stop;
         return self.update_buf_and_eol_mode(root, b.file_eol_mode, b.file_utf8_sanitized);
     }
@@ -2413,7 +2413,7 @@ pub const Editor = struct {
         }
     }
 
-    fn set_clipboard_internal(self: *Self, text: []const u8) void {
+    pub fn set_clipboard_internal(self: *Self, text: []const u8) void {
         if (self.clipboard) |old|
             self.allocator.free(old);
         self.clipboard = text;
@@ -2476,7 +2476,7 @@ pub const Editor = struct {
         return root_;
     }
 
-    fn cut_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root) !struct { []const u8, Buffer.Root } {
+    pub fn cut_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root) !struct { []const u8, Buffer.Root } {
         var all_stop = true;
         var root = root_;
 
