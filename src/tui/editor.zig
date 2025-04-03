@@ -1921,7 +1921,7 @@ pub const Editor = struct {
     const cursel_operator = *const fn (root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
     const cursel_operator_mut = *const fn (self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
 
-    fn is_not_word_char(c: []const u8) bool {
+    pub fn is_not_word_char(c: []const u8) bool {
         if (c.len == 0) return true;
         return switch (c[0]) {
             ' ' => true,
@@ -1962,7 +1962,7 @@ pub const Editor = struct {
         return cursor.test_at(root, is_word_char, metrics);
     }
 
-    fn is_non_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    pub fn is_non_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         return cursor.test_at(root, is_not_word_char, metrics);
     }
 
@@ -1986,7 +1986,7 @@ pub const Editor = struct {
         return is_whitespace(c) or c[0] == '\n';
     }
 
-    fn is_whitespace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    pub fn is_whitespace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         return cursor.test_at(root, is_whitespace, metrics);
     }
 
