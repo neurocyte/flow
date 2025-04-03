@@ -210,7 +210,7 @@
             ["space shift+p", "system_paste"],
             ["space shift+r", "replace_selections_with_clipboard"],
             ["space shift+/", "open_command_palette"],
-            ["space f", "file_picker"],
+            ["space f", "find_file"],
             ["space b", "buffer_picker"],
             ["space j", "jumplist_picker"],
             ["space s", "symbol_picker"],
