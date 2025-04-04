@@ -118,6 +118,8 @@
             ["$", "move_end"],
             [":", "open_command_palette"],
 
+            ["f", "move_to_char", "right"],
+
             ["p", ["paste_internal_vim"], ["enter_mode", "normal"]],
             ["P", ["paste_internal_vim"], ["enter_mode", "normal"]],
 
