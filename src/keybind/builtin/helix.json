@@ -320,7 +320,7 @@
             ["shift+`", "switch_case"],
 
             ["shift+t", "extend_till_prev_char"],
-            ["shift+f", "extend_prev_char"],
+            ["shift+f", "move_to_char", "left"],
 
             ["shift+w", "extend_next_long_word_start"],
             ["shift+b", "extend_prev_long_word_start"],
