@@ -119,6 +119,7 @@
             [":", "open_command_palette"],
 
             ["f", "move_to_char", "right"],
+            ["F", "move_to_char", "left"],
 
             ["p", ["paste_internal_vim"], ["enter_mode", "normal"]],
             ["P", ["paste_internal_vim"], ["enter_mode", "normal"]],
