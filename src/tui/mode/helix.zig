@@ -192,6 +192,22 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const select_left_helix_meta: Meta = .{ .description = "Select left" };
+
+    pub fn select_to_char_right_helix(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            const sel = try cursel.enable_selection(root, ed.metrics);
+            try Editor.move_cursor_to_char_right(root, &sel.end, ctx, ed.metrics);
+            try Editor.move_cursor_right(root, &sel.end, ed.metrics);
+            cursel.cursor = sel.end;
+            cursel.check_selection(root, ed.metrics);
+        };
+        ed.clamp();
+    }
+    pub const select_to_char_right_helix_meta: Meta = .{ .description = "Move to char right" };
 };
 
 fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {

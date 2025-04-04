@@ -381,7 +381,7 @@
             ["right", "select_right"],
 
             ["t", "extend_till_char"],
-            ["f", "extend_next_char"],
+            ["f", "move_to_char", "right"],
 
             ["`", "switch_to_lowercase"],
 
