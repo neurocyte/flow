@@ -3697,6 +3697,9 @@ pub const Editor = struct {
 
     pub fn select_to_char_left(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            try cursel.selection.?.begin.move_right(root, self.metrics);
+        };
         self.with_selections_const_arg(root, move_cursor_to_char_left, ctx) catch {};
         self.clamp();
     }
