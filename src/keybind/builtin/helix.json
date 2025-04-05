@@ -398,7 +398,7 @@
             ["g e", "move_buffer_end"],
             ["g f", "goto_file"],
             ["g h", "move_begin"],
-            ["g l", "move_end"],
+            ["g l", "select_end"],
             ["g s", "smart_move_begin"],
             ["g d", "goto_definition"],
             ["g y", "goto_type_definition"],

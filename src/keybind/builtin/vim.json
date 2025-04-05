@@ -115,7 +115,7 @@
 
             ["0", "move_begin"],
             ["^", "smart_move_begin"],
-            ["$", "move_end"],
+            ["$", "select_end"],
             [":", "open_command_palette"],
 
             ["f", "move_to_char", "right"],
