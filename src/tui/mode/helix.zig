@@ -167,24 +167,21 @@ const cmds_ = struct {
         const root = try ed.buf_root();
 
         for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            var sel: *Selection = undefined;
-            const non_selected = cursel.selection == null;
-            if (non_selected) {
+            if (cursel.selection == null) {
                 cursel.selection = Selection.from_cursor(&cursel.cursor);
                 try cursel.selection.?.begin.move_right(root, ed.metrics);
             }
-            sel = &cursel.selection.?;
-
-            try Editor.move_cursor_left(root, &sel.end, ed.metrics);
-            cursel.cursor = sel.end;
-
-            // handling right to left transition
-            const sel_begin: i32 = @intCast(sel.begin.col);
-            const sel_end: i32 = @intCast(sel.end.col);
-            if ((sel_begin - sel_end) == 0) {
-                try sel.begin.move_right(root, ed.metrics);
+            if (cursel.selection) |*sel| {
                 try Editor.move_cursor_left(root, &sel.end, ed.metrics);
                 cursel.cursor = sel.end;
+
+                const sel_begin: i32 = @intCast(sel.begin.col);
+                const sel_end: i32 = @intCast(sel.end.col);
+                if ((sel_begin - sel_end) == 0) {
+                    try sel.begin.move_right(root, ed.metrics);
+                    try Editor.move_cursor_left(root, &sel.end, ed.metrics);
+                    cursel.cursor = sel.end;
+                }
             }
 
             cursel.check_selection(root, ed.metrics);
