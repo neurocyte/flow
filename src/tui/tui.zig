@@ -673,6 +673,8 @@ fn enter_input_mode(self: *Self, new_mode: Mode) command.Result {
         self.input_mode_ = null;
     }
     self.input_mode_ = new_mode;
+    if (new_mode.init_command) |cmd|
+        cmd.execute_const();
 }
 
 fn refresh_input_mode(self: *Self) command.Result {

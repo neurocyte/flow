@@ -61,6 +61,8 @@ const Handler = struct {
             .line_numbers = self.bindings.line_numbers,
             .cursor_shape = self.bindings.cursor_shape,
             .selection_style = self.bindings.selection_style,
+            .init_command = self.bindings.init_command,
+            .deinit_command = self.bindings.deinit_command,
         };
     }
     pub fn deinit(self: *@This()) void {
@@ -82,8 +84,12 @@ pub const Mode = struct {
     keybind_hints: *const KeybindHints,
     cursor_shape: ?CursorShape = null,
     selection_style: SelectionStyle,
+    init_command: ?Command = null,
+    deinit_command: ?Command = null,
 
     pub fn deinit(self: *Mode) void {
+        if (self.deinit_command) |deinit_|
+            deinit_.execute_const();
         self.allocator.free(self.mode);
         self.input_handler.deinit();
         if (self.event_handler) |eh| eh.deinit();
@@ -139,18 +145,10 @@ pub fn set_namespace(namespace_name: []const u8) LoadError!void {
     const new_namespace = try get_or_load_namespace(namespace_name);
     if (globals.current_namespace) |old_namespace|
         if (old_namespace.deinit_command) |deinit|
-            deinit.execute_const() catch |e| {
-                const logger = log.logger("keybind");
-                logger.print_err("deinit_command", "ERROR: {s} {s}", .{ deinit.command, @errorName(e) });
-                logger.deinit();
-            };
+            deinit.execute_const();
     globals.current_namespace = new_namespace;
     if (new_namespace.init_command) |init|
-        init.execute_const() catch |e| {
-            const logger = log.logger("keybind");
-            logger.print_err("init_command", "ERROR: {s} {s}", .{ init.command, @errorName(e) });
-            logger.deinit();
-        };
+        init.execute_const();
 }
 
 fn get_mode_binding_set(mode_name: []const u8, insert_command: []const u8) LoadError!*const BindingSet {
@@ -267,10 +265,14 @@ const Command = struct {
         try command.execute(id, .{ .args = .{ .buf = buf[0..self.args.len] } });
     }
 
-    fn execute_const(self: *const @This()) !void {
+    pub fn execute_const(self: *const @This()) void {
         var buf: [2048]u8 = undefined;
         @memcpy(buf[0..self.args.len], self.args);
-        try command.executeName(self.command, .{ .args = .{ .buf = buf[0..self.args.len] } });
+        command.executeName(self.command, .{ .args = .{ .buf = buf[0..self.args.len] } }) catch |e| {
+            const logger = log.logger("keybind");
+            logger.print_err("init/deinit_command", "ERROR: {s} {s}", .{ self.command, @errorName(e) });
+            logger.deinit();
+        };
     }
 
     fn load(allocator: std.mem.Allocator, tokens: []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!Command {
@@ -373,6 +375,8 @@ const BindingSet = struct {
     selection_style: SelectionStyle,
     insert_command: []const u8 = "",
     hints_map: KeybindHints = .{},
+    init_command: ?Command = null,
+    deinit_command: ?Command = null,
 
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
@@ -391,6 +395,8 @@ const BindingSet = struct {
             inherit: ?[]const u8 = null,
             inherits: ?[][]const u8 = null,
             selection: ?SelectionStyle = null,
+            init_command: ?[]const std.json.Value = null,
+            deinit_command: ?[]const std.json.Value = null,
         };
         const parsed = try std.json.parseFromValue(JsonConfig, allocator, mode_bindings, .{
             .ignore_unknown_fields = true,
@@ -402,6 +408,8 @@ const BindingSet = struct {
         self.line_numbers = parsed.value.line_numbers;
         self.cursor_shape = parsed.value.cursor;
         self.selection_style = parsed.value.selection orelse .normal;
+        if (parsed.value.init_command) |cmd| self.init_command = try Command.load(allocator, cmd);
+        if (parsed.value.deinit_command) |cmd| self.deinit_command = try Command.load(allocator, cmd);
         try self.load_event(allocator, &self.press, input.event.press, parsed.value.press);
         try self.load_event(allocator, &self.release, input.event.release, parsed.value.release);
         if (parsed.value.inherits) |sibling_fallbacks| {
