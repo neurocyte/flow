@@ -2143,10 +2143,24 @@ pub const Editor = struct {
         if (is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
+    fn move_cursor_n_up(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) !void {
+        var egc: usize = undefined;
+        if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
+            return error.Stop;
+        cursor.move_n_up(egc, root, metrics) catch |e| switch (e) {
+            error.Stop => cursor.move_begin_line(root, metrics),
+        };
+    }
+
     fn move_cursor_down(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
         cursor.move_down(root, metrics) catch |e| switch (e) {
             error.Stop => cursor.move_end(root, metrics),
         };
+    }
+
+    fn move_cursor_down_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        try cursor.move_down(root, metrics);
+        if (is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
     fn move_cursor_n_down(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) !void {
@@ -2156,11 +2170,6 @@ pub const Editor = struct {
         cursor.move_n_down(egc, root, metrics) catch |e| switch (e) {
             error.Stop => cursor.move_end_line(root, metrics),
         };
-    }
-
-    fn move_cursor_down_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
-        try cursor.move_down(root, metrics);
-        if (is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
     fn move_cursor_buffer_begin(_: Buffer.Root, cursor: *Cursor, _: Buffer.Metrics) !void {
@@ -3099,6 +3108,13 @@ pub const Editor = struct {
     }
     pub const move_up_vim_meta: Meta = .{ .description = "Move cursor up (vim)" };
 
+    pub fn move_n_up(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const_arg(root, move_cursor_n_up, ctx) catch {};
+        self.clamp();
+    }
+    pub const move_n_up_meta: Meta = .{ .description = "Move cursor up by n lines" };
+
     pub fn add_cursor_up(self: *Self, _: Context) Result {
         try self.push_cursor();
         const primary = self.get_primary();
@@ -3115,19 +3131,19 @@ pub const Editor = struct {
     }
     pub const move_down_meta: Meta = .{ .description = "Move cursor down" };
 
-    pub fn move_n_down(self: *Self, ctx: Context) Result {
-        const root = try self.buf_root();
-        self.with_cursors_const_arg(root, move_cursor_n_down, ctx) catch {};
-        self.clamp();
-    }
-    pub const move_n_down_meta: Meta = .{ .description = "Move cursor down by n lines" };
-
     pub fn move_down_vim(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_down_vim) catch {};
         self.clamp();
     }
     pub const move_down_vim_meta: Meta = .{ .description = "Move cursor down (vim)" };
+
+    pub fn move_n_down(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const_arg(root, move_cursor_n_down, ctx) catch {};
+        self.clamp();
+    }
+    pub const move_n_down_meta: Meta = .{ .description = "Move cursor down by n lines" };
 
     pub fn add_cursor_down(self: *Self, _: Context) Result {
         try self.push_cursor();

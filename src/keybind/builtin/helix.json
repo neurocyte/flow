@@ -240,7 +240,8 @@
         "press": [
             ["escape", "mini_mode_cancel"],
             ["ctrl+q", "quit"],
-            ["j", "mini_move_down_helix"]
+            ["k", "mini_move_up"],
+            ["j", "mini_move_down"]
         ]
     },
     "insert": {

@@ -78,6 +78,15 @@ pub fn move_up(self: *Self, root: Buffer.Root, metrics: Metrics) !void {
     } else return error.Stop;
 }
 
+pub fn move_n_up(self: *Self, n: usize, root: Buffer.Root, metrics: Metrics) !void {
+    if (self.row >= n) {
+        self.row -= n;
+        self.follow_target(root, metrics);
+        self.move_left_no_target(root, metrics) catch return;
+        try self.move_right_no_target(root, metrics);
+    } else return error.Stop;
+}
+
 pub fn move_down(self: *Self, root: Buffer.Root, metrics: Metrics) !void {
     if (self.row < root.lines() - 1) {
         self.row += 1;
@@ -148,6 +157,13 @@ pub fn move_abs(self: *Self, root: Buffer.Root, v: *View, y: usize, x: usize, me
 pub fn move_begin(self: *Self) void {
     self.col = 0;
     self.target = self.col;
+}
+
+pub fn move_begin_line(self: *Self, root: Buffer.Root, metrics: Metrics) void {
+    if (self.row != 0) {
+        self.row = 0;
+        self.follow_target(root, metrics);
+    }
 }
 
 pub fn move_end(self: *Self, root: Buffer.Root, metrics: Metrics) void {

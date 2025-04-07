@@ -75,7 +75,10 @@ fn insert_char(self: *Self, char: u8) void {
             const digit: usize = @intCast(char - '0');
             self.input = if (self.input) |x| x * 10 + digit else digit;
         },
-        else => {},
+        else => {
+            command.executeName("mini_mode_cancel", .{}) catch {};
+            return;
+        },
     }
 }
 
@@ -88,12 +91,6 @@ const cmds = struct {
     const Ctx = command.Context;
     const Meta = command.Metadata;
     const Result = command.Result;
-
-    pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
-        self.input = null;
-        self.update_mini_mode_text();
-    }
-    pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
     pub fn mini_mode_cancel(self: *Self, _: Ctx) Result {
         self.input = null;
@@ -132,9 +129,15 @@ const cmds = struct {
     }
     pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
-    pub fn mini_move_down_helix(self: *Self, _: Ctx) Result {
-        command.executeName("move_n_down", command.fmt(.{self.input orelse 0})) catch {};
-        command.executeName("exit_mini_mode", .{}) catch {};
+    pub fn mini_move_up(self: *Self, _: Ctx) Result {
+        command.executeName("move_n_up", command.fmt(.{self.input orelse 0})) catch {};
+        command.executeName("mini_mode_cancel", .{}) catch {};
     }
-    pub const mini_move_down_helix_meta: Meta = .{ .description = "Move down line by count" };
+    pub const mini_move_up_meta: Meta = .{ .description = "Move line up by count" };
+
+    pub fn mini_move_down(self: *Self, _: Ctx) Result {
+        command.executeName("move_n_down", command.fmt(.{self.input orelse 0})) catch {};
+        command.executeName("mini_mode_cancel", .{}) catch {};
+    }
+    pub const mini_move_down_meta: Meta = .{ .description = "Move line down by count" };
 };
