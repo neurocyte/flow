@@ -148,7 +148,7 @@ const cmds_ = struct {
             // handling left to right transition
             const sel_begin: i32 = @intCast(sel.begin.col);
             const sel_end: i32 = @intCast(sel.end.col);
-            if ((sel_begin - sel_end) == 1) {
+            if ((sel_begin - sel_end) == 1 and sel.begin.row == sel.end.row) {
                 try Editor.move_cursor_right(root, &sel.end, ed.metrics);
                 sel.begin.col -= 1;
             }
@@ -175,9 +175,7 @@ const cmds_ = struct {
                 try Editor.move_cursor_left(root, &sel.end, ed.metrics);
                 cursel.cursor = sel.end;
 
-                const sel_begin: i32 = @intCast(sel.begin.col);
-                const sel_end: i32 = @intCast(sel.end.col);
-                if ((sel_begin - sel_end) == 0) {
+                if (sel.begin.col == sel.end.col and sel.begin.row == sel.end.row) {
                     try sel.begin.move_right(root, ed.metrics);
                     try Editor.move_cursor_left(root, &sel.end, ed.metrics);
                     cursel.cursor = sel.end;
