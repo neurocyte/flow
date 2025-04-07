@@ -269,6 +269,7 @@ pub const Editor = struct {
     buffer_manager: *Buffer.Manager,
     lsp_version: usize = 1,
     pause_undo: bool = false,
+    pause_undo_root: ?Buffer.Root = null,
 
     cursels: CurSel.List,
     cursels_saved: CurSel.List,
@@ -780,11 +781,23 @@ pub const Editor = struct {
 
     pub fn pause_undo_history(self: *Self, _: Context) Result {
         self.pause_undo = true;
+        self.pause_undo_root = self.buf_root() catch return;
+        self.cursels_saved.clearAndFree();
+        self.cursels_saved = try self.cursels.clone();
     }
     pub const pause_undo_history_meta: Meta = .{ .description = "Pause undo history" };
 
     pub fn resume_undo_history(self: *Self, _: Context) Result {
         self.pause_undo = false;
+        const b = self.buffer orelse return;
+        var sfa = std.heap.stackFallback(512, self.allocator);
+        const allocator = sfa.get();
+        const meta = try self.store_undo_meta(allocator);
+        defer allocator.free(meta);
+        const root = self.buf_root() catch return;
+        if (self.pause_undo_root) |paused_root| b.update(paused_root);
+        try b.store_undo(meta);
+        b.update(root);
     }
     pub const resume_undo_history_meta: Meta = .{ .description = "Resume undo history" };
 
