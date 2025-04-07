@@ -3592,6 +3592,12 @@ pub const Editor = struct {
     }
     pub const cancel_meta: Meta = .{ .description = "Cancel current action" };
 
+    pub fn enable_selection(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        _ = try self.get_primary().enable_selection(root, self.metrics);
+    }
+    pub const enable_selection_meta: Meta = .{ .description = "Enable selection" };
+
     pub fn select_line_vim(self: *Self, _: Context) Result {
         self.selection_mode = .line;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|

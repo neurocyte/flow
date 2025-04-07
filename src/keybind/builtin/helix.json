@@ -256,6 +256,7 @@
         "line_numbers": "relative",
         "cursor": "block",
         "selection": "inclusive",
+        "init_command": ["enable_selection"],
         "press": [
             ["ctrl+b", "select_page_up"],
             ["ctrl+f", "select_page_down"],
