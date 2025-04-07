@@ -67,9 +67,9 @@
             ["shift+b", "move_prev_long_word_start"],
             ["shift+e", "move_next_long_word_end"],
 
-            ["shift+i", ["smart_move_begin"], ["enter_mode", "insert"]],
-            ["shift+a", ["move_end"], ["enter_mode", "insert"]],
-            ["shift+o", ["smart_insert_line_before"], ["enter_mode", "insert"]],
+            ["shift+i", ["enter_mode", "insert"], ["smart_move_begin"]],
+            ["shift+a", ["enter_mode", "insert"], ["move_end"]],
+            ["shift+o", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
             ["shift+c", "copy_selection_on_next_line"],
             ["shift+s", "split_selection"],
@@ -143,11 +143,11 @@
             ["g shift+d", "goto_declaration"],
 
             ["i", "enter_mode", "insert"],
-            ["a", ["move_right"], ["enter_mode", "insert"]],
-            ["o", ["smart_insert_line_after"], ["enter_mode", "insert"]],
+            ["a", ["enter_mode", "insert"], ["move_right"]],
+            ["o", ["enter_mode", "insert"], ["smart_insert_line_after"]],
 
             ["d", "cut_forward_internal_inclusive"],
-            ["c", ["cut_forward_internal_inclusive"], ["enter_mode", "insert"]],
+            ["c", ["enter_mode", "insert"], ["cut_forward_internal_inclusive"]],
 
             ["s", "select_regex"],
             [";", "collapse_selections"],
@@ -240,6 +240,8 @@
         "name": "INS",
         "line_numbers": "absolute",
         "cursor": "beam",
+        "init_command": ["pause_undo_history"],
+        "deinit_command": ["resume_undo_history"],
         "press": [
             ["ctrl+u", "move_scroll_page_up"],
             ["ctrl+d", "move_scroll_page_down"],
@@ -276,7 +278,7 @@
             ["alt+`", "switch_to_uppercase"],
 
             ["alt+d", "delete_backward"],
-            ["alt+c", ["delete_backward"], ["enter_mode", "insert"]],
+            ["alt+c", ["enter_mode", "insert"], ["delete_backward"]],
 
             ["alt+s", "split_selection_on_newline"],
             ["alt+-", "merge_selections"],
@@ -328,10 +330,10 @@
 
             ["shift+g", "move_buffer_end_or_count_line"],
 
-            ["shift+i", ["smart_move_begin"], ["enter_mode", "insert"]],
-            ["shift+a", ["move_end"], ["enter_mode", "insert"]],
+            ["shift+i", ["enter_mode", "insert"], ["smart_move_begin"]],
+            ["shift+a", ["enter_mode", "insert"], ["move_end"]],
 
-            ["shift+o", ["smart_insert_line_before"], ["enter_mode", "insert"]],
+            ["shift+o", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
             ["shift+c", "copy_selection_on_next_line"],
 
@@ -415,11 +417,11 @@
             ["g shift+d", "goto_declaration"],
 
             ["i", "enter_mode", "insert"],
-            ["a", ["move_right"], ["enter_mode", "insert"]],
-            ["o", ["smart_insert_line_after"], ["enter_mode", "insert"]],
+            ["a", ["enter_mode", "insert"], ["move_right"]],
+            ["o", ["enter_mode", "insert"], ["smart_insert_line_after"]],
 
             ["d", "cut"],
-            ["c", ["cut"], ["enter_mode", "insert"]],
+            ["c", ["enter_mode", "insert"], ["cut"]],
 
             ["s", "select_regex"],
             [";", "collapse_selections"],

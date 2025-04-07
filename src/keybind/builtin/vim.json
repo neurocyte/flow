@@ -17,7 +17,7 @@
             ["B", "move_word_left"],
             ["e", "move_word_right_end_vim"],
             ["x", "cut_forward_internal"],
-            ["s", ["cut_forward_internal"], ["enter_mode", "insert"]],
+            ["s", ["enter_mode", "insert"], ["cut_forward_internal"]],
             ["u", "undo"],
 
             ["j", "move_down_vim"],
@@ -27,11 +27,11 @@
             ["<Space>", "move_right_vim"],
 
             ["i", "enter_mode", "insert"],
-            ["a", ["move_right"], ["enter_mode", "insert"]],
-            ["I", ["smart_move_begin"], ["enter_mode", "insert"]],
-            ["A", ["move_end"], ["enter_mode", "insert"]],
-            ["o", ["smart_insert_line_after"], ["enter_mode", "insert"]],
-            ["O", ["smart_insert_line_before"], ["enter_mode", "insert"]],
+            ["a", ["enter_mode", "insert"], ["move_right"]],
+            ["I", ["enter_mode", "insert"], ["smart_move_begin"]],
+            ["A", ["enter_mode", "insert"], ["move_end"]],
+            ["o", ["enter_mode", "insert"], ["smart_insert_line_after"]],
+            ["O", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
             ["<S-.><S-.>", "indent"],
             ["<S-,><S-,>", "unindent"],
@@ -63,11 +63,11 @@
             ["dd", "cut_internal_vim"],
             ["\"_dd", "delete_line"],
 
-            ["cc", ["cut_internal_vim"], ["enter_mode", "insert"]],
-            ["C", ["cut_to_end_vim"], ["enter_mode", "insert"]],
+            ["cc", ["enter_mode", "insert"], ["cut_internal_vim"]],
+            ["C", ["enter_mode", "insert"], ["cut_to_end_vim"]],
             ["D", "cut_to_end_vim"],
-            ["cw", ["cut_word_right_vim"], ["enter_mode", "insert"]],
-            ["cb", ["cut_word_left_vim"], ["enter_mode", "insert"]],
+            ["cw", ["enter_mode", "insert"], ["cut_word_right_vim"]],
+            ["cb", ["enter_mode", "insert"], ["cut_word_left_vim"]],
 
             ["yy", ["copy_line_internal_vim"], ["cancel"]],
 
@@ -132,10 +132,10 @@
 
             ["x", ["cut_forward_internal"], ["enter_mode", "normal"]],
             ["d", ["cut_forward_internal"], ["enter_mode", "normal"]],
-            ["s", ["cut_forward_internal"], ["enter_mode", "insert"]],
+            ["s", ["enter_mode", "insert"], ["cut_forward_internal"]],
 
-            ["c", ["cut_forward_internal"], ["enter_mode", "insert"]],
-            ["C", ["cut_to_end_vim"], ["enter_mode", "insert"]],
+            ["c", ["enter_mode", "insert"], ["cut_forward_internal"]],
+            ["C", ["enter_mode", "insert"], ["cut_to_end_vim"]],
             ["D", "cut_to_end_vim"]
         ]
     },
@@ -169,10 +169,10 @@
 
             ["x", ["cut_internal_vim"], ["enter_mode", "normal"]],
             ["d", ["cut_internal_vim"], ["enter_mode", "normal"]],
-            ["s", ["cut_internal_vim"], ["enter_mode", "insert"]],
+            ["s", ["enter_mode", "insert"], ["cut_internal_vim"]],
 
-            ["c", ["cut_internal_vim"], ["enter_mode", "insert"]],
-            ["C", ["cut_to_end_vim"], ["enter_mode", "insert"]],
+            ["c", ["enter_mode", "insert"], ["cut_internal_vim"]],
+            ["C", ["enter_mode", "insert"], ["cut_to_end_vim"]],
             ["D", "cut_to_end_vim"]
         ]
     },
@@ -181,6 +181,8 @@
         "name": "INSERT",
         "line_numbers": "absolute",
         "cursor": "beam",
+        "init_command": ["pause_undo_history"],
+        "deinit_command": ["resume_undo_history"],
         "press": [
             ["<Esc>", ["move_left_vim"], ["enter_mode", "normal"]],
             ["<Del>", "delete_forward"],
