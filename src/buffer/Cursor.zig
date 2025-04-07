@@ -87,6 +87,15 @@ pub fn move_down(self: *Self, root: Buffer.Root, metrics: Metrics) !void {
     } else return error.Stop;
 }
 
+pub fn move_n_down(self: *Self, n: usize, root: Buffer.Root, metrics: Metrics) !void {
+    if (self.row + n < root.lines() - 1) {
+        self.row += n;
+        self.follow_target(root, metrics);
+        self.move_left_no_target(root, metrics) catch return;
+        try self.move_right_no_target(root, metrics);
+    } else return error.Stop;
+}
+
 pub fn move_page_up(self: *Self, root: Buffer.Root, view: *const View, metrics: Metrics) void {
     self.row = if (self.row > view.rows) self.row - view.rows else 0;
     self.follow_target(root, metrics);
@@ -144,6 +153,13 @@ pub fn move_begin(self: *Self) void {
 pub fn move_end(self: *Self, root: Buffer.Root, metrics: Metrics) void {
     if (self.row < root.lines()) self.col = root.line_width(self.row, metrics) catch 0;
     self.target = std.math.maxInt(u32);
+}
+
+pub fn move_end_line(self: *Self, root: Buffer.Root, metrics: Metrics) void {
+    if (self.row < root.lines() - 1) {
+        self.row = root.lines() - 1;
+        self.follow_target(root, metrics);
+    }
 }
 
 pub fn move_buffer_begin(self: *Self) void {

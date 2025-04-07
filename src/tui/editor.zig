@@ -1742,7 +1742,7 @@ pub const Editor = struct {
         try move(root, &cursel.cursor, ctx, metrics);
     }
 
-    fn with_cursors_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
+    pub fn with_cursors_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             cursel.disable_selection(root, self.metrics);
             try with_cursor_const_arg(root, move, cursel, ctx, self.metrics);
@@ -2146,6 +2146,15 @@ pub const Editor = struct {
     fn move_cursor_down(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
         cursor.move_down(root, metrics) catch |e| switch (e) {
             error.Stop => cursor.move_end(root, metrics),
+        };
+    }
+
+    fn move_cursor_n_down(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) !void {
+        var egc: usize = undefined;
+        if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
+            return error.Stop;
+        cursor.move_n_down(egc, root, metrics) catch |e| switch (e) {
+            error.Stop => cursor.move_end_line(root, metrics),
         };
     }
 
@@ -3105,6 +3114,13 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const move_down_meta: Meta = .{ .description = "Move cursor down" };
+
+    pub fn move_n_down(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const_arg(root, move_cursor_n_down, ctx) catch {};
+        self.clamp();
+    }
+    pub const move_n_down_meta: Meta = .{ .description = "Move cursor down by n lines" };
 
     pub fn move_down_vim(self: *Self, _: Context) Result {
         const root = try self.buf_root();

@@ -914,6 +914,11 @@ const cmds = struct {
     }
     pub const goto_meta: Meta = .{ .description = "Goto line" };
 
+    pub fn add_count(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/add_count.zig"), ctx);
+    }
+    pub const add_count_meta: Meta = .{ .description = "Add count to next command" };
+
     pub fn move_to_char(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/move_to_char.zig"), ctx);
     }
