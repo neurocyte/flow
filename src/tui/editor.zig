@@ -2073,7 +2073,7 @@ pub const Editor = struct {
         return false;
     }
 
-    fn is_word_boundary_right_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    pub fn is_word_boundary_right_vim(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         if (is_whitespace_at_cursor(root, cursor, metrics)) return false;
         var next = cursor.*;
         next.move_right(root, metrics) catch return true;
@@ -2155,7 +2155,7 @@ pub const Editor = struct {
         try cursor.move_right(root, metrics);
     }
 
-    fn move_cursor_right_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, metrics: Buffer.Metrics) void {
+    pub fn move_cursor_right_until(root: Buffer.Root, cursor: *Cursor, pred: cursor_predicate, metrics: Buffer.Metrics) void {
         while (!pred(root, cursor, metrics))
             move_cursor_right(root, cursor, metrics) catch return;
     }
