@@ -16,9 +16,15 @@ const Commands = command.Collection(cmds);
 
 allocator: Allocator,
 key: [6]u8 = undefined,
+direction: Direction,
 operation_command: []const u8,
 operation: Operation,
 commands: Commands = undefined,
+
+const Direction = enum {
+    left,
+    right,
+};
 
 const Operation = enum {
     move,
@@ -26,15 +32,18 @@ const Operation = enum {
 };
 
 pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
-    var egc: []const u8 = undefined;
+    var operation_command: []const u8 = undefined;
+    _ = ctx.args.match(.{tp.extract(&operation_command)}) catch return error.InvalidMoveToCharArgument;
 
-    const select = if (tui.get_active_editor()) |editor| if (editor.get_primary().selection) |_| true else false else false;
-    _ = ctx.args.match(.{tp.extract(&egc)}) catch return error.InvalidMoveToCharArgument;
+    const direction: Direction = if (std.mem.indexOf(u8, operation_command, "_left")) |_| .left else .right;
+    const operation: Operation = if (tui.get_active_editor()) |editor| if (editor.get_primary().selection) |_| .select else .move else .move;
+
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
-        .operation_command = try allocator.dupe(u8, egc),
-        .operation = if (select) .select else .move,
+        .direction = direction,
+        .operation_command = try allocator.dupe(u8, operation_command),
+        .operation = operation,
     };
     try self.commands.init(self);
     var mode = try keybind.mode("mini/move_to_char", allocator, .{
@@ -52,8 +61,14 @@ pub fn deinit(self: *Self) void {
 
 fn name(self: *Self) []const u8 {
     return switch (self.operation) {
-        .move => "move",
-        .select => "select",
+        .move => switch (self.direction) {
+            .left => "↶ move",
+            .right => "↷ move",
+        },
+        .select => switch (self.direction) {
+            .left => "󰒅 ↶ select",
+            .right => "󰒅 ↷ select",
+        },
     };
 }
 
