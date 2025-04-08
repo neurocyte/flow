@@ -225,15 +225,16 @@
             ["space h", "select_references_to_symbol_under_cursor"],
             ["space c", "toggle_comment"],
 
-            ["1", "add_count", 1],
-            ["2", "add_count", 2],
-            ["3", "add_count", 3],
-            ["4", "add_count", 4],
-            ["5", "add_count", 5],
-            ["6", "add_count", 6],
-            ["7", "add_count", 7],
-            ["8", "add_count", 8],
-            ["9", "add_count", 9]
+            ["0", "add_integer_argument_digit", 0],
+            ["1", "add_integer_argument_digit", 1],
+            ["2", "add_integer_argument_digit", 2],
+            ["3", "add_integer_argument_digit", 3],
+            ["4", "add_integer_argument_digit", 4],
+            ["5", "add_integer_argument_digit", 5],
+            ["6", "add_integer_argument_digit", 6],
+            ["7", "add_integer_argument_digit", 7],
+            ["8", "add_integer_argument_digit", 8],
+            ["9", "add_integer_argument_digit", 9]
         ]
     },
     "insert": {
