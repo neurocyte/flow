@@ -150,13 +150,8 @@ pub fn execute(id: ID, ctx: Context) tp.result {
 }
 
 pub fn get_id(name: []const u8) ?ID {
-    for (commands.items) |cmd| {
-        if (cmd) |p|
-            if (std.mem.eql(u8, p.name, name))
-                return p.id;
-    }
-    tp.trace(tp.channel.debug, .{ "command", "get_id", "failed", name });
-    return null;
+    var id: ?ID = null;
+    return get_id_cache(name, &id);
 }
 
 pub fn get_name(id: ID) ?[]const u8 {
@@ -178,6 +173,7 @@ pub fn get_id_cache(name: []const u8, id: *?ID) ?ID {
                 return p.id;
             };
     }
+    tp.trace(tp.channel.debug, .{ "command", "get_id_cache", "failed", name });
     return null;
 }
 
