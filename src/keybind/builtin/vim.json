@@ -87,6 +87,8 @@
 
             ["F", "move_to_char", "move_to_char_left"],
             ["f", "move_to_char", "move_to_char_right"],
+            ["T", "move_to_char", "move_till_char_left"],
+            ["t", "move_to_char", "move_till_char_right"],
 
             ["<C-CR>", ["move_down"], ["move_begin"]],
             ["<CR>", ["move_down"], ["move_begin"]],
@@ -131,6 +133,8 @@
 
             ["f", "move_to_char", "select_to_char_right"],
             ["F", "move_to_char", "select_to_char_left_vim"],
+            ["t", "move_to_char", "select_till_char_right"],
+            ["T", "move_to_char", "select_till_char_left_vim"],
 
             ["p", ["paste_internal_vim"], ["enter_mode", "normal"]],
             ["P", ["paste_internal_vim"], ["enter_mode", "normal"]],
