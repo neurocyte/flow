@@ -3075,6 +3075,42 @@ pub const Editor = struct {
         }
     }
 
+    fn move_cursor_till_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
+        var egc: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
+            return error.Stop;
+        try move_cursor_left(root, cursor, metrics);
+        var prev = cursor.*;
+        try move_cursor_left(root, &prev, metrics);
+        while (true) {
+            const prev_egc, _, _ = root.egc_at(prev.row, prev.col, metrics) catch return error.Stop;
+            if (std.mem.eql(u8, prev_egc, egc))
+                return;
+            if (is_eol_left(root, cursor, metrics))
+                return;
+            move_cursor_left(root, cursor, metrics) catch return error.Stop;
+            move_cursor_left(root, &prev, metrics) catch return error.Stop;
+        }
+    }
+
+    pub fn move_cursor_till_char_right(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
+        var egc: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
+            return error.Stop;
+        try move_cursor_right(root, cursor, metrics);
+        var next = cursor.*;
+        try move_cursor_right(root, &next, metrics);
+        while (true) {
+            const next_egc, _, _ = root.egc_at(next.row, next.col, metrics) catch return error.Stop;
+            if (std.mem.eql(u8, next_egc, egc))
+                return;
+            if (is_eol_right(root, cursor, metrics))
+                return;
+            move_cursor_right(root, cursor, metrics) catch return error.Stop;
+            move_cursor_right(root, &next, metrics) catch return error.Stop;
+        }
+    }
+
     pub fn move_to_char_left(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const_arg(root, move_cursor_to_char_left, ctx) catch {};
@@ -3088,6 +3124,20 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const move_to_char_right_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn move_till_char_left(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const_arg(root, move_cursor_till_char_left, ctx) catch {};
+        self.clamp();
+    }
+    pub const move_till_char_left_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn move_till_char_right(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const_arg(root, move_cursor_till_char_right, ctx) catch {};
+        self.clamp();
+    }
+    pub const move_till_char_right_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn move_or_select_to_char_left(self: *Self, ctx: Context) Result {
         const selected = if (self.get_primary().selection) |_| true else false;
@@ -3730,12 +3780,29 @@ pub const Editor = struct {
     }
     pub const select_to_char_left_vim_meta: Meta = .{ .arguments = &.{.integer} };
 
+    pub fn select_till_char_left_vim(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |*sel| try sel.begin.move_right(root, self.metrics);
+        };
+        self.with_selections_const_arg(root, move_cursor_till_char_left, ctx) catch {};
+        self.clamp();
+    }
+    pub const select_till_char_left_vim_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn select_to_char_right(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
         self.with_selections_const_arg(root, move_cursor_to_char_right, ctx) catch {};
         self.clamp();
     }
     pub const select_to_char_right_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn select_till_char_right(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_selections_const_arg(root, move_cursor_till_char_right, ctx) catch {};
+        self.clamp();
+    }
+    pub const select_till_char_right_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn select_begin(self: *Self, _: Context) Result {
         const root = try self.buf_root();
