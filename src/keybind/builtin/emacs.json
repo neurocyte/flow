@@ -47,6 +47,17 @@
             ["ctrl+x ctrl+r", "open_recent"],
             ["ctrl+space", "enter_mode", "select"],
 
+            ["alt+0", "add_integer_argument_digit", 0],
+            ["alt+1", "add_integer_argument_digit", 1],
+            ["alt+2", "add_integer_argument_digit", 2],
+            ["alt+3", "add_integer_argument_digit", 3],
+            ["alt+4", "add_integer_argument_digit", 4],
+            ["alt+5", "add_integer_argument_digit", 5],
+            ["alt+6", "add_integer_argument_digit", 6],
+            ["alt+7", "add_integer_argument_digit", 7],
+            ["alt+8", "add_integer_argument_digit", 8],
+            ["alt+9", "add_integer_argument_digit", 9],
+
             ["ctrl+c l = =", "format"],
             ["ctrl+c l = r", "format"],
             ["ctrl+c l g g", "goto_definition"],
