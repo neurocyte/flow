@@ -129,7 +129,7 @@ pub const CurSel = struct {
         return res;
     }
 
-    fn disable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
+    pub fn disable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
         switch (tui.get_selection_style()) {
             .normal => self.disable_selection_normal(),
             .inclusive => self.disable_selection_inclusive(root, metrics),
