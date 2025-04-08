@@ -132,7 +132,7 @@ const cmds_ = struct {
         const root = try ed.buf_root();
 
         for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            cursel.selection = null;
+            cursel.disable_selection(root, ed.metrics);
         };
 
         ed.with_selections_const(root, Editor.move_cursor_word_right_end_vim) catch {};
