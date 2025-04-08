@@ -110,7 +110,6 @@ const cmds_ = struct {
         ed.with_selections_const_repeat(root, Editor.move_cursor_word_right_vim, ctx) catch {};
         ed.clamp();
     }
-
     pub const move_next_word_start_meta: Meta = .{ .description = "Move next word start", .arguments = &.{.integer} };
 
     pub fn move_prev_word_start(_: *void, ctx: Ctx) Result {
@@ -126,6 +125,21 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const move_prev_word_start_meta: Meta = .{ .description = "Move previous word start", .arguments = &.{.integer} };
+
+    pub fn move_next_word_end(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            cursel.selection = null;
+        };
+
+        ed.with_selections_const(root, Editor.move_cursor_word_right_end_vim) catch {};
+        ed.with_selections_const(root, Editor.move_cursor_right) catch {};
+        ed.clamp();
+    }
+    pub const move_next_word_end_meta: Meta = .{ .description = "Move next word end" };
 
     pub fn cut_forward_internal_inclusive(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
