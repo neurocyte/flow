@@ -62,7 +62,7 @@
 
             ["shift+`", "switch_case"],
             ["shift+t", "till_prev_char"],
-            ["shift+f", "move_to_char", "left"],
+            ["shift+f", "move_to_char", "move_to_char_left"],
             ["shift+w", "move_next_long_word_start"],
             ["shift+b", "move_prev_long_word_start"],
             ["shift+e", "move_next_long_word_end"],
@@ -107,7 +107,7 @@
             ["l", "move_right"],
 
             ["t", "find_till_char"],
-            ["f", "move_to_char", "right"],
+            ["f", "move_to_char", "move_to_char_right"],
 
             ["`", "to_lower"],
 
@@ -256,6 +256,7 @@
         "line_numbers": "relative",
         "cursor": "block",
         "selection": "inclusive",
+        "init_command": ["enable_selection"],
         "press": [
             ["ctrl+b", "select_page_up"],
             ["ctrl+f", "select_page_down"],
@@ -322,7 +323,7 @@
             ["shift+`", "switch_case"],
 
             ["shift+t", "extend_till_prev_char"],
-            ["shift+f", "extend_prev_char"],
+            ["shift+f", "move_to_char", "select_to_char_left_vim"],
 
             ["shift+w", "extend_next_long_word_start"],
             ["shift+b", "extend_prev_long_word_start"],
@@ -371,17 +372,17 @@
             ["shift+1", "shell_insert_output"],
             ["shift+4", "shell_keep_pipe"],
 
-            ["h", "select_left"],
+            ["h", "select_left_helix"],
             ["j", "select_down"],
             ["k", "select_up"],
-            ["l", "select_right"],
+            ["l", "select_right_helix"],
             ["left", "select_left"],
             ["down", "select_down"],
             ["up", "select_up"],
             ["right", "select_right"],
 
             ["t", "extend_till_char"],
-            ["f", "extend_next_char"],
+            ["f", "move_to_char", "select_to_char_right_helix"],
 
             ["`", "switch_to_lowercase"],
 
@@ -398,7 +399,7 @@
             ["g e", "move_buffer_end"],
             ["g f", "goto_file"],
             ["g h", "move_begin"],
-            ["g l", "move_end"],
+            ["g l", "select_end"],
             ["g s", "smart_move_begin"],
             ["g d", "goto_definition"],
             ["g y", "goto_type_definition"],

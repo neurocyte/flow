@@ -86,8 +86,8 @@
 
             ["<C-k>", "TODO"],
 
-            ["F", "move_to_char", "left"],
-            ["f", "move_to_char", "right"],
+            ["F", "move_to_char", "move_to_char_left"],
+            ["f", "move_to_char", "move_to_char_right"],
 
             ["<C-CR>", ["move_down"], ["move_begin"]],
             ["<CR>", ["move_down"], ["move_begin"]]
@@ -100,6 +100,7 @@
         "line_numbers": "relative",
         "cursor": "block",
         "selection": "normal",
+        "init_command": ["enable_selection"],
         "press": [
             ["<Esc>", ["cancel"], ["enter_mode", "normal"]],
             ["k", "select_up"],
@@ -115,8 +116,11 @@
 
             ["0", "move_begin"],
             ["^", "smart_move_begin"],
-            ["$", "move_end"],
+            ["$", "select_end"],
             [":", "open_command_palette"],
+
+            ["f", "move_to_char", "select_to_char_right"],
+            ["F", "move_to_char", "select_to_char_left_vim"],
 
             ["p", ["paste_internal_vim"], ["enter_mode", "normal"]],
             ["P", ["paste_internal_vim"], ["enter_mode", "normal"]],

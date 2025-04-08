@@ -96,7 +96,7 @@ pub const CurSel = struct {
         self.* = .{};
     }
 
-    fn enable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
+    pub fn enable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
         return switch (tui.get_selection_style()) {
             .normal => self.enable_selection_normal(),
             .inclusive => try self.enable_selection_inclusive(root, metrics),
@@ -147,7 +147,7 @@ pub const CurSel = struct {
         }
     }
 
-    fn check_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
+    pub fn check_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
         if (self.selection) |sel| if (sel.empty()) {
             self.disable_selection(root, metrics);
         };
@@ -2123,7 +2123,7 @@ pub const Editor = struct {
         return if (cursor.col == first) cursor.move_begin() else cursor.move_to(root, cursor.row, first, metrics);
     }
 
-    fn move_cursor_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    pub fn move_cursor_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try cursor.move_right(root, metrics);
     }
 
@@ -3089,6 +3089,18 @@ pub const Editor = struct {
     }
     pub const move_to_char_right_meta: Meta = .{ .arguments = &.{.integer} };
 
+    pub fn move_or_select_to_char_left(self: *Self, ctx: Context) Result {
+        const selected = if (self.get_primary().selection) |_| true else false;
+        if (selected) try self.select_to_char_left(ctx) else try self.move_to_char_left(ctx);
+    }
+    pub const move_or_select_to_char_left_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn move_or_select_to_char_right(self: *Self, ctx: Context) Result {
+        const selected = if (self.get_primary().selection) |_| true else false;
+        if (selected) try self.select_to_char_right(ctx) else try self.move_to_char_right(ctx);
+    }
+    pub const move_or_select_to_char_right_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn move_up(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_up) catch {};
@@ -3592,6 +3604,12 @@ pub const Editor = struct {
     }
     pub const cancel_meta: Meta = .{ .description = "Cancel current action" };
 
+    pub fn enable_selection(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        _ = try self.get_primary().enable_selection(root, self.metrics);
+    }
+    pub const enable_selection_meta: Meta = .{ .description = "Enable selection" };
+
     pub fn select_line_vim(self: *Self, _: Context) Result {
         self.selection_mode = .line;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
@@ -3701,6 +3719,16 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const select_to_char_left_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn select_to_char_left_vim(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |*sel| try sel.begin.move_right(root, self.metrics);
+        };
+        self.with_selections_const_arg(root, move_cursor_to_char_left, ctx) catch {};
+        self.clamp();
+    }
+    pub const select_to_char_left_vim_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn select_to_char_right(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
