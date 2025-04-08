@@ -78,25 +78,29 @@ const cmds_ = struct {
     }
     pub const save_selection_meta: Meta = .{ .description = "Save current selection to location history" };
 
-    pub fn extend_line_below(_: *void, _: Ctx) Result {
+    pub fn extend_line_below(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
-
         const root = try ed.buf_root();
-        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const sel = cursel.enable_selection_normal();
-            sel.normalize();
 
-            try Editor.move_cursor_begin(root, &sel.begin, ed.metrics);
-            try Editor.move_cursor_end(root, &sel.end, ed.metrics);
-            cursel.cursor = sel.end;
-            try cursel.selection.?.end.move_right(root, ed.metrics);
-            try cursel.cursor.move_right(root, ed.metrics);
-        };
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                const sel = cursel.enable_selection_normal();
+                sel.normalize();
+
+                try Editor.move_cursor_begin(root, &sel.begin, ed.metrics);
+                try Editor.move_cursor_end(root, &sel.end, ed.metrics);
+                cursel.cursor = sel.end;
+                try cursel.selection.?.end.move_right(root, ed.metrics);
+                try cursel.cursor.move_right(root, ed.metrics);
+            };
+        }
 
         ed.clamp();
     }
-    pub const extend_line_below_meta: Meta = .{ .description = "Select current line, if already selected, extend to next line" };
+    pub const extend_line_below_meta: Meta = .{ .arguments = &.{.integer}, .description = "Select current line, if already selected, extend to next line" };
 
     pub fn move_next_word_start(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
