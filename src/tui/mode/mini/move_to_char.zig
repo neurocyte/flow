@@ -16,14 +16,9 @@ const Commands = command.Collection(cmds);
 
 allocator: Allocator,
 key: [6]u8 = undefined,
-direction: Direction,
+operation_command: []const u8,
 operation: Operation,
 commands: Commands = undefined,
-
-const Direction = enum {
-    left,
-    right,
-};
 
 const Operation = enum {
     move,
@@ -31,14 +26,14 @@ const Operation = enum {
 };
 
 pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
-    var direction: Direction = undefined;
+    var egc: []const u8 = undefined;
 
     const select = if (tui.get_active_editor()) |editor| if (editor.get_primary().selection) |_| true else false else false;
-    _ = ctx.args.match(.{tp.extract(&direction)}) catch return error.InvalidMoveToCharArgument;
+    _ = ctx.args.match(.{tp.extract(&egc)}) catch return error.InvalidMoveToCharArgument;
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
-        .direction = direction,
+        .operation_command = try allocator.dupe(u8, egc),
         .operation = if (select) .select else .move,
     };
     try self.commands.init(self);
@@ -51,19 +46,14 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
 
 pub fn deinit(self: *Self) void {
     self.commands.deinit();
+    self.allocator.free(self.operation_command);
     self.allocator.destroy(self);
 }
 
 fn name(self: *Self) []const u8 {
     return switch (self.operation) {
-        .move => switch (self.direction) {
-            .left => "↶ move",
-            .right => "↷ move",
-        },
-        .select => switch (self.direction) {
-            .left => "󰒅 ↶ select",
-            .right => "󰒅 ↷ select",
-        },
+        .move => "move",
+        .select => "select",
     };
 }
 
@@ -72,20 +62,7 @@ pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
 }
 
 fn execute_operation(self: *Self, ctx: command.Context) command.Result {
-    const cmd = Cmd: switch (self.direction) {
-        .left => switch (self.operation) {
-            .move => "move_to_char_left",
-            .select => "select_to_char_left",
-        },
-        .right => switch (self.operation) {
-            .move => "move_to_char_right",
-            .select => {
-                if (std.mem.eql(u8, "helix", tui.config().input_mode)) break :Cmd "select_to_char_right_helix";
-                break :Cmd "select_to_char_right";
-            },
-        },
-    };
-    try command.executeName(cmd, ctx);
+    try command.executeName(self.operation_command, ctx);
     try command.executeName("exit_mini_mode", .{});
 }
 

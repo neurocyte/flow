@@ -62,7 +62,7 @@
 
             ["shift+`", "switch_case"],
             ["shift+t", "till_prev_char"],
-            ["shift+f", "move_to_char", "left"],
+            ["shift+f", "move_to_char", "move_to_char_left"],
             ["shift+w", "move_next_long_word_start"],
             ["shift+b", "move_prev_long_word_start"],
             ["shift+e", "move_next_long_word_end"],
@@ -107,7 +107,7 @@
             ["l", "move_right"],
 
             ["t", "find_till_char"],
-            ["f", "move_to_char", "right"],
+            ["f", "move_to_char", "move_to_char_right"],
 
             ["`", "to_lower"],
 
@@ -323,7 +323,7 @@
             ["shift+`", "switch_case"],
 
             ["shift+t", "extend_till_prev_char"],
-            ["shift+f", "move_to_char", "left"],
+            ["shift+f", "move_to_char", "select_to_char_left_vim"],
 
             ["shift+w", "extend_next_long_word_start"],
             ["shift+b", "extend_prev_long_word_start"],
@@ -382,7 +382,7 @@
             ["right", "select_right"],
 
             ["t", "extend_till_char"],
-            ["f", "move_to_char", "right"],
+            ["f", "move_to_char", "select_to_char_right_helix"],
 
             ["`", "switch_to_lowercase"],
 

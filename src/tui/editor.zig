@@ -3703,13 +3703,20 @@ pub const Editor = struct {
 
     pub fn select_to_char_left(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
+        self.with_selections_const_arg(root, move_cursor_to_char_left, ctx) catch {};
+        self.clamp();
+    }
+    pub const select_to_char_left_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn select_to_char_left_vim(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |*sel| try sel.begin.move_right(root, self.metrics);
         };
         self.with_selections_const_arg(root, move_cursor_to_char_left, ctx) catch {};
         self.clamp();
     }
-    pub const select_to_char_left_meta: Meta = .{ .arguments = &.{.integer} };
+    pub const select_to_char_left_vim_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn select_to_char_right(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
