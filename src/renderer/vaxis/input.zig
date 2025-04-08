@@ -2,6 +2,8 @@ const vaxis = @import("vaxis");
 
 const meta = @import("std").meta;
 const utf8Encode = @import("std").unicode.utf8Encode;
+const utf8Decode = @import("std").unicode.utf8Decode;
+const utf8ValidateSlice = @import("std").unicode.utf8ValidateSlice;
 const FormatOptions = @import("std").fmt.FormatOptions;
 
 pub const key = vaxis.Key;
@@ -74,6 +76,7 @@ pub const KeyEvent = struct {
     }
 
     pub fn eql_unshifted(self: @This(), other: @This()) bool {
+        if (self.text.len > 0 or other.text.len > 0) return false;
         const self_mods = self.mods_no_caps();
         const other_mods = other.mods_no_caps();
         return self.key_unshifted == other.key_unshifted and self_mods == other_mods;
@@ -117,7 +120,7 @@ pub const KeyEvent = struct {
     pub fn from_message(
         event_: Event,
         keypress_: Key,
-        keypress_shifted: Key,
+        keypress_shifted_: Key,
         text: []const u8,
         modifiers: Mods,
     ) @This() {
@@ -128,6 +131,11 @@ pub const KeyEvent = struct {
             key.left_alt, key.right_alt => modifiers & ~mod.alt,
             else => modifiers,
         };
+
+        var keypress_shifted: Key = keypress_shifted_;
+        if (text.len > 0 and text.len < 5 and utf8ValidateSlice(text)) blk: {
+            keypress_shifted = utf8Decode(text) catch break :blk;
+        }
         const keypress, const mods = if (keypress_shifted == keypress_)
             map_key_to_unshifed_legacy(keypress_shifted, mods_)
         else
