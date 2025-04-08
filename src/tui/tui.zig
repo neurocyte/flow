@@ -659,6 +659,7 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, .{});
     self.input_mode_outer_ = self.input_mode_;
     self.input_mode_ = try mode.create(self.allocator);
+    if (self.input_mode_) |*m| m.run_init();
     refresh_hover();
 }
 
@@ -674,8 +675,7 @@ fn enter_input_mode(self: *Self, new_mode: Mode) command.Result {
         self.input_mode_ = null;
     }
     self.input_mode_ = new_mode;
-    if (new_mode.init_command) |cmd|
-        cmd.execute_const();
+    if (self.input_mode_) |*m| m.run_init();
 }
 
 fn refresh_input_mode(self: *Self) command.Result {
@@ -690,6 +690,7 @@ fn refresh_input_mode(self: *Self) command.Result {
         self.input_mode_ = null;
     }
     self.input_mode_ = new_mode;
+    if (self.input_mode_) |*m| m.run_init();
 }
 
 fn set_theme_by_name(self: *Self, name: []const u8) !void {
@@ -951,6 +952,7 @@ const cmds = struct {
         self.input_mode_outer_ = self.input_mode_;
         self.input_mode_ = input_mode_;
         self.mini_mode_ = mini_mode_;
+        if (self.input_mode_) |*m| m.run_init();
     }
 
     pub fn exit_mini_mode(self: *Self, _: Ctx) Result {
