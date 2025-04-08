@@ -3089,6 +3089,18 @@ pub const Editor = struct {
     }
     pub const move_to_char_right_meta: Meta = .{ .arguments = &.{.integer} };
 
+    pub fn move_or_select_to_char_left(self: *Self, ctx: Context) Result {
+        const selected = if (self.get_primary().selection) |_| true else false;
+        if (selected) try self.select_to_char_left(ctx) else try self.move_to_char_left(ctx);
+    }
+    pub const move_or_select_to_char_left_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn move_or_select_to_char_right(self: *Self, ctx: Context) Result {
+        const selected = if (self.get_primary().selection) |_| true else false;
+        if (selected) try self.select_to_char_right(ctx) else try self.move_to_char_right(ctx);
+    }
+    pub const move_or_select_to_char_right_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn move_up(self: *Self, _: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const(root, move_cursor_up) catch {};
