@@ -5018,6 +5018,18 @@ pub const Editor = struct {
     }
     pub const goto_line_meta: Meta = .{ .arguments = &.{.integer} };
 
+    pub fn goto_line_vim(self: *Self, ctx: Context) Result {
+        try self.send_editor_jump_source();
+        var line: usize = 0;
+        _ = ctx.args.match(.{tp.extract(&line)}) catch false;
+        const root = self.buf_root() catch return;
+        const primary = self.get_primary();
+        try primary.cursor.move_to(root, @intCast(if (line < 1) 0 else line - 1), primary.cursor.col, self.metrics);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const goto_line_vim_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn goto_column(self: *Self, ctx: Context) Result {
         var column: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&column)}))

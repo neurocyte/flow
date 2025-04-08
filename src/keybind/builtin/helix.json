@@ -120,7 +120,7 @@
 
             ["v", "enter_mode", "select"],
 
-            ["g g", "move_buffer_begin"],
+            ["g g", "goto_line_vim"],
             ["g e", "move_buffer_end"],
             ["g f", "goto_file"],
             ["g h", "move_begin"],
