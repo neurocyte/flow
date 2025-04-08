@@ -132,7 +132,8 @@ const cmds_ = struct {
         const root = try ed.buf_root();
 
         for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            cursel.disable_selection(root, ed.metrics);
+            // cursel.disable_selection(root, ed.metrics);
+            cursel.selection = null;
         };
 
         ed.with_selections_const_repeat(root, move_cursor_word_right_end_helix, ctx) catch {};
