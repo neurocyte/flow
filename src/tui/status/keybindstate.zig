@@ -29,9 +29,12 @@ pub fn layout(_: *Self) Widget.Layout {
     var buf: [256]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     const writer = fbs.writer();
-    writer.print("{}", .{keybind.current_key_event_sequence_fmt()}) catch {};
+    writer.print(" ", .{}) catch {};
+    if (keybind.current_integer_argument()) |integer_argument|
+        writer.print("{}", .{integer_argument}) catch {};
+    writer.print("{} ", .{keybind.current_key_event_sequence_fmt()}) catch {};
     const len = fbs.getWritten().len;
-    return .{ .static = if (len > 0) len + 2 else 0 };
+    return .{ .static = if (len > 0) len else 0 };
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -41,6 +44,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_style(theme.statusbar);
     self.plane.fill(" ");
     self.plane.home();
-    _ = self.plane.print(" {} ", .{keybind.current_key_event_sequence_fmt()}) catch {};
+    _ = self.plane.print(" ", .{}) catch {};
+    if (keybind.current_integer_argument()) |integer_argument|
+        _ = self.plane.print("{}", .{integer_argument}) catch {};
+    _ = self.plane.print("{} ", .{keybind.current_key_event_sequence_fmt()}) catch {};
     return false;
 }
