@@ -25,6 +25,31 @@ const builtin_keybinds = std.static_string_map.StaticStringMap([]const u8).initC
     .{ "emacs", @embedFile("builtin/emacs.json") },
 });
 
+var integer_argument: ?usize = null;
+
+var commands: Commands = undefined;
+const Commands = command.Collection(struct {
+    pub const Target = void;
+    const Ctx = command.Context;
+    const Meta = command.Metadata;
+    const Result = command.Result;
+
+    pub fn add_integer_argument_digit(_: *void, ctx: Ctx) Result {
+        var digit: usize = undefined;
+        if (!try ctx.args.match(.{tp.extract(&digit)}))
+            return error.InvalidIntegerParameterArgument;
+        if (digit > 9)
+            return error.InvalidIntegerParameterDigit;
+        integer_argument = if (integer_argument) |x| x * 10 + digit else digit;
+    }
+    pub const add_integer_argument_digit_meta: Meta = .{ .arguments = &.{.integer} };
+});
+
+pub fn init() !void {
+    var v: void = {};
+    try commands.init(&v);
+}
+
 pub fn mode(mode_name: []const u8, allocator: std.mem.Allocator, opts: anytype) !Mode {
     return Handler.create(mode_name, allocator, opts) catch |e| switch (e) {
         error.NotFound => return error.Stop,
@@ -86,10 +111,18 @@ pub const Mode = struct {
     selection_style: SelectionStyle,
     init_command: ?Command = null,
     deinit_command: ?Command = null,
+    initialized: bool = false,
+
+    pub fn run_init(self: *Mode) void {
+        if (self.initialized) return;
+        self.initialized = true;
+        clear_integer_argument();
+        if (self.init_command) |init_command| init_command.execute_const();
+    }
 
     pub fn deinit(self: *Mode) void {
-        if (self.deinit_command) |deinit_|
-            deinit_.execute_const();
+        if (self.deinit_command) |deinit_command|
+            deinit_command.execute_const();
         self.allocator.free(self.mode);
         self.input_handler.deinit();
         if (self.event_handler) |eh| eh.deinit();
@@ -144,11 +177,11 @@ fn get_or_load_namespace(namespace_name: []const u8) LoadError!*const Namespace 
 pub fn set_namespace(namespace_name: []const u8) LoadError!void {
     const new_namespace = try get_or_load_namespace(namespace_name);
     if (globals.current_namespace) |old_namespace|
-        if (old_namespace.deinit_command) |deinit|
-            deinit.execute_const();
+        if (old_namespace.deinit_command) |deinit_command|
+            deinit_command.execute_const();
     globals.current_namespace = new_namespace;
-    if (new_namespace.init_command) |init|
-        init.execute_const();
+    if (new_namespace.init_command) |init_command|
+        init_command.execute_const();
 }
 
 fn get_mode_binding_set(mode_name: []const u8, insert_command: []const u8) LoadError!*const BindingSet {
@@ -262,10 +295,17 @@ const Command = struct {
         };
         var buf: [2048]u8 = undefined;
         @memcpy(buf[0..self.args.len], self.args);
+        if (integer_argument) |int_arg| {
+            if (cbor.match(self.args, .{}) catch false and has_integer_argument(id)) {
+                integer_argument = null;
+                try command.execute(id, command.fmt(.{int_arg}));
+                return;
+            }
+        }
         try command.execute(id, .{ .args = .{ .buf = buf[0..self.args.len] } });
     }
 
-    pub fn execute_const(self: *const @This()) void {
+    fn execute_const(self: *const @This()) void {
         var buf: [2048]u8 = undefined;
         @memcpy(buf[0..self.args.len], self.args);
         command.executeName(self.command, .{ .args = .{ .buf = buf[0..self.args.len] } }) catch |e| {
@@ -273,6 +313,11 @@ const Command = struct {
             logger.print_err("init/deinit_command", "ERROR: {s} {s}", .{ self.command, @errorName(e) });
             logger.deinit();
         };
+    }
+
+    fn has_integer_argument(id: command.ID) bool {
+        const args = command.get_arguments(id) orelse return false;
+        return args.len == 1 and args[0] == .integer;
     }
 
     fn load(allocator: std.mem.Allocator, tokens: []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!Command {
@@ -722,6 +767,14 @@ pub fn key_event_sequence_fmt(key_events: []const KeyEvent) KeyEventSequenceFmt 
 
 pub fn current_key_event_sequence_fmt() KeyEventSequenceFmt {
     return .{ .key_events = globals.current_sequence.items };
+}
+
+pub fn current_integer_argument() ?usize {
+    return integer_argument;
+}
+
+pub fn clear_integer_argument() void {
+    integer_argument = null;
 }
 
 const expectEqual = std.testing.expectEqual;
