@@ -51,7 +51,7 @@
             ["gd", "goto_definition"],
             ["gi", "goto_implementation"],
             ["gy", "goto_type_definition"],
-            ["gg", "move_buffer_begin"],
+            ["gg", "goto_line_vim"],
             ["grn", "rename_symbol"],
             ["gD", "goto_declaration"],
             ["G", "move_buffer_end"],
