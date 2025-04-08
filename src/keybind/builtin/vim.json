@@ -41,7 +41,6 @@
 
             ["n", "goto_next_match"],
             ["N", "goto_prev_match"],
-            ["0", "move_begin"],
             ["^", "smart_move_begin"],
             ["$", "move_end"],
             [":", "open_command_palette"],
@@ -90,7 +89,18 @@
             ["f", "move_to_char", "move_to_char_right"],
 
             ["<C-CR>", ["move_down"], ["move_begin"]],
-            ["<CR>", ["move_down"], ["move_begin"]]
+            ["<CR>", ["move_down"], ["move_begin"]],
+
+            ["0", "move_begin_or_add_integer_argument_zero"],
+            ["1", "add_integer_argument_digit", 1],
+            ["2", "add_integer_argument_digit", 2],
+            ["3", "add_integer_argument_digit", 3],
+            ["4", "add_integer_argument_digit", 4],
+            ["5", "add_integer_argument_digit", 5],
+            ["6", "add_integer_argument_digit", 6],
+            ["7", "add_integer_argument_digit", 7],
+            ["8", "add_integer_argument_digit", 8],
+            ["9", "add_integer_argument_digit", 9]
         ]
     },
     "visual": {
