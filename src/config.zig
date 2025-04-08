@@ -10,6 +10,7 @@ enable_terminal_cursor: bool = true,
 enable_terminal_color_scheme: bool = builtin.os.tag != .windows,
 highlight_current_line: bool = true,
 highlight_current_line_gutter: bool = true,
+highlight_columns: []const u8 = "",
 whitespace_mode: []const u8 = "none",
 inline_diagnostics: bool = true,
 animation_min_lag: usize = 0, //milliseconds
