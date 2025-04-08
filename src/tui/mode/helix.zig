@@ -1,5 +1,6 @@
 const std = @import("std");
 const log = @import("log");
+const tp = @import("thespian");
 const location_history = @import("location_history");
 const command = @import("command");
 const cmd = command.executeName;
@@ -97,7 +98,7 @@ const cmds_ = struct {
     }
     pub const extend_line_below_meta: Meta = .{ .description = "Select current line, if already selected, extend to next line" };
 
-    pub fn move_next_word_start(_: *void, _: Ctx) Result {
+    pub fn move_next_word_start(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const root = try ed.buf_root();
@@ -106,13 +107,13 @@ const cmds_ = struct {
             cursel.selection = null;
         };
 
-        ed.with_selections_const(root, Editor.move_cursor_word_right_vim) catch {};
+        ed.with_selections_const_repeat(root, Editor.move_cursor_word_right_vim, ctx) catch {};
         ed.clamp();
     }
 
-    pub const move_next_word_start_meta: Meta = .{ .description = "Move next word start" };
+    pub const move_next_word_start_meta: Meta = .{ .description = "Move next word start", .arguments = &.{.integer} };
 
-    pub fn move_prev_word_start(_: *void, _: Ctx) Result {
+    pub fn move_prev_word_start(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const root = try ed.buf_root();
@@ -121,10 +122,10 @@ const cmds_ = struct {
             cursel.selection = null;
         };
 
-        ed.with_selections_const(root, move_cursor_word_left_helix) catch {};
+        ed.with_selections_const_repeat(root, move_cursor_word_left_helix, ctx) catch {};
         ed.clamp();
     }
-    pub const move_prev_word_start_meta: Meta = .{ .description = "Move previous word start" };
+    pub const move_prev_word_start_meta: Meta = .{ .description = "Move previous word start", .arguments = &.{.integer} };
 
     pub fn cut_forward_internal_inclusive(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
@@ -137,56 +138,64 @@ const cmds_ = struct {
     }
     pub const cut_forward_internal_inclusive_meta: Meta = .{ .description = "Cut next character to internal clipboard (inclusive)" };
 
-    pub fn select_right_helix(_: *void, _: Ctx) Result {
+    pub fn select_right_helix(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const root = try ed.buf_root();
 
-        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const sel = try cursel.enable_selection(root, ed.metrics);
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                const sel = try cursel.enable_selection(root, ed.metrics);
 
-            // handling left to right transition
-            const sel_begin: i32 = @intCast(sel.begin.col);
-            const sel_end: i32 = @intCast(sel.end.col);
-            if ((sel_begin - sel_end) == 1 and sel.begin.row == sel.end.row) {
+                // handling left to right transition
+                const sel_begin: i32 = @intCast(sel.begin.col);
+                const sel_end: i32 = @intCast(sel.end.col);
+                if ((sel_begin - sel_end) == 1 and sel.begin.row == sel.end.row) {
+                    try Editor.move_cursor_right(root, &sel.end, ed.metrics);
+                    sel.begin.col -= 1;
+                }
+
                 try Editor.move_cursor_right(root, &sel.end, ed.metrics);
-                sel.begin.col -= 1;
-            }
-
-            try Editor.move_cursor_right(root, &sel.end, ed.metrics);
-            cursel.cursor = sel.end;
-            cursel.check_selection(root, ed.metrics);
-        };
+                cursel.cursor = sel.end;
+                cursel.check_selection(root, ed.metrics);
+            };
+        }
         ed.clamp();
     }
-    pub const select_right_helix_meta: Meta = .{ .description = "Select right" };
+    pub const select_right_helix_meta: Meta = .{ .description = "Select right", .arguments = &.{.integer} };
 
-    pub fn select_left_helix(_: *void, _: Ctx) Result {
+    pub fn select_left_helix(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const root = try ed.buf_root();
 
-        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            if (cursel.selection == null) {
-                cursel.selection = Selection.from_cursor(&cursel.cursor);
-                try cursel.selection.?.begin.move_right(root, ed.metrics);
-            }
-            if (cursel.selection) |*sel| {
-                try Editor.move_cursor_left(root, &sel.end, ed.metrics);
-                cursel.cursor = sel.end;
-
-                if (sel.begin.col == sel.end.col and sel.begin.row == sel.end.row) {
-                    try sel.begin.move_right(root, ed.metrics);
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                if (cursel.selection == null) {
+                    cursel.selection = Selection.from_cursor(&cursel.cursor);
+                    try cursel.selection.?.begin.move_right(root, ed.metrics);
+                }
+                if (cursel.selection) |*sel| {
                     try Editor.move_cursor_left(root, &sel.end, ed.metrics);
                     cursel.cursor = sel.end;
-                }
-            }
 
-            cursel.check_selection(root, ed.metrics);
-        };
+                    if (sel.begin.col == sel.end.col and sel.begin.row == sel.end.row) {
+                        try sel.begin.move_right(root, ed.metrics);
+                        try Editor.move_cursor_left(root, &sel.end, ed.metrics);
+                        cursel.cursor = sel.end;
+                    }
+                }
+
+                cursel.check_selection(root, ed.metrics);
+            };
+        }
         ed.clamp();
     }
-    pub const select_left_helix_meta: Meta = .{ .description = "Select left" };
+    pub const select_left_helix_meta: Meta = .{ .description = "Select left", .arguments = &.{.integer} };
 
     pub fn select_to_char_right_helix(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
