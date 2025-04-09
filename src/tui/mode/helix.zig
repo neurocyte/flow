@@ -7,6 +7,7 @@ const cmd = command.executeName;
 
 const tui = @import("../tui.zig");
 const Editor = @import("../editor.zig").Editor;
+const CurSel = @import("../editor.zig").CurSel;
 const Buffer = @import("Buffer");
 const Cursor = Buffer.Cursor;
 const Selection = Buffer.Selection;
@@ -229,6 +230,54 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const select_to_char_right_helix_meta: Meta = .{ .description = "Move to char right" };
+
+    pub fn paste_after(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+
+        var text: []const u8 = undefined;
+        if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
+            if (ed.clipboard) |text_| text = text_ else return;
+        }
+
+        ed.logger.print("paste: {d} bytes", .{text.len});
+        const b = try ed.buf_for_update();
+        var root = b.root;
+
+        if (std.mem.eql(u8, text[text.len - 1 ..], "\n")) text = text[0 .. text.len - 1];
+
+        if (std.mem.indexOfScalar(u8, text, '\n')) |idx| {
+            if (idx == 0) {
+                for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                    try Editor.move_cursor_end(root, &cursel.cursor, ed.metrics);
+                    root = try ed.insert(root, cursel, "\n", b.allocator);
+                };
+                text = text[1..];
+            }
+            if (ed.cursels.items.len == 1) {
+                const primary = ed.get_primary();
+                root = try ed.insert_line_vim(root, primary, text, b.allocator);
+            } else {
+                for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                    root = try ed.insert_line_vim(root, cursel, text, b.allocator);
+                };
+            }
+        } else {
+            if (ed.cursels.items.len == 1) {
+                const primary = ed.get_primary();
+                root = try insert(ed, root, primary, text, b.allocator);
+            } else {
+                for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                    root = try insert(ed, root, cursel, text, b.allocator);
+                };
+            }
+        }
+
+        try ed.update_buf(root);
+        ed.clamp();
+        ed.need_render();
+    }
+    pub const paste_after_meta: Meta = .{ .description = "Paste from clipboard after selection" };
 };
 
 fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
@@ -260,4 +309,15 @@ fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics:
     try Editor.move_cursor_right(root, cursor, metrics);
     Editor.move_cursor_right_until(root, cursor, Editor.is_word_boundary_right_vim, metrics);
     try cursor.move_right(root, metrics);
+}
+
+fn insert(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: std.mem.Allocator) !Buffer.Root {
+    var root_ = root;
+    const cursor = &cursel.cursor;
+    if (cursel.selection == null) try cursor.move_right(root_, ed.metrics);
+    const begin = cursel.cursor;
+    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
+    cursor.target = cursor.col;
+    ed.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+    return root_;
 }

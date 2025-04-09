@@ -118,6 +118,7 @@ pub const CurSel = struct {
         else cod: {
             self.selection = Selection.from_cursor(&self.cursor);
             try self.selection.?.end.move_right(root, metrics);
+            try self.cursor.move_right(root, metrics);
             break :cod &self.selection.?;
         };
     }
@@ -490,7 +491,7 @@ pub const Editor = struct {
             .none;
     }
 
-    fn need_render(_: *Self) void {
+    pub fn need_render(_: *Self) void {
         Widget.need_render();
     }
 
@@ -1942,7 +1943,7 @@ pub const Editor = struct {
         self.collapse_cursors();
     }
 
-    fn nudge_insert(self: *Self, nudge: Selection, exclude: *const CurSel, _: usize) void {
+    pub fn nudge_insert(self: *Self, nudge: Selection, exclude: *const CurSel, _: usize) void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             if (cursel != exclude)
                 cursel.nudge_insert(nudge);
@@ -2536,7 +2537,7 @@ pub const Editor = struct {
         try move_cursor_buffer_end(root, &sel.end, metrics);
     }
 
-    fn insert(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+    pub fn insert(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
         var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, allocator) else root;
         const cursor = &cursel.cursor;
         const begin = cursel.cursor;
@@ -2546,7 +2547,7 @@ pub const Editor = struct {
         return root_;
     }
 
-    fn insert_line_vim(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+    pub fn insert_line_vim(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
         var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, allocator) else root;
         const cursor = &cursel.cursor;
         const begin = cursel.cursor;
