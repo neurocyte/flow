@@ -4610,6 +4610,11 @@ pub const Editor = struct {
     }
     pub const open_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
+    pub fn reload_file(self: *Self, _: Context) Result {
+        if (self.buffer) |buffer| try buffer.refresh_from_file();
+    }
+    pub const reload_file_meta: Meta = .{ .description = "Reload file" };
+
     pub const SaveOption = enum { default, format, no_format };
 
     pub fn save_file(self: *Self, ctx: Context) Result {
