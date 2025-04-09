@@ -4387,7 +4387,9 @@ pub const Editor = struct {
                     break :blk;
                 };
                 if (std.mem.eql(u8, egc, chars_right)) {
-                    cursel.cursor.move_right(root, self.metrics) catch {};
+                    cursel.cursor.move_right(root, self.metrics) catch {
+                        root = try self.insert(root, cursel, chars_right, b.allocator);
+                    };
                 } else {
                     root = try self.insert(root, cursel, chars_right, b.allocator);
                 }
