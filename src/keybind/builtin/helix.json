@@ -190,7 +190,7 @@
             ["n", "goto_next_match"],
             ["u", "undo"],
 
-            ["y", "copy"],
+            ["y", ["enable_selection"], ["copy_internal_vim"], ["enter_mode", "normal"]],
             ["p", "paste_after"],
 
             ["q", "record_macro"],
@@ -468,7 +468,7 @@
             ["n", "goto_next_match"],
             ["u", "undo"],
 
-            ["y", "copy"],
+            ["y", ["copy_internal_vim"], ["enter_mode", "normal"]],
             ["p", "paste_after"],
 
             ["q", "record_macro"],
