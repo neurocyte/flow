@@ -93,9 +93,8 @@ const cmds_ = struct {
 
                 try Editor.move_cursor_begin(root, &sel.begin, ed.metrics);
                 try Editor.move_cursor_end(root, &sel.end, ed.metrics);
+                try Editor.move_cursor_right(root, &sel.end, ed.metrics);
                 cursel.cursor = sel.end;
-                try cursel.selection.?.end.move_right(root, ed.metrics);
-                try cursel.cursor.move_right(root, ed.metrics);
             };
         }
 
@@ -244,8 +243,6 @@ const cmds_ = struct {
         const b = try ed.buf_for_update();
         var root = b.root;
 
-        if (std.mem.eql(u8, text[text.len - 1 ..], "\n")) text = text[0 .. text.len - 1];
-
         if (std.mem.indexOfScalar(u8, text, '\n')) |idx| {
             if (idx == 0) {
                 for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
@@ -256,10 +253,10 @@ const cmds_ = struct {
             }
             if (ed.cursels.items.len == 1) {
                 const primary = ed.get_primary();
-                root = try ed.insert_line_vim(root, primary, text, b.allocator);
+                root = try insert_line(ed, root, primary, text, b.allocator);
             } else {
                 for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-                    root = try ed.insert_line_vim(root, cursel, text, b.allocator);
+                    root = try insert_line(ed, root, cursel, text, b.allocator);
                 };
             }
         } else {
@@ -319,5 +316,17 @@ fn insert(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, alloca
     cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
     cursor.target = cursor.col;
     ed.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+    cursel.selection = Selection{ .begin = begin, .end = cursor.* };
+    return root_;
+}
+
+fn insert_line(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: std.mem.Allocator) !Buffer.Root {
+    var root_ = root;
+    const cursor = &cursel.cursor;
+    const begin = cursel.cursor;
+    _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
+    cursor.target = cursor.col;
+    ed.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+    cursel.selection = Selection{ .begin = begin, .end = cursor.* };
     return root_;
 }
