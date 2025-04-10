@@ -230,6 +230,37 @@ const cmds_ = struct {
     }
     pub const select_to_char_right_helix_meta: Meta = .{ .description = "Move to char right" };
 
+    pub fn copy_helix(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+        var first = true;
+        var text = std.ArrayList(u8).init(ed.allocator);
+
+        if (ed.get_primary().selection) |sel| if (sel.begin.col == 0 and sel.end.row > sel.begin.row) try text.appendSlice("\n");
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection) |sel| {
+                const copy_text = try Editor.copy_selection(root, sel, ed.allocator, ed.metrics);
+                if (first) {
+                    first = false;
+                } else {
+                    try text.appendSlice("\n");
+                }
+                try text.appendSlice(copy_text);
+            }
+        };
+        if (text.items.len > 0) {
+            if (text.items.len > 100) {
+                ed.logger.print("copy:{s}...", .{std.fmt.fmtSliceEscapeLower(text.items[0..100])});
+            } else {
+                ed.logger.print("copy:{s}", .{std.fmt.fmtSliceEscapeLower(text.items)});
+            }
+            ed.set_clipboard_internal(text.items);
+        }
+    }
+    pub const copy_helix_meta: Meta = .{ .description = "Copy selection to clipboard (helix)" };
+
     pub fn paste_after(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -243,14 +274,9 @@ const cmds_ = struct {
         const b = try ed.buf_for_update();
         var root = b.root;
 
-        if (std.mem.indexOfScalar(u8, text, '\n')) |idx| {
-            if (idx == 0) {
-                for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-                    try Editor.move_cursor_end(root, &cursel.cursor, ed.metrics);
-                    root = try ed.insert(root, cursel, "\n", b.allocator);
-                };
-                text = text[1..];
-            }
+        if (std.mem.eql(u8, text[text.len - 1 ..], "\n")) text = text[0 .. text.len - 1];
+
+        if (std.mem.indexOfScalar(u8, text, '\n')) |_| {
             if (ed.cursels.items.len == 1) {
                 const primary = ed.get_primary();
                 root = try insert_line(ed, root, primary, text, b.allocator);
@@ -323,10 +349,15 @@ fn insert(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, alloca
 fn insert_line(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: std.mem.Allocator) !Buffer.Root {
     var root_ = root;
     const cursor = &cursel.cursor;
-    const begin = cursel.cursor;
-    _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
+
+    cursel.disable_selection(root, ed.metrics);
+    cursel.cursor.move_end(root, ed.metrics);
+
+    var begin = cursel.cursor;
+    try begin.move_right(root, ed.metrics);
+
+    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
     cursor.target = cursor.col;
-    ed.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
     return root_;
 }

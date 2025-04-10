@@ -2500,7 +2500,7 @@ pub const Editor = struct {
         self.clipboard = text;
     }
 
-    fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]u8 {
+    pub fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]u8 {
         var size: usize = 0;
         _ = try root.get_range(sel, null, &size, null, metrics);
         const buf__ = try text_allocator.alloc(u8, size);
