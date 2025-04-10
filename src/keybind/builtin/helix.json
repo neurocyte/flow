@@ -422,7 +422,7 @@
             ["a", ["enter_mode", "insert"], ["move_right"]],
             ["o", ["enter_mode", "insert"], ["smart_insert_line_after"]],
 
-            ["d", "cut"],
+            ["d", ["cut"], ["enter_mode", "normal"]],
             ["c", ["enter_mode", "insert"], ["cut"]],
 
             ["s", "select_regex"],
