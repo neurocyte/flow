@@ -1963,7 +1963,7 @@ pub const Editor = struct {
             };
     }
 
-    fn delete_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+    pub fn delete_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var sel: Selection = cursel.selection orelse return error.Stop;
         sel.normalize();
         cursel.cursor = sel.begin;
@@ -3993,7 +3993,7 @@ pub const Editor = struct {
         cursel.cursor = sel.end;
     }
 
-    fn select_line_around_cursor(self: *Self, cursel: *CurSel) !void {
+    pub fn select_line_around_cursor(self: *Self, cursel: *CurSel) !void {
         const root = try self.buf_root();
         const sel = try cursel.enable_selection(root, self.metrics);
         sel.normalize();
