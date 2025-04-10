@@ -276,24 +276,14 @@ const cmds_ = struct {
 
         if (std.mem.eql(u8, text[text.len - 1 ..], "\n")) text = text[0 .. text.len - 1];
 
-        if (std.mem.indexOfScalar(u8, text, '\n')) |_| {
-            if (ed.cursels.items.len == 1) {
-                const primary = ed.get_primary();
-                root = try insert_line(ed, root, primary, text, b.allocator);
-            } else {
-                for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-                    root = try insert_line(ed, root, cursel, text, b.allocator);
-                };
-            }
+        if (std.mem.indexOfScalar(u8, text, '\n') != null and text[0] == '\n') {
+            for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                root = try insert_line(ed, root, cursel, text, b.allocator);
+            };
         } else {
-            if (ed.cursels.items.len == 1) {
-                const primary = ed.get_primary();
-                root = try insert(ed, root, primary, text, b.allocator);
-            } else {
-                for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-                    root = try insert(ed, root, cursel, text, b.allocator);
-                };
-            }
+            for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                root = try insert(ed, root, cursel, text, b.allocator);
+            };
         }
 
         try ed.update_buf(root);
@@ -349,13 +339,10 @@ fn insert(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, alloca
 fn insert_line(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: std.mem.Allocator) !Buffer.Root {
     var root_ = root;
     const cursor = &cursel.cursor;
-
     cursel.disable_selection(root, ed.metrics);
     cursel.cursor.move_end(root, ed.metrics);
-
     var begin = cursel.cursor;
     try begin.move_right(root, ed.metrics);
-
     cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
     cursor.target = cursor.col;
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
