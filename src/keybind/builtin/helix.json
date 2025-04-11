@@ -147,7 +147,7 @@
             ["o", ["enter_mode", "insert"], ["smart_insert_line_after"]],
 
             ["d", "cut_forward_internal_inclusive"],
-            ["c", ["enter_mode", "insert"], ["cut_forward_internal_inclusive"]],
+            ["c", ["enable_selection"], ["enter_mode", "insert"], ["cut_forward_internal_inclusive"]],
 
             ["s", "select_regex"],
             [";", "collapse_selections"],
