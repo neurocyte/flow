@@ -15,13 +15,27 @@ https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f
 
 # Download / Install
 
+Binary release builds are found here: [neurocyte/flow/releases](https://github.com/neurocyte/flow/releases/latest)
+
+Fetch and install the latest release to `/usr/local/bin` with the installation helper script:
+
 ```shell
 curl -fsSL https://flow-control.dev/install | sh
 ```
 
-Binary release builds are found here: [neurocyte/flow/releases](https://github.com/neurocyte/flow/releases/latest)
-
 Nightly binary builds are found here: [neurocyte/flow-nightly/releases](https://github.com/neurocyte/flow-nightly/releases/latest)
+
+Install latest nightly build and (optionally) specify the installation destination:
+
+```
+curl -fsSL https://flow-control.dev/install | sh -s -- --nightly --dest ~/.local/bin
+```
+
+See all avalable options for the installer script:
+
+```
+curl -fsSL https://flow-control.dev/install | sh -s -- --help
+```
 
 Or check your favorite local system package repository.
 
