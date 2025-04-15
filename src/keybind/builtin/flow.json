@@ -54,6 +54,8 @@
             ["ctrl+t", "move_to_char", "move_or_select_to_char_right"],
             ["ctrl+x", "cut"],
             ["ctrl+c", "copy"],
+            ["alt+C", "copy_file_name"],
+            ["ctrl+k alt+c", "copy_file_name", "file_name_only"],
             ["ctrl+v", "system_paste"],
             ["ctrl+u", "pop_cursor"],
             ["ctrl+k m", "change_file_type"],

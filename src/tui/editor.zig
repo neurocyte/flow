@@ -2690,6 +2690,77 @@ pub const Editor = struct {
     }
     pub const copy_meta: Meta = .{ .description = "Copy selection to clipboard" };
 
+    fn copy_cursel_file_name(
+        self: *const Self,
+        writer: anytype,
+    ) Result {
+        if (self.file_path) |file_path|
+            try writer.writeAll(file_path)
+        else
+            try writer.writeByte('*');
+    }
+
+    fn copy_cursel_file_name_and_location(
+        self: *const Self,
+        cursel: *const CurSel,
+        writer: anytype,
+    ) Result {
+        try self.copy_cursel_file_name(writer);
+        if (cursel.selection) |sel_| {
+            var sel = sel_;
+            sel.normalize();
+            if (sel.begin.row == sel.end.row)
+                try writer.print(":{d}:{d}:{d}", .{
+                    sel.begin.row + 1,
+                    sel.begin.col + 1,
+                    sel.end.col + 1,
+                })
+            else
+                try writer.print(":{d}:{d}:{d}:{d}", .{
+                    sel.begin.row + 1,
+                    sel.begin.col + 1,
+                    sel.end.row + 1,
+                    sel.end.col + 1,
+                });
+        } else if (cursel.cursor.col != 0)
+            try writer.print(":{d}:{d}", .{ cursel.cursor.row + 1, cursel.cursor.col + 1 })
+        else
+            try writer.print(":{d}", .{cursel.cursor.row + 1});
+    }
+
+    pub fn copy_file_name(self: *Self, ctx: Context) Result {
+        var mode: enum { all, primary_only, file_name_only } = .all;
+        _ = ctx.args.match(.{tp.extract(&mode)}) catch false;
+        var text: std.ArrayListUnmanaged(u8) = .empty;
+        const writer = text.writer(self.allocator);
+        var first = true;
+        switch (mode) {
+            .file_name_only => try self.copy_cursel_file_name(writer),
+            .primary_only => try self.copy_cursel_file_name_and_location(
+                self.get_primary(),
+                writer,
+            ),
+            else => for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                if (first) first = false else try writer.writeByte('\n');
+                try self.copy_cursel_file_name_and_location(cursel, writer);
+            },
+        }
+        if (text.items.len > 0) {
+            if (text.items.len > 100)
+                self.logger.print("copy:{s}...", .{
+                    std.fmt.fmtSliceEscapeLower(text.items[0..100]),
+                })
+            else
+                self.logger.print("copy:{s}", .{
+                    std.fmt.fmtSliceEscapeLower(text.items),
+                });
+            self.set_clipboard(try text.toOwnedSlice(self.allocator));
+        }
+    }
+    pub const copy_file_name_meta: Meta = .{
+        .description = "Copy file name and location to clipboard",
+    };
+
     pub fn copy_internal_vim(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         var first = true;
