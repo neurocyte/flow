@@ -179,11 +179,7 @@ pub fn release(self: *Self, query: *Query, comptime query_type: QueryType) void 
 pub const QuerySerializeError = (tss.SerializeError || tss.DeserializeError);
 
 fn deserialize_query(query_bin: []const u8, language: ?*const treez.Language, allocator: std.mem.Allocator) QuerySerializeError!struct { *Query, *std.heap.ArenaAllocator } {
-    std.log.warn("deserialize_query", .{});
-
     var ts_query_out, const arena = try tss.fromCbor(query_bin, allocator);
-    std.log.warn("decoded TSQuery", .{});
-
     ts_query_out.language = @intFromPtr(language);
 
     const query_out: *Query = @alignCast(@ptrCast(ts_query_out));
