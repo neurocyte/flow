@@ -915,7 +915,6 @@ pub const Editor = struct {
             match_idx: usize = 0,
             theme: *const Widget.Theme,
             hl_row: ?usize,
-            hl_cols: []const usize,
             leading: bool = true,
             cell_map: CellMap,
 
@@ -967,8 +966,6 @@ pub const Editor = struct {
                         9 => .tab,
                         else => .character,
                     };
-                    for (ctx.hl_cols) |hl_col| if (hl_col == ctx.buf_col)
-                        self_.render_column_highlight_cell(ctx.theme, c);
                     if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                         self_.render_line_highlight_cell(ctx.theme, c);
                     self_.render_matches(&ctx.match_idx, ctx.theme, c);
@@ -993,8 +990,6 @@ pub const Editor = struct {
                         if (ctx.x >= view.cols) break;
                         var cell_ = n.cell_init();
                         const c_ = &cell_;
-                        for (ctx.hl_cols) |hl_col| if (hl_col == ctx.buf_col)
-                            self_.render_column_highlight_cell(ctx.theme, c);
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, c_);
                         self_.render_matches(&ctx.match_idx, ctx.theme, c_);
@@ -1012,16 +1007,12 @@ pub const Editor = struct {
                 if (leaf.eol) {
                     if (ctx.buf_col >= view.col) {
                         var c = ctx.self.render_eol(n);
-                        for (ctx.hl_cols) |hl_col| if (hl_col == ctx.buf_col)
-                            self_.render_column_highlight_cell(ctx.theme, &c);
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, &c);
                         self_.render_matches(&ctx.match_idx, ctx.theme, &c);
                         self_.render_selections(ctx.theme, &c);
                         _ = n.putc(&c) catch {};
                         var term_cell = render_terminator(n, ctx.theme);
-                        for (ctx.hl_cols) |hl_col| if (hl_col == ctx.buf_col + 1)
-                            self_.render_column_highlight_cell(ctx.theme, &term_cell);
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, &term_cell);
                         _ = n.putc(&term_cell) catch {};
@@ -1046,25 +1037,11 @@ pub const Editor = struct {
                             break :blk null;
             break :blk self.get_primary().cursor.row;
         } else null;
-        const highlight_columns = tui.config().highlight_columns;
-        var highlight_columns_buf: [6]usize = undefined;
-        const hl_cols: []const usize = if (highlight_columns.len > 0) blk: {
-            var idx: usize = 0;
-            var it = std.mem.splitScalar(u8, highlight_columns, ' ');
-            while (it.next()) |arg| {
-                var col = std.fmt.parseInt(usize, arg, 10) catch 1;
-                if (col > 0) col -= 1;
-                highlight_columns_buf[idx] = col;
-                idx += 1;
-            }
-            break :blk highlight_columns_buf[0..idx];
-        } else &.{};
         var ctx_: ctx = .{
             .self = self,
             .buf_row = self.view.row,
             .theme = theme,
             .hl_row = hl_row,
-            .hl_cols = hl_cols,
             .cell_map = CellMap.init(self.allocator, self.view.rows, self.view.cols) catch @panic("OOM"),
         };
         defer ctx_.cell_map.deinit(self.allocator);
@@ -1076,18 +1053,17 @@ pub const Editor = struct {
 
             self.plane.set_base_style(theme.editor);
             self.plane.erase();
-            for (hl_cols) |hl_col|
-                self.render_column_highlight(hl_col, theme) catch {};
             if (hl_row) |_|
                 self.render_line_highlight(&self.get_primary().cursor, theme) catch {};
             self.plane.home();
             _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_, self.metrics) catch {};
         }
         self.render_syntax(theme, cache, root) catch {};
-        self.render_cursors(theme, ctx_.cell_map) catch {};
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         if (tui.config().inline_diagnostics)
             self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
+        self.render_column_highlights() catch {};
+        self.render_cursors(theme, ctx_.cell_map) catch {};
     }
 
     fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
@@ -1156,13 +1132,20 @@ pub const Editor = struct {
         cell_map.set_yx(y, x, .{ .cursor = true, .cell_type = cell_type });
     }
 
-    fn render_column_highlight(self: *Self, col: usize, theme: *const Widget.Theme) !void {
-        for (0..self.view.rows) |row| {
-            self.plane.cursor_move_yx(@intCast(row), @intCast(col)) catch return;
-            var cell = self.plane.cell_init();
-            _ = self.plane.at_cursor_cell(&cell) catch return;
-            self.render_column_highlight_cell(theme, &cell);
-            _ = self.plane.putc(&cell) catch {};
+    fn render_column_highlights(self: *Self) !void {
+        const frame = tracy.initZone(@src(), .{ .name = "column highlights" });
+        defer frame.deinit();
+        const hl_cols: []const u16 = tui.highlight_columns();
+        const alpha: u8 = tui.config().highlight_columns_alpha;
+        for (hl_cols) |hl_col| {
+            for (0..self.view.rows) |row| for (0..self.view.cols) |col|
+                if (hl_col > 0 and hl_col <= col) {
+                    self.plane.cursor_move_yx(@intCast(row), @intCast(col)) catch return;
+                    var cell = self.plane.cell_init();
+                    _ = self.plane.at_cursor_cell(&cell) catch return;
+                    cell.dim_bg(alpha);
+                    _ = self.plane.putc(&cell) catch {};
+                };
         }
     }
 
@@ -1269,10 +1252,6 @@ pub const Editor = struct {
 
     inline fn render_match_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell, match: Match) void {
         cell.set_style_bg(if (match.style) |style| style else theme.editor_match);
-    }
-
-    inline fn render_column_highlight_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
-        cell.set_style_bg(theme.editor_line_highlight);
     }
 
     inline fn render_line_highlight_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell) void {

@@ -11,6 +11,7 @@ enable_terminal_color_scheme: bool = builtin.os.tag != .windows,
 highlight_current_line: bool = true,
 highlight_current_line_gutter: bool = true,
 highlight_columns: []const u8 = "",
+highlight_columns_alpha: u8 = 224,
 whitespace_mode: []const u8 = "none",
 inline_diagnostics: bool = true,
 animation_min_lag: usize = 0, //milliseconds

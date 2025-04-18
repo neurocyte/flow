@@ -76,8 +76,16 @@ pub fn columns(self: *const Cell) usize {
 }
 
 pub fn dim(self: *Cell, alpha: u8) void {
-    self.cell.style.fg = apply_alpha_value(self.cell.style.fg, alpha);
+    self.dim_fg(alpha);
+    self.dim_bg(alpha);
+}
+
+pub fn dim_bg(self: *Cell, alpha: u8) void {
     self.cell.style.bg = apply_alpha_value(self.cell.style.bg, alpha);
+}
+
+pub fn dim_fg(self: *Cell, alpha: u8) void {
+    self.cell.style.fg = apply_alpha_value(self.cell.style.fg, alpha);
 }
 
 fn apply_alpha_value(c: vaxis.Cell.Color, a: u8) vaxis.Cell.Color {
