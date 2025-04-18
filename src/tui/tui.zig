@@ -23,7 +23,7 @@ const Allocator = std.mem.Allocator;
 allocator: Allocator,
 rdr_: renderer,
 config_: @import("config"),
-highlight_columns_: [3]u16,
+highlight_columns_: []u16,
 frame_time: usize, // in microseconds
 frame_clock: tp.metronome,
 frame_clock_running: bool = false,
@@ -120,11 +120,19 @@ fn init(allocator: Allocator) InitError!*Self {
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 
+    const hl_cols: usize = blk: {
+        var it = std.mem.splitScalar(u8, conf.highlight_columns, ' ');
+        var idx: usize = 0;
+        while (it.next()) |_|
+            idx += 1;
+        break :blk idx;
+    };
+
     var self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
         .config_ = conf,
-        .highlight_columns_ = @splat(0),
+        .highlight_columns_ = try allocator.alloc(u16, hl_cols),
         .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), dispatch_initialized),
         .frame_time = frame_time,
         .frame_clock = frame_clock,
@@ -144,14 +152,11 @@ fn init(allocator: Allocator) InitError!*Self {
     instance_ = self;
     defer instance_ = null;
 
-    if (conf.highlight_columns.len > 0) {
-        var it = std.mem.splitScalar(u8, conf.highlight_columns, ' ');
-        var idx: usize = 0;
-        while (it.next()) |arg| {
-            if (idx >= self.highlight_columns_.len) break;
-            self.highlight_columns_[idx] = std.fmt.parseInt(u16, arg, 10) catch 0;
-            idx += 1;
-        }
+    var it = std.mem.splitScalar(u8, conf.highlight_columns, ' ');
+    var idx: usize = 0;
+    while (it.next()) |arg| {
+        self.highlight_columns_[idx] = std.fmt.parseInt(u16, arg, 10) catch 0;
+        idx += 1;
     }
 
     self.default_cursor = std.meta.stringToEnum(keybind.CursorShape, conf.default_cursor) orelse .default;
@@ -1104,7 +1109,7 @@ pub fn config() *const @import("config") {
 }
 
 pub fn highlight_columns() []const u16 {
-    return &current().highlight_columns_;
+    return current().highlight_columns_;
 }
 
 pub fn config_mut() *@import("config") {
