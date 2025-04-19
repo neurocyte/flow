@@ -420,6 +420,15 @@ pub fn build_exe(
         },
     });
 
+    const git_mod = b.createModule(.{
+        .root_source_file = b.path("src/git.zig"),
+        .imports = &.{
+            .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "shell", .module = shell_mod },
+        },
+    });
+
     const ripgrep_mod = b.createModule(.{
         .root_source_file = b.path("src/ripgrep.zig"),
         .imports = &.{
@@ -486,6 +495,7 @@ pub fn build_exe(
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "keybind", .module = keybind_mod },
             .{ .name = "shell", .module = shell_mod },
+            .{ .name = "git", .module = git_mod },
             .{ .name = "ripgrep", .module = ripgrep_mod },
             .{ .name = "theme", .module = themes_dep.module("theme") },
             .{ .name = "themes", .module = themes_dep.module("themes") },
