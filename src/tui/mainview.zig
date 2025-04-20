@@ -2,7 +2,6 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const tracy = @import("tracy");
-const git = @import("git");
 const ripgrep = @import("ripgrep");
 const root = @import("root");
 const location_history = @import("location_history");
@@ -827,11 +826,6 @@ const cmds = struct {
         self.find_in_files_state = .init;
     }
     pub const find_in_files_query_meta: Meta = .{ .arguments = &.{.string} };
-
-    pub fn git_branch(self: *Self, _: Ctx) Result {
-        try git.get_current_branch(self.allocator);
-    }
-    pub const git_branch_meta: Meta = .{ .description = "Get the current git branch" };
 
     pub fn shell_execute_log(self: *Self, ctx: Ctx) Result {
         if (!try ctx.args.match(.{ tp.string, tp.more }))
