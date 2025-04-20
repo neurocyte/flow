@@ -4,8 +4,8 @@ const cbor = @import("cbor");
 const thespian = @import("thespian");
 const flags = @import("flags");
 const builtin = @import("builtin");
+const bin_path = @import("bin_path");
 
-const bin_path = @import("bin_path.zig");
 const list_languages = @import("list_languages.zig");
 pub const file_link = @import("file_link.zig");
 

@@ -3,7 +3,7 @@ const syntax = @import("syntax");
 const builtin = @import("builtin");
 const RGB = @import("color").RGB;
 
-const bin_path = @import("bin_path.zig");
+const bin_path = @import("bin_path");
 
 const checkmark_width = if (builtin.os.tag != .windows) 2 else 3;
 

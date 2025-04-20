@@ -305,6 +305,10 @@ pub fn build_exe(
         .root_source_file = b.path("src/color.zig"),
     });
 
+    const bin_path_mod = b.createModule(.{
+        .root_source_file = b.path("src/bin_path.zig"),
+    });
+
     const Buffer_mod = b.createModule(.{
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
@@ -426,6 +430,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "shell", .module = shell_mod },
+            .{ .name = "bin_path", .module = bin_path_mod },
         },
     });
 
@@ -538,6 +543,7 @@ pub fn build_exe(
     exe.root_module.addImport("input", input_mod);
     exe.root_module.addImport("syntax", syntax_mod);
     exe.root_module.addImport("color", color_mod);
+    exe.root_module.addImport("bin_path", bin_path_mod);
     exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
 
