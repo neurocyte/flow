@@ -1,6 +1,5 @@
 const std = @import("std");
 const tp = @import("thespian");
-const cbor = @import("cbor");
 
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
@@ -18,14 +17,19 @@ branch: ?[]const u8 = null,
 
 const Self = @This();
 
-pub fn create(allocator: std.mem.Allocator, parent: Plane, _: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
+pub fn create(
+    allocator: std.mem.Allocator,
+    parent: Plane,
+    _: ?EventHandler,
+    _: ?[]const u8,
+) @import("widget.zig").CreateError!Widget {
     const self: *Self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
     };
     try tui.message_filters().add(MessageFilter.bind(self, receive_git));
-    git.get_current_branch(self.allocator) catch {};
+    git.workspace_path() catch {};
     return Widget.to(self);
 }
 
@@ -36,13 +40,28 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
 }
 
 fn receive_git(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    return if (try match(m.buf, .{ "git", more }))
+        self.process_git(m)
+    else
+        false;
+}
+
+fn process_git(
+    self: *Self,
+    m: tp.message,
+) MessageFilter.Error!bool {
     var branch: []const u8 = undefined;
-    if (try cbor.match(m.buf, .{ "git", "current_branch", tp.extract(&branch) })) {
+    if (try match(m.buf, .{ any, "workspace_path", null_ })) {
+        self.branch = try self.allocator.dupe(u8, "null");
+    } else if (try match(m.buf, .{ any, "workspace_path", string })) {
+        git.current_branch() catch {};
+    } else if (try match(m.buf, .{ any, "current_branch", extract(&branch) })) {
         if (self.branch) |p| self.allocator.free(p);
         self.branch = try self.allocator.dupe(u8, branch);
-        return true;
+    } else {
+        return false;
     }
-    return false;
+    return true;
 }
 
 pub fn layout(self: *Self) Widget.Layout {
@@ -66,3 +85,12 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     _ = self.plane.print("{s} {s}", .{ branch_symbol, branch }) catch {};
     return false;
 }
+
+const match = cbor.match;
+const more = cbor.more;
+const null_ = cbor.null_;
+const string = cbor.string;
+const extract = cbor.extract;
+const any = cbor.any;
+
+const cbor = @import("cbor");
