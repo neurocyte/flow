@@ -29,7 +29,7 @@ pub fn create(
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
     };
     try tui.message_filters().add(MessageFilter.bind(self, receive_git));
-    git.workspace_path() catch {};
+    git.workspace_path(0) catch {};
     return Widget.to(self);
 }
 
@@ -51,11 +51,11 @@ fn process_git(
     m: tp.message,
 ) MessageFilter.Error!bool {
     var branch: []const u8 = undefined;
-    if (try match(m.buf, .{ any, "workspace_path", null_ })) {
-        self.branch = try self.allocator.dupe(u8, "null");
-    } else if (try match(m.buf, .{ any, "workspace_path", string })) {
-        git.current_branch() catch {};
-    } else if (try match(m.buf, .{ any, "current_branch", extract(&branch) })) {
+    if (try match(m.buf, .{ any, any, "workspace_path", null_ })) {
+        // do nothing, we do not have a git workspace
+    } else if (try match(m.buf, .{ any, any, "workspace_path", string })) {
+        git.current_branch(0) catch {};
+    } else if (try match(m.buf, .{ any, any, "current_branch", extract(&branch) })) {
         if (self.branch) |p| self.allocator.free(p);
         self.branch = try self.allocator.dupe(u8, branch);
     } else {

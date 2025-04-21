@@ -461,6 +461,7 @@ pub fn build_exe(
             .{ .name = "syntax", .module = syntax_mod },
             .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
             .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
+            .{ .name = "git", .module = git_mod },
         },
     });
 

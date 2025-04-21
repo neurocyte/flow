@@ -325,6 +325,7 @@ const Process = struct {
         var text_len: usize = 0;
         var n: usize = 0;
         var task: []const u8 = undefined;
+        var context: usize = undefined;
 
         var root_dst: usize = 0;
         var root_src: usize = 0;
@@ -341,6 +342,9 @@ const Process = struct {
             if (self.walker) |pid| pid.deinit();
             self.walker = null;
             self.loaded(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), tp.more })) {
+            const project: *Project = @ptrFromInt(context);
+            project.process_git(m) catch {};
         } else if (try cbor.match(m.buf, .{ "update_mru", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
@@ -423,6 +427,7 @@ const Process = struct {
             self.walker = try walk_tree_async(self.allocator, project_directory);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.sort_files_by_mtime();
+            project.query_git();
         } else {
             self.logger.print("switched to: {s}", .{project_directory});
         }

@@ -7,6 +7,7 @@ const dizzy = @import("dizzy");
 const Buffer = @import("Buffer");
 const fuzzig = @import("fuzzig");
 const tracy = @import("tracy");
+const git = @import("git");
 const builtin = @import("builtin");
 
 const LSP = @import("LSP.zig");
@@ -23,6 +24,9 @@ tasks: std.ArrayList(Task),
 persistent: bool = false,
 logger_lsp: log.Logger,
 logger_git: log.Logger,
+
+workspace: ?[]const u8 = null,
+branch: ?[]const u8 = null,
 
 const Self = @This();
 
@@ -67,6 +71,8 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.workspace) |p| self.allocator.free(p);
+    if (self.branch) |p| self.allocator.free(p);
     var i_ = self.file_language_server.iterator();
     while (i_.next()) |p| {
         self.allocator.free(p.key_ptr.*);
@@ -1849,4 +1855,27 @@ pub fn get_line(allocator: std.mem.Allocator, buf: []const u8) ![]const u8 {
         if (buf[i] == eol) return allocator.dupe(u8, buf[0..i]);
     }
     return allocator.dupe(u8, buf);
+}
+
+pub fn query_git(self: *Self) void {
+    git.workspace_path(@intFromPtr(self)) catch {};
+    git.current_branch(@intFromPtr(self)) catch {};
+}
+
+pub fn process_git(self: *Self, m: tp.message) !void {
+    var value: []const u8 = undefined;
+    if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.null_ })) {
+        // no git workspace
+    } else if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.extract(&value) })) {
+        if (self.workspace) |p| self.allocator.free(p);
+        self.workspace = try self.allocator.dupe(u8, value);
+        git.workspace_files(@intFromPtr(self)) catch {};
+    } else if (try m.match(.{ tp.any, tp.any, "current_branch", tp.extract(&value) })) {
+        if (self.branch) |p| self.allocator.free(p);
+        self.branch = try self.allocator.dupe(u8, value);
+    } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&value) })) {
+        // TODO
+    } else {
+        self.logger_git.err("git", tp.unexpected(m));
+    }
 }
