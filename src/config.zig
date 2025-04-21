@@ -27,6 +27,8 @@ bottom_bar: []const u8 = "mode file log selection diagnostics keybind linenumber
 show_scrollbars: bool = true,
 show_fileicons: bool = true,
 
+start_debugger_on_crash: bool = false,
+
 include_files: []const u8 = "",
 
 pub const DigitStyle = enum {
