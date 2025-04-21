@@ -96,6 +96,7 @@ pub fn log_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, output:
     _ = parent;
     _ = arg0;
     const logger = log.logger(@typeName(Self));
+    defer logger.deinit();
     var it = std.mem.splitScalar(u8, output, '\n');
     while (it.next()) |line| if (line.len > 0) logger.print("{s}", .{line});
 }
@@ -104,6 +105,7 @@ pub fn log_err_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, out
     _ = context;
     _ = parent;
     const logger = log.logger(@typeName(Self));
+    defer logger.deinit();
     var it = std.mem.splitScalar(u8, output, '\n');
     while (it.next()) |line| logger.print_err(arg0, "{s}", .{line});
 }
@@ -112,6 +114,7 @@ pub fn log_exit_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, er
     _ = context;
     _ = parent;
     const logger = log.logger(@typeName(Self));
+    defer logger.deinit();
     if (exit_code > 0) {
         logger.print_err(arg0, "'{s}' terminated {s} exitcode: {d}", .{ arg0, err_msg, exit_code });
     } else {
@@ -123,6 +126,7 @@ pub fn log_exit_err_handler(context: usize, parent: tp.pid_ref, arg0: []const u8
     _ = context;
     _ = parent;
     const logger = log.logger(@typeName(Self));
+    defer logger.deinit();
     if (exit_code > 0) {
         logger.print_err(arg0, "'{s}' terminated {s} exitcode: {d}", .{ arg0, err_msg, exit_code });
     }
