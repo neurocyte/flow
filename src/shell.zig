@@ -36,6 +36,7 @@ pub const Handlers = struct {
     out: *const OutputHandler,
     err: ?*const OutputHandler = null,
     exit: *const ExitHandler = log_exit_handler,
+    log_execute: bool = true,
 };
 
 pub fn execute(allocator: std.mem.Allocator, argv: tp.message, handlers: Handlers) Error!void {
@@ -185,7 +186,8 @@ const Process = struct {
         _ = tp.set_trap(true);
         var buf: [1024]u8 = undefined;
         const json = self.argv.to_json(&buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.logger.print("shell: execute {s}", .{json});
+        if (self.handlers.log_execute)
+            self.logger.print("shell: execute {s}", .{json});
         self.sp = tp.subprocess.init(self.allocator, self.argv, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
     }
