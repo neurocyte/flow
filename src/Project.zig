@@ -21,6 +21,8 @@ language_servers: std.StringHashMap(LSP),
 file_language_server: std.StringHashMap(LSP),
 tasks: std.ArrayList(Task),
 persistent: bool = false,
+logger_lsp: log.Logger,
+logger_git: log.Logger,
 
 const Self = @This();
 
@@ -59,6 +61,8 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
         .language_servers = std.StringHashMap(LSP).init(allocator),
         .file_language_server = std.StringHashMap(LSP).init(allocator),
         .tasks = std.ArrayList(Task).init(allocator),
+        .logger_lsp = log.logger("lsp"),
+        .logger_git = log.logger("git"),
     };
 }
 
@@ -76,6 +80,8 @@ pub fn deinit(self: *Self) void {
     self.files.deinit();
     for (self.tasks.items) |task| self.allocator.free(task.command);
     self.tasks.deinit();
+    self.logger_lsp.deinit();
+    self.logger_git.deinit();
     self.allocator.free(self.name);
 }
 
@@ -631,6 +637,7 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     const handler: struct {
         from: tp.pid,
         name: []const u8,
+        project: *Self,
 
         pub fn deinit(self_: *@This()) void {
             std.heap.c_allocator.free(self_.name);
@@ -644,7 +651,7 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
                 if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
                     try navigate_to_location_link(self_.from.ref(), link);
                 } else if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&locations) })) {
-                    try send_reference_list(self_.from.ref(), locations, self_.name);
+                    try self_.project.send_reference_list(self_.from.ref(), locations, self_.name);
                 }
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
                 return;
@@ -655,6 +662,7 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     } = .{
         .from = from.clone(),
         .name = try std.heap.c_allocator.dupe(u8, self.name),
+        .project = self,
     };
 
     lsp.send_request(self.allocator, method, .{
@@ -725,11 +733,12 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
-    log.logger("lsp").print("finding references...", .{});
+    self.logger_lsp.print("finding references...", .{});
 
     const handler: struct {
         from: tp.pid,
         name: []const u8,
+        project: *Self,
 
         pub fn deinit(self_: *@This()) void {
             std.heap.c_allocator.free(self_.name);
@@ -741,12 +750,13 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
                 return;
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
-                try send_reference_list(self_.from.ref(), locations, self_.name);
+                try self_.project.send_reference_list(self_.from.ref(), locations, self_.name);
             }
         }
     } = .{
         .from = from.clone(),
         .name = try std.heap.c_allocator.dupe(u8, self.name),
+        .project = self,
     };
 
     lsp.send_request(self.allocator, "textDocument/references", .{
@@ -756,7 +766,7 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     }, handler) catch return error.LspFailed;
 }
 
-fn send_reference_list(to: tp.pid_ref, locations: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
+fn send_reference_list(self: *Self, to: tp.pid_ref, locations: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
     defer to.send(.{ "REF", "done" }) catch {};
     var iter = locations;
     var len = try cbor.decodeArrayHeader(&iter);
@@ -767,7 +777,7 @@ fn send_reference_list(to: tp.pid_ref, locations: []const u8, name: []const u8) 
             try send_reference(to, location, name);
         } else return error.InvalidMessageField;
     }
-    log.logger("lsp").print("found {d} references", .{count});
+    self.logger_lsp.print("found {d} references", .{count});
 }
 
 fn send_reference(to: tp.pid_ref, location: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
@@ -1162,7 +1172,7 @@ pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, c
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
-    // log.logger("lsp").print("fetching hover information...", .{});
+    // self.logger_lsp.print("fetching hover information...", .{});
 
     const handler: struct {
         from: tp.pid,
@@ -1412,7 +1422,7 @@ fn read_position(position: []const u8) !Position {
     return .{ .line = line.?, .character = character.? };
 }
 
-pub fn show_message(_: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
+pub fn show_message(self: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
     var type_: i32 = 0;
     var message: ?[]const u8 = null;
     var iter = params_cb;
@@ -1429,12 +1439,10 @@ pub fn show_message(_: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
         }
     }
     const msg = message orelse return;
-    const logger = log.logger("lsp");
-    defer logger.deinit();
     if (type_ <= 2)
-        logger.err_msg("lsp", msg)
+        self.logger_lsp.err_msg("lsp", msg)
     else
-        logger.print("{s}", .{msg});
+        self.logger_lsp.print("{s}", .{msg});
 }
 
 pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) ClientError!void {
@@ -1462,6 +1470,7 @@ fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, projec
     const handler: struct {
         language_server: []const u8,
         lsp: LSP,
+        project: *Self,
 
         pub fn deinit(self_: *@This()) void {
             self_.lsp.pid.deinit();
@@ -1471,7 +1480,7 @@ fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, projec
         pub fn receive(self_: @This(), _: tp.message) !void {
             self_.lsp.send_notification("initialized", .{}) catch return error.LspFailed;
             if (self_.lsp.pid.expired()) return error.LspFailed;
-            log.logger("lsp").print("initialized LSP: {s}", .{fmt_lsp_name_func(self_.language_server)});
+            self_.project.logger_lsp.print("initialized LSP: {s}", .{fmt_lsp_name_func(self_.language_server)});
         }
     } = .{
         .language_server = try std.heap.c_allocator.dupe(u8, language_server),
@@ -1479,6 +1488,7 @@ fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, projec
             .allocator = lsp.allocator,
             .pid = lsp.pid.clone(),
         },
+        .project = self,
     };
 
     try lsp.send_request(self.allocator, "initialize", .{
