@@ -131,4 +131,9 @@ const cmds = struct {
         self.goto();
     }
     pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
+        return mini_mode_insert_bytes(self, ctx);
+    }
+    pub const mini_mode_paste_meta: Meta = .{ .arguments = &.{.string} };
 };
