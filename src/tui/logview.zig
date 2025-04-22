@@ -74,7 +74,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn output_tdiff(self: *Self, tdiff: i64) !void {
     const msi = @divFloor(tdiff, time.us_per_ms);
-    if (msi == 0) {
+    if (msi < 10) {
         const d: f64 = @floatFromInt(tdiff);
         const ms = d / time.us_per_ms;
         _ = try self.plane.print("{d:6.2} ▏", .{ms});
