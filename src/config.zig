@@ -23,7 +23,7 @@ indent_size: usize = 4,
 tab_width: usize = 8,
 
 top_bar: []const u8 = "tabs",
-bottom_bar: []const u8 = "mode file log selection diagnostics keybind linenumber clock spacer",
+bottom_bar: []const u8 = "mode file log selection diagnostics keybind branch linenumber clock spacer",
 show_scrollbars: bool = true,
 show_fileicons: bool = true,
 
