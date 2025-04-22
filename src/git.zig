@@ -20,29 +20,56 @@ pub fn workspace_path(context_: usize) Error!void {
 
 pub fn current_branch(context_: usize) Error!void {
     const fn_name = @src().fn_name;
+    if (current_branch_cache) |p| {
+        tp.self_pid().send(.{ module_name, context_, fn_name, p.branch }) catch {};
+        return;
+    }
     try git(context_, .{ "rev-parse", "--abbrev-ref", "HEAD" }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
-            while (it.next()) |value| if (value.len > 0)
+            while (it.next()) |value| if (value.len > 0) {
+                blk: {
+                    current_branch_cache = .{ .branch = allocator.dupeZ(u8, value) catch break :blk };
+                }
                 parent.send(.{ module_name, context, fn_name, value }) catch {};
+                return;
+            };
         }
     }.result, exit_null_on_error(fn_name));
 }
+var current_branch_cache: ?struct {
+    branch: ?[:0]const u8 = null,
+} = null;
 
-pub fn workspace_files(context_: usize) Error!void {
-    const fn_name = @src().fn_name;
-    try git_err(context_, .{ "ls-files", "--cached", "--others", "--exclude-standard" }, struct {
+pub fn workspace_files(context: usize) Error!void {
+    return git_line_output(
+        context,
+        @src().fn_name,
+        .{ "ls-files", "--cached", "--others", "--exclude-standard" },
+    );
+}
+
+pub fn workspace_ignored_files(context: usize) Error!void {
+    return git_line_output(
+        context,
+        @src().fn_name,
+        .{ "ls-files", "--cached", "--others", "--exclude-standard", "--ignored" },
+    );
+}
+
+fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
+    try git_err(context_, cmd, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
-                parent.send(.{ module_name, context, fn_name, value }) catch {};
+                parent.send(.{ module_name, context, tag, value }) catch {};
         }
     }.result, struct {
         fn result(_: usize, _: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |line| std.log.err("{s}: {s}", .{ module_name, line });
         }
-    }.result, exit_null_on_error(fn_name));
+    }.result, exit_null(tag));
 }
 
 fn git(
@@ -84,11 +111,19 @@ fn git_err(
     @compileError("git command should be a tuple: " ++ @typeName(@TypeOf(cmd)));
 }
 
+fn exit_null(comptime tag: []const u8) shell.ExitHandler {
+    return struct {
+        fn exit(context: usize, parent: tp.pid_ref, _: []const u8, _: []const u8, _: i64) void {
+            parent.send(.{ module_name, context, tag, null }) catch {};
+        }
+    }.exit;
+}
+
 fn exit_null_on_error(comptime tag: []const u8) shell.ExitHandler {
     return struct {
-        fn exit(_: usize, parent: tp.pid_ref, _: []const u8, _: []const u8, exit_code: i64) void {
+        fn exit(context: usize, parent: tp.pid_ref, _: []const u8, _: []const u8, exit_code: i64) void {
             if (exit_code > 0)
-                parent.send(.{ module_name, tag, null }) catch {};
+                parent.send(.{ module_name, context, tag, null }) catch {};
         }
     }.exit;
 }
