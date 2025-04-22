@@ -11,22 +11,34 @@ const git = @import("git");
 const builtin = @import("builtin");
 
 const LSP = @import("LSP.zig");
+const walk_tree = @import("walk_tree.zig");
 
 allocator: std.mem.Allocator,
 name: []const u8,
-files: std.ArrayList(File),
-pending: std.ArrayList(File),
+files: std.ArrayListUnmanaged(File) = .empty,
+pending: std.ArrayListUnmanaged(File) = .empty,
 longest_file_path: usize = 0,
 open_time: i64,
 language_servers: std.StringHashMap(LSP),
 file_language_server: std.StringHashMap(LSP),
 tasks: std.ArrayList(Task),
 persistent: bool = false,
+logger: log.Logger,
 logger_lsp: log.Logger,
 logger_git: log.Logger,
 
 workspace: ?[]const u8 = null,
 branch: ?[]const u8 = null,
+
+walker: ?tp.pid = null,
+
+// async task states
+state: struct {
+    walk_tree: State = .none,
+    workspace_path: State = .none,
+    current_branch: State = .none,
+    workspace_files: State = .none,
+} = .{},
 
 const Self = @This();
 
@@ -55,22 +67,24 @@ const Task = struct {
     mtime: i64,
 };
 
+const State = enum { none, running, done, failed };
+
 pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Self {
     return .{
         .allocator = allocator,
         .name = try allocator.dupe(u8, name),
-        .files = std.ArrayList(File).init(allocator),
-        .pending = std.ArrayList(File).init(allocator),
         .open_time = std.time.milliTimestamp(),
         .language_servers = std.StringHashMap(LSP).init(allocator),
         .file_language_server = std.StringHashMap(LSP).init(allocator),
         .tasks = std.ArrayList(Task).init(allocator),
+        .logger = log.logger("project"),
         .logger_lsp = log.logger("lsp"),
         .logger_git = log.logger("git"),
     };
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.walker) |pid| pid.send(.{"stop"}) catch {};
     if (self.workspace) |p| self.allocator.free(p);
     if (self.branch) |p| self.allocator.free(p);
     var i_ = self.file_language_server.iterator();
@@ -83,11 +97,13 @@ pub fn deinit(self: *Self) void {
         p.value_ptr.*.term();
     }
     for (self.files.items) |file| self.allocator.free(file.path);
-    self.files.deinit();
+    self.files.deinit(self.allocator);
+    self.pending.deinit(self.allocator);
     for (self.tasks.items) |task| self.allocator.free(task.command);
     self.tasks.deinit();
     self.logger_lsp.deinit();
     self.logger_git.deinit();
+    self.logger.deinit();
     self.allocator.free(self.name);
 }
 
@@ -294,11 +310,11 @@ fn make_URI(self: *Self, file_path: ?[]const u8) LspError![]const u8 {
     return buf.toOwnedSlice();
 }
 
-pub fn sort_files_by_mtime(self: *Self) void {
+fn sort_files_by_mtime(self: *Self) void {
     sort_by_mtime(File, self.files.items);
 }
 
-pub fn sort_tasks_by_mtime(self: *Self) void {
+fn sort_tasks_by_mtime(self: *Self) void {
     sort_by_mtime(Task, self.tasks.items);
 }
 
@@ -311,12 +327,14 @@ inline fn sort_by_mtime(T: type, items: []T) void {
 }
 
 pub fn request_n_most_recent_file(self: *Self, from: tp.pid_ref, n: usize) ClientError!void {
+    self.sort_files_by_mtime();
     if (n >= self.files.items.len) return error.ClientFailed;
     const file_path = if (self.files.items.len > 0) self.files.items[n].path else null;
     from.send(.{file_path}) catch return error.ClientFailed;
 }
 
 pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) ClientError!void {
+    self.sort_files_by_mtime();
     defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, "" }) catch {};
     for (self.files.items, 0..) |file, i| {
         from.send(.{ "PRJ", "recent", self.longest_file_path, file.path }) catch return error.ClientFailed;
@@ -386,21 +404,47 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
     return @min(max, matches.items.len);
 }
 
-pub fn add_pending_file(self: *Self, file_path: []const u8, mtime: i128) OutOfMemoryError!void {
+pub fn walk_tree_entry(self: *Self, file_path: []const u8, mtime: i128) OutOfMemoryError!void {
     self.longest_file_path = @max(self.longest_file_path, file_path.len);
-    (try self.pending.addOne()).* = .{ .path = try self.allocator.dupe(u8, file_path), .mtime = mtime };
+    (try self.pending.addOne(self.allocator)).* = .{ .path = try self.allocator.dupe(u8, file_path), .mtime = mtime };
 }
 
-pub fn merge_pending_files(self: *Self) OutOfMemoryError!void {
+pub fn walk_tree_done(self: *Self) OutOfMemoryError!void {
+    self.state.walk_tree = .done;
+    if (self.walker) |pid| pid.deinit();
+    self.walker = null;
+    return self.loaded();
+}
+
+fn merge_pending_files(self: *Self) OutOfMemoryError!void {
     defer self.sort_files_by_mtime();
-    const existing = try self.files.toOwnedSlice();
+    const existing = try self.files.toOwnedSlice(self.allocator);
+    defer self.allocator.free(existing);
     self.files = self.pending;
-    self.pending = std.ArrayList(File).init(self.allocator);
+    self.pending = .empty;
+
     for (existing) |*file| {
         self.update_mru_internal(file.path, file.mtime, file.pos.row, file.pos.col) catch {};
         self.allocator.free(file.path);
     }
-    self.allocator.free(existing);
+}
+
+fn loaded(self: *Self) OutOfMemoryError!void {
+    inline for (@typeInfo(@TypeOf(self.state)).@"struct".fields) |f|
+        if (@field(self.state, f.name) == .running) return;
+
+    self.logger.print("project files: {d} restored, {d} {s}", .{
+        self.files.items.len,
+        self.pending.items.len,
+        if (self.state.workspace_files == .done) "tracked" else "walked",
+    });
+
+    try self.merge_pending_files();
+    self.logger.print("opened: {s} with {d} files in {d} ms", .{
+        self.name,
+        self.files.items.len,
+        std.time.milliTimestamp() - self.open_time,
+    });
 }
 
 pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) OutOfMemoryError!void {
@@ -420,14 +464,14 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
         return;
     }
     if (row != 0) {
-        (try self.files.addOne()).* = .{
+        (try self.files.addOne(self.allocator)).* = .{
             .path = try self.allocator.dupe(u8, file_path),
             .mtime = mtime,
             .pos = .{ .row = row, .col = col },
             .visited = true,
         };
     } else {
-        (try self.files.addOne()).* = .{
+        (try self.files.addOne(self.allocator)).* = .{
             .path = try self.allocator.dupe(u8, file_path),
             .mtime = mtime,
         };
@@ -1858,23 +1902,55 @@ pub fn get_line(allocator: std.mem.Allocator, buf: []const u8) ![]const u8 {
 }
 
 pub fn query_git(self: *Self) void {
-    git.workspace_path(@intFromPtr(self)) catch {};
-    git.current_branch(@intFromPtr(self)) catch {};
+    self.state.workspace_path = .running;
+    git.workspace_path(@intFromPtr(self)) catch {
+        self.state.workspace_path = .failed;
+        self.start_walker();
+    };
+    self.state.current_branch = .running;
+    git.current_branch(@intFromPtr(self)) catch {
+        self.state.current_branch = .failed;
+    };
 }
 
-pub fn process_git(self: *Self, m: tp.message) !void {
+fn start_walker(self: *Self) void {
+    self.state.walk_tree = .running;
+    self.walker = walk_tree.start(self.allocator, self.name) catch blk: {
+        self.state.walk_tree = .failed;
+        break :blk null;
+    };
+}
+
+pub fn process_git(self: *Self, m: tp.message) (OutOfMemoryError || error{Exit})!void {
     var value: []const u8 = undefined;
+    var path: []const u8 = undefined;
     if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.null_ })) {
-        // no git workspace
+        self.state.workspace_path = .done;
+        self.start_walker();
+        try self.loaded();
     } else if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.extract(&value) })) {
         if (self.workspace) |p| self.allocator.free(p);
         self.workspace = try self.allocator.dupe(u8, value);
-        git.workspace_files(@intFromPtr(self)) catch {};
+        self.state.workspace_path = .done;
+        self.state.workspace_files = .running;
+        git.workspace_files(@intFromPtr(self)) catch {
+            self.state.workspace_files = .failed;
+        };
+    } else if (try m.match(.{ tp.any, tp.any, "current_branch", tp.null_ })) {
+        self.state.current_branch = .done;
+        try self.loaded();
     } else if (try m.match(.{ tp.any, tp.any, "current_branch", tp.extract(&value) })) {
         if (self.branch) |p| self.allocator.free(p);
         self.branch = try self.allocator.dupe(u8, value);
-    } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&value) })) {
-        // TODO
+        self.state.current_branch = .done;
+        try self.loaded();
+    } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&path) })) {
+        self.longest_file_path = @max(self.longest_file_path, path.len);
+        const stat = std.fs.cwd().statFile(path) catch return;
+        (try self.pending.addOne(self.allocator)).* = .{ .path = try self.allocator.dupe(u8, path), .mtime = stat.mtime };
+    } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.null_ })) {
+        self.state.workspace_files = .done;
+        try self.loaded();
     } else {
         self.logger_git.err("git", tp.unexpected(m));
     }

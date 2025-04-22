@@ -9,7 +9,6 @@ const Buffer = @import("Buffer");
 const builtin = @import("builtin");
 
 const Project = @import("Project.zig");
-const walk_tree = @import("walk_tree.zig");
 
 pid: tp.pid_ref,
 
@@ -248,13 +247,12 @@ const Process = struct {
     logger: log.Logger,
     receiver: Receiver,
     projects: ProjectsMap,
-    walker: ?tp.pid = null,
 
     const InvalidArgumentError = error{InvalidArgument};
     const UnsupportedError = error{Unsupported};
 
     const Receiver = tp.Receiver(*Process);
-    const ProjectsMap = std.StringHashMap(*Project);
+    const ProjectsMap = std.StringHashMapUnmanaged(*Project);
     const RecentProject = struct {
         name: []const u8,
         last_used: i128,
@@ -268,7 +266,7 @@ const Process = struct {
             .parent = tp.self_pid().clone(),
             .logger = log.logger(module_name),
             .receiver = Receiver.init(Process.receive, self),
-            .projects = ProjectsMap.init(allocator),
+            .projects = .empty,
         };
         return tp.spawn_link(self.allocator, self, Process.start, module_name);
     }
@@ -280,7 +278,7 @@ const Process = struct {
             p.value_ptr.*.deinit();
             self.allocator.destroy(p.value_ptr.*);
         }
-        self.projects.deinit();
+        self.projects.deinit(self.allocator);
         self.parent.deinit();
         self.logger.deinit();
         self.allocator.destroy(self);
@@ -335,14 +333,10 @@ const Process = struct {
         if (try cbor.match(m.buf, .{ "walk_tree_entry", tp.extract(&project_directory), tp.extract(&path), tp.extract(&high), tp.extract(&low) })) {
             const mtime = (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low));
             if (self.projects.get(project_directory)) |project|
-                project.add_pending_file(
-                    path,
-                    mtime,
-                ) catch |e| self.logger.err("walk_tree_entry", e);
+                project.walk_tree_entry(path, mtime) catch |e| self.logger.err("walk_tree_entry", e);
         } else if (try cbor.match(m.buf, .{ "walk_tree_done", tp.extract(&project_directory) })) {
-            if (self.walker) |pid| pid.deinit();
-            self.walker = null;
-            self.loaded(project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+            if (self.projects.get(project_directory)) |project|
+                project.walk_tree_done() catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), tp.more })) {
             const project: *Project = @ptrFromInt(context);
             project.process_git(m) catch {};
@@ -404,7 +398,6 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
             self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{"shutdown"})) {
-            if (self.walker) |pid| pid.send(.{"stop"}) catch {};
             self.persist_projects();
             from.send(.{ "project_manager", "shutdown" }) catch return error.ClientFailed;
             return error.ExitNormal;
@@ -424,10 +417,8 @@ const Process = struct {
             self.logger.print("opening: {s}", .{project_directory});
             const project = try self.allocator.create(Project);
             project.* = try Project.init(self.allocator, project_directory);
-            try self.projects.put(try self.allocator.dupe(u8, project_directory), project);
-            self.walker = try walk_tree_async(self.allocator, project_directory);
+            try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
-            project.sort_files_by_mtime();
             project.query_git();
         } else {
             self.logger.print("switched to: {s}", .{project_directory});
@@ -444,25 +435,13 @@ const Process = struct {
         }
     }
 
-    fn loaded(self: *Process, project_directory: []const u8) OutOfMemoryError!void {
-        const project = self.projects.get(project_directory) orelse return;
-        try project.merge_pending_files();
-        self.logger.print("opened: {s} with {d} files in {d} ms", .{
-            project_directory,
-            project.files.items.len,
-            std.time.milliTimestamp() - project.open_time,
-        });
-    }
-
     fn request_n_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8, n: usize) (ProjectError || Project.ClientError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        project.sort_files_by_mtime();
         return project.request_n_most_recent_file(from, n);
     }
 
     fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.ClientError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        project.sort_files_by_mtime();
         return project.request_recent_files(from, max);
     }
 
