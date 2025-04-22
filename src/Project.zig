@@ -327,14 +327,12 @@ inline fn sort_by_mtime(T: type, items: []T) void {
 }
 
 pub fn request_n_most_recent_file(self: *Self, from: tp.pid_ref, n: usize) ClientError!void {
-    self.sort_files_by_mtime();
     if (n >= self.files.items.len) return error.ClientFailed;
     const file_path = if (self.files.items.len > 0) self.files.items[n].path else null;
     from.send(.{file_path}) catch return error.ClientFailed;
 }
 
 pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) ClientError!void {
-    self.sort_files_by_mtime();
     defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, "" }) catch {};
     for (self.files.items, 0..) |file, i| {
         from.send(.{ "PRJ", "recent", self.longest_file_path, file.path }) catch return error.ClientFailed;
