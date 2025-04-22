@@ -64,12 +64,14 @@ fn process_git(
     return true;
 }
 
+const format = "   {s} {s}   ";
+
 pub fn layout(self: *Self) Widget.Layout {
     const branch = self.branch orelse return .{ .static = 0 };
     var buf: [256]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     const writer = fbs.writer();
-    writer.print("{s} {s}", .{ branch_symbol, branch }) catch {};
+    writer.print(format, .{ branch_symbol, branch }) catch {};
     const len = self.plane.egc_chunk_width(fbs.getWritten(), 0, 1);
     return .{ .static = len };
 }
@@ -82,7 +84,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_style(theme.statusbar);
     self.plane.fill(" ");
     self.plane.home();
-    _ = self.plane.print("{s} {s}", .{ branch_symbol, branch }) catch {};
+    _ = self.plane.print(format, .{ branch_symbol, branch }) catch {};
     return false;
 }
 
