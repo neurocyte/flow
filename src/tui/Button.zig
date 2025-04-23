@@ -57,6 +57,7 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
         .opts = opts,
     };
     self.opts.label = try self.allocator.dupe(u8, opts.label);
+    try self.init();
     return self;
 }
 
@@ -75,8 +76,18 @@ pub fn State(ctx_type: type) type {
 
         const Self = @This();
         pub const Context = ctx_type;
+        const child: type = switch (@typeInfo(Context)) {
+            .pointer => |p| p.child,
+            .@"struct" => Context,
+            else => struct {},
+        };
+
+        pub fn init(self: *Self) error{OutOfMemory}!void {
+            if (@hasDecl(child, "ctx_init")) return self.opts.ctx.ctx_init();
+        }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            if (@hasDecl(child, "ctx_deinit")) self.opts.ctx.ctx_deinit();
             self.allocator.free(self.opts.label);
             self.plane.deinit();
             allocator.destroy(self);
