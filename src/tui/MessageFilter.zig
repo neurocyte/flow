@@ -114,7 +114,7 @@ pub const List = struct {
         self.list.deinit();
     }
 
-    pub fn add(self: *List, h: MessageFilter) !void {
+    pub fn add(self: *List, h: MessageFilter) error{OutOfMemory}!void {
         (try self.list.addOne()).* = h;
         // @import("log").print("MessageFilter", "add: {d} {s}", .{ self.list.items.len, self.list.items[self.list.items.len - 1].vtable.type_name });
     }
