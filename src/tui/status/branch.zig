@@ -3,40 +3,52 @@ const tp = @import("thespian");
 
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
+const command = @import("command");
 const git = @import("git");
 
 const Widget = @import("../Widget.zig");
+const Button = @import("../Button.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
 
 const branch_symbol = "󰘬";
 
 allocator: std.mem.Allocator,
-plane: Plane,
 branch: ?[]const u8 = null,
+branch_buf: [512]u8 = undefined,
 
 const Self = @This();
 
 pub fn create(
     allocator: std.mem.Allocator,
     parent: Plane,
-    _: ?EventHandler,
+    event_handler: ?EventHandler,
     _: ?[]const u8,
 ) @import("widget.zig").CreateError!Widget {
-    const self: *Self = try allocator.create(Self);
-    self.* = .{
-        .allocator = allocator,
-        .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-    };
-    try tui.message_filters().add(MessageFilter.bind(self, receive_git));
-    git.workspace_path(0) catch {};
-    return Widget.to(self);
+    return Button.create_widget(Self, allocator, parent, .{
+        .ctx = .{
+            .allocator = allocator,
+        },
+        .label = "",
+        .on_click = on_click,
+        .on_layout = layout,
+        .on_render = render,
+        .on_event = event_handler,
+    });
 }
 
-pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+pub fn ctx_init(self: *Self) error{OutOfMemory}!void {
+    try tui.message_filters().add(MessageFilter.bind(self, receive_git));
+    git.workspace_path(0) catch {};
+}
+
+pub fn ctx_deinit(self: *Self) void {
+    tui.message_filters().remove_ptr(self);
     if (self.branch) |p| self.allocator.free(p);
-    self.plane.deinit();
-    allocator.destroy(self);
+}
+
+fn on_click(_: *Self, _: *Button.State(Self)) void {
+    command.executeName("show_git_status", .{}) catch {};
 }
 
 fn receive_git(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
@@ -66,25 +78,26 @@ fn process_git(
 
 const format = "   {s} {s}   ";
 
-pub fn layout(self: *Self) Widget.Layout {
+pub fn layout(self: *Self, btn: *Button.State(Self)) Widget.Layout {
     const branch = self.branch orelse return .{ .static = 0 };
     var buf: [256]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     const writer = fbs.writer();
     writer.print(format, .{ branch_symbol, branch }) catch {};
-    const len = self.plane.egc_chunk_width(fbs.getWritten(), 0, 1);
+    const len = btn.plane.egc_chunk_width(fbs.getWritten(), 0, 1);
     return .{ .static = len };
 }
 
-pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
     const branch = self.branch orelse return false;
-    self.plane.set_base_style(theme.editor);
-    self.plane.erase();
-    self.plane.home();
-    self.plane.set_style(theme.statusbar);
-    self.plane.fill(" ");
-    self.plane.home();
-    _ = self.plane.print(format, .{ branch_symbol, branch }) catch {};
+    const bg_style = if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar;
+    btn.plane.set_base_style(theme.editor);
+    btn.plane.erase();
+    btn.plane.home();
+    btn.plane.set_style(bg_style);
+    btn.plane.fill(" ");
+    btn.plane.home();
+    _ = btn.plane.print(format, .{ branch_symbol, branch }) catch {};
     return false;
 }
 
