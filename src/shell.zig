@@ -169,20 +169,25 @@ const Process = struct {
     }
 
     fn deinit(self: *Process) void {
-        if (self.sp) |*sp| sp.deinit();
+        if (self.sp) |*sp| {
+            defer self.sp = null;
+            sp.deinit();
+        }
         self.parent.deinit();
         self.logger.deinit();
         self.allocator.free(self.arg0);
         self.allocator.free(self.argv.buf);
-        self.close() catch {};
         self.allocator.destroy(self);
     }
 
-    fn close(self: *Process) tp.result {
-        if (self.sp) |*sp| {
-            defer self.sp = null;
-            try sp.close();
-        }
+    fn close(self: *Process) void {
+        defer self.sp = null;
+        if (self.sp) |*sp| sp.close() catch {};
+    }
+
+    fn term(self: *Process) void {
+        defer self.sp = null;
+        if (self.sp) |*sp| sp.term() catch {};
     }
 
     fn start(self: *Process) tp.result {
@@ -204,14 +209,17 @@ const Process = struct {
             const sp = self.sp orelse return tp.exit_error(error.Closed, null);
             try sp.send(bytes);
         } else if (try m.match(.{"close"})) {
-            try self.close();
+            self.close();
         } else if (try m.match(.{ module_name, "stdout", tp.extract(&bytes) })) {
             self.handlers.out(self.handlers.context, self.parent.ref(), self.arg0, bytes);
         } else if (try m.match(.{ module_name, "stderr", tp.extract(&bytes) })) {
             (self.handlers.err orelse self.handlers.out)(self.handlers.context, self.parent.ref(), self.arg0, bytes);
         } else if (try m.match(.{ module_name, "term", tp.more })) {
+            defer self.sp = null;
             self.handle_terminated(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            return tp.exit_normal();
         } else if (try m.match(.{ "exit", "normal" })) {
+            self.term();
             return tp.exit_normal();
         } else {
             self.logger.err("receive", tp.unexpected(m));
