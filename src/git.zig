@@ -47,6 +47,132 @@ pub fn workspace_ignored_files(context: usize) Error!void {
     );
 }
 
+const StatusRecordType = enum {
+    @"#", // header
+    @"1", // ordinary file
+    @"2", // rename or copy
+    u, // unmerged file
+    @"?", // untracked file
+    @"!", // ignored file
+};
+
+pub fn status(context_: usize) Error!void {
+    const tag = @src().fn_name;
+    try git_err(context_, .{
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v2",
+        "--branch",
+        "--show-stash",
+        // "--untracked-files=no",
+        "--null",
+    }, struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            var it_ = std.mem.splitScalar(u8, output, 0);
+            while (it_.next()) |line| {
+                var it = std.mem.splitScalar(u8, line, ' ');
+                const rec_type = if (it.next()) |type_tag|
+                    std.meta.stringToEnum(StatusRecordType, type_tag) orelse return
+                else
+                    return;
+                switch (rec_type) {
+                    .@"#" => { // header
+                        const name = it.next() orelse return;
+                        const value1 = it.next() orelse return;
+                        if (it.next()) |value2|
+                            parent.send(.{ module_name, context, tag, "#", name, value1, value2 }) catch {}
+                        else
+                            parent.send(.{ module_name, context, tag, "#", name, value1 }) catch {};
+                    },
+                    .@"1" => { // ordinary file: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+                        const XY = it.next() orelse return;
+                        const sub = it.next() orelse return;
+                        const mH = it.next() orelse return;
+                        const mI = it.next() orelse return;
+                        const mW = it.next() orelse return;
+                        const hH = it.next() orelse return;
+                        const hI = it.next() orelse return;
+
+                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        defer path.deinit(allocator);
+                        while (it.next()) |path_part| {
+                            if (path.items.len > 0) path.append(allocator, ' ') catch return;
+                            path.appendSlice(allocator, path_part) catch return;
+                        }
+
+                        parent.send(.{ module_name, context, tag, "1", XY, sub, mH, mI, mW, hH, hI, path.items }) catch {};
+                    },
+                    .@"2" => { // rename or copy: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><sep><origPath>
+                        const XY = it.next() orelse return;
+                        const sub = it.next() orelse return;
+                        const mH = it.next() orelse return;
+                        const mI = it.next() orelse return;
+                        const mW = it.next() orelse return;
+                        const hH = it.next() orelse return;
+                        const hI = it.next() orelse return;
+                        const Xscore = it.next() orelse return;
+
+                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        defer path.deinit(allocator);
+                        while (it.next()) |path_part| {
+                            if (path.items.len > 0) path.append(allocator, ' ') catch return;
+                            path.appendSlice(allocator, path_part) catch return;
+                        }
+
+                        const origPath = it_.next() orelse return; // NOTE: this is the next zero terminated part
+
+                        parent.send(.{ module_name, context, tag, "2", XY, sub, mH, mI, mW, hH, hI, Xscore, path.items, origPath }) catch {};
+                    },
+                    .u => { // unmerged file: <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
+                        const XY = it.next() orelse return;
+                        const sub = it.next() orelse return;
+                        const m1 = it.next() orelse return;
+                        const m2 = it.next() orelse return;
+                        const m3 = it.next() orelse return;
+                        const mW = it.next() orelse return;
+                        const h1 = it.next() orelse return;
+                        const h2 = it.next() orelse return;
+                        const h3 = it.next() orelse return;
+
+                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        defer path.deinit(allocator);
+                        while (it.next()) |path_part| {
+                            if (path.items.len > 0) path.append(allocator, ' ') catch return;
+                            path.appendSlice(allocator, path_part) catch return;
+                        }
+
+                        parent.send(.{ module_name, context, tag, "u", XY, sub, m1, m2, m3, mW, h1, h2, h3, path.items }) catch {};
+                    },
+                    .@"?" => { // untracked file: <path>
+                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        defer path.deinit(allocator);
+                        while (it.next()) |path_part| {
+                            if (path.items.len > 0) path.append(allocator, ' ') catch return;
+                            path.appendSlice(allocator, path_part) catch return;
+                        }
+                        parent.send(.{ module_name, context, tag, "?", path.items }) catch {};
+                    },
+                    .@"!" => { // ignored file: <path>
+                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        defer path.deinit(allocator);
+                        while (it.next()) |path_part| {
+                            if (path.items.len > 0) path.append(allocator, ' ') catch return;
+                            path.appendSlice(allocator, path_part) catch return;
+                        }
+                        parent.send(.{ module_name, context, tag, "!", path.items }) catch {};
+                    },
+                }
+                // parent.send(.{ module_name, context, tag, value }) catch {};
+            }
+        }
+    }.result, struct {
+        fn result(_: usize, _: tp.pid_ref, output: []const u8) void {
+            var it = std.mem.splitScalar(u8, output, '\n');
+            while (it.next()) |line| std.log.err("{s}: {s}", .{ module_name, line });
+        }
+    }.result, exit_null(tag));
+}
+
 fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
     try git_err(context_, cmd, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
