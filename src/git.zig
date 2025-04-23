@@ -20,26 +20,16 @@ pub fn workspace_path(context_: usize) Error!void {
 
 pub fn current_branch(context_: usize) Error!void {
     const fn_name = @src().fn_name;
-    if (current_branch_cache) |p| {
-        tp.self_pid().send(.{ module_name, context_, fn_name, p.branch }) catch {};
-        return;
-    }
     try git(context_, .{ "rev-parse", "--abbrev-ref", "HEAD" }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0) {
-                blk: {
-                    current_branch_cache = .{ .branch = allocator.dupeZ(u8, value) catch break :blk };
-                }
                 parent.send(.{ module_name, context, fn_name, value }) catch {};
                 return;
             };
         }
     }.result, exit_null_on_error(fn_name));
 }
-var current_branch_cache: ?struct {
-    branch: ?[:0]const u8 = null,
-} = null;
 
 pub fn workspace_files(context: usize) Error!void {
     return git_line_output(
