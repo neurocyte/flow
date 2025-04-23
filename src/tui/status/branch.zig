@@ -11,11 +11,22 @@ const Button = @import("../Button.zig");
 const MessageFilter = @import("../MessageFilter.zig");
 const tui = @import("../tui.zig");
 
-const branch_symbol = "󰘬";
+const branch_symbol = "󰘬 ";
+const ahead_symbol = "⇡";
+const behind_symbol = "⇣";
+const stash_symbol = "*";
+const changed_symbol = "+";
+const untracked_symbol = "?";
 
 allocator: std.mem.Allocator,
+workspace_path: ?[]const u8 = null,
 branch: ?[]const u8 = null,
-branch_buf: [512]u8 = undefined,
+ahead: ?[]const u8 = null,
+behind: ?[]const u8 = null,
+stash: ?[]const u8 = null,
+changed: usize = 0,
+untracked: usize = 0,
+done: bool = true,
 
 const Self = @This();
 
@@ -45,9 +56,12 @@ pub fn ctx_init(self: *Self) error{OutOfMemory}!void {
 pub fn ctx_deinit(self: *Self) void {
     tui.message_filters().remove_ptr(self);
     if (self.branch) |p| self.allocator.free(p);
+    if (self.ahead) |p| self.allocator.free(p);
+    if (self.behind) |p| self.allocator.free(p);
 }
 
 fn on_click(_: *Self, _: *Button.State(Self)) void {
+    git.status(0) catch {};
     command.executeName("show_git_status", .{}) catch {};
 }
 
@@ -58,38 +72,107 @@ fn receive_git(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bo
         false;
 }
 
-fn process_git(
-    self: *Self,
-    m: tp.message,
-) MessageFilter.Error!bool {
-    var branch: []const u8 = undefined;
+fn process_git(self: *Self, m: tp.message) MessageFilter.Error!bool {
+    var value: []const u8 = undefined;
     if (try match(m.buf, .{ any, any, "workspace_path", null_ })) {
         // do nothing, we do not have a git workspace
-    } else if (try match(m.buf, .{ any, any, "workspace_path", string })) {
-        git.current_branch(0) catch {};
-    } else if (try match(m.buf, .{ any, any, "current_branch", extract(&branch) })) {
+    } else if (try match(m.buf, .{ any, any, "workspace_path", extract(&value) })) {
+        if (self.workspace_path) |p| self.allocator.free(p);
+        self.workspace_path = try self.allocator.dupe(u8, value);
+        // git.current_branch(0) catch {};
+        git.status(0) catch {};
+    } else if (try match(m.buf, .{ any, any, "current_branch", extract(&value) })) {
         if (self.branch) |p| self.allocator.free(p);
-        self.branch = try self.allocator.dupe(u8, branch);
+        self.branch = try self.allocator.dupe(u8, value);
+    } else if (try match(m.buf, .{ any, any, "status", tp.more })) {
+        return self.process_status(m);
     } else {
         return false;
     }
     return true;
 }
 
-const format = "   {s} {s}   ";
+fn process_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
+    var value: []const u8 = undefined;
+    var ahead: []const u8 = undefined;
+    var behind: []const u8 = undefined;
+    if (self.done) {
+        self.done = false;
+        self.changed = 0;
+        self.untracked = 0;
+        if (self.ahead) |p| self.allocator.free(p);
+        self.ahead = null;
+        if (self.behind) |p| self.allocator.free(p);
+        self.behind = null;
+        if (self.stash) |p| self.allocator.free(p);
+        self.stash = null;
+    }
+
+    if (try match(m.buf, .{ any, any, "status", "#", "branch.oid", extract(&value) })) {
+        // commit | (initial)
+    } else if (try match(m.buf, .{ any, any, "status", "#", "branch.head", extract(&value) })) {
+        if (self.branch) |p| self.allocator.free(p);
+        self.branch = try self.allocator.dupe(u8, value);
+    } else if (try match(m.buf, .{ any, any, "status", "#", "branch.upstream", extract(&value) })) {
+        // upstream-branch
+    } else if (try match(m.buf, .{ any, any, "status", "#", "branch.ab", extract(&ahead), extract(&behind) })) {
+        if (self.ahead) |p| self.allocator.free(p);
+        self.ahead = try self.allocator.dupe(u8, ahead);
+        if (self.behind) |p| self.allocator.free(p);
+        self.behind = try self.allocator.dupe(u8, behind);
+    } else if (try match(m.buf, .{ any, any, "status", "#", "stash", extract(&value) })) {
+        if (self.stash) |p| self.allocator.free(p);
+        self.stash = try self.allocator.dupe(u8, value);
+    } else if (try match(m.buf, .{ any, any, "status", "1", tp.more })) {
+        // ordinary file: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+        self.changed += 1;
+    } else if (try match(m.buf, .{ any, any, "status", "2", tp.more })) {
+        // rename or copy: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><sep><origPath>
+        self.changed += 1;
+    } else if (try match(m.buf, .{ any, any, "status", "u", tp.more })) {
+        // unmerged file: <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
+        self.changed += 1;
+    } else if (try match(m.buf, .{ any, any, "status", "?", tp.more })) {
+        // untracked file: <path>
+        self.untracked += 1;
+    } else if (try match(m.buf, .{ any, any, "status", "!", tp.more })) {
+        // ignored file: <path>
+    } else if (try match(m.buf, .{ any, any, "status", null_ })) {
+        self.done = true;
+    } else return false;
+    return true;
+}
+
+fn format(self: *Self, buf: []u8) []const u8 {
+    const branch = self.branch orelse return "";
+    var fbs = std.io.fixedBufferStream(buf);
+    const writer = fbs.writer();
+    writer.print("   {s}{s}", .{ branch_symbol, branch }) catch {};
+    if (self.ahead) |ahead| if (ahead.len > 1 and ahead[1] != '0')
+        writer.print(" {s}{s}", .{ ahead_symbol, ahead[1..] }) catch {};
+    if (self.behind) |behind| if (behind.len > 1 and behind[1] != '0')
+        writer.print(" {s}{s}", .{ behind_symbol, behind[1..] }) catch {};
+    if (self.stash) |stash| if (stash.len > 0 and stash[0] != '0')
+        writer.print(" {s}{s}", .{ stash_symbol, stash }) catch {};
+    if (self.changed > 0)
+        writer.print(" {s}{d}", .{ changed_symbol, self.changed }) catch {};
+    if (self.untracked > 0)
+        writer.print(" {s}{d}", .{ untracked_symbol, self.untracked }) catch {};
+    writer.print("   ", .{}) catch {};
+    return fbs.getWritten();
+}
 
 pub fn layout(self: *Self, btn: *Button.State(Self)) Widget.Layout {
-    const branch = self.branch orelse return .{ .static = 0 };
     var buf: [256]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    const writer = fbs.writer();
-    writer.print(format, .{ branch_symbol, branch }) catch {};
-    const len = btn.plane.egc_chunk_width(fbs.getWritten(), 0, 1);
+    const text = self.format(&buf);
+    const len = btn.plane.egc_chunk_width(text, 0, 1);
     return .{ .static = len };
 }
 
 pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
-    const branch = self.branch orelse return false;
+    var buf: [256]u8 = undefined;
+    const text = self.format(&buf);
+    if (text.len == 0) return false;
     const bg_style = if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar;
     btn.plane.set_base_style(theme.editor);
     btn.plane.erase();
@@ -97,7 +180,7 @@ pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme)
     btn.plane.set_style(bg_style);
     btn.plane.fill(" ");
     btn.plane.home();
-    _ = btn.plane.print(format, .{ branch_symbol, branch }) catch {};
+    _ = btn.plane.putstr(text) catch {};
     return false;
 }
 
