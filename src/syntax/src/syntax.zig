@@ -24,11 +24,13 @@ lang: *const Language,
 file_type: *const FileType,
 parser: *Parser,
 query: *Query,
+errors_query: *Query,
 injections: ?*Query,
 tree: ?*treez.Tree = null,
 
 pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, query_cache: *QueryCache) !*Self {
     const query = try query_cache.get(file_type, .highlights);
+    const errors_query = try query_cache.get(file_type, .errors);
     const injections = try query_cache.get(file_type, .injections);
     const self = try allocator.create(Self);
     self.* = .{
@@ -37,6 +39,7 @@ pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, query_ca
         .file_type = file_type,
         .parser = try Parser.create(),
         .query = query,
+        .errors_query = errors_query,
         .injections = injections,
     };
     errdefer self.destroy(query_cache);
@@ -193,4 +196,16 @@ pub fn node_at_point_range(self: *const Self, range: Range) error{Stop}!treez.No
     const tree = self.tree orelse return error.Stop;
     const root_node = tree.getRootNode();
     return treez.Node.externs.ts_node_descendant_for_point_range(root_node, range.start_point, range.end_point);
+}
+
+pub fn count_error_nodes(self: *const Self) usize {
+    const cursor = Query.Cursor.create() catch return std.math.maxInt(usize);
+    defer cursor.destroy();
+    const tree = self.tree orelse return 0;
+    cursor.execute(self.errors_query, tree.getRootNode());
+    var error_count: usize = 0;
+    while (cursor.nextMatch()) |match| for (match.captures()) |_| {
+        error_count += 1;
+    };
+    return error_count;
 }
