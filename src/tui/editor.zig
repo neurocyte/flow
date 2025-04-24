@@ -35,6 +35,7 @@ const scroll_cursor_min_border_distance = 5;
 
 const double_click_time_ms = 350;
 const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
+const syntax_full_reparse_error_threshold = 3; // number of tree-sitter errors that trigger a full reparse
 
 pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_000 else 100_000;
 pub const max_match_lines = 15;
@@ -888,7 +889,7 @@ pub const Editor = struct {
         self.style_cache_theme = theme.name;
         const cache: *StyleCache = &self.style_cache.?;
         self.render_screen(theme, cache);
-        return self.scroll_dest != self.view.row;
+        return self.scroll_dest != self.view.row or self.syntax_refresh_full;
     }
 
     const CellType = enum {
@@ -4480,7 +4481,7 @@ pub const Editor = struct {
     fn update_syntax(self: *Self) !void {
         const root = try self.buf_root();
         const eol_mode = try self.buf_eol_mode();
-        if (self.syntax_last_rendered_root == root)
+        if (!self.syntax_refresh_full and self.syntax_last_rendered_root == root)
             return;
         var kind: enum { full, incremental, none } = .none;
         var edit_count: usize = 0;
@@ -4491,6 +4492,7 @@ pub const Editor = struct {
                 defer frame.deinit();
                 syn.reset();
                 self.syntax_last_rendered_root = null;
+                self.syntax_refresh_full = false;
                 return;
             }
             if (!self.syntax_incremental_reparse)
@@ -4544,6 +4546,11 @@ pub const Editor = struct {
                         const frame = tracy.initZone(@src(), .{ .name = "editor refresh syntax" });
                         defer frame.deinit();
                         try syn.refresh_from_string(content);
+                        const error_count = syn.count_error_nodes();
+                        if (error_count >= syntax_full_reparse_error_threshold) {
+                            self.logger.print("incremental syntax update has {d} errors -> full reparse", .{error_count});
+                            self.syntax_refresh_full = true;
+                        }
                     }
                     self.syntax_last_rendered_root = root;
                     kind = .incremental;
