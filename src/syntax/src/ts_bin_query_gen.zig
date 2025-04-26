@@ -4,6 +4,8 @@ const treez = @import("treez");
 
 pub const tss = @import("ts_serializer.zig");
 
+const verbose = false;
+
 pub fn main() anyerror!void {
     const allocator = std.heap.c_allocator;
     const args = try std.process.argsAlloc(allocator);
@@ -33,7 +35,7 @@ pub fn main() anyerror!void {
         const lang = file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{file_type.name});
 
         try cbor.writeValue(writer, file_type.name);
-        try cbor.writeMapHeader(writer, if (file_type.injections) |_| 2 else 1);
+        try cbor.writeMapHeader(writer, if (file_type.injections) |_| 3 else 2);
 
         const highlights_in = try treez.Query.create(lang, file_type.highlights);
         const ts_highlights_in: *tss.TSQuery = @alignCast(@ptrCast(highlights_in));
@@ -43,7 +45,19 @@ pub fn main() anyerror!void {
 
         try cbor.writeValue(writer, "highlights");
         try cbor.writeValue(writer, highlights_cb);
-        // std.log.info("file_type {s} highlights {d} bytes", .{ file_type.name, highlights_cb.len });
+        if (verbose)
+            std.log.info("file_type {s} highlights {d} bytes", .{ file_type.name, highlights_cb.len });
+
+        const errors_in = try treez.Query.create(lang, "(ERROR) @error");
+        const ts_errors_in: *tss.TSQuery = @alignCast(@ptrCast(errors_in));
+
+        const errors_cb = try tss.toCbor(ts_errors_in, allocator);
+        defer allocator.free(errors_cb);
+
+        try cbor.writeValue(writer, "errors");
+        try cbor.writeValue(writer, errors_cb);
+        if (verbose)
+            std.log.info("file_type {s} errors {d} bytes", .{ file_type.name, errors_cb.len });
 
         if (file_type.injections) |injections| {
             const injections_in = try treez.Query.create(lang, injections);
@@ -54,12 +68,14 @@ pub fn main() anyerror!void {
 
             try cbor.writeValue(writer, "injections");
             try cbor.writeValue(writer, injections_cb);
-            // std.log.info("file_type {s} injections {d} bytes", .{ file_type.name, injections_cb.len });
+            if (verbose)
+                std.log.info("file_type {s} injections {d} bytes", .{ file_type.name, injections_cb.len });
         }
     }
 
     try output_file.writeAll(output.items);
-    // std.log.info("file_types total {d} bytes", .{output.items.len});
+    if (verbose)
+        std.log.info("file_types total {d} bytes", .{output.items.len});
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {

@@ -16,6 +16,7 @@ allocator: std.mem.Allocator,
 mutex: ?std.Thread.Mutex,
 highlights: std.StringHashMapUnmanaged(*CacheEntry) = .{},
 injections: std.StringHashMapUnmanaged(*CacheEntry) = .{},
+errors: std.StringHashMapUnmanaged(*CacheEntry) = .{},
 ref_count: usize = 1,
 
 const CacheEntry = struct {
@@ -38,6 +39,7 @@ const CacheEntry = struct {
 
 pub const QueryType = enum {
     highlights,
+    errors,
     injections,
 };
 
@@ -83,21 +85,20 @@ fn release_ref_unlocked_and_maybe_destroy(self: *Self) void {
         if (self.ref_count > 0) return;
     }
 
-    var iter_highlights = self.highlights.iterator();
-    while (iter_highlights.next()) |p| {
-        self.allocator.free(p.key_ptr.*);
-        p.value_ptr.*.destroy(self.allocator);
-        self.allocator.destroy(p.value_ptr.*);
-    }
-    var iter_injections = self.injections.iterator();
-    while (iter_injections.next()) |p| {
-        self.allocator.free(p.key_ptr.*);
-        p.value_ptr.*.destroy(self.allocator);
-        self.allocator.destroy(p.value_ptr.*);
-    }
-    self.highlights.deinit(self.allocator);
-    self.injections.deinit(self.allocator);
+    release_cache_entry_hash_map(self.allocator, &self.highlights);
+    release_cache_entry_hash_map(self.allocator, &self.errors);
+    release_cache_entry_hash_map(self.allocator, &self.injections);
     self.allocator.destroy(self);
+}
+
+fn release_cache_entry_hash_map(allocator: std.mem.Allocator, hash_map: *std.StringHashMapUnmanaged(*CacheEntry)) void {
+    var iter = hash_map.iterator();
+    while (iter.next()) |p| {
+        allocator.free(p.key_ptr.*);
+        p.value_ptr.*.destroy(allocator);
+        allocator.destroy(p.value_ptr.*);
+    }
+    hash_map.deinit(allocator);
 }
 
 fn get_cache_entry(self: *Self, file_type: *const FileType, comptime query_type: QueryType) CacheError!*CacheEntry {
@@ -106,6 +107,7 @@ fn get_cache_entry(self: *Self, file_type: *const FileType, comptime query_type:
 
     const hash = switch (query_type) {
         .highlights => &self.highlights,
+        .errors => &self.errors,
         .injections => &self.injections,
     };
 
@@ -135,6 +137,7 @@ fn get_cached_query(self: *Self, entry: *CacheEntry) Error!?*Query {
         const queries = FileType.queries.get(entry.file_type.name) orelse return null;
         const query_bin = switch (entry.query_type) {
             .highlights => queries.highlights_bin,
+            .errors => queries.errors_bin,
             .injections => queries.injections_bin orelse return null,
         };
         const query, const arena = try deserialize_query(query_bin, lang, self.allocator);
@@ -151,12 +154,14 @@ fn pre_load_internal(self: *Self, file_type: *const FileType, comptime query_typ
 pub fn pre_load(self: *Self, lang_name: []const u8) Error!void {
     const file_type = FileType.get_by_name(lang_name) orelse return;
     _ = try self.pre_load_internal(file_type, .highlights);
+    _ = try self.pre_load_internal(file_type, .errors);
     _ = try self.pre_load_internal(file_type, .injections);
 }
 
 fn ReturnType(comptime query_type: QueryType) type {
     return switch (query_type) {
         .highlights => *Query,
+        .errors => *Query,
         .injections => ?*Query,
     };
 }

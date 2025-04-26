@@ -138,6 +138,7 @@ fn load_file_types(comptime Namespace: type) []const FileType {
 
 pub const FileTypeQueries = struct {
     highlights_bin: []const u8,
+    errors_bin: []const u8,
     injections_bin: ?[]const u8,
 };
 
@@ -145,7 +146,7 @@ pub const queries = std.static_string_map.StaticStringMap(FileTypeQueries).initC
 
 fn load_queries() []const struct { []const u8, FileTypeQueries } {
     if (!build_options.use_tree_sitter) return &.{};
-    @setEvalBranchQuota(16000);
+    @setEvalBranchQuota(32000);
     const queries_cb = @embedFile("syntax_bin_queries");
     var iter: []const u8 = queries_cb;
     var len = cbor.decodeMapHeader(&iter) catch |e| {
@@ -162,6 +163,10 @@ fn load_queries() []const struct { []const u8, FileTypeQueries } {
             .highlights_bin = blk: {
                 var iter_: []const u8 = iter;
                 break :blk get_query_value_bin(&iter_, "highlights") orelse @compileError("missing highlights for " ++ lang);
+            },
+            .errors_bin = blk: {
+                var iter_: []const u8 = iter;
+                break :blk get_query_value_bin(&iter_, "errors") orelse @compileError("missing errors query for " ++ lang);
             },
             .injections_bin = blk: {
                 var iter_: []const u8 = iter;
