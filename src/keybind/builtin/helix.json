@@ -21,7 +21,7 @@
             ["ctrl+a", "increment"],
             ["ctrl+x", "decrement"],
 
-            ["ctrl+shift+6", "open_previous_file"],
+            ["ctrl+^", "open_previous_file"],
 
             ["alt+.", "repeat_last_motion"],
             ["alt+`", "to_upper"],
@@ -50,56 +50,54 @@
             ["alt+u", "undo"],
             ["alt+,", "remove_primary_selection"],
 
-            ["alt+shift+c", "copy_selection_on_next_line"],
-            ["alt+shift+i", "select_all_children"],
+            ["alt+C", "copy_selection_on_next_line"],
+            ["alt+I", "select_all_children"],
             ["alt+shift+down", "select_all_children"],
-            ["alt+shift+u", "redo"],
-            ["alt+shift+j", "join_selections_space"],
-            ["alt+shift+(", "rotate_selection_contents_backward"],
-            ["alt+shift+)", "rotate_selection_contents_forward"],
-            ["alt+shift+\\", "shell_pipe_to"],
-            ["alt+shift+1", "shell_append_output"],
+            ["alt+U", "redo"],
+            ["alt+J", "join_selections_space"],
+            ["alt+(", "rotate_selection_contents_backward"], ["alt+)", "rotate_selection_contents_forward"],
+            ["alt+|", "shell_pipe_to"],
+            ["alt+!", "shell_append_output"],
 
-            ["shift+`", "switch_case"],
-            ["shift+t", "till_prev_char"],
-            ["shift+f", "move_to_char", "move_to_char_left"],
-            ["shift+w", "move_next_long_word_start"],
-            ["shift+b", "move_prev_long_word_start"],
-            ["shift+e", "move_next_long_word_end"],
+            ["~", "switch_case"],
+            ["T", "till_prev_char"],
+            ["F", "move_to_char", "move_to_char_left"],
+            ["W", "move_next_long_word_start"],
+            ["B", "move_prev_long_word_start"],
+            ["E", "move_next_long_word_end"],
 
-            ["shift+i", ["enter_mode", "insert"], ["smart_move_begin"]],
-            ["shift+a", ["enter_mode", "insert"], ["move_end"]],
-            ["shift+o", ["enter_mode", "insert"], ["smart_insert_line_before"]],
+            ["I", ["enter_mode", "insert"], ["smart_move_begin"]],
+            ["A", ["enter_mode", "insert"], ["move_end"]],
+            ["O", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
-            ["shift+c", "copy_selection_on_next_line"],
-            ["shift+s", "split_selection"],
-            ["shift+x", "extend_to_line_bounds"],
-            ["shift+/", "rfind"],
-            ["shift+n", "goto_prev_match"],
-            ["shift+8", "search_selection"],
+            ["C", "copy_selection_on_next_line"],
+            ["S", "split_selection"],
+            ["X", "extend_to_line_bounds"],
+            ["?", "rfind"],
+            ["N", "goto_prev_match"],
+            ["*", "search_selection"],
 
-            ["shift+u", "redo"],
-            ["shift+p", "paste"],
-            ["shift+q", "replay_macro"],
+            ["U", "redo"],
+            ["P", "paste"],
+            ["Q", "replay_macro"],
 
-            ["shift+.", "indent"],
-            ["shift+,", "unindent"],
+            [">", "indent"],
+            ["<", "unindent"],
 
-            ["shift+j", "join_selections"],
+            ["J", "join_selections"],
 
             [":", "open_command_palette"],
-            ["shift+;", "open_command_palette"],
 
-            ["shift+7", "align_selections"],
-            ["shift+-", "trim_selections"],
+            ["&", "align_selections"],
+            ["_", "trim_selections"],
 
-            ["shift+9", "rotate_selections_backward"],
-            ["shift+0", "rotate_selections_forward"],
+            ["(", "rotate_selections_backward"],
+            [")", "rotate_selections_forward"],
 
-            ["shift+\"", "select_register"],
-            ["shift+\\", "shell_pipe"],
-            ["shift+1", "shell_insert_output"],
-            ["shift+4", "shell_keep_pipe"],
+            ["\"", "select_register"],
+            ["|", "shell_pipe"],
+            ["!", "shell_insert_output"],
+            ["$", "shell_keep_pipe"],
 
             ["h", "move_left"],
             ["j", "move_down"],
@@ -140,7 +138,7 @@
             ["g k", "goto_previous_buffer"],
             ["g .", "goto_last_modification"],
             ["g w", "goto_word"],
-            ["g shift+d", "goto_declaration"],
+            ["g D", "goto_declaration"],
 
             ["i", "enter_mode", "insert"],
             ["a", ["enter_mode", "insert"], ["move_right"]],
@@ -160,9 +158,9 @@
             ["m a", "select_textobject_around"],
             ["m i", "select_textobject_inner"],
 
-            ["[ shift+d", "goto_first_diag"],
-            ["[ shift+g", "goto_first_change"],
-            ["[ shift+t", "goto_prev_test"],
+            ["[ D", "goto_first_diag"],
+            ["[ G", "goto_first_change"],
+            ["[ T", "goto_prev_test"],
             ["[ d", "goto_prev_diagnostic"],
             ["[ g", "goto_prev_change"],
             ["[ f", "goto_prev_function"],
@@ -173,9 +171,9 @@
             ["[ p", "goto_prev_paragraph"],
             ["[ space", "add_newline_above"],
 
-            ["] shift+d", "goto_last_diag"],
-            ["] shift+g", "goto_last_change"],
-            ["] shift+t", "goto_next_test"],
+            ["] D", "goto_last_diag"],
+            ["] G", "goto_last_change"],
+            ["] T", "goto_next_test"],
             ["] d", "goto_next_diagnostic"],
             ["] g", "goto_next_change"],
             ["] f", "goto_next_function"],
@@ -204,12 +202,12 @@
             ["page_up", "move_scroll_page_up"],
             ["page_down", "move_scroll_page_down"],
 
-            ["space shift+f", "find_file"],
-            ["space shift+s", "workspace_symbol_picker"],
-            ["space shift+d", "workspace_diagnostics_picker"],
-            ["space shift+p", "system_paste"],
-            ["space shift+r", "replace_selections_with_clipboard"],
-            ["space shift+/", "open_command_palette"],
+            ["space F", "find_file"],
+            ["space S", "workspace_symbol_picker"],
+            ["space D", "workspace_diagnostics_picker"],
+            ["space P", "system_paste"],
+            ["space R", "replace_selections_with_clipboard"],
+            ["space ?", "open_command_palette"],
             ["space f", "find_file"],
             ["space b", "buffer_picker"],
             ["space j", "jumplist_picker"],
@@ -273,7 +271,7 @@
             ["ctrl+a", "increment"],
             ["ctrl+x", "decrement"],
 
-            ["ctrl+shift+6", "open_previous_file"],
+            ["ctrl+^", "open_previous_file"],
 
             ["alt+.", "repeat_last_motion"],
 
@@ -306,72 +304,71 @@
 
             ["alt+,", "remove_primary_selection"],
 
-            ["alt+shift+c", "copy_selection_on_next_line"],
+            ["alt+C", "copy_selection_on_next_line"],
 
-            ["alt+shift+i", "select_all_children"],
+            ["alt+I", "select_all_children"],
             ["alt+shift+down", "select_all_children"],
 
-            ["alt+shift+u", "redo"],
+            ["alt+U", "redo"],
 
-            ["alt+shift+j", "join_selections_space"],
+            ["alt+J", "join_selections_space"],
 
-            ["alt+shift+(", "rotate_selection_contents_backward"],
-            ["alt+shift+)", "rotate_selection_contents_forward"],
+            ["alt+(", "rotate_selection_contents_backward"],
+            ["alt+)", "rotate_selection_contents_forward"],
 
-            ["alt+shift+\\", "shell_pipe_to"],
-            ["alt+shift+1", "shell_append_output"],
+            ["alt+|", "shell_pipe_to"],
+            ["alt+!", "shell_append_output"],
 
-            ["shift+`", "switch_case"],
+            ["~", "switch_case"],
 
-            ["shift+t", "extend_till_prev_char"],
-            ["shift+f", "move_to_char", "select_to_char_left_vim"],
+            ["T", "extend_till_prev_char"],
+            ["F", "move_to_char", "select_to_char_left_vim"],
 
-            ["shift+w", "extend_next_long_word_start"],
-            ["shift+b", "extend_prev_long_word_start"],
-            ["shift+e", "extend_next_long_word_end"],
+            ["W", "extend_next_long_word_start"],
+            ["B", "extend_prev_long_word_start"],
+            ["E", "extend_next_long_word_end"],
 
-            ["shift+g", "move_buffer_end_or_count_line"],
+            ["G", "move_buffer_end_or_count_line"],
 
-            ["shift+i", ["enter_mode", "insert"], ["smart_move_begin"]],
-            ["shift+a", ["enter_mode", "insert"], ["move_end"]],
+            ["I", ["enter_mode", "insert"], ["smart_move_begin"]],
+            ["A", ["enter_mode", "insert"], ["move_end"]],
 
-            ["shift+o", ["enter_mode", "insert"], ["smart_insert_line_before"]],
+            ["O", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
-            ["shift+c", "copy_selection_on_next_line"],
+            ["C", "copy_selection_on_next_line"],
 
-            ["shift+s", "split_selection"],
+            ["S", "split_selection"],
 
-            ["shift+x", "extend_to_line_bounds"],
+            ["X", "extend_to_line_bounds"],
 
-            ["shift+/", "rfind"],
+            ["?", "rfind"],
 
-            ["shift+n", "extend_search_next"],
-            ["shift+8", "extend_search_prev"],
+            ["N", "extend_search_next"],
+            ["*", "extend_search_prev"],
 
-            ["shift+u", "redo"],
+            ["U", "redo"],
 
-            ["shift+p", "paste"],
+            ["P", "paste"],
 
-            ["shift+q", "replay_macro"],
+            ["Q", "replay_macro"],
 
-            ["shift+.", "indent"],
-            ["shift+,", "unindent"],
+            [">", "indent"],
+            ["<", "unindent"],
 
-            ["shift+j", "join_selections"],
+            ["J", "join_selections"],
 
             [":", "open_command_palette"],
-            ["shift+;", "open_command_palette"],
 
-            ["shift+7", "align_selections"],
-            ["shift+-", "trim_selections"],
+            ["&", "align_selections"],
+            ["_", "trim_selections"],
 
-            ["shift+9", "rotate_selections_backward"],
-            ["shift+0", "rotate_selections_forward"],
+            ["(", "rotate_selections_backward"],
+            [")", "rotate_selections_forward"],
 
-            ["shift+'", "select_register"],
-            ["shift+\\", "shell_pipe"],
-            ["shift+1", "shell_insert_output"],
-            ["shift+4", "shell_keep_pipe"],
+            ["\"", "select_register"],
+            ["|", "shell_pipe"],
+            ["!", "shell_insert_output"],
+            ["$", "shell_keep_pipe"],
 
             ["h", "select_left_helix"],
             ["j", "select_down"],
@@ -394,7 +391,7 @@
             ["b", "extend_pre_word_start"],
             ["e", "extend_next_word_end"],
 
-            ["shift+v", "enter_mode", "normal"],
+            ["v", "enter_mode", "normal"],
 
             ["g g", "move_buffer_begin"],
             ["g e", "move_buffer_end"],
@@ -416,7 +413,7 @@
             ["g k", "goto_previous_buffer"],
             ["g .", "goto_last_modification"],
             ["g w", "goto_word"],
-            ["g shift+d", "goto_declaration"],
+            ["g D", "goto_declaration"],
 
             ["i", "enter_mode", "insert"],
             ["a", ["enter_mode", "insert"], ["move_right"]],
@@ -437,9 +434,9 @@
             ["m a", "select_textobject_around"],
             ["m i", "select_textobject_inner"],
 
-            ["[ shift+d", "goto_first_diag"],
-            ["[ shift+g", "goto_first_change"],
-            ["[ shift+t", "goto_prev_test"],
+            ["[ D", "goto_first_diag"],
+            ["[ G", "goto_first_change"],
+            ["[ T", "goto_prev_test"],
 
             ["[ d", "goto_prev_diagnostic"],
             ["[ g", "goto_prev_change"],
@@ -479,12 +476,12 @@
 
             ["escape", "enter_mode", "normal"],
 
-            ["space shift+f", "file_picker_in_current_directory"],
-            ["space shift+s", "workspace_symbol_picker"],
-            ["space shift+d", "workspace_diagnostics_picker"],
-            ["space shift+p", "system_paste"],
-            ["space shift+r", "replace_selections_with_clipboard"],
-            ["space shift+/", "open_command_palette"],
+            ["space F", "file_picker_in_current_directory"],
+            ["space S", "workspace_symbol_picker"],
+            ["space D", "workspace_diagnostics_picker"],
+            ["space P", "system_paste"],
+            ["space R", "replace_selections_with_clipboard"],
+            ["space ?", "open_command_palette"],
 
             ["space f", "file_picker"],
             ["space b", "buffer_picker"],
