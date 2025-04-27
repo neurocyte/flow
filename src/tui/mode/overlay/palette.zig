@@ -213,6 +213,7 @@ pub fn Create(options: type) type {
             self.items = 0;
             self.menu.reset_items();
             self.menu.selected = null;
+            self.longest = self.inputbox.text.items.len;
             for (self.entries.items) |entry|
                 self.longest = @max(self.longest, entry.label.len);
 
