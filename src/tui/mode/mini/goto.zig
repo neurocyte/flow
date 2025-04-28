@@ -54,7 +54,7 @@ fn update_mini_mode_text(self: *Self) void {
             (fmt.bufPrint(&self.buf, "{d}", .{linenum}) catch "")
         else
             "";
-        mini_mode.cursor = tui.egc_chunk_width(mini_mode.text, 0, 8);
+        mini_mode.cursor = tui.egc_chunk_width(mini_mode.text, 0, 1);
     }
 }
 

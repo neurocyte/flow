@@ -115,7 +115,7 @@ pub fn Create(options: type) type {
                 }
                 if (tui.mini_mode()) |mini_mode| {
                     mini_mode.text = self.file_path.items;
-                    mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 8);
+                    mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1);
                 }
                 return;
             }
@@ -139,7 +139,7 @@ pub fn Create(options: type) type {
             defer {
                 if (tui.mini_mode()) |mini_mode| {
                     mini_mode.text = self.file_path.items;
-                    mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 8);
+                    mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1);
                 }
             }
             var count: usize = undefined;
@@ -243,7 +243,7 @@ pub fn Create(options: type) type {
         fn update_mini_mode_text(self: *Self) void {
             if (tui.mini_mode()) |mini_mode| {
                 mini_mode.text = self.file_path.items;
-                mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 8);
+                mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1);
             }
         }
 

@@ -104,7 +104,8 @@ pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme)
 fn render_mini_mode(plane: *Plane, theme: *const Widget.Theme) void {
     plane.off_styles(styles.italic);
     const mini_mode = tui.mini_mode() orelse return;
-    _ = plane.print(" {s}", .{mini_mode.text}) catch {};
+    _ = plane.putstr_unicode(" ") catch {};
+    _ = plane.putstr_unicode(mini_mode.text) catch {};
     if (mini_mode.cursor) |cursor| {
         const pos: c_int = @intCast(cursor);
         if (tui.config().enable_terminal_cursor) {

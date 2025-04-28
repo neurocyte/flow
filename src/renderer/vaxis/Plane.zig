@@ -202,6 +202,21 @@ pub fn putstr(self: *Plane, text: []const u8) !usize {
     return result;
 }
 
+pub fn putstr_unicode(self: *Plane, text: []const u8) !usize {
+    var result: usize = 0;
+    var iter = self.window.screen.unicode.graphemeIterator(text);
+    while (iter.next()) |grapheme| {
+        const s_ = grapheme.bytes(text);
+        const s = switch (s_[0]) {
+            0...31 => |code| Buffer.unicode.control_code_to_unicode(code),
+            else => s_,
+        };
+        self.write_cell(@intCast(self.col), @intCast(self.row), s);
+        result += 1;
+    }
+    return result;
+}
+
 pub fn putc(self: *Plane, cell: *const Cell) !usize {
     return self.putc_yx(@intCast(self.row), @intCast(self.col), cell);
 }

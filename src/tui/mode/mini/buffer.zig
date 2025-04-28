@@ -60,7 +60,7 @@ pub fn Create(options: type) type {
         fn update_mini_mode_text(self: *Self) void {
             if (tui.mini_mode()) |mini_mode| {
                 mini_mode.text = self.input.items;
-                mini_mode.cursor = tui.egc_chunk_width(self.input.items, 0, 8);
+                mini_mode.cursor = tui.egc_chunk_width(self.input.items, 0, 1);
             }
         }
 
