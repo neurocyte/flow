@@ -314,8 +314,10 @@ fn fmtmsg(self: *Self, value: anytype) std.ArrayList(u8).Writer.Error![]const u8
 fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
     var keypress: input.Key = undefined;
     var egc_: input.Key = undefined;
-    if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.string, 0 })) {
+    var mods: usize = undefined;
+    if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.string, cbor.extract(&mods) })) {
         switch (keypress) {
+            106 => if (mods == 4) try self.bracketed_paste_buffer.appendSlice("\n") else try self.bracketed_paste_buffer.appendSlice("j"),
             input.key.enter => try self.bracketed_paste_buffer.appendSlice("\n"),
             input.key.tab => try self.bracketed_paste_buffer.appendSlice("\t"),
             else => if (!input.is_non_input_key(keypress)) {
