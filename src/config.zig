@@ -17,6 +17,7 @@ inline_diagnostics: bool = true,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 150, //milliseconds
 enable_format_on_save: bool = false,
+restore_last_cursor_position: bool = true,
 default_cursor: []const u8 = "default",
 
 indent_size: usize = 4,

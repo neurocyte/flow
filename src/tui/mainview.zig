@@ -384,7 +384,11 @@ const cmds = struct {
         const same_file = if (self.get_active_file_path()) |fp| std.mem.eql(u8, fp, f) else false;
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
-        if (!same_file and !have_editor_metadata and line == null) {
+        if (tui.config().restore_last_cursor_position and
+            !same_file and
+            !have_editor_metadata and
+            line == null)
+        {
             const ctx_: struct {
                 allocator: std.mem.Allocator,
                 from: tp.pid,
