@@ -24,6 +24,7 @@ allocator: Allocator,
 rdr_: renderer,
 config_: @import("config"),
 highlight_columns_: []u16,
+highlight_columns_configured: []u16,
 frame_time: usize, // in microseconds
 frame_clock: tp.metronome,
 frame_clock_running: bool = false,
@@ -130,12 +131,14 @@ fn init(allocator: Allocator) InitError!*Self {
             idx += 1;
         break :blk idx;
     };
+    const highlight_columns__ = try allocator.alloc(u16, hl_cols);
 
     var self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
         .config_ = conf,
-        .highlight_columns_ = try allocator.alloc(u16, hl_cols),
+        .highlight_columns_ = highlight_columns__,
+        .highlight_columns_configured = highlight_columns__,
         .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), dispatch_initialized),
         .frame_time = frame_time,
         .frame_clock = frame_clock,
@@ -221,6 +224,7 @@ fn init_delayed(self: *Self) command.Result {
 }
 
 fn deinit(self: *Self) void {
+    self.allocator.free(self.highlight_columns_configured);
     if (self.mouse_idle_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -787,6 +791,12 @@ const cmds = struct {
         self.logger.print("whitespace rendering {s}", .{self.config_.whitespace_mode});
     }
     pub const toggle_whitespace_mode_meta: Meta = .{ .description = "Next whitespace mode" };
+
+    pub fn toggle_highlight_columns(self: *Self, _: Ctx) Result {
+        defer self.logger.print("highlight columns {s}", .{if (self.highlight_columns_.len > 0) "enabled" else "disabled"});
+        self.highlight_columns_ = if (self.highlight_columns_.len > 0) &.{} else self.highlight_columns_configured;
+    }
+    pub const toggle_highlight_columns_meta: Meta = .{ .description = "Toggle highlight columns" };
 
     pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
         var it = std.mem.splitScalar(u8, self.config_.input_mode, '/');
