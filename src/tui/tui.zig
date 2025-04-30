@@ -61,6 +61,7 @@ fontface_: []const u8 = "",
 fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
 enable_mouse_idle_timer: bool = false,
 query_cache_: *syntax.QueryCache,
+frames_rendered_: usize = 0,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -449,6 +450,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 }
 
 fn render(self: *Self) void {
+    defer self.frames_rendered_ += 1;
     const current_time = std.time.microTimestamp();
     if (current_time < self.frame_last_time) { // clock moved backwards
         self.frame_last_time = current_time;
@@ -1182,6 +1184,11 @@ pub fn need_render() void {
         self.render_pending = true;
         tp.self_pid().send(.{"render"}) catch {};
     }
+}
+
+pub fn frames_rendered() usize {
+    const self = current();
+    return self.frames_rendered_;
 }
 
 pub fn resize() void {

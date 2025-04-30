@@ -93,7 +93,8 @@ fn process_git(self: *Self, m: tp.message) MessageFilter.Error!bool {
 }
 
 fn process_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
-    defer Widget.need_render();
+    defer if (tui.frames_rendered() > 0)
+        Widget.need_render();
 
     var value: []const u8 = undefined;
     var ahead: []const u8 = undefined;
