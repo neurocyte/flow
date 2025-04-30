@@ -126,6 +126,7 @@ const Process = struct {
             "--json",
             "--smart-case",
             self.query,
+            "./.", // never search stdin
         });
         self.sp = tp.subprocess.init(self.allocator, args, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
