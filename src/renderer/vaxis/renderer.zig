@@ -95,13 +95,16 @@ pub fn deinit(self: *Self) void {
     self.event_buffer.deinit();
 }
 
+var in_panic: std.atomic.Value(bool) = .init(false);
 var panic_cleanup: ?struct {
     allocator: std.mem.Allocator,
     tty: *vaxis.Tty,
     vx: *vaxis.Vaxis,
 } = null;
+
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
     _ = error_return_trace; // TODO: what to do with this in zig-0.14?
+    in_panic.store(true, .release);
     const cleanup = panic_cleanup;
     panic_cleanup = null;
     if (cleanup) |self| {
@@ -109,6 +112,10 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
         self.tty.deinit();
     }
     return std.debug.defaultPanic(msg, ret_addr orelse @returnAddress());
+}
+
+pub fn panic_in_progress() bool {
+    return in_panic.load(.acquire);
 }
 
 pub fn run(self: *Self) Error!void {
@@ -130,6 +137,7 @@ pub fn run(self: *Self) Error!void {
 }
 
 pub fn render(self: *Self) !void {
+    if (in_panic.load(.acquire)) return;
     var bufferedWriter = self.tty.bufferedWriter();
     try self.vx.render(bufferedWriter.writer().any());
     try bufferedWriter.flush();
