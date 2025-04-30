@@ -291,7 +291,8 @@ pub fn main() anyerror!void {
 
     for (links.items) |link| {
         try file_link.navigate(tui_proc.ref(), &link);
-    } else {
+    }
+    if (links.items.len == 0) {
         if (!have_project)
             try tui_proc.send(.{ "cmd", "open_project_cwd" });
         try tui_proc.send(.{ "cmd", "show_home" });
