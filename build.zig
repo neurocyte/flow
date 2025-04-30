@@ -440,6 +440,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "log", .module = log_mod },
+            .{ .name = "bin_path", .module = bin_path_mod },
         },
     });
 
