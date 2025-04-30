@@ -2,8 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
-
-pub const ripgrep_binary = "rg";
+const bin_path = @import("bin_path");
 
 pid: ?tp.pid,
 stdin_behavior: std.process.Child.StdIo,
@@ -121,7 +120,7 @@ const Process = struct {
         errdefer self.deinit();
         _ = tp.set_trap(true);
         const args = tp.message.fmt(.{
-            ripgrep_binary,
+            get_ripgrep(),
             // "--line-buffered",
             "--fixed-strings",
             "--json",
@@ -182,9 +181,9 @@ const Process = struct {
             } else if (try m.match(.{ tp.any, tp.any, "exited", 1 })) {
                 self.logger.print("no matches found", .{});
             } else if (try m.match(.{ tp.any, tp.any, "error.FileNotFound", 1 })) {
-                self.logger.print_err(ripgrep_binary, "'{s}' executable not found", .{ripgrep_binary});
+                self.logger.print_err(get_ripgrep(), "'{s}' executable not found", .{get_ripgrep()});
             } else if (try m.match(.{ tp.any, tp.any, tp.extract(&err_msg), tp.extract(&exit_code) })) {
-                self.logger.print_err(ripgrep_binary, "terminated {s} exitcode: {d}", .{ err_msg, exit_code });
+                self.logger.print_err(get_ripgrep(), "terminated {s} exitcode: {d}", .{ err_msg, exit_code });
             }
         }
     }
@@ -256,3 +255,18 @@ const Process = struct {
         self.match_count += 1;
     }
 };
+
+const rg_binary = "rg";
+const default_rg_binary = "/bin/" ++ rg_binary;
+
+var rg_path: ?struct {
+    path: ?[:0]const u8 = null,
+} = null;
+
+pub fn get_ripgrep() []const u8 {
+    const allocator = std.heap.c_allocator;
+    if (rg_path) |p| return p.path orelse default_rg_binary;
+    const path = bin_path.find_binary_in_path(allocator, rg_binary) catch default_rg_binary;
+    rg_path = .{ .path = path };
+    return path orelse default_rg_binary;
+}
