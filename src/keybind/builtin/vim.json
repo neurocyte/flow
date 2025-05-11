@@ -60,6 +60,7 @@
             ["dw", "cut_word_right_vim"],
             ["db", "cut_word_left_vim"],
             ["dd", "cut_internal_vim"],
+            ["dG", "cut_buffer_end"],
             ["\"_dd", "delete_line"],
 
             ["cc", ["enter_mode", "insert"], ["cut_internal_vim"]],

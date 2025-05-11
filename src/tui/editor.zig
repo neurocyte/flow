@@ -2961,6 +2961,15 @@ pub const Editor = struct {
     }
     pub const delete_word_left_meta: Meta = .{ .description = "Delete previous word" };
 
+    pub fn cut_buffer_end(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const text, const root = try self.cut_to(move_cursor_buffer_end, b.root);
+        self.set_clipboard_internal(text);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const cut_buffer_end_meta: Meta = .{ .description = "Cut to the end of the buffer (copies cut text into clipboard)" };
+
     pub fn cut_word_left_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         const text, const root = try self.cut_to(move_cursor_word_left_vim, b.root);
