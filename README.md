@@ -3,7 +3,7 @@
 This is my Zig text editor. It is under active development, but usually stable
 and is my daily driver for most things coding related.
 
-https://github.com/neurocyte/flow/assets/1552770/97aae817-c209-4c08-bc65-0a0bf1f2d4c6
+[![Announcement](https://img.youtube.com/vi/iwPg3sIxMGw/maxresdefault.jpg)](https://www.youtube.com/watch?v=iwPg3sIxMGw)
 
 # Requirements
 - A modern terminal with 24bit color and, ideally, kitty keyboard protocol support. Kitty,
