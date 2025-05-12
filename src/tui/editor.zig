@@ -5130,6 +5130,34 @@ pub const Editor = struct {
         std.mem.sort(Diagnostic, self.diagnostics.items, {}, less_fn);
     }
 
+    pub fn goto_mark(self: *Self, ctx: Context) Result {
+        try self.send_editor_jump_source();
+        var mark_id: u8 = 0;
+        if (!try ctx.args.match(.{tp.extract(&mark_id)}))
+            return error.InvalidGotoLineArgument;
+        const buf = self.buffer orelse return error.Stop;
+        const location = buf.marks[mark_id] orelse return error.UndefinedMark;
+
+        const root = self.buf_root() catch return;
+        self.cancel_all_selections();
+        const primary = self.get_primary();
+        try primary.cursor.move_to(root, location.row, location.col, self.metrics);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const goto_mark_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn set_mark(self: *Self, ctx: Context) Result {
+        var mark_id: u8 = 0;
+        if (!try ctx.args.match(.{tp.extract(&mark_id)}))
+            return error.InvalidGotoLineArgument;
+        const primary = self.get_primary();
+        const location: Buffer.MarkLocation = .{ .row = primary.cursor.row, .col = primary.cursor.col };
+        var buf = self.buffer orelse return error.Stop;
+        buf.marks[mark_id] = location;
+    }
+    pub const set_mark_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn goto_line(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         var line: usize = 0;
