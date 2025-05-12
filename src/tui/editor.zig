@@ -5130,6 +5130,30 @@ pub const Editor = struct {
         std.mem.sort(Diagnostic, self.diagnostics.items, {}, less_fn);
     }
 
+    pub fn goto_global_mark(self: *Self, ctx: Context) Result {
+        try self.send_editor_jump_source();
+        var mark_id: u8 = 0;
+        if (!try ctx.args.match(.{tp.extract(&mark_id)}))
+            return error.InvalidGotoLineArgument;
+        const location = tui.get_global_marks()[mark_id] orelse return error.UndefinedGlobalMark;
+        _ = location;
+
+        //TODO: figure out how to goto location in another file
+    }
+    pub const goto_global_mark_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn set_global_mark(self: *Self, ctx: Context) Result {
+        var mark_id: u8 = 0;
+        if (!try ctx.args.match(.{tp.extract(&mark_id)}))
+            return error.InvalidGotoLineArgument;
+        const primary = self.get_primary();
+        const buf = self.buffer orelse return error.Stop;
+        var location: tui.GlobalMarkLocation = .{ .row = primary.cursor.row, .col = primary.cursor.col };
+        std.mem.copyForwards(u8, &location.filepath, buf.file_path);
+        tui.get_global_marks()[mark_id] = location;
+    }
+    pub const set_global_mark_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn goto_mark(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         var mark_id: u8 = 0;
