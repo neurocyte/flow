@@ -26,6 +26,8 @@
             ["h", "move_left_vim"],
             ["<Space>", "move_right_vim"],
 
+            ["J", "join_next_line"],
+
             ["i", "enter_mode", "insert"],
             ["a", ["enter_mode", "insert"], ["move_right"]],
             ["I", ["enter_mode", "insert"], ["smart_move_begin"]],
