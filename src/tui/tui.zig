@@ -20,6 +20,12 @@ const MainView = @import("mainview.zig");
 
 const Allocator = std.mem.Allocator;
 
+pub const GlobalMarkLocation = struct {
+    row: usize,
+    col: usize,
+    filepath: [512]u8 = .{0} ** 512,
+};
+
 allocator: Allocator,
 rdr_: renderer,
 config_: @import("config"),
@@ -62,6 +68,7 @@ fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
 enable_mouse_idle_timer: bool = false,
 query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
+global_marks: [256]?GlobalMarkLocation = .{null} ** 256,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -1089,6 +1096,10 @@ threadlocal var instance_: ?*Self = null;
 
 fn current() *Self {
     return instance_ orelse @panic("tui call out of context");
+}
+
+pub fn get_global_marks() *[256]?GlobalMarkLocation {
+    return &current().global_marks;
 }
 
 pub fn rdr() *renderer {
