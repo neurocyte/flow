@@ -507,6 +507,12 @@ pub const typst = .{
     .injections = "tree-sitter-typst/queries/typst/injections.scm",
 };
 
+pub const uxntal = .{
+    .description = "Uxntal",
+    .extensions = .{"tal"},
+    .comment = "(",
+};
+
 pub const vim = .{
     .description = "Vimscript",
     .color = 0x007f00,
