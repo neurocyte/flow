@@ -4772,6 +4772,14 @@ pub const Editor = struct {
     }
     pub const find_query_meta: Meta = .{ .arguments = &.{.string} };
 
+    pub fn find_word_at_cursor(self: *Self, ctx: Context) Result {
+        _ = ctx;
+        const query: []const u8 = try self.copy_word_at_cursor(self.allocator);
+        try self.find_in_buffer(query);
+        self.allocator.free(query);
+    }
+    pub const find_word_at_cursor_meta: Meta = .{ .description = "Search for the word under the cursor" };
+
     fn find_in(self: *Self, query: []const u8, comptime find_f: ripgrep.FindF, write_buffer: bool) !void {
         const root = try self.buf_root();
         self.cancel_all_matches();
