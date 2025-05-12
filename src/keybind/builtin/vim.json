@@ -106,7 +106,10 @@
             ["6", "add_integer_argument_digit", 6],
             ["7", "add_integer_argument_digit", 7],
             ["8", "add_integer_argument_digit", 8],
-            ["9", "add_integer_argument_digit", 9]
+            ["9", "add_integer_argument_digit", 9],
+
+            ["ma", "set_mark", 55],
+            ["'a", "goto_mark", 55]
         ]
     },
     "visual": {
