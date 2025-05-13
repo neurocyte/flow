@@ -27,11 +27,6 @@ pub const Metrics = struct {
     pub const egc_last_func = *const fn (self: Metrics, egcs: []const u8) []const u8;
 };
 
-pub const MarkLocation = struct {
-    row: usize,
-    col: usize,
-};
-
 arena: std.heap.ArenaAllocator,
 allocator: Allocator,
 external_allocator: Allocator,
@@ -58,8 +53,6 @@ utime: i64,
 file_type_name: ?[]const u8 = null,
 file_type_icon: ?[]const u8 = null,
 file_type_color: ?u24 = null,
-
-marks: [256]?MarkLocation = .{null} ** 256,
 
 pub const EolMode = enum { lf, crlf };
 pub const EolModeTag = @typeInfo(EolMode).@"enum".tag_type;
