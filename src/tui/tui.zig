@@ -1091,10 +1091,6 @@ fn current() *Self {
     return instance_ orelse @panic("tui call out of context");
 }
 
-pub fn get_global_marks() *[256]?GlobalMarkLocation {
-    return &current().global_marks;
-}
-
 pub fn rdr() *renderer {
     return &current().rdr_;
 }
