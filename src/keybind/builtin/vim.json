@@ -98,6 +98,9 @@
             ["<C-CR>", ["move_down"], ["move_begin"]],
             ["<CR>", ["move_down"], ["move_begin"]],
 
+            ["gt", "next_tab"],
+            ["gT", "previous_tab"],
+
             ["0", "move_begin_or_add_integer_argument_zero"],
             ["1", "add_integer_argument_digit", 1],
             ["2", "add_integer_argument_digit", 2],
