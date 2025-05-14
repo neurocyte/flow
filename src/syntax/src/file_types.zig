@@ -395,6 +395,12 @@ pub const php = .{
     .language_server = .{ "intelephense", "--stdio" },
 };
 
+pub const proto = .{
+    .description = "protobuf (proto)",
+    .extensions = .{"proto"},
+    .comment = "//",
+};
+
 pub const purescript = .{
     .description = "PureScript",
     .color = 0x14161a,
