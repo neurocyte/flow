@@ -100,7 +100,7 @@ fn build_release(
         .{ .cpu_arch = .x86_64, .os_tag = .windows },
         .{ .cpu_arch = .aarch64, .os_tag = .windows },
     };
-    const optimize = .ReleaseFast;
+    const optimize = .ReleaseSafe;
 
     const write_file_step = b.addWriteFiles();
     const version_file = write_file_step.add("version", version);
