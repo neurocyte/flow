@@ -426,6 +426,14 @@ pub const regex = .{
     .comment = "#",
 };
 
+pub const rpmspec = .{
+    .description = "RPM spec",
+    .color = 0xff0000,
+    .icon = "󱄛",
+    .extensions = .{"spec"},
+    .comment = "#",
+};
+
 pub const ruby = .{
     .description = "Ruby",
     .color = 0xd91404,
