@@ -84,7 +84,7 @@ fn build_release(
     lint_step: *std.Build.Step,
     tracy_enabled: bool,
     use_tree_sitter: bool,
-    strip: ?bool,
+    _: ?bool, //release builds control strip
     use_llvm: ?bool,
     pie: ?bool,
     _: bool, //gui
@@ -112,6 +112,7 @@ fn build_release(
         const arch = triple.next() orelse unreachable;
         const os = triple.next() orelse unreachable;
         const target_path = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch }) catch unreachable;
+        const target_path_debug = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch, "debug" }) catch unreachable;
 
         build_exe(
             b,
@@ -124,14 +125,32 @@ fn build_release(
             .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
             tracy_enabled,
             use_tree_sitter,
-            strip orelse true,
+            true,
             use_llvm,
             pie,
             false, //gui
             version,
         );
 
-        if (t.os_tag == .windows)
+        build_exe(
+            b,
+            run_step,
+            check_step,
+            test_step,
+            lint_step,
+            target,
+            optimize,
+            .{ .dest_dir = .{ .override = .{ .custom = target_path_debug } } },
+            tracy_enabled,
+            use_tree_sitter,
+            false,
+            use_llvm,
+            pie,
+            false, //gui
+            version,
+        );
+
+        if (t.os_tag == .windows) {
             build_exe(
                 b,
                 run_step,
@@ -143,12 +162,31 @@ fn build_release(
                 .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
                 tracy_enabled,
                 use_tree_sitter,
-                strip orelse true,
+                true,
                 use_llvm,
                 pie,
                 true, //gui
                 version,
             );
+
+            build_exe(
+                b,
+                run_step,
+                check_step,
+                test_step,
+                lint_step,
+                target,
+                optimize,
+                .{ .dest_dir = .{ .override = .{ .custom = target_path_debug } } },
+                tracy_enabled,
+                use_tree_sitter,
+                false,
+                use_llvm,
+                pie,
+                true, //gui
+                version,
+            );
+        }
     }
 }
 
