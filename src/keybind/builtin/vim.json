@@ -40,6 +40,7 @@
 
             ["v", "enter_mode", "visual"],
             ["V", ["enter_mode", "visual line"], ["select_line_vim"]],
+            ["<C-v>", "enter_mode", "visual block"],
 
             ["n", "goto_next_match"],
             ["N", "goto_prev_match"],
@@ -223,6 +224,20 @@
             ["7", "add_integer_argument_digit", 7],
             ["8", "add_integer_argument_digit", 8],
             ["9", "add_integer_argument_digit", 9]
+        ]
+    },
+    "visual block": {
+        "syntax": "vim",
+        "on_match_failure": "ignore",
+        "name": "VISUAL BLOCK",
+        "inherit": "visual",
+        "line_numbers": "relative",
+        "cursor": "block",
+        "selection": "normal",
+        "init_command": ["enable_selection"],
+        "press": [
+            ["k", "add_cursor_up"],
+            ["j", "add_cursor_down"]
         ]
     },
     "insert": {
