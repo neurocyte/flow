@@ -758,8 +758,8 @@ fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (Clien
         from.send(.{ "cmd", "navigate", .{
             .file = file_path,
             .goto = .{
-                targetRange.?.start.line + 1,
-                targetRange.?.start.character + 1,
+                targetSelectionRange.?.start.line + 1,
+                targetSelectionRange.?.start.character + 1,
                 sel.start.line,
                 sel.start.character,
                 sel.end.line,
