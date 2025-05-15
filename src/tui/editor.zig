@@ -3042,17 +3042,41 @@ pub const Editor = struct {
     }
     pub const join_next_line_meta: Meta = .{ .description = "Join next line", .arguments = &.{.integer} };
 
-    pub fn move_left(self: *Self, ctx: Context) Result {
+    fn move_cursors_or_collapse_selection(
+        self: *Self,
+        direction: enum { left, right },
+        ctx: Context,
+    ) error{Stop}!void {
         const root = try self.buf_root();
-        self.with_cursors_const_repeat(root, move_cursor_left, ctx) catch {};
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                if (cursel.selection) |*sel| {
+                    cursel.cursor = switch (direction) {
+                        .left => if (sel.is_reversed()) sel.end else sel.begin,
+                        .right => if (sel.is_reversed()) sel.begin else sel.end,
+                    };
+                    cursel.disable_selection(root, self.metrics);
+                } else {
+                    try with_cursor_const(root, switch (direction) {
+                        .left => move_cursor_left,
+                        .right => move_cursor_right,
+                    }, cursel, self.metrics);
+                }
+            };
+            self.collapse_cursors();
+        }
         self.clamp();
+    }
+
+    pub fn move_left(self: *Self, ctx: Context) Result {
+        self.move_cursors_or_collapse_selection(.left, ctx) catch {};
     }
     pub const move_left_meta: Meta = .{ .description = "Move cursor left", .arguments = &.{.integer} };
 
     pub fn move_right(self: *Self, ctx: Context) Result {
-        const root = try self.buf_root();
-        self.with_cursors_const_repeat(root, move_cursor_right, ctx) catch {};
-        self.clamp();
+        self.move_cursors_or_collapse_selection(.right, ctx) catch {};
     }
     pub const move_right_meta: Meta = .{ .description = "Move cursor right", .arguments = &.{.integer} };
 
