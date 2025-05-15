@@ -15,6 +15,7 @@ pub const ParseError = error{
     InvalidStartOfControlBinding,
     InvalidStartOfShiftBinding,
     InvalidStartOfDelBinding,
+    InvalidStartOfLeftBinding,
     InvalidStartOfEscBinding,
     InvalidStartOfHomeBinding,
     InvalidCRBinding,
@@ -74,6 +75,8 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
         end,
         insert,
         bs,
+        less_than,
+        greater_than,
     };
     var state: State = .base;
     var function_key_number: u8 = 0;
@@ -150,10 +153,21 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                         state = .up;
                     },
                     'L' => {
-                        state = .left;
+                        state = switch (try peek(str, i)) {
+                            'e' => .left,
+                            'T' => .less_than,
+                            else => return parse_error(
+                                error.InvalidStartOfLeftBinding,
+                                "str: {s}, i: {} c: {c}",
+                                .{ str, i, str[i] },
+                            ),
+                        };
                     },
                     'R' => {
                         state = .right;
+                    },
+                    'G' => {
+                        state = .greater_than;
                     },
                     'I' => {
                         state = .insert;
@@ -303,6 +317,22 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                     state = .escape_sequence_end;
                     i += 5;
                 } else return parse_error(error.InvalidRightBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
+            },
+            .less_than => {
+                if (std.mem.indexOf(u8, str[i..], "LT") == 0) {
+                    try result.append(from_key_mods('<', modifiers));
+                    modifiers = 0;
+                    state = .escape_sequence_end;
+                    i += 2;
+                } else return parse_error(error.InvalidLeftBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
+            },
+            .greater_than => {
+                if (std.mem.indexOf(u8, str[i..], "GT") == 0) {
+                    try result.append(from_key_mods('>', modifiers));
+                    modifiers = 0;
+                    state = .escape_sequence_end;
+                    i += 2;
+                } else return parse_error(error.InvalidLeftBinding, "str: {s}, i: {} c: {c}", .{ str, i, str[i] });
             },
             .function_key => {
                 switch (str[i]) {

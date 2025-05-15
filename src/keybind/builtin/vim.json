@@ -35,8 +35,8 @@
             ["o", ["enter_mode", "insert"], ["smart_insert_line_after"]],
             ["O", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
-            ["<S-.><S-.>", "indent"],
-            ["<S-,><S-,>", "unindent"],
+            ["<GT><GT>", "indent"],
+            ["<LT><LT>", "unindent"],
 
             ["v", "enter_mode", "visual"],
             ["V", ["enter_mode", "visual line"], ["select_line_vim"]],
