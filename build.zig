@@ -100,7 +100,8 @@ fn build_release(
         .{ .cpu_arch = .x86_64, .os_tag = .windows },
         .{ .cpu_arch = .aarch64, .os_tag = .windows },
     };
-    const optimize = .ReleaseSafe;
+    const optimize_release = .ReleaseFast;
+    const optimize_debug = .ReleaseSafe;
 
     const write_file_step = b.addWriteFiles();
     const version_file = write_file_step.add("version", version);
@@ -121,11 +122,11 @@ fn build_release(
             test_step,
             lint_step,
             target,
-            optimize,
+            optimize_release,
             .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
             tracy_enabled,
             use_tree_sitter,
-            true,
+            true, // strip release builds
             use_llvm,
             pie,
             false, //gui
@@ -139,11 +140,11 @@ fn build_release(
             test_step,
             lint_step,
             target,
-            optimize,
+            optimize_debug,
             .{ .dest_dir = .{ .override = .{ .custom = target_path_debug } } },
             tracy_enabled,
             use_tree_sitter,
-            false,
+            false, // don't strip debug builds
             use_llvm,
             pie,
             false, //gui
@@ -158,11 +159,11 @@ fn build_release(
                 test_step,
                 lint_step,
                 target,
-                optimize,
+                optimize_release,
                 .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
                 tracy_enabled,
                 use_tree_sitter,
-                true,
+                true, // strip release builds
                 use_llvm,
                 pie,
                 true, //gui
@@ -176,11 +177,11 @@ fn build_release(
                 test_step,
                 lint_step,
                 target,
-                optimize,
+                optimize_debug,
                 .{ .dest_dir = .{ .override = .{ .custom = target_path_debug } } },
                 tracy_enabled,
                 use_tree_sitter,
-                false,
+                false, // don't strip debug builds
                 use_llvm,
                 pie,
                 true, //gui
