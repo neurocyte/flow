@@ -63,7 +63,10 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8) (SpawnError || std.f
 
         fn next(self: *tree_walker) !void {
             if (try self.walker.next()) |path| {
-                const stat = self.dir.statFile(path) catch return tp.self_pid().send(.{"next"});
+                const stat = self.dir.statFile(path) catch {
+                    try self.parent.send(.{ "walk_tree_entry", self.root_path, path, 0, 0 });
+                    return tp.self_pid().send(.{"next"});
+                };
                 const mtime = stat.mtime;
                 const high: i64 = @intCast(mtime >> 64);
                 const low: i64 = @truncate(mtime);
