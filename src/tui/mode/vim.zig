@@ -46,6 +46,11 @@ const cmds_ = struct {
     }
     pub const @"wq!_meta": Meta = .{ .description = "wq! (write file and quit without saving)" };
 
+    pub fn @"e!"(_: *void, _: Ctx) Result {
+        try cmd("reload_file", .{});
+    }
+    pub const @"e!_meta": Meta = .{ .description = "e! (force reload current file)" };
+
     pub fn move_begin_or_add_integer_argument_zero(_: *void, _: Ctx) Result {
         return if (@import("keybind").current_integer_argument()) |_|
             command.executeName("add_integer_argument_digit", command.fmt(.{0}))
