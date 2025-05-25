@@ -2,7 +2,7 @@
     .name = .flow_syntax,
     .version = "0.1.0",
     .fingerprint = 0x3ba2584ea1cec85f,
-    .minimum_zig_version = "0.14.0-dev.3451+d8d2aa9af",
+    .minimum_zig_version = "0.14.1",
 
     .dependencies = .{
         .tree_sitter = .{

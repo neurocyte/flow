@@ -24,7 +24,7 @@ if [ "$ARCH" == "arm64" ]; then
     ARCH=aarch64
 fi
 
-ZIGVER="zig-$OS-$ARCH-$VERSION"
+ZIGVER="zig-$ARCH-$OS-$VERSION"
 ZIG=$ZIGDIR/$ZIGVER/zig
 
 if [ "$1" == "update" ]; then
