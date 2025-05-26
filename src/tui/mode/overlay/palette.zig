@@ -425,6 +425,24 @@ pub fn Create(options: type) type {
             }
             pub const palette_menu_pageup_meta: Meta = .{};
 
+            pub fn palette_menu_bottom(self: *Self, _: Ctx) Result {
+                if (self.total_items > self.view_rows) {
+                    self.view_pos = self.total_items - self.view_rows;
+                }
+                try self.start_query(0);
+                self.menu.select_last();
+                self.selection_updated();
+            }
+            pub const palette_menu_bottom_meta: Meta = .{};
+
+            pub fn palette_menu_top(self: *Self, _: Ctx) Result {
+                self.view_pos = 0;
+                try self.start_query(0);
+                self.menu.select_first();
+                self.selection_updated();
+            }
+            pub const palette_menu_top_meta: Meta = .{};
+
             pub fn palette_menu_delete_item(self: *Self, _: Ctx) Result {
                 if (@hasDecl(options, "delete_item")) {
                     const button = self.menu.get_selected() orelse return;

@@ -275,11 +275,6 @@ const cmds = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
-    pub fn palette_menu_top(self: *Self, _: Ctx) Result {
-        self.menu.select_first();
-    }
-    pub const palette_menu_top_meta: Meta = .{};
-
     pub fn palette_menu_down(self: *Self, _: Ctx) Result {
         self.menu.select_down();
     }
@@ -299,6 +294,16 @@ const cmds = struct {
         self.menu.select_first();
     }
     pub const palette_menu_pageup_meta: Meta = .{};
+
+    pub fn palette_menu_bottom(self: *Self, _: Ctx) Result {
+        self.menu.select_last();
+    }
+    pub const palette_menu_bottom_meta: Meta = .{};
+
+    pub fn palette_menu_top(self: *Self, _: Ctx) Result {
+        self.menu.select_first();
+    }
+    pub const palette_menu_top_meta: Meta = .{};
 
     pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();

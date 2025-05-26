@@ -301,6 +301,8 @@
             ["down", "palette_menu_down"],
             ["page_up", "palette_menu_pageup"],
             ["page_down", "palette_menu_pagedown"],
+            ["home", "palette_menu_top"],
+            ["end", "palette_menu_bottom"],
             ["enter", "palette_menu_activate"],
             ["delete", "palette_menu_delete_item"],
             ["backspace", "overlay_delete_backwards"]
