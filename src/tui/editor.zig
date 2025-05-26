@@ -5476,6 +5476,14 @@ pub const Editor = struct {
         self.need_render();
     }
 
+    pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
+        _ = self;
+        _ = row;
+        _ = col;
+        _ = is_incomplete;
+        _ = msg;
+    }
+
     pub fn select(self: *Self, ctx: Context) Result {
         var sel: Selection = .{};
         if (!try ctx.args.match(.{ tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) }))

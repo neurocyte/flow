@@ -39,6 +39,7 @@ pub const ArgumentType = enum {
     string,
     integer,
     float,
+    boolean,
     object,
     array,
 };

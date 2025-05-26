@@ -726,6 +726,50 @@ const cmds = struct {
     }
     pub const add_diagnostic_meta: Meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
 
+    pub fn add_completion(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var row: usize = undefined;
+        var col: usize = undefined;
+        var is_incomplete: bool = undefined;
+
+        if (!try ctx.args.match(.{
+            tp.extract(&file_path),
+            tp.extract(&row),
+            tp.extract(&col),
+            tp.extract(&is_incomplete),
+            tp.more,
+        })) return error.InvalidAddDiagnosticArgument;
+        file_path = project_manager.normalize_file_path(file_path);
+        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+            try editor.add_completion(row, col, is_incomplete, ctx.args);
+    }
+    pub const add_completion_meta: Meta = .{
+        .arguments = &.{
+            .string, // file_path
+            .integer, // row
+            .integer, // col
+            .boolean, // is_incomplete
+            .string, // label
+            .string, // label_detail
+            .string, // label_description
+            .integer, // kind
+            .string, // detail
+            .string, // documentation
+            .string, // documentation_kind
+            .string, // sortText
+            .integer, // insertTextFormat
+            .string, // textEdit_newText
+            .integer, // insert.begin.row
+            .integer, // insert.begin.col
+            .integer, // insert.end.row
+            .integer, // insert.end.col
+            .integer, // replace.begin.row
+            .integer, // replace.begin.col
+            .integer, // replace.end.row
+            .integer, // replace.end.col
+        },
+    };
+
     pub fn rename_symbol_item(self: *Self, ctx: Ctx) Result {
         const editor = self.get_active_editor() orelse return;
         // because the incoming message is an array of Renames, we manuallly
