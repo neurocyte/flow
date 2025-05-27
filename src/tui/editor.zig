@@ -345,6 +345,8 @@ pub const Editor = struct {
     diag_info: usize = 0,
     diag_hints: usize = 0,
 
+    completions: std.ArrayListUnmanaged(u8) = .empty,
+
     need_save_after_filter: ?struct {
         then: ?struct {
             cmd: []const u8,
@@ -463,6 +465,7 @@ pub const Editor = struct {
         if (self.buffer) |_| self.write_state(meta.writer(self.allocator)) catch {};
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
+        self.completions.deinit(self.allocator);
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
         self.cursels.deinit(self.allocator);
         self.matches.deinit(self.allocator);
@@ -5280,6 +5283,7 @@ pub const Editor = struct {
     pub fn completion(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
+        self.completions.clearRetainingCapacity();
         return project_manager.completion(file_path, primary.cursor.row, primary.cursor.col);
     }
     pub const completion_meta: Meta = .{ .description = "Language: Show completions at cursor" };
@@ -5477,11 +5481,10 @@ pub const Editor = struct {
     }
 
     pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
-        _ = self;
+        try self.completions.appendSlice(self.allocator, msg.buf);
         _ = row;
         _ = col;
         _ = is_incomplete;
-        _ = msg;
     }
 
     pub fn select(self: *Self, ctx: Context) Result {
