@@ -339,7 +339,7 @@ pub const Editor = struct {
     style_cache: ?StyleCache = null,
     style_cache_theme: []const u8 = "",
 
-    diagnostics: std.ArrayList(Diagnostic),
+    diagnostics: std.ArrayListUnmanaged(Diagnostic),
     diag_errors: usize = 0,
     diag_warnings: usize = 0,
     diag_info: usize = 0,
@@ -457,7 +457,7 @@ pub const Editor = struct {
             .matches = Match.List.init(allocator),
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
             .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
-            .diagnostics = std.ArrayList(Diagnostic).init(allocator),
+            .diagnostics = .empty,
         };
     }
 
@@ -465,8 +465,8 @@ pub const Editor = struct {
         var meta = std.ArrayList(u8).init(self.allocator);
         defer meta.deinit();
         if (self.buffer) |_| self.write_state(meta.writer()) catch {};
-        for (self.diagnostics.items) |*d| d.deinit(self.diagnostics.allocator);
-        self.diagnostics.deinit();
+        for (self.diagnostics.items) |*d| d.deinit(self.allocator);
+        self.diagnostics.deinit(self.allocator);
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
         self.cursels.deinit();
         self.matches.deinit();
@@ -5448,10 +5448,10 @@ pub const Editor = struct {
             },
         };
 
-        (try self.diagnostics.addOne()).* = .{
-            .source = try self.diagnostics.allocator.dupe(u8, source),
-            .code = try self.diagnostics.allocator.dupe(u8, code),
-            .message = try self.diagnostics.allocator.dupe(u8, message),
+        (try self.diagnostics.addOne(self.allocator)).* = .{
+            .source = try self.allocator.dupe(u8, source),
+            .code = try self.allocator.dupe(u8, code),
+            .message = try self.allocator.dupe(u8, message),
             .severity = severity,
             .sel = sel,
         };
