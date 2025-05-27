@@ -273,8 +273,8 @@ pub const Editor = struct {
     pause_undo: bool = false,
     pause_undo_root: ?Buffer.Root = null,
 
-    cursels: CurSel.List,
-    cursels_saved: CurSel.List,
+    cursels: CurSel.List = .empty,
+    cursels_saved: CurSel.List = .empty,
     selection_mode: SelectMode = .char,
     clipboard: ?[]const u8 = null,
     target_column: ?Cursor = null,
@@ -291,7 +291,7 @@ pub const Editor = struct {
         eol_mode: Buffer.EolMode = .lf,
         utf8_sanitized: bool = false,
     } = null,
-    matches: Match.List,
+    matches: Match.List = .empty,
     match_token: usize = 0,
     match_done_token: usize = 0,
     last_find_query: ?[]const u8 = null,
@@ -339,7 +339,7 @@ pub const Editor = struct {
     style_cache: ?StyleCache = null,
     style_cache_theme: []const u8 = "",
 
-    diagnostics: std.ArrayListUnmanaged(Diagnostic),
+    diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
     diag_errors: usize = 0,
     diag_warnings: usize = 0,
     diag_info: usize = 0,
@@ -452,12 +452,8 @@ pub const Editor = struct {
             .animation_lag = get_animation_max_lag(),
             .animation_frame_rate = frame_rate,
             .animation_last_time = time.microTimestamp(),
-            .cursels = .empty,
-            .cursels_saved = .empty,
-            .matches = .empty,
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
             .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
-            .diagnostics = .empty,
         };
     }
 
