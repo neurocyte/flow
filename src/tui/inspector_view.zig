@@ -88,7 +88,7 @@ fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, 
     if (self.theme) |theme| match.style = .{ .bg = theme.editor_gutter_modified.fg };
     switch (self.editor.matches.items.len) {
         0 => {
-            (self.editor.matches.addOne() catch return).* = match;
+            (self.editor.matches.addOne(self.editor.allocator) catch return).* = match;
             update_match = .add;
         },
         1 => {
@@ -116,7 +116,7 @@ fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, 
             var match_parent = ed.Match.from_selection(sel_parent);
             if (self.theme) |theme| match_parent.style = .{ .bg = theme.editor_gutter_added.fg };
             switch (update_match) {
-                .add => (self.editor.matches.addOne() catch return).* = match_parent,
+                .add => (self.editor.matches.addOne(self.editor.allocator) catch return).* = match_parent,
                 .set => self.editor.matches.items[1] = match_parent,
                 .no => {},
             }

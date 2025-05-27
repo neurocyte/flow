@@ -59,7 +59,7 @@ pub const Match = struct {
     has_selection: bool = false,
     style: ?Widget.Theme.Style = null,
 
-    const List = std.ArrayList(?Self);
+    const List = std.ArrayListUnmanaged(?Self);
     const Self = @This();
 
     pub fn from_selection(sel: Selection) Self {
@@ -454,7 +454,7 @@ pub const Editor = struct {
             .animation_last_time = time.microTimestamp(),
             .cursels = CurSel.List.init(allocator),
             .cursels_saved = CurSel.List.init(allocator),
-            .matches = Match.List.init(allocator),
+            .matches = .empty,
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
             .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
             .diagnostics = .empty,
@@ -469,7 +469,7 @@ pub const Editor = struct {
         self.diagnostics.deinit(self.allocator);
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
         self.cursels.deinit();
-        self.matches.deinit();
+        self.matches.deinit(self.allocator);
         self.handlers.deinit();
         self.logger.deinit();
         if (self.buffer) |p| self.buffer_manager.retire(p, meta.items);
@@ -1749,7 +1749,7 @@ pub const Editor = struct {
     }
 
     fn cancel_all_matches(self: *Self) void {
-        self.matches.clearAndFree();
+        self.matches.clearAndFree(self.allocator);
     }
 
     pub fn clear_matches(self: *Self) void {
@@ -4993,7 +4993,7 @@ pub const Editor = struct {
         var match: Match = .{ .begin = .{ .row = begin_line, .col = begin_pos }, .end = .{ .row = end_line, .col = end_pos } };
         if (match.end.eql(self.get_primary().cursor))
             match.has_selection = true;
-        (self.matches.addOne() catch return).* = match;
+        (self.matches.addOne(self.allocator) catch return).* = match;
     }
 
     fn find_selection_match(self: *const Self, sel: Selection) ?*Match {
@@ -5415,7 +5415,7 @@ pub const Editor = struct {
         };
         switch (self.matches.items.len) {
             0 => {
-                (self.matches.addOne() catch return).* = match;
+                (self.matches.addOne(self.allocator) catch return).* = match;
             },
             1 => {
                 self.matches.items[0] = match;
