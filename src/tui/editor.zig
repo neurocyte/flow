@@ -285,7 +285,7 @@ pub const Editor = struct {
         pos: CurSel,
         old_primary: CurSel,
         old_primary_reversed: bool,
-        whole_file: ?std.ArrayList(u8),
+        whole_file: ?std.ArrayListUnmanaged(u8),
         bytes: usize = 0,
         chunks: usize = 0,
         eol_mode: Buffer.EolMode = .lf,
@@ -5540,7 +5540,7 @@ pub const Editor = struct {
             .pos = .{ .cursor = sel.begin },
             .old_primary = primary.*,
             .old_primary_reversed = reversed,
-            .whole_file = if (primary.selection) |_| null else std.ArrayList(u8).init(self.allocator),
+            .whole_file = if (primary.selection) |_| null else .empty,
         };
         errdefer self.filter_deinit();
         const state = &self.filter_.?;
@@ -5564,7 +5564,7 @@ pub const Editor = struct {
         errdefer self.filter_deinit();
         const buf_a_ = try self.buf_a();
         if (state.whole_file) |*buf| {
-            try buf.appendSlice(bytes);
+            try buf.appendSlice(self.allocator, bytes);
         } else {
             const cursor = &state.pos.cursor;
             cursor.row, cursor.col, state.work_root = try state.work_root.insert_chars(cursor.row, cursor.col, bytes, buf_a_, self.metrics);
@@ -5629,7 +5629,7 @@ pub const Editor = struct {
 
     fn filter_deinit(self: *Self) void {
         const state = if (self.filter_) |*s| s else return;
-        if (state.whole_file) |*buf| buf.deinit();
+        if (state.whole_file) |*buf| buf.deinit(self.allocator);
         self.filter_ = null;
     }
 
