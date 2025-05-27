@@ -295,7 +295,7 @@ pub const Editor = struct {
     match_token: usize = 0,
     match_done_token: usize = 0,
     last_find_query: ?[]const u8 = null,
-    find_history: ?std.ArrayList([]const u8) = null,
+    find_history: ?std.ArrayListUnmanaged([]const u8) = null,
     find_operation: ?enum { goto_next_match, goto_prev_match } = null,
 
     prefix_buf: [8]u8 = undefined,
@@ -4821,14 +4821,14 @@ pub const Editor = struct {
     pub fn push_find_history(self: *Self, query: []const u8) void {
         if (query.len == 0) return;
         const history = if (self.find_history) |*hist| hist else ret: {
-            self.find_history = std.ArrayList([]const u8).init(self.allocator);
+            self.find_history = .empty;
             break :ret &self.find_history.?;
         };
         for (history.items, 0..) |entry, i|
             if (std.mem.eql(u8, entry, query))
                 self.allocator.free(history.orderedRemove(i));
         const new = self.allocator.dupe(u8, query) catch return;
-        (history.addOne() catch return).* = new;
+        (history.addOne(self.allocator) catch return).* = new;
     }
 
     fn set_last_find_query(self: *Self, query: []const u8) void {
