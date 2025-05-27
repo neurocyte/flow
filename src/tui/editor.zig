@@ -86,7 +86,7 @@ pub const CurSel = struct {
     cursor: Cursor = Cursor{},
     selection: ?Selection = null,
 
-    const List = std.ArrayList(?Self);
+    const List = std.ArrayListUnmanaged(?Self);
     const Self = @This();
 
     pub inline fn invalid() Self {
@@ -420,7 +420,7 @@ pub const Editor = struct {
         while (len > 0) : (len -= 1) {
             var cursel: CurSel = .{};
             if (!(cursel.extract(&iter) catch false)) break;
-            (try self.cursels.addOne()).* = cursel;
+            (try self.cursels.addOne(self.allocator)).* = cursel;
         }
 
         len = cbor.decodeArrayHeader(&find_history) catch return error.RestoreFindHistory;
@@ -452,8 +452,8 @@ pub const Editor = struct {
             .animation_lag = get_animation_max_lag(),
             .animation_frame_rate = frame_rate,
             .animation_last_time = time.microTimestamp(),
-            .cursels = CurSel.List.init(allocator),
-            .cursels_saved = CurSel.List.init(allocator),
+            .cursels = .empty,
+            .cursels_saved = .empty,
             .matches = .empty,
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
             .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
@@ -468,7 +468,7 @@ pub const Editor = struct {
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
-        self.cursels.deinit();
+        self.cursels.deinit(self.allocator);
         self.matches.deinit(self.allocator);
         self.handlers.deinit();
         self.logger.deinit();
@@ -498,8 +498,8 @@ pub const Editor = struct {
 
     pub fn buf_for_update(self: *Self) !*const Buffer {
         if (!self.pause_undo) {
-            self.cursels_saved.clearAndFree();
-            self.cursels_saved = try self.cursels.clone();
+            self.cursels_saved.clearAndFree(self.allocator);
+            self.cursels_saved = try self.cursels.clone(self.allocator);
         }
         return self.buffer orelse error.Stop;
     }
@@ -668,7 +668,7 @@ pub const Editor = struct {
 
     pub fn push_cursor(self: *Self) !void {
         const primary = self.cursels.getLastOrNull() orelse CurSel{} orelse CurSel{};
-        (try self.cursels.addOne()).* = primary;
+        (try self.cursels.addOne(self.allocator)).* = primary;
     }
 
     pub fn pop_cursor(self: *Self, _: Context) Result {
@@ -689,7 +689,7 @@ pub const Editor = struct {
                 return primary;
         if (idx == 0) {
             self.logger.print("ERROR: no more cursors", .{});
-            (@constCast(self).cursels.addOne() catch |e| switch (e) {
+            (@constCast(self).cursels.addOne(self.allocator) catch |e| switch (e) {
                 error.OutOfMemory => @panic("get_primary error.OutOfMemory"),
             }).* = CurSel{};
         }
@@ -739,7 +739,7 @@ pub const Editor = struct {
         while (iter.len > 0) {
             var cursel: CurSel = .{};
             if (!try cursel.extract(&iter)) return error.SyntaxError;
-            (try self.cursels.addOne()).* = cursel;
+            (try self.cursels.addOne(self.allocator)).* = cursel;
         }
     }
 
@@ -784,8 +784,8 @@ pub const Editor = struct {
     pub fn pause_undo_history(self: *Self, _: Context) Result {
         self.pause_undo = true;
         self.pause_undo_root = self.buf_root() catch return;
-        self.cursels_saved.clearAndFree();
-        self.cursels_saved = try self.cursels.clone();
+        self.cursels_saved.clearAndFree(self.allocator);
+        self.cursels_saved = try self.cursels.clone(self.allocator);
     }
     pub const pause_undo_history_meta: Meta = .{ .description = "Pause undo history" };
 
@@ -1725,7 +1725,7 @@ pub const Editor = struct {
         const frame = tracy.initZone(@src(), .{ .name = "collapse cursors" });
         defer frame.deinit();
         var old = self.cursels;
-        defer old.deinit();
+        defer old.deinit(self.allocator);
         self.cursels = CurSel.List.initCapacity(self.allocator, old.items.len) catch return;
         for (old.items[0 .. old.items.len - 1], 0..) |*a_, i| if (a_.*) |*a| {
             for (old.items[i + 1 ..], i + 1..) |*b_, j| if (b_.*) |*b| {
@@ -1734,7 +1734,7 @@ pub const Editor = struct {
             };
         };
         for (old.items) |*item_| if (item_.*) |*item| {
-            (self.cursels.addOne() catch return).* = item.*;
+            (self.cursels.addOne(self.allocator) catch return).* = item.*;
         };
     }
 
@@ -3414,7 +3414,7 @@ pub const Editor = struct {
         sel.normalize();
         var row = sel.begin.row;
         while (row <= sel.end.row) : (row += 1) {
-            const new_cursel = try self.cursels.addOne();
+            const new_cursel = try self.cursels.addOne(self.allocator);
             new_cursel.* = CurSel{
                 .selection = null,
                 .cursor = .{
@@ -3428,8 +3428,8 @@ pub const Editor = struct {
 
     pub fn add_cursors_to_line_ends(self: *Self, _: Context) Result {
         const root = try self.buf_root();
-        const cursels = try self.cursels.toOwnedSlice();
-        defer self.cursels.allocator.free(cursels);
+        const cursels = try self.cursels.toOwnedSlice(self.allocator);
+        defer self.allocator.free(cursels);
         for (cursels) |*cursel_| if (cursel_.*) |*cursel|
             try self.add_cursors_to_cursel_line_ends(root, cursel);
         self.collapse_cursors();
@@ -3638,8 +3638,8 @@ pub const Editor = struct {
     }
 
     fn restore_cursels(self: *Self) void {
-        self.cursels.clearAndFree();
-        self.cursels = self.cursels_saved.clone() catch return;
+        self.cursels.clearAndFree(self.allocator);
+        self.cursels = self.cursels_saved.clone(self.allocator) catch return;
     }
 
     pub fn unindent(self: *Self, ctx: Context) Result {
