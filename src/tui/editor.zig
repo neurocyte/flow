@@ -570,12 +570,12 @@ pub const Editor = struct {
         }
         self.syntax = syntax: {
             const lang_override = file_type orelse tp.env.get().str("language");
-            var content = std.ArrayList(u8).init(self.allocator);
-            defer content.deinit();
+            var content = std.ArrayListUnmanaged(u8).empty;
+            defer content.deinit(self.allocator);
             {
                 const frame_ = tracy.initZone(@src(), .{ .name = "store" });
                 defer frame_.deinit();
-                try new_buf.root.store(content.writer(), new_buf.file_eol_mode);
+                try new_buf.root.store(content.writer(self.allocator), new_buf.file_eol_mode);
             }
 
             const syn_file_type = blk: {
@@ -603,7 +603,7 @@ pub const Editor = struct {
                     file_path,
                     syn_.file_type,
                     self.lsp_version,
-                    try content.toOwnedSlice(),
+                    try content.toOwnedSlice(self.allocator),
                     new_buf.is_ephemeral(),
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
@@ -2545,7 +2545,8 @@ pub const Editor = struct {
         var all_stop = true;
         var root = root_;
 
-        var text = std.ArrayList(u8).init(self.allocator);
+        var text = std.ArrayListUnmanaged(u8).empty;
+        defer text.deinit(self.allocator);
         var first = true;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |_| {
@@ -2554,9 +2555,9 @@ pub const Editor = struct {
                 if (first) {
                     first = false;
                 } else {
-                    try text.appendSlice("\n");
+                    try text.appendSlice(self.allocator, "\n");
                 }
-                try text.appendSlice(cut_text);
+                try text.appendSlice(self.allocator, cut_text);
                 continue;
             }
 
@@ -2566,25 +2567,26 @@ pub const Editor = struct {
             if (first) {
                 first = false;
             } else {
-                try text.appendSlice("\n");
+                try text.appendSlice(self.allocator, "\n");
             }
-            try text.appendSlice(cut_text);
+            try text.appendSlice(self.allocator, cut_text);
             all_stop = false;
         };
 
         if (all_stop)
             return error.Stop;
-        return .{ text.items, root };
+        return .{ try text.toOwnedSlice(self.allocator), root };
     }
 
     pub fn cut_internal_vim(self: *Self, _: Context) Result {
         const primary = self.get_primary();
         const b = self.buf_for_update() catch return;
         var root = b.root;
-        var text = std.ArrayList(u8).init(self.allocator);
+        var text = std.ArrayListUnmanaged(u8).empty;
+        defer text.deinit(self.allocator);
         if (self.cursels.items.len == 1)
             if (primary.selection) |_| {} else {
-                try text.appendSlice("\n");
+                try text.appendSlice(self.allocator, "\n");
                 const sel = primary.enable_selection(root, self.metrics) catch return;
                 try move_cursor_begin(root, &sel.begin, self.metrics);
                 try move_cursor_end(root, &sel.end, self.metrics);
@@ -2596,12 +2598,12 @@ pub const Editor = struct {
             if (first) {
                 first = false;
             } else {
-                try text.appendSlice("\n");
+                try text.appendSlice(self.allocator, "\n");
             }
-            try text.appendSlice(cut_text);
+            try text.appendSlice(self.allocator, cut_text);
         };
         try self.update_buf(root);
-        self.set_clipboard_internal(text.items);
+        self.set_clipboard_internal(try text.toOwnedSlice(self.allocator));
         self.clamp();
     }
     pub const cut_internal_vim_meta: Meta = .{ .description = "Cut selection or current line to internal clipboard (vim)" };
@@ -2624,18 +2626,19 @@ pub const Editor = struct {
                 };
             };
         var first = true;
-        var text = std.ArrayList(u8).init(self.allocator);
+        var text = std.ArrayListUnmanaged(u8).empty;
+        defer text.deinit(self.allocator);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             const cut_text, root = try self.cut_selection(root, cursel);
             if (first) {
                 first = false;
             } else {
-                try text.appendSlice("\n");
+                try text.appendSlice(self.allocator, "\n");
             }
-            try text.appendSlice(cut_text);
+            try text.appendSlice(self.allocator, cut_text);
         };
         try self.update_buf(root);
-        self.set_clipboard(text.items);
+        self.set_clipboard(try text.toOwnedSlice(self.allocator));
         self.clamp();
     }
     pub const cut_meta: Meta = .{ .description = "Cut selection or current line to clipboard" };
@@ -2644,7 +2647,8 @@ pub const Editor = struct {
         const primary = self.get_primary();
         const root = self.buf_root() catch return;
         var first = true;
-        var text = std.ArrayList(u8).init(self.allocator);
+        var text = std.ArrayListUnmanaged(u8).empty;
+        defer text.deinit(self.allocator);
         if (self.cursels.items.len == 1)
             if (primary.selection) |_| {} else {
                 const sel = primary.enable_selection(root, self.metrics) catch return;
@@ -2658,9 +2662,9 @@ pub const Editor = struct {
                 if (first) {
                     first = false;
                 } else {
-                    try text.appendSlice("\n");
+                    try text.appendSlice(self.allocator, "\n");
                 }
-                try text.appendSlice(copy_text);
+                try text.appendSlice(self.allocator, copy_text);
             }
         };
         if (text.items.len > 0) {
@@ -2669,7 +2673,7 @@ pub const Editor = struct {
             } else {
                 self.logger.print("copy:{s}", .{std.fmt.fmtSliceEscapeLower(text.items)});
             }
-            self.set_clipboard(text.items);
+            self.set_clipboard(try text.toOwnedSlice(self.allocator));
         }
     }
     pub const copy_meta: Meta = .{ .description = "Copy selection to clipboard" };
@@ -2748,16 +2752,17 @@ pub const Editor = struct {
     pub fn copy_internal_vim(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         var first = true;
-        var text = std.ArrayList(u8).init(self.allocator);
+        var text = std.ArrayListUnmanaged(u8).empty;
+        defer text.deinit(self.allocator);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |sel| {
                 const copy_text = try copy_selection(root, sel, self.allocator, self.metrics);
                 if (first) {
                     first = false;
                 } else {
-                    try text.appendSlice("\n");
+                    try text.appendSlice(self.allocator, "\n");
                 }
-                try text.appendSlice(copy_text);
+                try text.appendSlice(self.allocator, copy_text);
             }
         };
         if (text.items.len > 0) {
@@ -2766,7 +2771,7 @@ pub const Editor = struct {
             } else {
                 self.logger.print("copy:{s}", .{std.fmt.fmtSliceEscapeLower(text.items)});
             }
-            self.set_clipboard_internal(text.items);
+            self.set_clipboard_internal(try text.toOwnedSlice(self.allocator));
         }
     }
     pub const copy_internal_vim_meta: Meta = .{ .description = "Copy selection to internal clipboard (vim)" };
@@ -2775,8 +2780,9 @@ pub const Editor = struct {
         const primary = self.get_primary();
         const root = self.buf_root() catch return;
         var first = true;
-        var text = std.ArrayList(u8).init(self.allocator);
-        try text.appendSlice("\n");
+        var text = std.ArrayListUnmanaged(u8).empty;
+        defer text.deinit(self.allocator);
+        try text.appendSlice(self.allocator, "\n");
         if (primary.selection) |_| {} else {
             const sel = primary.enable_selection(root, self.metrics) catch return;
             try move_cursor_begin(root, &sel.begin, self.metrics);
@@ -2789,9 +2795,9 @@ pub const Editor = struct {
                 if (first) {
                     first = false;
                 } else {
-                    try text.appendSlice("\n");
+                    try text.appendSlice(self.allocator, "\n");
                 }
-                try text.appendSlice(copy_text);
+                try text.appendSlice(self.allocator, copy_text);
             }
         };
         if (text.items.len > 0) {
@@ -2800,7 +2806,7 @@ pub const Editor = struct {
             } else {
                 self.logger.print("copy:{s}", .{std.fmt.fmtSliceEscapeLower(text.items)});
             }
-            self.set_clipboard_internal(text.items);
+            self.set_clipboard_internal(try text.toOwnedSlice(self.allocator));
         }
     }
     pub const copy_line_internal_vim_meta: Meta = .{ .description = "Copy line to internal clipboard (vim)" };
@@ -4293,9 +4299,9 @@ pub const Editor = struct {
         var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
         var sfa = std.heap.stackFallback(512, self.allocator);
         const allocator = sfa.get();
-        var stream = std.ArrayList(u8).init(allocator);
-        defer stream.deinit();
-        var writer = stream.writer();
+        var stream = std.ArrayListUnmanaged(u8).empty;
+        defer stream.deinit(allocator);
+        var writer = stream.writer(allocator);
         _ = try writer.write("\n");
         while (leading_ws > 0) : (leading_ws -= 1)
             _ = try writer.write(" ");
@@ -4358,9 +4364,9 @@ pub const Editor = struct {
             try move_cursor_left(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
             const allocator = sfa.get();
-            var stream = std.ArrayList(u8).init(allocator);
-            defer stream.deinit();
-            var writer = stream.writer();
+            var stream = std.ArrayListUnmanaged(u8).empty;
+            defer stream.deinit(allocator);
+            var writer = stream.writer(self.allocator);
             while (leading_ws > 0) : (leading_ws -= 1)
                 _ = try writer.write(" ");
             if (stream.items.len > 0)
@@ -4391,9 +4397,9 @@ pub const Editor = struct {
             try move_cursor_end(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
             const allocator = sfa.get();
-            var stream = std.ArrayList(u8).init(allocator);
-            defer stream.deinit();
-            var writer = stream.writer();
+            var stream = std.ArrayListUnmanaged(u8).empty;
+            defer stream.deinit(allocator);
+            var writer = stream.writer(allocator);
             _ = try writer.write("\n");
             while (leading_ws > 0) : (leading_ws -= 1)
                 _ = try writer.write(" ");
@@ -4541,14 +4547,14 @@ pub const Editor = struct {
                 self.syntax_refresh_full = true;
             if (self.syntax_last_rendered_root == null)
                 self.syntax_refresh_full = true;
-            var content_ = std.ArrayList(u8).init(self.allocator);
-            defer content_.deinit();
+            var content_ = std.ArrayListUnmanaged(u8).empty;
+            defer content_.deinit(self.allocator);
             {
                 const frame = tracy.initZone(@src(), .{ .name = "editor store syntax" });
                 defer frame.deinit();
-                try root.store(content_.writer(), eol_mode);
+                try root.store(content_.writer(self.allocator), eol_mode);
             }
-            const content = try content_.toOwnedSliceSentinel(0);
+            const content = try content_.toOwnedSliceSentinel(self.allocator, 0);
             defer self.allocator.free(content);
             if (self.syntax_refresh_full) {
                 {
@@ -4567,12 +4573,12 @@ pub const Editor = struct {
             } else {
                 if (self.syntax_last_rendered_root) |root_src| {
                     self.syntax_last_rendered_root = null;
-                    var old_content = std.ArrayList(u8).init(self.allocator);
-                    defer old_content.deinit();
+                    var old_content = std.ArrayListUnmanaged(u8).empty;
+                    defer old_content.deinit(self.allocator);
                     {
                         const frame = tracy.initZone(@src(), .{ .name = "editor store syntax" });
                         defer frame.deinit();
-                        try root_src.store(old_content.writer(), eol_mode);
+                        try root_src.store(old_content.writer(self.allocator), eol_mode);
                     }
                     {
                         const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
@@ -4599,9 +4605,9 @@ pub const Editor = struct {
                 }
             }
         } else {
-            var content = std.ArrayList(u8).init(self.allocator);
-            defer content.deinit();
-            try root.store(content.writer(), eol_mode);
+            var content = std.ArrayListUnmanaged(u8).empty;
+            defer content.deinit(self.allocator);
+            try root.store(content.writer(self.allocator), eol_mode);
             self.syntax = syntax.create_guess_file_type(self.allocator, content.items, self.file_path, tui.query_cache()) catch |e| switch (e) {
                 error.NotFound => null,
                 else => return e,
@@ -4652,22 +4658,20 @@ pub const Editor = struct {
     pub fn dump_current_line(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        var tree = std.ArrayList(u8).init(self.allocator);
-        defer tree.deinit();
-        root.debug_render_chunks(primary.cursor.row, &tree, self.metrics) catch |e|
+        const tree = root.debug_render_chunks(self.allocator, primary.cursor.row, self.metrics) catch |e|
             return self.logger.print("line {d}: {any}", .{ primary.cursor.row, e });
-        self.logger.print("line {d}:{s}", .{ primary.cursor.row, std.fmt.fmtSliceEscapeLower(tree.items) });
+        defer self.allocator.free(tree);
+        self.logger.print("line {d}:{s}", .{ primary.cursor.row, std.fmt.fmtSliceEscapeLower(tree) });
     }
     pub const dump_current_line_meta: Meta = .{ .description = "Debug: dump current line" };
 
     pub fn dump_current_line_tree(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        var tree = std.ArrayList(u8).init(self.allocator);
-        defer tree.deinit();
-        root.debug_line_render_tree(primary.cursor.row, &tree) catch |e|
+        const tree = root.debug_line_render_tree(self.allocator, primary.cursor.row) catch |e|
             return self.logger.print("line {d} ast: {any}", .{ primary.cursor.row, e });
-        self.logger.print("line {d} ast:{s}", .{ primary.cursor.row, std.fmt.fmtSliceEscapeLower(tree.items) });
+        defer self.allocator.free(tree);
+        self.logger.print("line {d} ast:{s}", .{ primary.cursor.row, std.fmt.fmtSliceEscapeLower(tree) });
     }
     pub const dump_current_line_tree_meta: Meta = .{ .description = "Debug: dump current line (tree)" };
 
@@ -5319,11 +5323,11 @@ pub const Editor = struct {
         const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
         defer frame.deinit();
 
-        var content_ = std.ArrayList(u8).init(self.allocator);
-        defer content_.deinit();
+        var content_ = std.ArrayListUnmanaged(u8).empty;
+        defer content_.deinit(self.allocator);
         const root = self.buf_root() catch return;
         const eol_mode = self.buf_eol_mode() catch return;
-        try root.store(content_.writer(), eol_mode);
+        try root.store(content_.writer(self.allocator), eol_mode);
         const content = content_.items;
         var last_begin_row: usize = 0;
         var last_begin_col_pos: usize = 0;
@@ -5503,11 +5507,12 @@ pub const Editor = struct {
             return;
         }
         if (self.get_formatter()) |fmtr| {
-            var args = std.ArrayList(u8).init(self.allocator);
-            const writer = args.writer();
+            var args = std.ArrayListUnmanaged(u8).empty;
+            defer args.deinit(self.allocator);
+            const writer = args.writer(self.allocator);
             try cbor.writeArrayHeader(writer, fmtr.len);
             for (fmtr) |arg| try cbor.writeValue(writer, arg);
-            try self.filter_cmd(.{ .buf = args.items });
+            try self.filter_cmd(.{ .buf = try args.toOwnedSlice(self.allocator) });
             return;
         }
         return tp.exit("no formatter");
@@ -5698,11 +5703,12 @@ pub const Editor = struct {
             saved.cursor = sel.end;
             break :ret sel;
         };
-        var result = std.ArrayList(u8).init(self.allocator);
-        defer result.deinit();
+        var result = std.ArrayListUnmanaged(u8).empty;
+        defer result.deinit(self.allocator);
         const writer: struct {
             self_: *Self,
-            result: *std.ArrayList(u8),
+            result: *std.ArrayListUnmanaged(u8),
+            allocator: std.mem.Allocator,
 
             const Error = @typeInfo(@typeInfo(@TypeOf(Buffer.unicode.CaseData.toUpperStr)).@"fn".return_type.?).error_union.error_set;
             pub fn write(writer: *@This(), bytes: []const u8) Error!void {
@@ -5712,7 +5718,7 @@ pub const Editor = struct {
                 else
                     try cd.toLowerStr(writer.self_.allocator, bytes);
                 defer writer.self_.allocator.free(flipped);
-                return writer.result.appendSlice(flipped);
+                return writer.result.appendSlice(writer.allocator, flipped);
             }
             fn map_error(e: anyerror, _: ?*std.builtin.StackTrace) Error {
                 return @errorCast(e);
@@ -5720,6 +5726,7 @@ pub const Editor = struct {
         } = .{
             .self_ = self,
             .result = &result,
+            .allocator = allocator,
         };
         self.write_range(root, sel.*, writer, @TypeOf(writer).map_error, null) catch return error.Stop;
         root = try self.delete_selection(root, cursel, allocator);
@@ -5787,17 +5794,17 @@ pub const Editor = struct {
         self.syntax_incremental_reparse = false;
 
         self.syntax = syntax: {
-            var content = std.ArrayList(u8).init(self.allocator);
-            defer content.deinit();
+            var content = std.ArrayListUnmanaged(u8).empty;
+            defer content.deinit(self.allocator);
             const root = try self.buf_root();
-            try root.store(content.writer(), try self.buf_eol_mode());
+            try root.store(content.writer(self.allocator), try self.buf_eol_mode());
             const syn = syntax.create_file_type(self.allocator, file_type, tui.query_cache()) catch null;
             if (syn) |syn_| if (self.file_path) |file_path|
                 project_manager.did_open(
                     file_path,
                     syn_.file_type,
                     self.lsp_version,
-                    try content.toOwnedSlice(),
+                    try content.toOwnedSlice(self.allocator),
                     if (self.buffer) |p| p.is_ephemeral() else true,
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
@@ -6066,7 +6073,7 @@ pub const PosToWidthCache = struct {
 
     pub fn init(allocator: Allocator) !Self {
         return .{
-            .cache = try std.ArrayList(usize).initCapacity(allocator, 2048),
+            .cache = try .initCapacity(allocator, 2048),
         };
     }
 

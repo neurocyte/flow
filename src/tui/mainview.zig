@@ -250,9 +250,9 @@ fn open_style_config(self: *Self, Style: type) command.Result {
         break :blk .{ style, style_bufs };
     } else .{ Style{}, &.{} };
     defer root.free_config(self.allocator, style_bufs);
-    var conf = std.ArrayList(u8).init(self.allocator);
-    defer conf.deinit();
-    root.write_config_to_writer(Style, style, conf.writer()) catch {};
+    var conf = std.ArrayListUnmanaged(u8).empty;
+    defer conf.deinit(self.allocator);
+    root.write_config_to_writer(Style, style, conf.writer(self.allocator)) catch {};
     tui.reset_drag_context();
     try self.create_editor();
     try command.executeName("open_scratch_buffer", command.fmt(.{

@@ -1030,7 +1030,9 @@ const Node = union(enum) {
         return error.NotFound;
     }
 
-    pub fn debug_render_chunks(self: *const Node, line: usize, output: *ArrayList(u8), metrics_: Metrics) !void {
+    pub fn debug_render_chunks(self: *const Node, allocator: std.mem.Allocator, line: usize, metrics_: Metrics) ![]const u8 {
+        var output = std.ArrayList(u8).init(allocator);
+        defer output.deinit();
         const ctx_ = struct {
             l: *ArrayList(u8),
             wcwidth: usize = 0,
@@ -1041,17 +1043,23 @@ const Node = union(enum) {
                 return if (!leaf.eol) Walker.keep_walking else Walker.stop;
             }
         };
-        var ctx: ctx_ = .{ .l = output };
+        var ctx: ctx_ = .{ .l = &output };
         const found = self.walk_from_line_begin_const(line, ctx_.walker, &ctx, metrics_) catch true;
         if (!found) return error.NotFound;
 
         var buf: [16]u8 = undefined;
         const wcwidth = try std.fmt.bufPrint(&buf, "{d}", .{ctx.wcwidth});
         try output.appendSlice(wcwidth);
+        return output.toOwnedSlice();
     }
 
-    pub fn debug_line_render_tree(self: *const Node, line: usize, l: *ArrayList(u8)) !void {
-        return if (self.find_line_node(line)) |n| n.debug_render_tree(l, 0) else error.NotFound;
+    pub fn debug_line_render_tree(self: *const Node, allocator: std.mem.Allocator, line: usize) ![]const u8 {
+        return if (self.find_line_node(line)) |n| blk: {
+            var l = std.ArrayList(u8).init(allocator);
+            defer l.deinit();
+            n.debug_render_tree(&l, 0);
+            break :blk l.toOwnedSlice();
+        } else error.NotFound;
     }
 };
 
