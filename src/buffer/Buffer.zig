@@ -14,7 +14,7 @@ pub const Manager = @import("Manager.zig");
 pub const Cursor = @import("Cursor.zig");
 pub const View = @import("View.zig");
 pub const Selection = @import("Selection.zig");
-pub const MetaWriter = std.ArrayList(u8).Writer;
+pub const MetaWriter = std.ArrayListUnmanaged(u8).Writer;
 
 pub const Metrics = struct {
     ctx: *const anyopaque,

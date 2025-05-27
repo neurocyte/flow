@@ -462,9 +462,9 @@ pub const Editor = struct {
     }
 
     fn deinit(self: *Self) void {
-        var meta = std.ArrayList(u8).init(self.allocator);
-        defer meta.deinit();
-        if (self.buffer) |_| self.write_state(meta.writer()) catch {};
+        var meta = std.ArrayListUnmanaged(u8).empty;
+        defer meta.deinit(self.allocator);
+        if (self.buffer) |_| self.write_state(meta.writer(self.allocator)) catch {};
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
@@ -631,9 +631,9 @@ pub const Editor = struct {
     }
 
     fn close(self: *Self) !void {
-        var meta = std.ArrayList(u8).init(self.allocator);
-        defer meta.deinit();
-        self.write_state(meta.writer()) catch {};
+        var meta = std.ArrayListUnmanaged(u8).empty;
+        defer meta.deinit(self.allocator);
+        self.write_state(meta.writer(self.allocator)) catch {};
         if (self.buffer) |b_mut| self.buffer_manager.retire(b_mut, meta.items);
         self.cancel_all_selections();
         self.buffer = null;
@@ -697,19 +697,19 @@ pub const Editor = struct {
     }
 
     fn store_undo_meta(self: *Self, allocator: Allocator) ![]u8 {
-        var meta = std.ArrayList(u8).init(allocator);
-        const writer = meta.writer();
+        var meta = std.ArrayListUnmanaged(u8).empty;
+        const writer = meta.writer(allocator);
         for (self.cursels_saved.items) |*cursel_| if (cursel_.*) |*cursel|
             try cursel.write(writer);
-        return meta.toOwnedSlice();
+        return meta.toOwnedSlice(allocator);
     }
 
     fn store_current_undo_meta(self: *Self, allocator: Allocator) ![]u8 {
-        var meta = std.ArrayList(u8).init(allocator);
-        const writer = meta.writer();
+        var meta = std.ArrayListUnmanaged(u8).empty;
+        const writer = meta.writer(allocator);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             try cursel.write(writer);
-        return meta.toOwnedSlice();
+        return meta.toOwnedSlice(allocator);
     }
 
     pub fn update_buf(self: *Self, root: Buffer.Root) !void {

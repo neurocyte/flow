@@ -1209,8 +1209,8 @@ pub fn write_restore_info(self: *Self) void {
     const editor = self.get_active_editor() orelse return;
     var sfa = std.heap.stackFallback(512, self.allocator);
     const a = sfa.get();
-    var meta = std.ArrayList(u8).init(a);
-    editor.write_state(meta.writer()) catch return;
+    var meta = std.ArrayListUnmanaged(u8).empty;
+    editor.write_state(meta.writer(a)) catch return;
     const file_name = root.get_restore_file_name() catch return;
     var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch return;
     defer file.close();
