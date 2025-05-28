@@ -65,6 +65,8 @@ zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/aa
 
 When cross-compiling zig will build a binary with generic CPU support.
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/neurocyte/flow)
+
 # Running Flow Control
 
 The binary is:
