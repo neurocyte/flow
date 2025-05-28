@@ -244,7 +244,9 @@ const Process = struct {
             .integer => |i| i,
             else => return,
         } else return;
-        if (path) |p| {
+        if (path) |p_| {
+            const prefix = "././";
+            const p = if (p_.len >= prefix.len and std.mem.eql(u8, p_[0..prefix.len], prefix)) p_[prefix.len..] else p_;
             const match_text = if (lines) |l|
                 if (l[l.len - 1] == '\n') l[0 .. l.len - 1] else l
             else
