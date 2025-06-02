@@ -276,6 +276,7 @@ pub const Editor = struct {
     cursels: CurSel.List = .empty,
     cursels_saved: CurSel.List = .empty,
     selection_mode: SelectMode = .char,
+    selection_drag_initial: ?Selection = null,
     clipboard: ?[]const u8 = null,
     target_column: ?Cursor = null,
     filter_: ?struct {
@@ -2280,6 +2281,7 @@ pub const Editor = struct {
         self.selection_mode = .word;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         _ = try self.select_word_at_cursor(primary);
+        self.selection_drag_initial = primary.selection;
         self.clamp_mouse();
     }
 
@@ -2290,6 +2292,7 @@ pub const Editor = struct {
         self.selection_mode = .line;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         try self.select_line_at_cursor(primary);
+        self.selection_drag_initial = primary.selection;
         self.clamp_mouse();
     }
 
@@ -2300,17 +2303,29 @@ pub const Editor = struct {
         const root = self.buf_root() catch return;
         const sel = primary.enable_selection(root, self.metrics) catch return;
         sel.end.move_abs(root, &self.view, @intCast(y_), @intCast(x_), self.metrics) catch return;
+        const initial = self.selection_drag_initial orelse sel.*;
         switch (self.selection_mode) {
             .char => {},
-            .word => if (sel.begin.right_of(sel.end))
-                with_selection_const(root, move_cursor_word_begin, primary, self.metrics) catch return
-            else
-                with_selection_const(root, move_cursor_word_end, primary, self.metrics) catch return,
-            .line => if (sel.begin.right_of(sel.end))
-                with_selection_const(root, move_cursor_begin, primary, self.metrics) catch return
-            else {
-                with_selection_const(root, move_cursor_end, primary, self.metrics) catch return;
-                with_selection_const(root, move_cursor_right, primary, self.metrics) catch return;
+            .word => {
+                if (sel.begin.right_of(sel.end)) {
+                    sel.begin = initial.end;
+                    with_selection_const(root, move_cursor_word_begin, primary, self.metrics) catch {};
+                } else {
+                    sel.begin = initial.begin;
+                    with_selection_const(root, move_cursor_word_end, primary, self.metrics) catch {};
+                }
+            },
+            .line => {
+                if (sel.begin.right_of(sel.end)) {
+                    sel.begin = initial.end;
+                    with_selection_const(root, move_cursor_begin, primary, self.metrics) catch {};
+                } else {
+                    sel.begin = initial.begin;
+                    blk: {
+                        with_selection_const(root, move_cursor_end, primary, self.metrics) catch break :blk;
+                        with_selection_const(root, move_cursor_right, primary, self.metrics) catch {};
+                    }
+                }
             },
         }
         primary.cursor = sel.end;
@@ -4081,7 +4096,7 @@ pub const Editor = struct {
         defer cursel.check_selection(root, self.metrics);
         sel.normalize();
         try move_cursor_word_begin(root, &sel.begin, self.metrics);
-        try move_cursor_word_end(root, &sel.end, self.metrics);
+        move_cursor_word_end(root, &sel.end, self.metrics) catch {};
         cursel.cursor = sel.end;
         return sel;
     }
@@ -4091,7 +4106,7 @@ pub const Editor = struct {
         const sel = try cursel.enable_selection(root, self.metrics);
         sel.normalize();
         try move_cursor_begin(root, &sel.begin, self.metrics);
-        try move_cursor_end(root, &sel.end, self.metrics);
+        move_cursor_end(root, &sel.end, self.metrics) catch {};
         cursel.cursor = sel.end;
     }
 
