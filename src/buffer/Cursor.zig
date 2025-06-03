@@ -218,24 +218,21 @@ pub fn nudge_insert(self: *Self, nudge: Selection) void {
 }
 
 pub fn nudge_delete(self: *Self, nudge: Selection) bool {
-    if (self.row < nudge.begin.row or (self.row == nudge.begin.row and self.col < nudge.begin.col)) return true;
+    if (nudge.begin.right_of(self.*)) return true;
+    if (nudge.end.right_of(self.*)) return false;
+
     if (self.row == nudge.begin.row) {
-        if (nudge.begin.row < nudge.end.row) {
-            return false;
-        } else {
-            if (self.col < nudge.end.col) {
-                return false;
-            }
-            self.col -= nudge.end.col - nudge.begin.col;
-            self.target = self.col;
-            return true;
-        }
+        self.col -= nudge.end.col - nudge.begin.col;
+        self.target = self.col;
+        return true;
     }
-    if (self.row < nudge.end.row) return false;
     if (self.row == nudge.end.row) {
-        if (self.col < nudge.end.col) return false;
         self.row -= nudge.end.row - nudge.begin.row;
-        self.col -= nudge.end.col;
+        if (self.row == nudge.begin.row) {
+            self.col += nudge.begin.col + nudge.end.col;
+        } else {
+            self.col -= nudge.end.col;
+        }
         self.target = self.col;
         return true;
     }
