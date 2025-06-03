@@ -520,6 +520,7 @@ pub fn delete_task(self: *Self, command: []const u8) error{}!void {
 }
 
 pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) StartLspError!void {
+    defer std.heap.c_allocator.free(text);
     self.update_mru(file_path, 0, 0) catch {};
     const lsp = try self.get_or_start_language_server(file_path, language_server);
     const uri = try self.make_URI(file_path);
@@ -529,7 +530,10 @@ pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, langu
     }) catch return error.LspFailed;
 }
 
-pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_addr: usize, root_src_addr: usize, eol_mode: Buffer.EolMode) LspError!void {
+pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) LspError!void {
+    _ = eol_mode;
+    defer std.heap.c_allocator.free(text_dst);
+    defer std.heap.c_allocator.free(text_src);
     const lsp = try self.get_language_server(file_path);
     const uri = try self.make_URI(file_path);
 
@@ -545,22 +549,11 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
             self.allocator.free(scratch);
     }
 
-    const root_dst: Buffer.Root = if (root_dst_addr == 0) return else @ptrFromInt(root_dst_addr);
-    const root_src: Buffer.Root = if (root_src_addr == 0) return else @ptrFromInt(root_src_addr);
-
     var dizzy_edits = std.ArrayListUnmanaged(dizzy.Edit){};
-    var dst = std.ArrayList(u8).init(arena);
-    var src = std.ArrayList(u8).init(arena);
     var edits_cb = std.ArrayList(u8).init(arena);
     const writer = edits_cb.writer();
 
-    {
-        const frame = tracy.initZone(@src(), .{ .name = "store" });
-        defer frame.deinit();
-        try root_dst.store(dst.writer(), eol_mode);
-        try root_src.store(src.writer(), eol_mode);
-    }
-    const scratch_len = 4 * (dst.items.len + src.items.len) + 2;
+    const scratch_len = 4 * (text_dst.len + text_src.len) + 2;
     const scratch = blk: {
         const frame = tracy.initZone(@src(), .{ .name = "scratch" });
         defer frame.deinit();
@@ -571,7 +564,7 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
     {
         const frame = tracy.initZone(@src(), .{ .name = "diff" });
         defer frame.deinit();
-        try dizzy.PrimitiveSliceDiffer(u8).diff(arena, &dizzy_edits, src.items, dst.items, scratch);
+        try dizzy.PrimitiveSliceDiffer(u8).diff(arena, &dizzy_edits, text_src, text_dst, scratch);
     }
     var lines_dst: usize = 0;
     var last_offset: usize = 0;
@@ -583,7 +576,7 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
         for (dizzy_edits.items) |dizzy_edit| {
             switch (dizzy_edit.kind) {
                 .equal => {
-                    scan_char(src.items[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
+                    scan_char(text_src[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
                 },
                 .insert => {
                     const line_start_dst: usize = lines_dst;
@@ -592,15 +585,15 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, root_dst_a
                             .start = .{ .line = line_start_dst, .character = last_offset },
                             .end = .{ .line = line_start_dst, .character = last_offset },
                         },
-                        .text = dst.items[dizzy_edit.range.start..dizzy_edit.range.end],
+                        .text = text_dst[dizzy_edit.range.start..dizzy_edit.range.end],
                     });
                     edits_count += 1;
-                    scan_char(dst.items[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
+                    scan_char(text_dst[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', &last_offset);
                 },
                 .delete => {
                     var line_end_dst: usize = lines_dst;
                     var offset_end_dst: usize = last_offset;
-                    scan_char(src.items[dizzy_edit.range.start..dizzy_edit.range.end], &line_end_dst, '\n', &offset_end_dst);
+                    scan_char(text_src[dizzy_edit.range.start..dizzy_edit.range.end], &line_end_dst, '\n', &offset_end_dst);
                     try cbor.writeValue(writer, .{
                         .range = .{
                             .start = .{ .line = lines_dst, .character = last_offset },

@@ -571,11 +571,11 @@ pub const Editor = struct {
         self.syntax = syntax: {
             const lang_override = file_type orelse tp.env.get().str("language");
             var content = std.ArrayListUnmanaged(u8).empty;
-            defer content.deinit(self.allocator);
+            defer content.deinit(std.heap.c_allocator);
             {
                 const frame_ = tracy.initZone(@src(), .{ .name = "store" });
                 defer frame_.deinit();
-                try new_buf.root.store(content.writer(self.allocator), new_buf.file_eol_mode);
+                try new_buf.root.store(content.writer(std.heap.c_allocator), new_buf.file_eol_mode);
             }
 
             const syn_file_type = blk: {
@@ -603,7 +603,7 @@ pub const Editor = struct {
                     file_path,
                     syn_.file_type,
                     self.lsp_version,
-                    try content.toOwnedSlice(self.allocator),
+                    try content.toOwnedSlice(std.heap.c_allocator),
                     new_buf.is_ephemeral(),
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
@@ -1669,10 +1669,18 @@ pub const Editor = struct {
         return if (p) |p_| @intFromPtr(p_) else 0;
     }
 
+    fn text_from_root(root_: ?Buffer.Root, eol_mode: Buffer.EolMode) ![]const u8 {
+        const root = root_ orelse return &.{};
+        var text = std.ArrayList(u8).init(std.heap.c_allocator);
+        defer text.deinit();
+        try root.store(text.writer(), eol_mode);
+        return text.toOwnedSlice();
+    }
+
     fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
         _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root), @intFromEnum(eol_mode) });
         if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
-            project_manager.did_change(file_path, self.lsp_version, token_from(new_root), token_from(old_root), eol_mode) catch {};
+            project_manager.did_change(file_path, self.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
     }
 
     fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool) !void {
@@ -5809,16 +5817,16 @@ pub const Editor = struct {
 
         self.syntax = syntax: {
             var content = std.ArrayListUnmanaged(u8).empty;
-            defer content.deinit(self.allocator);
+            defer content.deinit(std.heap.c_allocator);
             const root = try self.buf_root();
-            try root.store(content.writer(self.allocator), try self.buf_eol_mode());
+            try root.store(content.writer(std.heap.c_allocator), try self.buf_eol_mode());
             const syn = syntax.create_file_type(self.allocator, file_type, tui.query_cache()) catch null;
             if (syn) |syn_| if (self.file_path) |file_path|
                 project_manager.did_open(
                     file_path,
                     syn_.file_type,
                     self.lsp_version,
-                    try content.toOwnedSlice(self.allocator),
+                    try content.toOwnedSlice(std.heap.c_allocator),
                     if (self.buffer) |p| p.is_ephemeral() else true,
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
