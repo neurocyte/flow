@@ -12,6 +12,7 @@ highlight_current_line: bool = true,
 highlight_current_line_gutter: bool = true,
 highlight_columns: []const u8 = "80 100 120",
 highlight_columns_alpha: u8 = 240,
+highlight_columns_enabled: bool = false,
 whitespace_mode: []const u8 = "none",
 inline_diagnostics: bool = true,
 animation_min_lag: usize = 0, //milliseconds

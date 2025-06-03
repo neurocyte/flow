@@ -138,7 +138,7 @@ fn init(allocator: Allocator) InitError!*Self {
     self.* = .{
         .allocator = allocator,
         .config_ = conf,
-        .highlight_columns_ = highlight_columns__,
+        .highlight_columns_ = if (conf.highlight_columns_enabled) highlight_columns__ else &.{},
         .highlight_columns_configured = highlight_columns__,
         .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), dispatch_initialized),
         .frame_time = frame_time,
@@ -162,7 +162,7 @@ fn init(allocator: Allocator) InitError!*Self {
     var it = std.mem.splitScalar(u8, conf.highlight_columns, ' ');
     var idx: usize = 0;
     while (it.next()) |arg| {
-        self.highlight_columns_[idx] = std.fmt.parseInt(u16, arg, 10) catch 0;
+        highlight_columns__[idx] = std.fmt.parseInt(u16, arg, 10) catch 0;
         idx += 1;
     }
 
@@ -797,6 +797,8 @@ const cmds = struct {
     pub fn toggle_highlight_columns(self: *Self, _: Ctx) Result {
         defer self.logger.print("highlight columns {s}", .{if (self.highlight_columns_.len > 0) "enabled" else "disabled"});
         self.highlight_columns_ = if (self.highlight_columns_.len > 0) &.{} else self.highlight_columns_configured;
+        self.config_.highlight_columns_enabled = self.highlight_columns_.len > 0;
+        try save_config();
     }
     pub const toggle_highlight_columns_meta: Meta = .{ .description = "Toggle highlight columns" };
 
