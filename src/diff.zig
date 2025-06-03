@@ -38,10 +38,23 @@ pub const AsyncDiffer = struct {
         }
     }
 
+    fn text_from_root(root: Buffer.Root, eol_mode: Buffer.EolMode) ![]const u8 {
+        var text = std.ArrayList(u8).init(std.heap.c_allocator);
+        defer text.deinit();
+        try root.store(text.writer(), eol_mode);
+        return text.toOwnedSlice();
+    }
+
     pub const CallBack = fn (from: tp.pid_ref, edits: []Diff) void;
 
     pub fn diff(self: @This(), cb: *const CallBack, root_dst: Buffer.Root, root_src: Buffer.Root, eol_mode: Buffer.EolMode) tp.result {
-        if (self.pid) |pid| try pid.send(.{ "D", @intFromPtr(cb), @intFromPtr(root_dst), @intFromPtr(root_src), @intFromEnum(eol_mode) });
+        const text_dst = text_from_root(root_dst, eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        errdefer std.heap.c_allocator.free(text_dst);
+        const text_src = text_from_root(root_src, eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        errdefer std.heap.c_allocator.free(text_src);
+        const text_dst_ptr: usize = if (text_dst.len > 0) @intFromPtr(text_dst.ptr) else 0;
+        const text_src_ptr: usize = if (text_src.len > 0) @intFromPtr(text_src.ptr) else 0;
+        if (self.pid) |pid| try pid.send(.{ "D", @intFromPtr(cb), text_dst_ptr, text_dst.len, text_src_ptr, text_src.len });
     }
 };
 
@@ -72,31 +85,29 @@ const Process = struct {
         errdefer self.deinit();
 
         var cb: usize = 0;
-        var root_dst: usize = 0;
-        var root_src: usize = 0;
-        var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
+        var text_dst_ptr: usize = 0;
+        var text_dst_len: usize = 0;
+        var text_src_ptr: usize = 0;
+        var text_src_len: usize = 0;
 
-        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&root_dst), tp.extract(&root_src), tp.extract(&eol_mode) }))
-            do_diff_async(from, cb, root_dst, root_src, @enumFromInt(eol_mode)) catch |e| tp.exit_error(e, @errorReturnTrace())
-        else if (try m.match(.{"shutdown"}))
+        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len) })) blk: {
+            const text_dst = if (text_dst_len > 0) @as([*]const u8, @ptrFromInt(text_dst_ptr))[0..text_dst_len] else "";
+            const text_src = if (text_src_len > 0) @as([*]const u8, @ptrFromInt(text_src_ptr))[0..text_src_len] else "";
+            break :blk do_diff_async(from, cb, text_dst, text_src) catch |e| tp.exit_error(e, @errorReturnTrace());
+        } else if (try m.match(.{"shutdown"}))
             tp.exit_normal();
     }
 
-    fn do_diff_async(from_: tp.pid_ref, cb_addr: usize, root_dst_addr: usize, root_src_addr: usize, eol_mode: Buffer.EolMode) !void {
+    fn do_diff_async(from_: tp.pid_ref, cb_addr: usize, text_dst: []const u8, text_src: []const u8) !void {
+        defer std.heap.c_allocator.free(text_dst);
+        defer std.heap.c_allocator.free(text_src);
         const cb_: *AsyncDiffer.CallBack = if (cb_addr == 0) return else @ptrFromInt(cb_addr);
-        const root_dst: Buffer.Root = if (root_dst_addr == 0) return else @ptrFromInt(root_dst_addr);
-        const root_src: Buffer.Root = if (root_src_addr == 0) return else @ptrFromInt(root_src_addr);
 
         var arena_ = std.heap.ArenaAllocator.init(allocator);
         defer arena_.deinit();
         const arena = arena_.allocator();
 
-        var dst = std.ArrayList(u8).init(arena);
-        var src = std.ArrayList(u8).init(arena);
-        try root_dst.store(dst.writer(), eol_mode);
-        try root_src.store(src.writer(), eol_mode);
-
-        const edits = try diff(arena, dst.items, src.items);
+        const edits = try diff(arena, text_dst, text_src);
         cb_(from_, edits);
     }
 };
