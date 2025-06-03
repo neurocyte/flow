@@ -217,6 +217,10 @@ pub fn putstr_unicode(self: *Plane, text: []const u8) !usize {
     return result;
 }
 
+pub fn putchar(self: *Plane, ecg: []const u8) void {
+    self.write_cell(@intCast(self.col), @intCast(self.row), ecg);
+}
+
 pub fn putc(self: *Plane, cell: *const Cell) !usize {
     return self.putc_yx(@intCast(self.row), @intCast(self.col), cell);
 }

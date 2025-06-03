@@ -266,6 +266,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.erase();
     self.plane.home();
     if (self.fire) |*fire| fire.render();
+    self.plane.set_base_style(theme.editor);
 
     const style_title = if (tui.find_scope_style(theme, "function")) |sty| sty.style else theme.editor;
     const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;

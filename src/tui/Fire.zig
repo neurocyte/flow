@@ -67,6 +67,10 @@ const fire_white: u8 = fire_palette.len - 1;
 
 pub fn render(self: *Fire) void {
     self.plane.home();
+    const transparent = self.plane.transparent;
+    self.plane.transparent = false;
+    defer self.plane.transparent = transparent;
+
     var rand = self.prng.random();
 
     //update fire buf
@@ -118,7 +122,7 @@ pub fn render(self: *Fire) void {
 
             self.plane.set_fg_palindex(fire_palette[px_hi]) catch {};
             self.plane.set_bg_palindex(fire_palette[px_lo]) catch {};
-            _ = self.plane.putstr(px) catch {};
+            _ = self.plane.putchar(px);
         }
         self.plane.cursor_move_yx(-1, 0) catch {};
         self.plane.cursor_move_rel(1, 0) catch {};
