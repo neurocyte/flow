@@ -1222,6 +1222,7 @@ pub const LoadFromFileError = error{
     LockViolation,
     ProcessNotFound,
     Canceled,
+    PermissionDenied,
 };
 
 pub fn load_from_file(
@@ -1327,6 +1328,8 @@ pub const StoreToFileError = error{
     SystemResources,
     Unexpected,
     WouldBlock,
+    PermissionDenied,
+    MessageTooBig,
 };
 
 pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
