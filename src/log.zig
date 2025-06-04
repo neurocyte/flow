@@ -10,9 +10,14 @@ receiver: Receiver,
 subscriber: ?tp.pid,
 heap: [32 + 1024]u8,
 fba: std.heap.FixedBufferAllocator,
-msg_store: MsgStoreT,
+msg_store: MsgStore,
 
-const MsgStoreT = std.DoublyLinkedList([]u8);
+const MsgStore = std.DoublyLinkedList;
+const MsgStoreEntry = struct {
+    data: []u8,
+    node: MsgStore.Node,
+};
+
 const Receiver = tp.Receiver(*Self);
 
 const StartArgs = struct {
@@ -38,7 +43,7 @@ fn init(args: StartArgs) !*Self {
         .subscriber = null,
         .heap = undefined,
         .fba = std.heap.FixedBufferAllocator.init(&p.heap),
-        .msg_store = MsgStoreT{},
+        .msg_store = MsgStore{},
     };
     return p;
 }
@@ -55,17 +60,18 @@ fn log(msg: []const u8) void {
 fn store(self: *Self, m: tp.message) void {
     const allocator: std.mem.Allocator = self.fba.allocator();
     const buf: []u8 = allocator.alloc(u8, m.len()) catch return;
-    var node: *MsgStoreT.Node = allocator.create(MsgStoreT.Node) catch return;
-    node.data = buf;
+    var msg: *MsgStoreEntry = allocator.create(MsgStoreEntry) catch return;
+    msg.data = buf;
     @memcpy(buf, m.buf);
-    self.msg_store.append(node);
+    self.msg_store.append(&msg.node);
 }
 
 fn store_send(self: *Self) void {
     var node = self.msg_store.first;
     if (self.subscriber) |sub| {
         while (node) |node_| {
-            sub.send_raw(tp.message{ .buf = node_.data }) catch return;
+            const msg: *MsgStoreEntry = @fieldParentPtr("node", node_);
+            sub.send_raw(tp.message{ .buf = msg.data }) catch return;
             node = node_.next;
         }
     }
@@ -73,7 +79,7 @@ fn store_send(self: *Self) void {
 }
 
 fn store_reset(self: *Self) void {
-    self.msg_store = MsgStoreT{};
+    self.msg_store = MsgStore{};
     self.fba.reset();
 }
 
