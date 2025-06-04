@@ -579,7 +579,7 @@ const Loop = struct {
         switch (builtin.os.tag) {
             .windows => {
                 var parser: vaxis.Parser = .{
-                    .grapheme_data = &self.vaxis.unicode.width_data.g_data,
+                    .graphemes = &self.vaxis.unicode.graphemes,
                 };
                 const a = self.vaxis.opts.system_clipboard_allocator orelse @panic("no tty allocator");
                 while (!self.should_quit) {
@@ -588,7 +588,7 @@ const Loop = struct {
             },
             else => {
                 var parser: vaxis.Parser = .{
-                    .grapheme_data = &self.vaxis.unicode.width_data.g_data,
+                    .graphemes = &self.vaxis.unicode.graphemes,
                 };
 
                 const a = self.vaxis.opts.system_clipboard_allocator orelse @panic("no tty allocator");

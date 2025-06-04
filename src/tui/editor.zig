@@ -5672,7 +5672,7 @@ pub const Editor = struct {
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
-        const ucased = Buffer.unicode.get_case_data().toUpperStr(allocator, cut_text) catch return error.Stop;
+        const ucased = Buffer.unicode.get_letter_casing().toUpperStr(allocator, cut_text) catch return error.Stop;
         defer allocator.free(ucased);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
@@ -5700,7 +5700,7 @@ pub const Editor = struct {
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
         defer allocator.free(cut_text);
-        const ucased = Buffer.unicode.get_case_data().toLowerStr(allocator, cut_text) catch return error.Stop;
+        const ucased = Buffer.unicode.get_letter_casing().toLowerStr(allocator, cut_text) catch return error.Stop;
         defer allocator.free(ucased);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
@@ -5732,13 +5732,13 @@ pub const Editor = struct {
             result: *std.ArrayListUnmanaged(u8),
             allocator: std.mem.Allocator,
 
-            const Error = @typeInfo(@typeInfo(@TypeOf(Buffer.unicode.CaseData.toUpperStr)).@"fn".return_type.?).error_union.error_set;
+            const Error = @typeInfo(@typeInfo(@TypeOf(Buffer.unicode.LetterCasing.toUpperStr)).@"fn".return_type.?).error_union.error_set;
             pub fn write(writer: *@This(), bytes: []const u8) Error!void {
-                const cd = Buffer.unicode.get_case_data();
-                const flipped = if (cd.isLowerStr(bytes))
-                    try cd.toUpperStr(writer.self_.allocator, bytes)
+                const letter_casing = Buffer.unicode.get_letter_casing();
+                const flipped = if (letter_casing.isLowerStr(bytes))
+                    try letter_casing.toUpperStr(writer.self_.allocator, bytes)
                 else
-                    try cd.toLowerStr(writer.self_.allocator, bytes);
+                    try letter_casing.toLowerStr(writer.self_.allocator, bytes);
                 defer writer.self_.allocator.free(flipped);
                 return writer.result.appendSlice(writer.allocator, flipped);
             }

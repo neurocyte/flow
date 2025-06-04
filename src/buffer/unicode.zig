@@ -72,12 +72,12 @@ pub fn utf8_sanitize(allocator: std.mem.Allocator, input: []const u8) error{
     return output.toOwnedSlice(allocator);
 }
 
-pub const CaseData = @import("CaseData");
-var case_data: ?CaseData = null;
-var case_data_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+pub const LetterCasing = @import("LetterCasing");
+var letter_casing: ?LetterCasing = null;
+var letter_casing_arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
 
-pub fn get_case_data() *CaseData {
-    if (case_data) |*cd| return cd;
-    case_data = CaseData.init(case_data_arena.allocator()) catch @panic("CaseData.init");
-    return &case_data.?;
+pub fn get_letter_casing() *LetterCasing {
+    if (letter_casing) |*cd| return cd;
+    letter_casing = LetterCasing.init(letter_casing_arena.allocator()) catch @panic("LetterCasing.init");
+    return &letter_casing.?;
 }

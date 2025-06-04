@@ -353,7 +353,7 @@ pub fn build_exe(
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
-            .{ .name = "CaseData", .module = zg_dep.module("CaseData") },
+            .{ .name = "LetterCasing", .module = zg_dep.module("LetterCasing") },
         },
     });
 
