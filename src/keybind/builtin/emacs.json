@@ -20,6 +20,7 @@
         "press": [
             ["ctrl+g", "cancel"],
             ["ctrl+_", "undo"],
+            ["\u001f", "undo"],
             ["ctrl+k", ["select_end"], ["cut"]],
             ["ctrl+w", "cut"],
 
