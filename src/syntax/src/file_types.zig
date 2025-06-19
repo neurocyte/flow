@@ -42,6 +42,7 @@ pub const @"c-sharp" = .{
     .extensions = .{"cs"},
     .comment = "//",
     .language_server = .{ "omnisharp", "-lsp" },
+    .formatter = .{ "csharpier", "format" },
 };
 
 pub const conf = .{
