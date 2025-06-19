@@ -380,7 +380,10 @@ const cmds = struct {
             try open_project_cwd(self, .{});
         }
 
-        const f = project_manager.normalize_file_path(file orelse return);
+        const f_ = project_manager.normalize_file_path(file orelse return);
+        var buf = std.ArrayList(u8).init(self.allocator);
+        defer buf.deinit();
+        const f = project_manager.expand_home(&buf, f_);
         const same_file = if (self.get_active_file_path()) |fp| std.mem.eql(u8, fp, f) else false;
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
