@@ -413,6 +413,8 @@ const Process = struct {
             return;
         } else if (try cbor.match(m.buf, .{ "exit", "error.FileNotFound", tp.more })) {
             return;
+        } else if (try cbor.match(m.buf, .{ "exit", "error.LspFailed", tp.more })) {
+            return;
         } else {
             self.logger.err("receive", tp.unexpected(m));
         }
