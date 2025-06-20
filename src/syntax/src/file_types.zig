@@ -206,6 +206,15 @@ pub const superhtml = .{
     .formatter = .{ "superhtml", "fmt", "--stdin-super" },
 };
 
+pub const hurl = .{
+    .description = "Hurl",
+    .color = 0xff0087,
+    .icon = "",
+    .extensions = .{"hurl"},
+    .comment = "#",
+    .injections = "tree-sitter-hurl/queries/injections.scm",
+};
+
 pub const java = .{
     .description = "Java",
     .color = 0xEA2D2E,
