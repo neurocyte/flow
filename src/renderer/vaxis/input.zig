@@ -1,9 +1,7 @@
 const vaxis = @import("vaxis");
 
 const meta = @import("std").meta;
-const utf8Encode = @import("std").unicode.utf8Encode;
-const utf8Decode = @import("std").unicode.utf8Decode;
-const utf8ValidateSlice = @import("std").unicode.utf8ValidateSlice;
+const unicode = @import("std").unicode;
 const FormatOptions = @import("std").fmt.FormatOptions;
 
 pub const key = vaxis.Key;
@@ -133,8 +131,8 @@ pub const KeyEvent = struct {
         };
 
         var keypress_shifted: Key = keypress_shifted_;
-        if (text.len > 0 and text.len < 5 and utf8ValidateSlice(text)) blk: {
-            keypress_shifted = utf8Decode(text) catch break :blk;
+        if (text.len > 0) blk: {
+            keypress_shifted = tryUtf8Decode(text) catch break :blk;
         }
         const keypress, const mods = if (keypress_shifted == keypress_)
             map_key_to_unshifed_legacy(keypress_shifted, mods_)
@@ -151,8 +149,27 @@ pub const KeyEvent = struct {
     }
 };
 
+fn tryUtf8Decode(bytes: []const u8) !u21 {
+    return switch (bytes.len) {
+        1 => bytes[0],
+        2 => blk: {
+            if (bytes[0] & 0b11100000 != 0b11000000) break :blk error.Utf8Encoding2Invalid;
+            break :blk unicode.utf8Decode2(bytes[0..2].*);
+        },
+        3 => blk: {
+            if (bytes[0] & 0b11110000 != 0b11100000) break :blk error.Utf8Encoding3Invalid;
+            break :blk unicode.utf8Decode3(bytes[0..3].*);
+        },
+        4 => blk: {
+            if (bytes[0] & 0b11111000 != 0b11110000) break :blk error.Utf8Encoding4Invalid;
+            break :blk unicode.utf8Decode4(bytes[0..4].*);
+        },
+        else => error.Utf8CodepointLengthInvalid,
+    };
+}
+
 pub fn ucs32_to_utf8(ucs32: []const u32, utf8: []u8) !usize {
-    return @intCast(try utf8Encode(@intCast(ucs32[0]), utf8));
+    return @intCast(try unicode.utf8Encode(@intCast(ucs32[0]), utf8));
 }
 
 pub const utils = struct {

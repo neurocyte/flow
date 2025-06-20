@@ -413,6 +413,8 @@ const Process = struct {
             return;
         } else if (try cbor.match(m.buf, .{ "exit", "error.FileNotFound", tp.more })) {
             return;
+        } else if (try cbor.match(m.buf, .{ "exit", "error.LspFailed", tp.more })) {
+            return;
         } else {
             self.logger.err("receive", tp.unexpected(m));
         }
@@ -478,7 +480,9 @@ const Process = struct {
 
     fn request_path_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, path: []const u8) (ProjectError || SpawnError || std.fs.Dir.OpenError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        try request_path_files_async(self.allocator, from, project, max, path);
+        var buf = std.ArrayList(u8).init(self.allocator);
+        defer buf.deinit();
+        try request_path_files_async(self.allocator, from, project, max, expand_home(&buf, path));
     }
 
     fn request_tasks(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
@@ -808,4 +812,35 @@ pub fn normalize_file_path(file_path: []const u8) []const u8 {
     if (std.mem.eql(u8, project, file_path[0..project.len]) and file_path[project.len] == std.fs.path.sep)
         return file_path[project.len + 1 ..];
     return file_path;
+}
+
+pub fn abbreviate_home(buf: []u8, path: []const u8) []const u8 {
+    const a = std.heap.c_allocator;
+    if (builtin.os.tag == .windows) return path;
+    if (!std.fs.path.isAbsolute(path)) return path;
+    const homedir = std.posix.getenv("HOME") orelse return path;
+    const homerelpath = std.fs.path.relative(a, homedir, path) catch return path;
+    defer a.free(homerelpath);
+    if (homerelpath.len == 0) {
+        return "~";
+    } else if (homerelpath.len > 3 and std.mem.eql(u8, homerelpath[0..3], "../")) {
+        return path;
+    } else {
+        buf[0] = '~';
+        buf[1] = '/';
+        @memcpy(buf[2 .. homerelpath.len + 2], homerelpath);
+        return buf[0 .. homerelpath.len + 2];
+    }
+}
+
+pub fn expand_home(buf: *std.ArrayList(u8), file_path: []const u8) []const u8 {
+    if (builtin.os.tag == .windows) return file_path;
+    if (file_path.len > 0 and file_path[0] == '~') {
+        if (file_path.len > 1 and file_path[1] != std.fs.path.sep) return file_path;
+        const homedir = std.posix.getenv("HOME") orelse return file_path;
+        buf.appendSlice(homedir) catch return file_path;
+        buf.append(std.fs.path.sep) catch return file_path;
+        buf.appendSlice(file_path[2..]) catch return file_path;
+        return buf.items;
+    } else return file_path;
 }

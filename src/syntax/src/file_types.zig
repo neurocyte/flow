@@ -42,6 +42,7 @@ pub const @"c-sharp" = .{
     .extensions = .{"cs"},
     .comment = "//",
     .language_server = .{ "omnisharp", "-lsp" },
+    .formatter = .{ "csharpier", "format" },
 };
 
 pub const conf = .{
@@ -203,6 +204,15 @@ pub const superhtml = .{
     .injections = "tree-sitter-superhtml/tree-sitter-superhtml/queries/injections.scm",
     .language_server = .{ "superhtml", "lsp" },
     .formatter = .{ "superhtml", "fmt", "--stdin-super" },
+};
+
+pub const hurl = .{
+    .description = "Hurl",
+    .color = 0xff0087,
+    .icon = "",
+    .extensions = .{"hurl"},
+    .comment = "#",
+    .injections = "tree-sitter-hurl/queries/injections.scm",
 };
 
 pub const java = .{

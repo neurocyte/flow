@@ -4,6 +4,7 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 const Buffer = @import("Buffer");
 const root = @import("root");
+const project_manager = @import("project_manager");
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
@@ -177,7 +178,7 @@ fn render_terminal_title(self: *Self) void {
     var new_title_buf: [512]u8 = undefined;
 
     const project_path = tp.env.get().str("project");
-    const project_name = root.abbreviate_home(&project_name_buf, project_path);
+    const project_name = project_manager.abbreviate_home(&project_name_buf, project_path);
 
     const file_name = if (std.mem.lastIndexOfScalar(u8, self.name, '/')) |pos| self.name[pos + 1 ..] else self.name;
     const edit_state = if (!self.file_exists) "◌ " else if (self.file_dirty) " " else "";
@@ -210,7 +211,7 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.name = self.name_buf[0..file_path.len];
         self.file_exists = true;
         self.file_dirty = false;
-        self.name = root.abbreviate_home(&self.name_buf, self.name);
+        self.name = project_manager.abbreviate_home(&self.name_buf, self.name);
     } else if (try m.match(.{ "E", "open", tp.extract(&file_path), tp.extract(&self.file_exists), tp.extract(&file_type), tp.extract(&file_icon), tp.extract(&self.file_color) })) {
         self.eol_mode = .lf;
         @memcpy(self.name_buf[0..file_path.len], file_path);
@@ -221,7 +222,7 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.file_icon_buf[file_icon.len] = 0;
         self.file_icon = self.file_icon_buf[0..file_icon.len :0];
         self.file_dirty = false;
-        self.name = root.abbreviate_home(&self.name_buf, self.name);
+        self.name = project_manager.abbreviate_home(&self.name_buf, self.name);
         self.file = true;
     } else if (try m.match(.{ "E", "close" })) {
         self.name = "";
@@ -256,5 +257,5 @@ fn show_project(self: *Self) void {
     const project_name = tp.env.get().str("project");
     @memcpy(self.name_buf[0..project_name.len], project_name);
     self.name = self.name_buf[0..project_name.len];
-    self.name = root.abbreviate_home(&self.name_buf, self.name);
+    self.name = project_manager.abbreviate_home(&self.name_buf, self.name);
 }
