@@ -180,7 +180,12 @@ fn render_terminal_title(self: *Self) void {
     const project_path = tp.env.get().str("project");
     const project_name = project_manager.abbreviate_home(&project_name_buf, project_path);
 
-    const file_name = if (std.mem.lastIndexOfScalar(u8, self.name, '/')) |pos| self.name[pos + 1 ..] else self.name;
+    const file_name = if (self.name.len > 0 and self.name[0] == '*')
+        self.name
+    else if (std.mem.lastIndexOfScalar(u8, self.name, '/')) |pos|
+        self.name[pos + 1 ..]
+    else
+        self.name;
     const edit_state = if (!self.file_exists) "◌ " else if (self.file_dirty) " " else "";
 
     const new_title = if (self.file)

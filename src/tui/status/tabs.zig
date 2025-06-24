@@ -420,6 +420,8 @@ const Tab = struct {
 
     fn name_from_buffer(buffer: *Buffer) []const u8 {
         const file_path = buffer.file_path;
+        if (file_path.len > 0 and file_path[0] == '*')
+            return file_path;
         const basename_begin = std.mem.lastIndexOfScalar(u8, file_path, std.fs.path.sep);
         const basename = if (basename_begin) |begin| file_path[begin + 1 ..] else file_path;
         return basename;
