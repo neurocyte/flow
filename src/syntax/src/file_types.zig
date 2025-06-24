@@ -405,6 +405,14 @@ pub const php = .{
     .language_server = .{ "intelephense", "--stdio" },
 };
 
+pub const powershell = .{
+    .description = "PowerShell",
+    .color = 0x0873c5,
+    .icon = "",
+    .extensions = .{"ps1"},
+    .comment = "#",
+};
+
 pub const proto = .{
     .description = "protobuf (proto)",
     .extensions = .{"proto"},
