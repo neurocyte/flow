@@ -375,7 +375,11 @@ const Process = struct {
         self.write_log("### RECV:\n{s}\n###\n", .{bytes});
         self.frame_message_recv() catch |e| {
             self.write_log("### RECV error: {any}\n", .{e});
-            return e;
+            switch (e) {
+                // ignore invalid LSP messages that are at least framed correctly
+                error.InvalidMessage, error.InvalidMessageField => {},
+                else => return e,
+            }
         };
     }
 
