@@ -148,10 +148,11 @@ pub fn main() anyerror!void {
         return list_languages.list(a, stdout.writer(), tty_config);
     }
 
-    if (std.posix.getenv("JITDEBUG")) |_|
-        thespian.install_debugger()
-    else if (@hasDecl(renderer, "install_crash_handler"))
-        renderer.install_crash_handler();
+    if (builtin.os.tag != .windows)
+        if (std.posix.getenv("JITDEBUG")) |_|
+            thespian.install_debugger()
+        else if (@hasDecl(renderer, "install_crash_handler"))
+            renderer.install_crash_handler();
 
     if (args.debug_wait) {
         std.debug.print("press return to start", .{});
