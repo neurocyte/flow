@@ -433,7 +433,8 @@ pub const Editor = struct {
                 return error.RestoreFindHistory;
             self.push_find_history(value);
         }
-        self.clamp();
+        if (tui.config().follow_cursor_on_buffer_switch)
+            self.clamp();
     }
 
     fn init(self: *Self, allocator: Allocator, n: Plane, buffer_manager: *Buffer.Manager) void {
@@ -4715,7 +4716,8 @@ pub const Editor = struct {
         var file_path: []const u8 = undefined;
         if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
             try self.open(file_path);
-            self.clamp();
+            if (tui.config().follow_cursor_on_buffer_switch)
+                self.clamp();
         } else return error.InvalidOpenBufferFromFileArgument;
     }
     pub const open_buffer_from_file_meta: Meta = .{ .arguments = &.{.string} };
