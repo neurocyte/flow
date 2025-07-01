@@ -273,6 +273,7 @@ pub fn main() anyerror!void {
     }
 
     var have_project = false;
+    var have_file = false;
     if (args.project) |project| {
         try tui_proc.send(.{ "cmd", "open_project_dir", .{project} });
         have_project = true;
@@ -286,13 +287,16 @@ pub fn main() anyerror!void {
             try tui_proc.send(.{ "cmd", "open_project_dir", .{dir.path} });
             have_project = true;
         },
-        else => {},
+        else => {
+            have_file = true;
+        },
     };
 
     for (links.items) |link| {
         try file_link.navigate(tui_proc.ref(), &link);
     }
-    if (links.items.len == 0) {
+
+    if (!have_file) {
         if (!have_project)
             try tui_proc.send(.{ "cmd", "open_project_cwd" });
         try tui_proc.send(.{ "cmd", "show_home" });
