@@ -118,6 +118,34 @@ pub fn panic_in_progress() bool {
     return in_panic.load(.acquire);
 }
 
+pub fn install_crash_handler() void {
+    if (!std.debug.have_segfault_handling_support) {
+        @compileError("segfault handler not supported for this target");
+    }
+    const act = std.posix.Sigaction{
+        .handler = .{ .sigaction = handle_crash },
+        .mask = std.posix.empty_sigset,
+        .flags = (std.posix.SA.SIGINFO | std.posix.SA.RESTART),
+    };
+
+    std.posix.sigaction(std.posix.SIG.BUS, &act, null);
+    std.posix.sigaction(std.posix.SIG.SEGV, &act, null);
+    std.posix.sigaction(std.posix.SIG.ABRT, &act, null);
+    std.posix.sigaction(std.posix.SIG.FPE, &act, null);
+    std.posix.sigaction(std.posix.SIG.ILL, &act, null);
+}
+
+fn handle_crash(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
+    in_panic.store(true, .release);
+    const cleanup = panic_cleanup;
+    panic_cleanup = null;
+    if (cleanup) |self| {
+        self.vx.deinit(self.allocator, self.tty.anyWriter());
+        self.tty.deinit();
+    }
+    @import("std/debug.zig").handleSegfaultPosix(sig, info, ctx_ptr);
+}
+
 pub fn run(self: *Self) Error!void {
     self.vx.sgr = .legacy;
     self.vx.conpty_hacks = true;
