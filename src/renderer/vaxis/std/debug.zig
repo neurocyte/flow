@@ -78,13 +78,9 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("invalid error code", @returnAddress());
         }
-        pub fn castTruncatedData() noreturn {
+        pub fn integerOutOfBounds() noreturn {
             @branchHint(.cold);
-            call("integer cast truncated bits", @returnAddress());
-        }
-        pub fn negativeToUnsigned() noreturn {
-            @branchHint(.cold);
-            call("attempt to cast negative value to unsigned integer", @returnAddress());
+            call("integer does not fit in destination type", @returnAddress());
         }
         pub fn integerOverflow() noreturn {
             @branchHint(.cold);
@@ -126,9 +122,9 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("for loop over objects with non-equal lengths", @returnAddress());
         }
-        pub fn memcpyLenMismatch() noreturn {
+        pub fn copyLenMismatch() noreturn {
             @branchHint(.cold);
-            call("@memcpy arguments have non-equal lengths", @returnAddress());
+            call("source and destination arguments have non-equal lengths", @returnAddress());
         }
         pub fn memcpyAlias() noreturn {
             @branchHint(.cold);
@@ -165,9 +161,11 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
 
     // `@returnAddress()` in LLVM 10 gives
     // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
+    // On Emscripten, Zig only supports `@returnAddress()` in debug builds
+    // because Emscripten's implementation is very slow.
     .wasm32,
     .wasm64,
-    => native_os == .emscripten,
+    => native_os == .emscripten and builtin.mode == .Debug,
 
     // `@returnAddress()` is unsupported in LLVM 13.
     .bpfel,
@@ -586,15 +584,20 @@ pub fn defaultPanic(
 
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
-        builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
-    {
-        @trap();
+    switch (builtin.zig_backend) {
+        .stage2_aarch64,
+        .stage2_arm,
+        .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_spirv,
+        .stage2_wasm,
+        .stage2_x86,
+        => @trap(),
+        .stage2_x86_64 => switch (builtin.target.ofmt) {
+            .elf, .macho => {},
+            else => @trap(),
+        },
+        else => {},
     }
 
     switch (builtin.os.tag) {
@@ -615,9 +618,9 @@ pub fn defaultPanic(
             // isn't visible on actual hardware if directly booted into
             inline for ([_]?*uefi.protocol.SimpleTextOutput{ uefi.system_table.std_err, uefi.system_table.con_out }) |o| {
                 if (o) |out| {
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                    _ = out.outputString(exit_msg);
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+                    out.setAttribute(.{ .foreground = .red }) catch {};
+                    _ = out.outputString(exit_msg) catch {};
+                    out.setAttribute(.{ .foreground = .white }) catch {};
                 }
             }
 
@@ -752,7 +755,7 @@ pub const StackIterator = struct {
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch.isSPARC()) {
             // Flush all the register windows on stack.
-            asm volatile (if (std.Target.sparc.featureSetHas(builtin.cpu.features, .v9))
+            asm volatile (if (builtin.cpu.has(.sparc, .v9))
                     "flushw"
                 else
                     "ta 3" // ST_FLUSH_WINDOWS
@@ -904,6 +907,8 @@ pub const StackIterator = struct {
                 }
             }
         }
+
+        if (builtin.omit_frame_pointer) return null;
 
         const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
@@ -1371,12 +1376,11 @@ pub fn attachSegfaultHandler() void {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
-    var act = posix.Sigaction{
+    const act = posix.Sigaction{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
-
     updateSegfaultHandler(&act);
 }
 
@@ -1388,9 +1392,9 @@ fn resetSegfaultHandler() void {
         }
         return;
     }
-    var act = posix.Sigaction{
+    const act = posix.Sigaction{
         .handler = .{ .handler = posix.SIG.DFL },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = 0,
     };
     updateSegfaultHandler(&act);
@@ -1504,6 +1508,12 @@ fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_
 }
 
 fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) noreturn {
+    // For backends that cannot handle the language features used by this segfault handler, we have a simpler one,
+    switch (builtin.zig_backend) {
+        .stage2_x86_64 => if (builtin.target.ofmt == .coff) @trap(),
+        else => {},
+    }
+
     comptime assert(windows.CONTEXT != void);
     nosuspend switch (panic_stage) {
         0 => {

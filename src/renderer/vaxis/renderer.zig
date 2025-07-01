@@ -124,7 +124,7 @@ pub fn install_crash_handler() void {
     }
     const act = std.posix.Sigaction{
         .handler = .{ .sigaction = handle_crash },
-        .mask = std.posix.empty_sigset,
+        .mask = std.posix.sigemptyset(),
         .flags = (std.posix.SA.SIGINFO | std.posix.SA.RESTART),
     };
 
