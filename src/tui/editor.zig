@@ -2946,30 +2946,46 @@ pub const Editor = struct {
 
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |_| {
+                // just delete selection
                 root = self.delete_selection(root, cursel, b.allocator) catch continue;
                 all_stop = false;
                 continue;
             }
+
+            // detect indentation
+            const first = find_first_non_ws(root, cursel.cursor.row, self.metrics);
+
+            // select char to the left
             with_selection_const(root, move_cursor_left, cursel, self.metrics) catch continue;
 
+            // if we don't have a selection after move_cursor_left there is nothing to delete
             if (cursel.selection) |*sel| {
-                const egc_left, _, _ = sel.end.egc_at(root, self.metrics) catch {
-                    root = self.delete_selection(root, cursel, b.allocator) catch continue;
-                    all_stop = false;
-                    continue;
-                };
-                const egc_right, _, _ = sel.begin.egc_at(root, self.metrics) catch {
-                    root = self.delete_selection(root, cursel, b.allocator) catch continue;
-                    all_stop = false;
-                    continue;
-                };
+                if (first > sel.end.col) {
+                    // we are inside leading whitespace
+                    // select to next indentation boundary
+                    while (sel.end.col > 0 and sel.end.col % self.indent_size != 0)
+                        with_selection_const(root, move_cursor_left, cursel, self.metrics) catch break;
+                } else {
+                    // char being deleted
+                    const egc_left, _, _ = sel.end.egc_at(root, self.metrics) catch {
+                        root = self.delete_selection(root, cursel, b.allocator) catch continue;
+                        all_stop = false;
+                        continue;
+                    };
+                    // char to the right of char being deleted
+                    const egc_right, _, _ = sel.begin.egc_at(root, self.metrics) catch {
+                        root = self.delete_selection(root, cursel, b.allocator) catch continue;
+                        all_stop = false;
+                        continue;
+                    };
 
-                for (Buffer.unicode.char_pairs) |pair| if (std.mem.eql(u8, egc_left, pair[0]) and std.mem.eql(u8, egc_right, pair[1])) {
-                    sel.begin.move_right(root, self.metrics) catch {};
-                    break;
-                };
+                    // if left char is a smart pair left char, also delete smart pair right char
+                    for (Buffer.unicode.char_pairs) |pair| if (std.mem.eql(u8, egc_left, pair[0]) and std.mem.eql(u8, egc_right, pair[1])) {
+                        sel.begin.move_right(root, self.metrics) catch {};
+                        break;
+                    };
+                }
             }
-
             root = self.delete_selection(root, cursel, b.allocator) catch continue;
             all_stop = false;
         };
