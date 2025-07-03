@@ -8,6 +8,8 @@ const location_history = @import("location_history");
 const project_manager = @import("project_manager");
 const log = @import("log");
 const shell = @import("shell");
+const syntax = @import("syntax");
+const file_type_config = @import("file_type_config");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 
@@ -263,6 +265,22 @@ fn open_style_config(self: *Self, Style: type) command.Result {
     if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
 }
 
+fn get_file_type_config_file_path(allocator: std.mem.Allocator, file_type: []const u8) ![]const u8 {
+    var stream = std.ArrayList(u8).init(allocator);
+    const writer = stream.writer();
+    _ = try writer.writeAll(try root.get_config_dir());
+    _ = try writer.writeByte(std.fs.path.sep);
+    _ = try writer.writeAll("file_type");
+    _ = try writer.writeByte(std.fs.path.sep);
+    std.fs.makeDirAbsolute(stream.items) catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => return e,
+    };
+    _ = try writer.writeAll(file_type);
+    _ = try writer.writeAll(".conf");
+    return stream.toOwnedSlice();
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
@@ -491,6 +509,49 @@ const cmds = struct {
         try self.open_style_config(@import("home.zig").Style);
     }
     pub const open_home_style_config_meta: Meta = .{ .description = "Edit home screen" };
+
+    pub fn change_file_type(_: *Self, _: Ctx) Result {
+        return tui.open_overlay(
+            @import("mode/overlay/file_type_palette.zig").Variant("set_file_type", "Select file type").Type,
+        );
+    }
+    pub const change_file_type_meta: Meta = .{ .description = "Change file type" };
+
+    pub fn open_file_type_config(self: *Self, ctx: Ctx) Result {
+        var file_type_name: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&file_type_name)}) catch false))
+            return tui.open_overlay(
+                @import("mode/overlay/file_type_palette.zig").Variant("open_file_type_config", "Edit file type").Type,
+            );
+
+        const file_name = try get_file_type_config_file_path(self.allocator, file_type_name);
+        defer self.allocator.free(file_name);
+
+        const file: ?std.fs.File = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch null;
+        if (file) |f| {
+            f.close();
+            return tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+        }
+
+        const file_type = syntax.FileType.get_by_name(file_type_name) orelse return error.UnknownFileType;
+        const config = file_type_config.from_file_type(file_type);
+
+        var conf = std.ArrayListUnmanaged(u8).empty;
+        defer conf.deinit(self.allocator);
+        root.write_config_to_writer(file_type_config, config, conf.writer(self.allocator)) catch {};
+        tui.reset_drag_context();
+        try self.create_editor();
+        try command.executeName("open_scratch_buffer", command.fmt(.{
+            file_name,
+            conf.items,
+            "conf",
+        }));
+        if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
+    }
+    pub const open_file_type_config_meta: Meta = .{
+        .arguments = &.{.string},
+        .description = "Edit file type configuration",
+    };
 
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
         const args = try ctx.args.clone(self.allocator);

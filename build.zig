@@ -317,6 +317,13 @@ pub fn build_exe(
         },
     });
 
+    const file_type_config_mod = b.createModule(.{
+        .root_source_file = b.path("src/file_type_config.zig"),
+        .imports = &.{
+            .{ .name = "syntax", .module = syntax_mod },
+        },
+    });
+
     const log_mod = b.createModule(.{
         .root_source_file = b.path("src/log.zig"),
         .imports = &.{
@@ -531,6 +538,7 @@ pub fn build_exe(
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "config", .module = config_mod },
             .{ .name = "gui_config", .module = gui_config_mod },
+            .{ .name = "file_type_config", .module = file_type_config_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "command", .module = command_mod },
             .{ .name = "EventHandler", .module = EventHandler_mod },
