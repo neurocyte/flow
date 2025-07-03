@@ -49,7 +49,8 @@ pub const RGB = struct {
 
     pub fn to_string(v: RGB, s: *[7]u8) []u8 {
         const nib = struct {
-            fn f(n: u8) u8 {
+            fn f(n_: u8) u8 {
+                const n = n_ & 0b1111;
                 return switch (n & 0b1111) {
                     0...9 => '0' + n,
                     0xA...0xF => 'A' + n,
