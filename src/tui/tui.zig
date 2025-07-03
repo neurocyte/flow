@@ -105,8 +105,8 @@ fn init(allocator: Allocator) InitError!*Self {
     var conf, const conf_bufs = root.read_config(@import("config"), allocator);
     defer root.free_config(allocator, conf_bufs);
 
-    if (conf.start_debugger_on_crash)
-        tp.install_debugger();
+    if (@hasDecl(renderer, "install_crash_handler") and conf.start_debugger_on_crash)
+        renderer.jit_debugger_enabled = true;
 
     const theme_, const parsed_theme = get_theme_by_name(allocator, conf.theme) orelse get_theme_by_name(allocator, "dark_modern") orelse return error.UnknownTheme;
     conf.theme = theme_.name;
