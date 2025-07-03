@@ -3634,7 +3634,7 @@ pub const Editor = struct {
         var cursel: CurSel = .{};
         cursel.cursor = cursor.*;
         const first = find_first_non_ws(root, cursel.cursor.row, self.metrics);
-        if (first == 0) return error.Stop;
+        if (first == 0) return root;
         const off = first % self.indent_size;
         const cols = if (off == 0) self.indent_size else off;
         const sel = cursel.enable_selection(root, self.metrics) catch return error.Stop;
