@@ -6,7 +6,7 @@ const syntax = @import("syntax");
 const Widget = @import("../../Widget.zig");
 const tui = @import("../../tui.zig");
 
-pub fn Variant(comptime command: []const u8, comptime label_: []const u8) type {
+pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_previous: bool) type {
     return struct {
         pub const Type = @import("palette.zig").Create(@This());
 
@@ -125,7 +125,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8) type {
             if (!(cbor.matchString(&iter, &icon) catch false)) return;
             if (!(cbor.matchInt(u24, &iter, &color) catch false)) return;
             if (!(cbor.matchString(&iter, &name_) catch false)) return;
-            if (previous_file_type) |prev| if (std.mem.eql(u8, prev, name_))
+            if (!allow_previous) if (previous_file_type) |prev| if (std.mem.eql(u8, prev, name_))
                 return;
             tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("file_type_palette", e);
             tp.self_pid().send(.{ "cmd", command, .{name_} }) catch |e| menu.*.opts.ctx.logger.err("file_type_palette", e);

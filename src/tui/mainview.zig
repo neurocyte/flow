@@ -512,7 +512,7 @@ const cmds = struct {
 
     pub fn change_file_type(_: *Self, _: Ctx) Result {
         return tui.open_overlay(
-            @import("mode/overlay/file_type_palette.zig").Variant("set_file_type", "Select file type").Type,
+            @import("mode/overlay/file_type_palette.zig").Variant("set_file_type", "Select file type", false).Type,
         );
     }
     pub const change_file_type_meta: Meta = .{ .description = "Change file type" };
@@ -521,7 +521,7 @@ const cmds = struct {
         var file_type_name: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&file_type_name)}) catch false))
             return tui.open_overlay(
-                @import("mode/overlay/file_type_palette.zig").Variant("open_file_type_config", "Edit file type").Type,
+                @import("mode/overlay/file_type_palette.zig").Variant("open_file_type_config", "Edit file type", true).Type,
             );
 
         const file_name = try get_file_type_config_file_path(self.allocator, file_type_name);
