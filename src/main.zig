@@ -2,6 +2,7 @@ const std = @import("std");
 const tui = @import("tui");
 const cbor = @import("cbor");
 const thespian = @import("thespian");
+const color = @import("color");
 const flags = @import("flags");
 const builtin = @import("builtin");
 const bin_path = @import("bin_path");
@@ -445,13 +446,24 @@ pub fn exists_config(T: type) bool {
     return true;
 }
 
+fn get_default(T: type) T {
+    return switch (@typeInfo(T)) {
+        .array => &.{},
+        .pointer => |info| switch (info.size) {
+            .slice => &.{},
+            else => @compileError("unsupported config type " ++ @typeName(T)),
+        },
+        else => .{},
+    };
+}
+
 pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const u8 } {
     config_mutex.lock();
     defer config_mutex.unlock();
     var bufs: [][]const u8 = &[_][]const u8{};
-    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ .{}, bufs };
+    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ get_default(T), bufs };
     const text_file_name = json_file_name[0 .. json_file_name.len - ".json".len];
-    var conf: T = .{};
+    var conf: T = get_default(T);
     if (!read_config_file(T, allocator, &conf, &bufs, text_file_name)) {
         _ = read_config_file(T, allocator, &conf, &bufs, json_file_name);
     }
@@ -613,15 +625,36 @@ pub fn write_config_to_writer(comptime T: type, data: T, writer: anytype) @TypeO
         } else {
             try writer.print("{s} ", .{field_info.name});
         }
-        var s = std.json.writeStream(writer, .{ .whitespace = .indent_4 });
-        try s.write(@field(data, field_info.name));
+        switch (field_info.type) {
+            u24 => try write_color_value(@field(data, field_info.name), writer),
+            ?u24 => if (@field(data, field_info.name)) |value|
+                try write_color_value(value, writer)
+            else
+                try writer.writeAll("null"),
+            else => {
+                var s = std.json.writeStream(writer, .{ .whitespace = .minified });
+                try s.write(@field(data, field_info.name));
+            },
+        }
         try writer.print("\n", .{});
     }
+}
+
+fn write_color_value(value: u24, writer: anytype) @TypeOf(writer).Error!void {
+    var hex: [7]u8 = undefined;
+    try writer.writeByte('"');
+    try writer.writeAll(color.RGB.to_string(color.RGB.from_u24(value), &hex));
+    try writer.writeByte('"');
 }
 
 fn config_eql(comptime T: type, a: T, b: T) bool {
     switch (T) {
         []const u8 => return std.mem.eql(u8, a, b),
+        []const []const u8 => {
+            if (a.len != b.len) return false;
+            for (a, 0..) |x, i| if (!config_eql([]const u8, x, b[i])) return false;
+            return true;
+        },
         else => {},
     }
     switch (@typeInfo(T)) {
@@ -707,7 +740,7 @@ pub fn list_themes(allocator: std.mem.Allocator) ![]const []const u8 {
     return result.toOwnedSlice();
 }
 
-pub fn get_config_dir() ![]const u8 {
+pub fn get_config_dir() ConfigDirError![]const u8 {
     return get_app_config_dir(application_name);
 }
 
