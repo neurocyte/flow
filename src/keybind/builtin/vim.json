@@ -249,6 +249,7 @@
         "deinit_command": ["resume_undo_history"],
         "press": [
             ["<Esc>", ["move_left_vim"], ["enter_mode", "normal"]],
+            ["<C-c>", ["move_left_vim"], ["enter_mode", "normal"]],
             ["<Del>", "delete_forward"],
             ["<BS>", "delete_backward"],
             ["<CR>", "smart_insert_line"],
