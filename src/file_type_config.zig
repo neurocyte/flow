@@ -1,4 +1,4 @@
-name: []const u8 = "none",
+name: []const u8 = default.name,
 description: ?[]const u8 = null,
 extensions: ?[]const []const u8 = null,
 icon: ?[]const u8 = null,
@@ -12,7 +12,14 @@ first_line_matches: ?[]const u8 = null,
 
 include_files: []const u8 = "",
 
-fn from_file_type(file_type: *const syntax.FileType) @This() {
+pub const default = struct {
+    pub const name = "text";
+    pub const description = "Plain Text";
+    pub const icon = "🖹";
+    pub const color = 0x000000;
+};
+
+fn from_file_type(file_type: syntax.FileType) @This() {
     return .{
         .name = file_type.name,
         .color = file_type.color,

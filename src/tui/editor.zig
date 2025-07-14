@@ -616,9 +616,9 @@ pub const Editor = struct {
         self.syntax_no_render = tp.env.get().is("no-syntax");
         self.syntax_report_timing = tp.env.get().is("syntax-report-timing");
 
-        const ftn = if (self.file_type) |ft| ft.name else "text";
-        const fti = if (self.file_type) |ft| ft.icon orelse "🖹" else "🖹";
-        const ftc = if (self.file_type) |ft| ft.color orelse 0x000000 else 0x000000;
+        const ftn = if (self.file_type) |ft| ft.name else file_type_config.default.name;
+        const fti = if (self.file_type) |ft| ft.icon orelse file_type_config.default.icon else file_type_config.default.icon;
+        const ftc = if (self.file_type) |ft| ft.color orelse file_type_config.default.color else file_type_config.default.color;
         if (self.buffer) |buffer| {
             buffer.file_type_name = ftn;
             buffer.file_type_icon = fti;

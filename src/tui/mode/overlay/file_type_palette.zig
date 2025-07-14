@@ -40,14 +40,14 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
                 break :blk null;
             };
 
-            for (syntax.FileType.static_file_types) |static_file_type| {
+            for (file_type_config.get_all()) |static_file_type| {
                 const file_type = try file_type_config.get(static_file_type.name) orelse unreachable;
                 idx += 1;
                 (try palette.entries.addOne()).* = .{
-                    .label = file_type.description orelse static_file_type.description,
+                    .label = file_type.description orelse file_type_config.default.description,
                     .name = file_type.name,
-                    .icon = file_type.icon orelse static_file_type.icon,
-                    .color = file_type.color orelse static_file_type.color,
+                    .icon = file_type.icon orelse file_type_config.default.icon,
+                    .color = file_type.color orelse file_type_config.default.color,
                 };
                 if (previous_file_type) |file_type_name| if (std.mem.eql(u8, file_type.name, file_type_name)) {
                     palette.initial_selected = idx;
