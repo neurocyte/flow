@@ -179,9 +179,9 @@ fn guess_first_line(content: []const u8) ?@This() {
     return null;
 }
 
-pub fn create_syntax(file_type_config: @This(), allocator: std.mem.Allocator, query_cache: *syntax.QueryCache) !*syntax {
+pub fn create_syntax(file_type_config: @This(), allocator: std.mem.Allocator, query_cache: *syntax.QueryCache) !?*syntax {
     return syntax.create(
-        syntax.FileType.get_by_name_static(file_type_config.parser orelse file_type_config.name) orelse return error.FileTypeNotFound,
+        syntax.FileType.get_by_name_static(file_type_config.parser orelse file_type_config.name) orelse return null,
         allocator,
         query_cache,
     );
@@ -192,7 +192,7 @@ pub fn create_syntax_guess_file_type(
     content: []const u8,
     file_path: ?[]const u8,
     query_cache: *syntax.QueryCache,
-) !*syntax {
+) !?*syntax {
     const file_type = guess(file_path, content) orelse return error.NotFound;
     return create_syntax(file_type, allocator, query_cache);
 }
