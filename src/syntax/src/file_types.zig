@@ -88,6 +88,7 @@ pub const css = .{
     .icon = "󰌜",
     .extensions = .{"css"},
     .comment = "//",
+    .language_server = .{ "vscode-css-language-server", "--stdio" },
 };
 
 pub const diff = .{
@@ -230,15 +231,16 @@ pub const javascript = .{
     .extensions = .{"js"},
     .comment = "//",
     .injections = "tree-sitter-javascript/queries/injections.scm",
-    .language_server = .{ "deno", "lsp" },
+    .language_server = .{ "typescript-language-server", "--stdio" },
+    .formatter = .{ "prettier", "--parser", "typescript" },
 };
 
 pub const json = .{
     .description = "JSON",
     .extensions = .{"json"},
     .comment = "//",
-    .language_server = .{ "deno", "lsp" },
-    .formatter = .{ "hjson", "-j" },
+    .language_server = .{ "vscode-json-language-server", "--stdio" },
+    .formatter = .{ "prettier", "--parser", "json" },
 };
 
 pub const julia = .{
@@ -293,7 +295,8 @@ pub const markdown = .{
     .comment = "<!--",
     .highlights = "tree-sitter-markdown/tree-sitter-markdown/queries/highlights.scm",
     .injections = "tree-sitter-markdown/tree-sitter-markdown/queries/injections.scm",
-    .language_server = .{ "deno", "lsp" },
+    .language_server = .{ "marksman", "server" },
+    .formatter = .{ "prettier", "--parser", "markdown" },
 };
 
 pub const @"markdown-inline" = .{
@@ -345,6 +348,8 @@ pub const nix = .{
     .extensions = .{"nix"},
     .comment = "#",
     .injections = "tree-sitter-nix/queries/injections.scm",
+    .language_server = .{"nixd"},
+    .formatter = .{"alejandra"},
 };
 
 pub const nu = .{
@@ -525,7 +530,8 @@ pub const typescript = .{
     .icon = "󰛦",
     .extensions = .{ "ts", "tsx" },
     .comment = "//",
-    .language_server = .{ "deno", "lsp" },
+    .language_server = .{ "typescript-language-server", "--stdio" },
+    .formatter = .{ "prettier", "--parser", "typescript" },
 };
 
 pub const typst = .{
