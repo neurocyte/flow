@@ -230,6 +230,7 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     InvalidPIntType,
     JsonIncompatibleType,
     NotAnObject,
+    BadArrayAllocExtract,
 }!void {
     tp.trace(tp.channel.debug, .{"restore_state_v0"});
     defer self.sort_files_by_mtime();

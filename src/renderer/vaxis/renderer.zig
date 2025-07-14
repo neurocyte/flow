@@ -57,6 +57,7 @@ pub const Error = error{
     InvalidPIntType,
     JsonIncompatibleType,
     NotAnObject,
+    BadArrayAllocExtract,
 } || std.Thread.SpawnError;
 
 pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool, _: *const fn (ctx: *anyopaque) void) Error!Self {

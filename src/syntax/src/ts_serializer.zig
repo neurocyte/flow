@@ -280,6 +280,7 @@ pub const DeserializeError = error{
     JsonIncompatibleType,
     InvalidQueryCbor,
     NotAnObject,
+    BadArrayAllocExtract,
 };
 
 pub fn fromCbor(cb: []const u8, allocator: std.mem.Allocator) DeserializeError!struct { *TSQuery, *std.heap.ArenaAllocator } {
