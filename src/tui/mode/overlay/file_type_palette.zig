@@ -2,6 +2,7 @@ const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian");
 const syntax = @import("syntax");
+const file_type_config = @import("file_type_config");
 
 const Widget = @import("../../Widget.zig");
 const tui = @import("../../tui.zig");
@@ -34,18 +35,19 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             var idx: usize = 0;
             previous_file_type = blk: {
                 if (tui.get_active_editor()) |editor|
-                    if (editor.syntax) |editor_syntax|
-                        break :blk editor_syntax.file_type.name;
+                    if (editor.file_type) |editor_file_type|
+                        break :blk editor_file_type.name;
                 break :blk null;
             };
 
-            for (syntax.FileType.file_types) |file_type| {
+            for (syntax.FileType.static_file_types) |static_file_type| {
+                const file_type = try file_type_config.get(static_file_type.name) orelse unreachable;
                 idx += 1;
                 (try palette.entries.addOne()).* = .{
-                    .label = file_type.description,
+                    .label = file_type.description orelse static_file_type.description,
                     .name = file_type.name,
-                    .icon = file_type.icon,
-                    .color = file_type.color,
+                    .icon = file_type.icon orelse static_file_type.icon,
+                    .color = file_type.color orelse static_file_type.color,
                 };
                 if (previous_file_type) |file_type_name| if (std.mem.eql(u8, file_type.name, file_type_name)) {
                     palette.initial_selected = idx;
