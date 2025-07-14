@@ -505,7 +505,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "tracy", .module = tracy_mod },
-            .{ .name = "syntax", .module = syntax_mod },
+            .{ .name = "file_type_config", .module = file_type_config_mod },
             .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
             .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
             .{ .name = "git", .module = git_mod },
