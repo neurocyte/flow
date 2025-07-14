@@ -35,6 +35,7 @@ pub const Error = error{
     InvalidPIntType,
     JsonIncompatibleType,
     NotAnObject,
+    BadArrayAllocExtract,
 } || std.Thread.SpawnError;
 
 pub const panic = messageBoxThenPanic(.{ .title = "Flow Panic" });

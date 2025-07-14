@@ -57,6 +57,7 @@ pub const Error = error{
     InvalidPIntType,
     JsonIncompatibleType,
     NotAnObject,
+    BadArrayAllocExtract,
 } || std.Thread.SpawnError;
 
 pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool, _: *const fn (ctx: *anyopaque) void) Error!Self {
@@ -135,15 +136,46 @@ pub fn install_crash_handler() void {
     std.posix.sigaction(std.posix.SIG.ILL, &act, null);
 }
 
+pub var jit_debugger_enabled: bool = false;
+
 fn handle_crash(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
+    const debug = @import("std/debug.zig");
+    debug.lockStdErr();
+
+    if (panic_in_progress())
+        std.posix.abort();
+
     in_panic.store(true, .release);
     const cleanup = panic_cleanup;
     panic_cleanup = null;
+
     if (cleanup) |self| {
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
     }
-    @import("std/debug.zig").handleSegfaultPosix(sig, info, ctx_ptr);
+    if (builtin.os.tag == .linux and jit_debugger_enabled) {
+        handleSegfaultPosixNoAbort(sig, info, ctx_ptr);
+        @import("thespian").sighdl_debugger(sig, @ptrCast(@constCast(info)), ctx_ptr);
+        std.posix.abort();
+    } else {
+        debug.handleSegfaultPosix(sig, info, ctx_ptr);
+    }
+    unreachable;
+}
+
+fn handleSegfaultPosixNoAbort(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) void {
+    const debug = @import("std/debug.zig");
+    debug.resetSegfaultHandler();
+    const addr = switch (builtin.os.tag) {
+        .linux => @intFromPtr(info.fields.sigfault.addr),
+        .freebsd, .macos => @intFromPtr(info.addr),
+        .netbsd => @intFromPtr(info.info.reason.fault.addr),
+        .openbsd => @intFromPtr(info.data.fault.addr),
+        .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
+        else => unreachable,
+    };
+    const code = if (builtin.os.tag == .netbsd) info.info.code else info.code;
+    debug.dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
 }
 
 pub fn run(self: *Self) Error!void {

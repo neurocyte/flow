@@ -1384,7 +1384,7 @@ pub fn attachSegfaultHandler() void {
     updateSegfaultHandler(&act);
 }
 
-fn resetSegfaultHandler() void {
+pub fn resetSegfaultHandler() void {
     if (native_os == .windows) {
         if (windows_segfault_handle) |handle| {
             assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
@@ -1442,7 +1442,7 @@ pub fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*an
     posix.abort();
 }
 
-fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
+pub fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
     const stderr = io.getStdErr().writer();
     _ = switch (sig) {
         posix.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL

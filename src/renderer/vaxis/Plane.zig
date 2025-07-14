@@ -11,10 +11,12 @@ const RGB = @import("color").RGB;
 
 const Plane = @This();
 
+const name_buf_len = 128;
+
 window: vaxis.Window,
 row: i32 = 0,
 col: i32 = 0,
-name_buf: [128]u8,
+name_buf: [name_buf_len]u8,
 name_len: usize,
 cache: GraphemeCache = .{},
 style: vaxis.Cell.Style = .{},
@@ -27,7 +29,7 @@ pub const Options = struct {
     x: usize = 0,
     rows: usize = 0,
     cols: usize = 0,
-    name: [*:0]const u8,
+    name: []const u8,
     flags: option = .none,
 };
 
@@ -44,13 +46,14 @@ pub fn init(nopts: *const Options, parent_: Plane) !Plane {
         .height = @as(u16, @intCast(nopts.rows)),
         .border = .{},
     };
+    const len = @min(nopts.name.len, name_buf_len);
     var plane: Plane = .{
         .window = parent_.window.child(opts),
         .name_buf = undefined,
-        .name_len = std.mem.span(nopts.name).len,
+        .name_len = len,
         .scrolling = nopts.flags == .VSCROLL,
     };
-    @memcpy(plane.name_buf[0..plane.name_len], nopts.name);
+    @memcpy(plane.name_buf[0..len], nopts.name[0..len]);
     return plane;
 }
 

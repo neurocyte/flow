@@ -157,19 +157,17 @@ Configuration is stored in the standard location
 The default configuration will be written the first time
 Flow Control is started and looks similar to this:
 ```
-{
-    "frame_rate": 60,
-    "theme": "default",
-    "input_mode": "flow",
-    "gutter_line_numbers": true,
-    "gutter_line_numbers_relative": false,
-    "enable_terminal_cursor": false,
-    "highlight_current_line": true,
-    "highlight_current_line_gutter": true,
-    "show_whitespace": false,
-    "animation_min_lag": 0,
-    "animation_max_lag": 150
-}
+frame_rate 60
+theme "default"
+input_mode "flow"
+gutter_line_numbers true
+gutter_line_numbers_relative false
+enable_terminal_cursor false
+highlight_current_line true
+highlight_current_line_gutter true
+show_whitespace false
+animation_min_lag 0
+animation_max_lag 150
 ```
 
 Most of these options are fairly self explanitory.
@@ -183,3 +181,7 @@ of frames rendered.
 `animation_max_lag` controls the maximum amount of time allowed
 for rendering scrolling animations. Set to 0 to disable scrolling
 animation altogether.
+
+File types may be configured with the `Edit file type configuration` command. You
+can also create a new file type by adding a new `.conf` file to the `file_type`
+directory. Have a look at an existing file type to see what options are available.

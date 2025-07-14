@@ -94,14 +94,6 @@ You may install it on another system by simply copying the binary.
 scp zig-out/bin/flow root@otherhost:/usr/local/bin
 ```
 
-Configuration is mostly dynamically maintained with various commands in the UI.
-It is stored under the standard user configuration path. Usually `~/.config/flow`
-on Linux. %APPDATA%\Roaming\flow on Windows. Somewhere magical on MacOS
-
-Logs, traces and per-project most recently used file lists are stored in the
-standard user application state directory. Usually `~/.local/state/flow` on
-Linux and %APPDATA%\Roaming\flow on Windows.
-
 Files to load may be specifed on the command line:
 
 ```shell
@@ -133,9 +125,26 @@ Show supported language names with `--list-languages`.
 
 See `flow --help` for the full list of command line options.
 
+# Configuration
+
+Configuration is mostly dynamically maintained with various commands in the UI.
+It is stored under the standard user configuration path. Usually `~/.config/flow`
+on Linux. %APPDATA%\Roaming\flow on Windows. Somewhere magical on MacOS.
+
+There are commands to open the various configuration files, so you don't have to
+manually find them. Look for commands starting with `Edit` in the command palette.
+
+File types may be configured with the `Edit file type configuration` command. You
+can also create a new file type by adding a new `.conf` file to the `file_type`
+directory. Have a look at an existing file type to see what options are available.
+
+Logs, traces and per-project most recently used file lists are stored in the
+standard user application state directory. Usually `~/.local/state/flow` on
+Linux and %APPDATA%\Roaming\flow on Windows.
+
 # Key bindings and commands
 
-Press `F2` to switch the current keybinding mode. (flow, vim, emacs, etc.)
+Press `F4` to switch the current keybinding mode. (flow, vim, emacs, etc.)
 Press `ctrl+shift+p` or `alt+x` to show the command palette.
 Press `ctrl+F2` to see a full list of all current keybindings and commands.
 

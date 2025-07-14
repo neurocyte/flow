@@ -2,6 +2,7 @@ const std = @import("std");
 const tui = @import("tui");
 const cbor = @import("cbor");
 const thespian = @import("thespian");
+const color = @import("color");
 const flags = @import("flags");
 const builtin = @import("builtin");
 const bin_path = @import("bin_path");
@@ -148,11 +149,10 @@ pub fn main() anyerror!void {
         return list_languages.list(a, stdout.writer(), tty_config);
     }
 
-    if (builtin.os.tag != .windows)
-        if (std.posix.getenv("JITDEBUG")) |_|
-            thespian.install_debugger()
-        else if (@hasDecl(renderer, "install_crash_handler"))
-            renderer.install_crash_handler();
+    if (builtin.os.tag != .windows and @hasDecl(renderer, "install_crash_handler")) {
+        if (std.posix.getenv("JITDEBUG")) |_| renderer.jit_debugger_enabled = true;
+        renderer.install_crash_handler();
+    }
 
     if (args.debug_wait) {
         std.debug.print("press return to start", .{});
@@ -445,13 +445,24 @@ pub fn exists_config(T: type) bool {
     return true;
 }
 
+fn get_default(T: type) T {
+    return switch (@typeInfo(T)) {
+        .array => &.{},
+        .pointer => |info| switch (info.size) {
+            .slice => &.{},
+            else => @compileError("unsupported config type " ++ @typeName(T)),
+        },
+        else => .{},
+    };
+}
+
 pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const u8 } {
     config_mutex.lock();
     defer config_mutex.unlock();
     var bufs: [][]const u8 = &[_][]const u8{};
-    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ .{}, bufs };
+    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ get_default(T), bufs };
     const text_file_name = json_file_name[0 .. json_file_name.len - ".json".len];
-    var conf: T = .{};
+    var conf: T = get_default(T);
     if (!read_config_file(T, allocator, &conf, &bufs, text_file_name)) {
         _ = read_config_file(T, allocator, &conf, &bufs, json_file_name);
     }
@@ -476,12 +487,16 @@ fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]
 fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
     var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
     defer file.close();
-    const text = try file.readToEndAlloc(allocator, 64 * 1024);
-    defer allocator.free(text);
+    const content = try file.readToEndAlloc(allocator, 64 * 1024);
+    defer allocator.free(content);
+    return parse_text_config_file(T, allocator, conf, bufs_, file_name, content);
+}
+
+pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8, content: []const u8) !void {
     var cbor_buf = std.ArrayList(u8).init(allocator);
     defer cbor_buf.deinit();
     const writer = cbor_buf.writer();
-    var it = std.mem.splitScalar(u8, text, '\n');
+    var it = std.mem.splitScalar(u8, content, '\n');
     var lineno: u32 = 0;
     while (it.next()) |line| {
         lineno += 1;
@@ -505,7 +520,7 @@ fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
     var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
     bufs.append(allocator, cb) catch @panic("OOM:read_text_config_file");
     bufs_.* = bufs.toOwnedSlice(allocator) catch @panic("OOM:read_text_config_file");
-    return read_cbor_config(T, conf, file_name, cb);
+    return read_cbor_config(T, allocator, conf, file_name, cb);
 }
 
 fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
@@ -520,11 +535,12 @@ fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
     const cb = try cbor.fromJson(json, cbor_buf);
     var iter = cb;
     _ = try cbor.decodeMapHeader(&iter);
-    return read_cbor_config(T, conf, file_name, iter);
+    return read_cbor_config(T, allocator, conf, file_name, iter);
 }
 
 fn read_cbor_config(
     T: type,
+    allocator: std.mem.Allocator,
     conf: *T,
     file_name: []const u8,
     cb: []const u8,
@@ -554,12 +570,29 @@ fn read_cbor_config(
                 }
             } else if (std.mem.eql(u8, field_name, field_info.name)) {
                 known = true;
-                var value: field_info.type = undefined;
-                if (try cbor.matchValue(&iter, cbor.extract(&value))) {
-                    @field(conf, field_info.name) = value;
-                } else {
-                    try cbor.skipValue(&iter);
-                    std.log.err("invalid value for key '{s}'", .{field_name});
+                switch (field_info.type) {
+                    u24, ?u24 => {
+                        var value: []const u8 = undefined;
+                        if (try cbor.matchValue(&iter, cbor.extract(&value))) {
+                            const color_ = color.RGB.from_string(value);
+                            if (color_) |color__|
+                                @field(conf, field_info.name) = color__.to_u24()
+                            else
+                                std.log.err("invalid value for key '{s}'", .{field_name});
+                        } else {
+                            try cbor.skipValue(&iter);
+                            std.log.err("invalid value for key '{s}'", .{field_name});
+                        }
+                    },
+                    else => {
+                        var value: field_info.type = undefined;
+                        if (try cbor.matchValue(&iter, cbor.extractAlloc(&value, allocator))) {
+                            @field(conf, field_info.name) = value;
+                        } else {
+                            try cbor.skipValue(&iter);
+                            std.log.err("invalid value for key '{s}'", .{field_name});
+                        }
+                    },
                 }
             };
         if (!known) {
@@ -613,15 +646,36 @@ pub fn write_config_to_writer(comptime T: type, data: T, writer: anytype) @TypeO
         } else {
             try writer.print("{s} ", .{field_info.name});
         }
-        var s = std.json.writeStream(writer, .{ .whitespace = .indent_4 });
-        try s.write(@field(data, field_info.name));
+        switch (field_info.type) {
+            u24 => try write_color_value(@field(data, field_info.name), writer),
+            ?u24 => if (@field(data, field_info.name)) |value|
+                try write_color_value(value, writer)
+            else
+                try writer.writeAll("null"),
+            else => {
+                var s = std.json.writeStream(writer, .{ .whitespace = .minified });
+                try s.write(@field(data, field_info.name));
+            },
+        }
         try writer.print("\n", .{});
     }
+}
+
+fn write_color_value(value: u24, writer: anytype) @TypeOf(writer).Error!void {
+    var hex: [7]u8 = undefined;
+    try writer.writeByte('"');
+    try writer.writeAll(color.RGB.to_string(color.RGB.from_u24(value), &hex));
+    try writer.writeByte('"');
 }
 
 fn config_eql(comptime T: type, a: T, b: T) bool {
     switch (T) {
         []const u8 => return std.mem.eql(u8, a, b),
+        []const []const u8 => {
+            if (a.len != b.len) return false;
+            for (a, 0..) |x, i| if (!config_eql([]const u8, x, b[i])) return false;
+            return true;
+        },
         else => {},
     }
     switch (@typeInfo(T)) {
@@ -707,7 +761,7 @@ pub fn list_themes(allocator: std.mem.Allocator) ![]const []const u8 {
     return result.toOwnedSlice();
 }
 
-pub fn get_config_dir() ![]const u8 {
+pub fn get_config_dir() ConfigDirError![]const u8 {
     return get_app_config_dir(application_name);
 }
 

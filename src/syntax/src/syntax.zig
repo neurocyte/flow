@@ -21,14 +21,13 @@ pub const Node = treez.Node;
 
 allocator: std.mem.Allocator,
 lang: *const Language,
-file_type: *const FileType,
 parser: *Parser,
 query: *Query,
 errors_query: *Query,
 injections: ?*Query,
 tree: ?*treez.Tree = null,
 
-pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, query_cache: *QueryCache) !*Self {
+pub fn create(file_type: FileType, allocator: std.mem.Allocator, query_cache: *QueryCache) !*Self {
     const query = try query_cache.get(file_type, .highlights);
     const errors_query = try query_cache.get(file_type, .errors);
     const injections = try query_cache.get(file_type, .injections);
@@ -36,7 +35,6 @@ pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, query_ca
     self.* = .{
         .allocator = allocator,
         .lang = file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{file_type.name}),
-        .file_type = file_type,
         .parser = try Parser.create(),
         .query = query,
         .errors_query = errors_query,
@@ -47,13 +45,13 @@ pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, query_ca
     return self;
 }
 
-pub fn create_file_type(allocator: std.mem.Allocator, lang_name: []const u8, query_cache: *QueryCache) !*Self {
-    const file_type = FileType.get_by_name(lang_name) orelse return error.NotFound;
+pub fn static_create_file_type(allocator: std.mem.Allocator, lang_name: []const u8, query_cache: *QueryCache) !*Self {
+    const file_type = FileType.get_by_name_static(lang_name) orelse return error.NotFound;
     return create(file_type, allocator, query_cache);
 }
 
-pub fn create_guess_file_type(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8, query_cache: *QueryCache) !*Self {
-    const file_type = FileType.guess(file_path, content) orelse return error.NotFound;
+pub fn static_create_guess_file_type_static(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8, query_cache: *QueryCache) !*Self {
+    const file_type = FileType.guess_static(file_path, content) orelse return error.NotFound;
     return create(file_type, allocator, query_cache);
 }
 

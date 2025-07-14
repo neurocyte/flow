@@ -105,8 +105,8 @@ fn init(allocator: Allocator) InitError!*Self {
     var conf, const conf_bufs = root.read_config(@import("config"), allocator);
     defer root.free_config(allocator, conf_bufs);
 
-    if (conf.start_debugger_on_crash)
-        tp.install_debugger();
+    if (@hasDecl(renderer, "install_crash_handler") and conf.start_debugger_on_crash)
+        renderer.jit_debugger_enabled = true;
 
     const theme_, const parsed_theme = get_theme_by_name(allocator, conf.theme) orelse get_theme_by_name(allocator, "dark_modern") orelse return error.UnknownTheme;
     conf.theme = theme_.name;
@@ -917,11 +917,6 @@ const cmds = struct {
     }
     pub const change_theme_meta: Meta = .{ .description = "Change color theme" };
 
-    pub fn change_file_type(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/file_type_palette.zig").Type);
-    }
-    pub const change_file_type_meta: Meta = .{ .description = "Change file type" };
-
     pub fn change_fontface(self: *Self, _: Ctx) Result {
         if (build_options.gui)
             self.rdr_.get_fontfaces();
@@ -1115,6 +1110,10 @@ pub fn input_mode_outer() ?*Mode {
 
 pub fn mini_mode() ?*MiniMode {
     return if (current().mini_mode_) |*p| p else null;
+}
+
+pub fn open_overlay(mode: type) command.Result {
+    return current().enter_overlay_mode(mode);
 }
 
 pub fn query_cache() *syntax.QueryCache {

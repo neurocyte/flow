@@ -23,8 +23,49 @@ pub const RGB = struct {
         return .{ .r = v[0], .g = v[1], .b = v[2] };
     }
 
+    pub fn from_string(s: []const u8) ?RGB {
+        const nib = struct {
+            fn f(c: u8) ?u8 {
+                return switch (c) {
+                    '0'...'9' => c - '0',
+                    'A'...'F' => c - 'A' + 10,
+                    'a'...'f' => c - 'a' + 10,
+                    else => null,
+                };
+            }
+        }.f;
+
+        if (s.len != 7) return null;
+        if (s[0] != '#') return null;
+        const r = (nib(s[1]) orelse return null) << 4 | (nib(s[2]) orelse return null);
+        const g = (nib(s[3]) orelse return null) << 4 | (nib(s[4]) orelse return null);
+        const b = (nib(s[5]) orelse return null) << 4 | (nib(s[6]) orelse return null);
+        return .{ .r = r, .g = g, .b = b };
+    }
+
     pub fn to_u8s(v: RGB) [3]u8 {
         return [_]u8{ v.r, v.g, v.b };
+    }
+
+    pub fn to_string(v: RGB, s: *[7]u8) []u8 {
+        const nib = struct {
+            fn f(n: u8) u8 {
+                return switch (n) {
+                    0...9 => '0' + n,
+                    0xA...0xF => 'A' + n - 10,
+                    else => unreachable,
+                };
+            }
+        }.f;
+
+        s[0] = '#';
+        s[1] = nib(v.r >> 4);
+        s[2] = nib(v.r & 0b00001111);
+        s[3] = nib(v.g >> 4);
+        s[4] = nib(v.g & 0b00001111);
+        s[5] = nib(v.b >> 4);
+        s[6] = nib(v.b & 0b00001111);
+        return s;
     }
 
     pub fn contrast(a_: RGB, b_: RGB) f32 {

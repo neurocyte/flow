@@ -3,7 +3,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
 const tracy = @import("tracy");
-const FileType = @import("syntax").FileType;
+const file_type_config = @import("file_type_config");
 const root = @import("root");
 const Buffer = @import("Buffer");
 const builtin = @import("builtin");
@@ -137,7 +137,7 @@ pub fn delete_task(task: []const u8) (ProjectManagerError || ProjectError)!void 
     return send(.{ "delete_task", project, task });
 }
 
-pub fn did_open(file_path: []const u8, file_type: *const FileType, version: usize, text: []const u8, ephemeral: bool) (ProjectManagerError || ProjectError)!void {
+pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usize, text: []const u8, ephemeral: bool) (ProjectManagerError || ProjectError)!void {
     if (ephemeral) return;
     const project = tp.env.get().str("project");
     if (project.len == 0)

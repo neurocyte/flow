@@ -317,6 +317,13 @@ pub fn build_exe(
         },
     });
 
+    const file_type_config_mod = b.createModule(.{
+        .root_source_file = b.path("src/file_type_config.zig"),
+        .imports = &.{
+            .{ .name = "syntax", .module = syntax_mod },
+        },
+    });
+
     const log_mod = b.createModule(.{
         .root_source_file = b.path("src/log.zig"),
         .imports = &.{
@@ -498,7 +505,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "tracy", .module = tracy_mod },
-            .{ .name = "syntax", .module = syntax_mod },
+            .{ .name = "file_type_config", .module = file_type_config_mod },
             .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
             .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
             .{ .name = "git", .module = git_mod },
@@ -531,6 +538,7 @@ pub fn build_exe(
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "config", .module = config_mod },
             .{ .name = "gui_config", .module = gui_config_mod },
+            .{ .name = "file_type_config", .module = file_type_config_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "command", .module = command_mod },
             .{ .name = "EventHandler", .module = EventHandler_mod },
@@ -583,6 +591,7 @@ pub fn build_exe(
     exe.root_module.addImport("renderer", renderer_mod);
     exe.root_module.addImport("input", input_mod);
     exe.root_module.addImport("syntax", syntax_mod);
+    exe.root_module.addImport("file_type_config", file_type_config_mod);
     exe.root_module.addImport("color", color_mod);
     exe.root_module.addImport("bin_path", bin_path_mod);
     exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
@@ -627,6 +636,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("renderer", renderer_mod);
     check_exe.root_module.addImport("input", input_mod);
     check_exe.root_module.addImport("syntax", syntax_mod);
+    check_exe.root_module.addImport("file_type_config", file_type_config_mod);
     check_exe.root_module.addImport("color", color_mod);
     check_exe.root_module.addImport("bin_path", bin_path_mod);
     check_exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
