@@ -232,7 +232,7 @@ pub const javascript = .{
     .comment = "//",
     .injections = "tree-sitter-javascript/queries/injections.scm",
     .language_server = .{ "typescript-language-server", "--stdio" },
-    .formatter = .{"prettier"},
+    .formatter = .{ "prettier", "--parser", "typescript" },
 };
 
 pub const json = .{
@@ -240,7 +240,7 @@ pub const json = .{
     .extensions = .{"json"},
     .comment = "//",
     .language_server = .{ "vscode-json-language-server", "--stdio" },
-    .formatter = .{"prettier"},
+    .formatter = .{ "prettier", "--parser", "json" },
 };
 
 pub const julia = .{
@@ -296,7 +296,7 @@ pub const markdown = .{
     .highlights = "tree-sitter-markdown/tree-sitter-markdown/queries/highlights.scm",
     .injections = "tree-sitter-markdown/tree-sitter-markdown/queries/injections.scm",
     .language_server = .{ "marksman", "server" },
-    .formatter = .{"prettier"},
+    .formatter = .{ "prettier", "--parser", "markdown" },
 };
 
 pub const @"markdown-inline" = .{
@@ -531,7 +531,7 @@ pub const typescript = .{
     .extensions = .{ "ts", "tsx" },
     .comment = "//",
     .language_server = .{ "typescript-language-server", "--stdio" },
-    .formatter = .{"prettier"},
+    .formatter = .{ "prettier", "--parser", "typescript" },
 };
 
 pub const typst = .{
