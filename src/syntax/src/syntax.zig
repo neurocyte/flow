@@ -21,7 +21,6 @@ pub const Node = treez.Node;
 
 allocator: std.mem.Allocator,
 lang: *const Language,
-file_type: *const FileType,
 parser: *Parser,
 query: *Query,
 errors_query: *Query,
@@ -36,7 +35,6 @@ pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, query_ca
     self.* = .{
         .allocator = allocator,
         .lang = file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{file_type.name}),
-        .file_type = file_type,
         .parser = try Parser.create(),
         .query = query,
         .errors_query = errors_query,
