@@ -153,7 +153,7 @@ fn handle_crash(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque
         self.vx.deinit(self.allocator, self.tty.anyWriter());
         self.tty.deinit();
     }
-    if (jit_debugger_enabled) {
+    if (builtin.os.tag == .linux and jit_debugger_enabled) {
         handleSegfaultPosixNoAbort(sig, info, ctx_ptr);
         @import("thespian").sighdl_debugger(sig, @ptrCast(@constCast(info)), ctx_ptr);
         std.posix.abort();
