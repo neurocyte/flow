@@ -487,12 +487,16 @@ fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]
 fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
     var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
     defer file.close();
-    const text = try file.readToEndAlloc(allocator, 64 * 1024);
-    defer allocator.free(text);
+    const content = try file.readToEndAlloc(allocator, 64 * 1024);
+    defer allocator.free(content);
+    return parse_text_config_file(T, allocator, conf, bufs_, file_name, content);
+}
+
+pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8, content: []const u8) !void {
     var cbor_buf = std.ArrayList(u8).init(allocator);
     defer cbor_buf.deinit();
     const writer = cbor_buf.writer();
-    var it = std.mem.splitScalar(u8, text, '\n');
+    var it = std.mem.splitScalar(u8, content, '\n');
     var lineno: u32 = 0;
     while (it.next()) |line| {
         lineno += 1;
@@ -516,7 +520,7 @@ fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
     var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
     bufs.append(allocator, cb) catch @panic("OOM:read_text_config_file");
     bufs_.* = bufs.toOwnedSlice(allocator) catch @panic("OOM:read_text_config_file");
-    return read_cbor_config(T, conf, file_name, cb);
+    return read_cbor_config(T, allocator, conf, file_name, cb);
 }
 
 fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
@@ -531,11 +535,12 @@ fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
     const cb = try cbor.fromJson(json, cbor_buf);
     var iter = cb;
     _ = try cbor.decodeMapHeader(&iter);
-    return read_cbor_config(T, conf, file_name, iter);
+    return read_cbor_config(T, allocator, conf, file_name, iter);
 }
 
 fn read_cbor_config(
     T: type,
+    allocator: std.mem.Allocator,
     conf: *T,
     file_name: []const u8,
     cb: []const u8,
@@ -565,12 +570,29 @@ fn read_cbor_config(
                 }
             } else if (std.mem.eql(u8, field_name, field_info.name)) {
                 known = true;
-                var value: field_info.type = undefined;
-                if (try cbor.matchValue(&iter, cbor.extract(&value))) {
-                    @field(conf, field_info.name) = value;
-                } else {
-                    try cbor.skipValue(&iter);
-                    std.log.err("invalid value for key '{s}'", .{field_name});
+                switch (field_info.type) {
+                    u24, ?u24 => {
+                        var value: []const u8 = undefined;
+                        if (try cbor.matchValue(&iter, cbor.extract(&value))) {
+                            const color_ = color.RGB.from_string(value);
+                            if (color_) |color__|
+                                @field(conf, field_info.name) = color__.to_u24()
+                            else
+                                std.log.err("invalid value for key '{s}'", .{field_name});
+                        } else {
+                            try cbor.skipValue(&iter);
+                            std.log.err("invalid value for key '{s}'", .{field_name});
+                        }
+                    },
+                    else => {
+                        var value: field_info.type = undefined;
+                        if (try cbor.matchValue(&iter, cbor.extractAlloc(&value, allocator))) {
+                            @field(conf, field_info.name) = value;
+                        } else {
+                            try cbor.skipValue(&iter);
+                            std.log.err("invalid value for key '{s}'", .{field_name});
+                        }
+                    },
                 }
             };
         if (!known) {
