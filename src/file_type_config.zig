@@ -4,6 +4,7 @@ extensions: ?[]const []const u8 = null,
 icon: ?[]const u8 = null,
 color: ?u24 = null,
 comment: ?[]const u8 = null,
+parser: ?[]const u8 = null,
 formatter: ?[]const []const u8 = null,
 language_server: ?[]const []const u8 = null,
 first_line_matches_prefix: ?[]const u8 = null,
@@ -28,6 +29,7 @@ fn from_file_type(file_type: syntax.FileType) @This() {
         .extensions = file_type.extensions,
         .first_line_matches_prefix = if (file_type.first_line_matches) |flm| flm.prefix else null,
         .first_line_matches_content = if (file_type.first_line_matches) |flm| flm.content else null,
+        .parser = file_type.name,
         .comment = file_type.comment,
         .formatter = file_type.formatter,
         .language_server = file_type.language_server,
@@ -179,7 +181,7 @@ fn guess_first_line(content: []const u8) ?@This() {
 
 pub fn create_syntax(file_type_config: @This(), allocator: std.mem.Allocator, query_cache: *syntax.QueryCache) !*syntax {
     return syntax.create(
-        syntax.FileType.get_by_name_static(file_type_config.name) orelse return error.FileTypeNotFound,
+        syntax.FileType.get_by_name_static(file_type_config.parser orelse file_type_config.name) orelse return error.FileTypeNotFound,
         allocator,
         query_cache,
     );
