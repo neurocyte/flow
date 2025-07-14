@@ -130,9 +130,9 @@ fn load_all(allocator: std.mem.Allocator) ![]const []const u8 {
             try names.put(allocator, try allocator.dupe(u8, file_type_name), {});
     }
 
-    for (syntax.FileType.get_all()) |static_file_type| {
-        if (!names.contains(static_file_type.name))
-            try names.put(allocator, try allocator.dupe(u8, static_file_type.name), {});
+    for (syntax.FileType.get_all()) |file_type| {
+        if (!names.contains(file_type.name))
+            try names.put(allocator, try allocator.dupe(u8, file_type.name), {});
     }
 
     var list: std.ArrayListUnmanaged([]const u8) = .empty;
@@ -159,9 +159,9 @@ pub fn guess_file_type(file_path: ?[]const u8, content: []const u8) ?@This() {
 
 fn guess(file_path: ?[]const u8, content: []const u8) ?@This() {
     if (guess_first_line(content)) |ft| return ft;
-    for (syntax.FileType.get_all()) |static_file_type| {
-        const file_type = get(static_file_type.name) catch unreachable orelse unreachable;
-        if (file_path) |fp| if (syntax.FileType.match_file_type(file_type.extensions orelse static_file_type.extensions, fp))
+    for (get_all_names()) |file_type_name| {
+        const file_type = get(file_type_name) catch unreachable orelse unreachable;
+        if (file_path) |fp| if (syntax.FileType.match_file_type(file_type.extensions orelse continue, fp))
             return file_type;
     }
     return null;
@@ -169,8 +169,8 @@ fn guess(file_path: ?[]const u8, content: []const u8) ?@This() {
 
 fn guess_first_line(content: []const u8) ?@This() {
     const first_line = if (std.mem.indexOf(u8, content, "\n")) |pos| content[0..pos] else content;
-    for (syntax.FileType.get_all()) |static_file_type| {
-        const file_type = get(static_file_type.name) catch unreachable orelse unreachable;
+    for (get_all_names()) |file_type_name| {
+        const file_type = get(file_type_name) catch unreachable orelse unreachable;
         if (syntax.FileType.match_first_line(file_type.first_line_matches_prefix, file_type.first_line_matches_content, first_line))
             return file_type;
     }
