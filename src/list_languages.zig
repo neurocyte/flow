@@ -1,5 +1,4 @@
 const std = @import("std");
-const syntax = @import("syntax");
 const file_type_config = @import("file_type_config");
 const builtin = @import("builtin");
 const RGB = @import("color").RGB;
@@ -17,8 +16,8 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tt
     var max_formatter_len: usize = 0;
     var max_extensions_len: usize = 0;
 
-    for (syntax.FileType.static_file_types) |static_file_type| {
-        const file_type = try file_type_config.get(static_file_type.name) orelse unreachable;
+    for (file_type_config.get_all_names()) |file_type_name| {
+        const file_type = try file_type_config.get(file_type_name) orelse unreachable;
         max_language_len = @max(max_language_len, file_type.name.len);
         max_langserver_len = @max(max_langserver_len, args_string_length(file_type.language_server));
         max_formatter_len = @max(max_formatter_len, args_string_length(file_type.formatter));
@@ -33,11 +32,11 @@ pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tt
     try tty_config.setColor(writer, .reset);
     try writer.writeAll("\n");
 
-    for (syntax.FileType.static_file_types) |static_file_type| {
-        const file_type = try file_type_config.get(static_file_type.name) orelse unreachable;
+    for (file_type_config.get_all_names()) |file_type_name| {
+        const file_type = try file_type_config.get(file_type_name) orelse unreachable;
         try writer.writeAll(" ");
-        try setColorRgb(writer, file_type.color orelse static_file_type.color);
-        try writer.writeAll(file_type.icon orelse static_file_type.icon);
+        try setColorRgb(writer, file_type.color orelse file_type_config.default.color);
+        try writer.writeAll(file_type.icon orelse file_type_config.default.icon);
         try tty_config.setColor(writer, .reset);
         try writer.writeAll("  ");
         try write_string(writer, file_type.name, max_language_len + 1);

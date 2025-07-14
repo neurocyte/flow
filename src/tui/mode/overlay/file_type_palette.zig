@@ -40,8 +40,8 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
                 break :blk null;
             };
 
-            for (file_type_config.get_all()) |static_file_type| {
-                const file_type = try file_type_config.get(static_file_type.name) orelse unreachable;
+            for (file_type_config.get_all_names()) |file_type_name| {
+                const file_type = try file_type_config.get(file_type_name) orelse unreachable;
                 idx += 1;
                 (try palette.entries.addOne()).* = .{
                     .label = file_type.description orelse file_type_config.default.description,
@@ -49,7 +49,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
                     .icon = file_type.icon orelse file_type_config.default.icon,
                     .color = file_type.color orelse file_type_config.default.color,
                 };
-                if (previous_file_type) |file_type_name| if (std.mem.eql(u8, file_type.name, file_type_name)) {
+                if (previous_file_type) |previous_name| if (std.mem.eql(u8, file_type.name, previous_name)) {
                     palette.initial_selected = idx;
                 };
                 longest_hint = @max(longest_hint, file_type.name.len);
