@@ -24,7 +24,8 @@ const CacheEntry = struct {
     query: ?*Query,
     query_arena: ?*std.heap.ArenaAllocator,
     query_type: QueryType,
-    file_type: *const FileType,
+    file_type_name: []const u8,
+    lang_fn: FileType.LangFn,
 
     fn destroy(self: *@This(), allocator: std.mem.Allocator) void {
         if (self.query_arena) |a| {
@@ -101,7 +102,7 @@ fn release_cache_entry_hash_map(allocator: std.mem.Allocator, hash_map: *std.Str
     hash_map.deinit(allocator);
 }
 
-fn get_cache_entry(self: *Self, file_type: *const FileType, comptime query_type: QueryType) CacheError!*CacheEntry {
+fn get_cache_entry(self: *Self, file_type: FileType, comptime query_type: QueryType) CacheError!*CacheEntry {
     if (self.mutex) |*mtx| mtx.lock();
     defer if (self.mutex) |*mtx| mtx.unlock();
 
@@ -119,7 +120,8 @@ fn get_cache_entry(self: *Self, file_type: *const FileType, comptime query_type:
             .query = null,
             .query_arena = null,
             .mutex = if (self.mutex) |_| .{} else null,
-            .file_type = file_type,
+            .lang_fn = file_type.lang_fn,
+            .file_type_name = file_type.name,
             .query_type = query_type,
         };
         entry_.value_ptr.* = q;
@@ -133,8 +135,8 @@ fn get_cached_query(self: *Self, entry: *CacheEntry) Error!?*Query {
     defer if (entry.mutex) |*mtx| mtx.unlock();
 
     return if (entry.query) |query| query else blk: {
-        const lang = entry.file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{entry.file_type.name});
-        const queries = FileType.queries.get(entry.file_type.name) orelse return null;
+        const lang = entry.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{entry.file_type_name});
+        const queries = FileType.queries.get(entry.file_type_name) orelse return null;
         const query_bin = switch (entry.query_type) {
             .highlights => queries.highlights_bin,
             .errors => queries.errors_bin,
@@ -166,7 +168,7 @@ fn ReturnType(comptime query_type: QueryType) type {
     };
 }
 
-pub fn get(self: *Self, file_type: *const FileType, comptime query_type: QueryType) Error!ReturnType(query_type) {
+pub fn get(self: *Self, file_type: FileType, comptime query_type: QueryType) Error!ReturnType(query_type) {
     const query = try self.get_cached_query(try self.get_cache_entry(file_type, query_type));
     self.add_ref_locked();
     return switch (@typeInfo(ReturnType(query_type))) {

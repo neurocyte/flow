@@ -20,22 +20,23 @@ comment: []const u8,
 formatter: ?[]const []const u8,
 language_server: ?[]const []const u8,
 
-pub fn get_by_name_static(name: []const u8) ?*const FileType {
-    for (static_file_types) |*file_type|
-        if (std.mem.eql(u8, file_type.name, name))
-            return file_type;
-    return null;
+pub fn get_by_name_static(name: []const u8) ?FileType {
+    return FileType.static_file_types.get(name);
 }
 
-pub fn guess_static(file_path: ?[]const u8, content: []const u8) ?*const FileType {
+pub fn get_all() []const FileType {
+    return FileType.static_file_types.values();
+}
+
+pub fn guess_static(file_path: ?[]const u8, content: []const u8) ?FileType {
     if (guess_first_line_static(content)) |ft| return ft;
-    for (static_file_types) |*file_type|
+    for (static_file_types.values()) |*file_type|
         if (file_path) |fp| if (match_file_type(file_type.extensions, fp))
             return file_type;
     return null;
 }
 
-fn guess_first_line_static(content: []const u8) ?*const FileType {
+fn guess_first_line_static(content: []const u8) ?FileType {
     const first_line = if (std.mem.indexOf(u8, content, "\n")) |pos| content[0..pos] else content;
     for (static_file_types) |*file_type|
         if (file_type.first_line_matches) |match|
@@ -86,14 +87,15 @@ fn ft_func_name(comptime lang: []const u8) []const u8 {
     return &func_name;
 }
 
-const LangFn = *const fn () callconv(.C) ?*const treez.Language;
+pub const LangFn = *const fn () callconv(.C) ?*const treez.Language;
 
 pub const FirstLineMatch = struct {
     prefix: ?[]const u8 = null,
     content: ?[]const u8 = null,
 };
 
-pub const static_file_types = load_file_types(@import("file_types.zig"));
+const static_file_type_list = load_file_types(@import("file_types.zig"));
+const static_file_types = std.static_string_map.StaticStringMap(FileType).initComptime(static_file_type_list);
 
 fn vec(comptime args: anytype) []const []const u8 {
     var cmd: []const []const u8 = &[_][]const u8{};
@@ -103,7 +105,9 @@ fn vec(comptime args: anytype) []const []const u8 {
     return cmd;
 }
 
-fn load_file_types(comptime Namespace: type) []const FileType {
+const ListEntry = struct { []const u8, FileType };
+
+fn load_file_types(comptime Namespace: type) []const ListEntry {
     comptime switch (@typeInfo(Namespace)) {
         .@"struct" => |info| {
             var count = 0;
@@ -111,12 +115,12 @@ fn load_file_types(comptime Namespace: type) []const FileType {
                 // @compileLog(decl.name, @TypeOf(@field(Namespace, decl.name)));
                 count += 1;
             }
-            var construct_types: [count]FileType = undefined;
+            var construct_types: [count]ListEntry = undefined;
             var i = 0;
             for (info.decls) |decl| {
                 const lang = decl.name;
                 const args = @field(Namespace, lang);
-                construct_types[i] = .{
+                construct_types[i] = .{ lang, .{
                     .color = if (@hasField(@TypeOf(args), "color")) args.color else 0xffffff,
                     .icon = if (@hasField(@TypeOf(args), "icon")) args.icon else "󱀫",
                     .name = lang,
@@ -127,7 +131,7 @@ fn load_file_types(comptime Namespace: type) []const FileType {
                     .first_line_matches = if (@hasField(@TypeOf(args), "first_line_matches")) args.first_line_matches else null,
                     .formatter = if (@hasField(@TypeOf(args), "formatter")) vec(args.formatter) else null,
                     .language_server = if (@hasField(@TypeOf(args), "language_server")) vec(args.language_server) else null,
-                };
+                } };
                 i += 1;
             }
             const types = construct_types;

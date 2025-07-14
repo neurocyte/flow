@@ -27,7 +27,7 @@ errors_query: *Query,
 injections: ?*Query,
 tree: ?*treez.Tree = null,
 
-pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, query_cache: *QueryCache) !*Self {
+pub fn create(file_type: FileType, allocator: std.mem.Allocator, query_cache: *QueryCache) !*Self {
     const query = try query_cache.get(file_type, .highlights);
     const errors_query = try query_cache.get(file_type, .errors);
     const injections = try query_cache.get(file_type, .injections);
