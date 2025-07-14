@@ -8,6 +8,7 @@ const ripgrep = @import("ripgrep");
 const tracy = @import("tracy");
 const text_manip = @import("text_manip");
 const syntax = @import("syntax");
+const file_type_config = @import("file_type_config");
 const project_manager = @import("project_manager");
 const root_mod = @import("root");
 
@@ -330,6 +331,7 @@ pub const Editor = struct {
         utf8_sanitized: bool = false,
     } = .{},
 
+    file_type: ?file_type_config = null,
     syntax: ?*syntax = null,
     syntax_no_render: bool = false,
     syntax_report_timing: bool = false,
@@ -579,30 +581,30 @@ pub const Editor = struct {
                 try new_buf.root.store(content.writer(std.heap.c_allocator), new_buf.file_eol_mode);
             }
 
-            const syn_file_type = blk: {
+            self.file_type = blk: {
                 const frame_ = tracy.initZone(@src(), .{ .name = "guess" });
                 defer frame_.deinit();
                 break :blk if (lang_override.len > 0)
-                    syntax.FileType.get_by_name(lang_override)
+                    try file_type_config.get(lang_override)
                 else
-                    syntax.FileType.guess(self.file_path, content.items);
+                    file_type_config.guess_file_type(self.file_path, content.items);
             };
 
             const syn = blk: {
                 const frame_ = tracy.initZone(@src(), .{ .name = "create" });
                 defer frame_.deinit();
-                break :blk if (syn_file_type) |ft|
-                    syntax.create(ft, self.allocator, tui.query_cache()) catch null
+                break :blk if (self.file_type) |ft|
+                    ft.create_syntax(self.allocator, tui.query_cache()) catch null
                 else
                     null;
             };
 
-            if (syn) |syn_| {
+            if (self.file_type) |ft| {
                 const frame_ = tracy.initZone(@src(), .{ .name = "did_open" });
                 defer frame_.deinit();
                 project_manager.did_open(
                     file_path,
-                    syn_.file_type,
+                    ft,
                     self.lsp_version,
                     try content.toOwnedSlice(std.heap.c_allocator),
                     new_buf.is_ephemeral(),
@@ -614,9 +616,9 @@ pub const Editor = struct {
         self.syntax_no_render = tp.env.get().is("no-syntax");
         self.syntax_report_timing = tp.env.get().is("syntax-report-timing");
 
-        const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
-        const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";
-        const ftc = if (self.syntax) |syn| syn.file_type.color else 0x000000;
+        const ftn = if (self.file_type) |ft| ft.name else "text";
+        const fti = if (self.file_type) |ft| ft.icon orelse "🖹" else "🖹";
+        const ftc = if (self.file_type) |ft| ft.color orelse 0x000000 else 0x000000;
         if (self.buffer) |buffer| {
             buffer.file_type_name = ftn;
             buffer.file_type_icon = fti;
@@ -3608,7 +3610,7 @@ pub const Editor = struct {
     pub const toggle_prefix_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn toggle_comment(self: *Self, _: Context) Result {
-        const comment = if (self.syntax) |syn| syn.file_type.comment else "//";
+        const comment = if (self.file_type) |file_type| file_type.comment else "#";
         return self.toggle_prefix(command.fmt(.{comment}));
     }
     pub const toggle_comment_meta: Meta = .{ .description = "Toggle comment" };
@@ -4647,7 +4649,7 @@ pub const Editor = struct {
             var content = std.ArrayListUnmanaged(u8).empty;
             defer content.deinit(self.allocator);
             try root.store(content.writer(self.allocator), eol_mode);
-            self.syntax = syntax.create_guess_file_type(self.allocator, content.items, self.file_path, tui.query_cache()) catch |e| switch (e) {
+            self.syntax = file_type_config.create_syntax_guess_file_type(self.allocator, content.items, self.file_path, tui.query_cache()) catch |e| switch (e) {
                 error.NotFound => null,
                 else => return e,
             };
@@ -5537,7 +5539,7 @@ pub const Editor = struct {
     pub const select_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
 
     fn get_formatter(self: *Self) ?[]const []const u8 {
-        if (self.syntax) |syn| if (syn.file_type.formatter) |fmtr| if (fmtr.len > 0) return fmtr;
+        if (self.file_type) |file_type| if (file_type.formatter) |fmtr| if (fmtr.len > 0) return fmtr;
         return null;
     }
 
@@ -5743,11 +5745,11 @@ pub const Editor = struct {
             saved.cursor = sel.end;
             break :ret sel;
         };
-        var result = std.ArrayListUnmanaged(u8).empty;
-        defer result.deinit(self.allocator);
+        var result = std.ArrayList(u8).init(self.allocator);
+        defer result.deinit();
         const writer: struct {
             self_: *Self,
-            result: *std.ArrayListUnmanaged(u8),
+            result: *std.ArrayList(u8),
             allocator: std.mem.Allocator,
 
             const Error = @typeInfo(@typeInfo(@TypeOf(Buffer.unicode.LetterCasing.toUpperStr)).@"fn".return_type.?).error_union.error_set;
@@ -5758,7 +5760,7 @@ pub const Editor = struct {
                 else
                     try letter_casing.toLowerStr(writer.self_.allocator, bytes);
                 defer writer.self_.allocator.free(flipped);
-                return writer.result.appendSlice(writer.allocator, flipped);
+                return writer.result.appendSlice(flipped);
             }
             fn map_error(e: anyerror, _: ?*std.builtin.StackTrace) Error {
                 return @errorCast(e);
@@ -5833,29 +5835,38 @@ pub const Editor = struct {
         self.syntax_refresh_full = true;
         self.syntax_incremental_reparse = false;
 
-        self.syntax = syntax: {
+        const file_type_config_ = try file_type_config.get(file_type);
+        self.file_type = file_type_config_;
+
+        self.syntax = blk: {
+            break :blk if (self.file_type) |ft|
+                ft.create_syntax(self.allocator, tui.query_cache()) catch null
+            else
+                null;
+        };
+
+        if (self.file_type) |ft| {
             var content = std.ArrayListUnmanaged(u8).empty;
             defer content.deinit(std.heap.c_allocator);
             const root = try self.buf_root();
             try root.store(content.writer(std.heap.c_allocator), try self.buf_eol_mode());
-            const syn = syntax.create_file_type(self.allocator, file_type, tui.query_cache()) catch null;
-            if (syn) |syn_| if (self.file_path) |file_path|
+
+            if (self.file_path) |file_path|
                 project_manager.did_open(
                     file_path,
-                    syn_.file_type,
+                    ft,
                     self.lsp_version,
                     try content.toOwnedSlice(std.heap.c_allocator),
                     if (self.buffer) |p| p.is_ephemeral() else true,
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
-            break :syntax syn;
-        };
+        }
         self.syntax_no_render = tp.env.get().is("no-syntax");
         self.syntax_report_timing = tp.env.get().is("syntax-report-timing");
 
-        const ftn = if (self.syntax) |syn| syn.file_type.name else "text";
-        const fti = if (self.syntax) |syn| syn.file_type.icon else "🖹";
-        const ftc = if (self.syntax) |syn| syn.file_type.color else 0x000000;
+        const ftn = if (self.file_type) |ft| ft.name else "text";
+        const fti = if (self.file_type) |ft| ft.icon orelse "🖹" else "🖹";
+        const ftc = if (self.file_type) |ft| ft.color orelse 0x000000 else 0x000000;
         const file_exists = if (self.buffer) |b| b.file_exists else false;
         try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc);
         self.logger.print("file type {s}", .{file_type});

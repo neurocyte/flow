@@ -591,6 +591,7 @@ pub fn build_exe(
     exe.root_module.addImport("renderer", renderer_mod);
     exe.root_module.addImport("input", input_mod);
     exe.root_module.addImport("syntax", syntax_mod);
+    exe.root_module.addImport("file_type_config", file_type_config_mod);
     exe.root_module.addImport("color", color_mod);
     exe.root_module.addImport("bin_path", bin_path_mod);
     exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
@@ -635,6 +636,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("renderer", renderer_mod);
     check_exe.root_module.addImport("input", input_mod);
     check_exe.root_module.addImport("syntax", syntax_mod);
+    check_exe.root_module.addImport("file_type_config", file_type_config_mod);
     check_exe.root_module.addImport("color", color_mod);
     check_exe.root_module.addImport("bin_path", bin_path_mod);
     check_exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
