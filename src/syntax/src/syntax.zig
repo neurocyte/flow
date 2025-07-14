@@ -45,13 +45,13 @@ pub fn create(file_type: *const FileType, allocator: std.mem.Allocator, query_ca
     return self;
 }
 
-pub fn create_file_type(allocator: std.mem.Allocator, lang_name: []const u8, query_cache: *QueryCache) !*Self {
-    const file_type = FileType.get_by_name(lang_name) orelse return error.NotFound;
+pub fn static_create_file_type(allocator: std.mem.Allocator, lang_name: []const u8, query_cache: *QueryCache) !*Self {
+    const file_type = FileType.get_by_name_static(lang_name) orelse return error.NotFound;
     return create(file_type, allocator, query_cache);
 }
 
-pub fn create_guess_file_type(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8, query_cache: *QueryCache) !*Self {
-    const file_type = FileType.guess(file_path, content) orelse return error.NotFound;
+pub fn static_create_guess_file_type_static(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8, query_cache: *QueryCache) !*Self {
+    const file_type = FileType.guess_static(file_path, content) orelse return error.NotFound;
     return create(file_type, allocator, query_cache);
 }
 

@@ -20,43 +20,44 @@ comment: []const u8,
 formatter: ?[]const []const u8,
 language_server: ?[]const []const u8,
 
-pub fn get_by_name(name: []const u8) ?*const FileType {
-    for (file_types) |*file_type|
+pub fn get_by_name_static(name: []const u8) ?*const FileType {
+    for (static_file_types) |*file_type|
         if (std.mem.eql(u8, file_type.name, name))
             return file_type;
     return null;
 }
 
-pub fn guess(file_path: ?[]const u8, content: []const u8) ?*const FileType {
-    if (guess_first_line(content)) |ft| return ft;
-    for (file_types) |*file_type|
-        if (file_path) |fp| if (match_file_type(file_type, fp))
+pub fn guess_static(file_path: ?[]const u8, content: []const u8) ?*const FileType {
+    if (guess_first_line_static(content)) |ft| return ft;
+    for (static_file_types) |*file_type|
+        if (file_path) |fp| if (match_file_type(file_type.extensions, fp))
             return file_type;
     return null;
 }
 
-fn guess_first_line(content: []const u8) ?*const FileType {
+fn guess_first_line_static(content: []const u8) ?*const FileType {
     const first_line = if (std.mem.indexOf(u8, content, "\n")) |pos| content[0..pos] else content;
-    for (file_types) |*file_type|
+    for (static_file_types) |*file_type|
         if (file_type.first_line_matches) |match|
-            if (match_first_line(match, first_line))
+            if (match_first_line(match.prefix, match.content, first_line))
                 return file_type;
     return null;
 }
 
-fn match_first_line(match: FirstLineMatch, first_line: []const u8) bool {
-    if (match.prefix) |prefix|
+pub fn match_first_line(match_prefix: ?[]const u8, match_content: ?[]const u8, first_line: []const u8) bool {
+    if (match_prefix == null and match_content == null) return false;
+    if (match_prefix) |prefix|
         if (prefix.len > first_line.len or !std.mem.eql(u8, first_line[0..prefix.len], prefix))
             return false;
-    if (match.content) |content|
+    if (match_content) |content|
         if (std.mem.indexOf(u8, first_line, content)) |_| {} else return false;
     return true;
 }
 
-fn match_file_type(file_type: *const FileType, file_path: []const u8) bool {
+pub fn match_file_type(extensions: []const []const u8, file_path: []const u8) bool {
     const basename = std.fs.path.basename(file_path);
     const extension = std.fs.path.extension(file_path);
-    return for (file_type.extensions) |ext| {
+    return for (extensions) |ext| {
         if (ext.len == basename.len and std.mem.eql(u8, ext, basename))
             return true;
         if (extension.len > 0 and ext.len == extension.len - 1 and std.mem.eql(u8, ext, extension[1..]))
@@ -92,7 +93,7 @@ pub const FirstLineMatch = struct {
     content: ?[]const u8 = null,
 };
 
-pub const file_types = load_file_types(@import("file_types.zig"));
+pub const static_file_types = load_file_types(@import("file_types.zig"));
 
 fn vec(comptime args: anytype) []const []const u8 {
     var cmd: []const []const u8 = &[_][]const u8{};
