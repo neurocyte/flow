@@ -30,7 +30,7 @@ pub fn get_all() []const FileType {
 
 pub fn guess_static(file_path: ?[]const u8, content: []const u8) ?FileType {
     if (guess_first_line_static(content)) |ft| return ft;
-    for (static_file_types.values()) |*file_type|
+    for (static_file_types.values()) |file_type|
         if (file_path) |fp| if (match_file_type(file_type.extensions, fp))
             return file_type;
     return null;
@@ -38,7 +38,7 @@ pub fn guess_static(file_path: ?[]const u8, content: []const u8) ?FileType {
 
 fn guess_first_line_static(content: []const u8) ?FileType {
     const first_line = if (std.mem.indexOf(u8, content, "\n")) |pos| content[0..pos] else content;
-    for (static_file_types) |*file_type|
+    for (static_file_types.values()) |file_type|
         if (file_type.first_line_matches) |match|
             if (match_first_line(match.prefix, match.content, first_line))
                 return file_type;
