@@ -14,10 +14,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const tree_sitter_host_dep = b.dependency("tree_sitter", .{
-        .target = b.graph.host,
-        .optimize = optimize,
-    });
+    const tree_sitter_host_dep = b.dependency("tree_sitter", .{});
 
     const cbor_dep = b.dependency("cbor", .{
         .target = target,
@@ -26,8 +23,11 @@ pub fn build(b: *std.Build) void {
 
     const ts_bin_query_gen = b.addExecutable(.{
         .name = "ts_bin_query_gen",
-        .target = b.graph.host,
-        .root_source_file = b.path("src/ts_bin_query_gen.zig"),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/ts_bin_query_gen.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     ts_bin_query_gen.linkLibC();
     ts_bin_query_gen.root_module.addImport("cbor", cbor_dep.module("cbor"));
