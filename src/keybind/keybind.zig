@@ -291,7 +291,7 @@ const Command = struct {
     fn execute(self: *@This()) !void {
         const id = self.command_id orelse
             command.get_id_cache(self.command, &self.command_id) orelse {
-            return tp.exit_fmt("CommandNotFound: {s}", .{self.command});
+            return command.notFoundError(self.command);
         };
         var buf: [2048]u8 = undefined;
         @memcpy(buf[0..self.args.len], self.args);

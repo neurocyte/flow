@@ -188,17 +188,21 @@ pub fn get_arguments(id: ID) ?[]const ArgumentType {
     return (commands.items[id] orelse return null).meta.arguments;
 }
 
-const suppressed_errors = .{
-    "enable_fast_scroll",
-    "disable_fast_scroll",
-    "clear_diagnostics",
-};
+const suppressed_errors = std.StaticStringMap(void).initComptime(.{
+    .{ "enable_fast_scroll", void },
+    .{ "disable_fast_scroll", void },
+    .{ "clear_diagnostics", void },
+});
 
 pub fn executeName(name: []const u8, ctx: Context) tp.result {
     const id = get_id(name);
     if (id) |id_| return execute(id_, ctx);
-    inline for (suppressed_errors) |err| if (std.mem.eql(u8, err, name)) return;
-    return tp.exit_fmt("CommandNotFound: {s}", .{name});
+    return notFoundError(name);
+}
+
+pub fn notFoundError(name: []const u8) !void {
+    if (!suppressed_errors.has(name))
+        return tp.exit_fmt("CommandNotFound: {s}", .{name});
 }
 
 fn CmdDef(comptime T: type) type {
