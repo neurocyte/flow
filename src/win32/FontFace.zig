@@ -2,11 +2,13 @@ const FontFace = @This();
 
 const std = @import("std");
 
-// it seems that Windows only supports font faces with up to 31 characters
-pub const max = 31;
+// it seems that Windows only supports font faces with up to 31 characters,
+// but we use a larger buffer here because GetFamilyNames can apparently
+// return longer strings
+pub const max = 254;
 
 buf: [max + 1]u16,
-len: u5,
+len: usize,
 
 pub fn initUtf8(utf8: []const u8) error{ TooLong, InvalidUtf8 }!FontFace {
     const utf16_len = std.unicode.calcUtf16LeLen(utf8) catch return error.InvalidUtf8;
