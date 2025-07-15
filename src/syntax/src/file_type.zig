@@ -95,7 +95,7 @@ pub const FirstLineMatch = struct {
 };
 
 const static_file_type_list = load_file_types(@import("file_types.zig"));
-const static_file_types = std.static_string_map.StaticStringMap(FileType).initComptime(static_file_type_list);
+const static_file_types = std.StaticStringMap(FileType).initComptime(static_file_type_list);
 
 fn vec(comptime args: anytype) []const []const u8 {
     var cmd: []const []const u8 = &[_][]const u8{};
@@ -147,7 +147,7 @@ pub const FileTypeQueries = struct {
     injections_bin: ?[]const u8,
 };
 
-pub const queries = std.static_string_map.StaticStringMap(FileTypeQueries).initComptime(load_queries());
+pub const queries = std.StaticStringMap(FileTypeQueries).initComptime(load_queries());
 
 fn load_queries() []const struct { []const u8, FileTypeQueries } {
     if (!build_options.use_tree_sitter) return &.{};

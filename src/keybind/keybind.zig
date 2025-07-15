@@ -18,7 +18,7 @@ const SelectionStyle = @import("Buffer").Selection.Style;
 const parse_flow = @import("parse_flow.zig");
 const parse_vim = @import("parse_vim.zig");
 
-const builtin_keybinds = std.static_string_map.StaticStringMap([]const u8).initComptime(.{
+const builtin_keybinds = std.StaticStringMap([]const u8).initComptime(.{
     .{ "flow", @embedFile("builtin/flow.json") },
     .{ "vim", @embedFile("builtin/vim.json") },
     .{ "helix", @embedFile("builtin/helix.json") },
@@ -291,7 +291,7 @@ const Command = struct {
     fn execute(self: *@This()) !void {
         const id = self.command_id orelse
             command.get_id_cache(self.command, &self.command_id) orelse {
-            return tp.exit_fmt("CommandNotFound: {s}", .{self.command});
+            return command.notFoundError(self.command);
         };
         var buf: [2048]u8 = undefined;
         @memcpy(buf[0..self.args.len], self.args);
