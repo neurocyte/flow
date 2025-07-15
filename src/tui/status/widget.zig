@@ -5,7 +5,7 @@ const log = @import("log");
 
 const Widget = @import("../Widget.zig");
 
-const widgets = std.static_string_map.StaticStringMap(CreateFunction).initComptime(.{
+const widgets = std.StaticStringMap(CreateFunction).initComptime(.{
     .{ "mode", @import("modestate.zig").create },
     .{ "file", @import("filestate.zig").create },
     .{ "log", @import("minilog.zig").create },

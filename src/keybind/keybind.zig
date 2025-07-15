@@ -18,7 +18,7 @@ const SelectionStyle = @import("Buffer").Selection.Style;
 const parse_flow = @import("parse_flow.zig");
 const parse_vim = @import("parse_vim.zig");
 
-const builtin_keybinds = std.static_string_map.StaticStringMap([]const u8).initComptime(.{
+const builtin_keybinds = std.StaticStringMap([]const u8).initComptime(.{
     .{ "flow", @embedFile("builtin/flow.json") },
     .{ "vim", @embedFile("builtin/vim.json") },
     .{ "helix", @embedFile("builtin/helix.json") },
