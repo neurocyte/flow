@@ -1338,6 +1338,8 @@ pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) St
 }
 
 pub fn store_to_new_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
+    if (std.fs.path.dirname(file_path)) |dir_name|
+        try cwd().makePath(dir_name);
     const file = try cwd().createFile(file_path, .{ .read = true, .truncate = true });
     defer file.close();
     try self.store_to_file_const(file);
