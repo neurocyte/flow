@@ -4774,6 +4774,11 @@ pub const Editor = struct {
 
     pub const SaveOption = enum { default, format, no_format };
 
+    pub fn toggle_auto_save(self: *Self, _: Context) Result {
+        self.enable_auto_save = !self.enable_auto_save;
+    }
+    pub const toggle_auto_save_meta: Meta = .{ .description = "Toggle auto save" };
+
     pub fn toggle_format_on_save(self: *Self, _: Context) Result {
         self.enable_format_on_save = !self.enable_format_on_save;
     }
