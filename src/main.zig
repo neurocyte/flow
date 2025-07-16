@@ -687,6 +687,14 @@ fn config_eql(comptime T: type, a: T, b: T) bool {
                 return false;
             return config_eql(info.child, a.?, b.?);
         },
+        .pointer => |info| switch (info.size) {
+            .slice => {
+                if (a.len != b.len) return false;
+                for (a, 0..) |x, i| if (!config_eql(info.child, x, b[i])) return false;
+                return true;
+            },
+            else => @compileError("unsupported config type " ++ @typeName(T)),
+        },
         else => {},
     }
     @compileError("unsupported config type " ++ @typeName(T));

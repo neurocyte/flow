@@ -23,8 +23,9 @@ const Allocator = std.mem.Allocator;
 allocator: Allocator,
 rdr_: renderer,
 config_: @import("config"),
-highlight_columns_: []u16,
-highlight_columns_configured: []u16,
+config_bufs: [][]const u8,
+highlight_columns_: []const u16,
+highlight_columns_configured: []const u16,
 frame_time: usize, // in microseconds
 frame_clock: tp.metronome,
 frame_clock_running: bool = false,
@@ -103,19 +104,12 @@ const InitError = error{
 
 fn init(allocator: Allocator) InitError!*Self {
     var conf, const conf_bufs = root.read_config(@import("config"), allocator);
-    defer root.free_config(allocator, conf_bufs);
 
     if (@hasDecl(renderer, "install_crash_handler") and conf.start_debugger_on_crash)
         renderer.jit_debugger_enabled = true;
 
     const theme_, const parsed_theme = get_theme_by_name(allocator, conf.theme) orelse get_theme_by_name(allocator, "dark_modern") orelse return error.UnknownTheme;
     conf.theme = theme_.name;
-    conf.whitespace_mode = try allocator.dupe(u8, conf.whitespace_mode);
-    conf.input_mode = try allocator.dupe(u8, conf.input_mode);
-    conf.top_bar = try allocator.dupe(u8, conf.top_bar);
-    conf.bottom_bar = try allocator.dupe(u8, conf.bottom_bar);
-    conf.include_files = try allocator.dupe(u8, conf.include_files);
-    conf.highlight_columns = try allocator.dupe(u8, conf.highlight_columns);
     if (build_options.gui) conf.enable_terminal_cursor = false;
 
     const frame_rate: usize = @intCast(tp.env.get().num("frame-rate"));
@@ -125,21 +119,13 @@ fn init(allocator: Allocator) InitError!*Self {
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 
-    const hl_cols: usize = blk: {
-        var it = std.mem.splitScalar(u8, conf.highlight_columns, ' ');
-        var idx: usize = 0;
-        while (it.next()) |_|
-            idx += 1;
-        break :blk idx;
-    };
-    const highlight_columns__ = try allocator.alloc(u16, hl_cols);
-
     var self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
         .config_ = conf,
-        .highlight_columns_ = if (conf.highlight_columns_enabled) highlight_columns__ else &.{},
-        .highlight_columns_configured = highlight_columns__,
+        .config_bufs = conf_bufs,
+        .highlight_columns_ = if (conf.highlight_columns_enabled) conf.highlight_columns else &.{},
+        .highlight_columns_configured = conf.highlight_columns,
         .rdr_ = try renderer.init(allocator, self, tp.env.get().is("no-alternate"), dispatch_initialized),
         .frame_time = frame_time,
         .frame_clock = frame_clock,
@@ -158,13 +144,6 @@ fn init(allocator: Allocator) InitError!*Self {
     };
     instance_ = self;
     defer instance_ = null;
-
-    var it = std.mem.splitScalar(u8, conf.highlight_columns, ' ');
-    var idx: usize = 0;
-    while (it.next()) |arg| {
-        highlight_columns__[idx] = std.fmt.parseInt(u16, arg, 10) catch 0;
-        idx += 1;
-    }
 
     self.default_cursor = std.meta.stringToEnum(keybind.CursorShape, conf.default_cursor) orelse .default;
     self.config_.default_cursor = @tagName(self.default_cursor);
@@ -225,7 +204,6 @@ fn init_delayed(self: *Self) command.Result {
 }
 
 fn deinit(self: *Self) void {
-    self.allocator.free(self.highlight_columns_configured);
     if (self.mouse_idle_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -256,6 +234,7 @@ fn deinit(self: *Self) void {
     self.rdr_.deinit();
     self.logger.deinit();
     self.query_cache_.deinit();
+    root.free_config(self.allocator, self.config_bufs);
     self.allocator.destroy(self);
 }
 
