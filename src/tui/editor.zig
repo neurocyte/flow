@@ -350,6 +350,11 @@ pub const Editor = struct {
 
     completions: std.ArrayListUnmanaged(u8) = .empty,
 
+    enable_auto_save: bool,
+    enable_format_on_save: bool,
+
+    restored_state: bool = false,
+
     need_save_after_filter: ?struct {
         then: ?struct {
             cmd: []const u8,
@@ -365,10 +370,12 @@ pub const Editor = struct {
     const Result = command.Result;
 
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
-        try cbor.writeArrayHeader(writer, 6);
+        try cbor.writeArrayHeader(writer, 8);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.clipboard orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
+        try cbor.writeValue(writer, self.enable_format_on_save);
+        try cbor.writeValue(writer, self.enable_auto_save);
         if (self.find_history) |history| {
             try cbor.writeArrayHeader(writer, history.items.len);
             for (history.items) |item|
@@ -391,16 +398,19 @@ pub const Editor = struct {
     pub fn extract_state(self: *Self, buf: []const u8, comptime op: enum { none, open_file }) !void {
         tp.trace(tp.channel.debug, .{ "extract_state", self.file_path });
         tp.trace(tp.channel.debug, tp.message{ .buf = buf });
+        self.restored_state = true;
         var file_path: []const u8 = undefined;
         var view_cbor: []const u8 = undefined;
         var cursels_cbor: []const u8 = undefined;
         var clipboard: []const u8 = undefined;
-        var query: []const u8 = undefined;
+        var last_find_query: []const u8 = undefined;
         var find_history: []const u8 = undefined;
         if (!try cbor.match(buf, .{
             tp.extract(&file_path),
             tp.extract(&clipboard),
-            tp.extract(&query),
+            tp.extract(&last_find_query),
+            tp.extract(&self.enable_format_on_save),
+            tp.extract(&self.enable_auto_save),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
             tp.extract_cbor(&cursels_cbor),
@@ -409,7 +419,7 @@ pub const Editor = struct {
         if (op == .open_file)
             try self.open(file_path);
         self.clipboard = if (clipboard.len > 0) try self.allocator.dupe(u8, clipboard) else null;
-        self.last_find_query = if (query.len > 0) try self.allocator.dupe(u8, clipboard) else null;
+        self.last_find_query = if (last_find_query.len > 0) try self.allocator.dupe(u8, last_find_query) else null;
         const rows = self.view.rows;
         const cols = self.view.cols;
         if (!try self.view.extract(&view_cbor))
@@ -458,6 +468,8 @@ pub const Editor = struct {
             .animation_lag = get_animation_max_lag(),
             .animation_frame_rate = frame_rate,
             .animation_last_time = time.microTimestamp(),
+            .enable_auto_save = tui.config().enable_auto_save,
+            .enable_format_on_save = tui.config().enable_format_on_save,
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
             .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
         };
@@ -590,6 +602,8 @@ pub const Editor = struct {
                     file_type_config.guess_file_type(self.file_path, content.items);
             };
 
+            self.maybe_enable_auto_save();
+
             const syn = blk: {
                 const frame_ = tracy.initZone(@src(), .{ .name = "create" });
                 defer frame_.deinit();
@@ -631,6 +645,22 @@ pub const Editor = struct {
             try self.extract_state(meta, .none);
         };
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc);
+    }
+
+    fn maybe_enable_auto_save(self: *Self) void {
+        if (self.restored_state) return;
+        self.enable_auto_save = false;
+        if (!tui.config().enable_auto_save) return;
+        const self_file_type = self.file_type orelse return;
+
+        enable: {
+            const file_types = tui.config().limit_auto_save_file_types orelse break :enable;
+            for (file_types) |file_type|
+                if (std.mem.eql(u8, file_type, self_file_type.name))
+                    break :enable;
+            return;
+        }
+        self.enable_auto_save = true;
     }
 
     fn close(self: *Self) !void {
@@ -1684,6 +1714,8 @@ pub const Editor = struct {
         _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root), @intFromEnum(eol_mode) });
         if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
             project_manager.did_change(file_path, self.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
+        if (self.enable_auto_save)
+            tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
     }
 
     fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool) !void {
@@ -4767,6 +4799,16 @@ pub const Editor = struct {
 
     pub const SaveOption = enum { default, format, no_format };
 
+    pub fn toggle_auto_save(self: *Self, _: Context) Result {
+        self.enable_auto_save = !self.enable_auto_save;
+    }
+    pub const toggle_auto_save_meta: Meta = .{ .description = "Toggle auto save" };
+
+    pub fn toggle_format_on_save(self: *Self, _: Context) Result {
+        self.enable_format_on_save = !self.enable_format_on_save;
+    }
+    pub const toggle_format_on_save_meta: Meta = .{ .description = "Toggle format on save" };
+
     pub fn save_file(self: *Self, ctx: Context) Result {
         var option: SaveOption = .default;
         var then = false;
@@ -4780,7 +4822,7 @@ pub const Editor = struct {
             _ = ctx.args.match(.{tp.extract(&option)}) catch false;
         }
 
-        if ((option == .default and tui.config().enable_format_on_save) or option == .format) if (self.get_formatter()) |_| {
+        if ((option == .default and self.enable_format_on_save) or option == .format) if (self.get_formatter()) |_| {
             self.need_save_after_filter = .{ .then = if (then) .{ .cmd = cmd, .args = args } else null };
             const primary = self.get_primary();
             const sel = primary.selection;
