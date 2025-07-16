@@ -1693,6 +1693,8 @@ pub const Editor = struct {
         _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root), @intFromEnum(eol_mode) });
         if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
             project_manager.did_change(file_path, self.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
+        if (self.enable_auto_save)
+            tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
     }
 
     fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool) !void {
