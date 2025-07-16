@@ -398,12 +398,12 @@ pub const Editor = struct {
         var view_cbor: []const u8 = undefined;
         var cursels_cbor: []const u8 = undefined;
         var clipboard: []const u8 = undefined;
-        var query: []const u8 = undefined;
+        var last_find_query: []const u8 = undefined;
         var find_history: []const u8 = undefined;
         if (!try cbor.match(buf, .{
             tp.extract(&file_path),
             tp.extract(&clipboard),
-            tp.extract(&query),
+            tp.extract(&last_find_query),
             tp.extract(&self.enable_format_on_save),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
@@ -413,7 +413,7 @@ pub const Editor = struct {
         if (op == .open_file)
             try self.open(file_path);
         self.clipboard = if (clipboard.len > 0) try self.allocator.dupe(u8, clipboard) else null;
-        self.last_find_query = if (query.len > 0) try self.allocator.dupe(u8, clipboard) else null;
+        self.last_find_query = if (last_find_query.len > 0) try self.allocator.dupe(u8, last_find_query) else null;
         const rows = self.view.rows;
         const cols = self.view.cols;
         if (!try self.view.extract(&view_cbor))
