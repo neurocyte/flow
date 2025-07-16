@@ -367,10 +367,11 @@ pub const Editor = struct {
     const Result = command.Result;
 
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
-        try cbor.writeArrayHeader(writer, 6);
+        try cbor.writeArrayHeader(writer, 7);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.clipboard orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
+        try cbor.writeValue(writer, self.enable_format_on_save);
         if (self.find_history) |history| {
             try cbor.writeArrayHeader(writer, history.items.len);
             for (history.items) |item|
@@ -403,6 +404,7 @@ pub const Editor = struct {
             tp.extract(&file_path),
             tp.extract(&clipboard),
             tp.extract(&query),
+            tp.extract(&self.enable_format_on_save),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
             tp.extract_cbor(&cursels_cbor),
