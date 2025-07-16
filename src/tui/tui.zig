@@ -119,15 +119,6 @@ fn init(allocator: Allocator) InitError!*Self {
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 
-    const hl_cols: usize = blk: {
-        var it = std.mem.splitScalar(u8, conf.highlight_columns, ' ');
-        var idx: usize = 0;
-        while (it.next()) |_|
-            idx += 1;
-        break :blk idx;
-    };
-    const highlight_columns__ = try allocator.alloc(u16, hl_cols);
-
     var self = try allocator.create(Self);
     self.* = .{
         .allocator = allocator,
@@ -153,13 +144,6 @@ fn init(allocator: Allocator) InitError!*Self {
     };
     instance_ = self;
     defer instance_ = null;
-
-    var it = std.mem.splitScalar(u8, conf.highlight_columns, ' ');
-    var idx: usize = 0;
-    while (it.next()) |arg| {
-        highlight_columns__[idx] = std.fmt.parseInt(u16, arg, 10) catch 0;
-        idx += 1;
-    }
 
     self.default_cursor = std.meta.stringToEnum(keybind.CursorShape, conf.default_cursor) orelse .default;
     self.config_.default_cursor = @tagName(self.default_cursor);
