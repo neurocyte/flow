@@ -350,6 +350,8 @@ pub const Editor = struct {
 
     completions: std.ArrayListUnmanaged(u8) = .empty,
 
+    enable_format_on_save: bool,
+
     need_save_after_filter: ?struct {
         then: ?struct {
             cmd: []const u8,
@@ -458,6 +460,7 @@ pub const Editor = struct {
             .animation_lag = get_animation_max_lag(),
             .animation_frame_rate = frame_rate,
             .animation_last_time = time.microTimestamp(),
+            .enable_format_on_save = tui.config().enable_format_on_save,
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
             .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
         };
@@ -4767,6 +4770,11 @@ pub const Editor = struct {
 
     pub const SaveOption = enum { default, format, no_format };
 
+    pub fn toggle_format_on_save(self: *Self, _: Context) Result {
+        self.enable_format_on_save = !self.enable_format_on_save;
+    }
+    pub const toggle_format_on_save_meta: Meta = .{ .description = "Toggle format on save" };
+
     pub fn save_file(self: *Self, ctx: Context) Result {
         var option: SaveOption = .default;
         var then = false;
@@ -4780,7 +4788,7 @@ pub const Editor = struct {
             _ = ctx.args.match(.{tp.extract(&option)}) catch false;
         }
 
-        if ((option == .default and tui.config().enable_format_on_save) or option == .format) if (self.get_formatter()) |_| {
+        if ((option == .default and self.enable_format_on_save) or option == .format) if (self.get_formatter()) |_| {
             self.need_save_after_filter = .{ .then = if (then) .{ .cmd = cmd, .args = args } else null };
             const primary = self.get_primary();
             const sel = primary.selection;
