@@ -22,7 +22,7 @@ restore_last_cursor_position: bool = true,
 follow_cursor_on_buffer_switch: bool = false, //scroll cursor into view on buffer switch
 default_cursor: []const u8 = "default",
 enable_auto_save: bool = false,
-auto_save_file_types: []const []const u8 = &.{},
+limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
 
 indent_size: usize = 4,
 tab_width: usize = 8,

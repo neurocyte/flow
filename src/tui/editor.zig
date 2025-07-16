@@ -353,6 +353,8 @@ pub const Editor = struct {
     enable_auto_save: bool,
     enable_format_on_save: bool,
 
+    restored_state: bool = false,
+
     need_save_after_filter: ?struct {
         then: ?struct {
             cmd: []const u8,
@@ -396,6 +398,7 @@ pub const Editor = struct {
     pub fn extract_state(self: *Self, buf: []const u8, comptime op: enum { none, open_file }) !void {
         tp.trace(tp.channel.debug, .{ "extract_state", self.file_path });
         tp.trace(tp.channel.debug, tp.message{ .buf = buf });
+        self.restored_state = true;
         var file_path: []const u8 = undefined;
         var view_cbor: []const u8 = undefined;
         var cursels_cbor: []const u8 = undefined;
@@ -599,6 +602,8 @@ pub const Editor = struct {
                     file_type_config.guess_file_type(self.file_path, content.items);
             };
 
+            self.maybe_enable_auto_save();
+
             const syn = blk: {
                 const frame_ = tracy.initZone(@src(), .{ .name = "create" });
                 defer frame_.deinit();
@@ -640,6 +645,22 @@ pub const Editor = struct {
             try self.extract_state(meta, .none);
         };
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc);
+    }
+
+    fn maybe_enable_auto_save(self: *Self) void {
+        if (self.restored_state) return;
+        self.enable_auto_save = false;
+        if (!tui.config().enable_auto_save) return;
+        const self_file_type = self.file_type orelse return;
+
+        enable: {
+            const file_types = tui.config().limit_auto_save_file_types orelse break :enable;
+            for (file_types) |file_type|
+                if (std.mem.eql(u8, file_type, self_file_type.name))
+                    break :enable;
+            return;
+        }
+        self.enable_auto_save = true;
     }
 
     fn close(self: *Self) !void {
