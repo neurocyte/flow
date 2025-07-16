@@ -350,6 +350,7 @@ pub const Editor = struct {
 
     completions: std.ArrayListUnmanaged(u8) = .empty,
 
+    enable_auto_save: bool,
     enable_format_on_save: bool,
 
     need_save_after_filter: ?struct {
@@ -462,6 +463,7 @@ pub const Editor = struct {
             .animation_lag = get_animation_max_lag(),
             .animation_frame_rate = frame_rate,
             .animation_last_time = time.microTimestamp(),
+            .enable_auto_save = tui.config().enable_auto_save,
             .enable_format_on_save = tui.config().enable_format_on_save,
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
             .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
