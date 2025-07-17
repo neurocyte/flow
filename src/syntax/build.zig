@@ -25,8 +25,8 @@ pub fn build(b: *std.Build) void {
         .name = "ts_bin_query_gen",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/ts_bin_query_gen.zig"),
-            .target = target,
-            .optimize = optimize,
+            .target = b.graph.host,
+            .optimize = .Debug,
         }),
     });
     ts_bin_query_gen.linkLibC();

@@ -91,7 +91,7 @@ const FileType = struct {
     highlights: [:0]const u8,
     injections: ?[:0]const u8,
 };
-const LangFn = *const fn () callconv(.C) ?*const treez.Language;
+const LangFn = *const fn () callconv(.c) ?*const treez.Language;
 
 fn load_file_types(comptime Namespace: type) []const FileType {
     comptime switch (@typeInfo(Namespace)) {
