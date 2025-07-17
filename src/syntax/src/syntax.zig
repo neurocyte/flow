@@ -45,12 +45,12 @@ pub fn create(file_type: FileType, allocator: std.mem.Allocator, query_cache: *Q
     return self;
 }
 
-pub fn static_create_file_type(allocator: std.mem.Allocator, lang_name: []const u8, query_cache: *QueryCache) !*Self {
+pub fn create_file_type_static(allocator: std.mem.Allocator, lang_name: []const u8, query_cache: *QueryCache) !*Self {
     const file_type = FileType.get_by_name_static(lang_name) orelse return error.NotFound;
     return create(file_type, allocator, query_cache);
 }
 
-pub fn static_create_guess_file_type_static(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8, query_cache: *QueryCache) !*Self {
+pub fn create_guess_file_type_static(allocator: std.mem.Allocator, content: []const u8, file_path: ?[]const u8, query_cache: *QueryCache) !*Self {
     const file_type = FileType.guess_static(file_path, content) orelse return error.NotFound;
     return create(file_type, allocator, query_cache);
 }
@@ -98,7 +98,7 @@ pub fn refresh_from_buffer(self: *Self, buffer: anytype, metrics: anytype) !void
     const input: Input = .{
         .payload = &state,
         .read = struct {
-            fn read(payload: ?*anyopaque, _: u32, position: treez.Point, bytes_read: *u32) callconv(.C) [*:0]const u8 {
+            fn read(payload: ?*anyopaque, _: u32, position: treez.Point, bytes_read: *u32) callconv(.c) [*:0]const u8 {
                 const ctx: *State = @ptrCast(@alignCast(payload orelse return ""));
                 const result = ctx.buffer.get_from_pos(.{ .row = position.row, .col = position.column }, &ctx.result_buf, ctx.metrics);
                 bytes_read.* = @intCast(result.len);
@@ -124,7 +124,7 @@ pub fn refresh_from_string(self: *Self, content: [:0]const u8) !void {
     const input: Input = .{
         .payload = &state,
         .read = struct {
-            fn read(payload: ?*anyopaque, _: u32, position: treez.Point, bytes_read: *u32) callconv(.C) [*:0]const u8 {
+            fn read(payload: ?*anyopaque, _: u32, position: treez.Point, bytes_read: *u32) callconv(.c) [*:0]const u8 {
                 bytes_read.* = 0;
                 const ctx: *State = @ptrCast(@alignCast(payload orelse return ""));
                 const pos = (find_line_begin(ctx.content, position.row) orelse return "") + position.column;

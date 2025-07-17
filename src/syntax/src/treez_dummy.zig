@@ -23,12 +23,12 @@ pub const InputEncoding = enum(c_uint) {
 };
 pub const Input = extern struct {
     payload: ?*anyopaque,
-    read: ?*const fn (payload: ?*anyopaque, byte_index: u32, position: Point, bytes_read: *u32) callconv(.C) [*:0]const u8,
+    read: ?*const fn (payload: ?*anyopaque, byte_index: u32, position: Point, bytes_read: *u32) callconv(.c) [*:0]const u8,
     encoding: InputEncoding,
 };
 pub const Language = struct {
     var dummy: @This() = .{};
-    pub fn LangFn() callconv(.C) ?*const Language {
+    pub fn LangFn() callconv(.c) ?*const Language {
         return &dummy;
     }
 };

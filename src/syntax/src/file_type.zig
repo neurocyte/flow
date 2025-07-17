@@ -87,7 +87,7 @@ fn ft_func_name(comptime lang: []const u8) []const u8 {
     return &func_name;
 }
 
-pub const LangFn = *const fn () callconv(.C) ?*const treez.Language;
+pub const LangFn = *const fn () callconv(.c) ?*const treez.Language;
 
 pub const FirstLineMatch = struct {
     prefix: ?[]const u8 = null,
