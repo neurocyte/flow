@@ -66,6 +66,7 @@ pub const CreateError = error{ OutOfMemory, ThespianSpawnFailed };
 
 pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .plane = tui.plane(),

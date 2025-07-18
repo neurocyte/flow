@@ -263,6 +263,7 @@ const Process = struct {
     fn create() SpawnError!tp.pid {
         const allocator = std.heap.c_allocator;
         const self = try allocator.create(Process);
+        errdefer allocator.destroy(self);
         self.* = .{
             .allocator = allocator,
             .parent = tp.self_pid().clone(),
@@ -755,6 +756,7 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
 
         fn spawn_link(allocator: std.mem.Allocator, parent: tp.pid_ref, project: *Project, max: usize, path: []const u8) (SpawnError || std.fs.Dir.OpenError)!void {
             const self = try allocator.create(path_files);
+            errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
                 .project_name = try allocator.dupe(u8, project.name),

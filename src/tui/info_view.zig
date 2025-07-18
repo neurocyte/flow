@@ -14,7 +14,8 @@ view_rows: usize = 0,
 lines: std.ArrayList([]const u8),
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(name), parent),

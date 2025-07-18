@@ -32,21 +32,24 @@ after_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on
 on_resize: *const fn (ctx: ?*anyopaque, self: *Self, pos_: Widget.Box) void = on_resize_default,
 
 pub fn createH(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) error{OutOfMemory}!*Self {
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = try init(allocator, parent, name, .horizontal, layout_, Box{});
     self.plane.hide();
     return self;
 }
 
 pub fn createV(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) !*Self {
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = try init(allocator, parent, name, .vertical, layout_, Box{});
     self.plane.hide();
     return self;
 }
 
 pub fn createBox(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !*Self {
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = try init(allocator, parent, name, dir, layout_, box);
     self.plane.hide();
     return self;

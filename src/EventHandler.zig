@@ -118,6 +118,7 @@ pub fn send(self: Self, from_: tp.pid_ref, m: tp.message) tp.result {
 pub fn empty(allocator: Allocator) !Self {
     const child: type = struct {};
     const widget = try allocator.create(child);
+    errdefer allocator.destroy(widget);
     widget.* = .{};
     return .{
         .ptr = widget,

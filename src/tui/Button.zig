@@ -48,6 +48,7 @@ pub fn Options(context: type) type {
 pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) error{OutOfMemory}!*State(ctx_type) {
     const Self = State(ctx_type);
     const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     var n = try Plane.init(&opts.pos.opts(@typeName(Self)), parent);
     errdefer n.deinit();
     self.* = .{
@@ -57,6 +58,7 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
         .opts = opts,
     };
     self.opts.label = try self.allocator.dupe(u8, opts.label);
+    errdefer allocator.free(self.opts.label);
     try self.init();
     return self;
 }

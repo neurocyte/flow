@@ -144,6 +144,7 @@ const Process = struct {
             return error.InvalidLspCommand;
         }
         const self = try allocator.create(Process);
+        errdefer allocator.destroy(self);
         var sp_tag_ = std.ArrayList(u8).init(allocator);
         defer sp_tag_.deinit();
         try sp_tag_.appendSlice(tag);

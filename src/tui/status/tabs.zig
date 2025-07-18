@@ -54,6 +54,7 @@ pub const Style = @"style.config";
 
 pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const self = try allocator.create(TabBar);
+    errdefer allocator.destroy(self);
     self.* = try TabBar.init(allocator, parent, event_handler);
     return Widget.to(self);
 }
@@ -447,6 +448,7 @@ const spacer = struct {
         event_handler: ?EventHandler,
     ) @import("widget.zig").CreateError!Widget {
         const self: *Self = try allocator.create(Self);
+        errdefer allocator.destroy(self);
         self.* = .{
             .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
             .layout_ = .{ .static = self.plane.egc_chunk_width(content, 0, 1) },

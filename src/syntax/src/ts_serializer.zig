@@ -285,6 +285,7 @@ pub const DeserializeError = error{
 
 pub fn fromCbor(cb: []const u8, allocator: std.mem.Allocator) DeserializeError!struct { *TSQuery, *std.heap.ArenaAllocator } {
     var arena = try allocator.create(std.heap.ArenaAllocator);
+    errdefer allocator.destroy(arena);
     arena.* = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
     const query = try arena.allocator().create(TSQuery);

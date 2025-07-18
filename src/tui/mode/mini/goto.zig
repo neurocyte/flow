@@ -24,8 +24,9 @@ start: usize,
 commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
-    const self: *Self = try allocator.create(Self);
     const editor = tui.get_active_editor() orelse return error.NotFound;
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .start = editor.get_primary().cursor.row + 1,

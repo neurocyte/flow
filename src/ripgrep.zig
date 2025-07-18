@@ -85,6 +85,7 @@ const Process = struct {
 
     pub fn create(allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !tp.pid {
         const self = try allocator.create(Process);
+        errdefer allocator.destroy(self);
         self.* = .{
             .allocator = allocator,
             .query = try allocator.dupe(u8, query),

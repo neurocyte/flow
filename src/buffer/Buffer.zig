@@ -159,6 +159,7 @@ pub const Leaf = struct {
         if (piece.len == 0)
             return if (!bol and !eol) &empty_leaf else if (bol and !eol) &empty_bol_leaf else if (!bol and eol) &empty_eol_leaf else &empty_line_leaf;
         const node = try allocator.create(Node);
+        errdefer allocator.destroy(node);
         node.* = .{ .leaf = .{ .buf = piece, .bol = bol, .eol = eol } };
         return node;
     }
@@ -267,6 +268,7 @@ const Node = union(enum) {
 
     fn new(allocator: Allocator, l: *const Node, r: *const Node) !*const Node {
         const node = try allocator.create(Node);
+        errdefer allocator.destroy(node);
         const l_weights_sum = l.weights_sum();
         var weights_sum_ = Weights{};
         weights_sum_.add(l_weights_sum);
@@ -1065,6 +1067,7 @@ const Node = union(enum) {
 
 pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     const arena_a = if (builtin.is_test) allocator else std.heap.page_allocator;
     self.* = .{
         .arena = std.heap.ArenaAllocator.init(arena_a),

@@ -25,7 +25,8 @@ last_input: []u8 = "",
 commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{ .allocator = allocator };
     try self.commands.init(self);
     if (tui.get_active_selection(self.allocator)) |text| {

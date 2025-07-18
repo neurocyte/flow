@@ -21,7 +21,8 @@ pub fn Create(options: type) type {
         const Self = @This();
 
         pub fn create(allocator: std.mem.Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
-            const self: *Self = try allocator.create(Self);
+            const self = try allocator.create(Self);
+            errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
                 .input = std.ArrayList(u8).init(allocator),

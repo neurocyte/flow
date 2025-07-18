@@ -66,6 +66,7 @@ const Process = struct {
 
     pub fn create() !tp.pid {
         const self = try allocator.create(Process);
+        errdefer allocator.destroy(self);
         self.* = .{
             .receiver = Receiver.init(Process.receive, self),
         };

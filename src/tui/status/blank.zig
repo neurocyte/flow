@@ -20,7 +20,8 @@ pub fn Create(comptime layout_: Widget.Layout) @import("widget.zig").CreateFunct
                     break :blk Widget.Layout{ .static = size };
                 } else break :blk layout_;
             } else layout_;
-            const self: *Self = try allocator.create(Self);
+            const self = try allocator.create(Self);
+            errdefer allocator.destroy(self);
             self.* = .{
                 .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
                 .layout_ = layout__,
