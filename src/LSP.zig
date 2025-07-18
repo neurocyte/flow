@@ -17,22 +17,34 @@ const OutOfMemoryError = error{OutOfMemory};
 const SendError = error{SendFailed};
 const SpawnError = error{ThespianSpawnFailed};
 
-pub fn open(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidLspCommand } || cbor.Error)!Self {
-    return .{ .allocator = allocator, .pid = try Process.create(allocator, project, cmd) };
+pub fn open(
+    allocator: std.mem.Allocator,
+    project: []const u8,
+    cmd: tp.message,
+) (error{ ThespianSpawnFailed, InvalidLspCommand } || cbor.Error)!*const Self {
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
+    self.* = .{
+        .allocator = allocator,
+        .pid = try Process.create(allocator, project, cmd),
+    };
+    return self;
 }
 
-pub fn deinit(self: Self) void {
+pub fn deinit(self: *const Self) void {
     self.pid.send(.{"close"}) catch {};
     self.pid.deinit();
+    self.allocator.destroy(self);
 }
 
-pub fn term(self: Self) void {
+pub fn term(self: *const Self) void {
     self.pid.send(.{"term"}) catch {};
     self.pid.deinit();
+    self.allocator.destroy(self);
 }
 
 pub fn send_request(
-    self: Self,
+    self: *const Self,
     allocator: std.mem.Allocator,
     method: []const u8,
     m: anytype,
@@ -44,14 +56,14 @@ pub fn send_request(
     return RequestContext(@TypeOf(ctx)).send(allocator, self.pid.ref(), ctx, tp.message.fmt(.{ "REQ", method, cb.items }));
 }
 
-pub fn send_notification(self: Self, method: []const u8, m: anytype) (OutOfMemoryError || SendError)!void {
+pub fn send_notification(self: *const Self, method: []const u8, m: anytype) (OutOfMemoryError || SendError)!void {
     var cb = std.ArrayList(u8).init(self.allocator);
     defer cb.deinit();
     try cbor.writeValue(cb.writer(), m);
     return self.send_notification_raw(method, cb.items);
 }
 
-pub fn send_notification_raw(self: Self, method: []const u8, cb: []const u8) SendError!void {
+pub fn send_notification_raw(self: *const Self, method: []const u8, cb: []const u8) SendError!void {
     self.pid.send(.{ "NTFY", method, cb }) catch return error.SendFailed;
 }
 
