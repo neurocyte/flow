@@ -1494,23 +1494,16 @@ pub fn show_message(self: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
 
 pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) ClientError!void {
     _ = params_cb;
-    return self.send_lsp_response(from, cbor_id, null);
+    return LSP.send_response(self.allocator, from, cbor_id, null) catch error.ClientFailed;
 }
 
 pub fn workDoneProgress_create(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) ClientError!void {
     _ = params_cb;
-    return self.send_lsp_response(from, cbor_id, null);
+    return LSP.send_response(self.allocator, from, cbor_id, null) catch error.ClientFailed;
 }
 
-pub fn send_lsp_response(self: *Self, from: tp.pid_ref, cbor_id: []const u8, result: anytype) ClientError!void {
-    var cb = std.ArrayList(u8).init(self.allocator);
-    defer cb.deinit();
-    const writer = cb.writer();
-    try cbor.writeArrayHeader(writer, 3);
-    try cbor.writeValue(writer, "RSP");
-    try writer.writeAll(cbor_id);
-    try cbor.writeValue(cb.writer(), result);
-    from.send_raw(.{ .buf = cb.items }) catch return error.ClientFailed;
+pub fn unsupported_lsp_request(self: *Self, from: tp.pid_ref, cbor_id: []const u8, method: []const u8) ClientError!void {
+    return LSP.send_error_response(self.allocator, from, cbor_id, LSP.ErrorCode.MethodNotFound, method) catch error.ClientFailed;
 }
 
 fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8) !void {
