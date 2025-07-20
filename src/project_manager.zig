@@ -620,11 +620,11 @@ const Process = struct {
             project.register_capability(from, cbor_id, params_cb)
         else if (std.mem.eql(u8, method, "window/workDoneProgress/create"))
             project.workDoneProgress_create(from, cbor_id, params_cb)
-        else blk: {
+        else {
             const params = try cbor.toJsonAlloc(self.allocator, params_cb);
             defer self.allocator.free(params);
-            self.logger.print_err("lsp", "unsupported LSP request: {s} -> {s}", .{ method, params });
-            break :blk error.Unsupported;
+            self.logger.print("unsupported LSP request: {s} -> {s}", .{ method, params });
+            project.unsupported_lsp_request(from, cbor_id, method) catch {};
         };
     }
 
