@@ -62,6 +62,7 @@ pub const Error = CacheError || QueryParseError || QuerySerializeError;
 
 pub fn create(allocator: std.mem.Allocator, opts: struct { lock: bool = false }) !*Self {
     const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .mutex = if (opts.lock) .{} else null,

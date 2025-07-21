@@ -31,7 +31,8 @@ pub const width = idle_msg.len + 20;
 
 pub fn create(allocator: Allocator, parent: Plane, _: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const frame_rate = tp.env.get().num("frame-rate");
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .wipe_after_frames = @divTrunc(frame_rate, 2),

@@ -59,6 +59,7 @@ pub fn Options(context: type) type {
 
 pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Widget, opts: Options(ctx_type)) !*State(ctx_type) {
     const self = try allocator.create(State(ctx_type));
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .plane = parent.plane.*,

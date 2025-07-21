@@ -45,6 +45,7 @@ const Process = struct {
 
     pub fn create(allocator: std.mem.Allocator) Error!tp.pid {
         const self = try allocator.create(Process);
+        errdefer allocator.destroy(self);
         self.* = .{
             .allocator = allocator,
             .parent = tp.self_pid().clone(),

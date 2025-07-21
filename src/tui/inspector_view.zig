@@ -26,7 +26,8 @@ const Self = @This();
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
     const editor = tui.get_active_editor() orelse return error.NotFound;
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
         .editor = editor,

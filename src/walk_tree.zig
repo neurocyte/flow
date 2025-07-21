@@ -21,6 +21,7 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8) (SpawnError || std.f
 
         fn spawn_link(allocator: std.mem.Allocator, root_path: []const u8) (SpawnError || std.fs.Dir.OpenError)!tp.pid {
             const self = try allocator.create(tree_walker);
+            errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
                 .root_path = try allocator.dupe(u8, root_path),

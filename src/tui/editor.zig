@@ -5941,7 +5941,8 @@ pub const EditorWidget = struct {
 
     fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager) !Widget {
         const container = try WidgetList.createH(allocator, parent, "editor.container", .dynamic);
-        const self: *Self = try allocator.create(Self);
+        const self = try allocator.create(Self);
+        errdefer allocator.destroy(self);
         try self.init(allocator, container.plane, buffer_manager);
         try self.commands.init(&self.editor);
         const editorWidget = Widget.to(self);

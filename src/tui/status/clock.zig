@@ -30,7 +30,8 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
         return error.WidgetInitFailed;
     };
     defer env.deinit();
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),

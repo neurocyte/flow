@@ -29,9 +29,13 @@ tree: ?*treez.Tree = null,
 
 pub fn create(file_type: FileType, allocator: std.mem.Allocator, query_cache: *QueryCache) !*Self {
     const query = try query_cache.get(file_type, .highlights);
+    errdefer query_cache.release(query, .highlights);
     const errors_query = try query_cache.get(file_type, .errors);
+    errdefer query_cache.release(errors_query, .highlights);
     const injections = try query_cache.get(file_type, .injections);
+    errdefer if (injections) |injections_| query_cache.release(injections_, .injections);
     const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .lang = file_type.lang_fn() orelse std.debug.panic("tree-sitter parser function failed for language: {s}", .{file_type.name}),
@@ -40,7 +44,6 @@ pub fn create(file_type: FileType, allocator: std.mem.Allocator, query_cache: *Q
         .errors_query = errors_query,
         .injections = injections,
     };
-    errdefer self.destroy(query_cache);
     try self.parser.setLanguage(self.lang);
     return self;
 }
@@ -58,6 +61,7 @@ pub fn create_guess_file_type_static(allocator: std.mem.Allocator, content: []co
 pub fn destroy(self: *Self, query_cache: *QueryCache) void {
     if (self.tree) |tree| tree.destroy();
     query_cache.release(self.query, .highlights);
+    query_cache.release(self.errors_query, .highlights);
     if (self.injections) |injections| query_cache.release(injections, .injections);
     self.parser.destroy();
     self.allocator.destroy(self);

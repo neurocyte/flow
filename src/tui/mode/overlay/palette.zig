@@ -47,7 +47,8 @@ pub fn Create(options: type) type {
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
             const mv = tui.mainview() orelse return error.NotFound;
-            const self: *Self = try allocator.create(Self);
+            const self = try allocator.create(Self);
+            errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
                 .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{

@@ -65,7 +65,7 @@ const Handler = struct {
     bindings: *const BindingSet,
 
     fn create(mode_name: []const u8, allocator: std.mem.Allocator, opts: anytype) !Mode {
-        const self: *@This() = try allocator.create(@This());
+        const self = try allocator.create(@This());
         errdefer allocator.destroy(self);
         self.* = .{
             .allocator = allocator,

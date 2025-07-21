@@ -263,6 +263,7 @@ const Process = struct {
     fn create() SpawnError!tp.pid {
         const allocator = std.heap.c_allocator;
         const self = try allocator.create(Process);
+        errdefer allocator.destroy(self);
         self.* = .{
             .allocator = allocator,
             .parent = tp.self_pid().clone(),
@@ -619,11 +620,11 @@ const Process = struct {
             project.register_capability(from, cbor_id, params_cb)
         else if (std.mem.eql(u8, method, "window/workDoneProgress/create"))
             project.workDoneProgress_create(from, cbor_id, params_cb)
-        else blk: {
+        else {
             const params = try cbor.toJsonAlloc(self.allocator, params_cb);
             defer self.allocator.free(params);
-            self.logger.print_err("lsp", "unsupported LSP request: {s} -> {s}", .{ method, params });
-            break :blk error.Unsupported;
+            self.logger.print("unsupported LSP request: {s} -> {s}", .{ method, params });
+            project.unsupported_lsp_request(from, cbor_id, method) catch {};
         };
     }
 
@@ -755,6 +756,7 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
 
         fn spawn_link(allocator: std.mem.Allocator, parent: tp.pid_ref, project: *Project, max: usize, path: []const u8) (SpawnError || std.fs.Dir.OpenError)!void {
             const self = try allocator.create(path_files);
+            errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
                 .project_name = try allocator.dupe(u8, project.name),

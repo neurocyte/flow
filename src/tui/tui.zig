@@ -120,6 +120,9 @@ fn init(allocator: Allocator) InitError!*Self {
     const frame_clock = try tp.metronome.init(frame_time);
 
     var self = try allocator.create(Self);
+    // don't destroy
+    // if tui fails it is catastrophic anyway and we don't want to cause nock-on errors
+    // errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .config_ = conf,

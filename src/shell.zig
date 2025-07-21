@@ -156,6 +156,7 @@ const Process = struct {
             return error.InvalidShellArg0;
 
         const self = try allocator.create(Process);
+        errdefer allocator.destroy(self);
         self.* = .{
             .allocator = allocator,
             .argv = argv,
