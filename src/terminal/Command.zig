@@ -64,7 +64,7 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
             .handler = .{ .handler = handleSigChild },
             .mask = switch (builtin.os.tag) {
                 .macos => 0,
-                .linux => posix.empty_sigset,
+                .linux => posix.sigemptyset(),
                 else => @compileError("os not supported"),
             },
             .flags = 0,
