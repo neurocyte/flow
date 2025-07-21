@@ -224,6 +224,7 @@ pub fn hover(self: *Self) bool {
 pub fn empty(allocator: Allocator, parent: Plane, layout_: Layout) !Self {
     const child: type = struct { plane: Plane, layout: Layout };
     const widget = try allocator.create(child);
+    errdefer allocator.destroy(widget);
     const n = try Plane.init(&(Box{}).opts("empty"), parent);
     widget.* = .{ .plane = n, .layout = layout_ };
     return .{

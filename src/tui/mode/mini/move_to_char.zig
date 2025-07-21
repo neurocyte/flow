@@ -38,7 +38,8 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     const direction: Direction = if (std.mem.indexOf(u8, operation_command, "_left")) |_| .left else .right;
     const operation: Operation = if (tui.get_active_editor()) |editor| if (editor.get_primary().selection) |_| .select else .move else .move;
 
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .direction = direction,

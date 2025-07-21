@@ -30,9 +30,10 @@ const Entry = struct {
 const Buffer = ArrayList(Entry);
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
-    const self: *Self = try allocator.create(Self);
     var n = try Plane.init(&(Widget.Box{}).opts_vscroll(@typeName(Self)), parent);
     errdefer n.deinit();
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .parent = parent,

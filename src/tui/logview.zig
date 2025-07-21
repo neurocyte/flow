@@ -38,7 +38,8 @@ const Level = enum {
 };
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{ .plane = try Plane.init(&(Widget.Box{}).opts(name), parent) };
     return Widget.to(self);
 }

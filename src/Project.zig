@@ -19,8 +19,8 @@ files: std.ArrayListUnmanaged(File) = .empty,
 pending: std.ArrayListUnmanaged(File) = .empty,
 longest_file_path: usize = 0,
 open_time: i64,
-language_servers: std.StringHashMap(LSP),
-file_language_server: std.StringHashMap(LSP),
+language_servers: std.StringHashMap(*const LSP),
+file_language_server: std.StringHashMap(*const LSP),
 tasks: std.ArrayList(Task),
 persistent: bool = false,
 logger: log.Logger,
@@ -74,8 +74,8 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
         .allocator = allocator,
         .name = try allocator.dupe(u8, name),
         .open_time = std.time.milliTimestamp(),
-        .language_servers = std.StringHashMap(LSP).init(allocator),
-        .file_language_server = std.StringHashMap(LSP).init(allocator),
+        .language_servers = std.StringHashMap(*const LSP).init(allocator),
+        .file_language_server = std.StringHashMap(*const LSP).init(allocator),
         .tasks = std.ArrayList(Task).init(allocator),
         .logger = log.logger("project"),
         .logger_lsp = log.logger("lsp"),
@@ -261,11 +261,14 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     }
 }
 
-fn get_language_server_instance(self: *Self, language_server: []const u8) StartLspError!LSP {
+fn get_language_server_instance(self: *Self, language_server: []const u8) StartLspError!*const LSP {
     if (self.language_servers.get(language_server)) |lsp| {
-        if (!lsp.pid.expired()) return lsp;
-        lsp.deinit();
-        _ = self.language_servers.remove(language_server);
+        if (lsp.pid.expired()) {
+            _ = self.language_servers.remove(language_server);
+            lsp.deinit();
+        } else {
+            return lsp;
+        }
     }
     const lsp = try LSP.open(self.allocator, self.name, .{ .buf = language_server });
     errdefer lsp.deinit();
@@ -279,7 +282,7 @@ fn get_language_server_instance(self: *Self, language_server: []const u8) StartL
     return lsp;
 }
 
-fn get_or_start_language_server(self: *Self, file_path: []const u8, language_server: []const u8) StartLspError!LSP {
+fn get_or_start_language_server(self: *Self, file_path: []const u8, language_server: []const u8) StartLspError!*const LSP {
     const lsp = self.file_language_server.get(file_path) orelse blk: {
         const new_lsp = try self.get_language_server_instance(language_server);
         const key = try self.allocator.dupe(u8, file_path);
@@ -289,7 +292,7 @@ fn get_or_start_language_server(self: *Self, file_path: []const u8, language_ser
     return lsp;
 }
 
-fn get_language_server(self: *Self, file_path: []const u8) LspError!LSP {
+fn get_language_server(self: *Self, file_path: []const u8) LspError!*const LSP {
     const lsp = self.file_language_server.get(file_path) orelse return error.NoLsp;
     if (lsp.pid.expired()) {
         if (self.file_language_server.fetchRemove(file_path)) |kv|
@@ -1491,26 +1494,19 @@ pub fn show_message(self: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
 
 pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) ClientError!void {
     _ = params_cb;
-    return self.send_lsp_response(from, cbor_id, null);
+    return LSP.send_response(self.allocator, from, cbor_id, null) catch error.ClientFailed;
 }
 
 pub fn workDoneProgress_create(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) ClientError!void {
     _ = params_cb;
-    return self.send_lsp_response(from, cbor_id, null);
+    return LSP.send_response(self.allocator, from, cbor_id, null) catch error.ClientFailed;
 }
 
-pub fn send_lsp_response(self: *Self, from: tp.pid_ref, cbor_id: []const u8, result: anytype) ClientError!void {
-    var cb = std.ArrayList(u8).init(self.allocator);
-    defer cb.deinit();
-    const writer = cb.writer();
-    try cbor.writeArrayHeader(writer, 3);
-    try cbor.writeValue(writer, "RSP");
-    try writer.writeAll(cbor_id);
-    try cbor.writeValue(cb.writer(), result);
-    from.send_raw(.{ .buf = cb.items }) catch return error.ClientFailed;
+pub fn unsupported_lsp_request(self: *Self, from: tp.pid_ref, cbor_id: []const u8, method: []const u8) ClientError!void {
+    return LSP.send_error_response(self.allocator, from, cbor_id, LSP.ErrorCode.MethodNotFound, method) catch error.ClientFailed;
 }
 
-fn send_lsp_init_request(self: *Self, lsp: LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8) !void {
+fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8) !void {
     const handler: struct {
         language_server: []const u8,
         lsp: LSP,

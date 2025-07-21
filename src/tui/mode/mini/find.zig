@@ -28,7 +28,8 @@ commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
     const editor = tui.get_active_editor() orelse return error.NotFound;
-    const self: *Self = try allocator.create(Self);
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
         .input_ = ArrayList(u8).init(allocator),
