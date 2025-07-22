@@ -11,8 +11,8 @@
             .hash = "flags-0.8.0-AAAAAJV0AACuGBBnpUnHqZzAhoGTp4ibFROBQQQZGRqx",
         },
         .dizzy = .{
-            .url = "https://github.com/neurocyte/dizzy/archive/455d18369cbb2a0458ba70be919cd378338d695e.tar.gz",
-            .hash = "dizzy-1.0.0-AAAAAM1wAAAiDbx_6RwcVEOBk8p2XOu8t9WPNc3K7kBK",
+            .url = "https://github.com/neurocyte/dizzy/archive/c9219d23daccd9aa226cfde754fea278cb516459.tar.gz",
+            .hash = "dizzy-1.0.0-q40X4YCRAAAGYO9QOZiYYSOwiiFlqZlecMuQcxPiBcXM",
         },
         .thespian = .{
             .url = "https://github.com/neurocyte/thespian/archive/9af61100d08d79ec52e98fa34ea36611dcc1c361.tar.gz",
