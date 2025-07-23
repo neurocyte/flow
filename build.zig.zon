@@ -23,8 +23,8 @@
             .hash = "N-V-__8AAJiAIgDMVIi8CRb_xko9_qVQ-UiQzd5FTBBr0aPa",
         },
         .fuzzig = .{
-            .url = "https://github.com/fjebaker/fuzzig/archive/44c04733c7c0fee3db83672aaaaf4ed03e943156.tar.gz",
-            .hash = "fuzzig-0.1.1-AAAAALNIAQBmbHr-MPalGuR393Vem2pTQXI7_LXeNJgX",
+            .url = "https://github.com/fjebaker/fuzzig/archive/4251fe4230d38e721514394a485db62ee1667ff3.tar.gz",
+            .hash = "fuzzig-0.1.1-Ji0xivxIAQBD0g8O_NV_0foqoPf3elsg9Sc3pNfdVH4D",
         },
         .vaxis = .{
             .url = "https://github.com/neurocyte/libvaxis/archive/2a4137dadbe560b13b712fd3aa8a1c313fdd8c6e.tar.gz",
