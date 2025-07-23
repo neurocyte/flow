@@ -27,6 +27,8 @@ pub const Error = error{
     JsonIncompatibleType,
     NotAnObject,
     BadArrayAllocExtract,
+    InvalidMapType,
+    InvalidUnion,
 };
 
 pub const OutputHandler = fn (context: usize, parent: tp.pid_ref, arg0: []const u8, output: []const u8) void;
