@@ -180,7 +180,7 @@ fn handleSegfaultPosixNoAbort(sig: i32, info: *const std.posix.siginfo_t, ctx_pt
 
 pub fn run(self: *Self) Error!void {
     self.vx.sgr = .legacy;
-    self.vx.conpty_hacks = true;
+    self.vx.enable_workarounds = true;
 
     panic_cleanup = .{ .allocator = self.allocator, .tty = &self.tty, .vx = &self.vx };
     if (!self.no_alternate) self.vx.enterAltScreen(self.tty.anyWriter()) catch return error.TtyWriteError;
@@ -639,7 +639,7 @@ const Loop = struct {
         switch (builtin.os.tag) {
             .windows => {
                 var parser: vaxis.Parser = .{
-                    .graphemes = &self.vaxis.unicode.graphemes,
+                    .grapheme_data = &self.vaxis.unicode.width_data.graphemes,
                 };
                 const a = self.vaxis.opts.system_clipboard_allocator orelse @panic("no tty allocator");
                 while (!self.should_quit) {
@@ -648,7 +648,7 @@ const Loop = struct {
             },
             else => {
                 var parser: vaxis.Parser = .{
-                    .graphemes = &self.vaxis.unicode.graphemes,
+                    .grapheme_data = &self.vaxis.unicode.width_data.graphemes,
                 };
 
                 const a = self.vaxis.opts.system_clipboard_allocator orelse @panic("no tty allocator");
