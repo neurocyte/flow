@@ -36,6 +36,8 @@ pub const Error = error{
     JsonIncompatibleType,
     NotAnObject,
     BadArrayAllocExtract,
+    InvalidMapType,
+    InvalidUnion,
 } || std.Thread.SpawnError;
 
 pub const panic = messageBoxThenPanic(.{ .title = "Flow Panic" });

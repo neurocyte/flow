@@ -231,6 +231,8 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     JsonIncompatibleType,
     NotAnObject,
     BadArrayAllocExtract,
+    InvalidMapType,
+    InvalidUnion,
 }!void {
     tp.trace(tp.channel.debug, .{"restore_state_v0"});
     defer self.sort_files_by_mtime();
