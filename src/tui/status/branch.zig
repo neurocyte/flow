@@ -71,7 +71,18 @@ fn refresh_git_status(_: *Self) void {
 }
 
 pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (try m.match(.{ "E", tp.more }))
+        return self.process_event(m);
     if (try m.match(.{ "PRJ", "open" }))
+        self.refresh_git_status();
+    return false;
+}
+
+fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
+    if (try m.match(.{ tp.any, "dirty", tp.more }) or
+        try m.match(.{ tp.any, "save", tp.more }) or
+        try m.match(.{ tp.any, "open", tp.more }) or
+        try m.match(.{ tp.any, "close" }))
         self.refresh_git_status();
     return false;
 }
