@@ -90,8 +90,15 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
 fn receive_git(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     return if (try match(m.buf, .{ "git", more }))
         self.process_git(m)
+    else if (try match(m.buf, .{"focus_in"}))
+        self.process_focus_in()
     else
         false;
+}
+
+fn process_focus_in(self: *Self) MessageFilter.Error!bool {
+    self.refresh_git_status();
+    return false;
 }
 
 fn process_git(self: *Self, m: tp.message) MessageFilter.Error!bool {
