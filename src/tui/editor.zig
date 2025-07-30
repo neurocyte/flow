@@ -23,6 +23,7 @@ const editor_gutter = @import("editor_gutter.zig");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const tui = @import("tui.zig");
+const IndentMode = @import("config").IndentMode;
 
 pub const Cursor = Buffer.Cursor;
 pub const View = Buffer.View;
@@ -318,6 +319,7 @@ pub const Editor = struct {
     render_whitespace: WhitespaceMode,
     indent_size: usize,
     tab_width: usize,
+    indent_mode: IndentMode,
 
     last: struct {
         root: ?Buffer.Root = null,
@@ -370,12 +372,15 @@ pub const Editor = struct {
     const Result = command.Result;
 
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
-        try cbor.writeArrayHeader(writer, 8);
+        try cbor.writeArrayHeader(writer, 11);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.clipboard orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
         try cbor.writeValue(writer, self.enable_format_on_save);
         try cbor.writeValue(writer, self.enable_auto_save);
+        try cbor.writeValue(writer, self.indent_size);
+        try cbor.writeValue(writer, self.tab_width);
+        try cbor.writeValue(writer, self.indent_mode);
         if (self.find_history) |history| {
             try cbor.writeArrayHeader(writer, history.items.len);
             for (history.items) |item|
@@ -411,6 +416,9 @@ pub const Editor = struct {
             tp.extract(&last_find_query),
             tp.extract(&self.enable_format_on_save),
             tp.extract(&self.enable_auto_save),
+            tp.extract(&self.indent_size),
+            tp.extract(&self.tab_width),
+            tp.extract(&self.indent_mode),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
             tp.extract_cbor(&cursels_cbor),
@@ -454,11 +462,13 @@ pub const Editor = struct {
         const frame_rate = tp.env.get().num("frame-rate");
         const indent_size = tui.config().indent_size;
         const tab_width = tui.config().tab_width;
+        const indent_mode = tui.config().indent_mode;
         self.* = Self{
             .allocator = allocator,
             .plane = n,
             .indent_size = indent_size,
             .tab_width = tab_width,
+            .indent_mode = indent_mode,
             .metrics = self.plane.metrics(tab_width),
             .logger = logger,
             .file_path = null,
