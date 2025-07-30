@@ -3725,16 +3725,16 @@ pub const Editor = struct {
         const off = first % self.indent_size;
         const cols = if (off == 0) self.indent_size else off;
         const sel = cursel.enable_selection(root, self.metrics) catch return error.Stop;
-        sel.begin.move_begin();
-        try sel.end.move_to(root, sel.end.row, cols, self.metrics);
+        try sel.begin.move_to(root, sel.begin.row, first, self.metrics);
+        try sel.end.move_to(root, sel.end.row, first - cols, self.metrics);
         var saved = false;
-        if (cursor_protect) |cp| if (cp.row == cursor.row and cp.col < cols) {
-            cp.col = cols + 1;
+        if (cursor_protect) |cp| if (cp.row == cursor.row and cp.col < first and cp.col >= first - cols) {
+            cp.col = first + 1;
             saved = true;
         };
         newroot = try self.delete_selection(root, &cursel, allocator);
         if (cursor_protect) |cp| if (saved) {
-            try cp.move_to(root, cp.row, 0, self.metrics);
+            try cp.move_to(root, cp.row, first - cols, self.metrics);
             cp.clamp_to_buffer(newroot, self.metrics);
         };
         return newroot;
