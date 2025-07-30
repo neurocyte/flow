@@ -460,9 +460,9 @@ pub const Editor = struct {
     fn init(self: *Self, allocator: Allocator, n: Plane, buffer_manager: *Buffer.Manager) void {
         const logger = log.logger("editor");
         const frame_rate = tp.env.get().num("frame-rate");
-        const indent_size = tui.config().indent_size;
         const tab_width = tui.config().tab_width;
         const indent_mode = tui.config().indent_mode;
+        const indent_size = if (indent_mode == .tabs) tab_width else tui.config().indent_size;
         self.* = Self{
             .allocator = allocator,
             .plane = n,
@@ -683,10 +683,12 @@ pub const Editor = struct {
         while (it.next()) |line| {
             if (line.len == 0) continue;
             if (line[0] == '\t') {
+                self.indent_size = self.tab_width;
                 self.indent_mode = .tabs;
                 return;
             }
         }
+        self.indent_size = tui.config().indent_size;
         self.indent_mode = .spaces;
         return;
     }
