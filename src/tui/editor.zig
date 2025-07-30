@@ -3679,9 +3679,16 @@ pub const Editor = struct {
         const space = "                                ";
         var cursel: CurSel = .{};
         cursel.cursor = cursor;
-        const cols = self.indent_size - find_first_non_ws(root, cursel.cursor.row, self.metrics) % self.indent_size;
         try move_cursor_begin(root, &cursel.cursor, self.metrics);
-        return self.insert(root, &cursel, space[0..cols], allocator) catch return error.Stop;
+        switch (self.indent_mode) {
+            .spaces, .auto => {
+                const cols = self.indent_size - find_first_non_ws(root, cursel.cursor.row, self.metrics) % self.indent_size;
+                return self.insert(root, &cursel, space[0..cols], allocator) catch return error.Stop;
+            },
+            .tabs => {
+                return self.insert(root, &cursel, "\t", allocator) catch return error.Stop;
+            },
+        }
     }
 
     fn indent_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
