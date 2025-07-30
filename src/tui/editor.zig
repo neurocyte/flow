@@ -584,6 +584,7 @@ pub const Editor = struct {
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
         const file_type = file_type_ orelse new_buf.file_type_name;
+        const buffer_meta = if (self.buffer) |buffer| buffer.get_meta() else null;
 
         if (new_buf.root.lines() > root_mod.max_syntax_lines) {
             self.logger.print("large file threshold {d} lines < file size {d} lines", .{
@@ -623,7 +624,7 @@ pub const Editor = struct {
                     null;
             };
 
-            if (self.file_type) |ft| {
+            if (buffer_meta == null) if (self.file_type) |ft| {
                 const frame_ = tracy.initZone(@src(), .{ .name = "did_open" });
                 defer frame_.deinit();
                 project_manager.did_open(
@@ -634,7 +635,7 @@ pub const Editor = struct {
                     new_buf.is_ephemeral(),
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
-            }
+            };
             break :syntax syn;
         };
         self.syntax_no_render = tp.env.get().is("no-syntax");
@@ -649,11 +650,11 @@ pub const Editor = struct {
             buffer.file_type_color = ftc;
         }
 
-        if (self.buffer) |buffer| if (buffer.get_meta()) |meta| {
+        if (buffer_meta) |meta| {
             const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
             defer frame_.deinit();
             try self.extract_state(meta, .none);
-        };
+        }
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc);
     }
 
@@ -5916,9 +5917,14 @@ pub const Editor = struct {
         self.syntax_no_render = tp.env.get().is("no-syntax");
         self.syntax_report_timing = tp.env.get().is("syntax-report-timing");
 
-        const ftn = if (self.file_type) |ft| ft.name else "text";
-        const fti = if (self.file_type) |ft| ft.icon orelse "🖹" else "🖹";
-        const ftc = if (self.file_type) |ft| ft.color orelse 0x000000 else 0x000000;
+        const ftn = if (self.file_type) |ft| ft.name else file_type_config.default.name;
+        const fti = if (self.file_type) |ft| ft.icon orelse file_type_config.default.icon else file_type_config.default.icon;
+        const ftc = if (self.file_type) |ft| ft.color orelse file_type_config.default.color else file_type_config.default.color;
+        if (self.buffer) |buffer| {
+            buffer.file_type_name = ftn;
+            buffer.file_type_icon = fti;
+            buffer.file_type_color = ftc;
+        }
         const file_exists = if (self.buffer) |b| b.file_exists else false;
         try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc);
         self.logger.print("file type {s}", .{file_type});
