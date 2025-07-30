@@ -26,6 +26,7 @@ limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
 
 indent_size: usize = 4,
 tab_width: usize = 8,
+indent_mode: IndentMode = .auto,
 
 top_bar: []const u8 = "tabs",
 bottom_bar: []const u8 = "mode file log selection diagnostics keybind branch linenumber clock spacer",
@@ -47,4 +48,10 @@ pub const LineNumberMode = enum {
     none,
     relative,
     absolute,
+};
+
+pub const IndentMode = enum {
+    auto,
+    spaces,
+    tabs,
 };
