@@ -594,15 +594,19 @@ pub const Editor = struct {
             self.logger.print("syntax highlighting disabled", .{});
             self.syntax_no_render = true;
         }
+
+        var content = std.ArrayListUnmanaged(u8).empty;
+        defer content.deinit(std.heap.c_allocator);
+        {
+            const frame_ = tracy.initZone(@src(), .{ .name = "store" });
+            defer frame_.deinit();
+            try new_buf.root.store(content.writer(std.heap.c_allocator), new_buf.file_eol_mode);
+        }
+        if (self.indent_mode == .auto)
+            self.detect_indent_mode(content.items);
+
         self.syntax = syntax: {
             const lang_override = file_type orelse tp.env.get().str("language");
-            var content = std.ArrayListUnmanaged(u8).empty;
-            defer content.deinit(std.heap.c_allocator);
-            {
-                const frame_ = tracy.initZone(@src(), .{ .name = "store" });
-                defer frame_.deinit();
-                try new_buf.root.store(content.writer(std.heap.c_allocator), new_buf.file_eol_mode);
-            }
 
             self.file_type = blk: {
                 const frame_ = tracy.initZone(@src(), .{ .name = "guess" });
@@ -672,6 +676,19 @@ pub const Editor = struct {
             return;
         }
         self.enable_auto_save = true;
+    }
+
+    fn detect_indent_mode(self: *Self, content: []const u8) void {
+        var it = std.mem.splitScalar(u8, content, '\n');
+        while (it.next()) |line| {
+            if (line.len == 0) continue;
+            if (line[0] == '\t') {
+                self.indent_mode = .tabs;
+                return;
+            }
+        }
+        self.indent_mode = .spaces;
+        return;
     }
 
     fn close(self: *Self) !void {
