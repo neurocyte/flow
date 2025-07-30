@@ -4403,16 +4403,39 @@ pub const Editor = struct {
     }
     pub const insert_line_meta: Meta = .{ .description = "Insert line" };
 
+    fn generate_leading_ws(self: *Self, writer: anytype, leading_ws: usize) !void {
+        return switch (self.indent_mode) {
+            .spaces, .auto => generate_leading_spaces(writer, leading_ws),
+            .tabs => generate_leading_tabs(writer, leading_ws, self.tab_width),
+        };
+    }
+
+    fn generate_leading_spaces(writer: anytype, leading_ws: usize) !void {
+        var width = leading_ws;
+        while (width > 0) : (width -= 1)
+            try writer.writeByte(' ');
+    }
+
+    fn generate_leading_tabs(writer: anytype, leading_ws: usize, tab_width: usize) !void {
+        var width = leading_ws;
+        while (width > 0) if (width >= tab_width) {
+            width -= tab_width;
+            try writer.writeByte('\t');
+        } else {
+            width -= 1;
+            try writer.writeByte(' ');
+        };
+    }
+
     fn cursel_smart_insert_line(self: *Self, root: Buffer.Root, cursel: *CurSel, b_allocator: std.mem.Allocator) !Buffer.Root {
-        var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+        const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
         var sfa = std.heap.stackFallback(512, self.allocator);
         const allocator = sfa.get();
         var stream = std.ArrayListUnmanaged(u8).empty;
         defer stream.deinit(allocator);
         var writer = stream.writer(allocator);
         _ = try writer.write("\n");
-        while (leading_ws > 0) : (leading_ws -= 1)
-            _ = try writer.write(" ");
+        try self.generate_leading_ws(&writer, leading_ws);
         return self.insert(root, cursel, stream.items, b_allocator);
     }
 
@@ -4466,7 +4489,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+            const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
             try move_cursor_begin(root, &cursel.cursor, self.metrics);
             root = try self.insert(root, cursel, "\n", b.allocator);
             try move_cursor_left(root, &cursel.cursor, self.metrics);
@@ -4475,8 +4498,7 @@ pub const Editor = struct {
             var stream = std.ArrayListUnmanaged(u8).empty;
             defer stream.deinit(allocator);
             var writer = stream.writer(self.allocator);
-            while (leading_ws > 0) : (leading_ws -= 1)
-                _ = try writer.write(" ");
+            try self.generate_leading_ws(&writer, leading_ws);
             if (stream.items.len > 0)
                 root = try self.insert(root, cursel, stream.items, b.allocator);
         };
@@ -4501,7 +4523,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+            const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
             try move_cursor_end(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
             const allocator = sfa.get();
@@ -4509,8 +4531,7 @@ pub const Editor = struct {
             defer stream.deinit(allocator);
             var writer = stream.writer(allocator);
             _ = try writer.write("\n");
-            while (leading_ws > 0) : (leading_ws -= 1)
-                _ = try writer.write(" ");
+            try self.generate_leading_ws(&writer, leading_ws);
             if (stream.items.len > 0)
                 root = try self.insert(root, cursel, stream.items, b.allocator);
         };
