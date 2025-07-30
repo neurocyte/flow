@@ -23,6 +23,7 @@ const editor_gutter = @import("editor_gutter.zig");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const tui = @import("tui.zig");
+const IndentMode = @import("config").IndentMode;
 
 pub const Cursor = Buffer.Cursor;
 pub const View = Buffer.View;
@@ -318,6 +319,7 @@ pub const Editor = struct {
     render_whitespace: WhitespaceMode,
     indent_size: usize,
     tab_width: usize,
+    indent_mode: IndentMode,
 
     last: struct {
         root: ?Buffer.Root = null,
@@ -370,12 +372,15 @@ pub const Editor = struct {
     const Result = command.Result;
 
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
-        try cbor.writeArrayHeader(writer, 8);
+        try cbor.writeArrayHeader(writer, 11);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.clipboard orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
         try cbor.writeValue(writer, self.enable_format_on_save);
         try cbor.writeValue(writer, self.enable_auto_save);
+        try cbor.writeValue(writer, self.indent_size);
+        try cbor.writeValue(writer, self.tab_width);
+        try cbor.writeValue(writer, self.indent_mode);
         if (self.find_history) |history| {
             try cbor.writeArrayHeader(writer, history.items.len);
             for (history.items) |item|
@@ -411,6 +416,9 @@ pub const Editor = struct {
             tp.extract(&last_find_query),
             tp.extract(&self.enable_format_on_save),
             tp.extract(&self.enable_auto_save),
+            tp.extract(&self.indent_size),
+            tp.extract(&self.tab_width),
+            tp.extract(&self.indent_mode),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
             tp.extract_cbor(&cursels_cbor),
@@ -452,13 +460,15 @@ pub const Editor = struct {
     fn init(self: *Self, allocator: Allocator, n: Plane, buffer_manager: *Buffer.Manager) void {
         const logger = log.logger("editor");
         const frame_rate = tp.env.get().num("frame-rate");
-        const indent_size = tui.config().indent_size;
         const tab_width = tui.config().tab_width;
+        const indent_mode = tui.config().indent_mode;
+        const indent_size = if (indent_mode == .tabs) tab_width else tui.config().indent_size;
         self.* = Self{
             .allocator = allocator,
             .plane = n,
             .indent_size = indent_size,
             .tab_width = tab_width,
+            .indent_mode = indent_mode,
             .metrics = self.plane.metrics(tab_width),
             .logger = logger,
             .file_path = null,
@@ -574,6 +584,7 @@ pub const Editor = struct {
         if (self.buffer) |_| try self.close();
         self.buffer = new_buf;
         const file_type = file_type_ orelse new_buf.file_type_name;
+        const buffer_meta = if (self.buffer) |buffer| buffer.get_meta() else null;
 
         if (new_buf.root.lines() > root_mod.max_syntax_lines) {
             self.logger.print("large file threshold {d} lines < file size {d} lines", .{
@@ -583,15 +594,19 @@ pub const Editor = struct {
             self.logger.print("syntax highlighting disabled", .{});
             self.syntax_no_render = true;
         }
+
+        var content = std.ArrayListUnmanaged(u8).empty;
+        defer content.deinit(std.heap.c_allocator);
+        {
+            const frame_ = tracy.initZone(@src(), .{ .name = "store" });
+            defer frame_.deinit();
+            try new_buf.root.store(content.writer(std.heap.c_allocator), new_buf.file_eol_mode);
+        }
+        if (self.indent_mode == .auto)
+            self.detect_indent_mode(content.items);
+
         self.syntax = syntax: {
             const lang_override = file_type orelse tp.env.get().str("language");
-            var content = std.ArrayListUnmanaged(u8).empty;
-            defer content.deinit(std.heap.c_allocator);
-            {
-                const frame_ = tracy.initZone(@src(), .{ .name = "store" });
-                defer frame_.deinit();
-                try new_buf.root.store(content.writer(std.heap.c_allocator), new_buf.file_eol_mode);
-            }
 
             self.file_type = blk: {
                 const frame_ = tracy.initZone(@src(), .{ .name = "guess" });
@@ -613,7 +628,7 @@ pub const Editor = struct {
                     null;
             };
 
-            if (self.file_type) |ft| {
+            if (buffer_meta == null) if (self.file_type) |ft| {
                 const frame_ = tracy.initZone(@src(), .{ .name = "did_open" });
                 defer frame_.deinit();
                 project_manager.did_open(
@@ -624,7 +639,7 @@ pub const Editor = struct {
                     new_buf.is_ephemeral(),
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
-            }
+            };
             break :syntax syn;
         };
         self.syntax_no_render = tp.env.get().is("no-syntax");
@@ -639,11 +654,11 @@ pub const Editor = struct {
             buffer.file_type_color = ftc;
         }
 
-        if (self.buffer) |buffer| if (buffer.get_meta()) |meta| {
+        if (buffer_meta) |meta| {
             const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
             defer frame_.deinit();
             try self.extract_state(meta, .none);
-        };
+        }
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc);
     }
 
@@ -661,6 +676,21 @@ pub const Editor = struct {
             return;
         }
         self.enable_auto_save = true;
+    }
+
+    fn detect_indent_mode(self: *Self, content: []const u8) void {
+        var it = std.mem.splitScalar(u8, content, '\n');
+        while (it.next()) |line| {
+            if (line.len == 0) continue;
+            if (line[0] == '\t') {
+                self.indent_size = self.tab_width;
+                self.indent_mode = .tabs;
+                return;
+            }
+        }
+        self.indent_size = tui.config().indent_size;
+        self.indent_mode = .spaces;
+        return;
     }
 
     fn close(self: *Self) !void {
@@ -3651,9 +3681,16 @@ pub const Editor = struct {
         const space = "                                ";
         var cursel: CurSel = .{};
         cursel.cursor = cursor;
-        const cols = self.indent_size - find_first_non_ws(root, cursel.cursor.row, self.metrics) % self.indent_size;
         try move_cursor_begin(root, &cursel.cursor, self.metrics);
-        return self.insert(root, &cursel, space[0..cols], allocator) catch return error.Stop;
+        switch (self.indent_mode) {
+            .spaces, .auto => {
+                const cols = self.indent_size - find_first_non_ws(root, cursel.cursor.row, self.metrics) % self.indent_size;
+                return self.insert(root, &cursel, space[0..cols], allocator) catch return error.Stop;
+            },
+            .tabs => {
+                return self.insert(root, &cursel, "\t", allocator) catch return error.Stop;
+            },
+        }
     }
 
     fn indent_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
@@ -3688,16 +3725,16 @@ pub const Editor = struct {
         const off = first % self.indent_size;
         const cols = if (off == 0) self.indent_size else off;
         const sel = cursel.enable_selection(root, self.metrics) catch return error.Stop;
-        sel.begin.move_begin();
-        try sel.end.move_to(root, sel.end.row, cols, self.metrics);
+        try sel.begin.move_to(root, sel.begin.row, first, self.metrics);
+        try sel.end.move_to(root, sel.end.row, first - cols, self.metrics);
         var saved = false;
-        if (cursor_protect) |cp| if (cp.row == cursor.row and cp.col < cols) {
-            cp.col = cols + 1;
+        if (cursor_protect) |cp| if (cp.row == cursor.row and cp.col < first and cp.col >= first - cols) {
+            cp.col = first + 1;
             saved = true;
         };
         newroot = try self.delete_selection(root, &cursel, allocator);
         if (cursor_protect) |cp| if (saved) {
-            try cp.move_to(root, cp.row, 0, self.metrics);
+            try cp.move_to(root, cp.row, first - cols, self.metrics);
             cp.clamp_to_buffer(newroot, self.metrics);
         };
         return newroot;
@@ -4368,16 +4405,39 @@ pub const Editor = struct {
     }
     pub const insert_line_meta: Meta = .{ .description = "Insert line" };
 
+    fn generate_leading_ws(self: *Self, writer: anytype, leading_ws: usize) !void {
+        return switch (self.indent_mode) {
+            .spaces, .auto => generate_leading_spaces(writer, leading_ws),
+            .tabs => generate_leading_tabs(writer, leading_ws, self.tab_width),
+        };
+    }
+
+    fn generate_leading_spaces(writer: anytype, leading_ws: usize) !void {
+        var width = leading_ws;
+        while (width > 0) : (width -= 1)
+            try writer.writeByte(' ');
+    }
+
+    fn generate_leading_tabs(writer: anytype, leading_ws: usize, tab_width: usize) !void {
+        var width = leading_ws;
+        while (width > 0) if (width >= tab_width) {
+            width -= tab_width;
+            try writer.writeByte('\t');
+        } else {
+            width -= 1;
+            try writer.writeByte(' ');
+        };
+    }
+
     fn cursel_smart_insert_line(self: *Self, root: Buffer.Root, cursel: *CurSel, b_allocator: std.mem.Allocator) !Buffer.Root {
-        var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+        const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
         var sfa = std.heap.stackFallback(512, self.allocator);
         const allocator = sfa.get();
         var stream = std.ArrayListUnmanaged(u8).empty;
         defer stream.deinit(allocator);
         var writer = stream.writer(allocator);
         _ = try writer.write("\n");
-        while (leading_ws > 0) : (leading_ws -= 1)
-            _ = try writer.write(" ");
+        try self.generate_leading_ws(&writer, leading_ws);
         return self.insert(root, cursel, stream.items, b_allocator);
     }
 
@@ -4431,7 +4491,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+            const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
             try move_cursor_begin(root, &cursel.cursor, self.metrics);
             root = try self.insert(root, cursel, "\n", b.allocator);
             try move_cursor_left(root, &cursel.cursor, self.metrics);
@@ -4440,8 +4500,7 @@ pub const Editor = struct {
             var stream = std.ArrayListUnmanaged(u8).empty;
             defer stream.deinit(allocator);
             var writer = stream.writer(self.allocator);
-            while (leading_ws > 0) : (leading_ws -= 1)
-                _ = try writer.write(" ");
+            try self.generate_leading_ws(&writer, leading_ws);
             if (stream.items.len > 0)
                 root = try self.insert(root, cursel, stream.items, b.allocator);
         };
@@ -4466,7 +4525,7 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            var leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+            const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
             try move_cursor_end(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
             const allocator = sfa.get();
@@ -4474,8 +4533,7 @@ pub const Editor = struct {
             defer stream.deinit(allocator);
             var writer = stream.writer(allocator);
             _ = try writer.write("\n");
-            while (leading_ws > 0) : (leading_ws -= 1)
-                _ = try writer.write(" ");
+            try self.generate_leading_ws(&writer, leading_ws);
             if (stream.items.len > 0)
                 root = try self.insert(root, cursel, stream.items, b.allocator);
         };
@@ -5906,9 +5964,14 @@ pub const Editor = struct {
         self.syntax_no_render = tp.env.get().is("no-syntax");
         self.syntax_report_timing = tp.env.get().is("syntax-report-timing");
 
-        const ftn = if (self.file_type) |ft| ft.name else "text";
-        const fti = if (self.file_type) |ft| ft.icon orelse "🖹" else "🖹";
-        const ftc = if (self.file_type) |ft| ft.color orelse 0x000000 else 0x000000;
+        const ftn = if (self.file_type) |ft| ft.name else file_type_config.default.name;
+        const fti = if (self.file_type) |ft| ft.icon orelse file_type_config.default.icon else file_type_config.default.icon;
+        const ftc = if (self.file_type) |ft| ft.color orelse file_type_config.default.color else file_type_config.default.color;
+        if (self.buffer) |buffer| {
+            buffer.file_type_name = ftn;
+            buffer.file_type_icon = fti;
+            buffer.file_type_color = ftc;
+        }
         const file_exists = if (self.buffer) |b| b.file_exists else false;
         try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc);
         self.logger.print("file type {s}", .{file_type});

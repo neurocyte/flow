@@ -44,6 +44,7 @@ pub fn create(
         .on_click = on_click,
         .on_layout = layout,
         .on_render = render,
+        .on_receive = receive,
         .on_event = event_handler,
     });
 }
@@ -60,16 +61,44 @@ pub fn ctx_deinit(self: *Self) void {
     if (self.behind) |p| self.allocator.free(p);
 }
 
-fn on_click(_: *Self, _: *Button.State(Self)) void {
-    git.status(0) catch {};
+fn on_click(self: *Self, _: *Button.State(Self)) void {
+    self.refresh_git_status();
     command.executeName("show_git_status", .{}) catch {};
+}
+
+fn refresh_git_status(_: *Self) void {
+    git.status(0) catch {};
+}
+
+pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (try m.match(.{ "E", tp.more }))
+        return self.process_event(m);
+    if (try m.match(.{ "PRJ", "open" }))
+        self.refresh_git_status();
+    return false;
+}
+
+fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
+    if (try m.match(.{ tp.any, "dirty", tp.more }) or
+        try m.match(.{ tp.any, "save", tp.more }) or
+        try m.match(.{ tp.any, "open", tp.more }) or
+        try m.match(.{ tp.any, "close" }))
+        self.refresh_git_status();
+    return false;
 }
 
 fn receive_git(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     return if (try match(m.buf, .{ "git", more }))
         self.process_git(m)
+    else if (try match(m.buf, .{"focus_in"}))
+        self.process_focus_in()
     else
         false;
+}
+
+fn process_focus_in(self: *Self) MessageFilter.Error!bool {
+    self.refresh_git_status();
+    return false;
 }
 
 fn process_git(self: *Self, m: tp.message) MessageFilter.Error!bool {

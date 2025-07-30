@@ -200,24 +200,34 @@ fn render_terminal_title(self: *Self) void {
 }
 
 pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (try m.match(.{ "E", tp.more }))
+        return self.process_event(m);
+    if (try m.match(.{ "PRJ", "open" })) {
+        if (!self.file)
+            self.show_project();
+    }
+    return false;
+}
+
+fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
     var file_path: []const u8 = undefined;
     var file_type: []const u8 = undefined;
     var file_icon: []const u8 = undefined;
     var file_dirty: bool = undefined;
     var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
-    if (try m.match(.{ "E", "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.extract(&self.column) }))
+    if (try m.match(.{ tp.any, "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.extract(&self.column) }))
         return false;
-    if (try m.match(.{ "E", "dirty", tp.extract(&file_dirty) })) {
+    if (try m.match(.{ tp.any, "dirty", tp.extract(&file_dirty) })) {
         self.file_dirty = file_dirty;
-    } else if (try m.match(.{ "E", "eol_mode", tp.extract(&eol_mode), tp.extract(&self.utf8_sanitized) })) {
+    } else if (try m.match(.{ tp.any, "eol_mode", tp.extract(&eol_mode), tp.extract(&self.utf8_sanitized) })) {
         self.eol_mode = @enumFromInt(eol_mode);
-    } else if (try m.match(.{ "E", "save", tp.extract(&file_path) })) {
+    } else if (try m.match(.{ tp.any, "save", tp.extract(&file_path) })) {
         @memcpy(self.name_buf[0..file_path.len], file_path);
         self.name = self.name_buf[0..file_path.len];
         self.file_exists = true;
         self.file_dirty = false;
         self.name = project_manager.abbreviate_home(&self.name_buf, self.name);
-    } else if (try m.match(.{ "E", "open", tp.extract(&file_path), tp.extract(&self.file_exists), tp.extract(&file_type), tp.extract(&file_icon), tp.extract(&self.file_color) })) {
+    } else if (try m.match(.{ tp.any, "open", tp.extract(&file_path), tp.extract(&self.file_exists), tp.extract(&file_type), tp.extract(&file_icon), tp.extract(&self.file_color) })) {
         self.eol_mode = .lf;
         @memcpy(self.name_buf[0..file_path.len], file_path);
         self.name = self.name_buf[0..file_path.len];
@@ -229,7 +239,7 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.file_dirty = false;
         self.name = project_manager.abbreviate_home(&self.name_buf, self.name);
         self.file = true;
-    } else if (try m.match(.{ "E", "close" })) {
+    } else if (try m.match(.{ tp.any, "close" })) {
         self.name = "";
         self.lines = 0;
         self.line = 0;
@@ -238,9 +248,6 @@ pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message
         self.file = false;
         self.eol_mode = .lf;
         self.show_project();
-    } else if (try m.match(.{ "PRJ", "open" })) {
-        if (!self.file)
-            self.show_project();
     }
     return false;
 }
