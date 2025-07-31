@@ -372,7 +372,7 @@ pub const Editor = struct {
     const Result = command.Result;
 
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
-        try cbor.writeArrayHeader(writer, 11);
+        try cbor.writeArrayHeader(writer, 12);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.clipboard orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
@@ -381,6 +381,7 @@ pub const Editor = struct {
         try cbor.writeValue(writer, self.indent_size);
         try cbor.writeValue(writer, self.tab_width);
         try cbor.writeValue(writer, self.indent_mode);
+        try cbor.writeValue(writer, self.syntax_no_render);
         if (self.find_history) |history| {
             try cbor.writeArrayHeader(writer, history.items.len);
             for (history.items) |item|
@@ -419,6 +420,7 @@ pub const Editor = struct {
             tp.extract(&self.indent_size),
             tp.extract(&self.tab_width),
             tp.extract(&self.indent_mode),
+            tp.extract(&self.syntax_no_render),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
             tp.extract_cbor(&cursels_cbor),
