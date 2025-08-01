@@ -868,6 +868,33 @@ pub const Editor = struct {
     }
     pub const resume_undo_history_meta: Meta = .{ .description = "Resume undo history" };
 
+    fn collapse_trailing_ws_line(self: *Self, root: Buffer.Root, row: usize, allocator: Allocator) Buffer.Root {
+        const last = find_last_non_ws(root, row, self.metrics);
+        var cursel: CurSel = .{ .cursor = .{ .row = row, .col = last } };
+        with_selection_const(root, move_cursor_end, &cursel, self.metrics) catch return root;
+        return self.delete_selection(root, &cursel, allocator) catch root;
+    }
+
+    fn find_last_non_ws(root: Buffer.Root, row: usize, metrics: Buffer.Metrics) usize {
+        const Ctx = struct {
+            col: usize = 0,
+            last_non_ws: usize = 0,
+            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Buffer.Metrics) Buffer.Walker {
+                const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+                ctx.col += wcwidth;
+                switch (egc[0]) {
+                    ' ', '\t' => {},
+                    '\n' => return Buffer.Walker.stop,
+                    else => ctx.last_non_ws = ctx.col,
+                }
+                return Buffer.Walker.keep_walking;
+            }
+        };
+        var ctx: Ctx = .{};
+        root.walk_egc_forward(row, Ctx.walker, &ctx, metrics) catch return 0;
+        return ctx.last_non_ws;
+    }
+
     fn find_first_non_ws(root: Buffer.Root, row: usize, metrics: Buffer.Metrics) usize {
         const Ctx = struct {
             col: usize = 0,
@@ -4432,7 +4459,8 @@ pub const Editor = struct {
     }
 
     fn cursel_smart_insert_line(self: *Self, root: Buffer.Root, cursel: *CurSel, b_allocator: std.mem.Allocator) !Buffer.Root {
-        const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+        const row = cursel.cursor.row;
+        const leading_ws = @min(find_first_non_ws(root, row, self.metrics), cursel.cursor.col);
         var sfa = std.heap.stackFallback(512, self.allocator);
         const allocator = sfa.get();
         var stream = std.ArrayListUnmanaged(u8).empty;
@@ -4440,7 +4468,8 @@ pub const Editor = struct {
         var writer = stream.writer(allocator);
         _ = try writer.write("\n");
         try self.generate_leading_ws(&writer, leading_ws);
-        return self.insert(root, cursel, stream.items, b_allocator);
+        const root_ = try self.insert(root, cursel, stream.items, b_allocator);
+        return self.collapse_trailing_ws_line(root_, row, b_allocator);
     }
 
     pub fn smart_insert_line(self: *Self, _: Context) Result {
@@ -4496,6 +4525,7 @@ pub const Editor = struct {
             const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
             try move_cursor_begin(root, &cursel.cursor, self.metrics);
             root = try self.insert(root, cursel, "\n", b.allocator);
+            const row = cursel.cursor.row;
             try move_cursor_left(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
             const allocator = sfa.get();
@@ -4505,6 +4535,7 @@ pub const Editor = struct {
             try self.generate_leading_ws(&writer, leading_ws);
             if (stream.items.len > 0)
                 root = try self.insert(root, cursel, stream.items, b.allocator);
+            root = self.collapse_trailing_ws_line(root, row, b.allocator);
         };
         try self.update_buf(root);
         self.clamp();
@@ -4528,6 +4559,7 @@ pub const Editor = struct {
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             const leading_ws = @min(find_first_non_ws(root, cursel.cursor.row, self.metrics), cursel.cursor.col);
+            const row = cursel.cursor.row;
             try move_cursor_end(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
             const allocator = sfa.get();
@@ -4538,6 +4570,7 @@ pub const Editor = struct {
             try self.generate_leading_ws(&writer, leading_ws);
             if (stream.items.len > 0)
                 root = try self.insert(root, cursel, stream.items, b.allocator);
+            root = self.collapse_trailing_ws_line(root, row, b.allocator);
         };
         try self.update_buf(root);
         self.clamp();
