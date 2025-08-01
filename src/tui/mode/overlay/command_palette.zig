@@ -21,11 +21,13 @@ pub const Entry = struct {
 
 pub fn load_entries(palette: *Type) !usize {
     const hints = if (tui.input_mode()) |m| m.keybind_hints else @panic("no keybind hints");
-    var longest_hint: usize = 0;
+    var longest_description: usize = 0;
+    var longest_total: usize = 0;
     for (command.commands.items) |cmd_| if (cmd_) |p| {
         if (p.meta.description.len > 0) {
             const hint = hints.get(p.name) orelse "";
-            longest_hint = @max(longest_hint, hint.len);
+            longest_description = @max(longest_description, p.meta.description.len);
+            longest_total = @max(longest_total, p.meta.description.len + hint.len + 1);
             (try palette.entries.addOne()).* = .{
                 .label = if (p.meta.description.len > 0) p.meta.description else p.name,
                 .name = p.name,
@@ -35,7 +37,7 @@ pub fn load_entries(palette: *Type) !usize {
             };
         }
     };
-    return longest_hint;
+    return longest_total - longest_description;
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
