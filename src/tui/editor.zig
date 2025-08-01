@@ -4468,8 +4468,18 @@ pub const Editor = struct {
         var writer = stream.writer(allocator);
         _ = try writer.write("\n");
         try self.generate_leading_ws(&writer, leading_ws);
-        const root_ = try self.insert(root, cursel, stream.items, b_allocator);
-        return self.collapse_trailing_ws_line(root_, row, b_allocator);
+        var root_ = try self.insert(root, cursel, stream.items, b_allocator);
+        root_ = self.collapse_trailing_ws_line(root_, row, b_allocator);
+        const leading_ws_ = find_first_non_ws(root_, cursel.cursor.row, self.metrics);
+        if (leading_ws_ > leading_ws and leading_ws_ > cursel.cursor.col) {
+            const sel = try cursel.enable_selection(root_, self.metrics);
+            sel.* = .{
+                .begin = .{ .row = cursel.cursor.row, .col = cursel.cursor.col },
+                .end = .{ .row = cursel.cursor.row, .col = leading_ws_ },
+            };
+            root_ = self.delete_selection(root_, cursel, b_allocator) catch root_;
+        }
+        return root_;
     }
 
     pub fn smart_insert_line(self: *Self, _: Context) Result {
