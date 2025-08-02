@@ -66,7 +66,7 @@ const TabBar = struct {
     widget_list_widget: Widget,
     event_handler: ?EventHandler,
     tabs: []TabBarTab = &[_]TabBarTab{},
-    active_buffer: ?*Buffer = null,
+    active_buffer_ref: ?usize = null,
 
     tab_style: Style,
     tab_style_bufs: [][]const u8,
@@ -74,7 +74,7 @@ const TabBar = struct {
     const Self = @This();
 
     const TabBarTab = struct {
-        buffer: *Buffer,
+        buffer_ref: usize,
         widget: Widget,
     };
 
@@ -131,9 +131,12 @@ const TabBar = struct {
         } else if (try m.match(.{"previous_tab"})) {
             self.select_previous_tab();
         } else if (try m.match(.{ "E", "open", tp.extract(&file_path), tp.more })) {
-            self.active_buffer = buffer_manager.get_buffer_for_file(file_path);
+            self.active_buffer_ref = if (buffer_manager.get_buffer_for_file(file_path)) |buffer|
+                buffer_manager.buffer_to_ref(buffer)
+            else
+                null;
         } else if (try m.match(.{ "E", "close" })) {
-            self.active_buffer = null;
+            self.active_buffer_ref = null;
         }
         return false;
     }
@@ -156,6 +159,7 @@ const TabBar = struct {
     }
 
     fn update_tabs(self: *Self) !void {
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         try self.update_tab_buffers();
         const prev_widget_count = self.widget_list.widgets.items.len;
         while (self.widget_list.pop()) |widget| if (widget.dynamic_cast(Button.State(Tab)) == null)
@@ -168,8 +172,10 @@ const TabBar = struct {
                 try self.widget_list.add(try self.make_spacer());
             }
             try self.widget_list.add(tab.widget);
-            if (tab.widget.dynamic_cast(Button.State(Tab))) |btn|
-                try btn.update_label(Tab.name_from_buffer(tab.buffer));
+            if (tab.widget.dynamic_cast(Button.State(Tab))) |btn| {
+                if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer|
+                    try btn.update_label(Tab.name_from_buffer(buffer));
+            }
         }
         if (prev_widget_count != self.widget_list.widgets.items.len)
             tui.refresh_hover();
@@ -186,7 +192,7 @@ const TabBar = struct {
 
         // add existing tabs in original order if they still exist
         outer: for (existing_tabs) |existing_tab|
-            for (buffers) |buffer| if (existing_tab.buffer == buffer) {
+            for (buffers) |buffer| if (existing_tab.buffer_ref == buffer_manager.buffer_to_ref(buffer)) {
                 if (!buffer.hidden)
                     (try result.addOne(self.allocator)).* = existing_tab;
                 continue :outer;
@@ -194,13 +200,15 @@ const TabBar = struct {
 
         // add new tabs
         outer: for (buffers) |buffer| {
-            for (result.items) |result_tab| if (result_tab.buffer == buffer)
+            for (result.items) |result_tab| if (result_tab.buffer_ref == buffer_manager.buffer_to_ref(buffer))
                 continue :outer;
-            if (!buffer.hidden)
+            if (!buffer.hidden) {
+                const buffer_ref = buffer_manager.buffer_to_ref(buffer);
                 (try result.addOne(self.allocator)).* = .{
-                    .buffer = buffer,
-                    .widget = try Tab.create(self, buffer, &self.tab_style, self.event_handler),
+                    .buffer_ref = buffer_ref,
+                    .widget = try Tab.create(self, buffer_ref, &self.tab_style, self.event_handler),
                 };
+            }
         }
 
         self.tabs = try result.toOwnedSlice(self.allocator);
@@ -226,7 +234,7 @@ const TabBar = struct {
                 first = tab;
             if (activate_next)
                 return navigate_to_tab(tab);
-            if (tab.buffer == self.active_buffer)
+            if (tab.buffer_ref == self.active_buffer_ref)
                 activate_next = true;
         }
         if (first) |tab|
@@ -237,7 +245,7 @@ const TabBar = struct {
         tp.trace(tp.channel.debug, .{"select_previous_tab"});
         var goto: ?*const TabBarTab = if (self.tabs.len > 0) &self.tabs[self.tabs.len - 1] else null;
         for (self.tabs) |*tab| {
-            if (tab.buffer == self.active_buffer)
+            if (tab.buffer_ref == self.active_buffer_ref)
                 break;
             goto = tab;
         }
@@ -245,26 +253,30 @@ const TabBar = struct {
     }
 
     fn navigate_to_tab(tab: *const TabBarTab) void {
-        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = tab.buffer.file_path } }) catch {};
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer|
+            tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.file_path } }) catch {};
     }
 };
 
 const Tab = struct {
     tabbar: *TabBar,
-    buffer: *Buffer,
+    buffer_ref: usize,
     tab_style: *const Style,
 
     const Mode = enum { active, inactive, selected };
 
     fn create(
         tabbar: *TabBar,
-        buffer: *Buffer,
+        buffer_ref: usize,
         tab_style: *const Style,
         event_handler: ?EventHandler,
     ) !Widget {
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        const buffer = buffer_manager.buffer_from_ref(buffer_ref);
         return Button.create_widget(Tab, tabbar.allocator, tabbar.widget_list.plane, .{
-            .ctx = .{ .tabbar = tabbar, .buffer = buffer, .tab_style = tab_style },
-            .label = name_from_buffer(buffer),
+            .ctx = .{ .tabbar = tabbar, .buffer_ref = buffer_ref, .tab_style = tab_style },
+            .label = if (buffer) |buf| name_from_buffer(buf) else "???",
             .on_click = Tab.on_click,
             .on_click2 = Tab.on_click2,
             .on_layout = Tab.layout,
@@ -274,15 +286,19 @@ const Tab = struct {
     }
 
     fn on_click(self: *@This(), _: *Button.State(@This())) void {
-        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = self.buffer.file_path } }) catch {};
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer|
+            tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.file_path } }) catch {};
     }
 
     fn on_click2(self: *@This(), _: *Button.State(@This())) void {
-        tp.self_pid().send(.{ "cmd", "close_buffer", .{self.buffer.file_path} }) catch {};
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer|
+            tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.file_path} }) catch {};
     }
 
     fn render(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
-        const active = self.tabbar.active_buffer == self.buffer;
+        const active = self.tabbar.active_buffer_ref == self.buffer_ref;
         const mode: Mode = if (btn.hover) .selected else if (active) .active else .inactive;
         switch (mode) {
             .selected => self.render_selected(btn, theme, active),
@@ -397,15 +413,19 @@ const Tab = struct {
     }
 
     fn render_content(self: *@This(), btn: *Button.State(@This())) void {
-        if (self.buffer.is_dirty())
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        const is_dirty = if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| buffer.is_dirty() else false;
+        if (is_dirty)
             _ = btn.plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
         _ = btn.plane.putstr(btn.opts.label) catch {};
     }
 
     fn layout(self: *@This(), btn: *Button.State(@This())) Widget.Layout {
-        const active = self.tabbar.active_buffer == self.buffer;
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        const is_dirty = if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| buffer.is_dirty() else false;
+        const active = self.tabbar.active_buffer_ref == self.buffer_ref;
         const len = btn.plane.egc_chunk_width(btn.opts.label, 0, 1);
-        const len_padding = padding_len(btn.plane, self.tabbar.tab_style, active, self.buffer.is_dirty());
+        const len_padding = padding_len(btn.plane, self.tabbar.tab_style, active, is_dirty);
         return .{ .static = len + len_padding };
     }
 
