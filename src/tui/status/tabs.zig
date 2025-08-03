@@ -11,7 +11,11 @@ const Widget = @import("../Widget.zig");
 const WidgetList = @import("../WidgetList.zig");
 const Button = @import("../Button.zig");
 
+const default_min_tabs = 2;
+
 const @"style.config" = struct {
+    default_minimum_tabs_shown: usize = 2,
+
     dirty_indicator: []const u8 = " ",
 
     spacer: []const u8 = "|",
@@ -52,10 +56,11 @@ const @"style.config" = struct {
 };
 pub const Style = @"style.config";
 
-pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
+pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
+    const min_tabs = if (arg) |str_size| std.fmt.parseInt(usize, str_size, 10) catch null else null;
     const self = try allocator.create(TabBar);
     errdefer allocator.destroy(self);
-    self.* = try TabBar.init(allocator, parent, event_handler);
+    self.* = try TabBar.init(allocator, parent, event_handler, min_tabs);
     return Widget.to(self);
 }
 
@@ -67,6 +72,7 @@ const TabBar = struct {
     event_handler: ?EventHandler,
     tabs: []TabBarTab = &[_]TabBarTab{},
     active_buffer_ref: ?usize = null,
+    minimum_tabs_shown: usize,
 
     tab_style: Style,
     tab_style_bufs: [][]const u8,
@@ -78,7 +84,7 @@ const TabBar = struct {
         widget: Widget,
     };
 
-    fn init(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler) !Self {
+    fn init(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, min_tabs: ?usize) !Self {
         var w = try WidgetList.createH(allocator, parent, "tabs", .dynamic);
         w.ctx = w;
         const tab_style, const tab_style_bufs = root.read_config(Style, allocator);
@@ -90,6 +96,7 @@ const TabBar = struct {
             .event_handler = event_handler,
             .tab_style = tab_style,
             .tab_style_bufs = tab_style_bufs,
+            .minimum_tabs_shown = min_tabs orelse tab_style.default_minimum_tabs_shown,
         };
     }
 
@@ -101,7 +108,10 @@ const TabBar = struct {
     }
 
     pub fn layout(self: *Self) Widget.Layout {
-        return self.widget_list_widget.layout();
+        return if (self.tabs.len >= self.minimum_tabs_shown)
+            self.widget_list_widget.layout()
+        else
+            .{ .static = 0 };
     }
 
     pub fn update(self: *Self) void {
