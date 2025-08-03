@@ -79,15 +79,13 @@ const left = " ";
 const symbol = "󱞏";
 const right = " ";
 
-fn render_logo(self: *Button.State(void), theme: *const Widget.Theme, base_style: Widget.Theme.Style) void {
-    // const style_symbol: Widget.Theme.Style = if (tui.find_scope_style(theme, "number")) |sty| .{ .fg = sty.style.fg, .bg = base_style.bg, .fs = base_style.fs } else base_style;
-    const style_symbol = if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover;
-    const style_braces: Widget.Theme.Style = if (tui.find_scope_style(theme, "punctuation")) |sty| .{ .fg = sty.style.fg, .bg = base_style.bg, .fs = base_style.fs } else base_style;
+fn render_logo(self: *Button.State(void), theme: *const Widget.Theme, style_label: Widget.Theme.Style) void {
+    const style_braces: Widget.Theme.Style = if (tui.find_scope_style(theme, "punctuation")) |sty| .{ .fg = sty.style.fg, .bg = style_label.bg, .fs = style_label.fs } else style_label;
     if (left.len > 0) {
         self.plane.set_style(style_braces);
         _ = self.plane.putstr(" " ++ left) catch {};
     }
-    self.plane.set_style(style_symbol);
+    self.plane.set_style(style_label);
     _ = self.plane.putstr(symbol) catch {};
     if (right.len > 0) {
         self.plane.set_style(style_braces);
