@@ -12,6 +12,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, config: []const u8, s
     var w = try WidgetList.createH(allocator, parent, "statusbar", .{ .static = 1 });
     if (style == .grip) w.after_render = render_grip;
     w.ctx = w;
+    w.on_layout = on_layout;
     var it = std.mem.splitScalar(u8, config, ' ');
     while (it.next()) |widget_name| {
         try w.add(status_widget.create(widget_name, allocator, w.plane, event_handler) catch |e| switch (e) {
@@ -20,6 +21,13 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, config: []const u8, s
         } orelse continue);
     }
     return w.widget();
+}
+
+fn on_layout(_: ?*anyopaque, w: *WidgetList) Widget.Layout {
+    return if (w.layout_empty)
+        .{ .static = 0 }
+    else
+        .{ .static = 1 };
 }
 
 fn render_grip(ctx: ?*anyopaque, theme: *const Widget.Theme) void {

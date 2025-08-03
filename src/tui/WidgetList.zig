@@ -24,12 +24,14 @@ parent: Plane,
 allocator: Allocator,
 widgets: ArrayList(WidgetState),
 layout_: Layout,
+layout_empty: bool = true,
 direction: Direction,
 box: ?Widget.Box = null,
 ctx: ?*anyopaque = null,
 on_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
 after_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
 on_resize: *const fn (ctx: ?*anyopaque, self: *Self, pos_: Widget.Box) void = on_resize_default,
+on_layout: *const fn (ctx: ?*anyopaque, self: *Self) Widget.Layout = on_layout_default,
 
 pub fn createH(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
@@ -71,7 +73,7 @@ pub fn widget(self: *Self) Widget {
 }
 
 pub fn layout(self: *Self) Widget.Layout {
-    return self.layout_;
+    return self.on_layout(self.ctx, self);
 }
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
@@ -214,6 +216,10 @@ fn on_resize_default(_: ?*anyopaque, self: *Self, pos: Widget.Box) void {
     self.resize(pos);
 }
 
+fn on_layout_default(_: ?*anyopaque, self: *Self) Widget.Layout {
+    return self.layout_;
+}
+
 pub fn resize(self: *Self, pos_: Widget.Box) void {
     self.box = pos_;
     var pos = pos_;
@@ -235,6 +241,7 @@ pub fn resize(self: *Self, pos_: Widget.Box) void {
             },
         }
     }
+    self.layout_empty = avail == total and dynamics == 0;
 
     const dyn_size = avail / if (dynamics > 0) dynamics else 1;
     const rounded: usize = if (dyn_size * dynamics < avail) avail - dyn_size * dynamics else 0;
