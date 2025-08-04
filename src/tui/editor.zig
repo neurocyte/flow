@@ -6159,7 +6159,7 @@ pub const EditorWidget = struct {
         }
         if (event == .init) {
             self.hover_mouse_event = false;
-            const delay_us: u64 = std.time.us_per_ms * 500;
+            const delay_us: u64 = std.time.us_per_ms * tui.config().hover_time_ms;
             self.hover_timer = tp.self_pid().delay_send_cancellable(self.editor.allocator, "editor.hover_timer", delay_us, .{"HOVER"}) catch null;
         }
     }
