@@ -168,7 +168,8 @@ pub fn status(context_: usize) Error!void {
     }.result, struct {
         fn result(_: usize, _: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
-            while (it.next()) |line| std.log.err("{s}: {s}", .{ module_name, line });
+            while (it.next()) |line| if (line.len > 0)
+                std.log.err("{s}: {s}", .{ module_name, line });
         }
     }.result, exit_null(tag));
 }
@@ -183,7 +184,8 @@ fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Erro
     }.result, struct {
         fn result(_: usize, _: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
-            while (it.next()) |line| std.log.err("{s}: {s}", .{ module_name, line });
+            while (it.next()) |line| if (line.len > 0)
+                std.log.err("{s}: {s}", .{ module_name, line });
         }
     }.result, exit_null(tag));
 }

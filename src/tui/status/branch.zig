@@ -66,8 +66,8 @@ fn on_click(self: *Self, _: *Button.State(Self)) void {
     command.executeName("show_git_status", .{}) catch {};
 }
 
-fn refresh_git_status(_: *Self) void {
-    git.status(0) catch {};
+fn refresh_git_status(self: *Self) void {
+    if (self.workspace_path) |_| git.status(0) catch {};
 }
 
 pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {

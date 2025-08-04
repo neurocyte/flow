@@ -337,8 +337,7 @@ const cmds = struct {
         tui.rdr().set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
-        if (try project_manager.request_most_recent_file(self.allocator)) |file_path|
-            self.show_file_async_and_free(file_path);
+        tp.self_pid().send(.{ "cmd", "open_recent" }) catch return;
     }
     pub const change_project_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -1222,11 +1221,6 @@ fn toggle_logview_async(_: *Self) void {
 
 fn toggle_inputview_async(_: *Self) void {
     tp.self_pid().send(.{ "cmd", "toggle_inputview" }) catch return;
-}
-
-fn show_file_async_and_free(self: *Self, file_path: []const u8) void {
-    defer self.allocator.free(file_path);
-    self.show_file_async(file_path);
 }
 
 fn show_file_async(_: *Self, file_path: []const u8) void {

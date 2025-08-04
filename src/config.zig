@@ -17,6 +17,7 @@ whitespace_mode: []const u8 = "none",
 inline_diagnostics: bool = true,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 50, //milliseconds
+hover_time_ms: usize = 500, //milliseconds
 enable_format_on_save: bool = false,
 restore_last_cursor_position: bool = true,
 follow_cursor_on_buffer_switch: bool = false, //scroll cursor into view on buffer switch
