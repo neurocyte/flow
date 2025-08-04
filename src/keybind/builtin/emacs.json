@@ -1,5 +1,5 @@
 {
-    "project": {
+    "normal": {
         "press": [
             ["f4", "toggle_input_mode"],
             ["ctrl+0", "reset_fontsize"],
@@ -7,17 +7,11 @@
             ["ctrl+-", "adjust_fontsize", -1.0],
             ["ctrl+r", "find_file"],
             ["ctrl+h ctrl+a", "open_help"],
-            ["ctrl+x ctrl+f", "open_file"],
-            ["ctrl+x b", "open_recent"],
             ["ctrl+c ctrl+o", "open_recent_project"],
             ["ctrl+c g", "find_in_files"],
             ["alt+x", "open_command_palette"],
-            ["ctrl+x ctrl+c", "quit"]
-        ]
-    },
-    "normal": {
-        "inherit": "project",
-        "press": [
+            ["ctrl+x ctrl+c", "quit"],
+
             ["ctrl+g", "cancel"],
             ["ctrl+_", "undo"],
             ["\u001f", "undo"],
@@ -115,9 +109,21 @@
     },
     "home": {
         "on_match_failure": "ignore",
-        "inherit": "project",
         "press": [
-            ["f", "change_fontface"]
+            ["f", "change_fontface"],
+            ["f4", "toggle_input_mode"],
+            ["ctrl+0", "reset_fontsize"],
+            ["ctrl+=", "adjust_fontsize", 1.0],
+            ["ctrl+-", "adjust_fontsize", -1.0],
+            ["ctrl+r", "find_file"],
+            ["ctrl+h ctrl+a", "open_help"],
+            ["ctrl+x ctrl+f", "open_file"],
+            ["ctrl+x ctrl+r", "open_recent"],
+            ["ctrl+x b", "switch_buffers"],
+            ["ctrl+c ctrl+o", "open_recent_project"],
+            ["ctrl+c g", "find_in_files"],
+            ["alt+x", "open_command_palette"],
+            ["ctrl+x ctrl+c", "quit"]
         ]
     }
 }
