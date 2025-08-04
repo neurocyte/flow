@@ -6043,6 +6043,7 @@ pub const EditorWidget = struct {
     hover_timer: ?tp.Cancellable = null,
     hover_x: c_int = -1,
     hover_y: c_int = -1,
+    hover_mouse_event: bool = false,
 
     const Self = @This();
     const Commands = command.Collection(Editor);
@@ -6109,8 +6110,10 @@ pub const EditorWidget = struct {
             const hover_y, const hover_x = self.editor.plane.abs_yx_to_rel(y, x);
             if (hover_y != self.hover_y or hover_x != self.hover_x) {
                 self.hover_y, self.hover_x = .{ hover_y, hover_x };
-                if (self.editor.jump_mode)
+                if (self.editor.jump_mode) {
                     self.update_hover_timer(.init);
+                    self.hover_mouse_event = true;
+                }
             }
         } else if (try m.match(.{ "B", tp.extract(&event), tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
             try self.mouse_click_event(event, @enumFromInt(btn), y, x, ypx, xpx);
@@ -6138,7 +6141,7 @@ pub const EditorWidget = struct {
             }
         } else if (try m.match(.{"HOVER"})) {
             self.update_hover_timer(.fired);
-            if (self.hover_y >= 0 and self.hover_x >= 0)
+            if (self.hover_y >= 0 and self.hover_x >= 0 and self.hover_mouse_event)
                 try self.editor.hover_at_abs(@intCast(self.hover_y), @intCast(self.hover_x));
         } else if (try m.match(.{ "whitespace_mode", tp.extract(&bytes) })) {
             self.editor.render_whitespace = Editor.from_whitespace_mode(bytes);
@@ -6155,6 +6158,7 @@ pub const EditorWidget = struct {
             self.hover_timer = null;
         }
         if (event == .init) {
+            self.hover_mouse_event = false;
             const delay_us: u64 = std.time.us_per_ms * 100;
             self.hover_timer = tp.self_pid().delay_send_cancellable(self.editor.allocator, "editor.hover_timer", delay_us, .{"HOVER"}) catch null;
         }
