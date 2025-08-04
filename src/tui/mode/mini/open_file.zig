@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const root = @import("root");
 const command = @import("command");
+const project_manager = @import("project_manager");
 
 const tui = @import("../../tui.zig");
 
@@ -10,6 +11,11 @@ pub const Type = @import("file_browser.zig").Create(@This());
 pub const create = Type.create;
 
 pub fn load_entries(self: *Type) error{ Exit, OutOfMemory }!void {
+    var project_name_buf: [512]u8 = undefined;
+    const project_path = tp.env.get().str("project");
+    const project_name = project_manager.abbreviate_home(&project_name_buf, project_path);
+    try self.file_path.appendSlice(project_name);
+    try self.file_path.append(std.fs.path.sep);
     const editor = tui.get_active_editor() orelse return;
     if (editor.file_path) |old_path|
         if (std.mem.lastIndexOf(u8, old_path, "/")) |pos|
@@ -28,8 +34,15 @@ pub fn name(_: *Type) []const u8 {
 }
 
 pub fn select(self: *Type) void {
-    if (root.is_directory(self.file_path.items)) return;
-    if (self.file_path.items.len > 0)
-        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = self.file_path.items } }) catch {};
+    var buf = std.ArrayList(u8).init(self.allocator);
+    defer buf.deinit();
+    const file_path = project_manager.expand_home(&buf, self.file_path.items);
+    if (root.is_directory(file_path)) {
+        tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch return;
+        tp.self_pid().send(.{ "cmd", "change_project", .{file_path} }) catch {};
+        return;
+    }
+    if (file_path.len > 0)
+        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch {};
     command.executeName("exit_mini_mode", .{}) catch {};
 }
