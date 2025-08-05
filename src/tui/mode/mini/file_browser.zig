@@ -9,6 +9,7 @@ const keybind = @import("keybind");
 const project_manager = @import("project_manager");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+const Buffer = @import("Buffer");
 
 const tui = @import("../../tui.zig");
 const MessageFilter = @import("../../MessageFilter.zig");
@@ -197,9 +198,7 @@ pub fn Create(options: type) type {
             var last: ?Entry = null;
             var last_no: usize = 0;
             for (self.entries.items, 0..) |entry, i| {
-                if (entry.name.len >= self.match.items.len and
-                    std.mem.eql(u8, self.match.items, entry.name[0..self.match.items.len]))
-                {
+                if (try prefix_compare_icase(self.allocator, self.match.items, entry.name)) {
                     matched += 1;
                     if (matched == self.complete_trigger_count) {
                         try self.construct_path(self.query.items, entry, i);
@@ -216,6 +215,15 @@ pub fn Create(options: type) type {
                 message("no match for '{s}'", .{self.match.items});
                 try self.construct_path(self.query.items, .{ .name = self.match.items, .type = .file }, 0);
             }
+        }
+
+        fn prefix_compare_icase(allocator: std.mem.Allocator, prefix: []const u8, str: []const u8) error{OutOfMemory}!bool {
+            const icase_prefix = Buffer.unicode.get_letter_casing().toLowerStr(allocator, prefix) catch try allocator.dupe(u8, prefix);
+            defer allocator.free(icase_prefix);
+            const icase_str = Buffer.unicode.get_letter_casing().toLowerStr(allocator, str) catch try allocator.dupe(u8, str);
+            defer allocator.free(icase_str);
+            if (icase_str.len < icase_prefix.len) return false;
+            return std.mem.eql(u8, icase_prefix, icase_str[0..icase_prefix.len]);
         }
 
         fn delete_to_previous_path_segment(self: *Self) void {
