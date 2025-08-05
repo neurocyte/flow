@@ -64,15 +64,15 @@ pub fn delete_buffer(self: *Self, file_path: []const u8) bool {
 
 pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
     if (meta) |buf| buffer.set_meta(buf) catch {};
-    tp.trace(tp.channel.debug, .{ "buffer", "retire", buffer.file_path, "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
+    tp.trace(tp.channel.debug, .{ "buffer", "retire", buffer.get_file_path(), "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
     if (meta) |buf| tp.trace(tp.channel.debug, tp.message{ .buf = buf });
 }
 
 pub fn close_buffer(self: *Self, buffer: *Buffer) void {
     buffer.hidden = true;
-    tp.trace(tp.channel.debug, .{ "buffer", "close", buffer.file_path, "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
+    tp.trace(tp.channel.debug, .{ "buffer", "close", buffer.get_file_path(), "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
     if (buffer.is_ephemeral()) {
-        _ = self.buffers.remove(buffer.file_path);
+        _ = self.buffers.remove(buffer.get_file_path());
         buffer.deinit();
     }
 }
@@ -116,7 +116,7 @@ pub fn save_all(self: *const Self) Buffer.StoreToFileError!void {
         if (buffer.is_ephemeral())
             buffer.mark_clean()
         else
-            try buffer.store_to_file_and_clean(buffer.file_path);
+            try buffer.store_to_file_and_clean(buffer.get_file_path());
     }
 }
 

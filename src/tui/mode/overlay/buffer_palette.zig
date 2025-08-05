@@ -34,7 +34,7 @@ pub fn load_entries(palette: *Type) !usize {
         else
             "";
         (try palette.entries.addOne()).* = .{
-            .label = buffer.file_path,
+            .label = buffer.get_file_path(),
             .icon = buffer.file_type_icon orelse "",
             .color = buffer.file_type_color,
             .indicator = indicator,

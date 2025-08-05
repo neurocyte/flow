@@ -1316,11 +1316,11 @@ fn get_next_mru_buffer(self: *Self) ?[]const u8 {
     defer self.allocator.free(buffers);
     const active_file_path = self.get_active_file_path();
     for (buffers) |buffer| {
-        if (active_file_path) |fp| if (std.mem.eql(u8, fp, buffer.file_path))
+        if (active_file_path) |fp| if (std.mem.eql(u8, fp, buffer.get_file_path()))
             continue;
         if (buffer.hidden)
             continue;
-        return buffer.file_path;
+        return buffer.get_file_path();
     }
     return null;
 }
