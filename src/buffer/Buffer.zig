@@ -1,5 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const cbor = @import("cbor");
+const file_type_config = @import("file_type_config");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const cwd = std.fs.cwd;
@@ -1486,4 +1488,59 @@ pub fn redo(self: *Self) error{Stop}![]const u8 {
     self.push_undo(u);
     self.mtime = std.time.milliTimestamp();
     return h.meta;
+}
+
+pub fn write_state(self: *const Self, writer: MetaWriter) error{ Stop, OutOfMemory }!void {
+    var content = std.ArrayListUnmanaged(u8).empty;
+    defer content.deinit(self.external_allocator);
+    try self.root.store(content.writer(self.external_allocator), self.file_eol_mode);
+
+    try cbor.writeArrayHeader(writer, 8);
+    try cbor.writeValue(writer, self.get_file_path());
+    try cbor.writeValue(writer, self.file_exists);
+    try cbor.writeValue(writer, self.file_eol_mode);
+    try cbor.writeValue(writer, self.hidden);
+    try cbor.writeValue(writer, self.ephemeral);
+    try cbor.writeValue(writer, self.meta orelse &.{});
+    try cbor.writeValue(writer, self.file_type_name);
+    try cbor.writeValue(writer, content.items);
+}
+
+pub const ExtractStateOperation = enum { none, open_file };
+
+pub fn extract_state(self: *Self, iter: *[]const u8) !void {
+    var file_path: []const u8 = undefined;
+    var file_type_name: []const u8 = undefined;
+    var meta: []const u8 = &.{};
+    var content: []const u8 = undefined;
+
+    if (!try cbor.matchValue(iter, .{
+        cbor.extract(&file_path),
+        cbor.extract(&self.file_exists),
+        cbor.extract(&self.file_eol_mode),
+        cbor.extract(&self.hidden),
+        cbor.extract(&self.ephemeral),
+        cbor.extract(&meta),
+        cbor.extract(&file_type_name),
+        cbor.extract(&content),
+    }))
+        return error.Stop;
+
+    self.set_file_path(file_path);
+
+    if (try file_type_config.get(try self.allocator.dupe(u8, file_type_name))) |config| {
+        self.file_type_name = config.name;
+        self.file_type_icon = config.icon;
+        self.file_type_color = config.color;
+    } else {
+        self.file_type_name = file_type_config.default.name;
+        self.file_type_icon = file_type_config.default.icon;
+        self.file_type_color = file_type_config.default.color;
+    }
+
+    if (meta.len > 0) {
+        if (self.meta) |buf| self.external_allocator.free(buf);
+        self.meta = if (self.meta) |buf| try self.external_allocator.dupe(u8, buf) else null;
+    }
+    try self.reset_from_string_and_update(content);
 }

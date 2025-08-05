@@ -371,6 +371,14 @@ pub const Editor = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
+    pub fn update_meta(self: *const Self) void {
+        var meta = std.ArrayListUnmanaged(u8).empty;
+        defer meta.deinit(self.allocator);
+        if (self.buffer) |_| self.write_state(meta.writer(self.allocator)) catch {};
+        if (self.buffer) |_| self.write_state(meta.writer(self.allocator)) catch {};
+        if (self.buffer) |p| p.set_meta(meta.items) catch {};
+    }
+
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
         try cbor.writeArrayHeader(writer, 12);
         try cbor.writeValue(writer, self.file_path orelse "");
@@ -401,9 +409,7 @@ pub const Editor = struct {
         };
     }
 
-    pub fn extract_state(self: *Self, buf: []const u8, comptime op: enum { none, open_file }) !void {
-        tp.trace(tp.channel.debug, .{ "extract_state", self.file_path });
-        tp.trace(tp.channel.debug, tp.message{ .buf = buf });
+    pub fn extract_state(self: *Self, iter: *[]const u8, comptime op: Buffer.ExtractStateOperation) !void {
         self.restored_state = true;
         var file_path: []const u8 = undefined;
         var view_cbor: []const u8 = undefined;
@@ -411,7 +417,7 @@ pub const Editor = struct {
         var clipboard: []const u8 = undefined;
         var last_find_query: []const u8 = undefined;
         var find_history: []const u8 = undefined;
-        if (!try cbor.match(buf, .{
+        if (!try cbor.matchValue(iter, .{
             tp.extract(&file_path),
             tp.extract(&clipboard),
             tp.extract(&last_find_query),
@@ -440,11 +446,11 @@ pub const Editor = struct {
 
         if (cursels_cbor.len > 0)
             self.clear_all_cursors();
-        var iter = cursels_cbor;
-        var len = cbor.decodeArrayHeader(&iter) catch return error.RestoreCurSels;
+        var cursels_iter = cursels_cbor;
+        var len = cbor.decodeArrayHeader(&cursels_iter) catch return error.RestoreCurSels;
         while (len > 0) : (len -= 1) {
             var cursel: CurSel = .{};
-            if (!(cursel.extract(&iter) catch false)) break;
+            if (!(cursel.extract(&cursels_iter) catch false)) break;
             (try self.cursels.addOne(self.allocator)).* = cursel;
         }
 
@@ -659,7 +665,8 @@ pub const Editor = struct {
         if (buffer_meta) |meta| {
             const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
             defer frame_.deinit();
-            try self.extract_state(meta, .none);
+            var iter = meta;
+            try self.extract_state(&iter, .none);
         }
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc);
     }

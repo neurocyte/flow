@@ -1288,11 +1288,18 @@ fn create_home_split(self: *Self) !void {
 }
 
 pub fn write_restore_info(self: *Self) void {
-    const editor = self.get_active_editor() orelse return;
     var sfa = std.heap.stackFallback(512, self.allocator);
     const a = sfa.get();
     var meta = std.ArrayListUnmanaged(u8).empty;
-    editor.write_state(meta.writer(a)) catch return;
+    const writer = meta.writer(a);
+
+    const editor = self.get_active_editor() orelse return;
+    cbor.writeValue(writer, editor.file_path) catch return;
+    editor.update_meta();
+
+    const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+    buffer_manager.write_state(writer) catch return;
+
     const file_name = root.get_restore_file_name() catch return;
     var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch return;
     defer file.close();
@@ -1300,7 +1307,6 @@ pub fn write_restore_info(self: *Self) void {
 }
 
 fn read_restore_info(self: *Self) !void {
-    const editor = self.get_active_editor() orelse return;
     const file_name = try root.get_restore_file_name();
     const file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
     defer file.close();
@@ -1308,7 +1314,14 @@ fn read_restore_info(self: *Self) !void {
     var buf = try self.allocator.alloc(u8, @intCast(stat.size));
     defer self.allocator.free(buf);
     const size = try file.readAll(buf);
-    try editor.extract_state(buf[0..size], .open_file);
+    var iter: []const u8 = buf[0..size];
+
+    tp.trace(tp.channel.debug, .{ "mainview", "extract" });
+    var editor_file_path: []const u8 = undefined;
+    if (!try cbor.matchValue(&iter, cbor.extract(&editor_file_path))) return error.Stop;
+    try self.buffer_manager.extract_state(&iter);
+
+    try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = editor_file_path } });
 }
 
 fn get_next_mru_buffer(self: *Self) ?[]const u8 {

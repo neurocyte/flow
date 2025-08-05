@@ -942,7 +942,7 @@ pub fn get_restore_file_name() ![]const u8 {
     const restore_file = if (local.restore_file) |file|
         file
     else
-        try std.fmt.bufPrint(&local.restore_file_buffer, "{s}/{s}", .{ try get_app_cache_dir(application_name), restore_file_name });
+        try std.fmt.bufPrint(&local.restore_file_buffer, "{s}/{s}", .{ try get_app_state_dir(application_name), restore_file_name });
     local.restore_file = restore_file;
     return restore_file;
 }
