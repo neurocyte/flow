@@ -10,7 +10,7 @@ const checkmark_width = if (builtin.os.tag != .windows) 2 else 3;
 const success_mark = if (builtin.os.tag != .windows) "✓ " else "[y]";
 const fail_mark = if (builtin.os.tag != .windows) "✘ " else "[n]";
 
-pub fn list(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tty.Config) !void {
+pub fn list(allocator: std.mem.Allocator, writer: *std.io.Writer, tty_config: std.io.tty.Config) !void {
     var max_language_len: usize = 0;
     var max_langserver_len: usize = 0;
     var max_formatter_len: usize = 0;

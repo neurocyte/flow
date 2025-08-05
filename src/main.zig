@@ -122,32 +122,41 @@ pub fn main() anyerror!void {
         scratch: bool,
         new_file: bool,
         version: bool,
+
+        positional: struct {
+            trailing: []const []const u8,
+        },
     };
 
-    var arg_iter = try std.process.argsWithAllocator(a);
-    defer arg_iter.deinit();
+    const args_alloc = try std.process.argsAlloc(a);
+    defer std.process.argsFree(a, args_alloc);
 
     var diag: flags.Diagnostics = undefined;
-    var positional_args = std.ArrayList([]const u8).init(a);
-    defer positional_args.deinit();
 
-    const args = flags.parse(&arg_iter, "flow", Flags, .{
+    const args = flags.parse(args_alloc, "flow", Flags, .{
         .diagnostics = &diag,
-        .trailing_list = &positional_args,
     }) catch |err| {
         if (err == error.PrintedHelp) exit(0);
-        diag.help.generated.render(std.io.getStdOut(), flags.ColorScheme.default) catch {};
+        try diag.printUsage(&flags.ColorScheme.default);
         exit(1);
         return err;
     };
 
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_file = std.fs.File.stdout().writer(&stdout_buf);
+    const stdout = &stdout_file.interface;
+    defer stdout.flush() catch {};
+    var stderr_buf: [4096]u8 = undefined;
+    var stderr_file = std.fs.File.stderr().writer(&stderr_buf);
+    const stderr = &stderr_file.interface;
+    defer stderr.flush() catch {};
+
     if (args.version)
-        return std.io.getStdOut().writeAll(version_info);
+        return std.fs.File.stdout().writeAll(version_info);
 
     if (args.list_languages) {
-        const stdout = std.io.getStdOut();
-        const tty_config = std.io.tty.detectConfig(stdout);
-        return list_languages.list(a, stdout.writer(), tty_config);
+        const tty_config = std.io.tty.detectConfig(std.fs.File.stdout());
+        return list_languages.list(a, stdout, tty_config);
     }
 
     if (builtin.os.tag != .windows and @hasDecl(renderer, "install_crash_handler")) {
@@ -158,11 +167,12 @@ pub fn main() anyerror!void {
     if (args.debug_wait) {
         std.debug.print("press return to start", .{});
         var buf: [1]u8 = undefined;
-        _ = try std.io.getStdIn().read(&buf);
+        _ = try std.fs.File.stdin().read(&buf);
     }
 
     if (c.setlocale(c.LC_ALL, "") == null) {
-        try std.io.getStdErr().writer().print("Failed to set locale. Is your locale valid?\n", .{});
+        try stderr.print("Failed to set locale. Is your locale valid?\n", .{});
+        stderr.flush() catch {};
         exit(1);
     }
 
@@ -245,7 +255,7 @@ pub fn main() anyerror!void {
     defer links.deinit();
     var prev: ?*file_link.Dest = null;
     var line_next: ?usize = null;
-    for (positional_args.items) |arg| {
+    for (args.positional.trailing.items) |arg| {
         if (arg.len == 0) continue;
 
         if (!args.literal and arg[0] == '+') {
@@ -372,17 +382,17 @@ fn count_args() usize {
     return count;
 }
 
-fn trace(m: thespian.message.c_buffer_type) callconv(.C) void {
+fn trace(m: thespian.message.c_buffer_type) callconv(.c) void {
     thespian.message.from(m).to_json_cb(trace_json);
 }
 
-fn trace_json(json: thespian.message.json_string_view) callconv(.C) void {
+fn trace_json(json: thespian.message.json_string_view) callconv(.c) void {
     const callstack_depth = 10;
     ___tracy_emit_message(json.base, json.len, callstack_depth);
 }
 extern fn ___tracy_emit_message(txt: [*]const u8, size: usize, callstack: c_int) void;
 
-fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.C) void {
+fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.c) void {
     const State = struct {
         file: std.fs.File,
         last_time: i64,

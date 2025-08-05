@@ -447,9 +447,11 @@ pub fn build_exe(
 
     const keybind_test_run_cmd = blk: {
         const tests = b.addTest(.{
-            .root_source_file = b.path("src/keybind/keybind.zig"),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/keybind/keybind.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
         });
         tests.root_module.addImport("cbor", cbor_mod);
         tests.root_module.addImport("command", command_mod);
@@ -568,10 +570,12 @@ pub fn build_exe(
 
     const exe = b.addExecutable(.{
         .name = exe_name,
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-        .strip = strip,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .strip = strip,
+        }),
         .win32_manifest = b.path("src/win32/flow.manifest"),
     });
 
@@ -620,9 +624,11 @@ pub fn build_exe(
 
     const check_exe = b.addExecutable(.{
         .name = exe_name,
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     check_exe.root_module.addImport("build_options", options_mod);
@@ -645,12 +651,14 @@ pub fn build_exe(
     check_step.dependOn(&check_exe.step);
 
     const tests = b.addTest(.{
-        .root_source_file = b.path("test/tests.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/tests.zig"),
+            .target = target,
+            .optimize = optimize,
+            .strip = strip,
+        }),
         .use_llvm = use_llvm,
         .use_lld = use_llvm,
-        .strip = strip,
     });
 
     tests.pie = pie;

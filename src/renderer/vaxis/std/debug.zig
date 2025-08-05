@@ -384,16 +384,14 @@ pub inline fn getContext(context: *ThreadContext) bool {
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
-pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
+pub fn dumpStackTraceFromBase(stderr: *io.Writer, context: *ThreadContext) void {
     nosuspend {
         if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
-                const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
             }
             return;
         }
-        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -402,7 +400,7 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        const tty_config = io.tty.detectConfig(io.getStdErr());
+        const tty_config = io.tty.detectConfig(fs.File.stderr());
         if (native_os == .windows) {
             // On x86_64 and aarch64, the stack will be unwound using RtlVirtualUnwind using the context
             // provided by the exception handler. On x86, RtlVirtualUnwind doesn't exist. Instead, a new backtrace
@@ -1425,14 +1423,22 @@ pub fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*an
                 lockStdErr();
                 defer unlockStdErr();
 
-                dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
+                var buf: [4096]u8 = undefined;
+                var stderr = fs.File.stderr().writer(&buf);
+                defer stderr.interface.flush() catch {};
+
+                dumpSegfaultInfoPosix(&stderr.interface, sig, code, addr, ctx_ptr);
             }
 
             waitForOtherThreadToFinishPanicking();
         },
         else => {
+            var buf: [4096]u8 = undefined;
+            var stderr = fs.File.stderr().writer(&buf);
+            defer stderr.interface.flush() catch {};
+
             // panic mutex already locked
-            dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
+            dumpSegfaultInfoPosix(&stderr.interface, sig, code, addr, ctx_ptr);
         },
     };
 
@@ -1442,8 +1448,7 @@ pub fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*an
     posix.abort();
 }
 
-pub fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
-    const stderr = io.getStdErr().writer();
+pub fn dumpSegfaultInfoPosix(stderr: *io.Writer, sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
     _ = switch (sig) {
         posix.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
             // x86_64 doesn't have a full 64-bit virtual address space.
@@ -1491,7 +1496,7 @@ pub fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopa
                 }, @ptrCast(ctx)).__mcontext_data;
             }
             relocateContext(&new_ctx);
-            dumpStackTraceFromBase(&new_ctx);
+            dumpStackTraceFromBase(stderr, &new_ctx);
         },
         else => {},
     }

@@ -156,7 +156,10 @@ fn handle_crash(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque
         self.tty.deinit();
     }
     if (builtin.os.tag == .linux and jit_debugger_enabled) {
-        handleSegfaultPosixNoAbort(sig, info, ctx_ptr);
+        var buf: [4096]u8 = undefined;
+        var stderr = std.fs.File.stderr().writer(&buf);
+        defer stderr.interface.flush() catch {};
+        handleSegfaultPosixNoAbort(&stderr.interface, sig, info, ctx_ptr);
         @import("thespian").sighdl_debugger(sig, @ptrCast(@constCast(info)), ctx_ptr);
         std.posix.abort();
     } else {
@@ -165,7 +168,7 @@ fn handle_crash(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque
     unreachable;
 }
 
-fn handleSegfaultPosixNoAbort(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) void {
+fn handleSegfaultPosixNoAbort(stderr: *std.io.Writer, sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) void {
     const debug = @import("std/debug.zig");
     debug.resetSegfaultHandler();
     const addr = switch (builtin.os.tag) {
@@ -177,7 +180,7 @@ fn handleSegfaultPosixNoAbort(sig: i32, info: *const std.posix.siginfo_t, ctx_pt
         else => unreachable,
     };
     const code = if (builtin.os.tag == .netbsd) info.info.code else info.code;
-    debug.dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
+    debug.dumpSegfaultInfoPosix(stderr, sig, code, addr, ctx_ptr);
 }
 
 pub fn run(self: *Self) Error!void {
