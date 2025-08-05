@@ -200,6 +200,10 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
         self.need_reset = true;
         if (!std.mem.eql(u8, self.inputbox.text.items, query))
             try self.start_query();
+    } else if (try cbor.match(m.buf, .{ "PRJ", "open_done", tp.string, tp.extract(&self.longest), tp.any })) {
+        self.query_pending = false;
+        self.need_reset = true;
+        try self.start_query();
     } else {
         self.logger.err("receive", tp.unexpected(m));
     }

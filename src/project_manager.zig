@@ -341,10 +341,10 @@ const Process = struct {
                 project.walk_tree_entry(path, mtime) catch |e| self.logger.err("walk_tree_entry", e);
         } else if (try cbor.match(m.buf, .{ "walk_tree_done", tp.extract(&project_directory) })) {
             if (self.projects.get(project_directory)) |project|
-                project.walk_tree_done() catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+                project.walk_tree_done(self.parent.ref()) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), tp.more })) {
             const project: *Project = @ptrFromInt(context);
-            project.process_git(m) catch {};
+            project.process_git(self.parent.ref(), m) catch {};
         } else if (try cbor.match(m.buf, .{ "update_mru", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
