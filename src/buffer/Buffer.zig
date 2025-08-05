@@ -1184,6 +1184,13 @@ pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []cons
     self.mtime = std.time.milliTimestamp();
 }
 
+pub fn reset_from_string_and_update(self: *Self, s: []const u8) LoadFromStringError!void {
+    self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
+    self.last_save = self.root;
+    self.last_save_eol_mode = self.file_eol_mode;
+    self.mtime = std.time.milliTimestamp();
+}
+
 pub const LoadFromFileError = error{
     OutOfMemory,
     Unexpected,
