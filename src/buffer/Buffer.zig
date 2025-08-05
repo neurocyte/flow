@@ -1367,6 +1367,10 @@ pub fn mark_clean(self: *Self) void {
     self.last_save = self.root;
 }
 
+pub fn mark_dirty(self: *Self) void {
+    self.last_save = null;
+}
+
 pub fn is_hidden(self: *const Self) bool {
     return self.hidden;
 }
