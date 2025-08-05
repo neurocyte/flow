@@ -37,12 +37,9 @@ pub fn select(self: *Type) void {
     var buf = std.ArrayList(u8).init(self.allocator);
     defer buf.deinit();
     const file_path = project_manager.expand_home(&buf, self.file_path.items);
-    if (root.is_directory(file_path)) {
-        tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch return;
-        tp.self_pid().send(.{ "cmd", "change_project", .{file_path} }) catch {};
-        return;
-    }
-    if (file_path.len > 0)
-        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch {};
     command.executeName("exit_mini_mode", .{}) catch {};
+    if (root.is_directory(file_path))
+        tp.self_pid().send(.{ "cmd", "change_project", .{file_path} }) catch {}
+    else if (file_path.len > 0)
+        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch {};
 }

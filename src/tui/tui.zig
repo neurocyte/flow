@@ -196,7 +196,14 @@ fn init_input_namespace(self: *Self) InitError!void {
 
 fn init_delayed(self: *Self) command.Result {
     self.delayed_init_done = true;
-    if (self.input_mode_) |_| {} else {
+    if (self.input_mode_) |_| {
+        if (self.delayed_init_input_mode) |delayed_init_input_mode| {
+            if (self.input_mode_outer_ == null) {
+                self.input_mode_outer_ = delayed_init_input_mode;
+                self.delayed_init_input_mode = null;
+            }
+        }
+    } else {
         if (self.delayed_init_input_mode) |delayed_init_input_mode| {
             try enter_input_mode(self, delayed_init_input_mode);
             self.delayed_init_input_mode = null;

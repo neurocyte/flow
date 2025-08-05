@@ -33,7 +33,7 @@ external_allocator: Allocator,
 root: Root,
 leaves_buf: ?[]Node = null,
 file_buf: ?[]const u8 = null,
-file_path: []const u8 = "",
+file_path_buf: std.ArrayListUnmanaged(u8) = .empty,
 last_save: ?Root = null,
 file_exists: bool = true,
 file_eol_mode: EolMode = .lf,
@@ -1084,6 +1084,7 @@ pub fn deinit(self: *Self) void {
     if (self.meta) |buf| self.external_allocator.free(buf);
     if (self.file_buf) |buf| self.external_allocator.free(buf);
     if (self.leaves_buf) |buf| self.external_allocator.free(buf);
+    self.file_path_buf.deinit(self.external_allocator);
     self.arena.deinit();
     self.external_allocator.destroy(self);
 }
@@ -1096,6 +1097,17 @@ pub fn set_meta(self: *Self, meta_: []const u8) error{OutOfMemory}!void {
 
 pub fn get_meta(self: *Self) ?[]const u8 {
     return self.meta;
+}
+
+pub fn set_file_path(self: *Self, file_path: []const u8) void {
+    self.file_path_buf.clearRetainingCapacity();
+    self.file_path_buf.appendSlice(self.external_allocator, file_path) catch |e| switch (e) {
+        error.OutOfMemory => @panic("OOM in Buffer.set_file_path"),
+    };
+}
+
+pub inline fn get_file_path(self: *const Self) []const u8 {
+    return self.file_path_buf.items;
 }
 
 pub fn update_last_used_time(self: *Self) void {
@@ -1177,10 +1189,17 @@ pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, ut
 
 pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) LoadFromStringError!void {
     self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
-    self.file_path = try self.allocator.dupe(u8, file_path);
+    self.set_file_path(file_path);
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = false;
+    self.mtime = std.time.milliTimestamp();
+}
+
+pub fn reset_from_string_and_update(self: *Self, s: []const u8) LoadFromStringError!void {
+    self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
+    self.last_save = self.root;
+    self.last_save_eol_mode = self.file_eol_mode;
     self.mtime = std.time.milliTimestamp();
 }
 
@@ -1251,7 +1270,7 @@ pub fn load_from_file_and_update(self: *Self, file_path: []const u8) LoadFromFil
     var eol_mode: EolMode = .lf;
     var utf8_sanitized: bool = false;
     self.root = try self.load_from_file(file_path, &file_exists, &eol_mode, &utf8_sanitized);
-    self.file_path = try self.allocator.dupe(u8, file_path);
+    self.set_file_path(file_path);
     self.last_save = self.root;
     self.file_exists = file_exists;
     self.file_eol_mode = eol_mode;
@@ -1270,7 +1289,7 @@ pub fn reset_to_last_saved(self: *Self) void {
 }
 
 pub fn refresh_from_file(self: *Self) LoadFromFileError!void {
-    try self.load_from_file_and_update(self.file_path);
+    try self.load_from_file_and_update(self.get_file_path());
     self.update_last_used_time();
 }
 
@@ -1362,12 +1381,16 @@ pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) StoreToFileEr
     self.file_utf8_sanitized = false;
     if (self.ephemeral) {
         self.ephemeral = false;
-        self.file_path = try self.allocator.dupe(u8, file_path);
+        self.set_file_path(file_path);
     }
 }
 
 pub fn mark_clean(self: *Self) void {
     self.last_save = self.root;
+}
+
+pub fn mark_dirty(self: *Self) void {
+    self.last_save = null;
 }
 
 pub fn is_hidden(self: *const Self) bool {

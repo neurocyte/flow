@@ -153,7 +153,7 @@ pub fn Create(options: type) type {
 
         fn do_resize(self: *Self) void {
             const screen = tui.screen();
-            const w = @min(self.longest, max_menu_width) + 2 + 1 + self.longest_hint;
+            const w = @max(@min(self.longest, max_menu_width) + 2 + 1 + self.longest_hint, options.label.len + 2);
             const x = if (screen.w > w) (screen.w - w) / 2 else 0;
             self.view_rows = get_view_rows(screen);
             const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);

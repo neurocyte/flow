@@ -265,7 +265,7 @@ const TabBar = struct {
     fn navigate_to_tab(tab: *const TabBarTab) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer|
-            tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.file_path } }) catch {};
+            tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.get_file_path() } }) catch {};
     }
 };
 
@@ -298,13 +298,13 @@ const Tab = struct {
     fn on_click(self: *@This(), _: *Button.State(@This())) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer|
-            tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.file_path } }) catch {};
+            tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.get_file_path() } }) catch {};
     }
 
     fn on_click2(self: *@This(), _: *Button.State(@This())) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer|
-            tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.file_path} }) catch {};
+            tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.get_file_path()} }) catch {};
     }
 
     fn render(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
@@ -450,7 +450,7 @@ const Tab = struct {
     }
 
     fn name_from_buffer(buffer: *Buffer) []const u8 {
-        const file_path = buffer.file_path;
+        const file_path = buffer.get_file_path();
         if (file_path.len > 0 and file_path[0] == '*')
             return file_path;
         const basename_begin = std.mem.lastIndexOfScalar(u8, file_path, std.fs.path.sep);

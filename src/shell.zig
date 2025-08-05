@@ -40,6 +40,7 @@ pub const Handlers = struct {
     err: ?*const OutputHandler = null,
     exit: *const ExitHandler = log_exit_handler,
     log_execute: bool = true,
+    line_buffered: bool = true,
 };
 
 pub fn execute(allocator: std.mem.Allocator, argv: tp.message, handlers: Handlers) Error!void {
@@ -145,6 +146,8 @@ const Process = struct {
     logger: log.Logger,
     stdin_behavior: std.process.Child.StdIo,
     handlers: Handlers,
+    stdout_line_buffer: std.ArrayListUnmanaged(u8) = .empty,
+    stderr_line_buffer: std.ArrayListUnmanaged(u8) = .empty,
 
     const Receiver = tp.Receiver(*Process);
 
@@ -181,6 +184,8 @@ const Process = struct {
         self.logger.deinit();
         self.allocator.free(self.arg0);
         self.allocator.free(self.argv.buf);
+        self.stdout_line_buffer.deinit(self.allocator);
+        self.stderr_line_buffer.deinit(self.allocator);
         self.allocator.destroy(self);
     }
 
@@ -215,9 +220,9 @@ const Process = struct {
         } else if (try m.match(.{"close"})) {
             self.close();
         } else if (try m.match(.{ module_name, "stdout", tp.extract(&bytes) })) {
-            self.handlers.out(self.handlers.context, self.parent.ref(), self.arg0, bytes);
+            self.handle_stdout(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ module_name, "stderr", tp.extract(&bytes) })) {
-            (self.handlers.err orelse self.handlers.out)(self.handlers.context, self.parent.ref(), self.arg0, bytes);
+            self.handle_stderr(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ module_name, "term", tp.more })) {
             defer self.sp = null;
             self.handle_terminated(m) catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -231,9 +236,57 @@ const Process = struct {
         }
     }
 
+    fn handle_stdout(self: *Process, bytes: []const u8) error{OutOfMemory}!void {
+        return if (!self.handlers.line_buffered)
+            self.handlers.out(self.handlers.context, self.parent.ref(), self.arg0, bytes)
+        else
+            self.handle_buffered_output(self.handlers.out, &self.stdout_line_buffer, bytes);
+    }
+
+    fn handle_stderr(self: *Process, bytes: []const u8) error{OutOfMemory}!void {
+        const handler = self.handlers.err orelse self.handlers.out;
+        return if (!self.handlers.line_buffered)
+            handler(self.handlers.context, self.parent.ref(), self.arg0, bytes)
+        else
+            self.handle_buffered_output(handler, &self.stderr_line_buffer, bytes);
+    }
+
+    fn handle_buffered_output(self: *Process, handler: *const OutputHandler, buffer: *std.ArrayListUnmanaged(u8), bytes: []const u8) error{OutOfMemory}!void {
+        var it = std.mem.splitScalar(u8, bytes, '\n');
+        var have_nl = false;
+        var prev = it.first();
+        while (it.next()) |next| {
+            have_nl = true;
+            try buffer.appendSlice(self.allocator, prev);
+            try buffer.append(self.allocator, '\n');
+            prev = next;
+        }
+        if (have_nl) {
+            handler(self.handlers.context, self.parent.ref(), self.arg0, buffer.items);
+            buffer.clearRetainingCapacity();
+        }
+        try buffer.appendSlice(self.allocator, prev);
+    }
+
+    fn flush_stdout(self: *Process) void {
+        self.flush_buffer(self.handlers.out, &self.stdout_line_buffer);
+    }
+
+    fn flush_stderr(self: *Process) void {
+        self.flush_buffer(self.handlers.err orelse self.handlers.out, &self.stderr_line_buffer);
+    }
+
+    fn flush_buffer(self: *Process, handler: *const OutputHandler, buffer: *std.ArrayListUnmanaged(u8)) void {
+        if (!self.handlers.line_buffered) return;
+        if (buffer.items.len > 0) handler(self.handlers.context, self.parent.ref(), self.arg0, buffer.items);
+        buffer.clearRetainingCapacity();
+    }
+
     fn handle_terminated(self: *Process, m: tp.message) !void {
         var err_msg: []const u8 = undefined;
         var exit_code: i64 = undefined;
+        self.flush_stdout();
+        self.flush_stderr();
         if (try m.match(.{ tp.any, tp.any, "exited", 0 })) {
             self.handlers.exit(self.handlers.context, self.parent.ref(), self.arg0, "exited", 0);
         } else if (try m.match(.{ tp.any, tp.any, "error.FileNotFound", 1 })) {

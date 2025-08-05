@@ -413,11 +413,11 @@ pub fn walk_tree_entry(self: *Self, file_path: []const u8, mtime: i128) OutOfMem
     (try self.pending.addOne(self.allocator)).* = .{ .path = try self.allocator.dupe(u8, file_path), .mtime = mtime };
 }
 
-pub fn walk_tree_done(self: *Self) OutOfMemoryError!void {
+pub fn walk_tree_done(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     self.state.walk_tree = .done;
     if (self.walker) |pid| pid.deinit();
     self.walker = null;
-    return self.loaded();
+    return self.loaded(parent);
 }
 
 fn merge_pending_files(self: *Self) OutOfMemoryError!void {
@@ -433,7 +433,7 @@ fn merge_pending_files(self: *Self) OutOfMemoryError!void {
     }
 }
 
-fn loaded(self: *Self) OutOfMemoryError!void {
+fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     inline for (@typeInfo(@TypeOf(self.state)).@"struct".fields) |f|
         if (@field(self.state, f.name) == .running) return;
 
@@ -449,6 +449,8 @@ fn loaded(self: *Self) OutOfMemoryError!void {
         self.files.items.len,
         std.time.milliTimestamp() - self.open_time,
     });
+
+    parent.send(.{ "PRJ", "open_done", self.name, self.longest_file_path, self.files.items.len }) catch {};
 }
 
 pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) OutOfMemoryError!void {
@@ -1913,13 +1915,13 @@ fn start_walker(self: *Self) void {
     };
 }
 
-pub fn process_git(self: *Self, m: tp.message) (OutOfMemoryError || error{Exit})!void {
+pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || error{Exit})!void {
     var value: []const u8 = undefined;
     var path: []const u8 = undefined;
     if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.null_ })) {
         self.state.workspace_path = .done;
         self.start_walker();
-        try self.loaded();
+        try self.loaded(parent);
     } else if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.extract(&value) })) {
         if (self.workspace) |p| self.allocator.free(p);
         self.workspace = try self.allocator.dupe(u8, value);
@@ -1930,19 +1932,19 @@ pub fn process_git(self: *Self, m: tp.message) (OutOfMemoryError || error{Exit})
         };
     } else if (try m.match(.{ tp.any, tp.any, "current_branch", tp.null_ })) {
         self.state.current_branch = .done;
-        try self.loaded();
+        try self.loaded(parent);
     } else if (try m.match(.{ tp.any, tp.any, "current_branch", tp.extract(&value) })) {
         if (self.branch) |p| self.allocator.free(p);
         self.branch = try self.allocator.dupe(u8, value);
         self.state.current_branch = .done;
-        try self.loaded();
+        try self.loaded(parent);
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&path) })) {
         self.longest_file_path = @max(self.longest_file_path, path.len);
         const stat = std.fs.cwd().statFile(path) catch return;
         (try self.pending.addOne(self.allocator)).* = .{ .path = try self.allocator.dupe(u8, path), .mtime = stat.mtime };
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.null_ })) {
         self.state.workspace_files = .done;
-        try self.loaded();
+        try self.loaded(parent);
     } else {
         self.logger_git.err("git", tp.unexpected(m));
     }

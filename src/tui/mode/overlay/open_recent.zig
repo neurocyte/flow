@@ -36,6 +36,8 @@ longest: usize = 0,
 commands: Commands = undefined,
 buffer_manager: ?*BufferManager,
 
+const inputbox_label = "Search files by name";
+
 pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     const mv = tui.mainview() orelse return error.NotFound;
     const self = try allocator.create(Self);
@@ -51,7 +53,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
         .logger = log.logger(@typeName(Self)),
         .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
             .ctx = self,
-            .label = "Search files by name",
+            .label = inputbox_label,
         }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
         .buffer_manager = tui.get_buffer_manager(),
     };
@@ -82,7 +84,7 @@ pub fn deinit(self: *Self) void {
 }
 
 inline fn menu_width(self: *Self) usize {
-    return @min(self.longest, max_menu_width()) + 2;
+    return @max(@min(self.longest, max_menu_width()) + 2, inputbox_label.len + 2);
 }
 
 inline fn menu_pos_x(self: *Self) usize {
@@ -198,6 +200,10 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
         self.need_reset = true;
         if (!std.mem.eql(u8, self.inputbox.text.items, query))
             try self.start_query();
+    } else if (try cbor.match(m.buf, .{ "PRJ", "open_done", tp.string, tp.extract(&self.longest), tp.any })) {
+        self.query_pending = false;
+        self.need_reset = true;
+        try self.start_query();
     } else {
         self.logger.err("receive", tp.unexpected(m));
     }
