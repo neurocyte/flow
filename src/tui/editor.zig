@@ -722,15 +722,6 @@ pub const Editor = struct {
         self.update_event() catch {};
     }
 
-    fn save_as(self: *Self, file_path: []const u8) !void {
-        if (self.buffer) |b_mut| try b_mut.store_to_file_and_clean(file_path);
-        if (self.file_path) |old_file_path| self.allocator.free(old_file_path);
-        self.file_path = try self.allocator.dupe(u8, file_path);
-        try self.send_editor_save(self.file_path.?);
-        self.last.dirty = false;
-        self.update_event() catch {};
-    }
-
     pub fn push_cursor(self: *Self) !void {
         const primary = self.cursels.getLastOrNull() orelse CurSel{} orelse CurSel{};
         (try self.cursels.addOne(self.allocator)).* = primary;
@@ -4949,14 +4940,6 @@ pub const Editor = struct {
         return self.save_file(Context.fmt(.{"no_format"}));
     }
     pub const save_file_without_formatting_meta: Meta = .{ .description = "Save file without formatting" };
-
-    pub fn save_file_as(self: *Self, ctx: Context) Result {
-        var file_path: []const u8 = undefined;
-        if (ctx.args.match(.{tp.extract(&file_path)}) catch false) {
-            try self.save_as(file_path);
-        } else return error.InvalidSafeFileAsArgument;
-    }
-    pub const save_file_as_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn close_file(self: *Self, _: Context) Result {
         const buffer_ = self.buffer;

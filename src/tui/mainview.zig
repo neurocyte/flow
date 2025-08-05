@@ -564,6 +564,48 @@ const cmds = struct {
     }
     pub const create_new_file_meta: Meta = .{ .description = "New file" };
 
+    pub fn save_file_as(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
+            return error.InvalidSafeFileAsArgument;
+
+        if (self.get_active_editor()) |editor| {
+            const buffer = editor.buffer orelse return;
+            var content = std.ArrayListUnmanaged(u8).empty;
+            defer content.deinit(self.allocator);
+            try buffer.root.store(content.writer(self.allocator), buffer.file_eol_mode);
+
+            var existing = false;
+            if (self.buffer_manager.get_buffer_for_file(file_path)) |new_buffer| {
+                if (new_buffer.is_dirty())
+                    return tp.exit("save as would overwrite unsaved changes");
+                if (buffer == new_buffer)
+                    return tp.exit("same file");
+                existing = true;
+            }
+            try self.create_editor();
+            try command.executeName("open_scratch_buffer", command.fmt(.{
+                file_path,
+                "",
+                buffer.file_type_name,
+            }));
+            if (self.get_active_editor()) |new_editor| {
+                const new_buffer = new_editor.buffer orelse return;
+                if (existing) new_editor.update_buf(new_buffer.root) catch {}; // store an undo point
+                try new_buffer.reset_from_string_and_update(content.items);
+                new_buffer.mark_not_ephemeral();
+                new_buffer.mark_dirty();
+                new_editor.clamp();
+                new_editor.update_buf(new_buffer.root) catch {};
+                tui.need_render();
+            }
+            try command.executeName("save_file", .{});
+            if (buffer.is_ephemeral() and !buffer.is_dirty())
+                _ = self.buffer_manager.close_buffer(buffer);
+        }
+    }
+    pub const save_file_as_meta: Meta = .{ .arguments = &.{.string} };
+
     pub fn delete_buffer(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
