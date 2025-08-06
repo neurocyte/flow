@@ -1100,6 +1100,7 @@ pub fn get_meta(self: *Self) ?[]const u8 {
 }
 
 pub fn set_file_path(self: *Self, file_path: []const u8) void {
+    if (file_path.ptr == self.file_path_buf.items.ptr) return;
     self.file_path_buf.clearRetainingCapacity();
     self.file_path_buf.appendSlice(self.external_allocator, file_path) catch |e| switch (e) {
         error.OutOfMemory => @panic("OOM in Buffer.set_file_path"),
