@@ -1501,7 +1501,7 @@ pub fn write_state(self: *const Self, writer: MetaWriter) error{ Stop, OutOfMemo
     try cbor.writeValue(writer, self.file_eol_mode);
     try cbor.writeValue(writer, self.hidden);
     try cbor.writeValue(writer, self.ephemeral);
-    try cbor.writeValue(writer, self.meta orelse &.{});
+    try cbor.writeValue(writer, self.meta);
     try cbor.writeValue(writer, self.file_type_name);
     try cbor.writeValue(writer, content.items);
 }
@@ -1511,7 +1511,7 @@ pub const ExtractStateOperation = enum { none, open_file };
 pub fn extract_state(self: *Self, iter: *[]const u8) !void {
     var file_path: []const u8 = undefined;
     var file_type_name: []const u8 = undefined;
-    var meta: []const u8 = &.{};
+    var meta: ?[]const u8 = null;
     var content: []const u8 = undefined;
 
     if (!try cbor.matchValue(iter, .{
@@ -1538,9 +1538,9 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
         self.file_type_color = file_type_config.default.color;
     }
 
-    if (meta.len > 0) {
-        if (self.meta) |buf| self.external_allocator.free(buf);
-        self.meta = if (self.meta) |buf| try self.external_allocator.dupe(u8, buf) else null;
+    if (meta) |buf| {
+        if (self.meta) |old_buf| self.external_allocator.free(old_buf);
+        self.meta = try self.external_allocator.dupe(u8, buf);
     }
     try self.reset_from_string_and_update(content);
 }
