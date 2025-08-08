@@ -1303,6 +1303,10 @@ pub fn write_restore_info(self: *Self) void {
     const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
     buffer_manager.write_state(writer) catch return;
 
+    if (self.widgets.get("tabs")) |tabs_widget|
+        if (tabs_widget.dynamic_cast(@import("status/tabs.zig").TabBar)) |tabs|
+            tabs.write_state(writer) catch return;
+
     const file_name = root.get_restore_file_name() catch return;
     var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch return;
     defer file.close();
@@ -1323,6 +1327,14 @@ fn read_restore_info(self: *Self) !void {
     var editor_file_path: ?[]const u8 = undefined;
     if (!try cbor.matchValue(&iter, cbor.extract(&editor_file_path))) return error.Stop;
     try self.buffer_manager.extract_state(&iter);
+
+    if (self.widgets.get("tabs")) |tabs_widget|
+        if (tabs_widget.dynamic_cast(@import("status/tabs.zig").TabBar)) |tabs|
+            tabs.extract_state(&iter) catch |e| {
+                const logger = log.logger("mainview");
+                defer logger.deinit();
+                logger.print_err("mainview", "failed to restore tabs: {}", .{e});
+            };
 
     if (editor_file_path) |file_path| {
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });

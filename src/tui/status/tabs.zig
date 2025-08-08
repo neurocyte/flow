@@ -1,4 +1,5 @@
 const std = @import("std");
+const cbor = @import("cbor");
 const tp = @import("thespian");
 const root = @import("root");
 
@@ -64,7 +65,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
     return Widget.to(self);
 }
 
-const TabBar = struct {
+pub const TabBar = struct {
     allocator: std.mem.Allocator,
     plane: Plane,
     widget_list: *WidgetList,
@@ -267,6 +268,45 @@ const TabBar = struct {
         if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer|
             tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.get_file_path() } }) catch {};
     }
+
+    pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) error{OutOfMemory}!void {
+        try cbor.writeArrayHeader(writer, self.tabs.len);
+        for (self.tabs) |tab| try cbor.writeValue(writer, ref_to_name(tab.buffer_ref));
+    }
+
+    fn ref_to_name(buffer_ref: usize) ?[]const u8 {
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        return if (buffer_manager.buffer_from_ref(buffer_ref)) |buffer| buffer.get_file_path() else null;
+    }
+
+    pub fn extract_state(self: *Self, iter: *[]const u8) !void {
+        var iter2 = iter.*;
+        self.allocator.free(self.tabs);
+        self.tabs = &.{};
+
+        var result: std.ArrayListUnmanaged(TabBarTab) = .{};
+        errdefer result.deinit(self.allocator);
+
+        var count = cbor.decodeArrayHeader(&iter2) catch return error.MatchTabArrayFailed;
+        while (count > 0) : (count -= 1) {
+            var buffer_name: ?[]const u8 = undefined;
+            if (!(cbor.matchValue(&iter2, cbor.extract(&buffer_name)) catch false)) return error.MatchTabBufferNameFailed;
+            if (buffer_name) |name| if (name_to_ref(name)) |buffer_ref| {
+                (try result.addOne(self.allocator)).* = .{
+                    .buffer_ref = buffer_ref,
+                    .widget = try Tab.create(self, buffer_ref, &self.tab_style, self.event_handler),
+                };
+            };
+        }
+
+        self.tabs = try result.toOwnedSlice(self.allocator);
+        iter.* = iter2;
+    }
+
+    fn name_to_ref(buffer_name: []const u8) ?usize {
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        return if (buffer_manager.get_buffer_for_file(buffer_name)) |buffer| buffer_manager.buffer_to_ref(buffer) else null;
+    }
 };
 
 const Tab = struct {
@@ -456,6 +496,22 @@ const Tab = struct {
         const basename_begin = std.mem.lastIndexOfScalar(u8, file_path, std.fs.path.sep);
         const basename = if (basename_begin) |begin| file_path[begin + 1 ..] else file_path;
         return basename;
+    }
+
+    fn write_state(self: *const @This(), writer: Buffer.MetaWriter) error{OutOfMemory}!void {
+        try cbor.writeArrayHeader(writer, 9);
+        try cbor.writeValue(writer, self.get_file_path());
+        try cbor.writeValue(writer, self.file_exists);
+        try cbor.writeValue(writer, self.file_eol_mode);
+        try cbor.writeValue(writer, self.hidden);
+        try cbor.writeValue(writer, self.ephemeral);
+        try cbor.writeValue(writer, self.meta);
+        try cbor.writeValue(writer, self.file_type_name);
+    }
+
+    fn extract_state(self: *@This(), iter: *[]const u8) !void {
+        _ = self;
+        _ = iter;
     }
 };
 
