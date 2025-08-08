@@ -44,6 +44,7 @@ file_utf8_sanitized: bool = false,
 hidden: bool = false,
 ephemeral: bool = false,
 meta: ?[]const u8 = null,
+lsp_version: usize = 1,
 
 undo_history: ?*UndoNode = null,
 redo_history: ?*UndoNode = null,

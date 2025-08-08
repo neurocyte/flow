@@ -271,7 +271,6 @@ pub const Editor = struct {
     file_path: ?[]const u8,
     buffer: ?*Buffer,
     buffer_manager: *Buffer.Manager,
-    lsp_version: usize = 1,
     pause_undo: bool = false,
     pause_undo_root: ?Buffer.Root = null,
 
@@ -642,7 +641,7 @@ pub const Editor = struct {
                 project_manager.did_open(
                     file_path,
                     ft,
-                    self.lsp_version,
+                    new_buf.lsp_version,
                     try content.toOwnedSlice(std.heap.c_allocator),
                     new_buf.is_ephemeral(),
                 ) catch |e|
@@ -1644,7 +1643,8 @@ pub const Editor = struct {
 
         if (token_from(self.last.root) != token_from(root)) {
             try self.send_editor_update(self.last.root, root, eol_mode);
-            self.lsp_version += 1;
+            if (self.buffer) |buf|
+                buf.lsp_version += 1;
         }
 
         if (self.last.eol_mode != eol_mode or self.last.utf8_sanitized != utf8_sanitized)
@@ -1769,8 +1769,8 @@ pub const Editor = struct {
 
     fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
         _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root), @intFromEnum(eol_mode) });
-        if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
-            project_manager.did_change(file_path, self.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
+        if (self.buffer) |buffer| if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
+            project_manager.did_change(file_path, buffer.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
         if (self.enable_auto_save)
             tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
     }
@@ -5986,11 +5986,11 @@ pub const Editor = struct {
             const root = try self.buf_root();
             try root.store(content.writer(std.heap.c_allocator), try self.buf_eol_mode());
 
-            if (self.file_path) |file_path|
+            if (self.buffer) |buffer| if (self.file_path) |file_path|
                 project_manager.did_open(
                     file_path,
                     ft,
-                    self.lsp_version,
+                    buffer.lsp_version,
                     try content.toOwnedSlice(std.heap.c_allocator),
                     if (self.buffer) |p| p.is_ephemeral() else true,
                 ) catch |e|
