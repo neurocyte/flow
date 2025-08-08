@@ -1,4 +1,5 @@
 const std = @import("std");
+const cbor = @import("cbor");
 const tp = @import("thespian");
 const Buffer = @import("Buffer.zig");
 
@@ -51,6 +52,34 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buf
     return buffer;
 }
 
+pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) error{ Stop, OutOfMemory }!void {
+    const buffers = self.list_unordered(self.allocator) catch return;
+    defer self.allocator.free(buffers);
+    try cbor.writeArrayHeader(writer, buffers.len);
+    for (buffers) |buffer| {
+        tp.trace(tp.channel.debug, .{ @typeName(Self), "write_state", buffer.get_file_path(), buffer.file_type_name });
+        buffer.write_state(writer) catch |e| {
+            tp.trace(tp.channel.debug, .{ @typeName(Self), "write_state", "failed", e });
+            return;
+        };
+    }
+}
+
+pub fn extract_state(self: *Self, iter: *[]const u8) !void {
+    var len = try cbor.decodeArrayHeader(iter);
+    tp.trace(tp.channel.debug, .{ @typeName(Self), "extract_state", len });
+    while (len > 0) : (len -= 1) {
+        var buffer = try Buffer.create(self.allocator);
+        errdefer |e| {
+            tp.trace(tp.channel.debug, .{ "buffer", "extract", "failed", buffer.get_file_path(), e });
+            buffer.deinit();
+        }
+        try buffer.extract_state(iter);
+        try self.buffers.put(self.allocator, try self.allocator.dupe(u8, buffer.get_file_path()), buffer);
+        tp.trace(tp.channel.debug, .{ "buffer", "extract", buffer.get_file_path(), buffer.file_type_name });
+    }
+}
+
 pub fn get_buffer_for_file(self: *Self, file_path: []const u8) ?*Buffer {
     return self.buffers.get(file_path);
 }
@@ -89,7 +118,7 @@ pub fn list_most_recently_used(self: *Self, allocator: std.mem.Allocator) error{
     return result;
 }
 
-pub fn list_unordered(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*Buffer {
+pub fn list_unordered(self: *const Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*Buffer {
     var buffers = try std.ArrayListUnmanaged(*Buffer).initCapacity(allocator, self.buffers.size);
     var i = self.buffers.iterator();
     while (i.next()) |kv|

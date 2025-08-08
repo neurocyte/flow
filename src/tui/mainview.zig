@@ -1288,11 +1288,25 @@ fn create_home_split(self: *Self) !void {
 }
 
 pub fn write_restore_info(self: *Self) void {
-    const editor = self.get_active_editor() orelse return;
     var sfa = std.heap.stackFallback(512, self.allocator);
     const a = sfa.get();
     var meta = std.ArrayListUnmanaged(u8).empty;
-    editor.write_state(meta.writer(a)) catch return;
+    const writer = meta.writer(a);
+
+    if (self.get_active_editor()) |editor| {
+        cbor.writeValue(writer, editor.file_path) catch return;
+        editor.update_meta();
+    } else {
+        cbor.writeValue(writer, null) catch return;
+    }
+
+    const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+    buffer_manager.write_state(writer) catch return;
+
+    if (self.widgets.get("tabs")) |tabs_widget|
+        if (tabs_widget.dynamic_cast(@import("status/tabs.zig").TabBar)) |tabs|
+            tabs.write_state(writer) catch return;
+
     const file_name = root.get_restore_file_name() catch return;
     var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch return;
     defer file.close();
@@ -1300,7 +1314,6 @@ pub fn write_restore_info(self: *Self) void {
 }
 
 fn read_restore_info(self: *Self) !void {
-    const editor = self.get_active_editor() orelse return;
     const file_name = try root.get_restore_file_name();
     const file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
     defer file.close();
@@ -1308,7 +1321,46 @@ fn read_restore_info(self: *Self) !void {
     var buf = try self.allocator.alloc(u8, @intCast(stat.size));
     defer self.allocator.free(buf);
     const size = try file.readAll(buf);
-    try editor.extract_state(buf[0..size], .open_file);
+    var iter: []const u8 = buf[0..size];
+
+    tp.trace(tp.channel.debug, .{ "mainview", "extract" });
+    var editor_file_path: ?[]const u8 = undefined;
+    if (!try cbor.matchValue(&iter, cbor.extract(&editor_file_path))) return error.Stop;
+    try self.buffer_manager.extract_state(&iter);
+
+    if (self.widgets.get("tabs")) |tabs_widget|
+        if (tabs_widget.dynamic_cast(@import("status/tabs.zig").TabBar)) |tabs|
+            tabs.extract_state(&iter) catch |e| {
+                const logger = log.logger("mainview");
+                defer logger.deinit();
+                logger.print_err("mainview", "failed to restore tabs: {}", .{e});
+            };
+
+    const buffers = try self.buffer_manager.list_unordered(self.allocator);
+    defer self.allocator.free(buffers);
+    for (buffers) |buffer| if (!buffer.is_ephemeral())
+        send_buffer_did_open(self.allocator, buffer) catch {};
+
+    if (editor_file_path) |file_path| {
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
+    } else {
+        try tp.self_pid().send(.{ "cmd", "close_file" });
+    }
+}
+
+fn send_buffer_did_open(allocator: std.mem.Allocator, buffer: *Buffer) !void {
+    const ft = try file_type_config.get(buffer.file_type_name orelse return) orelse return;
+    var content = std.ArrayListUnmanaged(u8).empty;
+    defer content.deinit(allocator);
+    try buffer.root.store(content.writer(allocator), buffer.file_eol_mode);
+
+    try project_manager.did_open(
+        buffer.get_file_path(),
+        ft,
+        buffer.lsp_version,
+        try content.toOwnedSlice(allocator),
+        buffer.is_ephemeral(),
+    );
 }
 
 fn get_next_mru_buffer(self: *Self) ?[]const u8 {

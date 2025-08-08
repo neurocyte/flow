@@ -271,7 +271,6 @@ pub const Editor = struct {
     file_path: ?[]const u8,
     buffer: ?*Buffer,
     buffer_manager: *Buffer.Manager,
-    lsp_version: usize = 1,
     pause_undo: bool = false,
     pause_undo_root: ?Buffer.Root = null,
 
@@ -331,6 +330,7 @@ pub const Editor = struct {
         dirty: bool = false,
         eol_mode: Buffer.EolMode = .lf,
         utf8_sanitized: bool = false,
+        indent_mode: IndentMode = .spaces,
     } = .{},
 
     file_type: ?file_type_config = null,
@@ -371,6 +371,14 @@ pub const Editor = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
+    pub fn update_meta(self: *const Self) void {
+        var meta = std.ArrayListUnmanaged(u8).empty;
+        defer meta.deinit(self.allocator);
+        if (self.buffer) |_| self.write_state(meta.writer(self.allocator)) catch {};
+        if (self.buffer) |_| self.write_state(meta.writer(self.allocator)) catch {};
+        if (self.buffer) |p| p.set_meta(meta.items) catch {};
+    }
+
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
         try cbor.writeArrayHeader(writer, 12);
         try cbor.writeValue(writer, self.file_path orelse "");
@@ -401,9 +409,7 @@ pub const Editor = struct {
         };
     }
 
-    pub fn extract_state(self: *Self, buf: []const u8, comptime op: enum { none, open_file }) !void {
-        tp.trace(tp.channel.debug, .{ "extract_state", self.file_path });
-        tp.trace(tp.channel.debug, tp.message{ .buf = buf });
+    pub fn extract_state(self: *Self, iter: *[]const u8, comptime op: Buffer.ExtractStateOperation) !void {
         self.restored_state = true;
         var file_path: []const u8 = undefined;
         var view_cbor: []const u8 = undefined;
@@ -411,7 +417,7 @@ pub const Editor = struct {
         var clipboard: []const u8 = undefined;
         var last_find_query: []const u8 = undefined;
         var find_history: []const u8 = undefined;
-        if (!try cbor.match(buf, .{
+        if (!try cbor.matchValue(iter, .{
             tp.extract(&file_path),
             tp.extract(&clipboard),
             tp.extract(&last_find_query),
@@ -440,11 +446,11 @@ pub const Editor = struct {
 
         if (cursels_cbor.len > 0)
             self.clear_all_cursors();
-        var iter = cursels_cbor;
-        var len = cbor.decodeArrayHeader(&iter) catch return error.RestoreCurSels;
+        var cursels_iter = cursels_cbor;
+        var len = cbor.decodeArrayHeader(&cursels_iter) catch return error.RestoreCurSels;
         while (len > 0) : (len -= 1) {
             var cursel: CurSel = .{};
-            if (!(cursel.extract(&iter) catch false)) break;
+            if (!(cursel.extract(&cursels_iter) catch false)) break;
             (try self.cursels.addOne(self.allocator)).* = cursel;
         }
 
@@ -636,7 +642,7 @@ pub const Editor = struct {
                 project_manager.did_open(
                     file_path,
                     ft,
-                    self.lsp_version,
+                    new_buf.lsp_version,
                     try content.toOwnedSlice(std.heap.c_allocator),
                     new_buf.is_ephemeral(),
                 ) catch |e|
@@ -659,7 +665,8 @@ pub const Editor = struct {
         if (buffer_meta) |meta| {
             const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
             defer frame_.deinit();
-            try self.extract_state(meta, .none);
+            var iter = meta;
+            try self.extract_state(&iter, .none);
         }
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc);
     }
@@ -1637,11 +1644,12 @@ pub const Editor = struct {
 
         if (token_from(self.last.root) != token_from(root)) {
             try self.send_editor_update(self.last.root, root, eol_mode);
-            self.lsp_version += 1;
+            if (self.buffer) |buf|
+                buf.lsp_version += 1;
         }
 
-        if (self.last.eol_mode != eol_mode or self.last.utf8_sanitized != utf8_sanitized)
-            try self.send_editor_eol_mode(eol_mode, utf8_sanitized);
+        if (self.last.eol_mode != eol_mode or self.last.utf8_sanitized != utf8_sanitized or self.last.indent_mode != self.indent_mode)
+            try self.send_editor_eol_mode(eol_mode, utf8_sanitized, self.indent_mode);
 
         if (self.last.dirty != dirty)
             try self.send_editor_dirty(dirty);
@@ -1762,14 +1770,14 @@ pub const Editor = struct {
 
     fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
         _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root), @intFromEnum(eol_mode) });
-        if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
-            project_manager.did_change(file_path, self.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
+        if (self.buffer) |buffer| if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
+            project_manager.did_change(file_path, buffer.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
         if (self.enable_auto_save)
             tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
     }
 
-    fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool) !void {
-        _ = try self.handlers.msg(.{ "E", "eol_mode", @intFromEnum(eol_mode), utf8_sanitized });
+    fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool, indent_mode: IndentMode) !void {
+        _ = try self.handlers.msg(.{ "E", "eol_mode", eol_mode, utf8_sanitized, indent_mode });
     }
 
     fn clamp_abs(self: *Self, abs: bool) void {
@@ -5979,11 +5987,11 @@ pub const Editor = struct {
             const root = try self.buf_root();
             try root.store(content.writer(std.heap.c_allocator), try self.buf_eol_mode());
 
-            if (self.file_path) |file_path|
+            if (self.buffer) |buffer| if (self.file_path) |file_path|
                 project_manager.did_open(
                     file_path,
                     ft,
-                    self.lsp_version,
+                    buffer.lsp_version,
                     try content.toOwnedSlice(std.heap.c_allocator),
                     if (self.buffer) |p| p.is_ephemeral() else true,
                 ) catch |e|

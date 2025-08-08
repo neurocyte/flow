@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const tracy = @import("tracy");
+const config = @import("config");
 const Buffer = @import("Buffer");
 const root = @import("root");
 const project_manager = @import("project_manager");
@@ -35,6 +36,7 @@ detailed: bool = false,
 file: bool = false,
 eol_mode: Buffer.EolMode = .lf,
 utf8_sanitized: bool = false,
+indent_mode: config.IndentMode = .spaces,
 
 const project_icon = "";
 const Self = @This();
@@ -155,15 +157,19 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void 
         _ = plane.print("{s} ({s})", .{ self.name, project_name }) catch {};
     } else {
         const eol_mode = switch (self.eol_mode) {
-            .lf => " [↩ = ␊]",
-            .crlf => " [↩ = ␍␊]",
+            .lf => "[↩ = ␊]",
+            .crlf => "[↩ = ␍␊]",
+        };
+        const indent_mode = switch (self.indent_mode) {
+            .spaces, .auto => "[⭾ = ␠]",
+            .tabs => "[⭾ = ␉]",
         };
 
         _ = plane.putstr(if (!self.file_exists) "󰽂" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
         _ = plane.print(" {s}:{d}:{d}", .{ self.name, self.line + 1, self.column + 1 }) catch {};
         _ = plane.print(" of {d} lines", .{self.lines}) catch {};
         if (self.file_type.len > 0)
-            _ = plane.print(" ({s}){s}", .{ self.file_type, eol_mode }) catch {};
+            _ = plane.print(" ({s}) {s}{s}", .{ self.file_type, eol_mode, indent_mode }) catch {};
 
         if (self.utf8_sanitized) {
             plane.set_style(.{ .fg = theme.editor_error.fg.? });
@@ -214,13 +220,12 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
     var file_type: []const u8 = undefined;
     var file_icon: []const u8 = undefined;
     var file_dirty: bool = undefined;
-    var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
     if (try m.match(.{ tp.any, "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.extract(&self.column) }))
         return false;
     if (try m.match(.{ tp.any, "dirty", tp.extract(&file_dirty) })) {
         self.file_dirty = file_dirty;
-    } else if (try m.match(.{ tp.any, "eol_mode", tp.extract(&eol_mode), tp.extract(&self.utf8_sanitized) })) {
-        self.eol_mode = @enumFromInt(eol_mode);
+    } else if (try m.match(.{ tp.any, "eol_mode", tp.extract(&self.eol_mode), tp.extract(&self.utf8_sanitized), tp.extract(&self.indent_mode) })) {
+        //
     } else if (try m.match(.{ tp.any, "save", tp.extract(&file_path) })) {
         @memcpy(self.name_buf[0..file_path.len], file_path);
         self.name = self.name_buf[0..file_path.len];

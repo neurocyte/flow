@@ -361,6 +361,7 @@ pub fn build_exe(
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "LetterCasing", .module = zg_dep.module("LetterCasing") },
+            .{ .name = "file_type_config", .module = file_type_config_mod },
         },
     });
 
