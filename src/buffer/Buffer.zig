@@ -1494,13 +1494,15 @@ pub fn write_state(self: *const Self, writer: MetaWriter) error{ Stop, OutOfMemo
     var content = std.ArrayListUnmanaged(u8).empty;
     defer content.deinit(self.external_allocator);
     try self.root.store(content.writer(self.external_allocator), self.file_eol_mode);
+    const dirty = self.is_dirty();
 
-    try cbor.writeArrayHeader(writer, 8);
+    try cbor.writeArrayHeader(writer, 9);
     try cbor.writeValue(writer, self.get_file_path());
     try cbor.writeValue(writer, self.file_exists);
     try cbor.writeValue(writer, self.file_eol_mode);
     try cbor.writeValue(writer, self.hidden);
     try cbor.writeValue(writer, self.ephemeral);
+    try cbor.writeValue(writer, dirty);
     try cbor.writeValue(writer, self.meta);
     try cbor.writeValue(writer, self.file_type_name);
     try cbor.writeValue(writer, content.items);
@@ -1511,6 +1513,7 @@ pub const ExtractStateOperation = enum { none, open_file };
 pub fn extract_state(self: *Self, iter: *[]const u8) !void {
     var file_path: []const u8 = undefined;
     var file_type_name: []const u8 = undefined;
+    var dirty: bool = undefined;
     var meta: ?[]const u8 = null;
     var content: []const u8 = undefined;
 
@@ -1520,6 +1523,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
         cbor.extract(&self.file_eol_mode),
         cbor.extract(&self.hidden),
         cbor.extract(&self.ephemeral),
+        cbor.extract(&dirty),
         cbor.extract(&meta),
         cbor.extract(&file_type_name),
         cbor.extract(&content),
@@ -1543,4 +1547,5 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
         self.meta = try self.external_allocator.dupe(u8, buf);
     }
     try self.reset_from_string_and_update(content);
+    if (dirty) self.mark_dirty();
 }
