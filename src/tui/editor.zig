@@ -330,6 +330,7 @@ pub const Editor = struct {
         dirty: bool = false,
         eol_mode: Buffer.EolMode = .lf,
         utf8_sanitized: bool = false,
+        indent_mode: IndentMode = .spaces,
     } = .{},
 
     file_type: ?file_type_config = null,
@@ -1647,8 +1648,8 @@ pub const Editor = struct {
                 buf.lsp_version += 1;
         }
 
-        if (self.last.eol_mode != eol_mode or self.last.utf8_sanitized != utf8_sanitized)
-            try self.send_editor_eol_mode(eol_mode, utf8_sanitized);
+        if (self.last.eol_mode != eol_mode or self.last.utf8_sanitized != utf8_sanitized or self.last.indent_mode != self.indent_mode)
+            try self.send_editor_eol_mode(eol_mode, utf8_sanitized, self.indent_mode);
 
         if (self.last.dirty != dirty)
             try self.send_editor_dirty(dirty);
@@ -1775,8 +1776,8 @@ pub const Editor = struct {
             tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
     }
 
-    fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool) !void {
-        _ = try self.handlers.msg(.{ "E", "eol_mode", @intFromEnum(eol_mode), utf8_sanitized });
+    fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool, indent_mode: IndentMode) !void {
+        _ = try self.handlers.msg(.{ "E", "eol_mode", eol_mode, utf8_sanitized, indent_mode });
     }
 
     fn clamp_abs(self: *Self, abs: bool) void {

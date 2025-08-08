@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const Buffer = @import("Buffer");
+const config = @import("config");
 
 const Plane = @import("renderer").Plane;
 const command = @import("command");
@@ -22,6 +23,7 @@ buf: [256]u8 = undefined,
 rendered: [:0]const u8 = "",
 eol_mode: Buffer.EolMode = .lf,
 utf8_sanitized: bool = false,
+indent_mode: config.IndentMode = .spaces,
 padding: ?usize,
 leader: ?Leader,
 style: ?DigitStyle,
@@ -90,7 +92,11 @@ fn format(self: *Self) void {
         .lf => "",
         .crlf => " [␍␊]",
     };
-    std.fmt.format(writer, "{s} Ln ", .{eol_mode}) catch {};
+    const indent_mode = switch (self.indent_mode) {
+        .spaces, .auto => "",
+        .tabs => " [⭾]",
+    };
+    std.fmt.format(writer, "{s}{s} Ln ", .{ eol_mode, indent_mode }) catch {};
     self.format_count(writer, self.line + 1, self.padding orelse 0) catch {};
     std.fmt.format(writer, ", Col ", .{}) catch {};
     self.format_count(writer, self.column + 1, self.padding orelse 0) catch {};
@@ -115,11 +121,9 @@ fn format_count(self: *Self, writer: anytype, value: usize, width: usize) !void 
 }
 
 pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
     if (try m.match(.{ "E", "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.extract(&self.column) })) {
         self.format();
-    } else if (try m.match(.{ "E", "eol_mode", tp.extract(&eol_mode), tp.extract(&self.utf8_sanitized) })) {
-        self.eol_mode = @enumFromInt(eol_mode);
+    } else if (try m.match(.{ "E", "eol_mode", tp.extract(&self.eol_mode), tp.extract(&self.utf8_sanitized), tp.extract(&self.indent_mode) })) {
         self.format();
     } else if (try m.match(.{ "E", "open", tp.more })) {
         self.eol_mode = .lf;
