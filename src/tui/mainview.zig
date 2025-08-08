@@ -1336,11 +1336,31 @@ fn read_restore_info(self: *Self) !void {
                 logger.print_err("mainview", "failed to restore tabs: {}", .{e});
             };
 
+    const buffers = try self.buffer_manager.list_unordered(self.allocator);
+    defer self.allocator.free(buffers);
+    for (buffers) |buffer| if (!buffer.is_ephemeral())
+        send_buffer_did_open(self.allocator, buffer) catch {};
+
     if (editor_file_path) |file_path| {
         try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
     } else {
         try tp.self_pid().send(.{ "cmd", "close_file" });
     }
+}
+
+fn send_buffer_did_open(allocator: std.mem.Allocator, buffer: *Buffer) !void {
+    const ft = try file_type_config.get(buffer.file_type_name orelse return) orelse return;
+    var content = std.ArrayListUnmanaged(u8).empty;
+    defer content.deinit(allocator);
+    try buffer.root.store(content.writer(allocator), buffer.file_eol_mode);
+
+    try project_manager.did_open(
+        buffer.get_file_path(),
+        ft,
+        buffer.lsp_version,
+        try content.toOwnedSlice(allocator),
+        buffer.is_ephemeral(),
+    );
 }
 
 fn get_next_mru_buffer(self: *Self) ?[]const u8 {
