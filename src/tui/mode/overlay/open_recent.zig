@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
+const file_type_config = @import("file_type_config");
 const root = @import("root");
 
 const Plane = @import("renderer").Plane;
@@ -111,13 +112,25 @@ fn on_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme:
         button.plane.home();
     }
     var file_path: []const u8 = undefined;
+    var file_type: []const u8 = undefined;
+    var file_icon: []const u8 = undefined;
+    var file_color: u24 = undefined;
     var iter = button.opts.label; // label contains cbor, first the file name, then multiple match indexes
-    if (!(cbor.matchString(&iter, &file_path) catch false))
-        file_path = "#ERROR#";
+    if (!(cbor.matchString(&iter, &file_path) catch false)) file_path = "#ERROR#";
+    if (!(cbor.matchString(&iter, &file_type) catch false)) file_type = file_type_config.default.name;
+    if (!(cbor.matchString(&iter, &file_icon) catch false)) file_icon = file_type_config.default.icon;
+    if (!(cbor.matchInt(u24, &iter, &file_color) catch false)) file_icon = file_type_config.default.icon;
+
     button.plane.set_style(style_keybind);
     const dirty = if (self.buffer_manager) |bm| if (bm.is_buffer_dirty(file_path)) "" else " " else " ";
     const pointer = if (selected) "⏵" else dirty;
     _ = button.plane.print("{s}", .{pointer}) catch {};
+
+    if (tui.config().show_fileicons) {
+        tui.render_file_icon(&button.plane, file_icon, file_color);
+        _ = button.plane.print(" ", .{}) catch {};
+    }
+
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var removed_prefix: usize = 0;
     const max_len = max_menu_width() - 2;
@@ -125,23 +138,15 @@ fn on_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme:
     _ = button.plane.print("{s} ", .{
         if (file_path.len > max_len) root.shorten_path(&buf, file_path, &removed_prefix, max_len) else file_path,
     }) catch {};
+
     var index: usize = 0;
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            const cell_idx = if (index < removed_prefix) 1 else index + 1 - removed_prefix;
-            render_cell(&button.plane, 0, cell_idx, theme.editor_match) catch break;
+            tui.render_match_cell(&button.plane, 0, index + 4, theme) catch break;
         } else break;
     }
     return false;
-}
-
-fn render_cell(plane: *Plane, y: usize, x: usize, style: Widget.Theme.Style) !void {
-    plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
-    var cell = plane.cell_init();
-    _ = plane.at_cursor_cell(&cell) catch return;
-    cell.set_style(style);
-    _ = plane.putc(&cell) catch {};
 }
 
 fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
@@ -156,11 +161,21 @@ fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.
     tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
 }
 
-fn add_item(self: *Self, file_name: []const u8, matches: ?[]const u8) !void {
+fn add_item(
+    self: *Self,
+    file_name: []const u8,
+    file_type: []const u8,
+    file_icon: []const u8,
+    file_color: u24,
+    matches: ?[]const u8,
+) !void {
     var label = std.ArrayList(u8).init(self.allocator);
     defer label.deinit();
     const writer = label.writer();
     try cbor.writeValue(writer, file_name);
+    try cbor.writeValue(writer, file_type);
+    try cbor.writeValue(writer, file_icon);
+    try cbor.writeValue(writer, file_color);
     if (matches) |cb| _ = try writer.write(cb);
     try self.menu.add_item_with_handler(label.items, menu_action_open_file);
 }
@@ -175,20 +190,40 @@ fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) MessageFil
 
 fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void {
     var file_name: []const u8 = undefined;
+    var file_type: []const u8 = undefined;
+    var file_icon: []const u8 = undefined;
+    var file_color: u24 = undefined;
     var matches: []const u8 = undefined;
     var query: []const u8 = undefined;
-    if (try cbor.match(m.buf, .{ "PRJ", "recent", tp.extract(&self.longest), tp.extract(&file_name), tp.extract_cbor(&matches) })) {
+    if (try cbor.match(m.buf, .{
+        "PRJ",
+        "recent",
+        tp.extract(&self.longest),
+        tp.extract(&file_name),
+        tp.extract(&file_type),
+        tp.extract(&file_icon),
+        tp.extract(&file_color),
+        tp.extract_cbor(&matches),
+    })) {
         if (self.need_reset) self.reset_results();
-        try self.add_item(file_name, matches);
+        try self.add_item(file_name, file_type, file_icon, file_color, matches);
         self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
         if (self.need_select_first) {
             self.menu.select_down();
             self.need_select_first = false;
         }
         tui.need_render();
-    } else if (try cbor.match(m.buf, .{ "PRJ", "recent", tp.extract(&self.longest), tp.extract(&file_name) })) {
+    } else if (try cbor.match(m.buf, .{
+        "PRJ",
+        "recent",
+        tp.extract(&self.longest),
+        tp.extract(&file_name),
+        tp.extract(&file_type),
+        tp.extract(&file_icon),
+        tp.extract(&file_color),
+    })) {
         if (self.need_reset) self.reset_results();
-        try self.add_item(file_name, null);
+        try self.add_item(file_name, file_type, file_icon, file_color, null);
         self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
         if (self.need_select_first) {
             self.menu.select_down();
