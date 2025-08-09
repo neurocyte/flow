@@ -103,6 +103,8 @@ const InitError = error{
     keybind.LoadError;
 
 fn init(allocator: Allocator) InitError!*Self {
+    log.stdout(.disable);
+
     var conf, const conf_bufs = root.read_config(@import("config"), allocator);
 
     if (@hasDecl(renderer, "install_crash_handler") and conf.start_debugger_on_crash)
@@ -156,6 +158,8 @@ fn init(allocator: Allocator) InitError!*Self {
     self.rdr_.dispatch_mouse_drag = dispatch_mouse_drag;
     self.rdr_.dispatch_event = dispatch_event;
     try self.rdr_.run();
+
+    log.stderr(.disable);
 
     try project_manager.start();
 
