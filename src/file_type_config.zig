@@ -84,7 +84,7 @@ pub fn get(file_type_name: []const u8) !?@This() {
                 break :file_type if (syntax.FileType.get_by_name_static(file_type_name)) |ft| from_file_type(ft) else null;
             }
         };
-        try cache.put(cache_allocator, file_type_name, file_type);
+        try cache.put(cache_allocator, try cache_allocator.dupe(u8, file_type_name), file_type);
         break :self file_type;
     };
 }
