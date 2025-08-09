@@ -6,6 +6,7 @@ const color = @import("color");
 const flags = @import("flags");
 const builtin = @import("builtin");
 const bin_path = @import("bin_path");
+const sep = std.fs.path.sep;
 
 const list_languages = @import("list_languages.zig");
 pub const file_link = @import("file_link.zig");
@@ -398,7 +399,7 @@ fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.C) void {
         const a = std.heap.c_allocator;
         var path = std.ArrayList(u8).init(a);
         defer path.deinit();
-        path.writer().print("{s}/trace.log", .{get_state_dir() catch return}) catch return;
+        path.writer().print("{s}{c}trace.log", .{ get_state_dir() catch return, sep }) catch return;
         const file = std.fs.createFileAbsolute(path.items, .{ .truncate = true }) catch return;
         State.state = .{
             .file = file,
@@ -502,12 +503,12 @@ pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, b
         lineno += 1;
         if (line.len == 0 or line[0] == '#')
             continue;
-        const sep = std.mem.indexOfScalar(u8, line, ' ') orelse {
+        const spc = std.mem.indexOfScalar(u8, line, ' ') orelse {
             std.log.err("{s}:{}: {s} missing value", .{ file_name, lineno, line });
             continue;
         };
-        const name = line[0..sep];
-        const value_str = line[sep + 1 ..];
+        const name = line[0..spc];
+        const value_str = line[spc + 1 ..];
         const cb = cbor.fromJsonAlloc(allocator, value_str) catch {
             std.log.err("{s}:{}: {s} has bad value: {s}", .{ file_name, lineno, name, value_str });
             continue;
@@ -781,6 +782,11 @@ pub const ConfigDirError = error{
     AppConfigDirUnavailable,
 };
 
+fn make_dir_error(path: []const u8, err: anytype) @TypeOf(err) {
+    std.log.err("failed to create directory: '{s}'", .{path});
+    return err;
+}
+
 fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
     const a = std.heap.c_allocator;
     const local = struct {
@@ -791,22 +797,22 @@ fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
         dir
     else if (std.process.getEnvVarOwned(a, "XDG_CONFIG_HOME") catch null) |xdg| ret: {
         defer a.free(xdg);
-        break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/{s}", .{ xdg, appname });
+        break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
     } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
         defer a.free(home);
-        const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/.config", .{home});
+        const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}.config", .{ home, sep });
         std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
-            else => return error.MakeHomeConfigDirFailed,
+            else => return make_dir_error(dir, error.MakeHomeConfigDirFailed),
         };
-        break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/.config/{s}", .{ home, appname });
+        break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}.config{c}{s}", .{ home, sep, sep, appname });
     } else if (builtin.os.tag == .windows) ret: {
         if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
             defer a.free(appdata);
-            const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}/{s}", .{ appdata, appname });
+            const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
             std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
                 error.PathAlreadyExists => {},
-                else => return error.MakeAppConfigDirFailed,
+                else => return make_dir_error(dir, error.MakeAppConfigDirFailed),
             };
             break :ret dir;
         } else return error.AppConfigDirUnavailable;
@@ -815,14 +821,14 @@ fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
     local.config_dir = config_dir;
     std.fs.makeDirAbsolute(config_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
-        else => return error.MakeConfigDirFailed,
+        else => return make_dir_error(config_dir, error.MakeConfigDirFailed),
     };
 
     var keybind_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&keybind_dir_buffer, "{s}/{s}", .{ config_dir, keybind_dir })) catch {};
+    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&keybind_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, keybind_dir })) catch {};
 
     var theme_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&theme_dir_buffer, "{s}/{s}", .{ config_dir, theme_dir })) catch {};
+    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&theme_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, theme_dir })) catch {};
 
     return config_dir;
 }
@@ -841,22 +847,22 @@ fn get_app_cache_dir(appname: []const u8) ![]const u8 {
         dir
     else if (std.process.getEnvVarOwned(a, "XDG_CACHE_HOME") catch null) |xdg| ret: {
         defer a.free(xdg);
-        break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/{s}", .{ xdg, appname });
+        break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
     } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
         defer a.free(home);
-        const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/.cache", .{home});
+        const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}.cache", .{ home, sep });
         std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
-            else => return e,
+            else => return make_dir_error(dir, e),
         };
-        break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/.cache/{s}", .{ home, appname });
+        break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}.cache{c}{s}", .{ home, sep, sep, appname });
     } else if (builtin.os.tag == .windows) ret: {
         if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
             defer a.free(appdata);
-            const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}/{s}", .{ appdata, appname });
+            const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
             std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
                 error.PathAlreadyExists => {},
-                else => return e,
+                else => return make_dir_error(dir, e),
             };
             break :ret dir;
         } else return error.AppCacheDirUnavailable;
@@ -865,7 +871,7 @@ fn get_app_cache_dir(appname: []const u8) ![]const u8 {
     local.cache_dir = cache_dir;
     std.fs.makeDirAbsolute(cache_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
-        else => return e,
+        else => return make_dir_error(cache_dir, e),
     };
     return cache_dir;
 }
@@ -884,27 +890,27 @@ fn get_app_state_dir(appname: []const u8) ![]const u8 {
         dir
     else if (std.process.getEnvVarOwned(a, "XDG_STATE_HOME") catch null) |xdg| ret: {
         defer a.free(xdg);
-        break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/{s}", .{ xdg, appname });
+        break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
     } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
         defer a.free(home);
-        var dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/.local", .{home});
+        var dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local", .{ home, sep });
         std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
-            else => return e,
+            else => return make_dir_error(dir, e),
         };
-        dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/.local/state", .{home});
+        dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local{c}state", .{ home, sep, sep });
         std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
-            else => return e,
+            else => return make_dir_error(dir, e),
         };
-        break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/.local/state/{s}", .{ home, appname });
+        break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local{c}state{c}{s}", .{ home, sep, sep, sep, appname });
     } else if (builtin.os.tag == .windows) ret: {
         if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
             defer a.free(appdata);
-            const dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}/{s}", .{ appdata, appname });
+            const dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
             std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
                 error.PathAlreadyExists => {},
-                else => return e,
+                else => return make_dir_error(dir, e),
             };
             break :ret dir;
         } else return error.AppCacheDirUnavailable;
@@ -913,7 +919,7 @@ fn get_app_state_dir(appname: []const u8) ![]const u8 {
     local.state_dir = state_dir;
     std.fs.makeDirAbsolute(state_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
-        else => return e,
+        else => return make_dir_error(state_dir, e),
     };
     return state_dir;
 }
@@ -926,7 +932,7 @@ fn get_app_config_dir_file_name(appname: []const u8, comptime config_file_name: 
     const local = struct {
         var config_file_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
-    return std.fmt.bufPrint(&local.config_file_buffer, "{s}/{s}", .{ try get_app_config_dir(appname), config_file_name });
+    return std.fmt.bufPrint(&local.config_file_buffer, "{s}{c}{s}", .{ try get_app_config_dir(appname), sep, config_file_name });
 }
 
 pub fn get_config_file_name(T: type) ![]const u8 {
@@ -942,7 +948,7 @@ pub fn get_restore_file_name() ![]const u8 {
     const restore_file = if (local.restore_file) |file|
         file
     else
-        try std.fmt.bufPrint(&local.restore_file_buffer, "{s}/{s}", .{ try get_app_state_dir(application_name), restore_file_name });
+        try std.fmt.bufPrint(&local.restore_file_buffer, "{s}{c}{s}", .{ try get_app_state_dir(application_name), sep, restore_file_name });
     local.restore_file = restore_file;
     return restore_file;
 }
@@ -958,7 +964,7 @@ fn get_keybind_namespaces_directory() ![]const u8 {
         defer a.free(dir);
         return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
     }
-    return try std.fmt.bufPrint(&local.dir_buffer, "{s}/{s}", .{ try get_app_config_dir(application_name), keybind_dir });
+    return try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, keybind_dir });
 }
 
 pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
@@ -966,7 +972,7 @@ pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
     const local = struct {
         var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
-    return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}.json", .{ dir, namespace_name });
+    return try std.fmt.bufPrint(&local.file_buffer, "{s}{c}{s}.json", .{ dir, sep, namespace_name });
 }
 
 const theme_dir = "themes";
@@ -980,7 +986,7 @@ fn get_theme_directory() ![]const u8 {
         defer a.free(dir);
         return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
     }
-    return try std.fmt.bufPrint(&local.dir_buffer, "{s}/{s}", .{ try get_app_config_dir(application_name), theme_dir });
+    return try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, theme_dir });
 }
 
 pub fn get_theme_file_name(theme_name: []const u8) ![]const u8 {
@@ -988,7 +994,7 @@ pub fn get_theme_file_name(theme_name: []const u8) ![]const u8 {
     const local = struct {
         var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
-    return try std.fmt.bufPrint(&local.file_buffer, "{s}/{s}.json", .{ dir, theme_name });
+    return try std.fmt.bufPrint(&local.file_buffer, "{s}{c}{s}.json", .{ dir, sep, theme_name });
 }
 
 fn restart() noreturn {
