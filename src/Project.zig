@@ -8,6 +8,7 @@ const Buffer = @import("Buffer");
 const fuzzig = @import("fuzzig");
 const tracy = @import("tracy");
 const git = @import("git");
+const file_type_config = @import("file_type_config");
 const builtin = @import("builtin");
 
 const LSP = @import("LSP.zig");
@@ -52,6 +53,9 @@ pub const LspOrClientError = (LspError || ClientError);
 
 const File = struct {
     path: []const u8,
+    type: []const u8,
+    icon: []const u8,
+    color: u24,
     mtime: i128,
     pos: FilePos = .{},
     visited: bool = false,
@@ -341,7 +345,7 @@ pub fn request_n_most_recent_file(self: *Self, from: tp.pid_ref, n: usize) Clien
 pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) ClientError!void {
     defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, "" }) catch {};
     for (self.files.items, 0..) |file, i| {
-        from.send(.{ "PRJ", "recent", self.longest_file_path, file.path }) catch return error.ClientFailed;
+        from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color }) catch return error.ClientFailed;
         if (i >= max) return;
     }
 }
@@ -356,7 +360,7 @@ fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: [
             defer self.allocator.free(matches);
             var n: usize = 0;
             while (n < query.len) : (n += 1) matches[n] = idx + n;
-            from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, matches }) catch return error.ClientFailed;
+            from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color, matches }) catch return error.ClientFailed;
             i += 1;
             if (i >= max) return i;
         }
@@ -379,6 +383,9 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
 
     const Match = struct {
         path: []const u8,
+        type: []const u8,
+        icon: []const u8,
+        color: u24,
         score: i32,
         matches: []const usize,
     };
@@ -389,6 +396,9 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
         if (match.score) |score| {
             (try matches.addOne()).* = .{
                 .path = file.path,
+                .type = file.type,
+                .icon = file.icon,
+                .color = file.color,
                 .score = score,
                 .matches = try self.allocator.dupe(usize, match.matches),
             };
@@ -404,13 +414,24 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
     std.mem.sort(Match, matches.items, {}, less_fn);
 
     for (matches.items[0..@min(max, matches.items.len)]) |match|
-        from.send(.{ "PRJ", "recent", self.longest_file_path, match.path, match.matches }) catch return error.ClientFailed;
+        from.send(.{ "PRJ", "recent", self.longest_file_path, match.path, match.type, match.icon, match.color, match.matches }) catch return error.ClientFailed;
     return @min(max, matches.items.len);
 }
 
-pub fn walk_tree_entry(self: *Self, file_path: []const u8, mtime: i128) OutOfMemoryError!void {
+pub fn walk_tree_entry(
+    self: *Self,
+    file_path: []const u8,
+    mtime: i128,
+) OutOfMemoryError!void {
+    const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(file_path);
     self.longest_file_path = @max(self.longest_file_path, file_path.len);
-    (try self.pending.addOne(self.allocator)).* = .{ .path = try self.allocator.dupe(u8, file_path), .mtime = mtime };
+    (try self.pending.addOne(self.allocator)).* = .{
+        .path = try self.allocator.dupe(u8, file_path),
+        .type = file_type,
+        .icon = file_icon,
+        .color = file_color,
+        .mtime = mtime,
+    };
 }
 
 pub fn walk_tree_done(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
@@ -418,6 +439,25 @@ pub fn walk_tree_done(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     if (self.walker) |pid| pid.deinit();
     self.walker = null;
     return self.loaded(parent);
+}
+
+fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u24 } {
+    var buf: [1024]u8 = undefined;
+    const content: []const u8 = blk: {
+        const file = std.fs.cwd().openFile(file_path, .{ .mode = .read_only }) catch break :blk &.{};
+        defer file.close();
+        const size = file.read(&buf) catch break :blk &.{};
+        break :blk buf[0..size];
+    };
+    return if (file_type_config.guess_file_type(file_path, content)) |ft| .{
+        ft.name,
+        ft.icon orelse file_type_config.default.icon,
+        ft.color orelse file_type_config.default.color,
+    } else .{
+        file_type_config.default.name,
+        file_type_config.default.icon,
+        file_type_config.default.color,
+    };
 }
 
 fn merge_pending_files(self: *Self) OutOfMemoryError!void {
@@ -469,9 +509,13 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
         }
         return;
     }
+    const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(file_path);
     if (row != 0) {
         (try self.files.addOne(self.allocator)).* = .{
             .path = try self.allocator.dupe(u8, file_path),
+            .type = file_type,
+            .icon = file_icon,
+            .color = file_color,
             .mtime = mtime,
             .pos = .{ .row = row, .col = col },
             .visited = true,
@@ -479,6 +523,9 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
     } else {
         (try self.files.addOne(self.allocator)).* = .{
             .path = try self.allocator.dupe(u8, file_path),
+            .type = file_type,
+            .icon = file_icon,
+            .color = file_color,
             .mtime = mtime,
         };
     }
@@ -1941,7 +1988,14 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&path) })) {
         self.longest_file_path = @max(self.longest_file_path, path.len);
         const stat = std.fs.cwd().statFile(path) catch return;
-        (try self.pending.addOne(self.allocator)).* = .{ .path = try self.allocator.dupe(u8, path), .mtime = stat.mtime };
+        const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(path);
+        (try self.pending.addOne(self.allocator)).* = .{
+            .path = try self.allocator.dupe(u8, path),
+            .type = file_type,
+            .icon = file_icon,
+            .color = file_color,
+            .mtime = stat.mtime,
+        };
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.null_ })) {
         self.state.workspace_files = .done;
         try self.loaded(parent);
