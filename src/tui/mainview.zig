@@ -1315,7 +1315,7 @@ pub fn write_restore_info(self: *Self) void {
 
 fn read_restore_info(self: *Self) !void {
     const file_name = try root.get_restore_file_name();
-    const file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
+    const file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
     defer file.close();
     const stat = try file.stat();
     var buf = try self.allocator.alloc(u8, @intCast(stat.size));
