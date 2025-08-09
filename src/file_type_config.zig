@@ -20,6 +20,8 @@ pub const default = struct {
     pub const color = 0x000000;
 };
 
+pub const folder_icon = "";
+
 fn from_file_type(file_type: syntax.FileType) @This() {
     return .{
         .name = file_type.name,

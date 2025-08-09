@@ -441,7 +441,21 @@ pub fn walk_tree_done(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     return self.loaded(parent);
 }
 
-fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u24 } {
+fn default_ft() struct { []const u8, []const u8, u24 } {
+    return .{
+        file_type_config.default.name,
+        file_type_config.default.icon,
+        file_type_config.default.color,
+    };
+}
+
+pub fn guess_path_file_type(path: []const u8, file_name: []const u8) struct { []const u8, []const u8, u24 } {
+    var buf: [4096]u8 = undefined;
+    const file_path = std.fmt.bufPrint(&buf, "{s}{}{s}", .{ path, std.fs.path.sep, file_name }) catch return default_ft();
+    return guess_file_type(file_path);
+}
+
+pub fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u24 } {
     var buf: [1024]u8 = undefined;
     const content: []const u8 = blk: {
         const file = std.fs.cwd().openFile(file_path, .{ .mode = .read_only }) catch break :blk &.{};
@@ -453,11 +467,7 @@ fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u24 }
         ft.name,
         ft.icon orelse file_type_config.default.icon,
         ft.color orelse file_type_config.default.color,
-    } else .{
-        file_type_config.default.name,
-        file_type_config.default.icon,
-        file_type_config.default.color,
-    };
+    } else default_ft();
 }
 
 fn merge_pending_files(self: *Self) OutOfMemoryError!void {
