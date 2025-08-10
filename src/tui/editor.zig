@@ -6029,6 +6029,8 @@ pub const EditorWidget = struct {
     last_btn: input.Mouse = .none,
     last_btn_time_ms: i64 = 0,
     last_btn_count: usize = 0,
+    last_btn_x: c_int = 0,
+    last_btn_y: c_int = 0,
 
     hover: bool = false,
     hover_timer: ?tp.Cancellable = null,
@@ -6193,9 +6195,16 @@ pub const EditorWidget = struct {
 
     fn mouse_click_button1(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
         const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
+        defer {
+            self.last_btn_y = y_;
+            self.last_btn_x = x_;
+        }
         if (self.last_btn == input.mouse.BUTTON1) {
             const click_time_ms = time.milliTimestamp() - self.last_btn_time_ms;
-            if (click_time_ms <= double_click_time_ms) {
+            if (click_time_ms <= double_click_time_ms and
+                self.last_btn_y == y_ and
+                self.last_btn_x == x_)
+            {
                 if (self.last_btn_count == 2) {
                     self.last_btn_count = 3;
                     try self.editor.primary_triple_click(y_, x_);
