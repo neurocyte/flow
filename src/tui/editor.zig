@@ -432,6 +432,7 @@ pub const Editor = struct {
             tp.extract_cbor(&cursels_cbor),
         }))
             return error.RestoreStateMatch;
+        self.refresh_tab_width();
         if (op == .open_file)
             try self.open(file_path);
         self.clipboard = if (clipboard.len > 0) try self.allocator.dupe(u8, clipboard) else null;
@@ -701,6 +702,23 @@ pub const Editor = struct {
         self.indent_mode = .spaces;
         return;
     }
+
+    fn refresh_tab_width(self: *Self) void {
+        self.metrics = self.plane.metrics(self.tab_width);
+        switch (self.indent_mode) {
+            .spaces, .auto => {},
+            .tabs => self.indent_size = self.tab_width,
+        }
+    }
+
+    pub fn set_tab_width(self: *Self, ctx: Context) Result {
+        var tab_width: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&tab_width)}))
+            return error.InvalidSetTabWidthArgument;
+        self.tab_width = tab_width;
+        self.refresh_tab_width();
+    }
+    pub const set_tab_width_meta: Meta = .{ .arguments = &.{.integer} };
 
     fn close(self: *Self) !void {
         var meta = std.ArrayListUnmanaged(u8).empty;

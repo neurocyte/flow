@@ -744,6 +744,11 @@ const cmds = struct {
     }
     pub const force_terminate_meta: Meta = .{ .description = "Force quit without saving" };
 
+    pub fn tab_width(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/tab_width.zig"), ctx);
+    }
+    pub const tab_width_meta: Meta = .{ .description = "Set tab width" };
+
     pub fn set_theme(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&name)}))
