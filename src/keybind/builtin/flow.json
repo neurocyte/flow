@@ -328,7 +328,7 @@
             ["right_control", "palette_menu_activate_quick"]
         ]
     },
-    "mini/goto": {
+    "mini/numeric": {
         "press": [
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
@@ -338,7 +338,7 @@
             ["ctrl+l", "scroll_view_center_cycle"],
             ["ctrl+space", "mini_mode_cancel"],
             ["escape", "mini_mode_cancel"],
-            ["enter", "exit_mini_mode"],
+            ["enter", "mini_mode_select"],
             ["backspace", "mini_mode_delete_backwards"]
         ]
     },
