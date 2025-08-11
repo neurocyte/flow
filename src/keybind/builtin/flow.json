@@ -236,6 +236,8 @@
             ["page_down", "select_page_down"],
             ["ctrl+page_up", "select_scroll_page_up"],
             ["ctrl+page_down", "select_scroll_page_down"],
+            ["ctrl+b", "move_to_char", "select_to_char_left"],
+            ["ctrl+t", "move_to_char", "select_to_char_right"],
             ["ctrl+space", "enter_mode", "normal"],
             ["ctrl+x", ["cut"], ["enter_mode", "normal"], ["cancel"]],
             ["ctrl+c", ["copy"], ["enter_mode", "normal"], ["cancel"]],
@@ -347,6 +349,8 @@
             ["ctrl+g", "mini_mode_cancel"],
             ["ctrl+c", "mini_mode_cancel"],
             ["ctrl+l", "scroll_view_center_cycle"],
+            ["tab", "mini_mode_insert_bytes", "\t"],
+            ["enter", "mini_mode_insert_bytes", "\n"],
             ["escape", "mini_mode_cancel"],
             ["backspace", "mini_mode_cancel"]
         ]
