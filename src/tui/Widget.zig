@@ -38,6 +38,52 @@ pub const Layout = union(enum) {
     }
 };
 
+pub const Style = struct {
+    padding: Margin = margins.@"0",
+    inner_padding: Margin = margins.@"0",
+    border: Border = borders.blank,
+
+    pub const PaddingUnit = u16;
+
+    pub const Margin = struct {
+        top: PaddingUnit,
+        bottom: PaddingUnit,
+        left: PaddingUnit,
+        right: PaddingUnit,
+    };
+
+    pub const Border = struct {
+        nw: []const u8,
+        n: []const u8,
+        ne: []const u8,
+        e: []const u8,
+        se: []const u8,
+        s: []const u8,
+        sw: []const u8,
+        w: []const u8,
+    };
+
+    pub const margins = struct {
+        const @"0": Margin = .{ .top = 0, .bottom = 0, .left = 0, .right = 0 };
+        const @"1": Margin = .{ .top = 1, .bottom = 1, .left = 1, .right = 1 };
+        const @"2": Margin = .{ .top = 2, .bottom = 2, .left = 2, .right = 2 };
+    };
+
+    pub const borders = struct {
+        const blank: Border = .{ .nw = " ", .n = " ", .ne = " ", .e = " ", .se = " ", .s = " ", .sw = " ", .w = " " };
+        const box: Border = .{ .nw = "┌", .n = "─", .ne = "┐", .e = "│", .se = "┘", .s = "─", .sw = "└", .w = "│" };
+    };
+
+    pub const default_static: @This() = .{};
+    pub const default = &default_static;
+
+    pub const boxed_static: @This() = .{
+        .padding = margins.@"1",
+        .border = borders.box,
+    };
+    pub const boxed = &boxed_static;
+};
+
 pub const VTable = struct {
     deinit: *const fn (ctx: *anyopaque, allocator: Allocator) void,
     send: *const fn (ctx: *anyopaque, from: tp.pid_ref, m: tp.message) error{Exit}!bool,

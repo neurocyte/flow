@@ -33,7 +33,7 @@ logger: log.Logger,
 query_pending: bool = false,
 need_reset: bool = false,
 need_select_first: bool = true,
-longest: usize = 0,
+longest: usize,
 commands: Commands = undefined,
 buffer_manager: ?*BufferManager,
 
@@ -49,7 +49,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
         .menu = try Menu.create(*Self, allocator, tui.plane(), .{
             .ctx = self,
             .on_render = on_render_menu,
-            .on_resize = on_resize_menu,
+            .prepare_resize = prepare_resize_menu,
         }),
         .logger = log.logger(@typeName(Self)),
         .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
@@ -57,12 +57,13 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
             .label = inputbox_label,
         }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
         .buffer_manager = tui.get_buffer_manager(),
+        .longest = inputbox_label.len,
     };
     try self.commands.init(self);
     try tui.message_filters().add(MessageFilter.bind(self, receive_project_manager));
     self.query_pending = true;
     try project_manager.request_recent_files(max_recent_files);
-    self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = max_menu_width() + 2 });
+    self.do_resize();
     try mv.floating_views.add(self.modal.widget());
     try mv.floating_views.add(self.menu.container_widget);
     var mode = try keybind.mode("overlay/palette", allocator, .{
@@ -85,7 +86,7 @@ pub fn deinit(self: *Self) void {
 }
 
 inline fn menu_width(self: *Self) usize {
-    return @max(@min(self.longest, max_menu_width()) + 2, inputbox_label.len + 2);
+    return @max(@min(self.longest, max_menu_width()) + 5, inputbox_label.len + 2);
 }
 
 inline fn menu_pos_x(self: *Self) usize {
@@ -149,8 +150,19 @@ fn on_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme:
     return false;
 }
 
-fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
-    self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
+fn prepare_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) Widget.Box {
+    return self.prepare_resize();
+}
+
+fn prepare_resize(self: *Self) Widget.Box {
+    const w = self.menu_width();
+    const x = self.menu_pos_x();
+    const h = self.menu.menu.widgets.items.len;
+    return .{ .y = 0, .x = x, .w = w, .h = h };
+}
+
+fn do_resize(self: *Self) void {
+    self.menu.resize(self.prepare_resize());
 }
 
 fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
@@ -207,7 +219,7 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
     })) {
         if (self.need_reset) self.reset_results();
         try self.add_item(file_name, file_type, file_icon, file_color, matches);
-        self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
+        self.do_resize();
         if (self.need_select_first) {
             self.menu.select_down();
             self.need_select_first = false;
@@ -224,7 +236,7 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
     })) {
         if (self.need_reset) self.reset_results();
         try self.add_item(file_name, file_type, file_icon, file_color, null);
-        self.menu.resize(.{ .y = 0, .x = self.menu_pos_x(), .w = self.menu_width() });
+        self.do_resize();
         if (self.need_select_first) {
             self.menu.select_down();
             self.need_select_first = false;

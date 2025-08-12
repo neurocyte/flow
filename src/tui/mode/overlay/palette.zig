@@ -58,7 +58,8 @@ pub fn Create(options: type) type {
                 .menu = try Menu.create(*Self, allocator, tui.plane(), .{
                     .ctx = self,
                     .on_render = if (@hasDecl(options, "on_render_menu")) options.on_render_menu else on_render_menu,
-                    .on_resize = on_resize_menu,
+                    .prepare_resize = prepare_resize_menu,
+                    .after_resize = after_resize_menu,
                     .on_scroll = EventHandler.bind(self, Self.on_scroll),
                     .on_click4 = mouse_click_button4,
                     .on_click5 = mouse_click_button5,
@@ -146,19 +147,32 @@ pub fn Create(options: type) type {
             return false;
         }
 
-        fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
-            self.do_resize();
-            // self.start_query(0) catch {};
+        fn prepare_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) Widget.Box {
+            return self.prepare_resize();
         }
 
-        fn do_resize(self: *Self) void {
+        fn prepare_resize(self: *Self) Widget.Box {
             const screen = tui.screen();
             const w = @max(@min(self.longest, max_menu_width) + 2 + 1 + self.longest_hint, options.label.len + 2);
             const x = if (screen.w > w) (screen.w - w) / 2 else 0;
             self.view_rows = get_view_rows(screen);
             const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);
-            self.menu.container.resize(.{ .y = 0, .x = x, .w = w, .h = h });
+            return .{ .y = 0, .x = x, .w = w, .h = h };
+        }
+
+        fn after_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
+            return self.after_resize();
+        }
+
+        fn after_resize(self: *Self) void {
             self.update_scrollbar();
+            // self.start_query(0) catch {};
+        }
+
+        fn do_resize(self: *Self) void {
+            const box = self.prepare_resize();
+            self.menu.resize(self.menu.container.to_client_box(box));
+            self.after_resize();
         }
 
         fn get_view_rows(screen: Widget.Box) usize {

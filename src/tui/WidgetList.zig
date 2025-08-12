@@ -26,25 +26,35 @@ widgets: ArrayList(WidgetState),
 layout_: Layout,
 layout_empty: bool = true,
 direction: Direction,
-box: ?Widget.Box = null,
+deco_box: Widget.Box,
 ctx: ?*anyopaque = null,
 on_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
 after_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
-on_resize: *const fn (ctx: ?*anyopaque, self: *Self, pos_: Widget.Box) void = on_resize_default,
+prepare_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widget.Box = prepare_resize_default,
+after_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) void = after_resize_default,
 on_layout: *const fn (ctx: ?*anyopaque, self: *Self) Widget.Layout = on_layout_default,
+style: *const Widget.Style,
 
 pub fn createH(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) error{OutOfMemory}!*Self {
+    return createHStyled(allocator, parent, name, layout_, Widget.Style.default);
+}
+
+pub fn createHStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, style: *const Widget.Style) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    self.* = try init(allocator, parent, name, .horizontal, layout_, Box{});
+    self.* = try init(allocator, parent, name, .horizontal, layout_, Box{}, style);
     self.plane.hide();
     return self;
 }
 
 pub fn createV(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) !*Self {
+    return createVStyled(allocator, parent, name, layout_, Widget.Style.default);
+}
+
+pub fn createVStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, style: *const Widget.Style) !*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    self.* = try init(allocator, parent, name, .vertical, layout_, Box{});
+    self.* = try init(allocator, parent, name, .vertical, layout_, Box{}, style);
     self.plane.hide();
     return self;
 }
@@ -57,15 +67,22 @@ pub fn createBox(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: D
     return self;
 }
 
-fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction, layout_: Layout, box: Box) !Self {
-    return .{
-        .plane = try Plane.init(&box.opts(name), parent),
+fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction, layout_: Layout, box_: Box, style: *const Widget.Style) !Self {
+    var self: Self = .{
+        .plane = undefined,
         .parent = parent,
         .allocator = allocator,
         .widgets = ArrayList(WidgetState).init(allocator),
         .layout_ = layout_,
         .direction = dir,
+        .style = style,
+        .deco_box = undefined,
     };
+    self.deco_box = self.from_client_box(box_);
+    self.plane = try Plane.init(&self.deco_box.opts(name), parent);
+    if (self.style.padding.top > 0 and self.deco_box.y < 10)
+        std.log.info("init deco box: {any}", .{self.deco_box});
+    return self;
 }
 
 pub fn widget(self: *Self) Widget {
@@ -153,6 +170,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     };
 
     self.on_render(self.ctx, theme);
+    self.render_decoration(theme);
 
     var more = false;
     for (self.widgets.items) |*w|
@@ -166,6 +184,40 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
 
+fn render_decoration(self: *Self, theme: *const Widget.Theme) void {
+    const style = theme.editor_gutter_modified;
+    const plane = &self.plane;
+    const box = self.deco_box;
+    const padding = self.style.padding;
+    const border = self.style.border;
+
+    plane.set_style(style);
+
+    if (padding.top > 0 and padding.left > 0) put_at_pos(plane, 0, 0, border.nw);
+    if (padding.top > 0 and padding.right > 0) put_at_pos(plane, 0, box.w - 1, border.ne);
+    if (padding.bottom > 0 and padding.left > 0 and box.h > 0) put_at_pos(plane, box.h - 1, 0, border.sw);
+    if (padding.bottom > 0 and padding.right > 0 and box.h > 0) put_at_pos(plane, box.h - 1, box.w - 1, border.se);
+
+    {
+        const start: usize = if (padding.left > 0) 1 else 0;
+        const end: usize = if (padding.right > 0 and box.w > 0) box.w - 1 else box.w;
+        if (padding.top > 0) for (start..end) |x| put_at_pos(plane, 0, x, border.n);
+        if (padding.bottom > 0) for (start..end) |x| put_at_pos(plane, box.h - 1, x, border.s);
+    }
+
+    {
+        const start: usize = if (padding.top > 0) 1 else 0;
+        const end: usize = if (padding.bottom > 0 and box.h > 0) box.h - 1 else box.h;
+        if (padding.left > 0) for (start..end) |y| put_at_pos(plane, y, 0, border.w);
+        if (padding.right > 0) for (start..end) |y| put_at_pos(plane, y, box.w - 1, border.e);
+    }
+}
+
+inline fn put_at_pos(plane: *Plane, y: usize, x: usize, egc: []const u8) void {
+    plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+    plane.putchar(egc);
+}
+
 pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "H", tp.more }))
         return false;
@@ -176,10 +228,24 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return false;
 }
 
+fn get_size_a_const(self: *Self, pos: *const Widget.Box) usize {
+    return switch (self.direction) {
+        .vertical => pos.h,
+        .horizontal => pos.w,
+    };
+}
+
 fn get_size_a(self: *Self, pos: *Widget.Box) *usize {
     return switch (self.direction) {
         .vertical => &pos.h,
         .horizontal => &pos.w,
+    };
+}
+
+fn get_size_b_const(self: *Self, pos: *const Widget.Box) usize {
+    return switch (self.direction) {
+        .vertical => pos.w,
+        .horizontal => pos.h,
     };
 }
 
@@ -190,10 +256,24 @@ fn get_size_b(self: *Self, pos: *Widget.Box) *usize {
     };
 }
 
+fn get_loc_a_const(self: *Self, pos: *const Widget.Box) usize {
+    return switch (self.direction) {
+        .vertical => pos.y,
+        .horizontal => pos.x,
+    };
+}
+
 fn get_loc_a(self: *Self, pos: *Widget.Box) *usize {
     return switch (self.direction) {
         .vertical => &pos.y,
         .horizontal => &pos.x,
+    };
+}
+
+fn get_loc_b_const(self: *Self, pos: *const Widget.Box) usize {
+    return switch (self.direction) {
+        .vertical => pos.x,
+        .horizontal => pos.y,
     };
 }
 
@@ -205,27 +285,66 @@ fn get_loc_b(self: *Self, pos: *Widget.Box) *usize {
 }
 
 fn refresh_layout(self: *Self) void {
-    return if (self.box) |box| self.handle_resize(box);
+    return self.handle_resize(self.to_client_box(self.deco_box));
 }
 
-pub fn handle_resize(self: *Self, pos: Widget.Box) void {
-    self.on_resize(self.ctx, self, pos);
+pub fn handle_resize(self: *Self, box: Widget.Box) void {
+    if (self.style.padding.top > 0 and self.deco_box.y < 10)
+        std.log.info("handle_resize deco box: {any}", .{self.deco_box});
+    const client_box_ = self.prepare_resize(self.ctx, self, self.to_client_box(box));
+    self.deco_box = self.from_client_box(client_box_);
+    if (self.style.padding.top > 0 and self.deco_box.y < 10)
+        std.log.info("prepare_resize deco box: {any}", .{self.deco_box});
+    self.do_resize();
+    self.after_resize(self.ctx, self, self.to_client_box(self.deco_box));
 }
 
-fn on_resize_default(_: ?*anyopaque, self: *Self, pos: Widget.Box) void {
-    self.resize(pos);
+pub inline fn to_client_box(self: *const Self, box_: Widget.Box) Widget.Box {
+    const padding = self.style.padding;
+    const total_y_padding = padding.top + padding.bottom;
+    const total_x_padding = padding.left + padding.right;
+    var box = box_;
+    box.y += padding.top;
+    box.h -= if (box.h > total_y_padding) total_y_padding else box.h;
+    box.x += padding.left;
+    box.w -= if (box.w > total_x_padding) total_x_padding else box.w;
+    return box;
 }
+
+inline fn from_client_box(self: *const Self, box_: Widget.Box) Widget.Box {
+    const padding = self.style.padding;
+    const total_y_padding = padding.top + padding.bottom;
+    const total_x_padding = padding.left + padding.right;
+    const y = if (box_.y < padding.top) padding.top else box_.y;
+    const x = if (box_.x < padding.left) padding.top else box_.x;
+    var box = box_;
+    box.y = y - padding.top;
+    box.h += total_y_padding;
+    box.x = x - padding.left;
+    box.w += total_x_padding;
+    return box;
+}
+
+fn prepare_resize_default(_: ?*anyopaque, _: *Self, box: Widget.Box) Widget.Box {
+    return box;
+}
+
+fn after_resize_default(_: ?*anyopaque, _: *Self, _: Widget.Box) void {}
 
 fn on_layout_default(_: ?*anyopaque, self: *Self) Widget.Layout {
     return self.layout_;
 }
 
-pub fn resize(self: *Self, pos_: Widget.Box) void {
-    self.box = pos_;
-    var pos = pos_;
-    self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
-    self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
-    const total = self.get_size_a(&pos).*;
+pub fn resize(self: *Self, box: Widget.Box) void {
+    return self.handle_resize(box);
+}
+
+fn do_resize(self: *Self) void {
+    const client_box = self.to_client_box(self.deco_box);
+    const deco_box = self.deco_box;
+    self.plane.move_yx(@intCast(deco_box.y), @intCast(deco_box.x)) catch return;
+    self.plane.resize_simple(@intCast(deco_box.h), @intCast(deco_box.w)) catch return;
+    const total = self.get_size_a_const(&client_box);
     var avail = total;
     var statics: usize = 0;
     var dynamics: usize = 0;
@@ -245,7 +364,7 @@ pub fn resize(self: *Self, pos_: Widget.Box) void {
 
     const dyn_size = avail / if (dynamics > 0) dynamics else 1;
     const rounded: usize = if (dyn_size * dynamics < avail) avail - dyn_size * dynamics else 0;
-    var cur_loc: usize = self.get_loc_a(&pos).*;
+    var cur_loc: usize = self.get_loc_a_const(&client_box);
     var first = true;
 
     for (self.widgets.items) |*w| {
@@ -261,8 +380,8 @@ pub fn resize(self: *Self, pos_: Widget.Box) void {
         self.get_loc_a(&w_pos).* = cur_loc;
         cur_loc += size;
 
-        self.get_size_b(&w_pos).* = self.get_size_b(&pos).*;
-        self.get_loc_b(&w_pos).* = self.get_loc_b(&pos).*;
+        self.get_size_b(&w_pos).* = self.get_size_b_const(&client_box);
+        self.get_loc_b(&w_pos).* = self.get_loc_b_const(&client_box);
         w.widget.resize(w_pos);
     }
 }

@@ -20,7 +20,8 @@ pub fn Options(context: type) type {
         on_click5: *const fn (menu: **State(Context), button: *Button.State(*State(Context))) void = do_nothing_click,
         on_render: *const fn (ctx: context, button: *Button.State(*State(Context)), theme: *const Widget.Theme, selected: bool) bool = on_render_default,
         on_layout: *const fn (ctx: context, button: *Button.State(*State(Context))) Widget.Layout = on_layout_default,
-        on_resize: *const fn (ctx: context, menu: *State(Context), box: Widget.Box) void = on_resize_default,
+        prepare_resize: *const fn (ctx: context, menu: *State(Context), box: Widget.Box) Widget.Box = prepare_resize_default,
+        after_resize: *const fn (ctx: context, menu: *State(Context), box: Widget.Box) void = after_resize_default,
         on_scroll: ?EventHandler = null,
 
         pub const Context = context;
@@ -46,23 +47,26 @@ pub fn Options(context: type) type {
             return .{ .static = 1 };
         }
 
-        pub fn on_resize_default(_: context, state: *State(Context), box_: Widget.Box) void {
+        pub fn prepare_resize_default(_: context, state: *State(Context), box_: Widget.Box) Widget.Box {
             var box = box_;
             box.h = if (box_.h == 0) state.menu.widgets.items.len else box_.h;
-            state.container.resize(box);
+            return box;
         }
+
+        pub fn after_resize_default(_: context, _: *State(Context), _: Widget.Box) void {}
     };
 }
 
 pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !*State(ctx_type) {
     const self = try allocator.create(State(ctx_type));
     errdefer allocator.destroy(self);
-    const container = try WidgetList.createH(allocator, parent, @typeName(@This()), .dynamic);
+    const container = try WidgetList.createHStyled(allocator, parent, @typeName(@This()), .dynamic, Widget.Style.boxed);
     self.* = .{
         .allocator = allocator,
         .menu = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),
         .container = container,
         .container_widget = container.widget(),
+        .frame_widget = null,
         .scrollbar = if (tui.config().show_scrollbars)
             if (opts.on_scroll) |on_scroll| (try scrollbar_v.create(allocator, parent, null, on_scroll)).dynamic_cast(scrollbar_v).? else null
         else
@@ -72,7 +76,8 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
     self.menu.ctx = self;
     self.menu.on_render = State(ctx_type).on_render_menu;
     container.ctx = self;
-    container.on_resize = State(ctx_type).on_resize_container;
+    container.prepare_resize = State(ctx_type).prepare_resize;
+    container.after_resize = State(ctx_type).after_resize;
     try container.add(self.menu.widget());
     if (self.scrollbar) |sb| try container.add(sb.widget());
     return self;
@@ -84,6 +89,7 @@ pub fn State(ctx_type: type) type {
         menu: *WidgetList,
         container: *WidgetList,
         container_widget: Widget,
+        frame_widget: ?Widget,
         scrollbar: ?*scrollbar_v,
         opts: options_type,
         selected: ?usize = null,
@@ -146,9 +152,14 @@ pub fn State(ctx_type: type) type {
             self.render_idx = 0;
         }
 
-        fn on_resize_container(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) void {
+        fn prepare_resize(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) Widget.Box {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            self.opts.on_resize(self.*.opts.ctx, self, box);
+            return self.opts.prepare_resize(self.*.opts.ctx, self, box);
+        }
+
+        fn after_resize(ctx: ?*anyopaque, _: *WidgetList, box: Widget.Box) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.opts.after_resize(self.*.opts.ctx, self, box);
         }
 
         pub fn on_layout(self: **Self, button: *Button.State(*Self)) Widget.Layout {
@@ -170,7 +181,7 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
-            return self.menu.walk(walk_ctx, f, &self.container_widget);
+            return self.menu.walk(walk_ctx, f, if (self.frame_widget) |*frame| frame else &self.container_widget);
         }
 
         pub fn count(self: *Self) usize {
