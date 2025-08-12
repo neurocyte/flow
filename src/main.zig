@@ -331,7 +331,12 @@ pub fn main() anyerror!void {
             try cbor.writeValue(writer, cmd_);
             try cbor.writeArrayHeader(writer, count - 1);
 
-            while (cmd_args.next()) |arg| try cbor.writeValue(writer, arg);
+            while (cmd_args.next()) |arg| {
+                if (std.fmt.parseInt(isize, arg, 10) catch null) |i|
+                    try cbor.writeValue(writer, i)
+                else
+                    try cbor.writeValue(writer, arg);
+            }
 
             try tui_proc.send_raw(.{ .buf = msg.items });
         }
