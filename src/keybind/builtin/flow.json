@@ -38,6 +38,7 @@
             ["f5", ["create_scratch_buffer", "*test*"], ["shell_execute_insert", "zig", "build", "test"]],
             ["f7", ["create_scratch_buffer", "*build*"], ["shell_execute_insert", "zig", "build"]],
             ["ctrl+f6", "open_version_info"],
+            ["alt+shift+t", "set_session_tab_width"],
             ["alt+d", ["shell_execute_insert", "date", "--iso-8601"]],
             ["ctrl+alt+shift+d", ["shell_execute_insert", "date", "--iso-8601=seconds"]]
         ]
