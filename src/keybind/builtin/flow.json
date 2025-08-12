@@ -1,6 +1,7 @@
 {
     "project": {
         "press": [
+            ["ctrl+alt+shift+r", "restart"],
             ["ctrl+e", "find_file"],
             ["ctrl+shift+n", "create_new_file"],
             ["ctrl+r", "open_recent_project"],
