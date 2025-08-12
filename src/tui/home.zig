@@ -145,7 +145,7 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
             _ = try writer.write(leader);
         try writer.print(" :{s}", .{hint});
         const label = fis.getWritten();
-        self.menu_w = @max(self.menu_w, label.len + 1);
+        self.menu_w = @max(self.menu_w, label.len + 1 + menu.container.style.padding.left + menu.container.style.padding.right);
     }
 
     var value = std.ArrayList(u8).init(self.allocator);
