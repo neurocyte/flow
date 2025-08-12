@@ -67,15 +67,21 @@ pub const Style = struct {
         const @"0": Margin = .{ .top = 0, .bottom = 0, .left = 0, .right = 0 };
         const @"1": Margin = .{ .top = 1, .bottom = 1, .left = 1, .right = 1 };
         const @"2": Margin = .{ .top = 2, .bottom = 2, .left = 2, .right = 2 };
+        const @"3": Margin = .{ .top = 3, .bottom = 3, .left = 3, .right = 3 };
+        const @"2/3": Margin = .{ .top = 2, .bottom = 2, .left = 3, .right = 3 };
+        const @"2/4": Margin = .{ .top = 2, .bottom = 2, .left = 4, .right = 4 };
 
         const top_bottom_1: Margin = .{ .top = 1, .bottom = 1, .left = 0, .right = 0 };
-        const left_right_1: Margin = .{ .top = 0, .bottom = 0, .left = 0, .right = 0 };
+        const top_bottom_2: Margin = .{ .top = 2, .bottom = 2, .left = 0, .right = 0 };
+        const left_right_1: Margin = .{ .top = 0, .bottom = 0, .left = 1, .right = 1 };
+        const left_right_2: Margin = .{ .top = 0, .bottom = 0, .left = 2, .right = 2 };
     };
 
     pub const borders = struct {
         const blank: Border = .{ .nw = " ", .n = " ", .ne = " ", .e = " ", .se = " ", .s = " ", .sw = " ", .w = " " };
         const box: Border = .{ .nw = "┌", .n = "─", .ne = "┐", .e = "│", .se = "┘", .s = "─", .sw = "└", .w = "│" };
         const thick_box: Border = .{ .nw = "▛", .n = "▀", .ne = "▜", .e = "▐", .se = "▟", .s = "▄", .sw = "▙", .w = "▌" };
+        const thick_box_sextant: Border = .{ .nw = "🬕", .n = "🬂", .ne = "🬨", .e = "▐", .se = "🬷", .s = "🬭", .sw = "🬲", .w = "▌" };
     };
 
     pub const default_static: @This() = .{};
@@ -86,6 +92,12 @@ pub const Style = struct {
         .border = borders.box,
     };
     pub const boxed = &boxed_static;
+
+    pub const thick_boxed_static: @This() = .{
+        .padding = margins.@"2/4",
+        .border = borders.thick_box_sextant,
+    };
+    pub const thick_boxed = &thick_boxed_static;
 
     pub const bars_top_bottom_static: @This() = .{
         .padding = margins.top_bottom_1,

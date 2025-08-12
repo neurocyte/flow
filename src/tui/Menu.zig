@@ -60,7 +60,7 @@ pub fn Options(context: type) type {
 pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !*State(ctx_type) {
     const self = try allocator.create(State(ctx_type));
     errdefer allocator.destroy(self);
-    const container = try WidgetList.createHStyled(allocator, parent, @typeName(@This()), .dynamic, Widget.Style.boxed);
+    const container = try WidgetList.createHStyled(allocator, parent, @typeName(@This()), .dynamic, Widget.Style.thick_boxed);
     self.* = .{
         .allocator = allocator,
         .menu = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),
