@@ -756,7 +756,10 @@ const cmds = struct {
         try save_config();
         self.logger.print("tab width {}", .{tab_width});
     }
-    pub const set_tab_width_meta: Meta = .{ .description = "Set tab width" };
+    pub const set_tab_width_meta: Meta = .{
+        .description = "Set tab width",
+        .arguments = &.{.integer},
+    };
 
     pub fn set_buffer_tab_width(self: *Self, ctx: Ctx) Result {
         var tab_width: usize = 0;
@@ -766,7 +769,10 @@ const cmds = struct {
         command.executeName("set_editor_tab_width", ctx) catch {};
         self.logger.print("buffer tab width {}", .{tab_width});
     }
-    pub const set_buffer_tab_width_meta: Meta = .{ .description = "Set tab width for current buffer" };
+    pub const set_buffer_tab_width_meta: Meta = .{
+        .description = "Set tab width for current buffer",
+        .arguments = &.{.integer},
+    };
 
     pub fn set_session_tab_width(self: *Self, ctx: Ctx) Result {
         var tab_width: usize = 0;
@@ -777,7 +783,10 @@ const cmds = struct {
         command.executeName("set_editor_tab_width", ctx) catch {};
         self.logger.print("session tab width {}", .{tab_width});
     }
-    pub const set_session_tab_width_meta: Meta = .{ .description = "Set tab width for current session" };
+    pub const set_session_tab_width_meta: Meta = .{
+        .description = "Set tab width for current session",
+        .arguments = &.{.integer},
+    };
 
     pub fn set_theme(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
