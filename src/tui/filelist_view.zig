@@ -33,6 +33,7 @@ view_rows: usize = 0,
 view_cols: usize = 0,
 entries: std.ArrayList(Entry) = undefined,
 selected: ?usize = null,
+box: Widget.Box = .{},
 
 const path_column_ratio = 4;
 
@@ -86,9 +87,11 @@ fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.St
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
-    self.menu.container_widget.resize(pos);
-    self.view_rows = pos.h;
-    self.view_cols = pos.w;
+    self.box = pos;
+    self.menu.container.resize(self.box);
+    const client_box = self.menu.container.to_client_box(pos);
+    self.view_rows = client_box.h;
+    self.view_cols = client_box.w;
     self.update_scrollbar();
 }
 
@@ -107,7 +110,7 @@ pub fn add_item(self: *Self, entry_: Entry) !void {
     const writer = label.writer();
     cbor.writeValue(writer, idx) catch return;
     self.menu.add_item_with_handler(label.items, handle_menu_action) catch return;
-    self.menu.container_widget.resize(Widget.Box.from(self.plane));
+    self.menu.resize(self.box);
     self.update_scrollbar();
 }
 
