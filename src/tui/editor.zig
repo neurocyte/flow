@@ -711,14 +711,14 @@ pub const Editor = struct {
         }
     }
 
-    pub fn set_tab_width(self: *Self, ctx: Context) Result {
+    pub fn set_editor_tab_width(self: *Self, ctx: Context) Result {
         var tab_width: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&tab_width)}))
             return error.InvalidSetTabWidthArgument;
         self.tab_width = tab_width;
         self.refresh_tab_width();
     }
-    pub const set_tab_width_meta: Meta = .{ .arguments = &.{.integer} };
+    pub const set_editor_tab_width_meta: Meta = .{ .arguments = &.{.integer} };
 
     fn close(self: *Self) !void {
         var meta = std.ArrayListUnmanaged(u8).empty;

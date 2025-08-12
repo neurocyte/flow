@@ -745,10 +745,39 @@ const cmds = struct {
     }
     pub const force_terminate_meta: Meta = .{ .description = "Force quit without saving" };
 
-    pub fn tab_width(self: *Self, ctx: Ctx) Result {
-        return enter_mini_mode(self, @import("mode/mini/tab_width.zig"), ctx);
+    pub fn set_tab_width(self: *Self, ctx: Ctx) Result {
+        var tab_width: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&tab_width)}))
+            return enter_mini_mode(self, @import("mode/mini/tab_width.zig"), Ctx.fmt(.{"set_tab_width"}));
+
+        self.config_.tab_width = tab_width;
+        self.session_tab_width = null;
+        command.executeName("set_editor_tab_width", ctx) catch {};
+        try save_config();
+        self.logger.print("tab width {}", .{tab_width});
     }
-    pub const tab_width_meta: Meta = .{ .description = "Set tab width" };
+    pub const set_tab_width_meta: Meta = .{ .description = "Set tab width" };
+
+    pub fn set_buffer_tab_width(self: *Self, ctx: Ctx) Result {
+        var tab_width: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&tab_width)}))
+            return enter_mini_mode(self, @import("mode/mini/tab_width.zig"), Ctx.fmt(.{"set_buffer_tab_width"}));
+
+        command.executeName("set_editor_tab_width", ctx) catch {};
+        self.logger.print("buffer tab width {}", .{tab_width});
+    }
+    pub const set_buffer_tab_width_meta: Meta = .{ .description = "Set tab width for current buffer" };
+
+    pub fn set_session_tab_width(self: *Self, ctx: Ctx) Result {
+        var tab_width: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&tab_width)}))
+            return enter_mini_mode(self, @import("mode/mini/tab_width.zig"), Ctx.fmt(.{"set_session_tab_width"}));
+
+        self.session_tab_width = tab_width;
+        command.executeName("set_editor_tab_width", ctx) catch {};
+        self.logger.print("session tab width {}", .{tab_width});
+    }
+    pub const set_session_tab_width_meta: Meta = .{ .description = "Set tab width for current session" };
 
     pub fn set_theme(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
