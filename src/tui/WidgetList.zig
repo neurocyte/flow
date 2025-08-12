@@ -198,6 +198,7 @@ fn render_decoration(self: *Self, theme: *const Widget.Theme) void {
     const border = self.style.border;
 
     plane.set_style(style);
+    plane.fill(" ");
 
     if (padding.top > 0 and padding.left > 0) put_at_pos(plane, 0, 0, border.nw);
     if (padding.top > 0 and padding.right > 0) put_at_pos(plane, 0, box.w - 1, border.ne);
@@ -322,7 +323,7 @@ inline fn from_client_box(self: *const Self, box_: Widget.Box) Widget.Box {
     const total_y_padding = padding.top + padding.bottom;
     const total_x_padding = padding.left + padding.right;
     const y = if (box_.y < padding.top) padding.top else box_.y;
-    const x = if (box_.x < padding.left) padding.top else box_.x;
+    const x = if (box_.x < padding.left) padding.left else box_.x;
     var box = box_;
     box.y = y - padding.top;
     box.h += total_y_padding;
