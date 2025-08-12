@@ -11,7 +11,7 @@ pub fn name(_: *Type) []const u8 {
 }
 
 pub fn start(self: *Type) usize {
-    const tab_width = if (tui.get_active_editor()) |editor| editor.tab_width else tui.config().tab_width;
+    const tab_width = if (tui.get_active_editor()) |editor| editor.tab_width else tui.get_tab_width();
     self.input = tab_width;
     return tab_width;
 }

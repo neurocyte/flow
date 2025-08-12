@@ -24,6 +24,7 @@ allocator: Allocator,
 rdr_: renderer,
 config_: @import("config"),
 config_bufs: [][]const u8,
+session_tab_width: ?usize = null,
 highlight_columns_: []const u16,
 highlight_columns_configured: []const u16,
 frame_time: usize, // in microseconds
@@ -1120,6 +1121,11 @@ pub fn query_cache() *syntax.QueryCache {
 
 pub fn config() *const @import("config") {
     return &current().config_;
+}
+
+pub fn get_tab_width() usize {
+    const self = current();
+    return self.session_tab_width orelse self.config_.tab_width;
 }
 
 pub fn highlight_columns() []const u16 {
