@@ -172,11 +172,17 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.on_render(self.ctx, theme);
     self.render_decoration(theme);
 
+    const client_box = self.to_client_box(self.deco_box);
+
     var more = false;
-    for (self.widgets.items) |*w|
+    for (self.widgets.items) |*w| {
+        const widget_box = w.widget.box();
+        if (client_box.y + client_box.h <= widget_box.y) break;
+        if (client_box.x + client_box.w <= widget_box.x) break;
         if (w.widget.render(theme)) {
             more = true;
-        };
+        }
+    }
 
     self.after_render(self.ctx, theme);
     return more;
