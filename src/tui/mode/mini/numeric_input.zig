@@ -22,16 +22,18 @@ pub fn Create(options: type) type {
         buf: [30]u8 = undefined,
         input: ?usize = null,
         start: usize,
+        ctx: command.Context,
         commands: Commands = undefined,
 
-        pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
-            const editor = tui.get_active_editor() orelse return error.NotFound;
+        pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
             const self = try allocator.create(Self);
             errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
-                .start = editor.get_primary().cursor.row + 1,
+                .ctx = .{ .args = try ctx.args.clone(allocator) },
+                .start = 0,
             };
+            self.start = options.start(self);
             try self.commands.init(self);
             var mode = try keybind.mode("mini/numeric", allocator, .{
                 .insert_command = "mini_mode_insert_bytes",
@@ -41,6 +43,7 @@ pub fn Create(options: type) type {
         }
 
         pub fn deinit(self: *Self) void {
+            self.allocator.free(self.ctx.args.buf);
             self.commands.deinit();
             self.allocator.destroy(self);
         }
@@ -92,7 +95,7 @@ pub fn Create(options: type) type {
             pub fn mini_mode_cancel(self: *Self, _: Ctx) Result {
                 self.input = null;
                 self.update_mini_mode_text();
-                options.cancel(self);
+                options.cancel(self, self.ctx);
                 command.executeName("exit_mini_mode", .{}) catch {};
             }
             pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
@@ -102,7 +105,7 @@ pub fn Create(options: type) type {
                     const newval = if (linenum < 10) 0 else linenum / 10;
                     self.input = if (newval == 0) null else newval;
                     self.update_mini_mode_text();
-                    options.preview(self);
+                    options.preview(self, self.ctx);
                 }
             }
             pub const mini_mode_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
@@ -116,7 +119,7 @@ pub fn Create(options: type) type {
                     else => {},
                 }
                 self.update_mini_mode_text();
-                options.preview(self);
+                options.preview(self, self.ctx);
             }
             pub const mini_mode_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
 
@@ -126,7 +129,7 @@ pub fn Create(options: type) type {
                     return error.InvalidGotoInsertBytesArgument;
                 self.insert_bytes(bytes);
                 self.update_mini_mode_text();
-                options.preview(self);
+                options.preview(self, self.ctx);
             }
             pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -136,7 +139,7 @@ pub fn Create(options: type) type {
             pub const mini_mode_paste_meta: Meta = .{ .arguments = &.{.string} };
 
             pub fn mini_mode_select(self: *Self, _: Ctx) Result {
-                options.apply(self);
+                options.apply(self, self.ctx);
                 command.executeName("exit_mini_mode", .{}) catch {};
             }
             pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
