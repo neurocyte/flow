@@ -938,6 +938,12 @@ const cmds = struct {
     }
     pub const open_previous_file_meta: Meta = .{ .description = "Open the previous file" };
 
+    pub fn open_most_recent_file(self: *Self, _: Ctx) Result {
+        if (try project_manager.request_most_recent_file(self.allocator)) |file_path|
+            self.show_file_async(file_path);
+    }
+    pub const open_most_recent_file_meta: Meta = .{ .description = "Open the last changed file" };
+
     pub fn system_paste(self: *Self, _: Ctx) Result {
         if (builtin.os.tag == .windows) {
             const text = try @import("renderer").request_windows_clipboard(self.allocator);
