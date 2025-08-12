@@ -67,11 +67,15 @@ pub const Style = struct {
         const @"0": Margin = .{ .top = 0, .bottom = 0, .left = 0, .right = 0 };
         const @"1": Margin = .{ .top = 1, .bottom = 1, .left = 1, .right = 1 };
         const @"2": Margin = .{ .top = 2, .bottom = 2, .left = 2, .right = 2 };
+
+        const top_bottom_1: Margin = .{ .top = 1, .bottom = 1, .left = 0, .right = 0 };
+        const left_right_1: Margin = .{ .top = 0, .bottom = 0, .left = 0, .right = 0 };
     };
 
     pub const borders = struct {
         const blank: Border = .{ .nw = " ", .n = " ", .ne = " ", .e = " ", .se = " ", .s = " ", .sw = " ", .w = " " };
         const box: Border = .{ .nw = "┌", .n = "─", .ne = "┐", .e = "│", .se = "┘", .s = "─", .sw = "└", .w = "│" };
+        const thick_box: Border = .{ .nw = "▛", .n = "▀", .ne = "▜", .e = "▐", .se = "▟", .s = "▄", .sw = "▙", .w = "▌" };
     };
 
     pub const default_static: @This() = .{};
@@ -82,6 +86,18 @@ pub const Style = struct {
         .border = borders.box,
     };
     pub const boxed = &boxed_static;
+
+    pub const bars_top_bottom_static: @This() = .{
+        .padding = margins.top_bottom_1,
+        .border = borders.thick_box,
+    };
+    pub const bars_top_bottom = &bars_top_bottom_static;
+
+    pub const bars_left_right_static: @This() = .{
+        .padding = margins.left_right_1,
+        .border = borders.box,
+    };
+    pub const bars_left_right = &bars_left_right_static;
 };
 
 pub const VTable = struct {
