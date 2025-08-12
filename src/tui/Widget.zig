@@ -68,8 +68,9 @@ pub const Style = struct {
         const @"1": Margin = .{ .top = 1, .bottom = 1, .left = 1, .right = 1 };
         const @"2": Margin = .{ .top = 2, .bottom = 2, .left = 2, .right = 2 };
         const @"3": Margin = .{ .top = 3, .bottom = 3, .left = 3, .right = 3 };
-        const @"2/3": Margin = .{ .top = 2, .bottom = 2, .left = 3, .right = 3 };
-        const @"2/4": Margin = .{ .top = 2, .bottom = 2, .left = 4, .right = 4 };
+        const @"1/2": Margin = .{ .top = 1, .bottom = 1, .left = 2, .right = 1 };
+        const @"2/3": Margin = .{ .top = 2, .bottom = 2, .left = 3, .right = 2 };
+        const @"2/4": Margin = .{ .top = 2, .bottom = 2, .left = 4, .right = 3 };
 
         const top_bottom_1: Margin = .{ .top = 1, .bottom = 1, .left = 0, .right = 0 };
         const top_bottom_2: Margin = .{ .top = 2, .bottom = 2, .left = 0, .right = 0 };
@@ -94,7 +95,7 @@ pub const Style = struct {
     pub const boxed = &boxed_static;
 
     pub const thick_boxed_static: @This() = .{
-        .padding = margins.@"2/4",
+        .padding = margins.@"1/2",
         .border = borders.thick_box_sextant,
     };
     pub const thick_boxed = &thick_boxed_static;
