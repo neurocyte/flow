@@ -922,6 +922,10 @@ const cmds = struct {
     pub const select_task_meta: Meta = .{ .description = "Run task" };
 
     pub fn add_task(self: *Self, ctx: Ctx) Result {
+        var task: []const u8 = undefined;
+        if (try ctx.args.match(.{tp.extract(&task)}))
+            return call_add_task(task);
+
         return enter_mini_mode(self, struct {
             pub const Type = @import("mode/mini/buffer.zig").Create(@This());
             pub const create = Type.create;
@@ -929,17 +933,24 @@ const cmds = struct {
                 return @import("mode/overlay/task_palette.zig").name;
             }
             pub fn select(self_: *Type) void {
-                project_manager.add_task(self_.input.items) catch |e| {
-                    const logger = log.logger("tui");
-                    logger.err("add_task", e);
-                    logger.deinit();
-                };
+                call_add_task(self_.input.items);
                 command.executeName("exit_mini_mode", .{}) catch {};
                 command.executeName("select_task", .{}) catch {};
             }
         }, ctx);
     }
-    pub const add_task_meta: Meta = .{ .description = "Add task" };
+    pub const add_task_meta: Meta = .{
+        .description = "Add new task",
+        .arguments = &.{.string},
+    };
+
+    fn call_add_task(task: []const u8) void {
+        project_manager.add_task(task) catch |e| {
+            const logger = log.logger("tui");
+            logger.err("add_task", e);
+            logger.deinit();
+        };
+    }
 
     pub fn delete_task(_: *Self, ctx: Ctx) Result {
         var task: []const u8 = undefined;
