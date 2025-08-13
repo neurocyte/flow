@@ -332,7 +332,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         _ = self.plane.print("{s}", .{debug_warning_text}) catch return false;
     }
 
-    const more = self.menu.render(theme);
+    const more = self.menu.container.render(theme);
     return more or self.fire != null;
 }
 
