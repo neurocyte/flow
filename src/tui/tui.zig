@@ -928,9 +928,8 @@ const cmds = struct {
                 return @import("mode/overlay/task_palette.zig").name;
             }
             pub fn select(self_: *Type) void {
-                call_add_task(self_.input.items);
+                tp.self_pid().send(.{ "cmd", "run_task", .{self_.input.items} }) catch {};
                 command.executeName("exit_mini_mode", .{}) catch {};
-                command.executeName("run_task", .{}) catch {};
             }
         }, ctx);
     }
@@ -954,7 +953,7 @@ const cmds = struct {
             var buffer_name = std.ArrayList(u8).init(self.allocator);
             defer buffer_name.deinit();
             buffer_name.writer().print("*{s}*", .{task}) catch {};
-            project_manager.add_task(task) catch {};
+            call_add_task(task);
             tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{ buffer_name.items, "", "conf" } }) catch |e| self.logger.err("task", e);
             tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{task} }) catch |e| self.logger.err("task", e);
         } else {
