@@ -329,7 +329,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn position_menu(self: *Self, y: usize, x: usize) void {
     const box = Widget.Box.from(self.plane);
-    self.menu.resize(.{ .y = box.y + y, .x = box.x + x, .w = self.menu_w });
+    self.menu.resize(.{ .y = box.y + y, .x = box.x + x, .w = self.menu_w, .h = self.menu_len });
 }
 
 fn center(self: *Self, non_centered: usize, w: usize) usize {
