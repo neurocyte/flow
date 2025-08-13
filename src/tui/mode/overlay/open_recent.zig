@@ -23,6 +23,7 @@ const ModalBackground = @import("../../ModalBackground.zig");
 
 const Self = @This();
 const max_recent_files: usize = 25;
+const widget_style_type: Widget.Style.Type = .palette;
 
 allocator: std.mem.Allocator,
 f: usize = 0,
@@ -48,6 +49,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
         .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{ .ctx = self }),
         .menu = try Menu.create(*Self, allocator, tui.plane(), .{
             .ctx = self,
+            .style = widget_style_type,
             .on_render = on_render_menu,
             .prepare_resize = prepare_resize_menu,
         }),

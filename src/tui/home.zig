@@ -79,6 +79,8 @@ home_style_bufs: [][]const u8,
 
 const Self = @This();
 
+const widget_style_type: Widget.Style.Type = .home;
+
 pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     const logger = log.logger("home");
     const self = try allocator.create(Self);
@@ -95,7 +97,11 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .allocator = allocator,
         .parent = parent.plane.*,
         .plane = n,
-        .menu = try Menu.create(*Self, allocator, w.plane.*, .{ .ctx = self, .on_render = menu_on_render }),
+        .menu = try Menu.create(*Self, allocator, w.plane.*, .{
+            .ctx = self,
+            .style = widget_style_type,
+            .on_render = menu_on_render,
+        }),
         .input_namespace = keybind.get_namespace(),
         .home_style = home_style,
         .home_style_bufs = home_style_bufs,
@@ -145,7 +151,8 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
             _ = try writer.write(leader);
         try writer.print(" :{s}", .{hint});
         const label = fis.getWritten();
-        self.menu_w = @max(self.menu_w, label.len + 1 + menu.container.style.padding.left + menu.container.style.padding.right);
+        const padding = Widget.Style.from_type(widget_style_type).padding;
+        self.menu_w = @max(self.menu_w, label.len + 1 + padding.left + padding.right);
     }
 
     var value = std.ArrayList(u8).init(self.allocator);

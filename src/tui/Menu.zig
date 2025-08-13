@@ -14,6 +14,7 @@ pub const scroll_lines = 3;
 pub fn Options(context: type) type {
     return struct {
         ctx: Context,
+        style: Widget.Style.Type,
 
         on_click: *const fn (ctx: context, button: *Button.State(*State(Context))) void = do_nothing,
         on_click4: *const fn (menu: **State(Context), button: *Button.State(*State(Context))) void = do_nothing_click,
@@ -60,7 +61,7 @@ pub fn Options(context: type) type {
 pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts: Options(ctx_type)) !*State(ctx_type) {
     const self = try allocator.create(State(ctx_type));
     errdefer allocator.destroy(self);
-    const container = try WidgetList.createHStyled(allocator, parent, @typeName(@This()), .dynamic, Widget.Style.thick_boxed);
+    const container = try WidgetList.createHStyled(allocator, parent, @typeName(@This()), .dynamic, opts.style);
     self.* = .{
         .allocator = allocator,
         .menu = try WidgetList.createV(allocator, container.plane, @typeName(@This()), .dynamic),

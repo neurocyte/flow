@@ -20,6 +20,7 @@ const ModalBackground = @import("../../ModalBackground.zig");
 pub const Menu = @import("../../Menu.zig");
 
 const max_menu_width = 80;
+const widget_style_type: Widget.Style.Type = .palette;
 
 pub fn Create(options: type) type {
     return struct {
@@ -57,6 +58,7 @@ pub fn Create(options: type) type {
                 }),
                 .menu = try Menu.create(*Self, allocator, tui.plane(), .{
                     .ctx = self,
+                    .style = widget_style_type,
                     .on_render = if (@hasDecl(options, "on_render_menu")) options.on_render_menu else on_render_menu,
                     .prepare_resize = prepare_resize_menu,
                     .after_resize = after_resize_menu,
@@ -169,9 +171,9 @@ pub fn Create(options: type) type {
             // self.start_query(0) catch {};
         }
 
-        fn do_resize(self: *Self) void {
+        fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
             const box = self.prepare_resize();
-            self.menu.resize(self.menu.container.to_client_box(box));
+            self.menu.resize(self.menu.container.to_client_box(box, padding));
             self.after_resize();
         }
 
@@ -253,7 +255,8 @@ pub fn Create(options: type) type {
                 var i = n;
                 while (i > 0) : (i -= 1)
                     self.menu.select_down();
-                self.do_resize();
+                const padding = Widget.Style.from_type(widget_style_type).padding;
+                self.do_resize(padding);
                 tui.refresh_hover();
                 self.selection_updated();
             }

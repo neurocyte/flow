@@ -1,6 +1,12 @@
 padding: Margin = Margin.@"0",
-inner_padding: Margin = Margin.@"0",
 border: Border = Border.blank,
+
+pub const Type = enum {
+    none,
+    palette,
+    panel,
+    home,
+};
 
 pub const Padding = struct {
     pub const Unit = u16;
@@ -69,13 +75,33 @@ pub const thick_boxed_static: @This() = .{
 pub const thick_boxed = &thick_boxed_static;
 
 pub const bars_top_bottom_static: @This() = .{
-    .padding = Margin.top_bottom_1,
-    .border = Border.thick_box,
+    .padding = Margin.@"top/bottom/1",
+    .border = Border.@"thick box (octant)",
 };
 pub const bars_top_bottom = &bars_top_bottom_static;
 
 pub const bars_left_right_static: @This() = .{
-    .padding = Margin.left_right_1,
+    .padding = Margin.@"left/right/1",
     .border = Border.box,
 };
 pub const bars_left_right = &bars_left_right_static;
+
+pub fn from_type(style_type: Type) *const @This() {
+    return switch (style_type) {
+        .none => default,
+        .palette => thick_boxed,
+        .panel => default,
+        .home => default,
+    };
+}
+
+const Widget = @import("Widget.zig");
+
+pub fn theme_style_from_type(style_type: Type, theme: *const Widget.Theme) Widget.Theme.Style {
+    return switch (style_type) {
+        .none => theme.editor,
+        .palette => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },
+        .panel => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor.bg },
+        .home => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor.bg },
+    };
+}

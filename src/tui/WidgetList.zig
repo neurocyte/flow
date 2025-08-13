@@ -33,13 +33,13 @@ after_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on
 prepare_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widget.Box = prepare_resize_default,
 after_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) void = after_resize_default,
 on_layout: *const fn (ctx: ?*anyopaque, self: *Self) Widget.Layout = on_layout_default,
-style: *const Widget.Style,
+style: Widget.Style.Type,
 
 pub fn createH(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) error{OutOfMemory}!*Self {
-    return createHStyled(allocator, parent, name, layout_, Widget.Style.default);
+    return createHStyled(allocator, parent, name, layout_, .none);
 }
 
-pub fn createHStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, style: *const Widget.Style) error{OutOfMemory}!*Self {
+pub fn createHStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, style: Widget.Style.Type) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = try init(allocator, parent, name, .horizontal, layout_, Box{}, style);
@@ -48,10 +48,10 @@ pub fn createHStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, la
 }
 
 pub fn createV(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) !*Self {
-    return createVStyled(allocator, parent, name, layout_, Widget.Style.default);
+    return createVStyled(allocator, parent, name, layout_, .none);
 }
 
-pub fn createVStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, style: *const Widget.Style) !*Self {
+pub fn createVStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, style: Widget.Style.Type) !*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = try init(allocator, parent, name, .vertical, layout_, Box{}, style);
@@ -67,7 +67,7 @@ pub fn createBox(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: D
     return self;
 }
 
-fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction, layout_: Layout, box_: Box, style: *const Widget.Style) !Self {
+fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction, layout_: Layout, box_: Box, style: Widget.Style.Type) !Self {
     var self: Self = .{
         .plane = undefined,
         .parent = parent,
@@ -78,7 +78,8 @@ fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction,
         .style = style,
         .deco_box = undefined,
     };
-    self.deco_box = self.from_client_box(box_);
+    const padding = Widget.Style.from_type(self.style).padding;
+    self.deco_box = self.from_client_box(box_, padding);
     self.plane = try Plane.init(&self.deco_box.opts(name), parent);
     return self;
 }
@@ -162,15 +163,17 @@ pub fn update(self: *Self) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    const widget_style = Widget.Style.from_type(self.style);
+    const padding = widget_style.padding;
     for (self.widgets.items) |*w| if (!w.layout.eql(w.widget.layout())) {
-        self.refresh_layout();
+        self.refresh_layout(padding);
         break;
     };
 
     self.on_render(self.ctx, theme);
-    self.render_decoration(theme);
+    self.render_decoration(theme, widget_style);
 
-    const client_box = self.to_client_box(self.deco_box);
+    const client_box = self.to_client_box(self.deco_box, padding);
 
     var more = false;
     for (self.widgets.items) |*w| {
@@ -188,12 +191,12 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
 
-fn render_decoration(self: *Self, theme: *const Widget.Theme) void {
-    const style = theme.editor_gutter_modified;
+fn render_decoration(self: *Self, theme: *const Widget.Theme, widget_style: *const Widget.Style) void {
+    const style = Widget.Style.theme_style_from_type(self.style, theme);
+    const padding = widget_style.padding;
+    const border = widget_style.border;
     const plane = &self.plane;
     const box = self.deco_box;
-    const padding = self.style.padding;
-    const border = self.style.border;
 
     plane.set_style(style);
     plane.fill(" ");
@@ -289,19 +292,19 @@ fn get_loc_b(self: *Self, pos: *Widget.Box) *usize {
     };
 }
 
-fn refresh_layout(self: *Self) void {
-    return self.handle_resize(self.to_client_box(self.deco_box));
+fn refresh_layout(self: *Self, padding: Widget.Style.Margin) void {
+    return self.handle_resize(self.to_client_box(self.deco_box, padding));
 }
 
 pub fn handle_resize(self: *Self, box: Widget.Box) void {
-    const client_box_ = self.prepare_resize(self.ctx, self, self.to_client_box(box));
-    self.deco_box = self.from_client_box(client_box_);
-    self.do_resize();
-    self.after_resize(self.ctx, self, self.to_client_box(self.deco_box));
+    const padding = Widget.Style.from_type(self.style).padding;
+    const client_box_ = self.prepare_resize(self.ctx, self, self.to_client_box(box, padding));
+    self.deco_box = self.from_client_box(client_box_, padding);
+    self.do_resize(padding);
+    self.after_resize(self.ctx, self, self.to_client_box(self.deco_box, padding));
 }
 
-pub inline fn to_client_box(self: *const Self, box_: Widget.Box) Widget.Box {
-    const padding = self.style.padding;
+pub inline fn to_client_box(_: *const Self, box_: Widget.Box, padding: Widget.Style.Margin) Widget.Box {
     const total_y_padding = padding.top + padding.bottom;
     const total_x_padding = padding.left + padding.right;
     var box = box_;
@@ -312,8 +315,7 @@ pub inline fn to_client_box(self: *const Self, box_: Widget.Box) Widget.Box {
     return box;
 }
 
-inline fn from_client_box(self: *const Self, box_: Widget.Box) Widget.Box {
-    const padding = self.style.padding;
+inline fn from_client_box(_: *const Self, box_: Widget.Box, padding: Widget.Style.Margin) Widget.Box {
     const total_y_padding = padding.top + padding.bottom;
     const total_x_padding = padding.left + padding.right;
     const y = if (box_.y < padding.top) padding.top else box_.y;
@@ -340,8 +342,8 @@ pub fn resize(self: *Self, box: Widget.Box) void {
     return self.handle_resize(box);
 }
 
-fn do_resize(self: *Self) void {
-    const client_box = self.to_client_box(self.deco_box);
+fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
+    const client_box = self.to_client_box(self.deco_box, padding);
     const deco_box = self.deco_box;
     self.plane.move_yx(@intCast(deco_box.y), @intCast(deco_box.x)) catch return;
     self.plane.resize_simple(@intCast(deco_box.h), @intCast(deco_box.w)) catch return;
