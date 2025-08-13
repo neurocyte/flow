@@ -1437,6 +1437,7 @@ pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) voi
     _ = self.cell_load(&cell, icon) catch {};
     _ = self.putc(&cell) catch {};
     self.cursor_move_rel(0, 1) catch {};
+    _ = self.print(" ", .{}) catch {};
 }
 
 pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *const Widget.Theme) !void {

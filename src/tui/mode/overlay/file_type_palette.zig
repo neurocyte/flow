@@ -94,10 +94,9 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             if (!(cbor.matchString(&iter, &description_) catch false)) @panic("invalid file_type description");
             if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid file_type icon");
             if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid file_type color");
-            if (tui.config().show_fileicons) {
-                tui.render_file_icon(&button.plane, icon, color);
-                _ = button.plane.print(" ", .{}) catch {};
-            }
+
+            tui.render_file_icon(&button.plane, icon, color);
+
             button.plane.set_style(style_label);
             _ = button.plane.print("{s} ", .{description_}) catch {};
 
