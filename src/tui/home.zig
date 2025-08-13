@@ -30,7 +30,7 @@ const style = struct {
         \\open_recent_project
         \\find_in_files
         \\open_command_palette
-        \\select_task
+        \\run_task
         \\add_task
         \\open_config
         \\open_gui_config
@@ -48,7 +48,7 @@ const style = struct {
         \\open_recent_project
         \\find_in_files
         \\open_command_palette
-        \\select_task
+        \\run_task
         \\add_task
         \\open_config
         \\open_keybind_config
