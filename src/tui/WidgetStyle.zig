@@ -59,39 +59,98 @@ pub const Border = struct {
     const @"round thick box": Border = .{ .nw = "█", .n = "▀", .ne = "█", .e = "█", .se = "█", .s = "▄", .sw = "█", .w = "█" };
 };
 
-pub const default_static: @This() = .{};
-pub const default = &default_static;
+const compact: @This() = .{};
 
-pub const boxed_static: @This() = .{
+const boxed: @This() = .{
     .padding = Margin.@"1",
     .border = Border.box,
 };
-pub const boxed = &boxed_static;
 
-pub const thick_boxed_static: @This() = .{
+const thick_boxed: @This() = .{
     .padding = Margin.@"1/2",
     .border = Border.@"thick box (octant)",
 };
-pub const thick_boxed = &thick_boxed_static;
 
-pub const bars_top_bottom_static: @This() = .{
+const bars_top_bottom: @This() = .{
     .padding = Margin.@"top/bottom/1",
     .border = Border.@"thick box (octant)",
 };
-pub const bars_top_bottom = &bars_top_bottom_static;
 
-pub const bars_left_right_static: @This() = .{
+const bars_left_right: @This() = .{
     .padding = Margin.@"left/right/1",
     .border = Border.@"thick box (octant)",
 };
-pub const bars_left_right = &bars_left_right_static;
 
 pub fn from_type(style_type: Type) *const @This() {
     return switch (style_type) {
-        .none => default,
-        .palette => bars_top_bottom,
-        .panel => default,
-        .home => bars_left_right,
+        .none => none_style,
+        .palette => palette_style,
+        .panel => panel_style,
+        .home => home_style,
+    };
+}
+
+pub const Styles = enum {
+    compact,
+    boxed,
+    thick_boxed,
+    bars_top_bottom,
+    bars_left_right,
+};
+
+pub fn from_tag(tag: Styles) *const @This() {
+    return switch (tag) {
+        .compact => &compact,
+        .boxed => &boxed,
+        .thick_boxed => &thick_boxed,
+        .bars_top_bottom => &bars_top_bottom,
+        .bars_left_right => &bars_left_right,
+    };
+}
+
+pub fn next_tag(tag: Styles) Styles {
+    const new_value = @intFromEnum(tag) + 1;
+    return if (new_value > @intFromEnum(Styles.bars_left_right)) .compact else @enumFromInt(new_value);
+}
+
+pub fn set_type_style(style_type: Type, tag: Styles) void {
+    const ref = type_style(style_type);
+    ref.* = from_tag(tag);
+}
+
+pub fn set_next_style(style_type: Type) void {
+    const tag_ref = type_tag(style_type);
+    const new_tag = next_tag(tag_ref.*);
+    const style_ref = type_style(style_type);
+    tag_ref.* = new_tag;
+    style_ref.* = from_tag(new_tag);
+}
+
+var none_style: *const @This() = &compact;
+var palette_style: *const @This() = &bars_top_bottom;
+var panel_style: *const @This() = &compact;
+var home_style: *const @This() = &bars_left_right;
+
+fn type_style(style_type: Type) **const @This() {
+    return switch (style_type) {
+        .none => &none_style,
+        .palette => &palette_style,
+        .panel => &panel_style,
+        .home => &home_style,
+    };
+}
+
+var none_tag: Styles = .compact;
+var palette_tag: Styles = .bars_top_bottom;
+var panel_tag: Styles = .compact;
+var home_tag: Styles = .bars_left_right;
+
+fn type_tag(style_type: Type) *Styles {
+    return switch (style_type) {
+        .none => &none_tag,
+        .palette => &palette_tag,
+        .panel => &panel_tag,
+        .home => &home_tag,
     };
 }
 
