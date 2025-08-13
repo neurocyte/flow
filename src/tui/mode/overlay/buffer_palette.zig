@@ -12,6 +12,7 @@ const Widget = @import("../../Widget.zig");
 pub const label = "Switch buffers";
 pub const name = " buffer";
 pub const description = "buffer";
+pub const icon = "󰈞  ";
 
 pub const Entry = struct {
     label: []const u8,
