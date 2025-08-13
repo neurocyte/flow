@@ -937,6 +937,7 @@ const cmds = struct {
     pub const add_task_meta: Meta = .{
         .description = "Add new task",
         .arguments = &.{.string},
+        .icon = "",
     };
 
     fn call_add_task(task: []const u8) void {
