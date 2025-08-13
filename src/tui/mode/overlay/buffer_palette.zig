@@ -12,8 +12,6 @@ const Widget = @import("../../Widget.zig");
 pub const label = "Switch buffers";
 pub const name = " buffer";
 pub const description = "buffer";
-const dirty_indicator = "";
-const hidden_indicator = "-";
 
 pub const Entry = struct {
     label: []const u8,
@@ -27,12 +25,7 @@ pub fn load_entries(palette: *Type) !usize {
     const buffers = try buffer_manager.list_most_recently_used(palette.allocator);
     defer palette.allocator.free(buffers);
     for (buffers) |buffer| {
-        const indicator = if (buffer.is_dirty())
-            dirty_indicator
-        else if (buffer.is_hidden())
-            hidden_indicator
-        else
-            "";
+        const indicator = tui.get_buffer_state_indicator(buffer);
         (try palette.entries.addOne()).* = .{
             .label = buffer.get_file_path(),
             .icon = buffer.file_type_icon orelse "",
@@ -61,50 +54,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
 }
 
 pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.Theme, selected: bool) bool {
-    const style_base = theme.editor_widget;
-    const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
-    const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
-    button.plane.set_base_style(style_base);
-    button.plane.erase();
-    button.plane.home();
-    button.plane.set_style(style_label);
-    if (button.active or button.hover or selected) {
-        button.plane.fill(" ");
-        button.plane.home();
-    }
-
-    button.plane.set_style(style_hint);
-    const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s}", .{pointer}) catch {};
-
-    var iter = button.opts.label;
-    var file_path_: []const u8 = undefined;
-    var icon: []const u8 = undefined;
-    var color: u24 = undefined;
-    if (!(cbor.matchString(&iter, &file_path_) catch false)) @panic("invalid buffer file path");
-    if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid buffer file type icon");
-    if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid buffer file type color");
-    if (tui.config().show_fileicons) {
-        tui.render_file_icon(&button.plane, icon, color);
-        _ = button.plane.print(" ", .{}) catch {};
-    }
-    button.plane.set_style(style_label);
-    _ = button.plane.print(" {s} ", .{file_path_}) catch {};
-
-    var indicator: []const u8 = undefined;
-    if (!(cbor.matchString(&iter, &indicator) catch false))
-        indicator = "";
-    button.plane.set_style(style_hint);
-    _ = button.plane.print_aligned_right(0, "{s} ", .{indicator}) catch {};
-
-    var index: usize = 0;
-    var len = cbor.decodeArrayHeader(&iter) catch return false;
-    while (len > 0) : (len -= 1) {
-        if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            tui.render_match_cell(&button.plane, 0, index + 4, theme) catch break;
-        } else break;
-    }
-    return false;
+    return tui.render_file_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
 }
 
 fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {

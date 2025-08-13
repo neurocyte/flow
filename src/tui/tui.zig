@@ -1428,7 +1428,19 @@ pub fn message(comptime fmt: anytype, args: anytype) void {
     tp.self_pid().send(.{ "message", std.fmt.bufPrint(&buf, fmt, args) catch @panic("too large") }) catch {};
 }
 
+const dirty_indicator = "";
+const hidden_indicator = "-";
+
+pub fn get_file_state_indicator(buffer_manager: *const @import("Buffer").Manager, file_name: []const u8) []const u8 {
+    return if (buffer_manager.get_buffer_for_file(file_name)) |buffer| get_buffer_state_indicator(buffer) else "";
+}
+
+pub fn get_buffer_state_indicator(buffer: *const @import("Buffer")) []const u8 {
+    return if (buffer.is_dirty()) dirty_indicator else if (buffer.is_hidden()) hidden_indicator else "";
+}
+
 pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) void {
+    if (!config().show_fileicons) return;
     var cell = self.cell_init();
     _ = self.at_cursor_cell(&cell) catch return;
     if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) {
@@ -1446,6 +1458,52 @@ pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *con
     _ = self.at_cursor_cell(&cell) catch return;
     cell.set_style(theme_.editor_match);
     _ = self.putc(&cell) catch {};
+}
+
+pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, active: bool, selected: bool, hover: bool, theme_: *const Widget.Theme) bool {
+    const style_base = theme_.editor_widget;
+    const style_label = if (active) theme_.editor_cursor else if (hover or selected) theme_.editor_selection else theme_.editor_widget;
+    const style_hint = if (find_scope_style(theme_, "entity.name")) |sty| sty.style else style_label;
+    self.set_base_style(style_base);
+    self.erase();
+    self.home();
+    self.set_style(style_label);
+    if (active or hover or selected) {
+        self.fill(" ");
+        self.home();
+    }
+
+    self.set_style(style_hint);
+    const pointer = if (selected) "⏵" else " ";
+    _ = self.print("{s}", .{pointer}) catch {};
+
+    var iter = file_item_cbor;
+    var file_path_: []const u8 = undefined;
+    var icon: []const u8 = undefined;
+    var color: u24 = undefined;
+    if (!(cbor.matchString(&iter, &file_path_) catch false)) @panic("invalid buffer file path");
+    if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid buffer file type icon");
+    if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid buffer file type color");
+
+    render_file_icon(self, icon, color);
+
+    self.set_style(style_label);
+    _ = self.print("{s} ", .{file_path_}) catch {};
+
+    var indicator: []const u8 = undefined;
+    if (!(cbor.matchString(&iter, &indicator) catch false))
+        indicator = "";
+    self.set_style(style_hint);
+    _ = self.print_aligned_right(0, "{s} ", .{indicator}) catch {};
+
+    var index: usize = 0;
+    var len = cbor.decodeArrayHeader(&iter) catch return false;
+    while (len > 0) : (len -= 1) {
+        if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
+            render_match_cell(self, 0, index + 4, theme_) catch break;
+        } else break;
+    }
+    return false;
 }
 
 fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const u8 {
