@@ -916,11 +916,6 @@ const cmds = struct {
     }
     pub const switch_buffers_meta: Meta = .{ .description = "Switch buffers" };
 
-    pub fn select_task(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
-    }
-    pub const select_task_meta: Meta = .{ .description = "Run task" };
-
     pub fn add_task(self: *Self, ctx: Ctx) Result {
         var task: []const u8 = undefined;
         if (try ctx.args.match(.{tp.extract(&task)}))
@@ -935,7 +930,7 @@ const cmds = struct {
             pub fn select(self_: *Type) void {
                 call_add_task(self_.input.items);
                 command.executeName("exit_mini_mode", .{}) catch {};
-                command.executeName("select_task", .{}) catch {};
+                command.executeName("run_task", .{}) catch {};
             }
         }, ctx);
     }
@@ -951,6 +946,24 @@ const cmds = struct {
             logger.deinit();
         };
     }
+
+    pub fn run_task(self: *Self, ctx: Ctx) Result {
+        var task: []const u8 = undefined;
+        if (try ctx.args.match(.{tp.extract(&task)})) {
+            var buffer_name = std.ArrayList(u8).init(self.allocator);
+            defer buffer_name.deinit();
+            buffer_name.writer().print("*{s}*", .{task}) catch {};
+            project_manager.add_task(task) catch {};
+            tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{ buffer_name.items, "", "conf" } }) catch |e| self.logger.err("task", e);
+            tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{task} }) catch |e| self.logger.err("task", e);
+        } else {
+            return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
+        }
+    }
+    pub const run_task_meta: Meta = .{
+        .description = "Run a task",
+        .arguments = &.{.string},
+    };
 
     pub fn delete_task(_: *Self, ctx: Ctx) Result {
         var task: []const u8 = undefined;

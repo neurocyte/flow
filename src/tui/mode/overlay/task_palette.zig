@@ -102,17 +102,13 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
-    var buffer_name = std.ArrayList(u8).init(menu.*.opts.ctx.allocator);
-    defer buffer_name.deinit();
-    buffer_name.writer().print("*{s}*", .{entry.label}) catch {};
     if (entry.command) |cmd| {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
         tp.self_pid().send(.{ "cmd", cmd, .{} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     } else {
-        project_manager.add_task(entry.label) catch {};
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-        tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{ buffer_name.items, "", "conf" } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-        tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{entry.label} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        project_manager.add_task(entry.label) catch {};
+        tp.self_pid().send(.{ "cmd", "run_task", .{entry.label} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     }
 }
 

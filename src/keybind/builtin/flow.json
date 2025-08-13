@@ -29,7 +29,7 @@
             ["f10", "theme_next"],
             ["f11", "toggle_panel"],
             ["f12", "toggle_inputview"],
-            ["alt+!", "select_task"],
+            ["alt+!", "run_task"],
             ["ctrl+tab", "next_tab"],
             ["ctrl+shift+tab", "previous_tab"],
             ["ctrl+shift+e", "switch_buffers"],
