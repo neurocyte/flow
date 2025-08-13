@@ -532,6 +532,14 @@ pub fn Create(options: type) type {
             }
             pub const overlay_toggle_inputview_meta: Meta = .{};
 
+            pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
+                Widget.Style.set_next_style(widget_style_type);
+                const padding = Widget.Style.from_type(widget_style_type).padding;
+                self.do_resize(padding);
+                tui.need_render();
+            }
+            pub const overlay_next_widget_style_meta: Meta = .{};
+
             pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
                 return overlay_insert_bytes(self, ctx);
             }

@@ -285,6 +285,7 @@
     },
     "overlay/palette": {
         "press": [
+            ["alt+f9", "overlay_next_widget_style"],
             ["alt+!", "add_task"],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+q", "quit"],
