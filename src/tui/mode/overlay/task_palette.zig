@@ -107,7 +107,7 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     buffer_name.writer().print("*{s}*", .{entry.label}) catch {};
     if (entry.command) |cmd| {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-        tp.self_pid().send(.{ "cmd", cmd, .{entry.label} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        tp.self_pid().send(.{ "cmd", cmd, .{} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     } else {
         project_manager.add_task(entry.label) catch {};
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
