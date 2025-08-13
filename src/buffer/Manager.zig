@@ -80,7 +80,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
     }
 }
 
-pub fn get_buffer_for_file(self: *Self, file_path: []const u8) ?*Buffer {
+pub fn get_buffer_for_file(self: *const Self, file_path: []const u8) ?*Buffer {
     return self.buffers.get(file_path);
 }
 
