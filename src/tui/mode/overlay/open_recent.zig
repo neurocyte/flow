@@ -370,6 +370,13 @@ const cmds = struct {
     }
     pub const overlay_toggle_inputview_meta: Meta = .{};
 
+    pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
+        Widget.Style.set_next_style(widget_style_type);
+        self.do_resize();
+        tui.need_render();
+    }
+    pub const overlay_next_widget_style_meta: Meta = .{};
+
     pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
         return overlay_insert_bytes(self, ctx);
     }
