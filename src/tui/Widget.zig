@@ -10,6 +10,7 @@ pub const Box = @import("Box.zig");
 pub const Theme = @import("theme");
 pub const themes = @import("themes").themes;
 pub const scopes = @import("themes").scopes;
+pub const Style = @import("WidgetStyle.zig");
 
 ptr: *anyopaque,
 plane: *Plane,
@@ -36,81 +37,6 @@ pub const Layout = union(enum) {
             },
         };
     }
-};
-
-pub const Style = struct {
-    padding: Margin = margins.@"0",
-    inner_padding: Margin = margins.@"0",
-    border: Border = borders.blank,
-
-    pub const PaddingUnit = u16;
-
-    pub const Margin = struct {
-        top: PaddingUnit,
-        bottom: PaddingUnit,
-        left: PaddingUnit,
-        right: PaddingUnit,
-    };
-
-    pub const Border = struct {
-        nw: []const u8,
-        n: []const u8,
-        ne: []const u8,
-        e: []const u8,
-        se: []const u8,
-        s: []const u8,
-        sw: []const u8,
-        w: []const u8,
-    };
-
-    pub const margins = struct {
-        const @"0": Margin = .{ .top = 0, .bottom = 0, .left = 0, .right = 0 };
-        const @"1": Margin = .{ .top = 1, .bottom = 1, .left = 1, .right = 1 };
-        const @"2": Margin = .{ .top = 2, .bottom = 2, .left = 2, .right = 2 };
-        const @"3": Margin = .{ .top = 3, .bottom = 3, .left = 3, .right = 3 };
-        const @"1/2": Margin = .{ .top = 1, .bottom = 1, .left = 2, .right = 1 };
-        const @"2/3": Margin = .{ .top = 2, .bottom = 2, .left = 3, .right = 2 };
-        const @"2/4": Margin = .{ .top = 2, .bottom = 2, .left = 4, .right = 3 };
-
-        const top_bottom_1: Margin = .{ .top = 1, .bottom = 1, .left = 0, .right = 0 };
-        const top_bottom_2: Margin = .{ .top = 2, .bottom = 2, .left = 0, .right = 0 };
-        const left_right_1: Margin = .{ .top = 0, .bottom = 0, .left = 1, .right = 1 };
-        const left_right_2: Margin = .{ .top = 0, .bottom = 0, .left = 2, .right = 2 };
-    };
-
-    pub const borders = struct {
-        const blank: Border = .{ .nw = " ", .n = " ", .ne = " ", .e = " ", .se = " ", .s = " ", .sw = " ", .w = " " };
-        const box: Border = .{ .nw = "┌", .n = "─", .ne = "┐", .e = "│", .se = "┘", .s = "─", .sw = "└", .w = "│" };
-        const thick_box: Border = .{ .nw = "▛", .n = "▀", .ne = "▜", .e = "▐", .se = "▟", .s = "▄", .sw = "▙", .w = "▌" };
-        const thick_box_sextant: Border = .{ .nw = "🬕", .n = "🬂", .ne = "🬨", .e = "▐", .se = "🬷", .s = "🬭", .sw = "🬲", .w = "▌" };
-    };
-
-    pub const default_static: @This() = .{};
-    pub const default = &default_static;
-
-    pub const boxed_static: @This() = .{
-        .padding = margins.@"1",
-        .border = borders.box,
-    };
-    pub const boxed = &boxed_static;
-
-    pub const thick_boxed_static: @This() = .{
-        .padding = margins.@"1/2",
-        .border = borders.thick_box_sextant,
-    };
-    pub const thick_boxed = &thick_boxed_static;
-
-    pub const bars_top_bottom_static: @This() = .{
-        .padding = margins.top_bottom_1,
-        .border = borders.thick_box,
-    };
-    pub const bars_top_bottom = &bars_top_bottom_static;
-
-    pub const bars_left_right_static: @This() = .{
-        .padding = margins.left_right_1,
-        .border = borders.box,
-    };
-    pub const bars_left_right = &bars_left_right_static;
 };
 
 pub const VTable = struct {
