@@ -80,8 +80,6 @@ fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction,
     };
     self.deco_box = self.from_client_box(box_);
     self.plane = try Plane.init(&self.deco_box.opts(name), parent);
-    if (self.style.padding.top > 0 and self.deco_box.y < 10)
-        std.log.info("init deco box: {any}", .{self.deco_box});
     return self;
 }
 
@@ -296,12 +294,8 @@ fn refresh_layout(self: *Self) void {
 }
 
 pub fn handle_resize(self: *Self, box: Widget.Box) void {
-    if (self.style.padding.top > 0 and self.deco_box.y < 10)
-        std.log.info("handle_resize deco box: {any}", .{self.deco_box});
     const client_box_ = self.prepare_resize(self.ctx, self, self.to_client_box(box));
     self.deco_box = self.from_client_box(client_box_);
-    if (self.style.padding.top > 0 and self.deco_box.y < 10)
-        std.log.info("prepare_resize deco box: {any}", .{self.deco_box});
     self.do_resize();
     self.after_resize(self.ctx, self, self.to_client_box(self.deco_box));
 }
