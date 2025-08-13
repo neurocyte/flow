@@ -61,14 +61,49 @@ pub const Border = struct {
 
 const compact: @This() = .{};
 
+const spacious: @This() = .{
+    .padding = Margin.@"1",
+    .border = Border.blank,
+};
+
 const boxed: @This() = .{
     .padding = Margin.@"1",
     .border = Border.box,
 };
 
+const rounded_boxed: @This() = .{
+    .padding = Margin.@"1",
+    .border = Border.@"rounded box",
+};
+
+const double_boxed: @This() = .{
+    .padding = Margin.@"1",
+    .border = Border.@"double box",
+};
+
+const single_double_top_bottom_boxed: @This() = .{
+    .padding = Margin.@"1",
+    .border = Border.@"single/double box (top/bottom)",
+};
+
+const single_double_left_right_boxed: @This() = .{
+    .padding = Margin.@"1",
+    .border = Border.@"single/double box (left/right)",
+};
+
+const dotted_boxed: @This() = .{
+    .padding = Margin.@"1",
+    .border = Border.@"dotted box (braille)",
+};
+
 const thick_boxed: @This() = .{
     .padding = Margin.@"1/2",
     .border = Border.@"thick box (octant)",
+};
+
+const extra_thick_boxed: @This() = .{
+    .padding = Margin.@"1/2",
+    .border = Border.@"extra thick box",
 };
 
 const bars_top_bottom: @This() = .{
@@ -92,8 +127,15 @@ pub fn from_type(style_type: Type) *const @This() {
 
 pub const Styles = enum {
     compact,
+    spacious,
     boxed,
+    double_boxed,
+    rounded_boxed,
+    single_double_top_bottom_boxed,
+    single_double_left_right_boxed,
+    dotted_boxed,
     thick_boxed,
+    extra_thick_boxed,
     bars_top_bottom,
     bars_left_right,
 };
@@ -101,8 +143,15 @@ pub const Styles = enum {
 pub fn from_tag(tag: Styles) *const @This() {
     return switch (tag) {
         .compact => &compact,
+        .spacious => &spacious,
         .boxed => &boxed,
+        .double_boxed => &double_boxed,
+        .rounded_boxed => &rounded_boxed,
+        .single_double_top_bottom_boxed => &single_double_top_bottom_boxed,
+        .single_double_left_right_boxed => &single_double_left_right_boxed,
+        .dotted_boxed => &dotted_boxed,
         .thick_boxed => &thick_boxed,
+        .extra_thick_boxed => &extra_thick_boxed,
         .bars_top_bottom => &bars_top_bottom,
         .bars_left_right => &bars_left_right,
     };
@@ -126,10 +175,10 @@ pub fn set_next_style(style_type: Type) void {
     style_ref.* = from_tag(new_tag);
 }
 
-var none_style: *const @This() = &compact;
-var palette_style: *const @This() = &bars_top_bottom;
-var panel_style: *const @This() = &compact;
-var home_style: *const @This() = &bars_left_right;
+var none_style: *const @This() = from_tag(none_tag_default);
+var palette_style: *const @This() = from_tag(palette_tag_default);
+var panel_style: *const @This() = from_tag(panel_tag_default);
+var home_style: *const @This() = from_tag(home_tag_default);
 
 fn type_style(style_type: Type) **const @This() {
     return switch (style_type) {
@@ -140,10 +189,15 @@ fn type_style(style_type: Type) **const @This() {
     };
 }
 
-var none_tag: Styles = .compact;
-var palette_tag: Styles = .bars_top_bottom;
-var panel_tag: Styles = .compact;
-var home_tag: Styles = .bars_left_right;
+const none_tag_default: Styles = .compact;
+const palette_tag_default: Styles = .compact;
+const panel_tag_default: Styles = .compact;
+const home_tag_default: Styles = .compact;
+
+var none_tag: Styles = none_tag_default;
+var palette_tag: Styles = palette_tag_default;
+var panel_tag: Styles = panel_tag_default;
+var home_tag: Styles = home_tag_default;
 
 fn type_tag(style_type: Type) *Styles {
     return switch (style_type) {
