@@ -70,6 +70,8 @@ fire: ?Fire = null,
 commands: Commands = undefined,
 menu: *Menu.State(*Self),
 menu_w: usize = 0,
+menu_label_max: usize = 0,
+menu_count: usize = 0,
 menu_len: usize = 0,
 max_desc_len: usize = 0,
 input_namespace: []const u8,
@@ -109,7 +111,6 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     try self.commands.init(self);
     var it = std.mem.splitAny(u8, self.home_style.menu_commands, "\n ");
     while (it.next()) |command_name| {
-        self.menu_len += 1;
         const id = command.get_id(command_name) orelse {
             logger.print("{s} is not defined", .{command_name});
             continue;
@@ -118,13 +119,14 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
             logger.print("{s} has no description", .{command_name});
             continue;
         };
+        self.menu_count += 1;
         var hints = std.mem.splitScalar(u8, keybind_mode.keybind_hints.get(command_name) orelse "", ',');
         const hint = hints.first();
         self.max_desc_len = @max(self.max_desc_len, description.len + hint.len + 5);
         try self.add_menu_command(command_name, description, hint, self.menu);
     }
     const padding = Widget.Style.from_type(widget_style_type).padding;
-    self.menu_len += padding.top + padding.bottom;
+    self.menu_len = self.menu_count + padding.top + padding.bottom;
     self.position_menu(15, 9);
     return w;
 }
@@ -154,7 +156,8 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
         try writer.print(" :{s}", .{hint});
         const label = fis.getWritten();
         const padding = Widget.Style.from_type(widget_style_type).padding;
-        self.menu_w = @max(self.menu_w, label.len + 2 + padding.left + padding.right);
+        self.menu_label_max = @max(self.menu_label_max, label.len);
+        self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
     }
 
     var value = std.ArrayList(u8).init(self.allocator);
@@ -396,6 +399,15 @@ const cmds = struct {
         self.menu.activate_selected();
     }
     pub const home_menu_activate_meta: Meta = .{};
+
+    pub fn home_next_widget_style(self: *Self, _: Ctx) Result {
+        Widget.Style.set_next_style(widget_style_type);
+        const padding = Widget.Style.from_type(widget_style_type).padding;
+        self.menu_len = self.menu_count + padding.top + padding.bottom;
+        self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
+        tui.need_render();
+    }
+    pub const home_next_widget_style_meta: Meta = .{};
 
     pub fn home_sheeran(self: *Self, _: Ctx) Result {
         self.fire = if (self.fire) |*fire| ret: {

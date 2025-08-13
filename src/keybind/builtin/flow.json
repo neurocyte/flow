@@ -254,6 +254,7 @@
         "inherit": "project",
         "on_match_failure": "ignore",
         "press": [
+            ["alt+f9", "home_next_widget_style"],
             ["ctrl+e", "find_file"],
             ["f", "find_file"],
             ["e", "find_file"],
