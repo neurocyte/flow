@@ -475,7 +475,10 @@ pub fn Create(options: type) type {
                     }
                 }
             }
-            pub const palette_menu_delete_item_meta: Meta = .{};
+            pub const palette_menu_delete_item_meta: Meta = .{
+                .description = "Delete item",
+                .icon = "󰗨",
+            };
 
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
                 self.menu.activate_selected();
