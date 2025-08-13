@@ -12,6 +12,8 @@ pub fn Options(context: type) type {
         label: []const u8 = "Enter text",
         pos: Widget.Box = .{ .y = 0, .x = 0, .w = 12, .h = 1 },
         ctx: Context,
+        padding: u8 = 1,
+        icon: ?[]const u8 = null,
 
         on_click: *const fn (ctx: context, button: *State(Context)) void = do_nothing,
         on_render: *const fn (ctx: context, button: *State(Context), theme: *const Widget.Theme) bool = on_render_default,
@@ -29,18 +31,21 @@ pub fn Options(context: type) type {
             self.plane.set_style(style_label);
             self.plane.fill(" ");
             self.plane.home();
+            for (0..self.opts.padding) |_| _ = self.plane.putchar(" ");
+            if (self.opts.icon) |icon|
+                _ = self.plane.print("{s}", .{icon}) catch {};
             if (self.text.items.len > 0) {
-                _ = self.plane.print(" {s} ", .{self.text.items}) catch {};
+                _ = self.plane.print("{s} ", .{self.text.items}) catch {};
             } else {
-                _ = self.plane.print(" {s} ", .{self.label.items}) catch {};
+                _ = self.plane.print("{s} ", .{self.label.items}) catch {};
             }
             if (self.cursor) |cursor| {
                 const pos: c_int = @intCast(cursor);
                 if (tui.config().enable_terminal_cursor) {
-                    const y, const x = self.plane.rel_yx_to_abs(0, pos + 1);
+                    const y, const x = self.plane.rel_yx_to_abs(0, pos + self.opts.padding + self.icon_width);
                     tui.rdr().cursor_enable(y, x, tui.get_cursor_shape()) catch {};
                 } else {
-                    self.plane.cursor_move_yx(0, pos + 1) catch return false;
+                    self.plane.cursor_move_yx(0, pos + self.opts.padding + self.icon_width) catch return false;
                     var cell = self.plane.cell_init();
                     _ = self.plane.at_cursor_cell(&cell) catch return false;
                     cell.set_style(theme.editor_cursor);
@@ -68,6 +73,7 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
         .opts = opts,
         .label = std.ArrayList(u8).init(allocator),
         .text = std.ArrayList(u8).init(allocator),
+        .icon_width = @intCast(if (opts.icon) |icon| n.egc_chunk_width(icon, 0, 1) else 0),
     };
     try self.label.appendSlice(self.opts.label);
     self.opts.label = self.label.items;
@@ -83,6 +89,7 @@ pub fn State(ctx_type: type) type {
         label: std.ArrayList(u8),
         opts: Options(ctx_type),
         text: std.ArrayList(u8),
+        icon_width: c_int,
         cursor: ?usize = 0,
 
         const Self = @This();

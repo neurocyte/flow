@@ -70,6 +70,8 @@ pub fn Create(options: type) type {
                 .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
                     .ctx = self,
                     .label = options.label,
+                    .padding = 2,
+                    .icon = if (@hasDecl(options, "icon")) options.icon else null,
                 }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = std.ArrayList(Entry).init(allocator),
