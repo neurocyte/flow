@@ -57,6 +57,8 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
         .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
             .ctx = self,
             .label = inputbox_label,
+            .padding = 2,
+            .icon = "󰈞  ",
         }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
         .buffer_manager = tui.get_buffer_manager(),
         .longest = inputbox_label.len,
