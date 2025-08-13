@@ -82,16 +82,16 @@ pub const bars_top_bottom = &bars_top_bottom_static;
 
 pub const bars_left_right_static: @This() = .{
     .padding = Margin.@"left/right/1",
-    .border = Border.box,
+    .border = Border.@"thick box (octant)",
 };
 pub const bars_left_right = &bars_left_right_static;
 
 pub fn from_type(style_type: Type) *const @This() {
     return switch (style_type) {
         .none => default,
-        .palette => thick_boxed,
+        .palette => bars_top_bottom,
         .panel => default,
-        .home => default,
+        .home => bars_left_right,
     };
 }
 
