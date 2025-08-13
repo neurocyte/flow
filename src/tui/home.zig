@@ -123,6 +123,8 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         self.max_desc_len = @max(self.max_desc_len, description.len + hint.len + 5);
         try self.add_menu_command(command_name, description, hint, self.menu);
     }
+    const padding = Widget.Style.from_type(widget_style_type).padding;
+    self.menu_len += padding.top + padding.bottom;
     self.position_menu(15, 9);
     return w;
 }
