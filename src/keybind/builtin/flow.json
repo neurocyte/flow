@@ -30,6 +30,7 @@
             ["f11", "toggle_panel"],
             ["f12", "toggle_inputview"],
             ["alt+!", "run_task"],
+            ["ctrl+1", "add_task"],
             ["ctrl+tab", "next_tab"],
             ["ctrl+shift+tab", "previous_tab"],
             ["ctrl+shift+e", "switch_buffers"],
@@ -283,6 +284,7 @@
     },
     "overlay/palette": {
         "press": [
+            ["alt+!", "add_task"],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+q", "quit"],
             ["ctrl+w", "close_file"],
