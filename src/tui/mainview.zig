@@ -322,6 +322,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
         try self.check_all_not_dirty();
+        try project_manager.open(project_dir);
         for (self.editors.items) |editor| {
             editor.clear_diagnostics();
             try editor.close_file(.{});
@@ -332,7 +333,6 @@ const cmds = struct {
             try self.toggle_panel_view(filelist_view, false);
         self.buffer_manager.deinit();
         self.buffer_manager = Buffer.Manager.init(self.allocator);
-        try project_manager.open(project_dir);
         const project = tp.env.get().str("project");
         tui.rdr().set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });

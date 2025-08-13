@@ -27,7 +27,7 @@ const OutOfMemoryError = error{OutOfMemory};
 const FileSystemError = error{FileSystem};
 const SetCwdError = if (builtin.os.tag == .windows) error{UnrecognizedVolume} else error{};
 const CallError = tp.CallError;
-const ProjectManagerError = (SpawnError || error{ProjectManagerFailed});
+const ProjectManagerError = (SpawnError || error{ ProjectManagerFailed, InvalidProjectDirectory });
 
 pub fn get() SpawnError!Self {
     const pid = tp.env.get().proc(module_name);
@@ -63,6 +63,7 @@ pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSyste
     const project_directory = std.fs.cwd().realpath(rel_project_directory, &path_buf) catch "(none)";
     const current_project = tp.env.get().str("project");
     if (std.mem.eql(u8, current_project, project_directory)) return;
+    if (!root.is_directory(project_directory)) return error.InvalidProjectDirectory;
     var dir = try std.fs.openDirAbsolute(project_directory, .{});
     try dir.setAsCwd();
     dir.close();

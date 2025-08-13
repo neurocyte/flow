@@ -14,6 +14,7 @@ pub const Error = (cbor.Error || cbor.JsonEncodeError || error{
     ThespianSpawnFailed,
     NoProject,
     ProjectManagerFailed,
+    InvalidProjectDirectory,
     SendFailed,
 });
 
