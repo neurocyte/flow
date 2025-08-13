@@ -85,8 +85,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.
     button.plane.fill(" ");
     button.plane.home();
     button.plane.set_style(style_hint);
-    const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s}", .{pointer}) catch {};
+    tui.render_pointer(&button.plane, selected);
     button.plane.set_style(style_label);
     _ = button.plane.print("{s} ", .{entry.label}) catch {};
     var index: usize = 0;

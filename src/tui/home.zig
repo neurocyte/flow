@@ -154,7 +154,7 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
         try writer.print(" :{s}", .{hint});
         const label = fis.getWritten();
         const padding = Widget.Style.from_type(widget_style_type).padding;
-        self.menu_w = @max(self.menu_w, label.len + 1 + padding.left + padding.right);
+        self.menu_w = @max(self.menu_w, label.len + 2 + padding.left + padding.right);
     }
 
     var value = std.ArrayList(u8).init(self.allocator);
@@ -237,8 +237,8 @@ fn menu_on_render(self: *Self, button: *Button.State(*Menu.State(*Self)), theme:
     } else {
         button.plane.set_style_bg_transparent(style_text);
     }
-    const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s}{s}", .{ pointer, description }) catch {};
+    tui.render_pointer(&button.plane, selected);
+    _ = button.plane.print("{s}", .{description}) catch {};
     if (button.active or button.hover or selected) {
         button.plane.set_style(style_leader);
     } else {

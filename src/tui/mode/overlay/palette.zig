@@ -133,8 +133,7 @@ pub fn Create(options: type) type {
             if (!(cbor.matchString(&iter, &hint) catch false))
                 hint = "";
             button.plane.set_style(style_hint);
-            const pointer = if (selected) "⏵" else " ";
-            _ = button.plane.print("{s}", .{pointer}) catch {};
+            tui.render_pointer(&button.plane, selected);
             button.plane.set_style(style_label);
             _ = button.plane.print("{s} ", .{label}) catch {};
             button.plane.set_style(style_hint);
@@ -143,7 +142,7 @@ pub fn Create(options: type) type {
             var len = cbor.decodeArrayHeader(&iter) catch return false;
             while (len > 0) : (len -= 1) {
                 if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-                    tui.render_match_cell(&button.plane, 0, index + 1, theme) catch break;
+                    tui.render_match_cell(&button.plane, 0, index + 2, theme) catch break;
                 } else break;
             }
             return false;
@@ -155,7 +154,7 @@ pub fn Create(options: type) type {
 
         fn prepare_resize(self: *Self) Widget.Box {
             const screen = tui.screen();
-            const w = @max(@min(self.longest, max_menu_width) + 2 + 1 + self.longest_hint, options.label.len + 2);
+            const w = @max(@min(self.longest + 3, max_menu_width) + 2 + self.longest_hint, options.label.len + 2);
             const x = if (screen.w > w) (screen.w - w) / 2 else 0;
             self.view_rows = get_view_rows(screen);
             const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);

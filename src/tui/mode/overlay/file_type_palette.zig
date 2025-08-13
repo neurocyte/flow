@@ -84,8 +84,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             }
 
             button.plane.set_style(style_hint);
-            const pointer = if (selected) "⏵" else " ";
-            _ = button.plane.print("{s}", .{pointer}) catch {};
+            tui.render_pointer(&button.plane, selected);
 
             var iter = button.opts.label;
             var description_: []const u8 = undefined;

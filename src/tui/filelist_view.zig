@@ -166,8 +166,8 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
         button.plane.home();
     }
     const entry = &self.entries.items[idx];
-    const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s} ", .{pointer}) catch {};
+    button.plane.set_style(style_label);
+    tui.render_pointer(&button.plane, selected);
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var removed_prefix: usize = 0;
     const max_len = self.view_cols / path_column_ratio;

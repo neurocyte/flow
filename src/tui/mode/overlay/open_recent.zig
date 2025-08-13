@@ -88,7 +88,7 @@ pub fn deinit(self: *Self) void {
 }
 
 inline fn menu_width(self: *Self) usize {
-    return @max(@min(self.longest + 1, max_menu_width()) + 5, inputbox_label.len + 2);
+    return @max(@min(self.longest + 3, max_menu_width()) + 5, inputbox_label.len + 2);
 }
 
 inline fn menu_pos_x(self: *Self) usize {

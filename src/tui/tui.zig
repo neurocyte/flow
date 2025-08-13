@@ -1460,6 +1460,11 @@ pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *con
     _ = self.putc(&cell) catch {};
 }
 
+pub fn render_pointer(self: *renderer.Plane, selected: bool) void {
+    const pointer = if (selected) "⏵ " else "  ";
+    _ = self.print("{s}", .{pointer}) catch {};
+}
+
 pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, active: bool, selected: bool, hover: bool, theme_: *const Widget.Theme) bool {
     const style_base = theme_.editor_widget;
     const style_label = if (active) theme_.editor_cursor else if (hover or selected) theme_.editor_selection else theme_.editor_widget;
@@ -1474,8 +1479,7 @@ pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, 
     }
 
     self.set_style(style_hint);
-    const pointer = if (selected) "⏵" else " ";
-    _ = self.print("{s}", .{pointer}) catch {};
+    render_pointer(self, selected);
 
     var iter = file_item_cbor;
     var file_path_: []const u8 = undefined;
@@ -1500,7 +1504,7 @@ pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, 
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            render_match_cell(self, 0, index + 4, theme_) catch break;
+            render_match_cell(self, 0, index + 5, theme_) catch break;
         } else break;
     }
     return false;
