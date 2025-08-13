@@ -33,10 +33,8 @@ pub fn load_entries(palette: *Type) !usize {
             (try palette.entries.addOne()).* = .{ .label = try palette.allocator.dupe(u8, task) };
         } else return error.InvalidTaskMessageField;
     }
-    (try palette.entries.addOne()).* = .{
-        .label = try palette.allocator.dupe(u8, " Add new task"),
-        .command = "add_task",
-    };
+    (try palette.entries.addOne()).* = .{ .label = "", .command = "add_task" };
+    (try palette.entries.addOne()).* = .{ .label = "", .command = "palette_menu_delete_item" };
     return if (palette.entries.items.len == 0) label.len else blk: {
         var longest: usize = 0;
         for (palette.entries.items) |item| longest = @max(longest, item.label.len);
