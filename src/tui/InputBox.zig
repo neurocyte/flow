@@ -32,8 +32,9 @@ pub fn Options(context: type) type {
             self.plane.fill(" ");
             self.plane.home();
             for (0..self.opts.padding) |_| _ = self.plane.putchar(" ");
-            if (self.opts.icon) |icon|
+            if (self.icon_width > 0) if (self.opts.icon) |icon| {
                 _ = self.plane.print("{s}", .{icon}) catch {};
+            };
             if (self.text.items.len > 0) {
                 _ = self.plane.print("{s} ", .{self.text.items}) catch {};
             } else {
@@ -73,7 +74,7 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
         .opts = opts,
         .label = std.ArrayList(u8).init(allocator),
         .text = std.ArrayList(u8).init(allocator),
-        .icon_width = @intCast(if (opts.icon) |icon| n.egc_chunk_width(icon, 0, 1) else 0),
+        .icon_width = @intCast(if (tui.config().show_fileicons) if (opts.icon) |icon| n.egc_chunk_width(icon, 0, 1) else 0 else 0),
     };
     try self.label.appendSlice(self.opts.label);
     self.opts.label = self.label.items;
