@@ -14,7 +14,7 @@ pub const scroll_lines = 3;
 pub fn Options(context: type) type {
     return struct {
         ctx: Context,
-        style: Widget.Style.Type,
+        style: Widget.Type,
 
         on_click: *const fn (ctx: context, button: *Button.State(*State(Context))) void = do_nothing,
         on_click4: *const fn (menu: **State(Context), button: *Button.State(*State(Context))) void = do_nothing_click,

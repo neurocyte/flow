@@ -81,7 +81,7 @@ home_style_bufs: [][]const u8,
 
 const Self = @This();
 
-const widget_style_type: Widget.Style.Type = .home;
+const widget_type: Widget.Type = .home;
 
 pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     const logger = log.logger("home");
@@ -101,7 +101,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .plane = n,
         .menu = try Menu.create(*Self, allocator, w.plane.*, .{
             .ctx = self,
-            .style = widget_style_type,
+            .style = widget_type,
             .on_render = menu_on_render,
         }),
         .input_namespace = keybind.get_namespace(),
@@ -125,7 +125,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         self.max_desc_len = @max(self.max_desc_len, description.len + hint.len + 5);
         try self.add_menu_command(command_name, description, hint, self.menu);
     }
-    const padding = Widget.Style.from_type(widget_style_type).padding;
+    const padding = tui.get_widget_style(widget_type).padding;
     self.menu_len = self.menu_count + padding.top + padding.bottom;
     self.position_menu(15, 9);
     return w;
@@ -155,7 +155,7 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
             _ = try writer.write(leader);
         try writer.print(" :{s}", .{hint});
         const label = fis.getWritten();
-        const padding = Widget.Style.from_type(widget_style_type).padding;
+        const padding = tui.get_widget_style(widget_type).padding;
         self.menu_label_max = @max(self.menu_label_max, label.len);
         self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
     }
@@ -401,11 +401,12 @@ const cmds = struct {
     pub const home_menu_activate_meta: Meta = .{};
 
     pub fn home_next_widget_style(self: *Self, _: Ctx) Result {
-        Widget.Style.set_next_style(widget_style_type);
-        const padding = Widget.Style.from_type(widget_style_type).padding;
+        tui.set_next_style(widget_type);
+        const padding = tui.get_widget_style(widget_type).padding;
         self.menu_len = self.menu_count + padding.top + padding.bottom;
         self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
         tui.need_render();
+        try tui.save_config();
     }
     pub const home_next_widget_style_meta: Meta = .{};
 

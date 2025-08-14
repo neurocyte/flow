@@ -10,6 +10,8 @@ pub const Box = @import("Box.zig");
 pub const Theme = @import("theme");
 pub const themes = @import("themes").themes;
 pub const scopes = @import("themes").scopes;
+pub const Type = @import("config").WidgetType;
+pub const StyleTag = @import("config").WidgetStyle;
 pub const Style = @import("WidgetStyle.zig");
 
 ptr: *anyopaque,

@@ -20,7 +20,7 @@ const ModalBackground = @import("../../ModalBackground.zig");
 pub const Menu = @import("../../Menu.zig");
 
 const max_menu_width = 80;
-const widget_style_type: Widget.Style.Type = .palette;
+const widget_type: Widget.Type = .palette;
 
 pub fn Create(options: type) type {
     return struct {
@@ -58,7 +58,7 @@ pub fn Create(options: type) type {
                 }),
                 .menu = try Menu.create(*Self, allocator, tui.plane(), .{
                     .ctx = self,
-                    .style = widget_style_type,
+                    .style = widget_type,
                     .on_render = if (@hasDecl(options, "on_render_menu")) options.on_render_menu else on_render_menu,
                     .prepare_resize = prepare_resize_menu,
                     .after_resize = after_resize_menu,
@@ -256,7 +256,7 @@ pub fn Create(options: type) type {
                 var i = n;
                 while (i > 0) : (i -= 1)
                     self.menu.select_down();
-                const padding = Widget.Style.from_type(widget_style_type).padding;
+                const padding = tui.get_widget_style(widget_type).padding;
                 self.do_resize(padding);
                 tui.refresh_hover();
                 self.selection_updated();
@@ -533,10 +533,11 @@ pub fn Create(options: type) type {
             pub const overlay_toggle_inputview_meta: Meta = .{};
 
             pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
-                Widget.Style.set_next_style(widget_style_type);
-                const padding = Widget.Style.from_type(widget_style_type).padding;
+                tui.set_next_style(widget_type);
+                const padding = tui.get_widget_style(widget_type).padding;
                 self.do_resize(padding);
                 tui.need_render();
+                try tui.save_config();
             }
             pub const overlay_next_widget_style_meta: Meta = .{};
 

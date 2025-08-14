@@ -1,12 +1,8 @@
 padding: Margin = Margin.@"0",
 border: Border = Border.blank,
 
-pub const Type = enum {
-    none,
-    palette,
-    panel,
-    home,
-};
+pub const WidgetType = @import("config").WidgetType;
+pub const WidgetStyle = @import("config").WidgetStyle;
 
 pub const Padding = struct {
     pub const Unit = u16;
@@ -116,31 +112,7 @@ const bars_left_right: @This() = .{
     .border = Border.@"thick box (octant)",
 };
 
-pub fn from_type(style_type: Type) *const @This() {
-    return switch (style_type) {
-        .none => none_style,
-        .palette => palette_style,
-        .panel => panel_style,
-        .home => home_style,
-    };
-}
-
-pub const Styles = enum {
-    compact,
-    spacious,
-    boxed,
-    double_boxed,
-    rounded_boxed,
-    single_double_top_bottom_boxed,
-    single_double_left_right_boxed,
-    dotted_boxed,
-    thick_boxed,
-    extra_thick_boxed,
-    bars_top_bottom,
-    bars_left_right,
-};
-
-pub fn from_tag(tag: Styles) *const @This() {
+pub fn from_tag(tag: WidgetStyle) *const @This() {
     return switch (tag) {
         .compact => &compact,
         .spacious => &spacious,
@@ -157,60 +129,9 @@ pub fn from_tag(tag: Styles) *const @This() {
     };
 }
 
-pub fn next_tag(tag: Styles) Styles {
-    const new_value = @intFromEnum(tag) + 1;
-    return if (new_value > @intFromEnum(Styles.bars_left_right)) .compact else @enumFromInt(new_value);
-}
+const Theme = @import("Widget.zig").Theme;
 
-pub fn set_type_style(style_type: Type, tag: Styles) void {
-    const ref = type_style(style_type);
-    ref.* = from_tag(tag);
-}
-
-pub fn set_next_style(style_type: Type) void {
-    const tag_ref = type_tag(style_type);
-    const new_tag = next_tag(tag_ref.*);
-    const style_ref = type_style(style_type);
-    tag_ref.* = new_tag;
-    style_ref.* = from_tag(new_tag);
-}
-
-var none_style: *const @This() = from_tag(none_tag_default);
-var palette_style: *const @This() = from_tag(palette_tag_default);
-var panel_style: *const @This() = from_tag(panel_tag_default);
-var home_style: *const @This() = from_tag(home_tag_default);
-
-fn type_style(style_type: Type) **const @This() {
-    return switch (style_type) {
-        .none => &none_style,
-        .palette => &palette_style,
-        .panel => &panel_style,
-        .home => &home_style,
-    };
-}
-
-const none_tag_default: Styles = .compact;
-const palette_tag_default: Styles = .compact;
-const panel_tag_default: Styles = .compact;
-const home_tag_default: Styles = .compact;
-
-var none_tag: Styles = none_tag_default;
-var palette_tag: Styles = palette_tag_default;
-var panel_tag: Styles = panel_tag_default;
-var home_tag: Styles = home_tag_default;
-
-fn type_tag(style_type: Type) *Styles {
-    return switch (style_type) {
-        .none => &none_tag,
-        .palette => &palette_tag,
-        .panel => &panel_tag,
-        .home => &home_tag,
-    };
-}
-
-const Widget = @import("Widget.zig");
-
-pub fn theme_style_from_type(style_type: Type, theme: *const Widget.Theme) Widget.Theme.Style {
+pub fn theme_style_from_type(style_type: WidgetType, theme: *const Theme) Theme.Style {
     return switch (style_type) {
         .none => theme.editor,
         .palette => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },

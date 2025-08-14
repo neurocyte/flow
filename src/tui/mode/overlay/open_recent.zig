@@ -23,7 +23,7 @@ const ModalBackground = @import("../../ModalBackground.zig");
 
 const Self = @This();
 const max_recent_files: usize = 25;
-const widget_style_type: Widget.Style.Type = .palette;
+const widget_type: Widget.Type = .palette;
 
 allocator: std.mem.Allocator,
 f: usize = 0,
@@ -49,7 +49,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
         .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{ .ctx = self }),
         .menu = try Menu.create(*Self, allocator, tui.plane(), .{
             .ctx = self,
-            .style = widget_style_type,
+            .style = widget_type,
             .on_render = on_render_menu,
             .prepare_resize = prepare_resize_menu,
         }),
@@ -371,9 +371,10 @@ const cmds = struct {
     pub const overlay_toggle_inputview_meta: Meta = .{};
 
     pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
-        Widget.Style.set_next_style(widget_style_type);
+        tui.set_next_style(widget_type);
         self.do_resize();
         tui.need_render();
+        try tui.save_config();
     }
     pub const overlay_next_widget_style_meta: Meta = .{};
 

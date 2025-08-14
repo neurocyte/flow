@@ -1562,3 +1562,39 @@ fn load_theme_file_internal(allocator: std.mem.Allocator, theme_name: []const u8
     defer allocator.free(json_str);
     return try std.json.parseFromSlice(Widget.Theme, allocator, json_str, .{ .allocate = .alloc_always });
 }
+
+pub const WidgetType = @import("config").WidgetType;
+pub const ConfigWidgetStyle = @import("config").WidgetStyle;
+pub const WidgetStyle = @import("WidgetStyle.zig");
+
+pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
+    const config_ = config();
+    return switch (widget_type) {
+        .none => WidgetStyle.from_tag(config_.widget_style),
+        .palette => WidgetStyle.from_tag(config_.palette_style),
+        .panel => WidgetStyle.from_tag(config_.panel_style),
+        .home => WidgetStyle.from_tag(config_.home_style),
+    };
+}
+
+pub fn set_next_style(widget_type: WidgetType) void {
+    const ref = widget_type_config_variable(widget_type);
+    ref.* = next_widget_style(ref.*);
+    const self = current();
+    self.logger.print("{s} style {s}", .{ @tagName(widget_type), @tagName(ref.*) });
+}
+
+fn next_widget_style(tag: ConfigWidgetStyle) ConfigWidgetStyle {
+    const new_value = @intFromEnum(tag) + 1;
+    return if (new_value > @intFromEnum(ConfigWidgetStyle.bars_left_right)) .compact else @enumFromInt(new_value);
+}
+
+fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
+    const config_ = config_mut();
+    return switch (widget_type) {
+        .none => &config_.widget_style,
+        .palette => &config_.palette_style,
+        .panel => &config_.panel_style,
+        .home => &config_.home_style,
+    };
+}

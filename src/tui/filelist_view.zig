@@ -36,7 +36,7 @@ selected: ?usize = null,
 box: Widget.Box = .{},
 
 const path_column_ratio = 4;
-const widget_style_type: Widget.Style.Type = .panel;
+const widget_type: Widget.Type = .panel;
 
 const Entry = struct {
     path: []const u8,
@@ -58,7 +58,7 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
         .entries = std.ArrayList(Entry).init(allocator),
         .menu = try Menu.create(*Self, allocator, tui.plane(), .{
             .ctx = self,
-            .style = widget_style_type,
+            .style = widget_type,
             .on_render = handle_render_menu,
             .on_scroll = EventHandler.bind(self, Self.handle_scroll),
             .on_click4 = mouse_click_button4,
@@ -87,7 +87,7 @@ fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.St
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
-    const padding = Widget.Style.from_type(widget_style_type).padding;
+    const padding = tui.get_widget_style(widget_type).padding;
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.box = pos;

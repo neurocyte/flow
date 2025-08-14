@@ -36,6 +36,11 @@ show_fileicons: bool = true,
 
 start_debugger_on_crash: bool = false,
 
+widget_style: WidgetStyle = .compact,
+palette_style: WidgetStyle = .bars_top_bottom,
+panel_style: WidgetStyle = .compact,
+home_style: WidgetStyle = .bars_left_right,
+
 include_files: []const u8 = "",
 
 pub const DigitStyle = enum {
@@ -55,4 +60,26 @@ pub const IndentMode = enum {
     auto,
     spaces,
     tabs,
+};
+
+pub const WidgetType = enum {
+    none,
+    palette,
+    panel,
+    home,
+};
+
+pub const WidgetStyle = enum {
+    compact,
+    spacious,
+    boxed,
+    double_boxed,
+    rounded_boxed,
+    single_double_top_bottom_boxed,
+    single_double_left_right_boxed,
+    dotted_boxed,
+    thick_boxed,
+    extra_thick_boxed,
+    bars_top_bottom,
+    bars_left_right,
 };

@@ -6,6 +6,7 @@ const tp = @import("thespian");
 
 const Plane = @import("renderer").Plane;
 
+const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
 const Box = @import("Box.zig");
 
@@ -33,16 +34,16 @@ after_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on
 prepare_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widget.Box = prepare_resize_default,
 after_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) void = after_resize_default,
 on_layout: *const fn (ctx: ?*anyopaque, self: *Self) Widget.Layout = on_layout_default,
-style: Widget.Style.Type,
+widget_type: Widget.Type,
 
 pub fn createH(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout) error{OutOfMemory}!*Self {
     return createHStyled(allocator, parent, name, layout_, .none);
 }
 
-pub fn createHStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, style: Widget.Style.Type) error{OutOfMemory}!*Self {
+pub fn createHStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, widget_type: Widget.Type) error{OutOfMemory}!*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    self.* = try init(allocator, parent, name, .horizontal, layout_, Box{}, style);
+    self.* = try init(allocator, parent, name, .horizontal, layout_, Box{}, widget_type);
     self.plane.hide();
     return self;
 }
@@ -51,10 +52,10 @@ pub fn createV(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_:
     return createVStyled(allocator, parent, name, layout_, .none);
 }
 
-pub fn createVStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, style: Widget.Style.Type) !*Self {
+pub fn createVStyled(allocator: Allocator, parent: Plane, name: [:0]const u8, layout_: Layout, widget_type: Widget.Type) !*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
-    self.* = try init(allocator, parent, name, .vertical, layout_, Box{}, style);
+    self.* = try init(allocator, parent, name, .vertical, layout_, Box{}, widget_type);
     self.plane.hide();
     return self;
 }
@@ -67,7 +68,7 @@ pub fn createBox(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: D
     return self;
 }
 
-fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction, layout_: Layout, box_: Box, style: Widget.Style.Type) !Self {
+fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction, layout_: Layout, box_: Box, widget_type: Widget.Type) !Self {
     var self: Self = .{
         .plane = undefined,
         .parent = parent,
@@ -75,10 +76,10 @@ fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction,
         .widgets = ArrayList(WidgetState).init(allocator),
         .layout_ = layout_,
         .direction = dir,
-        .style = style,
+        .widget_type = widget_type,
         .deco_box = undefined,
     };
-    const padding = Widget.Style.from_type(self.style).padding;
+    const padding = tui.get_widget_style(self.widget_type).padding;
     self.deco_box = self.from_client_box(box_, padding);
     self.plane = try Plane.init(&self.deco_box.opts(name), parent);
     return self;
@@ -163,7 +164,7 @@ pub fn update(self: *Self) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    const widget_style = Widget.Style.from_type(self.style);
+    const widget_style = tui.get_widget_style(self.widget_type);
     const padding = widget_style.padding;
     for (self.widgets.items) |*w| if (!w.layout.eql(w.widget.layout())) {
         self.refresh_layout(padding);
@@ -192,7 +193,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
 
 fn render_decoration(self: *Self, theme: *const Widget.Theme, widget_style: *const Widget.Style) void {
-    const style = Widget.Style.theme_style_from_type(self.style, theme);
+    const style = Widget.Style.theme_style_from_type(self.widget_type, theme);
     const padding = widget_style.padding;
     const border = widget_style.border;
     const plane = &self.plane;
@@ -297,7 +298,7 @@ fn refresh_layout(self: *Self, padding: Widget.Style.Margin) void {
 }
 
 pub fn handle_resize(self: *Self, box: Widget.Box) void {
-    const padding = Widget.Style.from_type(self.style).padding;
+    const padding = tui.get_widget_style(self.widget_type).padding;
     const client_box_ = self.prepare_resize(self.ctx, self, self.to_client_box(box, padding));
     self.deco_box = self.from_client_box(client_box_, padding);
     self.do_resize(padding);
