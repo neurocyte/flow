@@ -70,16 +70,16 @@ pub const WidgetType = enum {
 };
 
 pub const WidgetStyle = enum {
-    compact,
-    spacious,
-    boxed,
-    double_boxed,
-    rounded_boxed,
-    single_double_top_bottom_boxed,
-    single_double_left_right_boxed,
-    dotted_boxed,
-    thick_boxed,
-    extra_thick_boxed,
     bars_top_bottom,
     bars_left_right,
+    thick_boxed,
+    extra_thick_boxed,
+    dotted_boxed,
+    rounded_boxed,
+    double_boxed,
+    single_double_top_bottom_boxed,
+    single_double_left_right_boxed,
+    boxed,
+    spacious,
+    compact,
 };
