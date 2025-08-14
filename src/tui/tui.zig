@@ -1585,8 +1585,9 @@ pub fn set_next_style(widget_type: WidgetType) void {
 }
 
 fn next_widget_style(tag: ConfigWidgetStyle) ConfigWidgetStyle {
+    const max_tag = comptime std.meta.tags(ConfigWidgetStyle).len;
     const new_value = @intFromEnum(tag) + 1;
-    return if (new_value > @intFromEnum(ConfigWidgetStyle.bars_left_right)) .compact else @enumFromInt(new_value);
+    return if (new_value >= max_tag) @enumFromInt(0) else @enumFromInt(new_value);
 }
 
 fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
