@@ -24,8 +24,6 @@ pub const Event = union(enum) {
     pwd_change: []const u8,
 };
 
-const grapheme = @import("grapheme");
-
 const posix = std.posix;
 
 const log = std.log.scoped(.terminal);
@@ -292,7 +290,7 @@ fn run(self: *Terminal) !void {
 
         switch (event) {
             .print => |str| {
-                var iter = grapheme.Iterator.init(str, &self.unicode.width_data.g_data);
+                var iter = self.unicode.graphemeIterator(str);
                 while (iter.next()) |g| {
                     const gr = g.bytes(str);
                     // TODO: use actual instead of .unicode
