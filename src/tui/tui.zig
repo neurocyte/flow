@@ -1463,8 +1463,8 @@ pub fn get_buffer_state_indicator(buffer: *const @import("Buffer")) []const u8 {
     return if (buffer.is_dirty()) dirty_indicator else if (buffer.is_hidden()) hidden_indicator else "";
 }
 
-pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) void {
-    if (!config().show_fileicons) return;
+pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) usize {
+    if (!config().show_fileicons) return 0;
     var cell = self.cell_init();
     _ = self.at_cursor_cell(&cell) catch return;
     if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) {
@@ -1474,6 +1474,7 @@ pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) voi
     _ = self.putc(&cell) catch {};
     self.cursor_move_rel(0, 1) catch {};
     _ = self.print(" ", .{}) catch {};
+    return 3;
 }
 
 pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *const Widget.Theme) !void {
@@ -1513,7 +1514,7 @@ pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, 
     if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid buffer file type icon");
     if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid buffer file type color");
 
-    render_file_icon(self, icon, color);
+    const icon_width = render_file_icon(self, icon, color);
 
     self.set_style(style_label);
     _ = self.print("{s} ", .{file_path_}) catch {};
@@ -1528,7 +1529,7 @@ pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, 
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            render_match_cell(self, 0, index + 5, theme_) catch break;
+            render_match_cell(self, 0, index + 2 + icon_width, theme_) catch break;
         } else break;
     }
     return false;

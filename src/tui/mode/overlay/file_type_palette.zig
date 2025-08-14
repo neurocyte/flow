@@ -95,7 +95,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             if (!(cbor.matchString(&iter, &icon_) catch false)) @panic("invalid file_type icon");
             if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid file_type color");
 
-            tui.render_file_icon(&button.plane, icon_, color);
+            const icon_width = tui.render_file_icon(&button.plane, icon_, color);
 
             button.plane.set_style(style_label);
             _ = button.plane.print("{s} ", .{description_}) catch {};
@@ -110,7 +110,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             var len = cbor.decodeArrayHeader(&iter) catch return false;
             while (len > 0) : (len -= 1) {
                 if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-                    tui.render_match_cell(&button.plane, 0, index + 4, theme) catch break;
+                    tui.render_match_cell(&button.plane, 0, index + 2 + icon_width, theme) catch break;
                 } else break;
             }
             return false;
