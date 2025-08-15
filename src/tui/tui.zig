@@ -1498,7 +1498,18 @@ pub fn render_pointer(self: *renderer.Plane, selected: bool) void {
     _ = self.print("{s}", .{pointer}) catch {};
 }
 
-pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, active: bool, selected: bool, hover: bool, theme_: *const Widget.Theme) bool {
+pub fn render_file_item(
+    self: *renderer.Plane,
+    file_path_: []const u8,
+    icon: []const u8,
+    color: u24,
+    indicator: []const u8,
+    matches_cbor: []const u8,
+    active: bool,
+    selected: bool,
+    hover: bool,
+    theme_: *const Widget.Theme,
+) bool {
     const style_base = theme_.editor_widget;
     const style_label = if (active) theme_.editor_cursor else if (hover or selected) theme_.editor_selection else theme_.editor_widget;
     const style_hint = if (find_scope_style(theme_, "entity.name")) |sty| sty.style else style_label;
@@ -1514,25 +1525,15 @@ pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, 
     self.set_style(style_hint);
     render_pointer(self, selected);
 
-    var iter = file_item_cbor;
-    var file_path_: []const u8 = undefined;
-    var icon: []const u8 = undefined;
-    var color: u24 = undefined;
-    if (!(cbor.matchString(&iter, &file_path_) catch false)) @panic("invalid buffer file path");
-    if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid buffer file type icon");
-    if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid buffer file type color");
-
     const icon_width = render_file_icon(self, icon, color);
 
     self.set_style(style_label);
     _ = self.print("{s} ", .{file_path_}) catch {};
 
-    var indicator: []const u8 = undefined;
-    if (!(cbor.matchString(&iter, &indicator) catch false))
-        indicator = "";
     self.set_style(style_hint);
     _ = self.print_aligned_right(0, "{s} ", .{indicator}) catch {};
 
+    var iter = matches_cbor;
     var index: usize = 0;
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
@@ -1541,6 +1542,23 @@ pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, 
         } else break;
     }
     return false;
+}
+
+pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, active: bool, selected: bool, hover: bool, theme_: *const Widget.Theme) bool {
+    var iter = file_item_cbor;
+    var file_path_: []const u8 = undefined;
+    var icon: []const u8 = undefined;
+    var color: u24 = undefined;
+    var indicator: []const u8 = undefined;
+    var matches_cbor: []const u8 = undefined;
+
+    if (!(cbor.matchString(&iter, &file_path_) catch false)) @panic("invalid buffer file path");
+    if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid buffer file type icon");
+    if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid buffer file type color");
+    if (!(cbor.matchString(&iter, &indicator) catch false)) indicator = "";
+
+    if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) @panic("invalid matches cbor");
+    return render_file_item(self, file_path_, icon, color, indicator, matches_cbor, active, selected, hover, theme_);
 }
 
 fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const u8 {
