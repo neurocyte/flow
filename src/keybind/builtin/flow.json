@@ -290,6 +290,7 @@
             ["ctrl+j", "toggle_panel"],
             ["ctrl+q", "quit"],
             ["ctrl+w", "close_file"],
+            ["ctrl+shift+f", "find_in_files"],
             ["ctrl+p", "palette_menu_up"],
             ["ctrl+n", "palette_menu_down"],
             ["ctrl+e", "palette_menu_down"],
