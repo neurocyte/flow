@@ -351,6 +351,9 @@ pub const Editor = struct {
     diag_hints: usize = 0,
 
     completions: std.ArrayListUnmanaged(u8) = .empty,
+    completion_row: usize = 0,
+    completion_col: usize = 0,
+    completion_is_complete: bool = true,
 
     enable_auto_save: bool,
     enable_format_on_save: bool,
@@ -5678,10 +5681,13 @@ pub const Editor = struct {
     }
 
     pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
+        if (!(row == self.completion_row and col == self.completion_col)) {
+            self.completions.clearRetainingCapacity();
+            self.completion_row = row;
+            self.completion_col = col;
+        }
         try self.completions.appendSlice(self.allocator, msg.buf);
-        _ = row;
-        _ = col;
-        _ = is_incomplete;
+        self.completion_is_complete = is_incomplete;
     }
 
     pub fn select(self: *Self, ctx: Context) Result {

@@ -827,8 +827,11 @@ const cmds = struct {
             tp.more,
         })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
-        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
-            try editor.add_completion(row, col, is_incomplete, ctx.args);
+        if (self.get_active_editor()) |editor| {
+            if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+                try editor.add_completion(row, col, is_incomplete, ctx.args);
+            try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type);
+        }
     }
     pub const add_completion_meta: Meta = .{
         .arguments = &.{
