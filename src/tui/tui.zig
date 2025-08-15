@@ -1036,10 +1036,10 @@ const cmds = struct {
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
         command.executeName("disable_fast_scroll", .{}) catch {};
         command.executeName("disable_jump_mode", .{}) catch {};
-        const input_mode_, const mini_mode_ = try mode.create(self.allocator, ctx);
         if (self.mini_mode_) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer_) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode_outer_ != null) @panic("exit_overlay_mode failed");
+        const input_mode_, const mini_mode_ = try mode.create(self.allocator, ctx);
         self.input_mode_outer_ = self.input_mode_;
         self.input_mode_ = input_mode_;
         self.mini_mode_ = mini_mode_;
