@@ -714,17 +714,22 @@ fn refresh_input_mode(self: *Self) command.Result {
     if (self.input_mode_) |*m| m.run_init();
 }
 
-fn set_theme_by_name(self: *Self, name: []const u8) !void {
+fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }) !void {
     const old = self.parsed_theme;
     defer if (old) |p| p.deinit();
     self.theme_, self.parsed_theme = get_theme_by_name(self.allocator, name) orelse {
         self.logger.print("theme not found: {s}", .{name});
         return;
     };
-    self.config_.theme = self.theme_.name;
     self.set_terminal_style();
     self.logger.print("theme: {s}", .{self.theme_.description});
-    try save_config();
+    switch (action) {
+        .none => {},
+        .store => {
+            self.config_.theme = self.theme_.name;
+            try save_config();
+        },
+    }
 }
 
 const cmds = struct {
@@ -790,21 +795,24 @@ const cmds = struct {
 
     pub fn set_theme(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&name)}))
-            return tp.exit_error(error.InvalidSetThemeArgument, null);
-        return self.set_theme_by_name(name);
+        if (try ctx.args.match(.{tp.extract(&name)}))
+            return self.set_theme_by_name(name, .store);
+        if (try ctx.args.match(.{ tp.extract(&name), "no_store" }))
+            return self.set_theme_by_name(name, .none);
+
+        return tp.exit_error(error.InvalidSetThemeArgument, null);
     }
     pub const set_theme_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn theme_next(self: *Self, _: Ctx) Result {
         const name = get_next_theme_by_name(self.theme_.name);
-        return self.set_theme_by_name(name);
+        return self.set_theme_by_name(name, .store);
     }
     pub const theme_next_meta: Meta = .{ .description = "Next color theme" };
 
     pub fn theme_prev(self: *Self, _: Ctx) Result {
         const name = get_prev_theme_by_name(self.theme_.name);
-        return self.set_theme_by_name(name);
+        return self.set_theme_by_name(name, .store);
     }
     pub const theme_prev_meta: Meta = .{ .description = "Previous color theme" };
 
