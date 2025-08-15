@@ -90,11 +90,11 @@ fn format(self: *Self) void {
     const writer = fbs.writer();
     const eol_mode = switch (self.eol_mode) {
         .lf => "",
-        .crlf => " [␍␊]",
+        .crlf => " ␍␊",
     };
     const indent_mode = switch (self.indent_mode) {
         .spaces, .auto => "",
-        .tabs => " [⭾]",
+        .tabs => " ⭾ ",
     };
     std.fmt.format(writer, "{s}{s} Ln ", .{ eol_mode, indent_mode }) catch {};
     self.format_count(writer, self.line + 1, self.padding orelse 0) catch {};
