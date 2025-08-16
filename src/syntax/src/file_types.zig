@@ -41,7 +41,7 @@ pub const @"c-sharp" = .{
     .icon = "󰌛",
     .extensions = .{"cs"},
     .comment = "//",
-    .language_server = .{ "omnisharp", "-lsp" },
+    .language_server = .{ "OmniSharp", "-lsp" },
     .formatter = .{ "csharpier", "format" },
 };
 
