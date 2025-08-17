@@ -55,6 +55,8 @@ pub const whitespace = struct {
     };
 };
 
+pub const PosType = enum { column, byte };
+
 pub const Match = struct {
     begin: Cursor = Cursor{},
     end: Cursor = Cursor{},
@@ -5410,9 +5412,16 @@ pub const Editor = struct {
         var column: usize = 0;
         var have_sel: bool = false;
         var sel: Selection = .{};
+        var pos_type: PosType = .column;
         if (try ctx.args.match(.{
             tp.extract(&line),
             tp.extract(&column),
+        })) {
+            // self.logger.print("goto: l:{d} c:{d}", .{ line, column });
+        } else if (try ctx.args.match(.{
+            tp.extract(&line),
+            tp.extract(&column),
+            tp.extract(&pos_type),
         })) {
             // self.logger.print("goto: l:{d} c:{d}", .{ line, column });
         } else if (try ctx.args.match(.{
@@ -5425,9 +5434,29 @@ pub const Editor = struct {
         })) {
             // self.logger.print("goto: l:{d} c:{d} {any}", .{ line, column, sel });
             have_sel = true;
+        } else if (try ctx.args.match(.{
+            tp.extract(&line),
+            tp.extract(&column),
+            tp.extract(&sel.begin.row),
+            tp.extract(&sel.begin.col),
+            tp.extract(&sel.end.row),
+            tp.extract(&sel.end.col),
+            tp.extract(&pos_type),
+        })) {
+            // self.logger.print("goto: l:{d} c:{d} {any} {}", .{ line, column, sel, pos_type });
+            have_sel = true;
         } else return error.InvalidGotoLineAndColumnArgument;
         self.cancel_all_selections();
         const root = self.buf_root() catch return;
+        if (pos_type == .byte) {
+            column = root.pos_to_width(line - 1, column - 1, self.metrics) catch return;
+            column += 1;
+            if (have_sel) {
+                sel.begin.col = root.pos_to_width(sel.begin.row, sel.begin.col, self.metrics) catch return;
+                sel.end.col = root.pos_to_width(sel.end.row, sel.end.col, self.metrics) catch return;
+            }
+            // self.logger.print("goto_byte_pos: l:{d} c:{d} {any} {}", .{ line, column, sel, pos_type });
+        }
         const primary = self.get_primary();
         try primary.cursor.move_to(
             root,
