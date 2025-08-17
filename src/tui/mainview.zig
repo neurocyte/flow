@@ -1423,6 +1423,7 @@ fn add_find_in_files_result(
         .end_pos = @max(1, end_pos) - 1,
         .lines = lines,
         .severity = severity,
+        .pos_type = .byte,
     }) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 
