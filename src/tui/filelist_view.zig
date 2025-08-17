@@ -46,6 +46,7 @@ const Entry = struct {
     end_pos: usize,
     lines: []const u8,
     severity: editor.Diagnostic.Severity = .Information,
+    pos_type: editor.PosType,
 };
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
@@ -250,6 +251,7 @@ fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.Sta
             if (entry.begin_pos == 0) 0 else entry.begin_pos + 1,
             entry.end_line,
             entry.end_pos + 1,
+            entry.pos_type,
         },
     } }) catch |e| self.logger.err("navigate", e);
 }
