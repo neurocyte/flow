@@ -98,9 +98,9 @@ pub fn request_recent_files(max: usize) (ProjectManagerError || ProjectError)!vo
     return send(.{ "request_recent_files", project, max });
 }
 
-pub fn request_recent_projects(allocator: std.mem.Allocator) (ProjectError || CallError)!tp.message {
+pub fn request_recent_projects() (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
-    return (try get()).pid.call(allocator, request_timeout, .{ "request_recent_projects", project });
+    return send(.{ "request_recent_projects", project });
 }
 
 pub fn query_recent_files(max: usize, query: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -462,6 +462,9 @@ const Process = struct {
         self.sort_projects_by_last_used(&recent_projects);
         var message = std.ArrayList(u8).init(self.allocator);
         const writer = message.writer();
+        try cbor.writeArrayHeader(writer, 3);
+        try cbor.writeValue(writer, "PRJ");
+        try cbor.writeValue(writer, "recent_projects");
         try cbor.writeArrayHeader(writer, recent_projects.items.len);
         for (recent_projects.items) |project| {
             try cbor.writeArrayHeader(writer, 2);
@@ -469,6 +472,7 @@ const Process = struct {
             try cbor.writeValue(writer, if (self.projects.get(project.name)) |_| true else false);
         }
         from.send_raw(.{ .buf = message.items }) catch return error.ClientFailed;
+        self.logger.print("{d} projects found", .{recent_projects.items.len});
     }
 
     fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.ClientError)!void {
