@@ -389,6 +389,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    if (try m.match(.{"mouse_leave"}))
+        return;
+
     if (try m.match(.{"focus_in"}))
         return;
 

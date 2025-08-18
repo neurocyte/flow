@@ -27,8 +27,8 @@
             .hash = "fuzzig-0.1.1-AAAAALNIAQBmbHr-MPalGuR393Vem2pTQXI7_LXeNJgX",
         },
         .vaxis = .{
-            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#7d8015ee82bd547e92b433fc698ce86a0d87b18b",
-            .hash = "vaxis-0.5.1-BWNV_CIVCQC3Bk1-nguTPlKtXmm7AyPOZd95Ut2KYLVD",
+            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#beb82aa0a9d77f63462f8ca8250c2b9eecf057a2",
+            .hash = "vaxis-0.5.1-BWNV_FMWCQDGtkYFKz_85wSkBRO1kynUZaPO1-RCSrQM",
         },
         .zeit = .{
             .url = "https://github.com/rockorager/zeit/archive/8fd203f85f597f16e0a525c1f1ca1e0bffded809.tar.gz",
