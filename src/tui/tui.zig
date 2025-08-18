@@ -413,6 +413,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    if (try m.match(.{ "PRJ", "recent_projects", tp.more })) // async recent projects request
+        return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent_project.zig").Type, .{ .args = m });
+
     if (try m.match(.{ "PRJ", tp.more })) // drop late project manager query responses
         return;
 
@@ -684,6 +687,17 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     refresh_hover();
 }
 
+fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) command.Result {
+    command.executeName("disable_fast_scroll", .{}) catch {};
+    command.executeName("disable_jump_mode", .{}) catch {};
+    if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, .{});
+    if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, .{});
+    self.input_mode_outer_ = self.input_mode_;
+    self.input_mode_ = try mode.create_with_args(self.allocator, ctx);
+    if (self.input_mode_) |*m| m.run_init();
+    refresh_hover();
+}
+
 fn get_input_mode(self: *Self, mode_name: []const u8) !Mode {
     return keybind.mode(mode_name, self.allocator, .{});
 }
@@ -914,8 +928,8 @@ const cmds = struct {
     }
     pub const open_recent_meta: Meta = .{ .description = "Open recent" };
 
-    pub fn open_recent_project(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/open_recent_project.zig").Type);
+    pub fn open_recent_project(_: *Self, _: Ctx) Result {
+        try project_manager.request_recent_projects();
     }
     pub const open_recent_project_meta: Meta = .{ .description = "Open project" };
 
