@@ -4480,7 +4480,9 @@ pub const Editor = struct {
         };
     }
 
-    fn cursel_smart_insert_line(self: *Self, root: Buffer.Root, cursel: *CurSel, b_allocator: std.mem.Allocator) !Buffer.Root {
+    const WSCollapseMode = enum { leave_ws, collapse_ws };
+
+    fn cursel_smart_insert_line(self: *Self, root: Buffer.Root, cursel: *CurSel, b_allocator: std.mem.Allocator, mode: WSCollapseMode) !Buffer.Root {
         const row = cursel.cursor.row;
         const leading_ws = @min(find_first_non_ws(root, row, self.metrics), cursel.cursor.col);
         var sfa = std.heap.stackFallback(512, self.allocator);
@@ -4491,7 +4493,8 @@ pub const Editor = struct {
         _ = try writer.write("\n");
         try self.generate_leading_ws(&writer, leading_ws);
         var root_ = try self.insert(root, cursel, stream.items, b_allocator);
-        root_ = self.collapse_trailing_ws_line(root_, row, b_allocator);
+        if (mode == .collapse_ws)
+            root_ = self.collapse_trailing_ws_line(root_, row, b_allocator);
         const leading_ws_ = find_first_non_ws(root_, cursel.cursor.row, self.metrics);
         if (leading_ws_ > leading_ws and leading_ws_ > cursel.cursor.col) {
             const sel = try cursel.enable_selection(root_, self.metrics);
@@ -4522,11 +4525,11 @@ pub const Editor = struct {
                     (std.mem.eql(u8, egc_right, "(") and std.mem.eql(u8, egc_left, ")"));
             };
 
-            root = try self.cursel_smart_insert_line(root, cursel, b.allocator);
+            root = try self.cursel_smart_insert_line(root, cursel, b.allocator, .collapse_ws);
 
             if (smart_brace_indent) {
                 const cursor = cursel.cursor;
-                root = try self.cursel_smart_insert_line(root, cursel, b.allocator);
+                root = try self.cursel_smart_insert_line(root, cursel, b.allocator, .leave_ws);
                 cursel.cursor = cursor;
                 if (indent_extra)
                     root = try self.indent_cursel(root, cursel, b.allocator);
