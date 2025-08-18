@@ -47,6 +47,10 @@ pub fn Create(options: type) type {
         pub const ButtonState = Button.State(*Menu.State(*Self));
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
+            return create_with_args(allocator, .{});
+        }
+
+        pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui.Mode {
             const mv = tui.mainview() orelse return error.NotFound;
             const self = try allocator.create(Self);
             errdefer allocator.destroy(self);
@@ -77,7 +81,10 @@ pub fn Create(options: type) type {
                 .entries = std.ArrayList(Entry).init(allocator),
             };
             if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
-            self.longest_hint = try options.load_entries(self);
+            self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
+                try options.load_entries_with_args(self, ctx)
+            else
+                try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             try self.commands.init(self);
@@ -467,11 +474,15 @@ pub fn Create(options: type) type {
                     const button = self.menu.get_selected() orelse return;
                     const refresh = options.delete_item(self.menu, button);
                     if (refresh) {
-                        options.clear_entries(self);
-                        self.longest_hint = try options.load_entries(self);
-                        if (self.entries.items.len > 0)
-                            self.initial_selected = self.menu.selected;
-                        try self.start_query(0);
+                        if (@hasDecl(options, "load_entries")) {
+                            options.clear_entries(self);
+                            self.longest_hint = try options.load_entries(self);
+                            if (self.entries.items.len > 0)
+                                self.initial_selected = self.menu.selected;
+                            try self.start_query(0);
+                        } else {
+                            return palette_menu_cancel(self, .{});
+                        }
                     }
                 }
             }
