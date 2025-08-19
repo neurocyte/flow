@@ -171,6 +171,7 @@ const Process = struct {
     project: [:0]const u8,
     sp_tag: [:0]const u8,
     log_file: ?std.fs.File = null,
+    log_file_path: ?[]const u8 = null,
     next_id: i32 = 0,
     requests: std.StringHashMap(tp.pid),
     state: enum { init, running } = .init,
@@ -224,6 +225,7 @@ const Process = struct {
         self.close() catch {};
         self.write_log("### terminated LSP process ###\n", .{});
         if (self.log_file) |file| file.close();
+        if (self.log_file_path) |file_path| self.allocator.free(file_path);
     }
 
     fn close(self: *Process) error{CloseFailed}!void {
@@ -268,6 +270,7 @@ const Process = struct {
         const state_dir = root.get_state_dir() catch |e| return tp.exit_error(e, @errorReturnTrace());
         log_file_path.writer().print("{s}{c}lsp-{s}.log", .{ state_dir, std.fs.path.sep, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
         self.log_file = std.fs.createFileAbsolute(log_file_path.items, .{ .truncate = true }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.log_file_path = log_file_path.toOwnedSlice() catch null;
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
