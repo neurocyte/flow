@@ -266,7 +266,7 @@ const Process = struct {
         var log_file_path = std.ArrayList(u8).init(self.allocator);
         defer log_file_path.deinit();
         const state_dir = root.get_state_dir() catch |e| return tp.exit_error(e, @errorReturnTrace());
-        log_file_path.writer().print("{s}/lsp-{s}.log", .{ state_dir, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        log_file_path.writer().print("{s}{c}lsp-{s}.log", .{ state_dir, std.fs.path.sep, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
         self.log_file = std.fs.createFileAbsolute(log_file_path.items, .{ .truncate = true }) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
