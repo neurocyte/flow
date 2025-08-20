@@ -333,6 +333,8 @@ const Process = struct {
         var n: usize = 0;
         var task: []const u8 = undefined;
         var context: usize = undefined;
+        var tag: []const u8 = undefined;
+        var message: []const u8 = undefined;
 
         var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
 
@@ -405,6 +407,11 @@ const Process = struct {
             self.hover(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
             self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "lsp", "msg", tp.extract(&tag), tp.extract(&message) })) {
+            if (tp.env.get().is("lsp_verbose"))
+                self.logger.print("{s}: {s}", .{ tag, message });
+        } else if (try cbor.match(m.buf, .{ "lsp", "err", tp.extract(&tag), tp.extract(&message) })) {
+            self.logger.print("{s} error: {s}", .{ tag, message });
         } else if (try cbor.match(m.buf, .{"shutdown"})) {
             self.persist_projects();
             from.send(.{ "project_manager", "shutdown" }) catch return error.ClientFailed;
@@ -611,12 +618,8 @@ const Process = struct {
             project.show_message(params_cb)
         else if (std.mem.eql(u8, method, "window/logMessage"))
             project.log_message(params_cb)
-        else {
-            if (!tp.env.get().is("lsp_verbose")) return;
-            const params = try cbor.toJsonAlloc(self.allocator, params_cb);
-            defer self.allocator.free(params);
-            self.logger.print("LSP notification: {s} -> {s}", .{ method, params });
-        };
+        else
+            project.show_notification(method, params_cb);
     }
 
     fn dispatch_request(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8, method: []const u8, cbor_id: []const u8, params_cb: []const u8) (ProjectError || Project.ClientError || cbor.Error || cbor.JsonEncodeError || UnsupportedError)!void {

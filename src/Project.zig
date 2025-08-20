@@ -1562,6 +1562,13 @@ fn show_or_log_message(self: *Self, operation: enum { show, log }, params_cb: []
         self.logger_lsp.print("{s}: {s}", .{ @tagName(operation), msg });
 }
 
+pub fn show_notification(self: *Self, method: []const u8, params_cb: []const u8) !void {
+    if (!tp.env.get().is("lsp_verbose")) return;
+    const params = try cbor.toJsonAlloc(self.allocator, params_cb);
+    defer self.allocator.free(params);
+    self.logger_lsp.print("LSP notification: {s} -> {s}", .{ method, params });
+}
+
 pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) ClientError!void {
     _ = params_cb;
     return LSP.send_response(self.allocator, from, cbor_id, null) catch error.ClientFailed;
