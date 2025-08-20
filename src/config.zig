@@ -41,6 +41,8 @@ palette_style: WidgetStyle = .bars_top_bottom,
 panel_style: WidgetStyle = .compact,
 home_style: WidgetStyle = .bars_top_bottom,
 
+lsp_output: enum { quiet, verbose } = .quiet,
+
 include_files: []const u8 = "",
 
 pub const DigitStyle = enum {

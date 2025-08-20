@@ -1530,7 +1530,16 @@ fn read_position(position: []const u8) !Position {
     return .{ .line = line.?, .character = character.? };
 }
 
-pub fn show_message(self: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
+pub fn show_message(self: *Self, params_cb: []const u8) !void {
+    return self.show_or_log_message(.show, params_cb);
+}
+
+pub fn log_message(self: *Self, params_cb: []const u8) !void {
+    return self.show_or_log_message(.log, params_cb);
+}
+
+fn show_or_log_message(self: *Self, operation: enum { show, log }, params_cb: []const u8) !void {
+    if (!tp.env.get().is("lsp_verbose")) return;
     var type_: i32 = 0;
     var message: ?[]const u8 = null;
     var iter = params_cb;
@@ -1550,7 +1559,7 @@ pub fn show_message(self: *Self, _: tp.pid_ref, params_cb: []const u8) !void {
     if (type_ <= 2)
         self.logger_lsp.err_msg("lsp", msg)
     else
-        self.logger_lsp.print("{s}", .{msg});
+        self.logger_lsp.print("{s}: {s}", .{ @tagName(operation), msg });
 }
 
 pub fn register_capability(self: *Self, from: tp.pid_ref, cbor_id: []const u8, params_cb: []const u8) ClientError!void {

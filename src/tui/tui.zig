@@ -122,6 +122,8 @@ fn init(allocator: Allocator) InitError!*Self {
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
 
+    tp.env.get().set("lsp_verbose", conf.lsp_output == .verbose);
+
     var self = try allocator.create(Self);
     // don't destroy
     // if tui fails it is catastrophic anyway and we don't want to cause nock-on errors

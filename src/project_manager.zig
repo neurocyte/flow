@@ -608,10 +608,11 @@ const Process = struct {
         return if (std.mem.eql(u8, method, "textDocument/publishDiagnostics"))
             project.publish_diagnostics(self.parent.ref(), params_cb)
         else if (std.mem.eql(u8, method, "window/showMessage"))
-            project.show_message(self.parent.ref(), params_cb)
+            project.show_message(params_cb)
         else if (std.mem.eql(u8, method, "window/logMessage"))
-            project.show_message(self.parent.ref(), params_cb)
+            project.log_message(params_cb)
         else {
+            if (!tp.env.get().is("lsp_verbose")) return;
             const params = try cbor.toJsonAlloc(self.allocator, params_cb);
             defer self.allocator.free(params);
             self.logger.print("LSP notification: {s} -> {s}", .{ method, params });
