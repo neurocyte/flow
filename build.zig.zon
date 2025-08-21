@@ -5,7 +5,10 @@
     .fingerprint = 0x52c0d670590aa80f,
 
     .dependencies = .{
-        .syntax = .{ .path = "src/syntax" },
+        .syntax = .{
+            .url = "git+https://github.com/neurocyte/flow-syntax?ref=zig-0.14#410d19e633f237cd1602175450bd7d3bb03a1898",
+            .hash = "flow_syntax-0.1.0-X8jOoT4OAQDibKKzYlJls3u5KczVh__cWYN7vTqCE1o3",
+        },
         .flags = .{
             .url = "https://github.com/n0s4/flags/archive/372501d1576b5723829bcba98e41361132c7b618.tar.gz",
             .hash = "flags-0.8.0-AAAAAJV0AACuGBBnpUnHqZzAhoGTp4ibFROBQQQZGRqx",
