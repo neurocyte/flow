@@ -267,7 +267,7 @@ const cmds_ = struct {
 
         var text: []const u8 = undefined;
         if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
-            if (ed.clipboard) |text_| text = text_ else return;
+            if (tui.get_clipboard()) |text_| text = text_ else return;
         }
 
         ed.logger.print("paste: {d} bytes", .{text.len});
