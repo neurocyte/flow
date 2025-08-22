@@ -6,20 +6,20 @@
 
     .dependencies = .{
         .syntax = .{
-            .url = "git+https://github.com/neurocyte/flow-syntax?ref=zig-0.14#410d19e633f237cd1602175450bd7d3bb03a1898",
-            .hash = "flow_syntax-0.1.0-X8jOoT4OAQDibKKzYlJls3u5KczVh__cWYN7vTqCE1o3",
+            .url = "git+https://github.com/neurocyte/flow-syntax?ref=master#2c28091fe5ccfe66b304da0532b46f98fa1c28d3",
+            .hash = "flow_syntax-0.1.0-X8jOockOAQBBkI-6qpOw17CjdlrQeRhiFJFszv9U_THm",
         },
         .flags = .{
-            .url = "https://github.com/n0s4/flags/archive/372501d1576b5723829bcba98e41361132c7b618.tar.gz",
-            .hash = "flags-0.8.0-AAAAAJV0AACuGBBnpUnHqZzAhoGTp4ibFROBQQQZGRqx",
+            .url = "git+https://github.com/neurocyte/flags?ref=main#984b27948da3e4e40a253f76c85b51ec1a9ada11",
+            .hash = "flags-0.10.0-a_9h3gB4AADAYn0XaZuUqH1jKRmy6dqvAIbomtTIF6V1",
         },
         .dizzy = .{
             .url = "https://github.com/neurocyte/dizzy/archive/c9219d23daccd9aa226cfde754fea278cb516459.tar.gz",
             .hash = "dizzy-1.0.0-q40X4YCRAAAGYO9QOZiYYSOwiiFlqZlecMuQcxPiBcXM",
         },
         .thespian = .{
-            .url = "git+https://github.com/neurocyte/thespian?ref=master#0a386496cda74ef827d5770f6f071a7d2d54b91a",
-            .hash = "thespian-0.0.1-owFOjlgaBgCAOkRjH9_mDN7dnL8n8K3XA2hqqchjXZIk",
+            .url = "git+https://github.com/neurocyte/thespian?ref=master#8b2535db199d2215bea438abb323f3e3f6c58d99",
+            .hash = "thespian-0.0.1-owFOjjQbBgABzTPy7sWTQMJ7Ts5ielIYO3_6hfhxbQa_",
         },
         .themes = .{
             .url = "https://github.com/neurocyte/flow-themes/releases/download/master-952f9f630ea9544088fd30293666ee0650b7a690/flow-themes.tar.gz",
@@ -30,12 +30,12 @@
             .hash = "fuzzig-0.1.1-Ji0xivxIAQBD0g8O_NV_0foqoPf3elsg9Sc3pNfdVH4D",
         },
         .vaxis = .{
-            .url = "https://github.com/neurocyte/libvaxis/archive/2a4137dadbe560b13b712fd3aa8a1c313fdd8c6e.tar.gz",
-            .hash = "vaxis-0.1.0-BWNV_KMOCQAe8oPD6cCn62Rg7oIVgF8FEWLpcAi7xDZQ",
+            .url = "git+https://github.com/neurocyte/libvaxis?ref=zig-0.15#851427cce25664626f5005322903c7398ecce781",
+            .hash = "vaxis-0.5.1-BWNV_B8YCQCzszczPof3gSnh1UJYBkGUouqR1m_NKbL3",
         },
         .zeit = .{
-            .url = "https://github.com/rockorager/zeit/archive/991f38266f86535e68431675e8feb84efa1f011b.tar.gz",
-            .hash = "zeit-0.6.0-5I6bk0t7AgCPM_cY1DoqJB2pnmG7MMtpdO5IxNpryJDy",
+            .url = "git+https://github.com/rockorager/zeit?ref=zig-0.15#ed2ca60db118414bda2b12df2039e33bad3b0b88",
+            .hash = "zeit-0.6.0-5I6bk0J9AgCVa0nnyL0lNY9Xa9F68hHq-ZarhuXNV-Jb",
         },
         .win32 = .{
             .url = "https://github.com/marlersoft/zigwin32/archive/e8739b32a33ce48a3286aba31918b26a9dfc6ef0.tar.gz",
