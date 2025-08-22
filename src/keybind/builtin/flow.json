@@ -1,6 +1,7 @@
 {
     "project": {
         "press": [
+            ["ctrl+alt+shift+r", "restart"],
             ["ctrl+e", "find_file"],
             ["ctrl+shift+n", "create_new_file"],
             ["ctrl+r", "open_recent_project"],
@@ -28,7 +29,8 @@
             ["f10", "theme_next"],
             ["f11", "toggle_panel"],
             ["f12", "toggle_inputview"],
-            ["alt+!", "select_task"],
+            ["alt+!", "run_task"],
+            ["ctrl+1", "add_task"],
             ["ctrl+tab", "next_tab"],
             ["ctrl+shift+tab", "previous_tab"],
             ["ctrl+shift+e", "switch_buffers"],
@@ -38,6 +40,7 @@
             ["f5", ["create_scratch_buffer", "*test*"], ["shell_execute_insert", "zig", "build", "test"]],
             ["f7", ["create_scratch_buffer", "*build*"], ["shell_execute_insert", "zig", "build"]],
             ["ctrl+f6", "open_version_info"],
+            ["alt+shift+t", "set_session_tab_width"],
             ["alt+d", ["shell_execute_insert", "date", "--iso-8601"]],
             ["ctrl+alt+shift+d", ["shell_execute_insert", "date", "--iso-8601=seconds"]]
         ]
@@ -162,6 +165,7 @@
             ["shift+f11", "toggle_highlight_columns"],
             ["ctrl+f11", "toggle_inspector_view"],
             ["f12", "goto_definition"],
+            ["ctrl+.", "completion"],
             ["f34", "toggle_whitespace_mode"],
             ["escape", "cancel"],
             ["enter", "smart_insert_line"],
@@ -236,6 +240,8 @@
             ["page_down", "select_page_down"],
             ["ctrl+page_up", "select_scroll_page_up"],
             ["ctrl+page_down", "select_scroll_page_down"],
+            ["ctrl+b", "move_to_char", "select_to_char_left"],
+            ["ctrl+t", "move_to_char", "select_to_char_right"],
             ["ctrl+space", "enter_mode", "normal"],
             ["ctrl+x", ["cut"], ["enter_mode", "normal"], ["cancel"]],
             ["ctrl+c", ["copy"], ["enter_mode", "normal"], ["cancel"]],
@@ -249,6 +255,7 @@
         "inherit": "project",
         "on_match_failure": "ignore",
         "press": [
+            ["alt+f9", "home_next_widget_style"],
             ["ctrl+e", "find_file"],
             ["f", "find_file"],
             ["e", "find_file"],
@@ -279,9 +286,12 @@
     },
     "overlay/palette": {
         "press": [
+            ["alt+f9", "overlay_next_widget_style"],
+            ["alt+!", "add_task"],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+q", "quit"],
             ["ctrl+w", "close_file"],
+            ["ctrl+shift+f", "find_in_files"],
             ["ctrl+p", "palette_menu_up"],
             ["ctrl+n", "palette_menu_down"],
             ["ctrl+e", "palette_menu_down"],
@@ -328,7 +338,7 @@
             ["right_control", "palette_menu_activate_quick"]
         ]
     },
-    "mini/goto": {
+    "mini/numeric": {
         "press": [
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
@@ -338,7 +348,7 @@
             ["ctrl+l", "scroll_view_center_cycle"],
             ["ctrl+space", "mini_mode_cancel"],
             ["escape", "mini_mode_cancel"],
-            ["enter", "exit_mini_mode"],
+            ["enter", "mini_mode_select"],
             ["backspace", "mini_mode_delete_backwards"]
         ]
     },
@@ -347,6 +357,8 @@
             ["ctrl+g", "mini_mode_cancel"],
             ["ctrl+c", "mini_mode_cancel"],
             ["ctrl+l", "scroll_view_center_cycle"],
+            ["tab", "mini_mode_insert_bytes", "\t"],
+            ["enter", "mini_mode_insert_bytes", "\n"],
             ["escape", "mini_mode_cancel"],
             ["backspace", "mini_mode_cancel"]
         ]

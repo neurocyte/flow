@@ -14,6 +14,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
         pub const label = label_;
         pub const name = " file type";
         pub const description = "file type";
+        pub const icon = "  ";
 
         pub const Entry = struct {
             label: []const u8,
@@ -84,20 +85,18 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             }
 
             button.plane.set_style(style_hint);
-            const pointer = if (selected) "⏵" else " ";
-            _ = button.plane.print("{s}", .{pointer}) catch {};
+            tui.render_pointer(&button.plane, selected);
 
             var iter = button.opts.label;
             var description_: []const u8 = undefined;
-            var icon: []const u8 = undefined;
+            var icon_: []const u8 = undefined;
             var color: u24 = undefined;
             if (!(cbor.matchString(&iter, &description_) catch false)) @panic("invalid file_type description");
-            if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid file_type icon");
+            if (!(cbor.matchString(&iter, &icon_) catch false)) @panic("invalid file_type icon");
             if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid file_type color");
-            if (tui.config().show_fileicons) {
-                tui.render_file_icon(&button.plane, icon, color);
-                _ = button.plane.print(" ", .{}) catch {};
-            }
+
+            const icon_width = tui.render_file_icon(&button.plane, icon_, color);
+
             button.plane.set_style(style_label);
             _ = button.plane.print("{s} ", .{description_}) catch {};
 
@@ -111,7 +110,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             var len = cbor.decodeArrayHeader(&iter) catch return false;
             while (len > 0) : (len -= 1) {
                 if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-                    tui.render_match_cell(&button.plane, 0, index + 4, theme) catch break;
+                    tui.render_match_cell(&button.plane, 0, index + 2 + icon_width, theme) catch break;
                 } else break;
             }
             return false;
@@ -119,12 +118,12 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
 
         fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
             var description_: []const u8 = undefined;
-            var icon: []const u8 = undefined;
+            var icon_: []const u8 = undefined;
             var color: u24 = undefined;
             var name_: []const u8 = undefined;
             var iter = button.opts.label;
             if (!(cbor.matchString(&iter, &description_) catch false)) return;
-            if (!(cbor.matchString(&iter, &icon) catch false)) return;
+            if (!(cbor.matchString(&iter, &icon_) catch false)) return;
             if (!(cbor.matchInt(u24, &iter, &color) catch false)) return;
             if (!(cbor.matchString(&iter, &name_) catch false)) return;
             if (!allow_previous) if (previous_file_type) |prev| if (std.mem.eql(u8, prev, name_))

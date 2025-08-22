@@ -27,7 +27,7 @@ const OutOfMemoryError = error{OutOfMemory};
 const FileSystemError = error{FileSystem};
 const SetCwdError = if (builtin.os.tag == .windows) error{UnrecognizedVolume} else error{};
 const CallError = tp.CallError;
-const ProjectManagerError = (SpawnError || error{ProjectManagerFailed});
+const ProjectManagerError = (SpawnError || error{ ProjectManagerFailed, InvalidProjectDirectory });
 
 pub fn get() SpawnError!Self {
     const pid = tp.env.get().proc(module_name);
@@ -63,6 +63,7 @@ pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSyste
     const project_directory = std.fs.cwd().realpath(rel_project_directory, &path_buf) catch "(none)";
     const current_project = tp.env.get().str("project");
     if (std.mem.eql(u8, current_project, project_directory)) return;
+    if (!root.is_directory(project_directory)) return error.InvalidProjectDirectory;
     var dir = try std.fs.openDirAbsolute(project_directory, .{});
     try dir.setAsCwd();
     dir.close();
@@ -97,9 +98,9 @@ pub fn request_recent_files(max: usize) (ProjectManagerError || ProjectError)!vo
     return send(.{ "request_recent_files", project, max });
 }
 
-pub fn request_recent_projects(allocator: std.mem.Allocator) (ProjectError || CallError)!tp.message {
+pub fn request_recent_projects() (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
-    return (try get()).pid.call(allocator, request_timeout, .{ "request_recent_projects", project });
+    return send(.{ "request_recent_projects", project });
 }
 
 pub fn query_recent_files(max: usize, query: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -332,6 +333,8 @@ const Process = struct {
         var n: usize = 0;
         var task: []const u8 = undefined;
         var context: usize = undefined;
+        var tag: []const u8 = undefined;
+        var message: []const u8 = undefined;
 
         var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
 
@@ -404,6 +407,11 @@ const Process = struct {
             self.hover(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
             self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "lsp", "msg", tp.extract(&tag), tp.extract(&message) })) {
+            if (tp.env.get().is("lsp_verbose"))
+                self.logger.print("{s}: {s}", .{ tag, message });
+        } else if (try cbor.match(m.buf, .{ "lsp", "err", tp.extract(&tag), tp.extract(&message) })) {
+            self.logger.print("{s} error: {s}", .{ tag, message });
         } else if (try cbor.match(m.buf, .{"shutdown"})) {
             self.persist_projects();
             from.send(.{ "project_manager", "shutdown" }) catch return error.ClientFailed;
@@ -461,6 +469,9 @@ const Process = struct {
         self.sort_projects_by_last_used(&recent_projects);
         var message = std.ArrayList(u8).init(self.allocator);
         const writer = message.writer();
+        try cbor.writeArrayHeader(writer, 3);
+        try cbor.writeValue(writer, "PRJ");
+        try cbor.writeValue(writer, "recent_projects");
         try cbor.writeArrayHeader(writer, recent_projects.items.len);
         for (recent_projects.items) |project| {
             try cbor.writeArrayHeader(writer, 2);
@@ -468,6 +479,7 @@ const Process = struct {
             try cbor.writeValue(writer, if (self.projects.get(project.name)) |_| true else false);
         }
         from.send_raw(.{ .buf = message.items }) catch return error.ClientFailed;
+        self.logger.print("{d} projects found", .{recent_projects.items.len});
     }
 
     fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.ClientError)!void {
@@ -603,14 +615,11 @@ const Process = struct {
         return if (std.mem.eql(u8, method, "textDocument/publishDiagnostics"))
             project.publish_diagnostics(self.parent.ref(), params_cb)
         else if (std.mem.eql(u8, method, "window/showMessage"))
-            project.show_message(self.parent.ref(), params_cb)
+            project.show_message(params_cb)
         else if (std.mem.eql(u8, method, "window/logMessage"))
-            project.show_message(self.parent.ref(), params_cb)
-        else {
-            const params = try cbor.toJsonAlloc(self.allocator, params_cb);
-            defer self.allocator.free(params);
-            self.logger.print("LSP notification: {s} -> {s}", .{ method, params });
-        };
+            project.log_message(params_cb)
+        else
+            project.show_notification(method, params_cb);
     }
 
     fn dispatch_request(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8, method: []const u8, cbor_id: []const u8, params_cb: []const u8) (ProjectError || Project.ClientError || cbor.Error || cbor.JsonEncodeError || UnsupportedError)!void {
@@ -793,12 +802,19 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
             var iter = self.dir.iterateAssumeFirstIteration();
             errdefer |e| self.parent.send(.{ "PRJ", "path_error", self.project_name, self.path, e }) catch {};
             while (try iter.next()) |entry| {
-                switch (entry.kind) {
-                    .directory => try self.parent.send(.{ "PRJ", "path_entry", self.project_name, self.path, "DIR", entry.name }),
-                    .sym_link => try self.parent.send(.{ "PRJ", "path_entry", self.project_name, self.path, "LINK", entry.name }),
-                    .file => try self.parent.send(.{ "PRJ", "path_entry", self.project_name, self.path, "FILE", entry.name }),
+                const event_type = switch (entry.kind) {
+                    .directory => "DIR",
+                    .sym_link => "LINK",
+                    .file => "FILE",
                     else => continue,
-                }
+                };
+                const default = file_type_config.default;
+                const file_type, const icon, const color = switch (entry.kind) {
+                    .directory => .{ "directory", file_type_config.folder_icon, default.color },
+                    .sym_link, .file => Project.guess_path_file_type(self.path, entry.name),
+                    else => .{ default.name, default.icon, default.color },
+                };
+                try self.parent.send(.{ "PRJ", "path_entry", self.project_name, self.path, event_type, entry.name, file_type, icon, color });
                 count += 1;
                 if (count >= self.max) break;
             }

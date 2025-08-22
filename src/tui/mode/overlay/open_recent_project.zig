@@ -27,10 +27,12 @@ pub fn deinit(palette: *Type) void {
         palette.allocator.free(entry.label);
 }
 
-pub fn load_entries(palette: *Type) !usize {
-    const rsp = try project_manager.request_recent_projects(palette.allocator);
-    defer palette.allocator.free(rsp.buf);
-    var iter: []const u8 = rsp.buf;
+pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
+    var items_cbor: []const u8 = undefined;
+    if (!(cbor.match(ctx.args.buf, .{ "PRJ", "recent_projects", tp.extract_cbor(&items_cbor) }) catch false))
+        return error.InvalidRecentProjects;
+
+    var iter: []const u8 = items_cbor;
     var len = try cbor.decodeArrayHeader(&iter);
     while (len > 0) : (len -= 1) {
         var name_: []const u8 = undefined;

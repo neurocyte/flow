@@ -323,6 +323,9 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
                     })),
             };
         },
+        .mouse_leave => {
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"mouse_leave"}));
+        },
         .focus_in => {
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"focus_in"}));
         },

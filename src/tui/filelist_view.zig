@@ -33,8 +33,10 @@ view_rows: usize = 0,
 view_cols: usize = 0,
 entries: std.ArrayList(Entry) = undefined,
 selected: ?usize = null,
+box: Widget.Box = .{},
 
 const path_column_ratio = 4;
+const widget_type: Widget.Type = .panel;
 
 const Entry = struct {
     path: []const u8,
@@ -44,6 +46,7 @@ const Entry = struct {
     end_pos: usize,
     lines: []const u8,
     severity: editor.Diagnostic.Severity = .Information,
+    pos_type: editor.PosType,
 };
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
@@ -56,6 +59,7 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
         .entries = std.ArrayList(Entry).init(allocator),
         .menu = try Menu.create(*Self, allocator, tui.plane(), .{
             .ctx = self,
+            .style = widget_type,
             .on_render = handle_render_menu,
             .on_scroll = EventHandler.bind(self, Self.handle_scroll),
             .on_click4 = mouse_click_button4,
@@ -84,11 +88,14 @@ fn scrollbar_style(sb: *scrollbar_v, theme: *const Widget.Theme) Widget.Theme.St
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
+    const padding = tui.get_widget_style(widget_type).padding;
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
-    self.menu.container_widget.resize(pos);
-    self.view_rows = pos.h;
-    self.view_cols = pos.w;
+    self.box = pos;
+    self.menu.container.resize(self.box);
+    const client_box = self.menu.container.to_client_box(pos, padding);
+    self.view_rows = client_box.h;
+    self.view_cols = client_box.w;
     self.update_scrollbar();
 }
 
@@ -107,7 +114,7 @@ pub fn add_item(self: *Self, entry_: Entry) !void {
     const writer = label.writer();
     cbor.writeValue(writer, idx) catch return;
     self.menu.add_item_with_handler(label.items, handle_menu_action) catch return;
-    self.menu.container_widget.resize(Widget.Box.from(self.plane));
+    self.menu.resize(self.box);
     self.update_scrollbar();
 }
 
@@ -160,8 +167,8 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
         button.plane.home();
     }
     const entry = &self.entries.items[idx];
-    const pointer = if (selected) "⏵" else " ";
-    _ = button.plane.print("{s} ", .{pointer}) catch {};
+    button.plane.set_style(style_label);
+    tui.render_pointer(&button.plane, selected);
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var removed_prefix: usize = 0;
     const max_len = self.view_cols / path_column_ratio;
@@ -244,6 +251,7 @@ fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.Sta
             if (entry.begin_pos == 0) 0 else entry.begin_pos + 1,
             entry.end_line,
             entry.end_pos + 1,
+            entry.pos_type,
         },
     } }) catch |e| self.logger.err("navigate", e);
 }

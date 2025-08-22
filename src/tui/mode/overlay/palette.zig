@@ -20,6 +20,7 @@ const ModalBackground = @import("../../ModalBackground.zig");
 pub const Menu = @import("../../Menu.zig");
 
 const max_menu_width = 80;
+const widget_type: Widget.Type = .palette;
 
 pub fn Create(options: type) type {
     return struct {
@@ -46,6 +47,10 @@ pub fn Create(options: type) type {
         pub const ButtonState = Button.State(*Menu.State(*Self));
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
+            return create_with_args(allocator, .{});
+        }
+
+        pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui.Mode {
             const mv = tui.mainview() orelse return error.NotFound;
             const self = try allocator.create(Self);
             errdefer allocator.destroy(self);
@@ -57,8 +62,10 @@ pub fn Create(options: type) type {
                 }),
                 .menu = try Menu.create(*Self, allocator, tui.plane(), .{
                     .ctx = self,
+                    .style = widget_type,
                     .on_render = if (@hasDecl(options, "on_render_menu")) options.on_render_menu else on_render_menu,
-                    .on_resize = on_resize_menu,
+                    .prepare_resize = prepare_resize_menu,
+                    .after_resize = after_resize_menu,
                     .on_scroll = EventHandler.bind(self, Self.on_scroll),
                     .on_click4 = mouse_click_button4,
                     .on_click5 = mouse_click_button5,
@@ -67,12 +74,17 @@ pub fn Create(options: type) type {
                 .inputbox = (try self.menu.add_header(try InputBox.create(*Self, self.allocator, self.menu.menu.parent, .{
                     .ctx = self,
                     .label = options.label,
+                    .padding = 2,
+                    .icon = if (@hasDecl(options, "icon")) options.icon else null,
                 }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = std.ArrayList(Entry).init(allocator),
             };
             if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
-            self.longest_hint = try options.load_entries(self);
+            self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
+                try options.load_entries_with_args(self, ctx)
+            else
+                try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             try self.commands.init(self);
@@ -130,8 +142,7 @@ pub fn Create(options: type) type {
             if (!(cbor.matchString(&iter, &hint) catch false))
                 hint = "";
             button.plane.set_style(style_hint);
-            const pointer = if (selected) "⏵" else " ";
-            _ = button.plane.print("{s}", .{pointer}) catch {};
+            tui.render_pointer(&button.plane, selected);
             button.plane.set_style(style_label);
             _ = button.plane.print("{s} ", .{label}) catch {};
             button.plane.set_style(style_hint);
@@ -140,25 +151,38 @@ pub fn Create(options: type) type {
             var len = cbor.decodeArrayHeader(&iter) catch return false;
             while (len > 0) : (len -= 1) {
                 if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-                    tui.render_match_cell(&button.plane, 0, index + 1, theme) catch break;
+                    tui.render_match_cell(&button.plane, 0, index + 2, theme) catch break;
                 } else break;
             }
             return false;
         }
 
-        fn on_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
-            self.do_resize();
-            // self.start_query(0) catch {};
+        fn prepare_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) Widget.Box {
+            return self.prepare_resize();
         }
 
-        fn do_resize(self: *Self) void {
+        fn prepare_resize(self: *Self) Widget.Box {
             const screen = tui.screen();
-            const w = @max(@min(self.longest, max_menu_width) + 2 + 1 + self.longest_hint, options.label.len + 2);
+            const w = @max(@min(self.longest + 3, max_menu_width) + 2 + self.longest_hint, options.label.len + 2);
             const x = if (screen.w > w) (screen.w - w) / 2 else 0;
             self.view_rows = get_view_rows(screen);
             const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);
-            self.menu.container.resize(.{ .y = 0, .x = x, .w = w, .h = h });
+            return .{ .y = 0, .x = x, .w = w, .h = h };
+        }
+
+        fn after_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
+            return self.after_resize();
+        }
+
+        fn after_resize(self: *Self) void {
             self.update_scrollbar();
+            // self.start_query(0) catch {};
+        }
+
+        fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
+            const box = self.prepare_resize();
+            self.menu.resize(self.menu.container.to_client_box(box, padding));
+            self.after_resize();
         }
 
         fn get_view_rows(screen: Widget.Box) usize {
@@ -239,7 +263,8 @@ pub fn Create(options: type) type {
                 var i = n;
                 while (i > 0) : (i -= 1)
                     self.menu.select_down();
-                self.do_resize();
+                const padding = tui.get_widget_style(widget_type).padding;
+                self.do_resize(padding);
                 tui.refresh_hover();
                 self.selection_updated();
             }
@@ -449,15 +474,22 @@ pub fn Create(options: type) type {
                     const button = self.menu.get_selected() orelse return;
                     const refresh = options.delete_item(self.menu, button);
                     if (refresh) {
-                        options.clear_entries(self);
-                        self.longest_hint = try options.load_entries(self);
-                        if (self.entries.items.len > 0)
-                            self.initial_selected = self.menu.selected;
-                        try self.start_query(0);
+                        if (@hasDecl(options, "load_entries")) {
+                            options.clear_entries(self);
+                            self.longest_hint = try options.load_entries(self);
+                            if (self.entries.items.len > 0)
+                                self.initial_selected = self.menu.selected;
+                            try self.start_query(0);
+                        } else {
+                            return palette_menu_cancel(self, .{});
+                        }
                     }
                 }
             }
-            pub const palette_menu_delete_item_meta: Meta = .{};
+            pub const palette_menu_delete_item_meta: Meta = .{
+                .description = "Delete item",
+                .icon = "󰗨",
+            };
 
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
                 self.menu.activate_selected();
@@ -510,6 +542,15 @@ pub fn Create(options: type) type {
                 return self.cmd_async("toggle_inputview");
             }
             pub const overlay_toggle_inputview_meta: Meta = .{};
+
+            pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
+                tui.set_next_style(widget_type);
+                const padding = tui.get_widget_style(widget_type).padding;
+                self.do_resize(padding);
+                tui.need_render();
+                try tui.save_config();
+            }
+            pub const overlay_next_widget_style_meta: Meta = .{};
 
             pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
                 return overlay_insert_bytes(self, ctx);

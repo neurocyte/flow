@@ -55,6 +55,8 @@ pub const whitespace = struct {
     };
 };
 
+pub const PosType = enum { column, byte };
+
 pub const Match = struct {
     begin: Cursor = Cursor{},
     end: Cursor = Cursor{},
@@ -351,6 +353,9 @@ pub const Editor = struct {
     diag_hints: usize = 0,
 
     completions: std.ArrayListUnmanaged(u8) = .empty,
+    completion_row: usize = 0,
+    completion_col: usize = 0,
+    completion_is_complete: bool = true,
 
     enable_auto_save: bool,
     enable_format_on_save: bool,
@@ -432,6 +437,7 @@ pub const Editor = struct {
             tp.extract_cbor(&cursels_cbor),
         }))
             return error.RestoreStateMatch;
+        self.refresh_tab_width();
         if (op == .open_file)
             try self.open(file_path);
         self.clipboard = if (clipboard.len > 0) try self.allocator.dupe(u8, clipboard) else null;
@@ -468,7 +474,7 @@ pub const Editor = struct {
     fn init(self: *Self, allocator: Allocator, n: Plane, buffer_manager: *Buffer.Manager) void {
         const logger = log.logger("editor");
         const frame_rate = tp.env.get().num("frame-rate");
-        const tab_width = tui.config().tab_width;
+        const tab_width = tui.get_tab_width();
         const indent_mode = tui.config().indent_mode;
         const indent_size = if (indent_mode == .tabs) tab_width else tui.config().indent_size;
         self.* = Self{
@@ -701,6 +707,23 @@ pub const Editor = struct {
         self.indent_mode = .spaces;
         return;
     }
+
+    fn refresh_tab_width(self: *Self) void {
+        self.metrics = self.plane.metrics(self.tab_width);
+        switch (self.indent_mode) {
+            .spaces, .auto => {},
+            .tabs => self.indent_size = self.tab_width,
+        }
+    }
+
+    pub fn set_editor_tab_width(self: *Self, ctx: Context) Result {
+        var tab_width: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&tab_width)}))
+            return error.InvalidSetTabWidthArgument;
+        self.tab_width = tab_width;
+        self.refresh_tab_width();
+    }
+    pub const set_editor_tab_width_meta: Meta = .{ .arguments = &.{.integer} };
 
     fn close(self: *Self) !void {
         var meta = std.ArrayListUnmanaged(u8).empty;
@@ -4457,7 +4480,9 @@ pub const Editor = struct {
         };
     }
 
-    fn cursel_smart_insert_line(self: *Self, root: Buffer.Root, cursel: *CurSel, b_allocator: std.mem.Allocator) !Buffer.Root {
+    const WSCollapseMode = enum { leave_ws, collapse_ws };
+
+    fn cursel_smart_insert_line(self: *Self, root: Buffer.Root, cursel: *CurSel, b_allocator: std.mem.Allocator, mode: WSCollapseMode) !Buffer.Root {
         const row = cursel.cursor.row;
         const leading_ws = @min(find_first_non_ws(root, row, self.metrics), cursel.cursor.col);
         var sfa = std.heap.stackFallback(512, self.allocator);
@@ -4468,7 +4493,8 @@ pub const Editor = struct {
         _ = try writer.write("\n");
         try self.generate_leading_ws(&writer, leading_ws);
         var root_ = try self.insert(root, cursel, stream.items, b_allocator);
-        root_ = self.collapse_trailing_ws_line(root_, row, b_allocator);
+        if (mode == .collapse_ws)
+            root_ = self.collapse_trailing_ws_line(root_, row, b_allocator);
         const leading_ws_ = find_first_non_ws(root_, cursel.cursor.row, self.metrics);
         if (leading_ws_ > leading_ws and leading_ws_ > cursel.cursor.col) {
             const sel = try cursel.enable_selection(root_, self.metrics);
@@ -4499,11 +4525,11 @@ pub const Editor = struct {
                     (std.mem.eql(u8, egc_right, "(") and std.mem.eql(u8, egc_left, ")"));
             };
 
-            root = try self.cursel_smart_insert_line(root, cursel, b.allocator);
+            root = try self.cursel_smart_insert_line(root, cursel, b.allocator, .collapse_ws);
 
             if (smart_brace_indent) {
                 const cursor = cursel.cursor;
-                root = try self.cursel_smart_insert_line(root, cursel, b.allocator);
+                root = try self.cursel_smart_insert_line(root, cursel, b.allocator, .leave_ws);
                 cursel.cursor = cursor;
                 if (indent_extra)
                     root = try self.indent_cursel(root, cursel, b.allocator);
@@ -5389,9 +5415,16 @@ pub const Editor = struct {
         var column: usize = 0;
         var have_sel: bool = false;
         var sel: Selection = .{};
+        var pos_type: PosType = .column;
         if (try ctx.args.match(.{
             tp.extract(&line),
             tp.extract(&column),
+        })) {
+            // self.logger.print("goto: l:{d} c:{d}", .{ line, column });
+        } else if (try ctx.args.match(.{
+            tp.extract(&line),
+            tp.extract(&column),
+            tp.extract(&pos_type),
         })) {
             // self.logger.print("goto: l:{d} c:{d}", .{ line, column });
         } else if (try ctx.args.match(.{
@@ -5404,9 +5437,29 @@ pub const Editor = struct {
         })) {
             // self.logger.print("goto: l:{d} c:{d} {any}", .{ line, column, sel });
             have_sel = true;
+        } else if (try ctx.args.match(.{
+            tp.extract(&line),
+            tp.extract(&column),
+            tp.extract(&sel.begin.row),
+            tp.extract(&sel.begin.col),
+            tp.extract(&sel.end.row),
+            tp.extract(&sel.end.col),
+            tp.extract(&pos_type),
+        })) {
+            // self.logger.print("goto: l:{d} c:{d} {any} {}", .{ line, column, sel, pos_type });
+            have_sel = true;
         } else return error.InvalidGotoLineAndColumnArgument;
         self.cancel_all_selections();
         const root = self.buf_root() catch return;
+        if (pos_type == .byte) {
+            column = root.pos_to_width(line - 1, column - 1, self.metrics) catch return;
+            column += 1;
+            if (have_sel) {
+                sel.begin.col = root.pos_to_width(sel.begin.row, sel.begin.col, self.metrics) catch return;
+                sel.end.col = root.pos_to_width(sel.end.row, sel.end.col, self.metrics) catch return;
+            }
+            // self.logger.print("goto_byte_pos: l:{d} c:{d} {any} {}", .{ line, column, sel, pos_type });
+        }
         const primary = self.get_primary();
         try primary.cursor.move_to(
             root,
@@ -5660,10 +5713,13 @@ pub const Editor = struct {
     }
 
     pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
+        if (!(row == self.completion_row and col == self.completion_col)) {
+            self.completions.clearRetainingCapacity();
+            self.completion_row = row;
+            self.completion_col = col;
+        }
         try self.completions.appendSlice(self.allocator, msg.buf);
-        _ = row;
-        _ = col;
-        _ = is_incomplete;
+        self.completion_is_complete = is_incomplete;
     }
 
     pub fn select(self: *Self, ctx: Context) Result {
@@ -6029,6 +6085,8 @@ pub const EditorWidget = struct {
     last_btn: input.Mouse = .none,
     last_btn_time_ms: i64 = 0,
     last_btn_count: usize = 0,
+    last_btn_x: c_int = 0,
+    last_btn_y: c_int = 0,
 
     hover: bool = false,
     hover_timer: ?tp.Cancellable = null,
@@ -6193,9 +6251,16 @@ pub const EditorWidget = struct {
 
     fn mouse_click_button1(self: *Self, y: c_int, x: c_int, _: c_int, xoffset: c_int) Result {
         const y_, const x_ = self.mouse_pos_abs(y, x, xoffset);
+        defer {
+            self.last_btn_y = y_;
+            self.last_btn_x = x_;
+        }
         if (self.last_btn == input.mouse.BUTTON1) {
             const click_time_ms = time.milliTimestamp() - self.last_btn_time_ms;
-            if (click_time_ms <= double_click_time_ms) {
+            if (click_time_ms <= double_click_time_ms and
+                self.last_btn_y == y_ and
+                self.last_btn_x == x_)
+            {
                 if (self.last_btn_count == 2) {
                     self.last_btn_count = 3;
                     try self.editor.primary_triple_click(y_, x_);

@@ -322,6 +322,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
         try self.check_all_not_dirty();
+        try project_manager.open(project_dir);
         for (self.editors.items) |editor| {
             editor.clear_diagnostics();
             try editor.close_file(.{});
@@ -332,7 +333,6 @@ const cmds = struct {
             try self.toggle_panel_view(filelist_view, false);
         self.buffer_manager.deinit();
         self.buffer_manager = Buffer.Manager.init(self.allocator);
-        try project_manager.open(project_dir);
         const project = tp.env.get().str("project");
         tui.rdr().set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
@@ -827,8 +827,11 @@ const cmds = struct {
             tp.more,
         })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
-        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
-            try editor.add_completion(row, col, is_incomplete, ctx.args);
+        if (self.get_active_editor()) |editor| {
+            if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+                try editor.add_completion(row, col, is_incomplete, ctx.args);
+            try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type);
+        }
     }
     pub const add_completion_meta: Meta = .{
         .arguments = &.{
@@ -937,6 +940,12 @@ const cmds = struct {
         self.show_file_async(self.get_next_mru_buffer() orelse return error.Stop);
     }
     pub const open_previous_file_meta: Meta = .{ .description = "Open the previous file" };
+
+    pub fn open_most_recent_file(self: *Self, _: Ctx) Result {
+        if (try project_manager.request_most_recent_file(self.allocator)) |file_path|
+            self.show_file_async(file_path);
+    }
+    pub const open_most_recent_file_meta: Meta = .{ .description = "Open the last changed file" };
 
     pub fn system_paste(self: *Self, _: Ctx) Result {
         if (builtin.os.tag == .windows) {
@@ -1315,7 +1324,7 @@ pub fn write_restore_info(self: *Self) void {
 
 fn read_restore_info(self: *Self) !void {
     const file_name = try root.get_restore_file_name();
-    const file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
+    const file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
     defer file.close();
     const stat = try file.stat();
     var buf = try self.allocator.alloc(u8, @intCast(stat.size));
@@ -1414,6 +1423,7 @@ fn add_find_in_files_result(
         .end_pos = @max(1, end_pos) - 1,
         .lines = lines,
         .severity = severity,
+        .pos_type = .byte,
     }) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 

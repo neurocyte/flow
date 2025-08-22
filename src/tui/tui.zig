@@ -24,6 +24,7 @@ allocator: Allocator,
 rdr_: renderer,
 config_: @import("config"),
 config_bufs: [][]const u8,
+session_tab_width: ?usize = null,
 highlight_columns_: []const u16,
 highlight_columns_configured: []const u16,
 frame_time: usize, // in microseconds
@@ -103,6 +104,8 @@ const InitError = error{
     keybind.LoadError;
 
 fn init(allocator: Allocator) InitError!*Self {
+    log.stdout(.disable);
+
     var conf, const conf_bufs = root.read_config(@import("config"), allocator);
 
     if (@hasDecl(renderer, "install_crash_handler") and conf.start_debugger_on_crash)
@@ -118,6 +121,8 @@ fn init(allocator: Allocator) InitError!*Self {
     tp.env.get().num_set("frame-rate", @intCast(conf.frame_rate));
     const frame_time = std.time.us_per_s / conf.frame_rate;
     const frame_clock = try tp.metronome.init(frame_time);
+
+    tp.env.get().set("lsp_verbose", conf.lsp_output == .verbose);
 
     var self = try allocator.create(Self);
     // don't destroy
@@ -156,6 +161,8 @@ fn init(allocator: Allocator) InitError!*Self {
     self.rdr_.dispatch_mouse_drag = dispatch_mouse_drag;
     self.rdr_.dispatch_event = dispatch_event;
     try self.rdr_.run();
+
+    log.stderr(.disable);
 
     try project_manager.start();
 
@@ -384,6 +391,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    if (try m.match(.{"mouse_leave"}))
+        return;
+
     if (try m.match(.{"focus_in"}))
         return;
 
@@ -407,6 +417,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         self.logger.err_msg("tui", msg);
         return;
     }
+
+    if (try m.match(.{ "PRJ", "recent_projects", tp.more })) // async recent projects request
+        return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent_project.zig").Type, .{ .args = m });
 
     if (try m.match(.{ "PRJ", tp.more })) // drop late project manager query responses
         return;
@@ -679,6 +692,17 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     refresh_hover();
 }
 
+fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) command.Result {
+    command.executeName("disable_fast_scroll", .{}) catch {};
+    command.executeName("disable_jump_mode", .{}) catch {};
+    if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, .{});
+    if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, .{});
+    self.input_mode_outer_ = self.input_mode_;
+    self.input_mode_ = try mode.create_with_args(self.allocator, ctx);
+    if (self.input_mode_) |*m| m.run_init();
+    refresh_hover();
+}
+
 fn get_input_mode(self: *Self, mode_name: []const u8) !Mode {
     return keybind.mode(mode_name, self.allocator, .{});
 }
@@ -709,17 +733,22 @@ fn refresh_input_mode(self: *Self) command.Result {
     if (self.input_mode_) |*m| m.run_init();
 }
 
-fn set_theme_by_name(self: *Self, name: []const u8) !void {
+fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }) !void {
     const old = self.parsed_theme;
     defer if (old) |p| p.deinit();
     self.theme_, self.parsed_theme = get_theme_by_name(self.allocator, name) orelse {
         self.logger.print("theme not found: {s}", .{name});
         return;
     };
-    self.config_.theme = self.theme_.name;
     self.set_terminal_style();
     self.logger.print("theme: {s}", .{self.theme_.description});
-    try save_config();
+    switch (action) {
+        .none => {},
+        .store => {
+            self.config_.theme = self.theme_.name;
+            try save_config();
+        },
+    }
 }
 
 const cmds = struct {
@@ -740,23 +769,69 @@ const cmds = struct {
     }
     pub const force_terminate_meta: Meta = .{ .description = "Force quit without saving" };
 
+    pub fn set_tab_width(self: *Self, ctx: Ctx) Result {
+        var tab_width: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&tab_width)}))
+            return enter_mini_mode(self, @import("mode/mini/tab_width.zig"), Ctx.fmt(.{"set_tab_width"}));
+
+        self.config_.tab_width = tab_width;
+        self.session_tab_width = null;
+        command.executeName("set_editor_tab_width", ctx) catch {};
+        try save_config();
+        self.logger.print("tab width {}", .{tab_width});
+    }
+    pub const set_tab_width_meta: Meta = .{
+        .description = "Set tab width",
+        .arguments = &.{.integer},
+    };
+
+    pub fn set_buffer_tab_width(self: *Self, ctx: Ctx) Result {
+        var tab_width: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&tab_width)}))
+            return enter_mini_mode(self, @import("mode/mini/tab_width.zig"), Ctx.fmt(.{"set_buffer_tab_width"}));
+
+        command.executeName("set_editor_tab_width", ctx) catch {};
+        self.logger.print("buffer tab width {}", .{tab_width});
+    }
+    pub const set_buffer_tab_width_meta: Meta = .{
+        .description = "Set tab width for current buffer",
+        .arguments = &.{.integer},
+    };
+
+    pub fn set_session_tab_width(self: *Self, ctx: Ctx) Result {
+        var tab_width: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&tab_width)}))
+            return enter_mini_mode(self, @import("mode/mini/tab_width.zig"), Ctx.fmt(.{"set_session_tab_width"}));
+
+        self.session_tab_width = tab_width;
+        command.executeName("set_editor_tab_width", ctx) catch {};
+        self.logger.print("session tab width {}", .{tab_width});
+    }
+    pub const set_session_tab_width_meta: Meta = .{
+        .description = "Set tab width for current session",
+        .arguments = &.{.integer},
+    };
+
     pub fn set_theme(self: *Self, ctx: Ctx) Result {
         var name: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&name)}))
-            return tp.exit_error(error.InvalidSetThemeArgument, null);
-        return self.set_theme_by_name(name);
+        if (try ctx.args.match(.{tp.extract(&name)}))
+            return self.set_theme_by_name(name, .store);
+        if (try ctx.args.match(.{ tp.extract(&name), "no_store" }))
+            return self.set_theme_by_name(name, .none);
+
+        return tp.exit_error(error.InvalidSetThemeArgument, null);
     }
     pub const set_theme_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn theme_next(self: *Self, _: Ctx) Result {
         const name = get_next_theme_by_name(self.theme_.name);
-        return self.set_theme_by_name(name);
+        return self.set_theme_by_name(name, .store);
     }
     pub const theme_next_meta: Meta = .{ .description = "Next color theme" };
 
     pub fn theme_prev(self: *Self, _: Ctx) Result {
         const name = get_prev_theme_by_name(self.theme_.name);
-        return self.set_theme_by_name(name);
+        return self.set_theme_by_name(name, .store);
     }
     pub const theme_prev_meta: Meta = .{ .description = "Previous color theme" };
 
@@ -858,8 +933,8 @@ const cmds = struct {
     }
     pub const open_recent_meta: Meta = .{ .description = "Open recent" };
 
-    pub fn open_recent_project(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/open_recent_project.zig").Type);
+    pub fn open_recent_project(_: *Self, _: Ctx) Result {
+        try project_manager.request_recent_projects();
     }
     pub const open_recent_project_meta: Meta = .{ .description = "Open project" };
 
@@ -868,12 +943,11 @@ const cmds = struct {
     }
     pub const switch_buffers_meta: Meta = .{ .description = "Switch buffers" };
 
-    pub fn select_task(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
-    }
-    pub const select_task_meta: Meta = .{ .description = "Run task" };
-
     pub fn add_task(self: *Self, ctx: Ctx) Result {
+        var task: []const u8 = undefined;
+        if (try ctx.args.match(.{tp.extract(&task)}))
+            return call_add_task(task);
+
         return enter_mini_mode(self, struct {
             pub const Type = @import("mode/mini/buffer.zig").Create(@This());
             pub const create = Type.create;
@@ -881,17 +955,42 @@ const cmds = struct {
                 return @import("mode/overlay/task_palette.zig").name;
             }
             pub fn select(self_: *Type) void {
-                project_manager.add_task(self_.input.items) catch |e| {
-                    const logger = log.logger("tui");
-                    logger.err("add_task", e);
-                    logger.deinit();
-                };
+                tp.self_pid().send(.{ "cmd", "run_task", .{self_.input.items} }) catch {};
                 command.executeName("exit_mini_mode", .{}) catch {};
-                command.executeName("select_task", .{}) catch {};
             }
         }, ctx);
     }
-    pub const add_task_meta: Meta = .{ .description = "Add task" };
+    pub const add_task_meta: Meta = .{
+        .description = "Add new task",
+        .arguments = &.{.string},
+        .icon = "",
+    };
+
+    fn call_add_task(task: []const u8) void {
+        project_manager.add_task(task) catch |e| {
+            const logger = log.logger("tui");
+            logger.err("add_task", e);
+            logger.deinit();
+        };
+    }
+
+    pub fn run_task(self: *Self, ctx: Ctx) Result {
+        var task: []const u8 = undefined;
+        if (try ctx.args.match(.{tp.extract(&task)})) {
+            var buffer_name = std.ArrayList(u8).init(self.allocator);
+            defer buffer_name.deinit();
+            buffer_name.writer().print("*{s}*", .{task}) catch {};
+            call_add_task(task);
+            tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{ buffer_name.items, "", "conf" } }) catch |e| self.logger.err("task", e);
+            tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{task} }) catch |e| self.logger.err("task", e);
+        } else {
+            return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
+        }
+    }
+    pub const run_task_meta: Meta = .{
+        .description = "Run a task",
+        .arguments = &.{.string},
+    };
 
     pub fn delete_task(_: *Self, ctx: Ctx) Result {
         var task: []const u8 = undefined;
@@ -964,10 +1063,10 @@ const cmds = struct {
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
         command.executeName("disable_fast_scroll", .{}) catch {};
         command.executeName("disable_jump_mode", .{}) catch {};
-        const input_mode_, const mini_mode_ = try mode.create(self.allocator, ctx);
         if (self.mini_mode_) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer_) |_| try exit_overlay_mode(self, .{});
         if (self.input_mode_outer_ != null) @panic("exit_overlay_mode failed");
+        const input_mode_, const mini_mode_ = try mode.create(self.allocator, ctx);
         self.input_mode_outer_ = self.input_mode_;
         self.input_mode_ = input_mode_;
         self.mini_mode_ = mini_mode_;
@@ -1111,6 +1210,11 @@ pub fn query_cache() *syntax.QueryCache {
 
 pub fn config() *const @import("config") {
     return &current().config_;
+}
+
+pub fn get_tab_width() usize {
+    const self = current();
+    return self.session_tab_width orelse self.config_.tab_width;
 }
 
 pub fn highlight_columns() []const u16 {
@@ -1375,7 +1479,19 @@ pub fn message(comptime fmt: anytype, args: anytype) void {
     tp.self_pid().send(.{ "message", std.fmt.bufPrint(&buf, fmt, args) catch @panic("too large") }) catch {};
 }
 
-pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) void {
+const dirty_indicator = "";
+const hidden_indicator = "-";
+
+pub fn get_file_state_indicator(buffer_manager: *const @import("Buffer").Manager, file_name: []const u8) []const u8 {
+    return if (buffer_manager.get_buffer_for_file(file_name)) |buffer| get_buffer_state_indicator(buffer) else "";
+}
+
+pub fn get_buffer_state_indicator(buffer: *const @import("Buffer")) []const u8 {
+    return if (buffer.is_dirty()) dirty_indicator else if (buffer.is_hidden()) hidden_indicator else "";
+}
+
+pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) usize {
+    if (!config().show_fileicons) return 0;
     var cell = self.cell_init();
     _ = self.at_cursor_cell(&cell) catch return;
     if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) {
@@ -1384,6 +1500,8 @@ pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) voi
     _ = self.cell_load(&cell, icon) catch {};
     _ = self.putc(&cell) catch {};
     self.cursor_move_rel(0, 1) catch {};
+    _ = self.print(" ", .{}) catch {};
+    return 3;
 }
 
 pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *const Widget.Theme) !void {
@@ -1392,6 +1510,74 @@ pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *con
     _ = self.at_cursor_cell(&cell) catch return;
     cell.set_style(theme_.editor_match);
     _ = self.putc(&cell) catch {};
+}
+
+pub fn render_pointer(self: *renderer.Plane, selected: bool) void {
+    const pointer = if (selected) "⏵ " else "  ";
+    _ = self.print("{s}", .{pointer}) catch {};
+}
+
+pub fn render_file_item(
+    self: *renderer.Plane,
+    file_path_: []const u8,
+    icon: []const u8,
+    color: u24,
+    indicator: []const u8,
+    matches_cbor: []const u8,
+    active: bool,
+    selected: bool,
+    hover: bool,
+    theme_: *const Widget.Theme,
+) bool {
+    const style_base = theme_.editor_widget;
+    const style_label = if (active) theme_.editor_cursor else if (hover or selected) theme_.editor_selection else theme_.editor_widget;
+    const style_hint = if (find_scope_style(theme_, "entity.name")) |sty| sty.style else style_label;
+    self.set_base_style(style_base);
+    self.erase();
+    self.home();
+    self.set_style(style_label);
+    if (active or hover or selected) {
+        self.fill(" ");
+        self.home();
+    }
+
+    self.set_style(style_hint);
+    render_pointer(self, selected);
+
+    const icon_width = render_file_icon(self, icon, color);
+
+    self.set_style(style_label);
+    _ = self.print("{s} ", .{file_path_}) catch {};
+
+    self.set_style(style_hint);
+    _ = self.print_aligned_right(0, "{s} ", .{indicator}) catch {};
+
+    var iter = matches_cbor;
+    var index: usize = 0;
+    var len = cbor.decodeArrayHeader(&iter) catch return false;
+    while (len > 0) : (len -= 1) {
+        if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
+            render_match_cell(self, 0, index + 2 + icon_width, theme_) catch break;
+        } else break;
+    }
+    return false;
+}
+
+pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, active: bool, selected: bool, hover: bool, theme_: *const Widget.Theme) bool {
+    var iter = file_item_cbor;
+    var file_path_: []const u8 = undefined;
+    var icon: []const u8 = undefined;
+    var color: u24 = undefined;
+    var indicator: []const u8 = undefined;
+    var matches_cbor: []const u8 = undefined;
+
+    if (!(cbor.matchString(&iter, &file_path_) catch false)) @panic("invalid buffer file path");
+    if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid buffer file type icon");
+    if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid buffer file type color");
+    if (!(cbor.matchString(&iter, &indicator) catch false)) indicator = "";
+
+    if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) @panic("invalid matches cbor");
+    return render_file_item(self, file_path_, icon, color, indicator, matches_cbor, active, selected, hover, theme_);
 }
 
 fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const u8 {
@@ -1421,4 +1607,41 @@ fn load_theme_file_internal(allocator: std.mem.Allocator, theme_name: []const u8
     const json_str = root.read_theme(allocator, theme_name) orelse return null;
     defer allocator.free(json_str);
     return try std.json.parseFromSlice(Widget.Theme, allocator, json_str, .{ .allocate = .alloc_always });
+}
+
+pub const WidgetType = @import("config").WidgetType;
+pub const ConfigWidgetStyle = @import("config").WidgetStyle;
+pub const WidgetStyle = @import("WidgetStyle.zig");
+
+pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
+    const config_ = config();
+    return switch (widget_type) {
+        .none => WidgetStyle.from_tag(config_.widget_style),
+        .palette => WidgetStyle.from_tag(config_.palette_style),
+        .panel => WidgetStyle.from_tag(config_.panel_style),
+        .home => WidgetStyle.from_tag(config_.home_style),
+    };
+}
+
+pub fn set_next_style(widget_type: WidgetType) void {
+    const ref = widget_type_config_variable(widget_type);
+    ref.* = next_widget_style(ref.*);
+    const self = current();
+    self.logger.print("{s} style {s}", .{ @tagName(widget_type), @tagName(ref.*) });
+}
+
+fn next_widget_style(tag: ConfigWidgetStyle) ConfigWidgetStyle {
+    const max_tag = comptime std.meta.tags(ConfigWidgetStyle).len;
+    const new_value = @intFromEnum(tag) + 1;
+    return if (new_value >= max_tag) @enumFromInt(0) else @enumFromInt(new_value);
+}
+
+fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
+    const config_ = config_mut();
+    return switch (widget_type) {
+        .none => &config_.widget_style,
+        .palette => &config_.palette_style,
+        .panel => &config_.panel_style,
+        .home => &config_.home_style,
+    };
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
+const file_type_config = @import("file_type_config");
 const root = @import("root");
 
 const input = @import("input");
@@ -20,6 +21,7 @@ pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
         file_path: std.ArrayList(u8),
+        rendered_mini_buffer: std.ArrayListUnmanaged(u8) = .empty,
         query: std.ArrayList(u8),
         match: std.ArrayList(u8),
         entries: std.ArrayList(Entry),
@@ -33,8 +35,12 @@ pub fn Create(options: type) type {
 
         const Entry = struct {
             name: []const u8,
-            type: enum { dir, file, link },
+            type: EntryType,
+            file_type: []const u8,
+            icon: []const u8,
+            color: u24,
         };
+        const EntryType = enum { dir, file, link };
 
         pub fn create(allocator: std.mem.Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
             const self = try allocator.create(Self);
@@ -66,6 +72,7 @@ pub fn Create(options: type) type {
             self.match.deinit();
             self.query.deinit();
             self.file_path.deinit();
+            self.rendered_mini_buffer.deinit(self.allocator);
             self.allocator.destroy(self);
         }
 
@@ -80,7 +87,11 @@ pub fn Create(options: type) type {
         }
 
         fn clear_entries(self: *Self) void {
-            for (self.entries.items) |entry| self.allocator.free(entry.name);
+            for (self.entries.items) |entry| {
+                self.allocator.free(entry.name);
+                self.allocator.free(entry.file_type);
+                self.allocator.free(entry.icon);
+            }
             self.entries.clearRetainingCapacity();
         }
 
@@ -112,14 +123,11 @@ pub fn Create(options: type) type {
                 self.complete_trigger_count = 0;
                 self.file_path.clearRetainingCapacity();
                 if (self.match.items.len > 0) {
-                    try self.construct_path(self.query.items, .{ .name = self.match.items, .type = .file }, 0);
+                    try self.construct_path(self.query.items, self.match.items, .file, 0);
                 } else {
                     try self.file_path.appendSlice(self.query.items);
                 }
-                if (tui.mini_mode()) |mini_mode| {
-                    mini_mode.text = self.file_path.items;
-                    mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1);
-                }
+                self.update_mini_mode_text();
                 return;
             }
             self.complete_trigger_count -= 1;
@@ -139,12 +147,7 @@ pub fn Create(options: type) type {
         }
 
         fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void {
-            defer {
-                if (tui.mini_mode()) |mini_mode| {
-                    mini_mode.text = self.file_path.items;
-                    mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1);
-                }
-            }
+            defer self.update_mini_mode_text();
             var count: usize = undefined;
             if (try cbor.match(m.buf, .{ "PRJ", "path_entry", tp.more })) {
                 return self.process_path_entry(m);
@@ -158,16 +161,29 @@ pub fn Create(options: type) type {
         fn process_path_entry(self: *Self, m: tp.message) MessageFilter.Error!void {
             var path: []const u8 = undefined;
             var file_name: []const u8 = undefined;
-            if (try cbor.match(m.buf, .{ tp.any, tp.any, tp.any, tp.extract(&path), "DIR", tp.extract(&file_name) })) {
-                (try self.entries.addOne()).* = .{ .name = try self.allocator.dupe(u8, file_name), .type = .dir };
-            } else if (try cbor.match(m.buf, .{ tp.any, tp.any, tp.any, tp.extract(&path), "LINK", tp.extract(&file_name) })) {
-                (try self.entries.addOne()).* = .{ .name = try self.allocator.dupe(u8, file_name), .type = .link };
-            } else if (try cbor.match(m.buf, .{ tp.any, tp.any, tp.any, tp.extract(&path), "FILE", tp.extract(&file_name) })) {
-                (try self.entries.addOne()).* = .{ .name = try self.allocator.dupe(u8, file_name), .type = .file };
+            var file_type: []const u8 = undefined;
+            var icon: []const u8 = undefined;
+            var color: u24 = undefined;
+            if (try cbor.match(m.buf, .{ tp.any, tp.any, tp.any, tp.extract(&path), "DIR", tp.extract(&file_name), tp.extract(&file_type), tp.extract(&icon), tp.extract(&color) })) {
+                try self.add_entry(file_name, .dir, file_type, icon, color);
+            } else if (try cbor.match(m.buf, .{ tp.any, tp.any, tp.any, tp.extract(&path), "LINK", tp.extract(&file_name), tp.extract(&file_type), tp.extract(&icon), tp.extract(&color) })) {
+                try self.add_entry(file_name, .link, file_type, icon, color);
+            } else if (try cbor.match(m.buf, .{ tp.any, tp.any, tp.any, tp.extract(&path), "FILE", tp.extract(&file_name), tp.extract(&file_type), tp.extract(&icon), tp.extract(&color) })) {
+                try self.add_entry(file_name, .file, file_type, icon, color);
             } else {
                 log.logger("file_browser").err("receive", tp.unexpected(m));
             }
             tui.need_render();
+        }
+
+        fn add_entry(self: *Self, file_name: []const u8, entry_type: EntryType, file_type: []const u8, icon: []const u8, color: u24) !void {
+            (try self.entries.addOne()).* = .{
+                .name = try self.allocator.dupe(u8, file_name),
+                .type = entry_type,
+                .file_type = try self.allocator.dupe(u8, file_type),
+                .icon = try self.allocator.dupe(u8, icon),
+                .color = color,
+            };
         }
 
         fn do_complete(self: *Self) !void {
@@ -179,9 +195,10 @@ pub fn Create(options: type) type {
                 if (self.total_matches == 1)
                     self.complete_trigger_count = 0;
             } else if (self.entries.items.len > 0) {
-                try self.construct_path(self.query.items, self.entries.items[self.complete_trigger_count - 1], self.complete_trigger_count - 1);
+                const entry = self.entries.items[self.complete_trigger_count - 1];
+                try self.construct_path(self.query.items, entry.name, entry.type, self.complete_trigger_count - 1);
             } else {
-                try self.construct_path(self.query.items, .{ .name = "", .type = .file }, 0);
+                try self.construct_path(self.query.items, "", .file, 0);
             }
             if (self.match.items.len > 0)
                 if (self.total_matches > 1)
@@ -192,14 +209,14 @@ pub fn Create(options: type) type {
                 message("{d}/{d}", .{ self.matched_entry + 1, self.entries.items.len });
         }
 
-        fn construct_path(self: *Self, path_: []const u8, entry: Entry, entry_no: usize) error{OutOfMemory}!void {
+        fn construct_path(self: *Self, path_: []const u8, entry_name: []const u8, entry_type: EntryType, entry_no: usize) error{OutOfMemory}!void {
             self.matched_entry = entry_no;
             const path = project_manager.normalize_file_path(path_);
             try self.file_path.appendSlice(path);
             if (path.len > 0 and path[path.len - 1] != std.fs.path.sep)
                 try self.file_path.append(std.fs.path.sep);
-            try self.file_path.appendSlice(entry.name);
-            if (entry.type == .dir)
+            try self.file_path.appendSlice(entry_name);
+            if (entry_type == .dir)
                 try self.file_path.append(std.fs.path.sep);
         }
 
@@ -212,7 +229,7 @@ pub fn Create(options: type) type {
                 if (try prefix_compare_icase(self.allocator, self.match.items, entry.name)) {
                     matched += 1;
                     if (matched == self.complete_trigger_count) {
-                        try self.construct_path(self.query.items, entry, i);
+                        try self.construct_path(self.query.items, entry.name, entry.type, i);
                         found_match = i;
                     }
                     last = entry;
@@ -222,11 +239,11 @@ pub fn Create(options: type) type {
             self.total_matches = matched;
             if (found_match) |_| return;
             if (last) |entry| {
-                try self.construct_path(self.query.items, entry, last_no);
+                try self.construct_path(self.query.items, entry.name, entry.type, last_no);
                 self.complete_trigger_count = matched;
             } else {
                 message("no match for '{s}'", .{self.match.items});
-                try self.construct_path(self.query.items, .{ .name = self.match.items, .type = .file }, 0);
+                try self.construct_path(self.query.items, self.match.items, .file, 0);
             }
         }
 
@@ -264,8 +281,15 @@ pub fn Create(options: type) type {
 
         fn update_mini_mode_text(self: *Self) void {
             if (tui.mini_mode()) |mini_mode| {
-                mini_mode.text = self.file_path.items;
-                mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1);
+                const icon = if (self.entries.items.len > 0 and self.complete_trigger_count > 0)
+                    self.entries.items[self.complete_trigger_count - 1].icon
+                else
+                    " ";
+                self.rendered_mini_buffer.clearRetainingCapacity();
+                const writer = self.rendered_mini_buffer.writer(self.allocator);
+                writer.print("{s}  {s}", .{ icon, self.file_path.items }) catch {};
+                mini_mode.text = self.rendered_mini_buffer.items;
+                mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1) + 3;
             }
         }
 

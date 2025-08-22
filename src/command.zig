@@ -33,6 +33,7 @@ const Vtable = struct {
 pub const Metadata = struct {
     description: []const u8 = &[_]u8{},
     arguments: []const ArgumentType = &[_]ArgumentType{},
+    icon: ?[]const u8 = null,
 };
 
 pub const ArgumentType = enum {
@@ -186,6 +187,11 @@ pub fn get_description(id: ID) ?[]const u8 {
 pub fn get_arguments(id: ID) ?[]const ArgumentType {
     if (id >= commands.items.len) return null;
     return (commands.items[id] orelse return null).meta.arguments;
+}
+
+pub fn get_icon(id: ID) ?[]const u8 {
+    if (id >= commands.items.len) return null;
+    return (commands.items[id] orelse return null).meta.icon;
 }
 
 const suppressed_errors = std.StaticStringMap(void).initComptime(.{

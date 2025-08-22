@@ -11,6 +11,8 @@ subscriber: ?tp.pid,
 heap: [32 + 1024]u8,
 fba: std.heap.FixedBufferAllocator,
 msg_store: MsgStore,
+no_stdout: bool = false,
+no_stderr: bool = false,
 
 const MsgStore = std.DoublyLinkedList;
 const MsgStoreEntry = struct {
@@ -85,12 +87,23 @@ fn store_reset(self: *Self) void {
 
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     errdefer self.deinit();
-    if (try m.match(.{ "log", tp.more })) {
+    var output: []const u8 = undefined;
+    if (try m.match(.{ "log", "error", tp.string, "std.log", "->", tp.extract(&output) })) {
         if (self.subscriber) |subscriber| {
             subscriber.send_raw(m) catch {};
         } else {
             self.store(m);
         }
+        if (!self.no_stderr)
+            std.io.getStdErr().writer().print("{s}\n", .{output}) catch {};
+    } else if (try m.match(.{ "log", tp.string, tp.extract(&output) })) {
+        if (self.subscriber) |subscriber| {
+            subscriber.send_raw(m) catch {};
+        } else {
+            self.store(m);
+        }
+        if (!self.no_stdout)
+            std.io.getStdOut().writer().print("{s}\n", .{output}) catch {};
     } else if (try m.match(.{"subscribe"})) {
         // log("subscribed");
         if (self.subscriber) |*s| s.deinit();
@@ -101,6 +114,14 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         if (self.subscriber) |*s| s.deinit();
         self.subscriber = null;
         self.store_reset();
+    } else if (try m.match(.{ "stdout", "enable" })) {
+        self.no_stdout = false;
+    } else if (try m.match(.{ "stdout", "disable" })) {
+        self.no_stdout = true;
+    } else if (try m.match(.{ "stderr", "enable" })) {
+        self.no_stderr = false;
+    } else if (try m.match(.{ "stderr", "disable" })) {
+        self.no_stderr = true;
     } else if (try m.match(.{"shutdown"})) {
         return tp.exit_normal();
     }
@@ -206,6 +227,14 @@ pub fn subscribe() tp.result {
 
 pub fn unsubscribe() tp.result {
     return tp.env.get().proc("log").send(.{"unsubscribe"});
+}
+
+pub fn stdout(state: enum { enable, disable }) void {
+    tp.env.get().proc("log").send(.{ "stdout", state }) catch {};
+}
+
+pub fn stderr(state: enum { enable, disable }) void {
+    tp.env.get().proc("log").send(.{ "stderr", state }) catch {};
 }
 
 var std_log_pid: ?tp.pid_ref = null;

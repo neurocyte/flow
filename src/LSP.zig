@@ -3,7 +3,6 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const root = @import("root");
 const tracy = @import("tracy");
-const log = @import("log");
 
 allocator: std.mem.Allocator,
 pid: tp.pid,
@@ -172,6 +171,7 @@ const Process = struct {
     project: [:0]const u8,
     sp_tag: [:0]const u8,
     log_file: ?std.fs.File = null,
+    log_file_path: ?[]const u8 = null,
     next_id: i32 = 0,
     requests: std.StringHashMap(tp.pid),
     state: enum { init, running } = .init,
@@ -188,10 +188,8 @@ const Process = struct {
         } else if (try cbor.match(cmd.buf, .{ tp.extract(&tag), tp.more })) {
             //
         } else {
-            const logger = log.logger("LSP");
-            defer logger.deinit();
             var buf: [1024]u8 = undefined;
-            logger.print_err("create", "invalid command: {d} {s}", .{ cmd.buf.len, cmd.to_json(&buf) catch "{command too large}" });
+            send_msg(tp.self_pid().clone(), tag, .err, "invalid command: {d} {s}", .{ cmd.buf.len, cmd.to_json(&buf) catch "{command too large}" });
             return error.InvalidLspCommand;
         }
         const self = try allocator.create(Process);
@@ -227,6 +225,7 @@ const Process = struct {
         self.close() catch {};
         self.write_log("### terminated LSP process ###\n", .{});
         if (self.log_file) |file| file.close();
+        if (self.log_file_path) |file_path| self.allocator.free(file_path);
     }
 
     fn close(self: *Process) error{CloseFailed}!void {
@@ -245,6 +244,20 @@ const Process = struct {
         }
     }
 
+    fn msg(self: *const Process, comptime fmt: anytype, args: anytype) void {
+        send_msg(self.parent, self.tag, .msg, fmt, args);
+    }
+
+    fn err_msg(self: *const Process, comptime fmt: anytype, args: anytype) void {
+        send_msg(self.parent, self.tag, .err, fmt, args);
+    }
+
+    fn send_msg(proc: tp.pid, tag: []const u8, type_: enum { msg, err }, comptime fmt: anytype, args: anytype) void {
+        var buf: [@import("log").max_log_message]u8 = undefined;
+        const output = std.fmt.bufPrint(&buf, fmt, args) catch "MESSAGE TOO LARGE";
+        proc.send(.{ "lsp", type_, tag, output }) catch {};
+    }
+
     fn start(self: *Process) tp.result {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ " start" });
         defer frame.deinit();
@@ -255,8 +268,9 @@ const Process = struct {
         var log_file_path = std.ArrayList(u8).init(self.allocator);
         defer log_file_path.deinit();
         const state_dir = root.get_state_dir() catch |e| return tp.exit_error(e, @errorReturnTrace());
-        log_file_path.writer().print("{s}/lsp-{s}.log", .{ state_dir, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        log_file_path.writer().print("{s}{c}lsp-{s}.log", .{ state_dir, std.fs.path.sep, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
         self.log_file = std.fs.createFileAbsolute(log_file_path.items, .{ .truncate = true }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.log_file_path = log_file_path.toOwnedSlice() catch null;
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
@@ -440,18 +454,14 @@ const Process = struct {
     }
 
     fn handle_not_found(self: *Process) error{ExitNormal}!void {
-        const logger = log.logger("LSP");
-        defer logger.deinit();
-        logger.print_err("init", "'{s}' executable not found", .{self.tag});
+        self.err_msg("'{s}' executable not found", .{self.tag});
         self.write_log("### '{s}' executable not found ###\n", .{self.tag});
         self.parent.send(.{ sp_tag, self.tag, "not found" }) catch {};
         return error.ExitNormal;
     }
 
     fn handle_terminated(self: *Process, err: []const u8, code: u32) error{ExitNormal}!void {
-        const logger = log.logger("LSP");
-        defer logger.deinit();
-        logger.print("terminated: {s} {d}", .{ err, code });
+        self.msg("terminated: {s} {d}", .{ err, code });
         self.write_log("### subprocess terminated {s} {d} ###\n", .{ err, code });
         self.parent.send(.{ sp_tag, self.tag, "done" }) catch {};
         return error.ExitNormal;
@@ -463,9 +473,9 @@ const Process = struct {
         const id = self.next_id;
         self.next_id += 1;
 
-        var msg = std.ArrayList(u8).init(self.allocator);
-        defer msg.deinit();
-        const msg_writer = msg.writer();
+        var request = std.ArrayList(u8).init(self.allocator);
+        defer request.deinit();
+        const msg_writer = request.writer();
         try cbor.writeMapHeader(msg_writer, 4);
         try cbor.writeValue(msg_writer, "jsonrpc");
         try cbor.writeValue(msg_writer, "2.0");
@@ -476,7 +486,7 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "params");
         _ = try msg_writer.write(params_cb);
 
-        const json = try cbor.toJsonAlloc(self.allocator, msg.items);
+        const json = try cbor.toJsonAlloc(self.allocator, request.items);
         defer self.allocator.free(json);
         var output = std.ArrayList(u8).init(self.allocator);
         defer output.deinit();
@@ -499,9 +509,9 @@ const Process = struct {
     fn send_response(self: *Process, cbor_id: []const u8, result_cb: []const u8) (error{Closed} || SendError || cbor.Error || cbor.JsonEncodeError)!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
-        var msg = std.ArrayList(u8).init(self.allocator);
-        defer msg.deinit();
-        const msg_writer = msg.writer();
+        var response = std.ArrayList(u8).init(self.allocator);
+        defer response.deinit();
+        const msg_writer = response.writer();
         try cbor.writeMapHeader(msg_writer, 3);
         try cbor.writeValue(msg_writer, "jsonrpc");
         try cbor.writeValue(msg_writer, "2.0");
@@ -510,7 +520,7 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "result");
         _ = try msg_writer.write(result_cb);
 
-        const json = try cbor.toJsonAlloc(self.allocator, msg.items);
+        const json = try cbor.toJsonAlloc(self.allocator, response.items);
         defer self.allocator.free(json);
         var output = std.ArrayList(u8).init(self.allocator);
         defer output.deinit();
@@ -528,9 +538,9 @@ const Process = struct {
     fn send_error_response(self: *Process, cbor_id: []const u8, error_code: ErrorCode, message: []const u8) (error{Closed} || SendError || cbor.Error || cbor.JsonEncodeError)!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
-        var msg = std.ArrayList(u8).init(self.allocator);
-        defer msg.deinit();
-        const msg_writer = msg.writer();
+        var response = std.ArrayList(u8).init(self.allocator);
+        defer response.deinit();
+        const msg_writer = response.writer();
         try cbor.writeMapHeader(msg_writer, 3);
         try cbor.writeValue(msg_writer, "jsonrpc");
         try cbor.writeValue(msg_writer, "2.0");
@@ -543,7 +553,7 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "message");
         try cbor.writeValue(msg_writer, message);
 
-        const json = try cbor.toJsonAlloc(self.allocator, msg.items);
+        const json = try cbor.toJsonAlloc(self.allocator, response.items);
         defer self.allocator.free(json);
         var output = std.ArrayList(u8).init(self.allocator);
         defer output.deinit();
@@ -563,9 +573,9 @@ const Process = struct {
 
         const have_params = !(cbor.match(params_cb, cbor.null_) catch false);
 
-        var msg = std.ArrayList(u8).init(self.allocator);
-        defer msg.deinit();
-        const msg_writer = msg.writer();
+        var notification = std.ArrayList(u8).init(self.allocator);
+        defer notification.deinit();
+        const msg_writer = notification.writer();
         try cbor.writeMapHeader(msg_writer, 3);
         try cbor.writeValue(msg_writer, "jsonrpc");
         try cbor.writeValue(msg_writer, "2.0");
@@ -578,7 +588,7 @@ const Process = struct {
             try cbor.writeMapHeader(msg_writer, 0);
         }
 
-        const json = try cbor.toJsonAlloc(self.allocator, msg.items);
+        const json = try cbor.toJsonAlloc(self.allocator, notification.items);
         defer self.allocator.free(json);
         var output = std.ArrayList(u8).init(self.allocator);
         defer output.deinit();
@@ -617,9 +627,9 @@ const Process = struct {
         const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json) |p| self.allocator.free(p);
         self.write_log("### RECV req: {s}\nmethod: {s}\n{s}\n###\n", .{ json_id, method, json orelse "no params" });
-        var msg = std.ArrayList(u8).init(self.allocator);
-        defer msg.deinit();
-        const writer = msg.writer();
+        var request = std.ArrayList(u8).init(self.allocator);
+        defer request.deinit();
+        const writer = request.writer();
         try cbor.writeArrayHeader(writer, 7);
         try cbor.writeValue(writer, sp_tag);
         try cbor.writeValue(writer, self.project);
@@ -628,7 +638,7 @@ const Process = struct {
         try cbor.writeValue(writer, method);
         try writer.writeAll(cbor_id);
         if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
-        self.parent.send_raw(.{ .buf = msg.items }) catch return error.SendFailed;
+        self.parent.send_raw(.{ .buf = request.items }) catch return error.SendFailed;
     }
 
     fn receive_lsp_response(self: *Process, cbor_id: []const u8, result: ?[]const u8, err: ?[]const u8) Error!void {
@@ -640,9 +650,9 @@ const Process = struct {
         defer if (json_err) |p| self.allocator.free(p);
         self.write_log("### RECV rsp: {s} {s}\n{s}\n###\n", .{ json_id, if (json_err) |_| "error" else "response", json_err orelse json orelse "no result" });
         const from = self.requests.get(cbor_id) orelse return;
-        var msg = std.ArrayList(u8).init(self.allocator);
-        defer msg.deinit();
-        const writer = msg.writer();
+        var response = std.ArrayList(u8).init(self.allocator);
+        defer response.deinit();
+        const writer = response.writer();
         try cbor.writeArrayHeader(writer, 4);
         try cbor.writeValue(writer, sp_tag);
         try cbor.writeValue(writer, self.tag);
@@ -653,16 +663,16 @@ const Process = struct {
             try cbor.writeValue(writer, "result");
             _ = try writer.write(result_);
         }
-        from.send_raw(.{ .buf = msg.items }) catch return error.SendFailed;
+        from.send_raw(.{ .buf = response.items }) catch return error.SendFailed;
     }
 
     fn receive_lsp_notification(self: *Process, method: []const u8, params: ?[]const u8) Error!void {
         const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json) |p| self.allocator.free(p);
         self.write_log("### RECV notify:\nmethod: {s}\n{s}\n###\n", .{ method, json orelse "no params" });
-        var msg = std.ArrayList(u8).init(self.allocator);
-        defer msg.deinit();
-        const writer = msg.writer();
+        var notification = std.ArrayList(u8).init(self.allocator);
+        defer notification.deinit();
+        const writer = notification.writer();
         try cbor.writeArrayHeader(writer, 6);
         try cbor.writeValue(writer, sp_tag);
         try cbor.writeValue(writer, self.project);
@@ -670,7 +680,7 @@ const Process = struct {
         try cbor.writeValue(writer, "notify");
         try cbor.writeValue(writer, method);
         if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
-        self.parent.send_raw(.{ .buf = msg.items }) catch return error.SendFailed;
+        self.parent.send_raw(.{ .buf = notification.items }) catch return error.SendFailed;
     }
 
     fn write_log(self: *Process, comptime format: []const u8, args: anytype) void {
