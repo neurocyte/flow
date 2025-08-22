@@ -17,11 +17,11 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     const lint_step = b.step("lint", "Run lints");
 
-    var version = std.ArrayList(u8).init(b.allocator);
-    defer version.deinit();
-    gen_version(b, version.writer()) catch {
-        version.clearAndFree();
-        version.appendSlice("unknown") catch {};
+    var version: std.ArrayList(u8) = .empty;
+    defer version.deinit(b.allocator);
+    gen_version(b, version.writer(b.allocator)) catch {
+        version.clearAndFree(b.allocator);
+        version.appendSlice(b.allocator, "unknown") catch {};
     };
 
     return (if (release) &build_release else &build_development)(
@@ -225,11 +225,11 @@ pub fn build_exe(
         else => std.debug.panic("makeDir(\".cache/cdb\") failed: {any}", .{e}),
     };
 
-    var version_info = std.ArrayList(u8).init(b.allocator);
-    defer version_info.deinit();
-    gen_version_info(b, target, version_info.writer(), optimize) catch {
-        version_info.clearAndFree();
-        version_info.appendSlice("unknown") catch {};
+    var version_info: std.ArrayList(u8) = .empty;
+    defer version_info.deinit(b.allocator);
+    gen_version_info(b, target, version_info.writer(b.allocator), optimize) catch {
+        version_info.clearAndFree(b.allocator);
+        version_info.appendSlice(b.allocator, "unknown") catch {};
     };
 
     const wf = b.addWriteFiles();
@@ -687,17 +687,17 @@ fn gen_version_info(
     const branch_ = try b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", "HEAD" }, &code, .Ignore);
     const branch = std.mem.trimRight(u8, branch_, "\r\n ");
     const tracking_branch_ = blk: {
-        var buf = std.ArrayList(u8).init(b.allocator);
-        defer buf.deinit();
-        try buf.appendSlice(branch);
-        try buf.appendSlice("@{upstream}");
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(b.allocator);
+        try buf.appendSlice(b.allocator, branch);
+        try buf.appendSlice(b.allocator, "@{upstream}");
         break :blk (b.runAllowFail(&[_][]const u8{ "git", "rev-parse", "--abbrev-ref", buf.items }, &code, .Ignore) catch "");
     };
     const tracking_remote_name = if (std.mem.indexOfScalar(u8, tracking_branch_, '/')) |pos| tracking_branch_[0..pos] else "";
     const tracking_remote_ = if (tracking_remote_name.len > 0) blk: {
-        var remote_config_path = std.ArrayList(u8).init(b.allocator);
-        defer remote_config_path.deinit();
-        try remote_config_path.writer().print("remote.{s}.url", .{tracking_remote_name});
+        var remote_config_path: std.ArrayList(u8) = .empty;
+        defer remote_config_path.deinit(b.allocator);
+        try remote_config_path.writer(b.allocator).print("remote.{s}.url", .{tracking_remote_name});
         break :blk b.runAllowFail(&[_][]const u8{ "git", "config", remote_config_path.items }, &code, .Ignore) catch "(remote not found)";
     } else "";
     const remote_ = b.runAllowFail(&[_][]const u8{ "git", "config", "remote.origin.url" }, &code, .Ignore) catch "(origin not found)";
