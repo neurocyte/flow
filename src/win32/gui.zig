@@ -143,7 +143,7 @@ fn getConfig() *gui_config {
 }
 
 fn getFieldDefault(field: std.builtin.Type.StructField) ?*const field.type {
-    return @alignCast(@ptrCast(field.default_value_ptr orelse return null));
+    return @ptrCast(@alignCast(field.default_value_ptr orelse return null));
 }
 
 fn getDefaultFontFace() FontFace {
@@ -1292,7 +1292,7 @@ fn WndProc(
             defer frame_.deinit();
             std.debug.assert(global.state == null);
             const create_struct: *win32.CREATESTRUCTW = @ptrFromInt(@as(usize, @bitCast(lparam)));
-            const create_args: *CreateWindowArgs = @alignCast(@ptrCast(create_struct.lpCreateParams));
+            const create_args: *CreateWindowArgs = @ptrCast(@alignCast(create_struct.lpCreateParams));
             global.state = .{
                 .hwnd = hwnd,
                 .pid = create_args.pid,

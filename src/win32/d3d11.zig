@@ -338,7 +338,7 @@ pub fn paint(
         global.d3d.context.OMSetRenderTargets(target_views.len, &target_views, null);
     }
 
-    global.d3d.context.PSSetConstantBuffers(0, 1, @constCast(@ptrCast(&global.const_buf)));
+    global.d3d.context.PSSetConstantBuffers(0, 1, @ptrCast(@constCast(&global.const_buf)));
     var resources = [_]?*win32.ID3D11ShaderResourceView{
         if (state.shader_cells.count > 0) state.shader_cells.cell_view else null,
         state.glyph_texture.view,
