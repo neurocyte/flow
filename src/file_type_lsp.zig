@@ -160,7 +160,8 @@ pub const proto = .{};
 pub const purescript = .{};
 
 pub const python = .{
-    .language_server = .{"pylsp"},
+    .language_server = .{ "ruff", "server" },
+    .formatter = .{ "ruff", "format", "-" },
 };
 
 pub const regex = .{};
