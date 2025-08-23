@@ -23,6 +23,7 @@ pub const default = struct {
 pub const folder_icon = "";
 
 fn from_file_type(file_type: syntax.FileType) @This() {
+    const lsp_defaults: LspDefaults = static_file_type_lsp_defaults.get(file_type.name) orelse .{};
     return .{
         .name = file_type.name,
         .color = file_type.color,
@@ -33,8 +34,8 @@ fn from_file_type(file_type: syntax.FileType) @This() {
         .first_line_matches_content = if (file_type.first_line_matches) |flm| flm.content else null,
         .parser = file_type.name,
         .comment = file_type.comment,
-        .formatter = file_type.formatter,
-        .language_server = file_type.language_server,
+        .formatter = lsp_defaults.formatter,
+        .language_server = lsp_defaults.language_server,
     };
 }
 
@@ -197,6 +198,46 @@ pub fn create_syntax_guess_file_type(
 ) !?*syntax {
     const file_type = guess(file_path, content) orelse return error.NotFound;
     return create_syntax(file_type, allocator, query_cache);
+}
+
+const static_file_type_lsp_defaults_list = load_file_type_lsp_defaults(@import("file_type_lsp.zig"));
+const static_file_type_lsp_defaults = std.StaticStringMap(LspDefaults).initComptime(static_file_type_lsp_defaults_list);
+
+const LspDefaults = struct {
+    formatter: ?[]const []const u8 = null,
+    language_server: ?[]const []const u8 = null,
+};
+const ListEntry = struct { []const u8, LspDefaults };
+
+fn load_file_type_lsp_defaults(comptime Namespace: type) []const ListEntry {
+    comptime switch (@typeInfo(Namespace)) {
+        .@"struct" => |info| {
+            var count = 0;
+            for (info.decls) |_| count += 1;
+            var construct_types: [count]ListEntry = undefined;
+            var i = 0;
+            for (info.decls) |decl| {
+                const lang = decl.name;
+                const args = @field(Namespace, lang);
+                construct_types[i] = .{ lang, .{
+                    .formatter = if (@hasField(@TypeOf(args), "formatter")) vec(args.formatter) else null,
+                    .language_server = if (@hasField(@TypeOf(args), "language_server")) vec(args.language_server) else null,
+                } };
+                i += 1;
+            }
+            const types = construct_types;
+            return &types;
+        },
+        else => @compileError("expected tuple or struct type"),
+    };
+}
+
+fn vec(comptime args: anytype) []const []const u8 {
+    var cmd: []const []const u8 = &[_][]const u8{};
+    inline for (args) |arg| {
+        cmd = cmd ++ [_][]const u8{arg};
+    }
+    return cmd;
 }
 
 const syntax = @import("syntax");

@@ -1872,10 +1872,6 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
                         },
                     },
                 },
-                .diagnostic = .{
-                    .dynamicRegistration = true,
-                    .relatedDocumentSupport = false,
-                },
             },
             .window = .{
                 .showMessage = .{

@@ -280,7 +280,6 @@ pub const Editor = struct {
     cursels_saved: CurSel.List = .empty,
     selection_mode: SelectMode = .char,
     selection_drag_initial: ?Selection = null,
-    clipboard: ?[]const u8 = null,
     target_column: ?Cursor = null,
     filter_: ?struct {
         before_root: Buffer.Root,
@@ -385,9 +384,8 @@ pub const Editor = struct {
     }
 
     pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) !void {
-        try cbor.writeArrayHeader(writer, 12);
+        try cbor.writeArrayHeader(writer, 11);
         try cbor.writeValue(writer, self.file_path orelse "");
-        try cbor.writeValue(writer, self.clipboard orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
         try cbor.writeValue(writer, self.enable_format_on_save);
         try cbor.writeValue(writer, self.enable_auto_save);
@@ -419,12 +417,10 @@ pub const Editor = struct {
         var file_path: []const u8 = undefined;
         var view_cbor: []const u8 = undefined;
         var cursels_cbor: []const u8 = undefined;
-        var clipboard: []const u8 = undefined;
         var last_find_query: []const u8 = undefined;
         var find_history: []const u8 = undefined;
         if (!try cbor.matchValue(iter, .{
             tp.extract(&file_path),
-            tp.extract(&clipboard),
             tp.extract(&last_find_query),
             tp.extract(&self.enable_format_on_save),
             tp.extract(&self.enable_auto_save),
@@ -440,7 +436,6 @@ pub const Editor = struct {
         self.refresh_tab_width();
         if (op == .open_file)
             try self.open(file_path);
-        self.clipboard = if (clipboard.len > 0) try self.allocator.dupe(u8, clipboard) else null;
         self.last_find_query = if (last_find_query.len > 0) try self.allocator.dupe(u8, last_find_query) else null;
         const rows = self.view.rows;
         const cols = self.view.cols;
@@ -2605,9 +2600,7 @@ pub const Editor = struct {
     pub const scroll_view_bottom_meta: Meta = .{};
 
     fn set_clipboard(self: *Self, text: []const u8) void {
-        if (self.clipboard) |old|
-            self.allocator.free(old);
-        self.clipboard = text;
+        tui.set_clipboard(text);
         if (builtin.os.tag == .windows) {
             @import("renderer").copy_to_windows_clipboard(text) catch |e|
                 self.logger.print_err("clipboard", "failed to set clipboard: {any}", .{e});
@@ -2616,10 +2609,8 @@ pub const Editor = struct {
         }
     }
 
-    pub fn set_clipboard_internal(self: *Self, text: []const u8) void {
-        if (self.clipboard) |old|
-            self.allocator.free(old);
-        self.clipboard = text;
+    pub fn set_clipboard_internal(_: *Self, text: []const u8) void {
+        tui.set_clipboard(text);
     }
 
     pub fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]u8 {
@@ -2952,7 +2943,7 @@ pub const Editor = struct {
     pub fn paste(self: *Self, ctx: Context) Result {
         var text: []const u8 = undefined;
         if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
-            if (self.clipboard) |text_| text = text_ else return;
+            if (tui.get_clipboard()) |text_| text = text_ else return;
         }
         self.logger.print("paste: {d} bytes", .{text.len});
         const b = try self.buf_for_update();
@@ -2987,7 +2978,7 @@ pub const Editor = struct {
     pub fn paste_internal_vim(self: *Self, ctx: Context) Result {
         var text: []const u8 = undefined;
         if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
-            if (self.clipboard) |text_| text = text_ else return;
+            if (tui.get_clipboard()) |text_| text = text_ else return;
         }
 
         self.logger.print("paste: {d} bytes", .{text.len});

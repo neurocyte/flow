@@ -64,6 +64,7 @@ fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
 enable_mouse_idle_timer: bool = false,
 query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
+clipboard: ?[]const u8 = null,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -252,6 +253,7 @@ fn deinit(self: *Self) void {
     self.logger.deinit();
     self.query_cache_.deinit();
     root.free_config(self.allocator, self.config_bufs);
+    if (self.clipboard) |text| self.allocator.free(text);
     self.allocator.destroy(self);
 }
 
@@ -1644,4 +1646,16 @@ fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
         .panel => &config_.panel_style,
         .home => &config_.home_style,
     };
+}
+
+pub fn get_clipboard() ?[]const u8 {
+    const self = current();
+    return self.clipboard;
+}
+
+pub fn set_clipboard(text: []const u8) void {
+    const self = current();
+    if (self.clipboard) |old|
+        self.allocator.free(old);
+    self.clipboard = text;
 }
