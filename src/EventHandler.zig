@@ -147,18 +147,18 @@ pub const List = struct {
     pub fn init(allocator: Allocator) List {
         return .{
             .allocator = allocator,
-            .list = ArrayList(EventHandler).init(allocator),
+            .list = .empty,
         };
     }
 
     pub fn deinit(self: *List) void {
         for (self.list.items) |*i|
             i.deinit();
-        self.list.deinit();
+        self.list.deinit(self.allocator);
     }
 
     pub fn add(self: *List, h: EventHandler) !void {
-        (try self.list.addOne()).* = h;
+        (try self.list.addOne(self.allocator)).* = h;
     }
 
     pub fn remove(self: *List, h: EventHandler) !void {
