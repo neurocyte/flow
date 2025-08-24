@@ -244,13 +244,20 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     const event = std.mem.bytesAsValue(vaxis.Event, input_);
     switch (event.*) {
         .key_press => |key__| {
-            // Check for a cursor position response for our explicity width query. This will
+            // Check for a cursor position response for our explicit width query. This will
             // always be an F3 key with shift = true, and we must be looking for queries
             if (key__.codepoint == vaxis.Key.f3 and key__.mods.shift and !self.queries_done) {
                 self.logger.print("explicit width capability detected", .{});
                 self.vx.caps.explicit_width = true;
                 self.vx.caps.unicode = .unicode;
                 self.vx.screen.width_method = .unicode;
+                return;
+            }
+            // Check for a cursor position response for our scaled text query. This will
+            // always be an F3 key with alt = true, and we must be looking for queries
+            if (key__.codepoint == vaxis.Key.f3 and key__.mods.alt and !self.queries_done) {
+                self.logger.print("scaled text capability detected", .{});
+                self.vx.caps.scaled_text = true;
                 return;
             }
             const key_ = filter_mods(normalize_shifted_alphas(key__));
