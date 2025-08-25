@@ -327,7 +327,7 @@ fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics:
 fn insert(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: std.mem.Allocator) !Buffer.Root {
     var root_ = root;
     const cursor = &cursel.cursor;
-    if (cursel.selection == null) try cursor.move_right(root_, ed.metrics);
+    if (cursel.selection == null) cursor.move_right(root_, ed.metrics) catch {};
     const begin = cursel.cursor;
     cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
     cursor.target = cursor.col;
@@ -342,7 +342,7 @@ fn insert_line(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, a
     cursel.disable_selection(root, ed.metrics);
     cursel.cursor.move_end(root, ed.metrics);
     var begin = cursel.cursor;
-    try begin.move_right(root, ed.metrics);
+    begin.move_right(root, ed.metrics) catch {};
     cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
     cursor.target = cursor.col;
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
