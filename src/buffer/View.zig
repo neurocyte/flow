@@ -67,8 +67,9 @@ inline fn is_at_bottom(self: *const Self, root: Buffer.Root) bool {
 }
 
 pub inline fn is_visible(self: *const Self, cursor: *const Cursor) bool {
+    if (self.rows == 0) return false;
     const row_min = self.row;
-    const row_max = row_min + self.rows;
+    const row_max = row_min + self.rows - 1;
     const col_min = self.col;
     const col_max = col_min + self.cols;
     return row_min <= cursor.row and cursor.row <= row_max and
