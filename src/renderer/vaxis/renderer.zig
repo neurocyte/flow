@@ -382,6 +382,11 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             self.vx.caps.rgb = true;
         },
         .cap_color_scheme_updates => {},
+
+        .cap_multi_cursor => {
+            self.logger.print("multi cursor capability detected", .{});
+            self.vx.caps.multi_cursor = true;
+        },
     }
 }
 
@@ -533,6 +538,14 @@ pub fn cursor_enable(self: *Self, y: c_int, x: c_int, shape: CursorShape) !void 
 
 pub fn cursor_disable(self: *Self) void {
     self.vx.screen.cursor_vis = false;
+}
+
+pub fn clear_all_multi_cursors(self: *Self) !void {
+    try self.tty.anyWriter().print("\x1b[>0;4 q", .{});
+}
+
+pub fn show_multi_cursor_yx(self: *Self, y: c_int, x: c_int) !void {
+    try self.tty.anyWriter().print("\x1b[>-1;2:{d}:{d} q", .{ y + 1, x + 1 });
 }
 
 fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !void {
