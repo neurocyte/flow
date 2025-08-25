@@ -486,4 +486,3 @@ pub fn show_multi_cursor_yx(self: *Self, y: c_int, x: c_int) !void {
     _ = x;
     //@panic("todo");
 }
-
