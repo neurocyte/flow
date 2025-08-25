@@ -476,3 +476,14 @@ pub fn cursor_disable(self: *Self) void {
     _ = self;
     //@panic("todo");
 }
+pub fn clear_all_multi_cursors(self: *Self) !void {
+    _ = self;
+    //@panic("todo");
+}
+pub fn show_multi_cursor_yx(self: *Self, y: c_int, x: c_int) !void {
+    _ = self;
+    _ = y;
+    _ = x;
+    //@panic("todo");
+}
+
