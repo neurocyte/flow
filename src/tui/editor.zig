@@ -1179,6 +1179,8 @@ pub const Editor = struct {
         const style = tui.get_selection_style();
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
+        if (tui.config().enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor)
+            tui.rdr().clear_all_multi_cursors() catch {};
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel| {
             const cursor = try self.get_rendered_cursor(style, cursel);
             try self.render_cursor_secondary(&cursor, theme, cell_map);
@@ -1207,7 +1209,9 @@ pub const Editor = struct {
                 set_cell_map_cursor(cell_map, pos.row, pos.col);
                 const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
                 const configured_shape = tui.get_cursor_shape();
-                const cursor_shape = if (self.cursels.items.len > 1) switch (configured_shape) {
+                const cursor_shape = if (tui.rdr().vx.caps.multi_cursor)
+                    configured_shape
+                else if (self.cursels.items.len > 1) switch (configured_shape) {
                     .beam => .block,
                     .beam_blink => .block_blink,
                     .underline => .block,
@@ -1224,8 +1228,13 @@ pub const Editor = struct {
     fn render_cursor_secondary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap) !void {
         if (self.screen_cursor(cursor)) |pos| {
             set_cell_map_cursor(cell_map, pos.row, pos.col);
-            self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
-            self.render_cursor_cell(theme.editor_cursor_secondary);
+            if (tui.config().enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor) {
+                const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
+                tui.rdr().show_multi_cursor_yx(y, x) catch return;
+            } else {
+                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
+                self.render_cursor_cell(theme.editor_cursor_secondary);
+            }
         }
     }
 
