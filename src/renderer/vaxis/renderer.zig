@@ -545,7 +545,7 @@ pub fn clear_all_multi_cursors(self: *Self) !void {
 }
 
 pub fn show_multi_cursor_yx(self: *Self, y: c_int, x: c_int) !void {
-    try self.tty.anyWriter().print("\x1b[>-1;2:{d}:{d} q", .{ y + 1, x + 1 });
+    try self.tty.anyWriter().print("\x1b[>29;2:{d}:{d} q", .{ y + 1, x + 1 });
 }
 
 fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !void {
