@@ -1448,6 +1448,8 @@ fn set_terminal_style(self: *Self) void {
     if (build_options.gui or self.config_.enable_terminal_color_scheme) {
         self.rdr_.set_terminal_style(self.theme_.editor);
         self.rdr_.set_terminal_cursor_color(self.theme_.editor_cursor.bg.?);
+        if (self.rdr_.vx.caps.multi_cursor)
+            self.rdr_.set_terminal_secondary_cursor_color(self.theme_.editor_cursor_secondary.bg orelse self.theme_.editor_cursor.bg.?);
     }
 }
 

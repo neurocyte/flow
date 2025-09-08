@@ -6,6 +6,7 @@ const Color = @import("theme").Color;
 const vaxis = @import("vaxis");
 const input = @import("input");
 const builtin = @import("builtin");
+const RGB = @import("color").RGB;
 
 pub const Plane = @import("Plane.zig");
 pub const Cell = @import("Cell.zig");
@@ -454,6 +455,11 @@ pub fn set_terminal_style(self: *Self, style_: Style) void {
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
     self.vx.setTerminalCursorColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+}
+
+pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
+    const rgb = RGB.from_u24(color.color);
+    self.tty.anyWriter().print("\x1b[>40;2:{d}:{d}:{d} q", .{ rgb.r, rgb.g, rgb.b }) catch {};
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
