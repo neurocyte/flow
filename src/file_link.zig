@@ -24,7 +24,7 @@ pub fn parse(link: []const u8) error{InvalidFileLink}!Dest {
 
     if (std.mem.lastIndexOfScalar(u8, link, '(')) |pos| blk: {
         for (link[pos + 1 ..]) |c| switch (c) {
-            '0'...'9', ',', ')', ':' => continue,
+            '0'...'9', ',', ')', ':', ' ' => continue,
             else => break :blk,
         };
         return parse_bracket_link(link);
