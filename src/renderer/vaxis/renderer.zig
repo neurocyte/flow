@@ -6,6 +6,7 @@ const Color = @import("theme").Color;
 const vaxis = @import("vaxis");
 const input = @import("input");
 const builtin = @import("builtin");
+const RGB = @import("color").RGB;
 
 pub const Plane = @import("Plane.zig");
 pub const Cell = @import("Cell.zig");
@@ -459,6 +460,11 @@ pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
     self.vx.setTerminalCursorColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
 }
 
+pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
+    const rgb = RGB.from_u24(color.color);
+    self.tty.anyWriter().print("\x1b[>40;2:{d}:{d}:{d} q", .{ rgb.r, rgb.g, rgb.b }) catch {};
+}
+
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
     self.vx.setTerminalWorkingDirectory(self.tty.anyWriter(), absolute_path) catch {};
 }
@@ -548,7 +554,7 @@ pub fn clear_all_multi_cursors(self: *Self) !void {
 }
 
 pub fn show_multi_cursor_yx(self: *Self, y: c_int, x: c_int) !void {
-    try self.tty.anyWriter().print("\x1b[>-1;2:{d}:{d} q", .{ y + 1, x + 1 });
+    try self.tty.anyWriter().print("\x1b[>29;2:{d}:{d} q", .{ y + 1, x + 1 });
 }
 
 fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !void {

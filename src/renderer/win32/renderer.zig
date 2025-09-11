@@ -440,6 +440,12 @@ pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
     //@panic("todo");
 }
 
+pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
+    _ = self;
+    _ = color;
+    //@panic("todo");
+}
+
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
     _ = self;
     _ = absolute_path;

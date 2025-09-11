@@ -48,6 +48,10 @@ pub const elixir = .{
 
 pub const fish = .{};
 
+pub const fsharp = .{
+    .language_server = .{"fsautocomplete"},
+};
+
 pub const @"git-rebase" = .{};
 
 pub const gitcommit = .{};

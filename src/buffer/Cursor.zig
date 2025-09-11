@@ -28,8 +28,12 @@ pub inline fn right_of(self: Self, other: Self) bool {
 }
 
 pub fn clamp_to_buffer(self: *Self, root: Buffer.Root, metrics: Metrics) void {
-    self.row = @min(self.row, root.lines() - 1);
-    self.col = @min(self.col, root.line_width(self.row, metrics) catch 0);
+    if (self.row > root.lines() - 1) {
+        self.row = root.lines() - 1;
+        self.col = root.line_width(self.row, metrics) catch 0;
+    } else {
+        self.col = @min(self.col, root.line_width(self.row, metrics) catch 0);
+    }
 }
 
 fn follow_target(self: *Self, root: Buffer.Root, metrics: Metrics) void {
