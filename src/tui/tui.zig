@@ -1455,7 +1455,8 @@ fn set_terminal_style(self: *Self) void {
 
 pub fn get_cursor_shape() renderer.CursorShape {
     const self = current();
-    const shape = if (self.input_mode_) |mode| mode.cursor_shape orelse self.default_cursor else self.default_cursor;
+    const shape_ = if (self.input_mode_) |mode| mode.cursor_shape orelse self.default_cursor else self.default_cursor;
+    const shape = if (self.rdr_.vx.caps.multi_cursor and shape_ == .default) .beam_blink else shape_;
     return switch (shape) {
         .default => .default,
         .block_blink => .block_blink,
