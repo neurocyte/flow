@@ -225,6 +225,7 @@
     "select": {
         "name": "SELECT",
         "inherit": "normal",
+        "cursor": "block",
         "press": [
             ["left", "select_left"],
             ["right", "select_right"],
