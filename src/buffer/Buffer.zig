@@ -538,7 +538,7 @@ const Node = union(enum) {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 ctx.at = egc;
                 ctx.wcwidth = wcwidth;
-                if (ctx.col == 0 or egc[0] == '\n' or ctx.col < wcwidth)
+                if (wcwidth > 0 and (ctx.col == 0 or egc[0] == '\n' or ctx.col < wcwidth))
                     return Walker.stop;
                 ctx.col -= wcwidth;
                 return Walker.keep_walking;
