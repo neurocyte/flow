@@ -1092,8 +1092,8 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
             try cbor.skipValue(&iter);
         }
     }
-    const insert = textEdit_insert orelse return error.InvalidMessageField;
-    const replace = textEdit_replace orelse return error.InvalidMessageField;
+    const insert = textEdit_insert orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
+    const replace = textEdit_replace orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
     return to.send(.{
         "cmd", "add_completion", .{
             file_path,
