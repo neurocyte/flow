@@ -1005,8 +1005,15 @@ fn send_completion_items(to: tp.pid_ref, file_path: []const u8, row: usize, col:
     var item: []const u8 = "";
     while (len > 0) : (len -= 1) {
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidMessageField;
-        send_completion_item(to, file_path, row, col, item, if (len > 1) true else is_incomplete) catch return error.ClientFailed;
+        try send_completion_item(to, file_path, row, col, item, if (len > 1) true else is_incomplete);
     }
+}
+
+fn invalid_field(field: []const u8) error{InvalidMessage} {
+    const logger = log.logger("lsp");
+    defer logger.deinit();
+    logger.print("invalid completion field '{s}'", .{field});
+    return error.InvalidMessage;
 }
 
 fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, item: []const u8, is_incomplete: bool) (ClientError || InvalidMessageError || cbor.Error)!void {
@@ -1029,53 +1036,53 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
         var field_name: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
         if (std.mem.eql(u8, field_name, "label")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&label)))) return error.InvalidMessageField;
+            if (!(try cbor.matchValue(&iter, cbor.extract(&label)))) return invalid_field("label");
         } else if (std.mem.eql(u8, field_name, "labelDetails")) {
             var len_ = cbor.decodeMapHeader(&iter) catch return;
             while (len_ > 0) : (len_ -= 1) {
-                if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+                if (!(try cbor.matchString(&iter, &field_name))) return invalid_field("labelDetails");
                 if (std.mem.eql(u8, field_name, "detail")) {
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&label_detail)))) return error.InvalidMessageField;
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&label_detail)))) return invalid_field("labelDetails.detail");
                 } else if (std.mem.eql(u8, field_name, "description")) {
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&label_description)))) return error.InvalidMessageField;
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&label_description)))) return invalid_field("labelDetails.description");
                 } else {
                     try cbor.skipValue(&iter);
                 }
             }
         } else if (std.mem.eql(u8, field_name, "kind")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&kind)))) return error.InvalidMessageField;
+            if (!(try cbor.matchValue(&iter, cbor.extract(&kind)))) return invalid_field("kind");
         } else if (std.mem.eql(u8, field_name, "detail")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) return error.InvalidMessageField;
+            if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) return invalid_field("detail");
         } else if (std.mem.eql(u8, field_name, "documentation")) {
             var len_ = cbor.decodeMapHeader(&iter) catch return;
             while (len_ > 0) : (len_ -= 1) {
-                if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+                if (!(try cbor.matchString(&iter, &field_name))) return invalid_field("documentation");
                 if (std.mem.eql(u8, field_name, "kind")) {
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&documentation_kind)))) return error.InvalidMessageField;
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&documentation_kind)))) return invalid_field("documentation.kind");
                 } else if (std.mem.eql(u8, field_name, "value")) {
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&documentation)))) return error.InvalidMessageField;
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&documentation)))) return invalid_field("documentation.value");
                 } else {
                     try cbor.skipValue(&iter);
                 }
             }
         } else if (std.mem.eql(u8, field_name, "sortText")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&sortText)))) return error.InvalidMessageField;
+            if (!(try cbor.matchValue(&iter, cbor.extract(&sortText)))) return invalid_field("sortText");
         } else if (std.mem.eql(u8, field_name, "insertTextFormat")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&insertTextFormat)))) return error.InvalidMessageField;
+            if (!(try cbor.matchValue(&iter, cbor.extract(&insertTextFormat)))) return invalid_field("insertTextFormat");
         } else if (std.mem.eql(u8, field_name, "textEdit")) {
             // var textEdit: []const u8 = ""; // { "newText": "wait_expired(${1:timeout_ns: isize})", "insert": Range, "replace": Range },
             var len_ = cbor.decodeMapHeader(&iter) catch return;
             while (len_ > 0) : (len_ -= 1) {
-                if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+                if (!(try cbor.matchString(&iter, &field_name))) return invalid_field("textEdit");
                 if (std.mem.eql(u8, field_name, "newText")) {
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&textEdit_newText)))) return error.InvalidMessageField;
+                    if (!(try cbor.matchValue(&iter, cbor.extract(&textEdit_newText)))) return invalid_field("textEdit.newText");
                 } else if (std.mem.eql(u8, field_name, "insert")) {
                     var range_: []const u8 = undefined;
-                    if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidMessageField;
+                    if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return invalid_field("textEdit.insert");
                     textEdit_insert = try read_range(range_);
                 } else if (std.mem.eql(u8, field_name, "replace")) {
                     var range_: []const u8 = undefined;
-                    if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidMessageField;
+                    if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return invalid_field("textEdit.replace");
                     textEdit_replace = try read_range(range_);
                 } else {
                     try cbor.skipValue(&iter);
