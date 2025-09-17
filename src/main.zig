@@ -245,19 +245,34 @@ pub fn main() anyerror!void {
     defer links.deinit();
     var prev: ?*file_link.Dest = null;
     var line_next: ?usize = null;
+    var offset_next: ?usize = null;
     for (positional_args.items) |arg| {
         if (arg.len == 0) continue;
 
         if (!args.literal and arg[0] == '+') {
-            const line = try std.fmt.parseInt(usize, arg[1..], 10);
-            if (prev) |p| switch (p.*) {
-                .file => |*file| {
-                    file.line = line;
-                    continue;
-                },
-                else => {},
-            };
-            line_next = line;
+            if (arg.len > 2 and arg[1] == 'b') {
+                const offset = try std.fmt.parseInt(usize, arg[2..], 10);
+                if (prev) |p| switch (p.*) {
+                    .file => |*file| {
+                        file.offset = offset;
+                        continue;
+                    },
+                    else => {},
+                };
+                offset_next = offset;
+                line_next = null;
+            } else {
+                const line = try std.fmt.parseInt(usize, arg[1..], 10);
+                if (prev) |p| switch (p.*) {
+                    .file => |*file| {
+                        file.line = line;
+                        continue;
+                    },
+                    else => {},
+                };
+                line_next = line;
+                offset_next = null;
+            }
             continue;
         }
 
@@ -270,6 +285,15 @@ pub fn main() anyerror!void {
                 .file => |*file| {
                     file.line = line;
                     line_next = null;
+                },
+                else => {},
+            }
+        }
+        if (offset_next) |offset| {
+            switch (curr.*) {
+                .file => |*file| {
+                    file.offset = offset;
+                    offset_next = null;
                 },
                 else => {},
             }
