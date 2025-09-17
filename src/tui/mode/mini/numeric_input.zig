@@ -73,7 +73,7 @@ pub fn Create(options: type) type {
             const process_digit_ = if (@hasDecl(options, "process_digit")) options.process_digit else process_digit;
             if (@hasDecl(options, "Separator")) {
                 switch (char) {
-                    '0'...'9' => process_digit_(@intCast(char - '0')),
+                    '0'...'9' => process_digit_(self, @intCast(char - '0')),
                     options.Separator => options.process_separator(self),
                     else => {},
                 }
