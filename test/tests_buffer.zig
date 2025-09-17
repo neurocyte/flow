@@ -190,6 +190,14 @@ test "get_byte_pos" {
     try std.testing.expectEqual(33, try buffer.root.get_byte_pos(.{ .row = 4, .col = 0 }, metrics(), eol_mode));
     try std.testing.expectEqual(66, try buffer.root.get_byte_pos(.{ .row = 8, .col = 0 }, metrics(), eol_mode));
     try std.testing.expectEqual(97, try buffer.root.get_byte_pos(.{ .row = 11, .col = 2 }, metrics(), eol_mode));
+
+    eol_mode = .crlf;
+    try std.testing.expectEqual(0, try buffer.root.get_byte_pos(.{ .row = 0, .col = 0 }, metrics(), eol_mode));
+    try std.testing.expectEqual(10, try buffer.root.get_byte_pos(.{ .row = 1, .col = 0 }, metrics(), eol_mode));
+    try std.testing.expectEqual(12, try buffer.root.get_byte_pos(.{ .row = 1, .col = 2 }, metrics(), eol_mode));
+    try std.testing.expectEqual(37, try buffer.root.get_byte_pos(.{ .row = 4, .col = 0 }, metrics(), eol_mode));
+    try std.testing.expectEqual(74, try buffer.root.get_byte_pos(.{ .row = 8, .col = 0 }, metrics(), eol_mode));
+    try std.testing.expectEqual(108, try buffer.root.get_byte_pos(.{ .row = 11, .col = 2 }, metrics(), eol_mode));
 }
 
 test "delete_bytes" {
