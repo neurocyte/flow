@@ -1038,6 +1038,11 @@ const cmds = struct {
     }
     pub const goto_meta: Meta = .{ .description = "Goto line" };
 
+    pub fn goto_offset(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/goto_offset.zig"), ctx);
+    }
+    pub const goto_offset_meta: Meta = .{ .description = "Goto byte offset" };
+
     pub fn move_to_char(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/move_to_char.zig"), ctx);
     }
