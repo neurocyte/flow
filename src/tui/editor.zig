@@ -5477,6 +5477,28 @@ pub const Editor = struct {
     }
     pub const goto_line_and_column_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
 
+    pub fn goto_byte_offset(self: *Self, ctx: Context) Result {
+        try self.send_editor_jump_source();
+        var offset: usize = 0;
+        if (try ctx.args.match(.{
+            tp.extract(&offset),
+        })) {
+            // self.logger.print("goto: byte offset:{d}", .{ offset });
+        } else return error.InvalidGotoByteOffsetArgument;
+        self.cancel_all_selections();
+        const root = self.buf_root() catch return;
+        const eol_mode = self.buf_eol_mode() catch return;
+        const primary = self.get_primary();
+        primary.cursor = root.byte_offset_to_line_and_col(offset, self.metrics, eol_mode);
+        if (self.view.is_visible(&primary.cursor))
+            self.clamp()
+        else
+            try self.scroll_view_center(.{});
+        try self.send_editor_jump_destination();
+        self.need_render();
+    }
+    pub const goto_byte_offset_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn goto_definition(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
