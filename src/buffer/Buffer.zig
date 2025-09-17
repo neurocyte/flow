@@ -794,6 +794,35 @@ const Node = union(enum) {
         return if (found) ctx.result else error.NotFound;
     }
 
+    pub fn byte_offset_to_line_and_col(self: *const Node, pos: usize, metrics: Metrics, eol_mode: EolMode) Cursor {
+        const ctx_ = struct {
+            pos: usize,
+            line: usize = 0,
+            col: usize = 0,
+            eol_mode: EolMode,
+            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Metrics) Walker {
+                const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+                if (egc[0] == '\n') {
+                    ctx.pos -= switch (ctx.eol_mode) {
+                        .lf => 1,
+                        .crlf => @min(2, ctx.pos),
+                    };
+                    if (ctx.pos == 0) return Walker.stop;
+                    ctx.line += 1;
+                    ctx.col = 0;
+                } else {
+                    ctx.pos -= @min(egc.len, ctx.pos);
+                    if (ctx.pos == 0) return Walker.stop;
+                    ctx.col += wcwidth;
+                }
+                return Walker.keep_walking;
+            }
+        };
+        var ctx: ctx_ = .{ .pos = pos + 1, .eol_mode = eol_mode };
+        self.walk_egc_forward(0, ctx_.walker, &ctx, metrics) catch {};
+        return .{ .row = ctx.line, .col = ctx.col };
+    }
+
     pub fn insert_chars(
         self_: *const Node,
         line_: usize,
