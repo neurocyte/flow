@@ -252,11 +252,12 @@ fn opaqueWrite(ptr: *const anyopaque, buf: []const u8) !usize {
     return posix.write(self.pty.pty, buf);
 }
 
-pub fn anyWriter(self: *const Terminal) std.io.AnyWriter {
-    return .{
+pub fn anyWriter(self: *const Terminal) *std.io.Writer {
+    const writer: std.io.Writer = .{
         .context = self,
         .writeFn = Terminal.opaqueWrite,
     };
+    return @constCast(&writer);
 }
 
 fn opaqueRead(ptr: *const anyopaque, buf: []u8) !usize {
