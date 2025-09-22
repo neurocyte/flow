@@ -19,21 +19,21 @@ if [ -e "$DESTDIR" ]; then
 fi
 
 if [ -e "$release_notes" ]; then
-    echo file \"$release_notes\" already exists
+    echo file \""$release_notes"\" already exists
     exit 1
 fi
 
 DIFF="$(git diff --stat --patch HEAD)"
 
-if [ -n "$DIFF" ] ; then
+if [ -n "$DIFF" ]; then
     echo there are outstanding changes:
     echo "$DIFF"
     exit 1
 fi
 
-UNPUSHED="$(git log --pretty=oneline @{u}...)"
+UNPUSHED="$(git log --pretty=oneline '@{u}...')"
 
-if [ -n "$UNPUSHED" ] ; then
+if [ -n "$UNPUSHED" ]; then
     echo there are unpushed commits:
     echo "$UNPUSHED"
     exit 1
@@ -41,13 +41,13 @@ fi
 
 # get latest version tag from github releases api
 last_nightly_version=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | grep '"tag_name":' | cut -d'"' -f4)
-[ -z "last_nightly_version" ] && {
+[ -z "$last_nightly_version" ] && {
     echo "failed to fetch $title latest version"
     exit 1
 }
 
-local_version="$(git --git-dir $BASEDIR/.git describe)"
-if [ "$local_version" == "$last_nightly_version" ] ; then
+local_version="$(git --git-dir "$BASEDIR/.git" describe)"
+if [ "$local_version" == "$last_nightly_version" ]; then
     echo "$title is already at version $last_nightly_version"
     exit 1
 fi
@@ -101,11 +101,13 @@ echo
 
 cd ..
 
-echo $title > "$release_notes"
-echo > "$release_notes"
-echo "changes:" > "$release_notes"
-echo > "$release_notes"
-git log "${last_nightly_version}..HEAD" --pretty="format:%al %s" >> "$release_notes"
+{
+    echo "$title"
+    echo "$release_notes"
+    echo "changes:"
+    echo
+} >"$release_notes"
+git log "${last_nightly_version}..HEAD" --pretty="format:%al %s" >>"$release_notes"
 cat "$release_notes"
 
 gh release create "$VERSION" --repo "$repo" --notes-file "$release_notes" $DESTDIR/*
