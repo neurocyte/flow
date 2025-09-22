@@ -96,7 +96,7 @@ echo $title > "$release_notes"
 echo > "$release_notes"
 echo "changes:" > "$release_notes"
 echo > "$release_notes"
-git log (git describe --tags --abbrev=0)..HEAD --pretty="format:%al %s" >> "$release_notes"
+git log "$(git describe --tags --abbrev=0)..HEAD" --pretty="format:%al %s" >> "$release_notes"
 cat "$release_notes"
 
 gh release create (git --git-dir $BASEDIR/.git describe) --notes-file "$release_notes" $DESTDIR/*
