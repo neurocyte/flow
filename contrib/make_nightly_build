@@ -53,7 +53,9 @@ if [ "$local_version" == "$last_nightly_version" ]; then
 fi
 
 echo
-echo "building $title version $local_version..."
+echo "building $title version $local_version... (previous $last_nightly_version)"
+echo
+git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s"
 echo
 echo running tests...
 
@@ -107,7 +109,7 @@ cd ..
     echo "commits:"
     echo
 } >"$release_notes"
-git log "${last_nightly_version}..HEAD" --pretty="format:%h %s" >>"$release_notes"
+git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s" >>"$release_notes"
 cat "$release_notes"
 
 gh release create "$VERSION" --repo "$repo" --notes-file "$release_notes" $DESTDIR/*
