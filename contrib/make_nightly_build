@@ -94,7 +94,7 @@ for tarfile in $TARFILES; do
     sha256sum -b "$tarfile" >"${tarfile}.sha256"
 done
 
-echo "done making release $VERSION @ $DESTDIR"
+echo "done making $title $VERSION @ $DESTDIR"
 echo
 
 /bin/ls -lah
@@ -102,7 +102,7 @@ echo
 cd ..
 
 {
-    echo "$title"
+    echo "$title" "$VERSION"
     echo "$release_notes"
     echo "changes:"
     echo
