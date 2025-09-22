@@ -102,37 +102,41 @@ pub const CurSel = struct {
     }
 
     pub fn enable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
-        return switch (tui.get_selection_style()) {
-            .normal => self.enable_selection_normal(),
-            .inclusive => try self.enable_selection_inclusive(root, metrics),
-        };
+        self.selection = try self.to_selection(root, metrics);
+        return if (self.selection) |*sel| sel else unreachable;
     }
 
     pub fn enable_selection_normal(self: *Self) *Selection {
-        return if (self.selection) |*sel|
-            sel
-        else cod: {
-            self.selection = Selection.from_cursor(&self.cursor);
-            break :cod &self.selection.?;
+        self.selection = self.to_selection_normal();
+        return if (self.selection) |*sel| sel else unreachable;
+    }
+
+    pub fn to_selection(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Selection {
+        return switch (tui.get_selection_style()) {
+            .normal => self.to_selection_normal(),
+            .inclusive => try self.to_selection_inclusive(root, metrics),
         };
     }
 
-    fn enable_selection_inclusive(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
-        return if (self.selection) |*sel|
+    fn to_selection_normal(self: *const Self) Selection {
+        return if (self.selection) |sel| sel else Selection.from_cursor(&self.cursor);
+    }
+
+    fn to_selection_inclusive(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Selection {
+        return if (self.selection) |sel|
             sel
         else cod: {
-            self.selection = Selection.from_cursor(&self.cursor);
-            try self.selection.?.end.move_right(root, metrics);
-            try self.cursor.move_right(root, metrics);
-            break :cod &self.selection.?;
+            var sel = Selection.from_cursor(&self.cursor);
+            try sel.end.move_right(root, metrics);
+            break :cod sel;
         };
     }
 
-    fn to_inclusive_cursor(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Cursor {
-        var res = self.cursor;
+    fn to_cursor_inclusive(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Cursor {
+        var cursor = self.cursor;
         if (self.selection) |sel| if (!sel.is_reversed())
-            try res.move_left(root, metrics);
-        return res;
+            try cursor.move_left(root, metrics);
+        return cursor;
     }
 
     pub fn disable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
@@ -1207,7 +1211,7 @@ pub const Editor = struct {
     fn get_rendered_cursor(self: *Self, style: anytype, cursel: anytype) !Cursor {
         return switch (style) {
             .normal => cursel.cursor,
-            .inclusive => try cursel.to_inclusive_cursor(try self.buf_root(), self.metrics),
+            .inclusive => try cursel.to_cursor_inclusive(try self.buf_root(), self.metrics),
         };
     }
 
