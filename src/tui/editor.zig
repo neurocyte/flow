@@ -4298,7 +4298,7 @@ pub const Editor = struct {
     }
     pub const selections_reverse_meta: Meta = .{ .description = "Reverse selection" };
 
-    fn node_at_selection(self: *Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
+    fn node_at_selection(self: *const Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
         const syn = self.syntax orelse return error.Stop;
         const node = try syn.node_at_point_range(.{
             .start_point = .{
@@ -4316,7 +4316,7 @@ pub const Editor = struct {
         return node;
     }
 
-    fn top_node_at_selection(self: *Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
+    fn top_node_at_selection(self: *const Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
         var node = try self.node_at_selection(sel, root, metrics);
         if (node.isNull()) return node;
         var parent = node.getParent();
@@ -4331,10 +4331,9 @@ pub const Editor = struct {
         return node;
     }
 
-    fn select_top_node_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        cursel.disable_selection(root, self.metrics);
-        const sel = (try cursel.enable_selection(root, self.metrics)).*;
-        return cursel.select_node(try self.top_node_at_selection(sel, root, metrics), root, metrics);
+    fn top_node_at_cursel(self: *const Self, cursel: *const CurSel, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
+        const sel = try cursel.to_selection(root, metrics);
+        return try self.top_node_at_selection(sel, root, metrics);
     }
 
     fn expand_selection_to_parent_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
@@ -4356,7 +4355,7 @@ pub const Editor = struct {
         try if (cursel.selection) |_|
             self.expand_selection_to_parent_node(root, cursel, self.metrics)
         else
-            self.select_top_node_at_cursor(root, cursel, self.metrics);
+            cursel.select_node(try self.top_node_at_cursel(cursel, root, self.metrics), root, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
