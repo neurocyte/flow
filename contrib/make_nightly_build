@@ -103,11 +103,11 @@ cd ..
 
 {
     echo "$title" "$VERSION"
-    echo "$release_notes"
-    echo "changes:"
+    echo
+    echo "commits:"
     echo
 } >"$release_notes"
-git log "${last_nightly_version}..HEAD" --pretty="format:%al %s" >>"$release_notes"
+git log "${last_nightly_version}..HEAD" --pretty="format:%h %s" >>"$release_notes"
 cat "$release_notes"
 
 gh release create "$VERSION" --repo "$repo" --notes-file "$release_notes" $DESTDIR/*
