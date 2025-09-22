@@ -1,0 +1,102 @@
+#!/bin/bash
+set -e
+
+builddir="nightly-build"
+
+DESTDIR="$(pwd)/$builddir"
+BASEDIR="$(cd "$(dirname "$0")/.." && pwd)"
+APPNAME="$(basename "$BASEDIR")"
+title="$APPNAME nightly build"
+repo="neurocyte/$APPNAME-nightly"
+
+release_notes="$BASEDIR/$builddir-release-notes"
+
+cd "$BASEDIR"
+
+if [ -e "$DESTDIR" ]; then
+    echo directory \"$builddir\" already exists
+    exit 1
+fi
+
+if [ -e "$release_notes" ]; then
+    echo file \"$release_notes\" already exists
+    exit 1
+fi
+
+DIFF="$(git diff --stat --patch HEAD)"
+
+if [ -n "$DIFF" ] ; then
+    echo there are outstanding changes:
+    echo "$DIFF"
+    exit 1
+fi
+
+UNPUSHED="$(git log --pretty=oneline @{u}...)"
+
+if [ -n "$UNPUSHED" ] ; then
+    echo there are unpushed commits:
+    echo "$UNPUSHED"
+    exit 1
+fi
+
+# get latest version tag from github releases api
+last_nightly_version=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | grep '"tag_name":' | cut -d'"' -f4)
+[ -z "last_nightly_version" ] && {
+    echo "failed to fetch $title latest version"
+    exit 1
+}
+
+echo running tests...
+
+./zig build test
+
+echo building...
+
+./zig build -Dpackage_release --prefix "$DESTDIR/build"
+
+cd "$DESTDIR/build"
+
+VERSION=$(/bin/cat version)
+TARGETS=$(/bin/ls)
+
+for target in $TARGETS; do
+    if [ -d "$target" ]; then
+        cd "$target"
+        if [ "${target:0:8}" == "windows-" ]; then
+            echo packing zip "$target"...
+            zip -r "../../${APPNAME}-${VERSION}-${target}.zip" ./*
+            cd ..
+        else
+            echo packing tar "$target"...
+            tar -czf "../../${APPNAME}-${VERSION}-${target}.tar.gz" -- *
+            cd ..
+        fi
+    fi
+done
+
+cd ..
+rm -r build
+
+TARFILES=$(/bin/ls)
+
+for tarfile in $TARFILES; do
+    echo signing "$tarfile"...
+    gpg --local-user 4E6CF7234FFC4E14531074F98EB1E1BB660E3FB9 --detach-sig "$tarfile"
+    sha256sum -b "$tarfile" >"${tarfile}.sha256"
+done
+
+echo "done making release $VERSION @ $DESTDIR"
+echo
+
+/bin/ls -lah
+
+cd ..
+
+echo $title > "$release_notes"
+echo > "$release_notes"
+echo "changes:" > "$release_notes"
+echo > "$release_notes"
+git log (git describe --tags --abbrev=0)..HEAD --pretty="format:%al %s" >> "$release_notes"
+cat "$release_notes"
+
+gh release create (git --git-dir $BASEDIR/.git describe) --notes-file "$release_notes" $DESTDIR/*
