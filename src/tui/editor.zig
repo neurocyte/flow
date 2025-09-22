@@ -4397,8 +4397,7 @@ pub const Editor = struct {
     pub const shrink_selection_meta: Meta = .{ .description = "Shrink selection to first AST child node" };
 
     fn select_next_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.top_node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_cursel(cursel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_next_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4406,8 +4405,7 @@ pub const Editor = struct {
     }
 
     fn select_next_named_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.top_node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_cursel(cursel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_next_named_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4421,19 +4419,17 @@ pub const Editor = struct {
         const root = try self.buf_root();
         const cursel = self.get_primary();
         cursel.check_selection(root, self.metrics);
-        if (cursel.selection) |_|
-            try if (unnamed)
-                self.select_next_sibling_node(root, cursel, self.metrics)
-            else
-                self.select_next_named_sibling_node(root, cursel, self.metrics);
+        try if (unnamed)
+            self.select_next_sibling_node(root, cursel, self.metrics)
+        else
+            self.select_next_named_sibling_node(root, cursel, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
     pub const select_next_sibling_meta: Meta = .{ .description = "Move selection to next AST sibling node" };
 
     fn select_prev_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.top_node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_cursel(cursel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_prev_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4441,8 +4437,7 @@ pub const Editor = struct {
     }
 
     fn select_prev_named_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.top_node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_cursel(cursel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_prev_named_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4456,11 +4451,10 @@ pub const Editor = struct {
         const root = try self.buf_root();
         const cursel = self.get_primary();
         cursel.check_selection(root, self.metrics);
-        if (cursel.selection) |_|
-            try if (unnamed)
-                self.select_prev_sibling_node(root, cursel, self.metrics)
-            else
-                self.select_prev_named_sibling_node(root, cursel, self.metrics);
+        try if (unnamed)
+            self.select_prev_sibling_node(root, cursel, self.metrics)
+        else
+            self.select_prev_named_sibling_node(root, cursel, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
