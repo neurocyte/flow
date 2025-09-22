@@ -46,6 +46,15 @@ last_nightly_version=$(curl -s "https://api.github.com/repos/$repo/releases/late
     exit 1
 }
 
+local_version="$(git --git-dir $BASEDIR/.git describe)"
+if [ "$local_version" == "$last_nightly_version" ] ; then
+    echo "$title is already at version $last_nightly_version"
+    exit 1
+fi
+
+echo
+echo "building $title version $local_version..."
+echo
 echo running tests...
 
 ./zig build test
