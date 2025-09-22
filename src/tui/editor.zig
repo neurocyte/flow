@@ -170,9 +170,8 @@ pub const CurSel = struct {
         return sel;
     }
 
-    fn select_node(self: *Self, node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!void {
-        const range = node.getRange();
-        self.selection = .{
+    fn selection_from_range(range: syntax.Range, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Selection {
+        return .{
             .begin = .{
                 .row = range.start_point.row,
                 .col = try root.pos_to_width(range.start_point.row, range.start_point.column, metrics),
@@ -182,7 +181,23 @@ pub const CurSel = struct {
                 .col = try root.pos_to_width(range.end_point.row, range.end_point.column, metrics),
             },
         };
-        self.cursor = self.selection.?.end;
+    }
+
+    fn selection_from_node(node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Selection {
+        return selection_from_range(node.getRange(), root, metrics);
+    }
+
+    fn select_node(self: *Self, node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!void {
+        const sel = try selection_from_node(node, root, metrics);
+        self.selection = sel;
+        self.cursor = sel.end;
+    }
+
+    fn select_parent_node(self: *Self, node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!syntax.Node {
+        const parent = node.getParent();
+        if (parent.isNull()) return error.NotFound;
+        try self.select_node(parent, root, metrics);
+        return parent;
     }
 
     fn write(self: *const Self, writer: Buffer.MetaWriter) !void {
@@ -4297,19 +4312,36 @@ pub const Editor = struct {
         return node;
     }
 
-    fn select_node_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    fn top_node_at_selection(self: *Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
+        var node = try self.node_at_selection(sel, root, metrics);
+        if (node.isNull()) return node;
+        var parent = node.getParent();
+        if (parent.isNull()) return node;
+        const node_sel = CurSel.selection_from_node(node, root, metrics) catch return node;
+        var parent_sel = CurSel.selection_from_node(parent, root, metrics) catch return node;
+        while (parent_sel.eql(node_sel)) {
+            node = parent;
+            parent = parent.getParent();
+            parent_sel = CurSel.selection_from_node(parent, root, metrics) catch return node;
+        }
+        return node;
+    }
+
+    fn select_top_node_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         cursel.disable_selection(root, self.metrics);
         const sel = (try cursel.enable_selection(root, self.metrics)).*;
-        return cursel.select_node(try self.node_at_selection(sel, root, metrics), root, metrics);
+        return cursel.select_node(try self.top_node_at_selection(sel, root, metrics), root, metrics);
     }
 
     fn expand_selection_to_parent_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        var node = try self.top_node_at_selection(sel, root, metrics);
         if (node.isNull()) return error.Stop;
-        const parent = node.getParent();
-        if (parent.isNull()) return error.Stop;
-        return cursel.select_node(parent, root, metrics);
+        var node_sel = try CurSel.selection_from_node(node, root, metrics);
+        if (!node_sel.eql(sel)) return cursel.select_node(node, root, metrics);
+        node = try cursel.select_parent_node(node, root, metrics);
+        while (cursel.selection.?.eql(sel))
+            node = try cursel.select_parent_node(node, root, metrics);
     }
 
     pub fn expand_selection(self: *Self, _: Context) Result {
@@ -4320,7 +4352,7 @@ pub const Editor = struct {
         try if (cursel.selection) |_|
             self.expand_selection_to_parent_node(root, cursel, self.metrics)
         else
-            self.select_node_at_cursor(root, cursel, self.metrics);
+            self.select_top_node_at_cursor(root, cursel, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
@@ -4363,7 +4395,7 @@ pub const Editor = struct {
 
     fn select_next_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_selection(sel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_next_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4372,7 +4404,7 @@ pub const Editor = struct {
 
     fn select_next_named_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_selection(sel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_next_named_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4398,7 +4430,7 @@ pub const Editor = struct {
 
     fn select_prev_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_selection(sel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_prev_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4407,7 +4439,7 @@ pub const Editor = struct {
 
     fn select_prev_named_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_selection(sel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_prev_named_sibling(node);
         if (sibling.isNull()) return error.Stop;
