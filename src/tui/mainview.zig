@@ -617,8 +617,10 @@ const cmds = struct {
 
     pub fn delete_buffer(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
-        if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
-            return error.InvalidDeleteBufferArgument;
+        if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false)) {
+            const editor = self.get_active_editor() orelse return error.InvalidDeleteBufferArgument;
+            file_path = editor.file_path orelse return error.InvalidDeleteBufferArgument;
+        }
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
         if (buffer.is_dirty())
             return tp.exit("unsaved changes");
