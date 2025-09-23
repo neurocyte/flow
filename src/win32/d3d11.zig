@@ -196,7 +196,7 @@ pub const WindowState = struct {
                 const coord = coordFromCellPos(font.cell_size, pos);
                 var staging_size = font.cell_size;
                 staging_size.x = if (right_half) staging_size.x * 2 else staging_size.x;
-                const staging = global.staging_texture.update(font.cell_size);
+                const staging = global.staging_texture.update(staging_size);
                 var utf8_buf: [7]u8 = undefined;
                 const utf8_len: u3 = std.unicode.utf8Encode(codepoint, &utf8_buf) catch |e| std.debug.panic(
                     "todo: handle invalid codepoint {} (0x{0x}) ({s})",
