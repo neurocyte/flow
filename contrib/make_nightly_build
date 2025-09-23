@@ -121,15 +121,17 @@ cd ..
     echo
     git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s"
     echo
+    echo
 
     echo "contributors to this release:"
-    git shortlog -s -n "${last_nightly_version}..HEAD"
+    git shortlog -s -n "${last_nightly_version}..HEAD" | cut -b 8-
+    echo
     echo
 
     echo "also available at:"
-    echo "[git.flow-control.dev](https://git.flow-control.dev/neurocyte/flow-nightly/releases/tag/$VERSION)"
+    echo "[flow-control.dev](https://git.flow-control.dev/neurocyte/flow-nightly/releases/tag/$VERSION)"
     echo "[github.com](https://github.com/neurocyte/flow-nightly/releases/tag/$VERSION)"
-    echo "[flow-control.dev](https://codeberg.org/neurocyte/flow-nightly/releases/tag/$VERSION)"
+    echo "[codeberg.org](https://codeberg.org/neurocyte/flow-nightly/releases/tag/$VERSION)"
 } >"$release_notes"
 
 cat "$release_notes"
