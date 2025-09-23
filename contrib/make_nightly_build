@@ -147,10 +147,10 @@ if [ -z "$NO_CODEBERG" ]; then
         ASSETS="$ASSETS --asset $a"
     done
     echo uploading to codeberg.org
-    tea releases create --login codeberg --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" --prerelease $ASSETS
+    tea releases create --login codeberg --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" $ASSETS
 fi
 
 if [ -z "$NO_FLOWCONTROL" ]; then
     echo uploading to git.flow-control.dev
-    tea releases create --login flow-control --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" --prerelease
+    tea releases create --login flow-control --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes"
 fi
