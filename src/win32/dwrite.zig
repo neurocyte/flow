@@ -23,11 +23,13 @@ pub fn init() void {
 }
 
 pub const Font = struct {
-    text_format: *win32.IDWriteTextFormat,
+    text_format_single: *win32.IDWriteTextFormat,
+    text_format_double: *win32.IDWriteTextFormat,
     cell_size: XY(u16),
 
     pub fn init(dpi: u32, size: f32, face: *const FontFace) Font {
-        var text_format: *win32.IDWriteTextFormat = undefined;
+        var text_format_single: *win32.IDWriteTextFormat = undefined;
+
         {
             const hr = global.dwrite_factory.CreateTextFormat(
                 face.ptr(),
@@ -37,14 +39,43 @@ pub const Font = struct {
                 .NORMAL, // stretch
                 win32.scaleDpi(f32, size, dpi),
                 win32.L(""), // locale
-                &text_format,
+                &text_format_single,
             );
             if (hr < 0) std.debug.panic(
                 "CreateTextFormat '{}' height {d} failed, hresult=0x{x}",
                 .{ std.unicode.fmtUtf16Le(face.slice()), size, @as(u32, @bitCast(hr)) },
             );
         }
-        errdefer _ = text_format.IUnknown.Release();
+        errdefer _ = text_format_single.IUnknown.Release();
+
+        var text_format_double: *win32.IDWriteTextFormat = undefined;
+        {
+            const hr = global.dwrite_factory.CreateTextFormat(
+                face.ptr(),
+                null,
+                .NORMAL, //weight
+                .NORMAL, // style
+                .NORMAL, // stretch
+                win32.scaleDpi(f32, size, dpi),
+                win32.L(""), // locale
+                &text_format_double,
+            );
+            if (hr < 0) std.debug.panic(
+                "CreateTextFormat '{}' height {d} failed, hresult=0x{x}",
+                .{ std.unicode.fmtUtf16Le(face.slice()), size, @as(u32, @bitCast(hr)) },
+            );
+        }
+        errdefer _ = text_format_double.IUnknown.Release();
+
+        {
+            const hr = text_format_double.SetTextAlignment(win32.DWRITE_TEXT_ALIGNMENT_CENTER);
+            if (hr < 0) fatalHr("SetTextAlignment", hr);
+        }
+
+        {
+            const hr = text_format_double.SetParagraphAlignment(win32.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            if (hr < 0) fatalHr("SetParagraphAlignment", hr);
+        }
 
         const cell_size: XY(u16) = blk: {
             var text_layout: *win32.IDWriteTextLayout = undefined;
@@ -52,7 +83,7 @@ pub const Font = struct {
                 const hr = global.dwrite_factory.CreateTextLayout(
                     win32.L("█"),
                     1,
-                    text_format,
+                    text_format_single,
                     std.math.floatMax(f32),
                     std.math.floatMax(f32),
                     &text_layout,
@@ -73,13 +104,15 @@ pub const Font = struct {
         };
 
         return .{
-            .text_format = text_format,
+            .text_format_single = text_format_single,
+            .text_format_double = text_format_double,
             .cell_size = cell_size,
         };
     }
 
     pub fn deinit(self: *Font) void {
-        _ = self.text_format.IUnknown.Release();
+        _ = self.text_format_single.IUnknown.Release();
+        _ = self.text_format_double.IUnknown.Release();
         self.* = undefined;
     }
 
