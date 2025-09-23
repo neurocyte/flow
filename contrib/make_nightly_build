@@ -136,9 +136,9 @@ cd ..
 
 cat "$release_notes"
 
-if [ -z "$NO_GITHUB" ]; then
-    echo uploading to github.com
-    gh release create "$VERSION" --repo "$repo" --notes-file "$release_notes" $DESTDIR/*
+if [ -z "$NO_FLOWCONTROL" ]; then
+    echo uploading to git.flow-control.dev
+    tea releases create --login flow-control --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes"
 fi
 
 if [ -z "$NO_CODEBERG" ]; then
@@ -150,7 +150,7 @@ if [ -z "$NO_CODEBERG" ]; then
     tea releases create --login codeberg --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" $ASSETS
 fi
 
-if [ -z "$NO_FLOWCONTROL" ]; then
-    echo uploading to git.flow-control.dev
-    tea releases create --login flow-control --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes"
+if [ -z "$NO_GITHUB" ]; then
+    echo uploading to github.com
+    gh release create "$VERSION" --repo "$repo" --notes-file "$release_notes" $DESTDIR/*
 fi
