@@ -87,7 +87,7 @@ pub fn render(
             .left = 0,
             .top = 0,
             .right = if (double_width)
-                @as(f32, @floatFromInt(font.cell_size.x)) * @as(f32, @floatFromInt(font.cell_size.x))
+                @as(f32, @floatFromInt(font.cell_size.x)) * 2
             else
                 @as(f32, @floatFromInt(font.cell_size.x)),
             .bottom = @floatFromInt(font.cell_size.y),
@@ -100,7 +100,7 @@ pub fn render(
         self.render_target.DrawText(
             @ptrCast(utf16.ptr),
             @intCast(utf16.len),
-            font.text_format,
+            if (double_width) font.text_format_double else font.text_format_single,
             &rect,
             &self.white_brush.ID2D1Brush,
             .{},
