@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+for arg in "$@"; do
+    case "$arg" in
+    --no-github) NO_GITHUB=1 ;;
+    --no-codeberg) NO_CODEBERG=1 ;;
+    --no-flowcontrol) NO_FLOWCONTROL=1 ;;
+    esac
+done
+
 builddir="nightly-build"
 
 DESTDIR="$(pwd)/$builddir"
@@ -47,9 +55,11 @@ last_nightly_version=$(curl -s "https://api.github.com/repos/$repo/releases/late
 }
 
 local_version="$(git --git-dir "$BASEDIR/.git" describe)"
-if [ "$local_version" == "$last_nightly_version" ]; then
-    echo "$title is already at version $last_nightly_version"
-    exit 1
+if [ "$1" != "--no-github" ]; then
+    if [ "$local_version" == "$last_nightly_version" ]; then
+        echo "$title is already at version $last_nightly_version"
+        exit 1
+    fi
 fi
 
 echo
@@ -106,10 +116,39 @@ cd ..
 {
     echo "$title" "$VERSION"
     echo
+
     echo "commits:"
     echo
+    git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s"
+    echo
+
+    echo "contributors to this release:"
+    git shortlog -s -n "${last_nightly_version}..HEAD"
+    echo
+
+    echo "also available at:"
+    echo "[git.flow-control.dev](https://git.flow-control.dev/neurocyte/flow-nightly/releases/tag/$VERSION)"
+    echo "[github.com](https://github.com/neurocyte/flow-nightly/releases/tag/$VERSION)"
+    echo "[flow-control.dev](https://codeberg.org/neurocyte/flow-nightly/releases/tag/$VERSION)"
 } >"$release_notes"
-git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s" >>"$release_notes"
+
 cat "$release_notes"
 
-gh release create "$VERSION" --repo "$repo" --notes-file "$release_notes" $DESTDIR/*
+if [ -z "$NO_GITHUB" ]; then
+    echo uploading to github.com
+    gh release create "$VERSION" --repo "$repo" --notes-file "$release_notes" $DESTDIR/*
+fi
+
+if [ -z "$NO_CODEBERG" ]; then
+    ASSETS=""
+    for a in $DESTDIR/*; do
+        ASSETS="$ASSETS --asset $a"
+    done
+    echo uploading to codeberg.org
+    tea releases create --login codeberg --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" --prerelease $ASSETS
+fi
+
+if [ -z "$NO_FLOWCONTROL" ]; then
+    echo uploading to git.flow-control.dev
+    tea releases create --login flow-control --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" --prerelease
+fi
