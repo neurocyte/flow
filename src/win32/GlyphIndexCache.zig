@@ -5,9 +5,15 @@ const Node = struct {
     prev: ?u32,
     next: ?u32,
     codepoint: ?u21,
+    right_half: ?bool,
 };
 
-map: std.AutoHashMapUnmanaged(u21, u32) = .{},
+const MapKey = struct {
+    codepoint: u21,
+    right_half: bool,
+};
+
+map: std.AutoHashMapUnmanaged(MapKey, u32) = .{},
 nodes: []Node,
 front: u32,
 back: u32,
@@ -25,13 +31,14 @@ pub fn init(allocator: std.mem.Allocator, capacity: u32) error{OutOfMemory}!Glyp
 
 pub fn clearRetainingCapacity(self: *GlyphIndexCache) void {
     self.map.clearRetainingCapacity();
-    self.nodes[0] = .{ .prev = null, .next = 1, .codepoint = null };
-    self.nodes[self.nodes.len - 1] = .{ .prev = @intCast(self.nodes.len - 2), .next = null, .codepoint = null };
+    self.nodes[0] = .{ .prev = null, .next = 1, .codepoint = null, .right_half = null };
+    self.nodes[self.nodes.len - 1] = .{ .prev = @intCast(self.nodes.len - 2), .next = null, .codepoint = null, .right_half = null };
     for (self.nodes[1 .. self.nodes.len - 1], 1..) |*node, index| {
         node.* = .{
             .prev = @intCast(index - 1),
             .next = @intCast(index + 1),
             .codepoint = null,
+            .right_half = null,
         };
     }
     self.front = 0;
@@ -51,12 +58,12 @@ const Reserved = struct {
     index: u32,
     replaced: ?u21,
 };
-pub fn reserve(self: *GlyphIndexCache, allocator: std.mem.Allocator, codepoint: u21) error{OutOfMemory}!union(enum) {
+pub fn reserve(self: *GlyphIndexCache, allocator: std.mem.Allocator, codepoint: u21, right_half: bool) error{OutOfMemory}!union(enum) {
     newly_reserved: Reserved,
     already_reserved: u32,
 } {
     {
-        const entry = try self.map.getOrPut(allocator, codepoint);
+        const entry = try self.map.getOrPut(allocator, .{ .codepoint = codepoint, .right_half = right_half });
         if (entry.found_existing) {
             self.moveToBack(entry.value_ptr.*);
             return .{ .already_reserved = entry.value_ptr.* };
@@ -69,7 +76,7 @@ pub fn reserve(self: *GlyphIndexCache, allocator: std.mem.Allocator, codepoint: 
     const replaced = self.nodes[self.front].codepoint;
     self.nodes[self.front].codepoint = codepoint;
     if (replaced) |r| {
-        const removed = self.map.remove(r);
+        const removed = self.map.remove(.{ .codepoint = r, .right_half = self.nodes[self.front].right_half orelse false });
         std.debug.assert(removed);
     }
     const save_front = self.front;
