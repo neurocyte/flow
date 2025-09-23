@@ -1086,7 +1086,10 @@ fn WndProc(
             var prev_codepoint: u21 = undefined;
             for (global.screen.buf, global.render_cells.items) |*screen_cell, *render_cell| {
                 const width = screen_cell.char.width;
-                const codepoint = if (std.unicode.utf8ValidateSlice(screen_cell.char.grapheme))
+                // temporary workaround, ignore multi-codepoint graphemes
+                const codepoint = if (screen_cell.char.grapheme.len > 4)
+                    std.unicode.replacement_character
+                else if (std.unicode.utf8ValidateSlice(screen_cell.char.grapheme))
                     std.unicode.wtf8Decode(screen_cell.char.grapheme) catch std.unicode.replacement_character
                 else
                     std.unicode.replacement_character;
