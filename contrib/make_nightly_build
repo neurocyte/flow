@@ -85,9 +85,13 @@ echo building...
 
 ./zig build -Dpackage_release --prefix "$DESTDIR/build"
 
+VERSION=$(/bin/cat "$DESTDIR/build/version")
+
+git archive --format=tar.gz --output="$DESTDIR/flow-$VERSION-source.tar.gz" HEAD
+git archive --format=zip --output="$DESTDIR/flow-$VERSION-source.zip" HEAD
+
 cd "$DESTDIR/build"
 
-VERSION=$(/bin/cat version)
 TARGETS=$(/bin/ls)
 
 for target in $TARGETS; do
@@ -146,18 +150,27 @@ cd ..
 
 cat "$release_notes"
 
+ASSETS=""
+
 if [ -z "$NO_FLOWCONTROL" ]; then
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz.sig"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz.sha256"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.zip"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.zip.sig"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.zip.sha256"
     echo uploading to git.flow-control.dev
-    tea releases create --login flow-control --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes"
+    tea releases create --login flow-control --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" \
+        $ASSETS
 fi
 
 if [ -z "$NO_CODEBERG" ]; then
-    ASSETS=""
     for a in $DESTDIR/*; do
         ASSETS="$ASSETS --asset $a"
     done
     echo uploading to codeberg.org
-    tea releases create --login codeberg --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" $ASSETS
+    tea releases create --login codeberg --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" \
+        $ASSETS
 fi
 
 if [ -z "$NO_GITHUB" ]; then
