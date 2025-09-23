@@ -51,6 +51,31 @@ const cmds_ = struct {
     }
     pub const @"e!_meta": Meta = .{ .description = "e! (force reload current file)" };
 
+    pub fn bd(_: *void, _: Ctx) Result {
+        try cmd("close_file", .{});
+    }
+    pub const bd_meta: Meta = .{ .description = "bd (Close file)" };
+
+    pub fn bw(_: *void, _: Ctx) Result {
+        try cmd("delete_buffer", .{});
+    }
+    pub const bw_meta: Meta = .{ .description = "bw (Delete buffer)" };
+
+    pub fn bnext(_: *void, _: Ctx) Result {
+        try cmd("next_tab", .{});
+    }
+    pub const bnext_meta: Meta = .{ .description = "bnext (Next buffer/tab)" };
+
+    pub fn bprevious(_: *void, _: Ctx) Result {
+        try cmd("next_tab", .{});
+    }
+    pub const bprevious_meta: Meta = .{ .description = "bprevious (Previous buffer/tab)" };
+
+    pub fn ls(_: *void, _: Ctx) Result {
+        try cmd("switch_buffers", .{});
+    }
+    pub const ls_meta: Meta = .{ .description = "ls (List/switch buffers)" };
+
     pub fn move_begin_or_add_integer_argument_zero(_: *void, _: Ctx) Result {
         return if (@import("keybind").current_integer_argument()) |_|
             command.executeName("add_integer_argument_digit", command.fmt(.{0}))
