@@ -6,6 +6,7 @@ for arg in "$@"; do
     --no-github) NO_GITHUB=1 ;;
     --no-codeberg) NO_CODEBERG=1 ;;
     --no-flowcontrol) NO_FLOWCONTROL=1 ;;
+    --allow-dirty) ALLOW_DIRTY=1 ;;
     esac
 done
 
@@ -33,18 +34,20 @@ fi
 
 DIFF="$(git diff --stat --patch HEAD)"
 
-if [ -n "$DIFF" ]; then
-    echo there are outstanding changes:
-    echo "$DIFF"
-    exit 1
-fi
+if [ -z "$ALLOW_DIRTY" ]; then
+    if [ -n "$DIFF" ]; then
+        echo there are outstanding changes:
+        echo "$DIFF"
+        exit 1
+    fi
 
-UNPUSHED="$(git log --pretty=oneline '@{u}...')"
+    UNPUSHED="$(git log --pretty=oneline '@{u}...')"
 
-if [ -n "$UNPUSHED" ]; then
-    echo there are unpushed commits:
-    echo "$UNPUSHED"
-    exit 1
+    if [ -n "$UNPUSHED" ]; then
+        echo there are unpushed commits:
+        echo "$UNPUSHED"
+        exit 1
+    fi
 fi
 
 # get latest version tag
