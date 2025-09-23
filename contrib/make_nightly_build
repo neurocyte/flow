@@ -48,7 +48,14 @@ if [ -n "$UNPUSHED" ]; then
 fi
 
 # get latest version tag
-last_nightly_version=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | jq -r .tag_name)
+
+if [ -z "$NO_FLOWCONTROL" ]; then
+    last_nightly_version=$(curl -s https://git.flow-control.dev/api/v1/repos/neurocyte/flow-nightly/releases/latest | jq -r .tag_name)
+elif [ -z "$NO_GITHUB" ]; then
+    last_nightly_version=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | jq -r .tag_name)
+elif [ -z "$NO_CODEBERG" ]; then
+    last_nightly_version=$(curl -s https://codeberg.org/api/v1/repos/neurocyte/flow-nightly/releases/latest | jq -r .tag_name)
+fi
 [ -z "$last_nightly_version" ] && {
     echo "failed to fetch $title latest version"
     exit 1
