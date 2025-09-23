@@ -39,8 +39,8 @@ if [ -n "$UNPUSHED" ]; then
     exit 1
 fi
 
-# get latest version tag from github releases api
-last_nightly_version=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | grep '"tag_name":' | cut -d'"' -f4)
+# get latest version tag
+last_nightly_version=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | jq -r .tag_name)
 [ -z "$last_nightly_version" ] && {
     echo "failed to fetch $title latest version"
     exit 1
