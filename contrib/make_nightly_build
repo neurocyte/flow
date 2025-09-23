@@ -128,24 +128,20 @@ echo
 cd ..
 
 {
-    echo "$title" "$VERSION"
-    echo
-
-    echo "commits:"
+    echo "## commits in this build"
     echo
     git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s"
     echo
     echo
 
-    echo "contributors to this release:"
+    echo "## contributors"
     git shortlog -s -n "${last_nightly_version}..HEAD" | cut -b 8-
     echo
-    echo
 
-    echo "also available at:"
-    echo "[flow-control.dev](https://git.flow-control.dev/neurocyte/flow-nightly/releases/tag/$VERSION)"
-    echo "[github.com](https://github.com/neurocyte/flow-nightly/releases/tag/$VERSION)"
-    echo "[codeberg.org](https://codeberg.org/neurocyte/flow-nightly/releases/tag/$VERSION)"
+    echo "## downloads"
+    echo "[flow-control.dev](https://git.flow-control.dev/neurocyte/flow-nightly/releases/tag/$VERSION) (source only)"
+    echo "[github.com](https://github.com/neurocyte/flow-nightly/releases/tag/$VERSION) (binaries & source)"
+    echo "[codeberg.org](https://codeberg.org/neurocyte/flow-nightly/releases/tag/$VERSION) (binaries & source)"
 } >"$release_notes"
 
 cat "$release_notes"
@@ -175,5 +171,5 @@ fi
 
 if [ -z "$NO_GITHUB" ]; then
     echo uploading to github.com
-    gh release create "$VERSION" --repo "$repo" --notes-file "$release_notes" $DESTDIR/*
+    gh release create "$VERSION" --repo "$repo" --title "$title $VERSION" --notes-file "$release_notes" $DESTDIR/*
 fi
