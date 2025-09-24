@@ -75,6 +75,7 @@ pub fn render(
     self: *const DwriteRenderer,
     font: Font,
     utf8: []const u8,
+    double_width: bool,
 ) void {
     var utf16_buf: [10]u16 = undefined;
     const utf16_len = std.unicode.utf8ToUtf16Le(&utf16_buf, utf8) catch unreachable;
@@ -85,7 +86,10 @@ pub fn render(
         const rect: win32.D2D_RECT_F = .{
             .left = 0,
             .top = 0,
-            .right = @floatFromInt(font.cell_size.x),
+            .right = if (double_width)
+                @as(f32, @floatFromInt(font.cell_size.x)) * 2
+            else
+                @as(f32, @floatFromInt(font.cell_size.x)),
             .bottom = @floatFromInt(font.cell_size.y),
         };
         self.render_target.BeginDraw();
@@ -96,7 +100,7 @@ pub fn render(
         self.render_target.DrawText(
             @ptrCast(utf16.ptr),
             @intCast(utf16.len),
-            font.text_format,
+            if (double_width) font.text_format_double else font.text_format_single,
             &rect,
             &self.white_brush.ID2D1Brush,
             .{},

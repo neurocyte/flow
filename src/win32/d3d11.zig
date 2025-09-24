@@ -149,7 +149,7 @@ pub const WindowState = struct {
     }
 
     // TODO: this should take a utf8 graphme instead
-    pub fn generateGlyph(state: *WindowState, font: Font, codepoint: u21) u32 {
+    pub fn generateGlyph(state: *WindowState, font: Font, codepoint: u21, kind: enum { single, left, right }) u32 {
         // for now we'll just use 1 texture and leverage the entire thing
         const texture_cell_count: XY(u16) = getD3d11TextureMaxCellCount(font.cell_size);
         const texture_cell_count_total: u32 =
@@ -184,16 +184,27 @@ pub const WindowState = struct {
             break :blk &(state.glyph_index_cache.?);
         };
 
+        const right_half: bool = switch (kind) {
+            .single, .left => false,
+            .right => true,
+        };
+
         switch (glyph_index_cache.reserve(
             global.glyph_cache_arena.allocator(),
             codepoint,
+            right_half,
         ) catch |e| oom(e)) {
             .newly_reserved => |reserved| {
                 // var render_success = false;
                 // defer if (!render_success) state.glyph_index_cache.remove(reserved.index);
                 const pos: XY(u16) = cellPosFromIndex(reserved.index, texture_cell_count.x);
                 const coord = coordFromCellPos(font.cell_size, pos);
-                const staging = global.staging_texture.update(font.cell_size);
+                const staging_size: XY(u16) = .{
+                    // twice the width to handle double-wide glyphs
+                    .x = font.cell_size.x * 2,
+                    .y = font.cell_size.y,
+                };
+                const staging = global.staging_texture.update(staging_size);
                 var utf8_buf: [7]u8 = undefined;
                 const utf8_len: u3 = std.unicode.utf8Encode(codepoint, &utf8_buf) catch |e| std.debug.panic(
                     "todo: handle invalid codepoint {} (0x{0x}) ({s})",
@@ -202,12 +213,16 @@ pub const WindowState = struct {
                 staging.text_renderer.render(
                     font,
                     utf8_buf[0..utf8_len],
+                    switch (kind) {
+                        .single => false,
+                        .left, .right => true,
+                    },
                 );
                 const box: win32.D3D11_BOX = .{
-                    .left = 0,
+                    .left = if (right_half) font.cell_size.x else 0,
                     .top = 0,
                     .front = 0,
-                    .right = font.cell_size.x,
+                    .right = if (right_half) font.cell_size.x * 2 else font.cell_size.x,
                     .bottom = font.cell_size.y,
                     .back = 1,
                 };
@@ -289,7 +304,7 @@ pub fn paint(
     }
 
     const copy_col_count: u16 = @min(col_count, shader_col_count);
-    const blank_space_glyph_index = state.generateGlyph(font, ' ');
+    const blank_space_glyph_index = state.generateGlyph(font, ' ', .single);
 
     const cell_count: u32 = @as(u32, shader_col_count) * @as(u32, shader_row_count);
     state.shader_cells.updateCount(cell_count);

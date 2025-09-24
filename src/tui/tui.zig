@@ -1034,9 +1034,31 @@ const cmds = struct {
     pub const find_in_files_meta: Meta = .{ .description = "Find in files" };
 
     pub fn goto(self: *Self, ctx: Ctx) Result {
-        return enter_mini_mode(self, @import("mode/mini/goto.zig"), ctx);
+        var line: usize = undefined;
+        var column: usize = undefined;
+        return if (try ctx.args.match(.{tp.extract(&line)}))
+            command.executeName("goto_line", command.fmt(.{line}))
+        else if (try ctx.args.match(.{ tp.extract(&line), tp.extract(&column) }))
+            command.executeName("goto_line_and_column", command.fmt(.{ line, column }))
+        else
+            enter_mini_mode(self, @import("mode/mini/goto.zig"), ctx);
     }
-    pub const goto_meta: Meta = .{ .description = "Goto line" };
+    pub const goto_meta: Meta = .{
+        .description = "Goto line",
+        .arguments = &.{ .integer, .integer },
+    };
+
+    pub fn goto_offset(self: *Self, ctx: Ctx) Result {
+        var offset: usize = undefined;
+        return if (try ctx.args.match(.{tp.extract(&offset)}))
+            command.executeName("goto_byte_offset", command.fmt(.{offset}))
+        else
+            enter_mini_mode(self, @import("mode/mini/goto_offset.zig"), ctx);
+    }
+    pub const goto_offset_meta: Meta = .{
+        .description = "Goto byte offset",
+        .arguments = &.{.integer},
+    };
 
     pub fn move_to_char(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/move_to_char.zig"), ctx);

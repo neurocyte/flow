@@ -102,37 +102,41 @@ pub const CurSel = struct {
     }
 
     pub fn enable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
-        return switch (tui.get_selection_style()) {
-            .normal => self.enable_selection_normal(),
-            .inclusive => try self.enable_selection_inclusive(root, metrics),
-        };
+        self.selection = try self.to_selection(root, metrics);
+        return if (self.selection) |*sel| sel else unreachable;
     }
 
     pub fn enable_selection_normal(self: *Self) *Selection {
-        return if (self.selection) |*sel|
-            sel
-        else cod: {
-            self.selection = Selection.from_cursor(&self.cursor);
-            break :cod &self.selection.?;
+        self.selection = self.to_selection_normal();
+        return if (self.selection) |*sel| sel else unreachable;
+    }
+
+    pub fn to_selection(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Selection {
+        return switch (tui.get_selection_style()) {
+            .normal => self.to_selection_normal(),
+            .inclusive => try self.to_selection_inclusive(root, metrics),
         };
     }
 
-    fn enable_selection_inclusive(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
-        return if (self.selection) |*sel|
+    fn to_selection_normal(self: *const Self) Selection {
+        return if (self.selection) |sel| sel else Selection.from_cursor(&self.cursor);
+    }
+
+    fn to_selection_inclusive(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Selection {
+        return if (self.selection) |sel|
             sel
         else cod: {
-            self.selection = Selection.from_cursor(&self.cursor);
-            try self.selection.?.end.move_right(root, metrics);
-            try self.cursor.move_right(root, metrics);
-            break :cod &self.selection.?;
+            var sel = Selection.from_cursor(&self.cursor);
+            try sel.end.move_right(root, metrics);
+            break :cod sel;
         };
     }
 
-    fn to_inclusive_cursor(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Cursor {
-        var res = self.cursor;
+    fn to_cursor_inclusive(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Cursor {
+        var cursor = self.cursor;
         if (self.selection) |sel| if (!sel.is_reversed())
-            try res.move_left(root, metrics);
-        return res;
+            try cursor.move_left(root, metrics);
+        return cursor;
     }
 
     pub fn disable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
@@ -170,9 +174,8 @@ pub const CurSel = struct {
         return sel;
     }
 
-    fn select_node(self: *Self, node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!void {
-        const range = node.getRange();
-        self.selection = .{
+    fn selection_from_range(range: syntax.Range, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Selection {
+        return .{
             .begin = .{
                 .row = range.start_point.row,
                 .col = try root.pos_to_width(range.start_point.row, range.start_point.column, metrics),
@@ -182,7 +185,23 @@ pub const CurSel = struct {
                 .col = try root.pos_to_width(range.end_point.row, range.end_point.column, metrics),
             },
         };
-        self.cursor = self.selection.?.end;
+    }
+
+    fn selection_from_node(node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Selection {
+        return selection_from_range(node.getRange(), root, metrics);
+    }
+
+    fn select_node(self: *Self, node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!void {
+        const sel = try selection_from_node(node, root, metrics);
+        self.selection = sel;
+        self.cursor = sel.end;
+    }
+
+    fn select_parent_node(self: *Self, node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!syntax.Node {
+        const parent = node.getParent();
+        if (parent.isNull()) return error.NotFound;
+        try self.select_node(parent, root, metrics);
+        return parent;
     }
 
     fn write(self: *const Self, writer: Buffer.MetaWriter) !void {
@@ -1192,7 +1211,7 @@ pub const Editor = struct {
     fn get_rendered_cursor(self: *Self, style: anytype, cursel: anytype) !Cursor {
         return switch (style) {
             .normal => cursel.cursor,
-            .inclusive => try cursel.to_inclusive_cursor(try self.buf_root(), self.metrics),
+            .inclusive => try cursel.to_cursor_inclusive(try self.buf_root(), self.metrics),
         };
     }
 
@@ -4279,7 +4298,7 @@ pub const Editor = struct {
     }
     pub const selections_reverse_meta: Meta = .{ .description = "Reverse selection" };
 
-    fn node_at_selection(self: *Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
+    fn node_at_selection(self: *const Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
         const syn = self.syntax orelse return error.Stop;
         const node = try syn.node_at_point_range(.{
             .start_point = .{
@@ -4297,19 +4316,35 @@ pub const Editor = struct {
         return node;
     }
 
-    fn select_node_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        cursel.disable_selection(root, self.metrics);
-        const sel = (try cursel.enable_selection(root, self.metrics)).*;
-        return cursel.select_node(try self.node_at_selection(sel, root, metrics), root, metrics);
+    fn top_node_at_selection(self: *const Self, sel: Selection, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
+        var node = try self.node_at_selection(sel, root, metrics);
+        if (node.isNull()) return node;
+        var parent = node.getParent();
+        if (parent.isNull()) return node;
+        const node_sel = CurSel.selection_from_node(node, root, metrics) catch return node;
+        var parent_sel = CurSel.selection_from_node(parent, root, metrics) catch return node;
+        while (parent_sel.eql(node_sel)) {
+            node = parent;
+            parent = parent.getParent();
+            parent_sel = CurSel.selection_from_node(parent, root, metrics) catch return node;
+        }
+        return node;
+    }
+
+    fn top_node_at_cursel(self: *const Self, cursel: *const CurSel, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
+        const sel = try cursel.to_selection(root, metrics);
+        return try self.top_node_at_selection(sel, root, metrics);
     }
 
     fn expand_selection_to_parent_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
         const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        var node = try self.top_node_at_selection(sel, root, metrics);
         if (node.isNull()) return error.Stop;
-        const parent = node.getParent();
-        if (parent.isNull()) return error.Stop;
-        return cursel.select_node(parent, root, metrics);
+        var node_sel = try CurSel.selection_from_node(node, root, metrics);
+        if (!node_sel.eql(sel)) return cursel.select_node(node, root, metrics);
+        node = try cursel.select_parent_node(node, root, metrics);
+        while (cursel.selection.?.eql(sel))
+            node = try cursel.select_parent_node(node, root, metrics);
     }
 
     pub fn expand_selection(self: *Self, _: Context) Result {
@@ -4320,7 +4355,7 @@ pub const Editor = struct {
         try if (cursel.selection) |_|
             self.expand_selection_to_parent_node(root, cursel, self.metrics)
         else
-            self.select_node_at_cursor(root, cursel, self.metrics);
+            cursel.select_node(try self.top_node_at_cursel(cursel, root, self.metrics), root, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
@@ -4362,8 +4397,7 @@ pub const Editor = struct {
     pub const shrink_selection_meta: Meta = .{ .description = "Shrink selection to first AST child node" };
 
     fn select_next_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_cursel(cursel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_next_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4371,8 +4405,7 @@ pub const Editor = struct {
     }
 
     fn select_next_named_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_cursel(cursel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_next_named_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4386,19 +4419,17 @@ pub const Editor = struct {
         const root = try self.buf_root();
         const cursel = self.get_primary();
         cursel.check_selection(root, self.metrics);
-        if (cursel.selection) |_|
-            try if (unnamed)
-                self.select_next_sibling_node(root, cursel, self.metrics)
-            else
-                self.select_next_named_sibling_node(root, cursel, self.metrics);
+        try if (unnamed)
+            self.select_next_sibling_node(root, cursel, self.metrics)
+        else
+            self.select_next_named_sibling_node(root, cursel, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
     pub const select_next_sibling_meta: Meta = .{ .description = "Move selection to next AST sibling node" };
 
     fn select_prev_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_cursel(cursel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_prev_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4406,8 +4437,7 @@ pub const Editor = struct {
     }
 
     fn select_prev_named_sibling_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
-        const node = try self.node_at_selection(sel, root, metrics);
+        const node = try self.top_node_at_cursel(cursel, root, metrics);
         if (node.isNull()) return error.Stop;
         const sibling = syntax.Node.externs.ts_node_prev_named_sibling(node);
         if (sibling.isNull()) return error.Stop;
@@ -4421,11 +4451,10 @@ pub const Editor = struct {
         const root = try self.buf_root();
         const cursel = self.get_primary();
         cursel.check_selection(root, self.metrics);
-        if (cursel.selection) |_|
-            try if (unnamed)
-                self.select_prev_sibling_node(root, cursel, self.metrics)
-            else
-                self.select_prev_named_sibling_node(root, cursel, self.metrics);
+        try if (unnamed)
+            self.select_prev_sibling_node(root, cursel, self.metrics)
+        else
+            self.select_prev_named_sibling_node(root, cursel, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
@@ -5476,6 +5505,28 @@ pub const Editor = struct {
         self.need_render();
     }
     pub const goto_line_and_column_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
+
+    pub fn goto_byte_offset(self: *Self, ctx: Context) Result {
+        try self.send_editor_jump_source();
+        var offset: usize = 0;
+        if (try ctx.args.match(.{
+            tp.extract(&offset),
+        })) {
+            // self.logger.print("goto: byte offset:{d}", .{ offset });
+        } else return error.InvalidGotoByteOffsetArgument;
+        self.cancel_all_selections();
+        const root = self.buf_root() catch return;
+        const eol_mode = self.buf_eol_mode() catch return;
+        const primary = self.get_primary();
+        primary.cursor = root.byte_offset_to_line_and_col(offset, self.metrics, eol_mode);
+        if (self.view.is_visible(&primary.cursor))
+            self.clamp()
+        else
+            try self.scroll_view_center(.{});
+        try self.send_editor_jump_destination();
+        self.need_render();
+    }
+    pub const goto_byte_offset_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn goto_definition(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;

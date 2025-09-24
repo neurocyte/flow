@@ -1,0 +1,175 @@
+#!/bin/bash
+set -e
+
+for arg in "$@"; do
+    case "$arg" in
+    --no-github) NO_GITHUB=1 ;;
+    --no-codeberg) NO_CODEBERG=1 ;;
+    --no-flowcontrol) NO_FLOWCONTROL=1 ;;
+    --allow-dirty) ALLOW_DIRTY=1 ;;
+    esac
+done
+
+builddir="nightly-build"
+
+DESTDIR="$(pwd)/$builddir"
+BASEDIR="$(cd "$(dirname "$0")/.." && pwd)"
+APPNAME="$(basename "$BASEDIR")"
+title="$APPNAME nightly build"
+repo="neurocyte/$APPNAME-nightly"
+
+release_notes="$BASEDIR/$builddir-release-notes"
+
+cd "$BASEDIR"
+
+if [ -e "$DESTDIR" ]; then
+    echo directory \"$builddir\" already exists
+    exit 1
+fi
+
+if [ -e "$release_notes" ]; then
+    echo file \""$release_notes"\" already exists
+    exit 1
+fi
+
+DIFF="$(git diff --stat --patch HEAD)"
+
+if [ -z "$ALLOW_DIRTY" ]; then
+    if [ -n "$DIFF" ]; then
+        echo there are outstanding changes:
+        echo "$DIFF"
+        exit 1
+    fi
+
+    UNPUSHED="$(git log --pretty=oneline '@{u}...')"
+
+    if [ -n "$UNPUSHED" ]; then
+        echo there are unpushed commits:
+        echo "$UNPUSHED"
+        exit 1
+    fi
+fi
+
+# get latest version tag
+
+if [ -z "$NO_FLOWCONTROL" ]; then
+    last_nightly_version=$(curl -s https://git.flow-control.dev/api/v1/repos/neurocyte/flow-nightly/releases/latest | jq -r .tag_name)
+elif [ -z "$NO_GITHUB" ]; then
+    last_nightly_version=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | jq -r .tag_name)
+elif [ -z "$NO_CODEBERG" ]; then
+    last_nightly_version=$(curl -s https://codeberg.org/api/v1/repos/neurocyte/flow-nightly/releases/latest | jq -r .tag_name)
+fi
+[ -z "$last_nightly_version" ] && {
+    echo "failed to fetch $title latest version"
+    exit 1
+}
+
+local_version="$(git --git-dir "$BASEDIR/.git" describe)"
+if [ "$1" != "--no-github" ]; then
+    if [ "$local_version" == "$last_nightly_version" ]; then
+        echo "$title is already at version $last_nightly_version"
+        exit 1
+    fi
+fi
+
+echo
+echo "building $title version $local_version... (previous $last_nightly_version)"
+echo
+git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s"
+echo
+echo running tests...
+
+./zig build test
+
+echo building...
+
+./zig build -Dpackage_release --prefix "$DESTDIR/build"
+
+VERSION=$(/bin/cat "$DESTDIR/build/version")
+
+git archive --format=tar.gz --output="$DESTDIR/flow-$VERSION-source.tar.gz" HEAD
+git archive --format=zip --output="$DESTDIR/flow-$VERSION-source.zip" HEAD
+
+cd "$DESTDIR/build"
+
+TARGETS=$(/bin/ls)
+
+for target in $TARGETS; do
+    if [ -d "$target" ]; then
+        cd "$target"
+        if [ "${target:0:8}" == "windows-" ]; then
+            echo packing zip "$target"...
+            zip -r "../../${APPNAME}-${VERSION}-${target}.zip" ./*
+            cd ..
+        else
+            echo packing tar "$target"...
+            tar -czf "../../${APPNAME}-${VERSION}-${target}.tar.gz" -- *
+            cd ..
+        fi
+    fi
+done
+
+cd ..
+rm -r build
+
+TARFILES=$(/bin/ls)
+
+for tarfile in $TARFILES; do
+    echo signing "$tarfile"...
+    gpg --local-user 4E6CF7234FFC4E14531074F98EB1E1BB660E3FB9 --detach-sig "$tarfile"
+    sha256sum -b "$tarfile" >"${tarfile}.sha256"
+done
+
+echo "done making $title $VERSION @ $DESTDIR"
+echo
+
+/bin/ls -lah
+
+cd ..
+
+{
+    echo "## commits in this build"
+    echo
+    git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %s"
+    echo
+    echo
+
+    echo "## contributors"
+    git shortlog -s -n "${last_nightly_version}..HEAD" | cut -b 8-
+    echo
+
+    echo "## downloads"
+    echo "[flow-control.dev](https://git.flow-control.dev/neurocyte/flow-nightly/releases/tag/$VERSION) (source only)"
+    echo "[github.com](https://github.com/neurocyte/flow-nightly/releases/tag/$VERSION) (binaries & source)"
+    echo "[codeberg.org](https://codeberg.org/neurocyte/flow-nightly/releases/tag/$VERSION) (binaries & source)"
+} >"$release_notes"
+
+cat "$release_notes"
+
+ASSETS=""
+
+if [ -z "$NO_FLOWCONTROL" ]; then
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz.sig"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.tar.gz.sha256"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.zip"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.zip.sig"
+    ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.zip.sha256"
+    echo uploading to git.flow-control.dev
+    tea releases create --login flow-control --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" \
+        $ASSETS
+fi
+
+if [ -z "$NO_CODEBERG" ]; then
+    for a in $DESTDIR/*; do
+        ASSETS="$ASSETS --asset $a"
+    done
+    echo uploading to codeberg.org
+    tea releases create --login codeberg --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" \
+        $ASSETS
+fi
+
+if [ -z "$NO_GITHUB" ]; then
+    echo uploading to github.com
+    gh release create "$VERSION" --repo "$repo" --title "$title $VERSION" --notes-file "$release_notes" $DESTDIR/*
+fi

@@ -190,6 +190,14 @@ test "get_byte_pos" {
     try std.testing.expectEqual(33, try buffer.root.get_byte_pos(.{ .row = 4, .col = 0 }, metrics(), eol_mode));
     try std.testing.expectEqual(66, try buffer.root.get_byte_pos(.{ .row = 8, .col = 0 }, metrics(), eol_mode));
     try std.testing.expectEqual(97, try buffer.root.get_byte_pos(.{ .row = 11, .col = 2 }, metrics(), eol_mode));
+
+    eol_mode = .crlf;
+    try std.testing.expectEqual(0, try buffer.root.get_byte_pos(.{ .row = 0, .col = 0 }, metrics(), eol_mode));
+    try std.testing.expectEqual(10, try buffer.root.get_byte_pos(.{ .row = 1, .col = 0 }, metrics(), eol_mode));
+    try std.testing.expectEqual(12, try buffer.root.get_byte_pos(.{ .row = 1, .col = 2 }, metrics(), eol_mode));
+    try std.testing.expectEqual(37, try buffer.root.get_byte_pos(.{ .row = 4, .col = 0 }, metrics(), eol_mode));
+    try std.testing.expectEqual(74, try buffer.root.get_byte_pos(.{ .row = 8, .col = 0 }, metrics(), eol_mode));
+    try std.testing.expectEqual(108, try buffer.root.get_byte_pos(.{ .row = 11, .col = 2 }, metrics(), eol_mode));
 }
 
 test "delete_bytes" {
@@ -405,4 +413,45 @@ test "get_from_pos" {
 
     const result3 = buffer.root.get_from_pos(.{ .row = 1, .col = 5 }, &result_buf, metrics());
     try std.testing.expectEqualDeep(result3[0 .. line1.len - 4], line1[4..]);
+}
+
+test "byte_offset_to_line_and_col" {
+    const doc: []const u8 =
+        \\All your
+        \\ropes
+        \\are belong to
+        \\us!
+        \\All your
+        \\ropes
+        \\are belong to
+        \\us!
+        \\All your
+        \\ropes
+        \\are belong to
+        \\us!
+    ;
+    var eol_mode: Buffer.EolMode = .lf;
+    var sanitized: bool = false;
+    const buffer = try Buffer.create(a);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 0, .col = 0 }, buffer.root.byte_offset_to_line_and_col(0, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 0, .col = 8 }, buffer.root.byte_offset_to_line_and_col(8, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 1, .col = 0 }, buffer.root.byte_offset_to_line_and_col(9, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 1, .col = 2 }, buffer.root.byte_offset_to_line_and_col(11, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 4, .col = 0 }, buffer.root.byte_offset_to_line_and_col(33, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 8, .col = 0 }, buffer.root.byte_offset_to_line_and_col(66, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 11, .col = 2 }, buffer.root.byte_offset_to_line_and_col(97, metrics(), eol_mode));
+
+    eol_mode = .crlf;
+
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 0, .col = 0 }, buffer.root.byte_offset_to_line_and_col(0, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 0, .col = 8 }, buffer.root.byte_offset_to_line_and_col(8, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 0, .col = 8 }, buffer.root.byte_offset_to_line_and_col(9, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 1, .col = 0 }, buffer.root.byte_offset_to_line_and_col(10, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 1, .col = 2 }, buffer.root.byte_offset_to_line_and_col(12, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 4, .col = 0 }, buffer.root.byte_offset_to_line_and_col(37, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 8, .col = 0 }, buffer.root.byte_offset_to_line_and_col(74, metrics(), eol_mode));
+    try std.testing.expectEqual(Buffer.Cursor{ .row = 11, .col = 2 }, buffer.root.byte_offset_to_line_and_col(108, metrics(), eol_mode));
 }

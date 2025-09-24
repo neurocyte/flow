@@ -18,10 +18,12 @@ pub fn Create(options: type) type {
 
         const Commands = command.Collection(cmds);
 
+        const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else usize;
+
         allocator: Allocator,
         buf: [30]u8 = undefined,
-        input: ?usize = null,
-        start: usize,
+        input: ?ValueType = null,
+        start: ValueType,
         ctx: command.Context,
         commands: Commands = undefined,
 
@@ -31,7 +33,7 @@ pub fn Create(options: type) type {
             self.* = .{
                 .allocator = allocator,
                 .ctx = .{ .args = try ctx.args.clone(allocator) },
-                .start = 0,
+                .start = if (@hasDecl(options, "ValueType")) ValueType{} else 0,
             };
             self.start = options.start(self);
             try self.commands.init(self);
@@ -55,25 +57,40 @@ pub fn Create(options: type) type {
 
         fn update_mini_mode_text(self: *Self) void {
             if (tui.mini_mode()) |mini_mode| {
-                mini_mode.text = if (self.input) |linenum|
-                    (fmt.bufPrint(&self.buf, "{d}", .{linenum}) catch "")
-                else
-                    "";
+                if (@hasDecl(options, "format_value")) {
+                    mini_mode.text = options.format_value(self, self.input, &self.buf);
+                } else {
+                    mini_mode.text = if (self.input) |linenum|
+                        (fmt.bufPrint(&self.buf, "{d}", .{linenum}) catch "")
+                    else
+                        "";
+                }
                 mini_mode.cursor = tui.egc_chunk_width(mini_mode.text, 0, 1);
             }
         }
 
         fn insert_char(self: *Self, char: u8) void {
-            switch (char) {
-                '0' => {
-                    if (self.input) |linenum| self.input = linenum * 10;
-                },
-                '1'...'9' => {
-                    const digit: usize = @intCast(char - '0');
-                    self.input = if (self.input) |x| x * 10 + digit else digit;
-                },
-                else => {},
+            const process_digit_ = if (@hasDecl(options, "process_digit")) options.process_digit else process_digit;
+            if (@hasDecl(options, "Separator")) {
+                switch (char) {
+                    '0'...'9' => process_digit_(self, @intCast(char - '0')),
+                    options.Separator => options.process_separator(self),
+                    else => {},
+                }
+            } else {
+                switch (char) {
+                    '0'...'9' => process_digit_(self, @intCast(char - '0')),
+                    else => {},
+                }
             }
+        }
+
+        fn process_digit(self: *Self, digit: u8) void {
+            self.input = switch (digit) {
+                0 => if (self.input) |value| value * 10 else 0,
+                1...9 => if (self.input) |x| x * 10 + digit else digit,
+                else => unreachable,
+            };
         }
 
         fn insert_bytes(self: *Self, bytes: []const u8) void {
@@ -101,9 +118,13 @@ pub fn Create(options: type) type {
             pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
             pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
-                if (self.input) |linenum| {
-                    const newval = if (linenum < 10) 0 else linenum / 10;
-                    self.input = if (newval == 0) null else newval;
+                if (self.input) |*input| {
+                    if (@hasDecl(options, "delete")) {
+                        options.delete(self, input);
+                    } else {
+                        const newval = if (input.* < 10) 0 else input.* / 10;
+                        self.input = if (newval == 0) null else newval;
+                    }
                     self.update_mini_mode_text();
                     options.preview(self, self.ctx);
                 }

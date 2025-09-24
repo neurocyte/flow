@@ -117,6 +117,7 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
 }
 
 const CompletionItemKind = enum(u8) {
+    None = 0,
     Text = 1,
     Method = 2,
     Function = 3,
@@ -146,6 +147,7 @@ const CompletionItemKind = enum(u8) {
 
 fn kind_icon(kind: CompletionItemKind) []const u8 {
     return switch (kind) {
+        .None => " ",
         .Text => "󰊄",
         .Method => "",
         .Function => "󰊕",

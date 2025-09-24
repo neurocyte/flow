@@ -150,10 +150,10 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
             });
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&same_file), tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column) })) {
-        cmds.navigate_complete(self, same_file, path, goto_args, line, column) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        cmds.navigate_complete(self, same_file, path, goto_args, line, column, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&same_file), tp.extract(&path), tp.extract(&goto_args), tp.null_, tp.null_ })) {
-        cmds.navigate_complete(self, same_file, path, goto_args, null, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        cmds.navigate_complete(self, same_file, path, goto_args, null, null, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     }
     return if (try self.floating_views.send(from_, m)) true else self.widgets.send(from_, m);
@@ -349,6 +349,7 @@ const cmds = struct {
         var file_name: []const u8 = undefined;
         var line: ?i64 = null;
         var column: ?i64 = null;
+        var offset: ?i64 = null;
         var goto_args: []const u8 = &.{};
 
         var iter = ctx.args.buf;
@@ -370,6 +371,9 @@ const cmds = struct {
                 } else if (std.mem.eql(u8, field_name, "goto")) {
                     if (!try cbor.matchValue(&iter, cbor.extract_cbor(&goto_args)))
                         return error.InvalidNavigateGotoArgument;
+                } else if (std.mem.eql(u8, field_name, "offset")) {
+                    if (!try cbor.matchValue(&iter, cbor.extract(&offset)))
+                        return error.InvalidNavigateOffsetArgument;
                 } else {
                     try cbor.skipValue(&iter);
                 }
@@ -392,7 +396,8 @@ const cmds = struct {
         if (tui.config().restore_last_cursor_position and
             !same_file and
             !have_editor_metadata and
-            line == null)
+            line == null and
+            offset == null)
         {
             const ctx_: struct {
                 allocator: std.mem.Allocator,
@@ -424,11 +429,11 @@ const cmds = struct {
             return;
         }
 
-        return cmds.navigate_complete(self, same_file, f, goto_args, line, column);
+        return cmds.navigate_complete(self, same_file, f, goto_args, line, column, offset);
     }
     pub const navigate_meta: Meta = .{ .arguments = &.{.object} };
 
-    fn navigate_complete(self: *Self, same_file: bool, f: []const u8, goto_args: []const u8, line: ?i64, column: ?i64) Result {
+    fn navigate_complete(self: *Self, same_file: bool, f: []const u8, goto_args: []const u8, line: ?i64, column: ?i64, offset: ?i64) Result {
         if (!same_file) {
             if (self.get_active_editor()) |editor| {
                 editor.send_editor_jump_source() catch {};
@@ -444,6 +449,10 @@ const cmds = struct {
                 try command.executeName("scroll_view_center", .{});
             if (column) |col|
                 try command.executeName("goto_column", command.fmt(.{col}));
+        } else if (offset) |o| {
+            try command.executeName("goto_byte_offset", command.fmt(.{o}));
+            if (!same_file)
+                try command.executeName("scroll_view_center", .{});
         }
         tui.need_render();
     }
@@ -608,8 +617,10 @@ const cmds = struct {
 
     pub fn delete_buffer(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
-        if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
-            return error.InvalidDeleteBufferArgument;
+        if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false)) {
+            const editor = self.get_active_editor() orelse return error.InvalidDeleteBufferArgument;
+            file_path = editor.file_path orelse return error.InvalidDeleteBufferArgument;
+        }
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
         if (buffer.is_dirty())
             return tp.exit("unsaved changes");

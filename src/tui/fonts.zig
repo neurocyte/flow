@@ -224,6 +224,17 @@ pub const font_test_text: []const u8 =
     \\🙂‍↔
     \\
     \\
+    \\你好世界 "Hello World"
+    \\一二三四五六七八九十 "123456789"
+    \\龍鳳麟龜 (dragon, phoenix, qilin, turtle)
+    \\Fullwidth numbers: １２３４５６７８９０
+    \\Fullwidth letters: ＡＢＣＤＥＦＧ　ａｂｃｄｅｆｇ
+    \\Fullwidth punctuation: ！＠＃＄％＾＆＊（）
+    \\Half-width (normal): ABC 123
+    \\Full-width (double): ＡＢＣ　１２３
+    \\Punctuation: 。，、；：「」『』
+    \\Symbols: ○●□■△▲☆★◇◆
+    \\
     \\ recommended fonts for terminals with no nerdfont fallback support (e.g. flow-gui):
     \\
     \\ "IosevkaTerm Nerd Font" => https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/IosevkaTerm.zip

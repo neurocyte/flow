@@ -111,6 +111,8 @@
 
             ["home", "move_begin"],
             ["end", "move_end"],
+            ["kp_home", "move_begin"],
+            ["kp_end", "move_end"],
 
             ["w","move_next_word_start"],
             ["b","move_prev_word_start"],
@@ -201,6 +203,8 @@
 
             ["page_up", "move_scroll_page_up"],
             ["page_down", "move_scroll_page_down"],
+            ["kp_page_up", "move_scroll_page_up"],
+            ["kp_page_down", "move_scroll_page_down"],
 
             ["space F", "find_file"],
             ["space S", "workspace_symbol_picker"],
@@ -293,6 +297,10 @@
             ["alt+down", "shrink_selection"],
             ["alt+left", "select_prev_sibling"],
             ["alt+right", "select_next_sibling"],
+            ["alt+kp_up", "expand_selection"],
+            ["alt+kp_down", "shrink_selection"],
+            ["alt+kp_left", "select_prev_sibling"],
+            ["alt+kp_right", "select_next_sibling"],
 
             ["alt+e", "extend_parent_node_end"],
             ["alt+b", "extend_parent_node_start"],
@@ -378,6 +386,10 @@
             ["down", "select_down"],
             ["up", "select_up"],
             ["right", "select_right"],
+            ["kp_left", "select_left"],
+            ["kp_down", "select_down"],
+            ["kp_up", "select_up"],
+            ["kp_right", "select_right"],
 
             ["t", "extend_till_char"],
             ["f", "move_to_char", "select_to_char_right_helix"],
@@ -386,6 +398,8 @@
 
             ["home", "extend_to_line_start"],
             ["end", "extend_to_line_end"],
+            ["kp_home", "extend_to_line_start"],
+            ["kp_end", "extend_to_line_end"],
 
             ["w", "extend_next_word_start"],
             ["b", "extend_pre_word_start"],

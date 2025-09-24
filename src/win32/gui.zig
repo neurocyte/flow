@@ -1081,19 +1081,31 @@ fn WndProc(
                 global.render_cells_arena.allocator(),
                 global.screen.buf.len,
             ) catch |e| oom(e);
+            var prev_width: usize = 1;
+            var prev_cell: render.Cell = undefined;
+            var prev_codepoint: u21 = undefined;
             for (global.screen.buf, global.render_cells.items) |*screen_cell, *render_cell| {
-                const codepoint = if (std.unicode.utf8ValidateSlice(screen_cell.char.grapheme))
+                const width = screen_cell.char.width;
+                // temporary workaround, ignore multi-codepoint graphemes
+                const codepoint = if (screen_cell.char.grapheme.len > 4)
+                    std.unicode.replacement_character
+                else if (std.unicode.utf8ValidateSlice(screen_cell.char.grapheme))
                     std.unicode.wtf8Decode(screen_cell.char.grapheme) catch std.unicode.replacement_character
                 else
                     std.unicode.replacement_character;
-                render_cell.* = .{
-                    .glyph_index = state.render_state.generateGlyph(
-                        font,
-                        codepoint,
-                    ),
-                    .background = renderColorFromVaxis(screen_cell.style.bg),
-                    .foreground = renderColorFromVaxis(screen_cell.style.fg),
-                };
+                if (prev_width > 1) {
+                    render_cell.* = prev_cell;
+                    render_cell.glyph_index = state.render_state.generateGlyph(font, prev_codepoint, .right);
+                } else {
+                    render_cell.* = .{
+                        .glyph_index = state.render_state.generateGlyph(font, codepoint, if (width == 1) .single else .left),
+                        .background = renderColorFromVaxis(screen_cell.style.bg),
+                        .foreground = renderColorFromVaxis(screen_cell.style.fg),
+                    };
+                }
+                prev_width = width;
+                prev_cell = render_cell.*;
+                prev_codepoint = codepoint;
             }
             render.paint(
                 &state.render_state,
