@@ -251,12 +251,12 @@ pub fn main() anyerror!void {
     const tui_proc = try tui.spawn(a, &ctx, &eh, &env);
     defer tui_proc.deinit();
 
-    var links = std.ArrayList(file_link.Dest).init(a);
-    defer links.deinit();
+    var links: std.ArrayList(file_link.Dest) = .empty;
+    defer links.deinit(a);
     var prev: ?*file_link.Dest = null;
     var line_next: ?usize = null;
     var offset_next: ?usize = null;
-    for (args.positional.trailing.items) |arg| {
+    for (args.positional.trailing) |arg| {
         if (arg.len == 0) continue;
 
         if (!args.literal and arg[0] == '+') {
@@ -286,7 +286,7 @@ pub fn main() anyerror!void {
             continue;
         }
 
-        const curr = try links.addOne();
+        const curr = try links.addOne(a);
         curr.* = if (!args.literal) try file_link.parse(arg) else .{ .file = .{ .path = arg } };
         prev = curr;
 
@@ -354,9 +354,9 @@ pub fn main() anyerror!void {
             while (count_args_.next()) |_| count += 1;
             if (count == 0) break;
 
-            var msg = std.ArrayList(u8).init(a);
+            var msg: std.Io.Writer.Allocating = .init(a);
             defer msg.deinit();
-            const writer = msg.writer();
+            const writer = &msg.writer;
 
             var cmd_args = std.mem.splitScalar(u8, cmd, ':');
             const cmd_ = cmd_args.next();
@@ -372,7 +372,7 @@ pub fn main() anyerror!void {
                     try cbor.writeValue(writer, arg);
             }
 
-            try tui_proc.send_raw(.{ .buf = msg.items });
+            try tui_proc.send_raw(.{ .buf = msg.written() });
         }
     }
 
@@ -391,7 +391,10 @@ pub fn print_exit_status(_: void, msg: []const u8) void {
     } else if (std.mem.eql(u8, msg, "restart")) {
         want_restart = true;
     } else {
-        std.io.getStdErr().writer().print("\n" ++ application_name ++ " ERROR: {s}\n", .{msg}) catch {};
+        var stderr_buffer: [1024]u8 = undefined;
+        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+        stderr_writer.interface.print("\n" ++ application_name ++ " ERROR: {s}\n", .{msg}) catch {};
+        stderr_writer.interface.flush() catch {};
         final_exit_status = 1;
     }
 }
@@ -434,31 +437,31 @@ fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.c) void {
             }
         }
     };
+    const a = std.heap.c_allocator;
     var state: *State = &(State.state orelse init: {
-        const a = std.heap.c_allocator;
-        var path = std.ArrayList(u8).init(a);
+        var path: std.Io.Writer.Allocating = .init(a);
         defer path.deinit();
-        path.writer().print("{s}{c}trace.log", .{ get_state_dir() catch return, sep }) catch return;
-        const file = std.fs.createFileAbsolute(path.items, .{ .truncate = true }) catch return;
+        path.writer.print("{s}{c}trace.log", .{ get_state_dir() catch return, sep }) catch return;
+        const file = std.fs.createFileAbsolute(path.written(), .{ .truncate = true }) catch return;
         State.state = .{
             .file = file,
             .last_time = std.time.microTimestamp(),
         };
         break :init State.state.?;
     });
-    const file_writer = state.file.writer();
-    var buffer = std.io.bufferedWriter(file_writer);
-    const writer = buffer.writer();
+    var buffer: [4096]u8 = undefined;
+    var file_writer = state.file.writer(&buffer);
+    const writer = &file_writer.interface;
 
     const ts = std.time.microTimestamp();
     State.write_tdiff(writer, ts - state.last_time) catch {};
     state.last_time = ts;
 
-    var stream = std.json.writeStream(writer, .{});
+    var stream: std.json.Stringify = .{ .writer = writer };
     var iter: []const u8 = m.base[0..m.len];
-    cbor.JsonStream(@TypeOf(buffer)).jsonWriteValue(&stream, &iter) catch {};
+    cbor.JsonWriter.jsonWriteValue(&stream, &iter) catch {};
     _ = writer.write("\n") catch {};
-    buffer.flush() catch {};
+    writer.flush() catch {};
 }
 
 pub fn exit(status: u8) noreturn {
@@ -533,9 +536,9 @@ fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_:
 }
 
 pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8, content: []const u8) !void {
-    var cbor_buf = std.ArrayList(u8).init(allocator);
+    var cbor_buf: std.Io.Writer.Allocating = .init(allocator);
     defer cbor_buf.deinit();
-    const writer = cbor_buf.writer();
+    const writer = &cbor_buf.writer;
     var it = std.mem.splitScalar(u8, content, '\n');
     var lineno: u32 = 0;
     while (it.next()) |line| {
@@ -554,7 +557,7 @@ pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, b
         };
         defer allocator.free(cb);
         try cbor.writeValue(writer, name);
-        try cbor_buf.appendSlice(cb);
+        try writer.writeAll(cb);
     }
     const cb = try cbor_buf.toOwnedSlice();
     var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
@@ -650,7 +653,7 @@ fn read_nested_include_files(T: type, allocator: std.mem.Allocator, conf: *T, bu
     };
 }
 
-pub const ConfigWriteError = error{ CreateConfigFileFailed, WriteConfigFileFailed };
+pub const ConfigWriteError = error{ CreateConfigFileFailed, WriteConfigFileFailed, WriteFailed };
 
 pub fn write_config(conf: anytype, allocator: std.mem.Allocator) (ConfigDirError || ConfigWriteError)!void {
     config_mutex.lock();
@@ -667,14 +670,16 @@ fn write_text_config_file(comptime T: type, data: T, file_name: []const u8) Conf
         return error.CreateConfigFileFailed;
     };
     defer file.close();
-    const writer = file.writer();
-    write_config_to_writer(T, data, writer) catch |e| {
+    var buf: [4096]u8 = undefined;
+    var writer = file.writer(&buf);
+    write_config_to_writer(T, data, &writer.interface) catch |e| {
         std.log.err("write file failed with {any} for: {s}", .{ e, file_name });
         return error.WriteConfigFileFailed;
     };
+    try writer.interface.flush();
 }
 
-pub fn write_config_to_writer(comptime T: type, data: T, writer: anytype) @TypeOf(writer).Error!void {
+pub fn write_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const default: T = .{};
     inline for (@typeInfo(T).@"struct".fields) |field_info| {
         if (config_eql(
@@ -693,7 +698,7 @@ pub fn write_config_to_writer(comptime T: type, data: T, writer: anytype) @TypeO
             else
                 try writer.writeAll("null"),
             else => {
-                var s = std.json.writeStream(writer, .{ .whitespace = .minified });
+                var s: std.json.Stringify = .{ .writer = writer, .options = .{ .whitespace = .minified } };
                 try s.write(@field(data, field_info.name));
             },
         }
@@ -701,7 +706,7 @@ pub fn write_config_to_writer(comptime T: type, data: T, writer: anytype) @TypeO
     }
 }
 
-fn write_color_value(value: u24, writer: anytype) @TypeOf(writer).Error!void {
+fn write_color_value(value: u24, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     var hex: [7]u8 = undefined;
     try writer.writeByte('"');
     try writer.writeAll(color.RGB.to_string(color.RGB.from_u24(value), &hex));
@@ -770,15 +775,15 @@ pub fn write_keybind_namespace(namespace_name: []const u8, content: []const u8) 
 pub fn list_keybind_namespaces(allocator: std.mem.Allocator) ![]const []const u8 {
     var dir = try std.fs.openDirAbsolute(try get_keybind_namespaces_directory(), .{ .iterate = true });
     defer dir.close();
-    var result = std.ArrayList([]const u8).init(allocator);
+    var result: std.ArrayList([]const u8) = .empty;
     var iter = dir.iterateAssumeFirstIteration();
     while (try iter.next()) |entry| {
         switch (entry.kind) {
-            .file, .sym_link => try result.append(try allocator.dupe(u8, std.fs.path.stem(entry.name))),
+            .file, .sym_link => try result.append(allocator, try allocator.dupe(u8, std.fs.path.stem(entry.name))),
             else => continue,
         }
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const u8 {
@@ -1052,7 +1057,10 @@ fn restart() noreturn {
         null,
     };
     const ret = std.c.execve(executable, @ptrCast(&argv), @ptrCast(std.os.environ));
-    std.io.getStdErr().writer().print("\nrestart failed: {d}", .{ret}) catch {};
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    stderr_writer.interface.print("\nrestart failed: {d}", .{ret}) catch {};
+    stderr_writer.interface.flush() catch {};
     exit(234);
 }
 

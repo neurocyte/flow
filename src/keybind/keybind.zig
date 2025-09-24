@@ -137,11 +137,11 @@ pub fn get_namespaces(allocator: std.mem.Allocator) ![]const []const u8 {
         for (namespaces) |namespace| allocator.free(namespace);
         allocator.free(namespaces);
     }
-    var result = std.ArrayList([]const u8).init(allocator);
-    try result.append(try allocator.dupe(u8, "flow"));
-    try result.append(try allocator.dupe(u8, "emacs"));
-    try result.append(try allocator.dupe(u8, "vim"));
-    try result.append(try allocator.dupe(u8, "helix"));
+    var result: std.ArrayList([]const u8) = .empty;
+    try result.append(allocator, try allocator.dupe(u8, "flow"));
+    try result.append(allocator, try allocator.dupe(u8, "emacs"));
+    try result.append(allocator, try allocator.dupe(u8, "vim"));
+    try result.append(allocator, try allocator.dupe(u8, "helix"));
     for (namespaces) |namespace| {
         var exists = false;
         for (result.items) |existing|
@@ -150,9 +150,9 @@ pub fn get_namespaces(allocator: std.mem.Allocator) ![]const []const u8 {
                 break;
             };
         if (!exists)
-            try result.append(try allocator.dupe(u8, namespace));
+            try result.append(allocator, try allocator.dupe(u8, namespace));
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 pub fn get_namespace() []const u8 {
@@ -198,7 +198,7 @@ fn get_mode_binding_set(mode_name: []const u8, insert_command: []const u8) LoadE
     return binding_set;
 }
 
-pub const LoadError = (error{ NotFound, NotAnObject } || std.json.ParseError(std.json.Scanner) || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError);
+pub const LoadError = (error{ NotFound, NotAnObject, WriteFailed } || std.json.ParseError(std.json.Scanner) || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError);
 
 ///A collection of modes that represent a switchable editor emulation
 const Namespace = struct {
@@ -320,7 +320,7 @@ const Command = struct {
         return args.len == 1 and args[0] == .integer;
     }
 
-    fn load(allocator: std.mem.Allocator, tokens: []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!Command {
+    fn load(allocator: std.mem.Allocator, tokens: []const std.json.Value) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!Command {
         if (tokens.len == 0) return error.InvalidFormat;
         var state: enum { command, args } = .command;
         var args = std.ArrayListUnmanaged(std.json.Value){};
@@ -343,11 +343,10 @@ const Command = struct {
                     switch (token) {
                         .string, .integer, .float, .bool => {},
                         else => {
-                            var json = std.ArrayList(u8).init(allocator);
-                            defer json.deinit();
-                            std.json.stringify(token, .{}, json.writer()) catch {};
+                            const json = try std.json.Stringify.valueAlloc(allocator, token, .{});
+                            defer allocator.free(json);
                             const logger = log.logger("keybind");
-                            logger.print_err("keybind.load", "ERROR: invalid command argument '{s}'", .{json.items});
+                            logger.print_err("keybind.load", "ERROR: invalid command argument '{s}'", .{json});
                             logger.deinit();
                             return error.InvalidFormat;
                         },
@@ -357,14 +356,14 @@ const Command = struct {
             }
         }
 
-        var args_cbor = std.ArrayListUnmanaged(u8){};
-        defer args_cbor.deinit(allocator);
-        const writer = args_cbor.writer(allocator);
+        var args_cbor: std.Io.Writer.Allocating = .init(allocator);
+        defer args_cbor.deinit();
+        const writer = &args_cbor.writer;
         try cbor.writeArrayHeader(writer, args.items.len);
         for (args.items) |arg| try cbor.writeJsonValue(writer, arg);
         return .{
             .command = command_,
-            .args = try args_cbor.toOwnedSlice(allocator),
+            .args = try args_cbor.toOwnedSlice(),
         };
     }
 };
@@ -426,7 +425,7 @@ const BindingSet = struct {
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
 
-    fn load(allocator: std.mem.Allocator, namespace_name: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet, namespace: *Namespace) (error{OutOfMemory} || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
+    fn load(allocator: std.mem.Allocator, namespace_name: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet, namespace: *Namespace) (error{ OutOfMemory, WriteFailed } || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
         var self: @This() = .{ .name = undefined, .selection_style = undefined };
 
         const JsonConfig = struct {
@@ -475,7 +474,7 @@ const BindingSet = struct {
         return self;
     }
 
-    fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayListUnmanaged(Binding), event: input.Event, bindings: []const []const std.json.Value) (parse_flow.ParseError || parse_vim.ParseError)!void {
+    fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayListUnmanaged(Binding), event: input.Event, bindings: []const []const std.json.Value) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!void {
         _ = event;
         bindings: for (bindings) |entry| {
             if (entry.len < 2) {
@@ -509,27 +508,26 @@ const BindingSet = struct {
             errdefer allocator.free(key_events);
 
             const cmd = entry[1];
-            var cmds = std.ArrayList(Command).init(allocator);
-            defer cmds.deinit();
+            var cmds: std.ArrayList(Command) = .empty;
+            defer cmds.deinit(allocator);
             if (cmd == .string) {
-                try cmds.append(try Command.load(allocator, entry[1..]));
+                try cmds.append(allocator, try Command.load(allocator, entry[1..]));
             } else {
                 for (entry[1..]) |cmd_entry| {
                     if (cmd_entry != .array) {
-                        var json = std.ArrayList(u8).init(allocator);
-                        defer json.deinit();
-                        std.json.stringify(cmd_entry, .{}, json.writer()) catch {};
+                        const json = try std.json.Stringify.valueAlloc(allocator, cmd_entry, .{});
+                        defer allocator.free(json);
                         const logger = log.logger("keybind");
-                        logger.print_err("keybind.load", "ERROR: invalid command definition {s}", .{json.items});
+                        logger.print_err("keybind.load", "ERROR: invalid command definition {s}", .{json});
                         logger.deinit();
                         continue :bindings;
                     }
-                    try cmds.append(try Command.load(allocator, cmd_entry.array.items));
+                    try cmds.append(allocator, try Command.load(allocator, cmd_entry.array.items));
                 }
             }
             try dest.append(allocator, .{
                 .key_events = key_events,
-                .commands = try cmds.toOwnedSlice(),
+                .commands = try cmds.toOwnedSlice(allocator),
             });
         }
     }
@@ -564,13 +562,13 @@ const BindingSet = struct {
 
         for (self.press.items) |binding| {
             const cmd = binding.commands[0].command;
-            var hint = if (hints_map.get(cmd)) |previous|
-                std.ArrayList(u8).fromOwnedSlice(allocator, previous)
+            var hint: std.Io.Writer.Allocating = if (hints_map.get(cmd)) |previous|
+                .initOwnedSlice(allocator, previous)
             else
-                std.ArrayList(u8).init(allocator);
+                .init(allocator);
             defer hint.deinit();
-            const writer = hint.writer();
-            if (hint.items.len > 0) try writer.writeAll(", ");
+            const writer = &hint.writer;
+            if (hint.written().len > 0) try writer.writeAll(", ");
             const count = binding.key_events.len;
             for (binding.key_events, 0..) |key_, n| {
                 var key = key_;
@@ -578,7 +576,7 @@ const BindingSet = struct {
                 switch (self.syntax) {
                     // .flow => {
                     else => {
-                        try writer.print("{}", .{key});
+                        try writer.print("{f}", .{key});
                         if (n < count - 1)
                             try writer.writeAll(" ");
                     },

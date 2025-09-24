@@ -42,10 +42,10 @@ fn from_file_type(file_type: syntax.FileType) @This() {
 pub fn get_default(allocator: std.mem.Allocator, file_type_name: []const u8) ![]const u8 {
     const file_type = syntax.FileType.get_by_name_static(file_type_name) orelse return error.UnknownFileType;
     const config = from_file_type(file_type);
-    var content = std.ArrayListUnmanaged(u8).empty;
-    defer content.deinit(allocator);
-    root.write_config_to_writer(@This(), config, content.writer(allocator)) catch {};
-    return content.toOwnedSlice(allocator);
+    var content: std.Io.Writer.Allocating = .init(allocator);
+    defer content.deinit();
+    root.write_config_to_writer(@This(), config, &content.writer) catch {};
+    return content.toOwnedSlice();
 }
 
 pub fn get_all_names() []const []const u8 {
@@ -93,21 +93,23 @@ pub fn get(file_type_name: []const u8) !?@This() {
 }
 
 pub fn get_config_file_path(allocator: std.mem.Allocator, file_type: []const u8) ![]u8 {
-    var stream = std.ArrayList(u8).fromOwnedSlice(allocator, try get_config_dir_path(allocator));
-    const writer = stream.writer();
+    var stream: std.Io.Writer.Allocating = .initOwnedSlice(allocator, try get_config_dir_path(allocator));
+    defer stream.deinit();
+    const writer = &stream.writer;
     _ = try writer.writeAll(file_type);
     _ = try writer.writeAll(".conf");
     return stream.toOwnedSlice();
 }
 
 fn get_config_dir_path(allocator: std.mem.Allocator) ![]u8 {
-    var stream = std.ArrayList(u8).init(allocator);
-    const writer = stream.writer();
+    var stream: std.Io.Writer.Allocating = .init(allocator);
+    defer stream.deinit();
+    const writer = &stream.writer;
     _ = try writer.writeAll(try root.get_config_dir());
     _ = try writer.writeByte(std.fs.path.sep);
     _ = try writer.writeAll("file_type");
     _ = try writer.writeByte(std.fs.path.sep);
-    std.fs.makeDirAbsolute(stream.items) catch |e| switch (e) {
+    std.fs.makeDirAbsolute(stream.written()) catch |e| switch (e) {
         error.PathAlreadyExists => {},
         else => return e,
     };

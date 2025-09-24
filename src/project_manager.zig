@@ -463,12 +463,13 @@ const Process = struct {
     }
 
     fn request_recent_projects(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
-        var recent_projects = std.ArrayList(RecentProject).init(self.allocator);
-        defer recent_projects.deinit();
+        var recent_projects: std.ArrayList(RecentProject) = .empty;
+        defer recent_projects.deinit(self.allocator);
         self.load_recent_projects(&recent_projects, project_directory) catch {};
         self.sort_projects_by_last_used(&recent_projects);
-        var message = std.ArrayList(u8).init(self.allocator);
-        const writer = message.writer();
+        var message: std.Io.Writer.Allocating = .init(self.allocator);
+        defer message.deinit();
+        const writer = &message.writer;
         try cbor.writeArrayHeader(writer, 3);
         try cbor.writeValue(writer, "PRJ");
         try cbor.writeValue(writer, "recent_projects");
@@ -478,7 +479,7 @@ const Process = struct {
             try cbor.writeValue(writer, project.name);
             try cbor.writeValue(writer, if (self.projects.get(project.name)) |_| true else false);
         }
-        from.send_raw(.{ .buf = message.items }) catch return error.ClientFailed;
+        from.send_raw(.{ .buf = message.written() }) catch return error.ClientFailed;
         self.logger.print("{d} projects found", .{recent_projects.items.len});
     }
 
@@ -493,9 +494,9 @@ const Process = struct {
 
     fn request_path_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, path: []const u8) (ProjectError || SpawnError || std.fs.Dir.OpenError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        var buf = std.ArrayList(u8).init(self.allocator);
-        defer buf.deinit();
-        try request_path_files_async(self.allocator, from, project, max, expand_home(&buf, path));
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.allocator);
+        try request_path_files_async(self.allocator, from, project, max, expand_home(self.allocator, &buf, path));
     }
 
     fn request_tasks(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
@@ -651,9 +652,10 @@ const Process = struct {
         defer self.allocator.free(file_name);
         var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
         defer file.close();
-        var buffer = std.io.bufferedWriter(file.writer());
-        defer buffer.flush() catch {};
-        try project.write_state(buffer.writer());
+        var buffer: [4096]u8 = undefined;
+        var writer = file.writer(&buffer);
+        defer writer.interface.flush() catch {};
+        try project.write_state(&writer.interface);
     }
 
     fn restore_project(self: *Process, project: *Project) !void {
@@ -674,13 +676,14 @@ const Process = struct {
 
     fn get_project_state_file_path(allocator: std.mem.Allocator, project: *Project) ![]const u8 {
         const path = project.name;
-        var stream = std.ArrayList(u8).init(allocator);
-        const writer = stream.writer();
+        var stream: std.Io.Writer.Allocating = .init(allocator);
+        defer stream.deinit();
+        const writer = &stream.writer;
         _ = try writer.write(try root.get_state_dir());
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write("projects");
         _ = try writer.writeByte(std.fs.path.sep);
-        std.fs.makeDirAbsolute(stream.items) catch |e| switch (e) {
+        std.fs.makeDirAbsolute(stream.written()) catch |e| switch (e) {
             error.PathAlreadyExists => {},
             else => return e,
         };
@@ -696,19 +699,19 @@ const Process = struct {
     }
 
     fn load_recent_projects(self: *Process, recent_projects: *std.ArrayList(RecentProject), project_directory: []const u8) !void {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path: std.Io.Writer.Allocating = .init(self.allocator);
         defer path.deinit();
-        const writer = path.writer();
+        const writer = &path.writer;
         _ = try writer.write(try root.get_state_dir());
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write("projects");
 
-        var dir = try std.fs.cwd().openDir(path.items, .{ .iterate = true });
+        var dir = try std.fs.cwd().openDir(path.written(), .{ .iterate = true });
         defer dir.close();
         var iter = dir.iterate();
         while (try iter.next()) |entry| {
             if (entry.kind != .file) continue;
-            try self.read_project_name(path.items, entry.name, recent_projects, project_directory);
+            try self.read_project_name(path.written(), entry.name, recent_projects, project_directory);
         }
     }
 
@@ -719,14 +722,14 @@ const Process = struct {
         recent_projects: *std.ArrayList(RecentProject),
         project_directory: []const u8,
     ) !void {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path: std.Io.Writer.Allocating = .init(self.allocator);
         defer path.deinit();
-        const writer = path.writer();
+        const writer = &path.writer;
         _ = try writer.write(state_dir);
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write(file_path);
 
-        var file = try std.fs.openFileAbsolute(path.items, .{ .mode = .read_only });
+        var file = try std.fs.openFileAbsolute(path.written(), .{ .mode = .read_only });
         defer file.close();
         const stat = try file.stat();
         const buffer = try self.allocator.alloc(u8, @intCast(stat.size));
@@ -737,7 +740,7 @@ const Process = struct {
         var name: []const u8 = undefined;
         if (cbor.matchValue(&iter, tp.extract(&name)) catch return) {
             const last_used = if (std.mem.eql(u8, project_directory, name)) std.math.maxInt(@TypeOf(stat.mtime)) else stat.mtime;
-            (try recent_projects.addOne()).* = .{ .name = try self.allocator.dupe(u8, name), .last_used = last_used };
+            (try recent_projects.addOne(self.allocator)).* = .{ .name = try self.allocator.dupe(u8, name), .last_used = last_used };
         }
     }
 
@@ -851,14 +854,14 @@ pub fn abbreviate_home(buf: []u8, path: []const u8) []const u8 {
     }
 }
 
-pub fn expand_home(buf: *std.ArrayList(u8), file_path: []const u8) []const u8 {
+pub fn expand_home(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), file_path: []const u8) []const u8 {
     if (builtin.os.tag == .windows) return file_path;
     if (file_path.len > 0 and file_path[0] == '~') {
         if (file_path.len > 1 and file_path[1] != std.fs.path.sep) return file_path;
         const homedir = std.posix.getenv("HOME") orelse return file_path;
-        buf.appendSlice(homedir) catch return file_path;
-        buf.append(std.fs.path.sep) catch return file_path;
-        buf.appendSlice(file_path[2..]) catch return file_path;
+        buf.appendSlice(allocator, homedir) catch return file_path;
+        buf.append(allocator, std.fs.path.sep) catch return file_path;
+        buf.appendSlice(allocator, file_path[2..]) catch return file_path;
         return buf.items;
     } else return file_path;
 }

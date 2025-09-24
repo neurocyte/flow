@@ -22,15 +22,16 @@ allocator: std.mem.Allocator,
 
 tty: vaxis.Tty,
 vx: vaxis.Vaxis,
+tty_buffer: []u8,
 
 no_alternate: bool,
-event_buffer: std.ArrayList(u8),
-input_buffer: std.ArrayList(u8),
+event_buffer: std.Io.Writer.Allocating,
+input_buffer: std.Io.Writer.Allocating,
 mods: vaxis.Key.Modifiers = .{},
 queries_done: bool,
 
 bracketed_paste: bool = false,
-bracketed_paste_buffer: std.ArrayList(u8),
+bracketed_paste_buffer: std.Io.Writer.Allocating,
 
 handler_ctx: *anyopaque,
 dispatch_input: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
@@ -61,6 +62,7 @@ pub const Error = error{
     BadArrayAllocExtract,
     InvalidMapType,
     InvalidUnion,
+    WriteFailed,
 } || std.Thread.SpawnError;
 
 pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate: bool, _: *const fn (ctx: *anyopaque) void) Error!Self {
@@ -74,13 +76,15 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
         },
         .system_clipboard_allocator = allocator,
     };
+    const tty_buffer = try allocator.alloc(u8, 4096);
     return .{
         .allocator = allocator,
-        .tty = vaxis.Tty.init() catch return error.TtyInitError,
+        .tty = vaxis.Tty.init(tty_buffer) catch return error.TtyInitError,
+        .tty_buffer = tty_buffer,
         .vx = try vaxis.init(allocator, opts),
         .no_alternate = no_alternate,
-        .event_buffer = std.ArrayList(u8).init(allocator),
-        .input_buffer = std.ArrayList(u8).init(allocator),
+        .event_buffer = .init(allocator),
+        .input_buffer = .init(allocator),
         .bracketed_paste_buffer = std.ArrayList(u8).init(allocator),
         .handler_ctx = handler_ctx,
         .logger = log.logger(log_name),
@@ -94,6 +98,7 @@ pub fn deinit(self: *Self) void {
     self.loop.stop();
     self.vx.deinit(self.allocator, self.tty.anyWriter());
     self.tty.deinit();
+    self.allocator.free(self.tty_buffer);
     self.bracketed_paste_buffer.deinit();
     self.input_buffer.deinit();
     self.event_buffer.deinit();
@@ -204,9 +209,8 @@ pub fn run(self: *Self) Error!void {
 
 pub fn render(self: *Self) !void {
     if (in_panic.load(.acquire)) return;
-    var bufferedWriter = self.tty.bufferedWriter();
-    try self.vx.render(bufferedWriter.writer().any());
-    try bufferedWriter.flush();
+    try self.vx.render(&self.tty.writer.interface);
+    try self.tty.writer.interface.flush();
 }
 
 pub fn sigwinch(self: *Self) !void {
@@ -214,7 +218,7 @@ pub fn sigwinch(self: *Self) !void {
     try self.resize(try vaxis.Tty.getWinsize(self.input_fd_blocking()));
 }
 
-fn resize(self: *Self, ws: vaxis.Winsize) error{ TtyWriteError, OutOfMemory }!void {
+fn resize(self: *Self, ws: vaxis.Winsize) error{ TtyWriteError, OutOfMemory, WriteFailed }!void {
     self.vx.resize(self.allocator, self.tty.anyWriter(), ws) catch return error.TtyWriteError;
     self.vx.queueRefresh();
     if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"resize"}));
@@ -394,25 +398,26 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     }
 }
 
-fn fmtmsg(self: *Self, value: anytype) std.ArrayList(u8).Writer.Error![]const u8 {
+fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
     self.event_buffer.clearRetainingCapacity();
-    try cbor.writeValue(self.event_buffer.writer(), value);
-    return self.event_buffer.items;
+    try cbor.writeValue(&self.event_buffer.writer, value);
+    return self.event_buffer.written();
 }
 
 fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
     var keypress: input.Key = undefined;
     var egc_: input.Key = undefined;
     var mods: usize = undefined;
+    const writer = &self.bracketed_paste_buffer.writer;
     if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.string, cbor.extract(&mods) })) {
         switch (keypress) {
-            106 => if (mods == 4) try self.bracketed_paste_buffer.appendSlice("\n") else try self.bracketed_paste_buffer.appendSlice("j"),
-            input.key.enter => try self.bracketed_paste_buffer.appendSlice("\n"),
-            input.key.tab => try self.bracketed_paste_buffer.appendSlice("\t"),
+            106 => if (mods == 4) try writer.writeAll("\n") else try writer.writeAll("j"),
+            input.key.enter => try writer.writeAll("\n"),
+            input.key.tab => try writer.writeAll("\t"),
             else => if (!input.is_non_input_key(keypress)) {
                 var buf: [6]u8 = undefined;
                 const bytes = try input.ucs32_to_utf8(&[_]u32{egc_}, &buf);
-                try self.bracketed_paste_buffer.appendSlice(buf[0..bytes]);
+                try writer.writeAll(buf[0..bytes]);
             } else {
                 var buf: [6]u8 = undefined;
                 const bytes = try input.ucs32_to_utf8(&[_]u32{egc_}, &buf);
@@ -431,16 +436,16 @@ fn handle_bracketed_paste_start(self: *Self) !void {
 
 fn handle_bracketed_paste_end(self: *Self) !void {
     defer {
-        self.bracketed_paste_buffer.clearAndFree();
+        self.bracketed_paste_buffer.clearRetainingCapacity();
         self.bracketed_paste = false;
     }
     if (!self.bracketed_paste) return;
-    if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", self.bracketed_paste_buffer.items }));
+    if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", self.bracketed_paste_buffer.written() }));
 }
 
 fn handle_bracketed_paste_error(self: *Self, e: Error) !void {
     self.logger.err("bracketed paste", e);
-    self.bracketed_paste_buffer.clearAndFree();
+    self.bracketed_paste_buffer.clearRetainingCapacity();
     self.bracketed_paste = false;
     return e;
 }

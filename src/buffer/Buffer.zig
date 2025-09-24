@@ -224,33 +224,33 @@ pub const Leaf = struct {
         } else error.BufferUnderrun;
     }
 
-    inline fn dump(self: *const Leaf, l: *ArrayList(u8), abs_col: usize, metrics: Metrics) !void {
+    inline fn dump(self: *const Leaf, l: *std.Io.Writer, abs_col: usize, metrics: Metrics) !void {
         var buf: [16]u8 = undefined;
         const wcwidth = try std.fmt.bufPrint(&buf, "{d}", .{self.width(abs_col, metrics)});
         if (self.bol)
-            try l.appendSlice("BOL ");
-        try l.appendSlice(wcwidth);
-        try l.append('"');
+            try l.writeAll("BOL ");
+        try l.writeAll(wcwidth);
+        try l.writeAll("\"");
         try debug_render_chunk(self.buf, l, metrics);
-        try l.appendSlice("\" ");
+        try l.writeAll("\" ");
         if (self.eol)
-            try l.appendSlice("EOL ");
+            try l.writeAll("EOL ");
     }
 
-    fn debug_render_chunk(chunk: []const u8, l: *ArrayList(u8), metrics: Metrics) !void {
+    fn debug_render_chunk(chunk: []const u8, l: *std.Io.Writer, metrics: Metrics) !void {
         var cols: c_int = 0;
         var buf = chunk;
         while (buf.len > 0) {
             switch (buf[0]) {
                 '\x00'...(' ' - 1) => {
                     const control = unicode.control_code_to_unicode(buf[0]);
-                    try l.appendSlice(control);
+                    try l.writeAll(control);
                     buf = buf[1..];
                 },
                 else => {
                     const bytes = metrics.egc_length(metrics, buf, &cols, 0);
                     var buf_: [4096]u8 = undefined;
-                    try l.appendSlice(try std.fmt.bufPrint(&buf_, "{s}", .{std.fmt.fmtSliceEscapeLower(buf[0..bytes])}));
+                    try l.writeAll(try std.fmt.bufPrint(&buf_, "{f}", .{std.ascii.hexEscape(buf[0..bytes], .lower)}));
                     buf = buf[bytes..];
                 },
             }
@@ -477,21 +477,21 @@ const Node = union(enum) {
         }
     }
 
-    fn debug_render_tree(self: *const Node, l: *ArrayList(u8), d: usize) void {
+    fn debug_render_tree(self: *const Node, l: *std.Io.Writer, d: usize) void {
         switch (self.*) {
             .node => |*node| {
-                l.append('(') catch {};
+                l.writeAll("(") catch {};
                 node.left.debug_render_tree(l, d + 1);
-                l.append(' ') catch {};
+                l.writeAll(" ") catch {};
                 node.right.debug_render_tree(l, d + 1);
-                l.append(')') catch {};
+                l.writeAll(")") catch {};
             },
             .leaf => |*leaf| {
-                l.append('"') catch {};
-                l.appendSlice(leaf.buf) catch {};
+                l.writeAll("\"") catch {};
+                l.writeAll(leaf.buf) catch {};
                 if (leaf.eol)
-                    l.appendSlice("\\n") catch {};
-                l.append('"') catch {};
+                    l.writeAll("\\n") catch {};
+                l.writeAll("\"") catch {};
             },
         }
     }
@@ -554,22 +554,23 @@ const Node = union(enum) {
         return pred(egc);
     }
 
-    pub fn get_line_width_map(self: *const Node, line: usize, map: *ArrayList(usize), metrics: Metrics) error{ Stop, NoSpaceLeft }!void {
+    pub fn get_line_width_map(self: *const Node, line: usize, map: *ArrayList(usize), allocator: Allocator, metrics: Metrics) error{ Stop, NoSpaceLeft }!void {
         const Ctx = struct {
+            allocator: Allocator,
             map: *ArrayList(usize),
             wcwidth: usize = 0,
             fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Metrics) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 var n = egc.len;
                 while (n > 0) : (n -= 1) {
-                    const p = ctx.map.addOne() catch |e| return .{ .err = e };
+                    const p = ctx.map.addOne(ctx.allocator) catch |e| return .{ .err = e };
                     p.* = ctx.wcwidth;
                 }
                 ctx.wcwidth += wcwidth;
                 return if (egc[0] == '\n') Walker.stop else Walker.keep_walking;
             }
         };
-        var ctx: Ctx = .{ .map = map };
+        var ctx: Ctx = .{ .allocator = allocator, .map = map };
         self.walk_egc_forward(line, Ctx.walker, &ctx, metrics) catch |e| return switch (e) {
             error.NoSpaceLeft => error.NoSpaceLeft,
             else => error.Stop,
@@ -926,7 +927,7 @@ const Node = union(enum) {
         return .{ line, col, self };
     }
 
-    pub fn store(self: *const Node, writer: anytype, eol_mode: EolMode) !void {
+    pub fn store(self: *const Node, writer: *std.Io.Writer, eol_mode: EolMode) !void {
         switch (self.*) {
             .node => |*node| {
                 try node.left.store(writer, eol_mode);
@@ -943,7 +944,7 @@ const Node = union(enum) {
     }
 
     pub const FindAllCallback = fn (data: *anyopaque, begin_row: usize, begin_col: usize, end_row: usize, end_col: usize) error{Stop}!void;
-    pub fn find_all_ranges(self: *const Node, pattern: []const u8, data: *anyopaque, callback: *const FindAllCallback, allocator: Allocator) !void {
+    pub fn find_all_ranges(self: *const Node, pattern: []const u8, data: *anyopaque, callback: *const FindAllCallback, allocator: Allocator) error{ OutOfMemory, Stop }!void {
         const Ctx = struct {
             pattern: []const u8,
             data: *anyopaque,
@@ -952,9 +953,27 @@ const Node = union(enum) {
             pos: usize = 0,
             buf: []u8,
             rest: []u8 = "",
+            writer: std.Io.Writer,
+
             const Ctx = @This();
-            const Writer = std.io.Writer(*Ctx, error{Stop}, write);
-            fn write(ctx: *Ctx, bytes: []const u8) error{Stop}!usize {
+            fn drain(w: *std.Io.Writer, data_: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+                const ctx: *Ctx = @alignCast(@fieldParentPtr("writer", w));
+                std.debug.assert(splat == 0);
+                if (data_.len == 0) return 0;
+                var written: usize = 0;
+                for (data_[0 .. data_.len - 1]) |bytes| {
+                    written += try ctx.write(bytes);
+                }
+                const pattern_ = data_[data_.len - 1];
+                switch (pattern_.len) {
+                    0 => return written,
+                    else => for (0..splat) |_| {
+                        written += try ctx.write(pattern_);
+                    },
+                }
+                return written;
+            }
+            fn write(ctx: *Ctx, bytes: []const u8) std.Io.Writer.Error!usize {
                 var input = bytes;
                 while (true) {
                     const input_consume_size = @min(ctx.buf.len - ctx.rest.len, input.len);
@@ -975,7 +994,7 @@ const Node = union(enum) {
                             ctx.skip(&i, ctx.pattern.len);
                             const end_row = ctx.line + 1;
                             const end_pos = ctx.pos;
-                            try ctx.callback(ctx.data, begin_row, begin_pos, end_row, end_pos);
+                            ctx.callback(ctx.data, begin_row, begin_pos, end_row, end_pos) catch return error.WriteFailed;
                         } else {
                             ctx.skip(&i, 1);
                         }
@@ -1001,18 +1020,25 @@ const Node = union(enum) {
                     i.* += 1;
                 }
             }
-            fn writer(ctx: *Ctx) Writer {
-                return .{ .context = ctx };
-            }
         };
         var ctx: Ctx = .{
             .pattern = pattern,
             .data = data,
             .callback = callback,
             .buf = try allocator.alloc(u8, pattern.len * 2),
+            .writer = .{
+                .vtable = &.{
+                    .drain = Ctx.drain,
+                    .flush = std.Io.Writer.noopFlush,
+                    .rebase = std.Io.Writer.failingRebase,
+                },
+                .buffer = &.{},
+            },
         };
         defer allocator.free(ctx.buf);
-        return self.store(ctx.writer(), .lf);
+        return self.store(&ctx.writer, .lf) catch |e| switch (e) {
+            error.WriteFailed => error.Stop,
+        };
     }
 
     pub fn get_byte_pos(self: *const Node, pos_: Cursor, metrics_: Metrics, eol_mode: EolMode) !usize {
@@ -1065,10 +1091,10 @@ const Node = union(enum) {
     }
 
     pub fn debug_render_chunks(self: *const Node, allocator: std.mem.Allocator, line: usize, metrics_: Metrics) ![]const u8 {
-        var output = std.ArrayList(u8).init(allocator);
+        var output: std.Io.Writer.Allocating = .init(allocator);
         defer output.deinit();
         const ctx_ = struct {
-            l: *ArrayList(u8),
+            l: *std.Io.Writer,
             wcwidth: usize = 0,
             fn walker(ctx_: *anyopaque, leaf: *const Leaf, metrics: Metrics) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
@@ -1077,21 +1103,21 @@ const Node = union(enum) {
                 return if (!leaf.eol) Walker.keep_walking else Walker.stop;
             }
         };
-        var ctx: ctx_ = .{ .l = &output };
+        var ctx: ctx_ = .{ .l = &output.writer };
         const found = self.walk_from_line_begin_const(line, ctx_.walker, &ctx, metrics_) catch true;
         if (!found) return error.NotFound;
 
         var buf: [16]u8 = undefined;
         const wcwidth = try std.fmt.bufPrint(&buf, "{d}", .{ctx.wcwidth});
-        try output.appendSlice(wcwidth);
+        try output.writer.writeAll(wcwidth);
         return output.toOwnedSlice();
     }
 
     pub fn debug_line_render_tree(self: *const Node, allocator: std.mem.Allocator, line: usize) ![]const u8 {
         return if (self.find_line_node(line)) |n| blk: {
-            var l = std.ArrayList(u8).init(allocator);
+            var l: std.Io.Writer.Allocating = .init(allocator);
             defer l.deinit();
-            n.debug_render_tree(&l, 0);
+            n.debug_render_tree(&l.writer, 0);
             break :blk l.toOwnedSlice();
         } else error.NotFound;
     }
@@ -1152,28 +1178,24 @@ fn new_file(self: *const Self, file_exists: *bool) error{OutOfMemory}!Root {
     return Leaf.new(self.allocator, "", true, false);
 }
 
-pub fn LoadError(comptime reader_error: anytype) type {
-    return error{
+pub const LoadError =
+    error{
         OutOfMemory,
         BufferUnderrun,
         DanglingSurrogateHalf,
         ExpectedSecondSurrogateHalf,
         UnexpectedSecondSurrogateHalf,
         Unexpected,
-    } || reader_error;
-}
+    } || std.Io.Reader.Error;
 
-pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError(@TypeOf(reader).Error)!Root {
+pub fn load(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError!Root {
     const lf = '\n';
     const cr = '\r';
-    var buf = try self.external_allocator.alloc(u8, size);
     const self_ = @constCast(self);
-    const read_size = try reader.readAll(buf);
-    if (read_size != size)
-        return error.BufferUnderrun;
-    const final_read = try reader.read(buf);
-    if (final_read != 0)
-        @panic("unexpected data in final read");
+    var read_buffer: ArrayList(u8) = .empty;
+    defer read_buffer.deinit(self.external_allocator);
+    try reader.appendRemainingUnlimited(self.external_allocator, &read_buffer);
+    var buf = try read_buffer.toOwnedSlice(self.external_allocator);
 
     if (!std.unicode.utf8ValidateSlice(buf)) {
         const converted = try unicode.utf8_sanitize(self.external_allocator, buf);
@@ -1213,14 +1235,12 @@ pub fn load(self: *const Self, reader: anytype, size: usize, eol_mode: *EolMode,
     return Node.merge_in_place(leaves, self.allocator);
 }
 
-pub const LoadFromStringError = LoadError(error{});
-
-pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) LoadFromStringError!Root {
-    var stream = std.io.fixedBufferStream(s);
-    return self.load(stream.reader(), s.len, eol_mode, utf8_sanitized);
+pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError!Root {
+    var reader = std.Io.Reader.fixed(s);
+    return self.load(&reader, eol_mode, utf8_sanitized);
 }
 
-pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) LoadFromStringError!void {
+pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []const u8) LoadError!void {
     self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
     self.set_file_path(file_path);
     self.last_save = self.root;
@@ -1229,7 +1249,7 @@ pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []cons
     self.mtime = std.time.milliTimestamp();
 }
 
-pub fn reset_from_string_and_update(self: *Self, s: []const u8) LoadFromStringError!void {
+pub fn reset_from_string_and_update(self: *Self, s: []const u8) LoadError!void {
     self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
@@ -1278,7 +1298,7 @@ pub const LoadFromFileError = error{
     ProcessNotFound,
     Canceled,
     PermissionDenied,
-};
+} || LoadError;
 
 pub fn load_from_file(
     self: *const Self,
@@ -1294,8 +1314,9 @@ pub fn load_from_file(
 
     file_exists.* = true;
     defer file.close();
-    const stat = try file.stat();
-    return self.load(file.reader(), @intCast(stat.size), eol_mode, utf8_sanitized);
+    var read_buf: [4096]u8 = undefined;
+    var file_reader = file.reader(&read_buf);
+    return self.load(&file_reader.interface, eol_mode, utf8_sanitized);
 }
 
 pub fn load_from_file_and_update(self: *Self, file_path: []const u8) LoadFromFileError!void {
@@ -1332,16 +1353,9 @@ pub fn store_to_string(self: *const Self, allocator: Allocator, eol_mode: EolMod
     return s.toOwnedSlice();
 }
 
-fn store_to_file_const(self: *const Self, file: anytype) StoreToFileError!void {
-    const buffer_size = 4096 * 16; // 64KB
-    const BufferedWriter = std.io.BufferedWriter(buffer_size, std.fs.File.Writer);
-    const Writer = std.io.Writer(*BufferedWriter, BufferedWriter.Error, BufferedWriter.write);
-
-    const file_writer: std.fs.File.Writer = file.writer();
-    var buffered_writer: BufferedWriter = .{ .unbuffered_writer = file_writer };
-
-    try self.root.store(Writer{ .context = &buffered_writer }, self.file_eol_mode);
-    try buffered_writer.flush();
+fn store_to_file_const(self: *const Self, writer: *std.Io.Writer) StoreToFileError!void {
+    try self.root.store(writer, self.file_eol_mode);
+    try writer.flush();
 }
 
 pub const StoreToFileError = error{
@@ -1385,13 +1399,15 @@ pub const StoreToFileError = error{
     WouldBlock,
     PermissionDenied,
     MessageTooBig,
+    WriteFailed,
 };
 
 pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
     const stat = try cwd().statFile(file_path);
-    var atomic = try cwd().atomicFile(file_path, .{ .mode = stat.mode });
+    var write_buffer: [4096]u8 = undefined;
+    var atomic = try cwd().atomicFile(file_path, .{ .mode = stat.mode, .write_buffer = &write_buffer });
     defer atomic.deinit();
-    try self.store_to_file_const(atomic.file);
+    try self.store_to_file_const(&atomic.file_writer.interface);
     try atomic.finish();
 }
 
@@ -1400,7 +1416,9 @@ pub fn store_to_new_file_const(self: *const Self, file_path: []const u8) StoreTo
         try cwd().makePath(dir_name);
     const file = try cwd().createFile(file_path, .{ .read = true, .truncate = true });
     defer file.close();
-    try self.store_to_file_const(file);
+    var write_buffer: [4096]u8 = undefined;
+    var writer = file.writer(&write_buffer);
+    try self.store_to_file_const(&writer.interface);
 }
 
 pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) StoreToFileError!void {

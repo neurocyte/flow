@@ -3,7 +3,7 @@ const tp = @import("thespian");
 const shell = @import("shell");
 const bin_path = @import("bin_path");
 
-pub const Error = error{ OutOfMemory, GitNotFound, GitCallFailed };
+pub const Error = error{ OutOfMemory, GitNotFound, GitCallFailed, WriteFailed };
 
 const log_execute = false;
 
@@ -208,15 +208,16 @@ fn git_err(
 ) Error!void {
     const cbor = @import("cbor");
     const git_binary = get_git() orelse return error.GitNotFound;
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
-    const writer = buf.writer(allocator);
+    var buf: std.Io.Writer.Allocating = .init(allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
     switch (@typeInfo(@TypeOf(cmd))) {
         .@"struct" => |info| if (info.is_tuple) {
             try cbor.writeArrayHeader(writer, info.fields.len + 1);
             try cbor.writeValue(writer, git_binary);
             inline for (info.fields) |f|
                 try cbor.writeValue(writer, @field(cmd, f.name));
-            return shell.execute(allocator, .{ .buf = buf.items }, .{
+            return shell.execute(allocator, .{ .buf = buf.written() }, .{
                 .context = context,
                 .out = to_shell_output_handler(out),
                 .err = to_shell_output_handler(err),

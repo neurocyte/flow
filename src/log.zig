@@ -94,16 +94,24 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         } else {
             self.store(m);
         }
-        if (!self.no_stderr)
-            std.io.getStdErr().writer().print("{s}\n", .{output}) catch {};
+        if (!self.no_stderr) {
+            var stderr_buffer: [1024]u8 = undefined;
+            var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+            stderr_writer.interface.print("{s}\n", .{output}) catch {};
+            stderr_writer.interface.flush() catch {};
+        }
     } else if (try m.match(.{ "log", tp.string, tp.extract(&output) })) {
         if (self.subscriber) |subscriber| {
             subscriber.send_raw(m) catch {};
         } else {
             self.store(m);
         }
-        if (!self.no_stdout)
-            std.io.getStdOut().writer().print("{s}\n", .{output}) catch {};
+        if (!self.no_stdout) {
+            var stdout_buffer: [1024]u8 = undefined;
+            var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+            stdout_writer.interface.print("{s}\n", .{output}) catch {};
+            stdout_writer.interface.flush() catch {};
+        }
     } else if (try m.match(.{"subscribe"})) {
         // log("subscribed");
         if (self.subscriber) |*s| s.deinit();
@@ -152,8 +160,8 @@ pub const Logger = struct {
     }
 
     pub fn err(self: Logger, context: []const u8, e: anyerror) void {
-        var msg_fmt = std.ArrayList(u8).init(std.heap.c_allocator);
-        defer msg_fmt.deinit();
+        var msg_fmt: std.ArrayList(u8) = .empty;
+        defer msg_fmt.deinit(std.heap.c_allocator);
         defer tp.reset_error();
         var buf: [max_log_message]u8 = undefined;
         var msg: []const u8 = "UNKNOWN";
@@ -168,12 +176,12 @@ pub const Logger = struct {
                     //
                 } else {
                     var failed = false;
-                    msg_fmt.writer().print("{}", .{msg_}) catch {
+                    msg_fmt.writer(std.heap.c_allocator).print("{f}", .{msg_}) catch {
                         failed = true;
                     };
                     if (failed) {
                         msg_fmt.clearRetainingCapacity();
-                        msg_fmt.writer().print("{s}", .{std.fmt.fmtSliceEscapeLower(msg_.buf)}) catch {};
+                        msg_fmt.writer(std.heap.c_allocator).print("{f}", .{std.ascii.hexEscape(msg_.buf, .lower)}) catch {};
                     }
                     msg__ = msg_fmt.items;
                     tp.trace(tp.channel.debug, .{ "log_err_fmt", msg__.len, msg__[0..@min(msg__.len, 128)] });

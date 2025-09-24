@@ -81,8 +81,8 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
     var state: State = .base;
     var function_key_number: u8 = 0;
     var modifiers: input.Mods = 0;
-    var result = std.ArrayList(input.KeyEvent).init(allocator);
-    defer result.deinit();
+    var result: std.ArrayList(input.KeyEvent) = .empty;
+    defer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < str.len) {
@@ -100,7 +100,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                     '0'...'9',
                     '!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
                     '`', '~', '-', '_', '=', '+', '[', ']', '{', '}', '\\', '|', ':', ';', '\'', '"', ',', '.', '/', '?', => {
-                        try result.append(from_key(str[i]));
+                        try result.append(allocator, from_key(str[i]));
                         i += 1;
                     },
                     else => return parse_error(error.InvalidInitialCharacter, "str: {s}, i: {} c: {c}", .{ str, i, str[i] }),
@@ -216,7 +216,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .insert => {
                 if (std.mem.indexOf(u8, str[i..], "Insert") == 0) {
-                    try result.append(from_key_mods(input.key.insert, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.insert, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -224,7 +224,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .end => {
                 if (std.mem.indexOf(u8, str[i..], "End") == 0) {
-                    try result.append(from_key_mods(input.key.end, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.end, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -232,7 +232,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .home => {
                 if (std.mem.indexOf(u8, str[i..], "Home") == 0) {
-                    try result.append(from_key_mods(input.key.home, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.home, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -240,7 +240,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .bs => {
                 if (std.mem.indexOf(u8, str[i..], "BS") == 0) {
-                    try result.append(from_key_mods(input.key.backspace, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.backspace, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -248,7 +248,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .cr => {
                 if (std.mem.indexOf(u8, str[i..], "CR") == 0) {
-                    try result.append(from_key_mods(input.key.enter, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.enter, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -256,7 +256,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .space => {
                 if (std.mem.indexOf(u8, str[i..], "Space") == 0) {
-                    try result.append(from_key_mods(input.key.space, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.space, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
@@ -264,7 +264,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .del => {
                 if (std.mem.indexOf(u8, str[i..], "Del") == 0) {
-                    try result.append(from_key_mods(input.key.delete, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.delete, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -272,7 +272,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .tab => {
                 if (std.mem.indexOf(u8, str[i..], "Tab") == 0) {
-                    try result.append(from_key_mods(input.key.tab, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.tab, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -280,7 +280,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .up => {
                 if (std.mem.indexOf(u8, str[i..], "Up") == 0) {
-                    try result.append(from_key_mods(input.key.up, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.up, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -288,7 +288,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .esc => {
                 if (std.mem.indexOf(u8, str[i..], "Esc") == 0) {
-                    try result.append(from_key_mods(input.key.escape, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.escape, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 3;
@@ -296,7 +296,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .down => {
                 if (std.mem.indexOf(u8, str[i..], "Down") == 0) {
-                    try result.append(from_key_mods(input.key.down, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.down, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -304,7 +304,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .left => {
                 if (std.mem.indexOf(u8, str[i..], "Left") == 0) {
-                    try result.append(from_key_mods(input.key.left, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.left, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 4;
@@ -312,7 +312,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .right => {
                 if (std.mem.indexOf(u8, str[i..], "Right") == 0) {
-                    try result.append(from_key_mods(input.key.right, modifiers));
+                    try result.append(allocator, from_key_mods(input.key.right, modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 5;
@@ -320,7 +320,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .less_than => {
                 if (std.mem.indexOf(u8, str[i..], "LT") == 0) {
-                    try result.append(from_key_mods('<', modifiers));
+                    try result.append(allocator, from_key_mods('<', modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -328,7 +328,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
             .greater_than => {
                 if (std.mem.indexOf(u8, str[i..], "GT") == 0) {
-                    try result.append(from_key_mods('>', modifiers));
+                    try result.append(allocator, from_key_mods('>', modifiers));
                     modifiers = 0;
                     state = .escape_sequence_end;
                     i += 2;
@@ -345,7 +345,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                     },
                     '>' => {
                         const function_key = input.key.f1 - 1 + function_key_number;
-                        try result.append(from_key_mods(function_key, modifiers));
+                        try result.append(allocator, from_key_mods(function_key, modifiers));
                         modifiers = 0;
                         function_key_number = 0;
                         state = .base;
@@ -371,7 +371,7 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
                     '0'...'9',
                     '`', '-', '=', '[', ']', '\\', ':', ';', '\'', ',', '.', '/',
                      => {
-                        try result.append(from_key_mods(str[i], modifiers));
+                        try result.append(allocator, from_key_mods(str[i], modifiers));
                         modifiers = 0;
                         state = .escape_sequence_end;
                         i += 1;
@@ -405,5 +405,5 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             },
         }
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }

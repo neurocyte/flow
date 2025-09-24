@@ -122,7 +122,8 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) ![]D
 
     var dizzy_edits = std.ArrayListUnmanaged(dizzy.Edit){};
     var scratch = std.ArrayListUnmanaged(u32){};
-    var diffs = std.ArrayList(Diff).init(allocator);
+    var diffs: std.ArrayList(Diff) = .empty;
+    errdefer diffs.deinit(allocator);
 
     const scratch_len = 4 * (dst.len + src.len) + 2;
     try scratch.ensureTotalCapacity(arena, scratch_len);
@@ -131,7 +132,7 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) ![]D
     try dizzy.PrimitiveSliceDiffer(u8).diff(arena, &dizzy_edits, src, dst, scratch.items);
 
     if (dizzy_edits.items.len > 2)
-        try diffs.ensureTotalCapacity((dizzy_edits.items.len - 1) / 2);
+        try diffs.ensureTotalCapacity(allocator, (dizzy_edits.items.len - 1) / 2);
 
     var lines_dst: usize = 0;
     var pos_src: usize = 0;
@@ -152,7 +153,7 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) ![]D
                 pos_dst += dist;
                 const line_start_dst: usize = lines_dst;
                 scan_char(dst[dizzy_edit.range.start..dizzy_edit.range.end], &lines_dst, '\n', null);
-                (try diffs.addOne()).* = .{
+                (try diffs.addOne(allocator)).* = .{
                     .kind = .insert,
                     .line = line_start_dst,
                     .offset = last_offset,
@@ -165,7 +166,7 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) ![]D
                 const dist = dizzy_edit.range.end - dizzy_edit.range.start;
                 pos_src += dist;
                 pos_dst += 0;
-                (try diffs.addOne()).* = .{
+                (try diffs.addOne(allocator)).* = .{
                     .kind = .delete,
                     .line = lines_dst,
                     .offset = last_offset,
@@ -176,7 +177,7 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) ![]D
             },
         }
     }
-    return diffs.toOwnedSlice();
+    return diffs.toOwnedSlice(allocator);
 }
 
 pub fn get_edits(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) ![]Edit {

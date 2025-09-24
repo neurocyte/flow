@@ -47,8 +47,8 @@ const OutOfMemoryError = error{OutOfMemory};
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
 pub const InvalidMessageError = error{ InvalidMessage, InvalidMessageField, InvalidTargetURI, InvalidMapType };
 pub const StartLspError = (error{ ThespianSpawnFailed, Timeout, InvalidLspCommand } || LspError || OutOfMemoryError || cbor.Error);
-pub const LspError = (error{ NoLsp, LspFailed } || OutOfMemoryError);
-pub const ClientError = (error{ClientFailed} || OutOfMemoryError);
+pub const LspError = (error{ NoLsp, LspFailed } || OutOfMemoryError || std.Io.Writer.Error);
+pub const ClientError = (error{ClientFailed} || OutOfMemoryError || std.Io.Writer.Error);
 pub const LspOrClientError = (LspError || ClientError);
 
 const File = struct {
@@ -80,7 +80,7 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
         .open_time = std.time.milliTimestamp(),
         .language_servers = std.StringHashMap(*const LSP).init(allocator),
         .file_language_server = std.StringHashMap(*const LSP).init(allocator),
-        .tasks = std.ArrayList(Task).init(allocator),
+        .tasks = .empty,
         .logger = log.logger("project"),
         .logger_lsp = log.logger("lsp"),
         .logger_git = log.logger("git"),
@@ -104,7 +104,7 @@ pub fn deinit(self: *Self) void {
     self.files.deinit(self.allocator);
     self.pending.deinit(self.allocator);
     for (self.tasks.items) |task| self.allocator.free(task.command);
-    self.tasks.deinit();
+    self.tasks.deinit(self.allocator);
     self.logger_lsp.deinit();
     self.logger_git.deinit();
     self.logger.deinit();
@@ -216,7 +216,7 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
             continue;
         }
         tp.trace(tp.channel.debug, .{ "restore_state_v1", "task", command, mtime });
-        (try self.tasks.addOne()).* = .{
+        (try self.tasks.addOne(self.allocator)).* = .{
             .command = try self.allocator.dupe(u8, command),
             .mtime = mtime,
         };
@@ -237,6 +237,7 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     BadArrayAllocExtract,
     InvalidMapType,
     InvalidUnion,
+    WriteFailed,
 }!void {
     tp.trace(tp.channel.debug, .{"restore_state_v0"});
     defer self.sort_files_by_mtime();
@@ -309,14 +310,16 @@ fn get_language_server(self: *Self, file_path: []const u8) LspError!*const LSP {
 }
 
 fn make_URI(self: *Self, file_path: ?[]const u8) LspError![]const u8 {
-    var buf = std.ArrayList(u8).init(self.allocator);
+    var buf: std.Io.Writer.Allocating = .init(self.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
     if (file_path) |path| {
         if (std.fs.path.isAbsolute(path)) {
-            try buf.writer().print("file://{s}", .{path});
+            try writer.print("file://{s}", .{path});
         } else {
-            try buf.writer().print("file://{s}{c}{s}", .{ self.name, std.fs.path.sep, path });
+            try writer.print("file://{s}{c}{s}", .{ self.name, std.fs.path.sep, path });
         }
-    } else try buf.writer().print("file://{s}", .{self.name});
+    } else try writer.print("file://{s}", .{self.name});
     return buf.toOwnedSlice();
 }
 
@@ -389,12 +392,12 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
         score: i32,
         matches: []const usize,
     };
-    var matches = std.ArrayList(Match).init(self.allocator);
+    var matches: std.ArrayList(Match) = .empty;
 
     for (self.files.items) |file| {
         const match = searcher.scoreMatches(file.path, query);
         if (match.score) |score| {
-            (try matches.addOne()).* = .{
+            (try matches.addOne(self.allocator)).* = .{
                 .path = file.path,
                 .type = file.type,
                 .icon = file.icon,
@@ -551,12 +554,13 @@ pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) Cl
 }
 
 pub fn request_tasks(self: *Self, from: tp.pid_ref) ClientError!void {
-    var message = std.ArrayList(u8).init(self.allocator);
-    const writer = message.writer();
+    var message: std.Io.Writer.Allocating = .init(self.allocator);
+    defer message.deinit();
+    const writer = &message.writer;
     try cbor.writeArrayHeader(writer, self.tasks.items.len);
     for (self.tasks.items) |task|
         try cbor.writeValue(writer, task.command);
-    from.send_raw(.{ .buf = message.items }) catch return error.ClientFailed;
+    from.send_raw(.{ .buf = message.written() }) catch return error.ClientFailed;
 }
 
 pub fn add_task(self: *Self, command: []const u8) OutOfMemoryError!void {
@@ -569,7 +573,7 @@ pub fn add_task(self: *Self, command: []const u8) OutOfMemoryError!void {
             return;
         };
     tp.trace(tp.channel.debug, .{ "project", self.name, "add_task", command, mtime });
-    (try self.tasks.addOne()).* = .{
+    (try self.tasks.addOne(self.allocator)).* = .{
         .command = try self.allocator.dupe(u8, command),
         .mtime = mtime,
     };
@@ -615,8 +619,8 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: 
     }
 
     var dizzy_edits = std.ArrayListUnmanaged(dizzy.Edit){};
-    var edits_cb = std.ArrayList(u8).init(arena);
-    const writer = edits_cb.writer();
+    var edits_cb: std.Io.Writer.Allocating = .init(self.allocator);
+    const writer = &edits_cb.writer;
 
     const scratch_len = 4 * (text_dst.len + text_src.len) + 2;
     const scratch = blk: {
@@ -674,16 +678,17 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: 
     {
         const frame = tracy.initZone(@src(), .{ .name = "send" });
         defer frame.deinit();
-        var msg = std.ArrayList(u8).init(arena);
-        const msg_writer = msg.writer();
+        var msg: std.Io.Writer.Allocating = .init(self.allocator);
+        defer msg.deinit();
+        const msg_writer = &msg.writer;
         try cbor.writeMapHeader(msg_writer, 2);
         try cbor.writeValue(msg_writer, "textDocument");
         try cbor.writeValue(msg_writer, .{ .uri = uri, .version = version });
         try cbor.writeValue(msg_writer, "contentChanges");
         try cbor.writeArrayHeader(msg_writer, edits_count);
-        _ = try msg_writer.write(edits_cb.items);
+        _ = try msg_writer.write(edits_cb.written());
 
-        lsp.send_notification_raw("textDocument/didChange", msg.items) catch return error.LspFailed;
+        lsp.send_notification_raw("textDocument/didChange", msg.written()) catch return error.LspFailed;
     }
 }
 
@@ -1146,16 +1151,16 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
             const allocator = std.heap.c_allocator;
             var result: []const u8 = undefined;
             // buffer the renames in order to send as a single, atomic message
-            var renames = std.ArrayList(Rename).init(allocator);
+            var renames = std.array_list.Managed(Rename).init(allocator);
             defer renames.deinit();
 
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
                 if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) })) {
                     try decode_rename_symbol_map(result, &renames);
                     // write the renames message manually since there doesn't appear to be an array helper
-                    var msg_buf = std.ArrayList(u8).init(allocator);
+                    var msg_buf: std.Io.Writer.Allocating = .init(allocator);
                     defer msg_buf.deinit();
-                    const w = msg_buf.writer();
+                    const w = &msg_buf.writer;
                     try cbor.writeArrayHeader(w, 3);
                     try cbor.writeValue(w, "cmd");
                     try cbor.writeValue(w, "rename_symbol_item");
@@ -1181,7 +1186,7 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
                             line,
                         });
                     }
-                    self_.from.send_raw(.{ .buf = msg_buf.items }) catch return error.ClientFailed;
+                    self_.from.send_raw(.{ .buf = msg_buf.written() }) catch return error.ClientFailed;
                 }
             }
         }
@@ -1199,7 +1204,7 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
 
 // decode a WorkspaceEdit record which may have shape {"changes": {}} or {"documentChanges": []}
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspaceEdit
-fn decode_rename_symbol_map(result: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_map(result: []const u8, renames: *std.array_list.Managed(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = result;
     var len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
     var changes: []const u8 = "";
@@ -1221,7 +1226,7 @@ fn decode_rename_symbol_map(result: []const u8, renames: *std.ArrayList(Rename))
     return error.ClientFailed;
 }
 
-fn decode_rename_symbol_changes(changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_changes(changes: []const u8, renames: *std.array_list.Managed(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = changes;
     var files_len = cbor.decodeMapHeader(&iter) catch return error.InvalidMessage;
     while (files_len > 0) : (files_len -= 1) {
@@ -1231,7 +1236,7 @@ fn decode_rename_symbol_changes(changes: []const u8, renames: *std.ArrayList(Ren
     }
 }
 
-fn decode_rename_symbol_doc_changes(changes: []const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_doc_changes(changes: []const u8, renames: *std.array_list.Managed(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = changes;
     var changes_len = cbor.decodeArrayHeader(&iter) catch return error.InvalidMessage;
     while (changes_len > 0) : (changes_len -= 1) {
@@ -1258,7 +1263,7 @@ fn decode_rename_symbol_doc_changes(changes: []const u8, renames: *std.ArrayList
 }
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textEdit
-fn decode_rename_symbol_item(file_uri: []const u8, iter: *[]const u8, renames: *std.ArrayList(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
+fn decode_rename_symbol_item(file_uri: []const u8, iter: *[]const u8, renames: *std.array_list.Managed(Rename)) (ClientError || InvalidMessageError || cbor.Error)!void {
     var text_edits_len = cbor.decodeArrayHeader(iter) catch return error.InvalidMessage;
     while (text_edits_len > 0) : (text_edits_len -= 1) {
         var m_range: ?Range = null;
@@ -1366,15 +1371,15 @@ fn send_contents(
     };
 
     if (is_list) {
-        var content = std.ArrayList(u8).init(std.heap.c_allocator);
+        var content: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
         defer content.deinit();
         while (len > 0) : (len -= 1) {
             if (try cbor.matchValue(&iter, cbor.extract(&value))) {
-                try content.appendSlice(value);
-                if (len > 1) try content.appendSlice("\n");
+                try content.writer.writeAll(value);
+                if (len > 1) try content.writer.writeAll("\n");
             }
         }
-        return send_content_msg(to, tag, file_path, row, col, kind, content.items, range);
+        return send_content_msg(to, tag, file_path, row, col, kind, content.written(), range);
     }
 
     while (len > 0) : (len -= 1) {
@@ -1604,7 +1609,7 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
         pub fn receive(self_: @This(), _: tp.message) !void {
             self_.lsp.send_notification("initialized", .{}) catch return error.LspFailed;
             if (self_.lsp.pid.expired()) return error.LspFailed;
-            self_.project.logger_lsp.print("initialized LSP: {s}", .{fmt_lsp_name_func(self_.language_server)});
+            self_.project.logger_lsp.print("initialized LSP: {f}", .{fmt_lsp_name_func(self_.language_server)});
         }
     } = .{
         .language_server = try std.heap.c_allocator.dupe(u8, language_server),
@@ -1916,18 +1921,14 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
     }, handler);
 }
 
-fn fmt_lsp_name_func(bytes: []const u8) std.fmt.Formatter(format_lsp_name_func) {
+fn fmt_lsp_name_func(bytes: []const u8) std.fmt.Formatter([]const u8, format_lsp_name_func) {
     return .{ .data = bytes };
 }
 
 fn format_lsp_name_func(
     bytes: []const u8,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = fmt;
-    _ = options;
+    writer: *std.Io.Writer,
+) std.Io.Writer.Error!void {
     var iter: []const u8 = bytes;
     var len = cbor.decodeArrayHeader(&iter) catch return;
     var first: bool = true;
@@ -1942,7 +1943,7 @@ fn format_lsp_name_func(
 
 const eol = '\n';
 
-pub const GetLineOfFileError = (OutOfMemoryError || std.fs.File.OpenError || std.fs.File.Reader.Error);
+pub const GetLineOfFileError = (OutOfMemoryError || std.fs.File.OpenError || std.fs.File.ReadError);
 
 fn get_line_of_file(allocator: std.mem.Allocator, file_path: []const u8, line_: usize) GetLineOfFileError![]const u8 {
     const line = line_ + 1;
@@ -1951,7 +1952,7 @@ fn get_line_of_file(allocator: std.mem.Allocator, file_path: []const u8, line_: 
     const stat = try file.stat();
     var buf = try allocator.alloc(u8, @intCast(stat.size));
     defer allocator.free(buf);
-    const read_size = try file.reader().readAll(buf);
+    const read_size = try file.readAll(buf);
     if (read_size != @as(@TypeOf(read_size), @intCast(stat.size)))
         @panic("get_line_of_file: buffer underrun");
 

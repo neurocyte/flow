@@ -50,8 +50,8 @@ const Process = struct {
         self.* = .{
             .arena = std.heap.ArenaAllocator.init(outer_a),
             .allocator = self.arena.allocator(),
-            .backwards = std.ArrayList(Entry).init(self.allocator),
-            .forwards = std.ArrayList(Entry).init(self.allocator),
+            .backwards = .empty,
+            .forwards = .empty,
             .receiver = Receiver.init(Process.receive, self),
         };
         return tp.spawn_link(self.allocator, self, Process.start, module_name);
@@ -65,8 +65,8 @@ const Process = struct {
     fn deinit(self: *Process) void {
         self.clear_backwards();
         self.clear_forwards();
-        self.backwards.deinit();
-        self.forwards.deinit();
+        self.backwards.deinit(self.allocator);
+        self.forwards.deinit(self.allocator);
         if (self.current) |entry| self.allocator.free(entry.file_path);
         self.arena.deinit();
         outer_a.destroy(self);
@@ -82,7 +82,7 @@ const Process = struct {
 
     fn clear_table(self: *Process, table: *std.ArrayList(Entry)) void {
         for (table.items) |entry| self.allocator.free(entry.file_path);
-        table.clearAndFree();
+        table.clearAndFree(self.allocator);
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
@@ -122,17 +122,17 @@ const Process = struct {
             return self.allocator.free(self.current.?.file_path);
 
         if (isdupe(self.backwards.getLastOrNull(), entry)) {
-            if (self.current) |current| self.forwards.append(current) catch {};
+            if (self.current) |current| self.forwards.append(self.allocator, current) catch {};
             if (self.backwards.pop()) |top|
                 self.allocator.free(top.file_path);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "back", entry.file_path, entry.cursor.row, entry.cursor.col, self.backwards.items.len, self.forwards.items.len }));
         } else if (isdupe(self.forwards.getLastOrNull(), entry)) {
-            if (self.current) |current| self.backwards.append(current) catch {};
+            if (self.current) |current| self.backwards.append(self.allocator, current) catch {};
             if (self.forwards.pop()) |top|
                 self.allocator.free(top.file_path);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "forward", entry.file_path, entry.cursor.row, entry.cursor.col, self.backwards.items.len, self.forwards.items.len }));
         } else if (self.current) |current| {
-            try self.backwards.append(current);
+            try self.backwards.append(self.allocator, current);
             tp.trace(tp.channel.all, tp.message.fmt(.{ "location", "new", current.file_path, current.cursor.row, current.cursor.col, self.backwards.items.len, self.forwards.items.len }));
             self.clear_forwards();
         }

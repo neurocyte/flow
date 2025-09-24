@@ -21,7 +21,7 @@ fn parse_error(comptime format: anytype, args: anytype) ParseError {
 pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseError![]input.KeyEvent {
     parse_error_reset();
     if (str.len == 0) return parse_error("empty", .{});
-    var result_events = std.ArrayList(input.KeyEvent).init(allocator);
+    var result_events: std.ArrayList(input.KeyEvent) = .empty;
     var iter_sequence = std.mem.tokenizeScalar(u8, str, ' ');
     while (iter_sequence.next()) |item| {
         var key: ?input.Key = null;
@@ -65,11 +65,11 @@ pub fn parse_key_events(allocator: std.mem.Allocator, str: []const u8) ParseErro
             if (key == null) return parse_error("unknown key '{s}' in '{s}'", .{ part, str });
         }
         if (key) |k|
-            try result_events.append(input.KeyEvent.from_key_modset(k, mods))
+            try result_events.append(allocator, input.KeyEvent.from_key_modset(k, mods))
         else
             return parse_error("no key defined in '{s}'", .{str});
     }
-    return result_events.toOwnedSlice();
+    return result_events.toOwnedSlice(allocator);
 }
 
 pub const name_map = blk: {

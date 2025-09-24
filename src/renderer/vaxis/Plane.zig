@@ -181,7 +181,7 @@ pub fn putstr(self: *Plane, text: []const u8) !usize {
     var result: usize = 0;
     const height = self.window.height;
     const width = self.window.width;
-    var iter = self.window.screen.unicode.graphemeIterator(text);
+    var iter = self.window.unicode.graphemeIterator(text);
     while (iter.next()) |grapheme| {
         const s = grapheme.bytes(text);
         if (std.mem.eql(u8, s, "\n")) {
@@ -443,7 +443,7 @@ pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *c_int, abs_co
         colcount.* = @intCast(tab_width - (abs_col % tab_width));
         return 1;
     }
-    var iter = self.window.screen.unicode.graphemeIterator(egcs);
+    var iter = self.window.unicode.graphemeIterator(egcs);
     const grapheme = iter.next() orelse {
         colcount.* = 1;
         return 1;
@@ -470,7 +470,7 @@ pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize, 
 }
 
 pub fn egc_last(self: *const Plane, egcs: []const u8) []const u8 {
-    var iter = self.window.screen.unicode.graphemeIterator(egcs);
+    var iter = self.window.unicode.graphemeIterator(egcs);
     var last: []const u8 = egcs[0..0];
     while (iter.next()) |grapheme| last = grapheme.bytes(egcs);
     return last;

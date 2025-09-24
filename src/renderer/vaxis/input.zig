@@ -1,5 +1,6 @@
 const vaxis = @import("vaxis");
 
+const Io = @import("std").Io;
 const meta = @import("std").meta;
 const unicode = @import("std").unicode;
 const FormatOptions = @import("std").fmt.FormatOptions;
@@ -88,12 +89,12 @@ pub const KeyEvent = struct {
         return self.modifiers & ~mod.caps_lock;
     }
 
-    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) !void {
         const mods = self.mods_no_shifts();
         return if (self.event > 0)
-            writer.print("{}:{}{}", .{ event_fmt(self.event), mod_fmt(mods), key_fmt(self.key) })
+            writer.print("{f}:{f}{f}", .{ event_fmt(self.event), mod_fmt(mods), key_fmt(self.key) })
         else
-            writer.print("{}{}", .{ mod_fmt(mods), key_fmt(self.key) });
+            writer.print("{f}{f}", .{ mod_fmt(mods), key_fmt(self.key) });
     }
 
     pub fn from_key(keypress: Key) @This() {
@@ -335,8 +336,8 @@ pub const utils = struct {
 
 pub fn key_event_short_fmt(ke: KeyEvent) struct {
     ke: KeyEvent,
-    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
-        return writer.print("{}{}", .{ mod_short_fmt(self.ke.modifiers), key_short_fmt(self.ke.key) });
+    pub fn format(self: @This(), writer: anytype) Io.Writer.Error!void {
+        return writer.print("{f}{f}", .{ mod_short_fmt(self.ke.modifiers), key_short_fmt(self.ke.key) });
     }
 } {
     return .{ .ke = ke };
@@ -344,7 +345,7 @@ pub fn key_event_short_fmt(ke: KeyEvent) struct {
 
 pub fn event_fmt(evt: Event) struct {
     event: Event,
-    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) Io.Writer.Error!void {
         return switch (self.event) {
             event.press => writer.writeAll("press"),
             event.repeat => writer.writeAll("repeat"),
@@ -358,7 +359,7 @@ pub fn event_fmt(evt: Event) struct {
 
 pub fn event_short_fmt(evt: Event) struct {
     event: Event,
-    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) Io.Writer.Error!void {
         return switch (self.event) {
             event.press => writer.writeAll("P"),
             event.repeat => writer.writeAll("RP"),
@@ -372,11 +373,11 @@ pub fn event_short_fmt(evt: Event) struct {
 
 pub fn key_fmt(key_: Key) struct {
     key: Key,
-    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) Io.Writer.Error!void {
         var key_string = utils.key_id_string(self.key);
         var buf: [6]u8 = undefined;
         if (key_string.len == 0) {
-            const bytes = try ucs32_to_utf8(&[_]u32{self.key}, &buf);
+            const bytes = ucs32_to_utf8(&[_]u32{self.key}, &buf) catch return error.WriteFailed;
             key_string = buf[0..bytes];
         }
         try writer.writeAll(key_string);
@@ -387,7 +388,7 @@ pub fn key_fmt(key_: Key) struct {
 
 pub fn key_short_fmt(key_: Key) struct {
     key: Key,
-    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) Io.Writer.Error!void {
         var key_string = utils.key_id_string_short(self.key);
         var buf: [6]u8 = undefined;
         if (key_string.len == 0) {
@@ -402,7 +403,7 @@ pub fn key_short_fmt(key_: Key) struct {
 
 pub fn mod_fmt(mods: Mods) struct {
     modifiers: Mods,
-    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) Io.Writer.Error!void {
         const modset: ModSet = @bitCast(self.modifiers);
         if (modset.super) try writer.writeAll("super+");
         if (modset.ctrl) try writer.writeAll("ctrl+");
@@ -415,7 +416,7 @@ pub fn mod_fmt(mods: Mods) struct {
 
 pub fn mod_short_fmt(mods: Mods) struct {
     modifiers: Mods,
-    pub fn format(self: @This(), comptime _: []const u8, _: FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) Io.Writer.Error!void {
         const modset: ModSet = @bitCast(self.modifiers);
         if (modset.super) try writer.writeAll("Super-");
         if (modset.ctrl) try writer.writeAll("C-");

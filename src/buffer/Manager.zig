@@ -37,7 +37,7 @@ pub fn open_file(self: *Self, file_path: []const u8) Buffer.LoadFromFileError!*B
     return buffer;
 }
 
-pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buffer.LoadFromStringError!*Buffer {
+pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buffer.LoadError!*Buffer {
     const buffer = if (self.buffers.get(file_path)) |buffer| buffer else blk: {
         var buffer = try Buffer.create(self.allocator);
         errdefer buffer.deinit();

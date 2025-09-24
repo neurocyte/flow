@@ -48,18 +48,18 @@ pub fn send_request(
     method: []const u8,
     m: anytype,
     ctx: anytype,
-) (OutOfMemoryError || SpawnError)!void {
-    var cb = std.ArrayList(u8).init(self.allocator);
+) (OutOfMemoryError || SpawnError || std.Io.Writer.Error)!void {
+    var cb: std.Io.Writer.Allocating = .init(self.allocator);
     defer cb.deinit();
-    try cbor.writeValue(cb.writer(), m);
-    return RequestContext(@TypeOf(ctx)).send(allocator, self.pid.ref(), ctx, tp.message.fmt(.{ "REQ", method, cb.items }));
+    try cbor.writeValue(&cb.writer, m);
+    return RequestContext(@TypeOf(ctx)).send(allocator, self.pid.ref(), ctx, tp.message.fmt(.{ "REQ", method, cb.written() }));
 }
 
-pub fn send_notification(self: *const Self, method: []const u8, m: anytype) (OutOfMemoryError || SendError)!void {
-    var cb = std.ArrayList(u8).init(self.allocator);
+pub fn send_notification(self: *const Self, method: []const u8, m: anytype) (OutOfMemoryError || SendError || std.Io.Writer.Error)!void {
+    var cb: std.Io.Writer.Allocating = .init(self.allocator);
     defer cb.deinit();
-    try cbor.writeValue(cb.writer(), m);
-    return self.send_notification_raw(method, cb.items);
+    try cbor.writeValue(&cb.writer, m);
+    return self.send_notification_raw(method, cb.written());
 }
 
 pub fn send_notification_raw(self: *const Self, method: []const u8, cb: []const u8) SendError!void {
@@ -82,27 +82,27 @@ pub const ErrorCode = enum(i32) {
     RequestCancelled = -32800,
 };
 
-pub fn send_response(allocator: std.mem.Allocator, to: tp.pid_ref, cbor_id: []const u8, result: anytype) (SendError || OutOfMemoryError)!void {
-    var cb = std.ArrayList(u8).init(allocator);
+pub fn send_response(allocator: std.mem.Allocator, to: tp.pid_ref, cbor_id: []const u8, result: anytype) (SendError || OutOfMemoryError || std.Io.Writer.Error)!void {
+    var cb: std.Io.Writer.Allocating = .init(allocator);
     defer cb.deinit();
-    const writer = cb.writer();
+    const writer = &cb.writer;
     try cbor.writeArrayHeader(writer, 3);
     try cbor.writeValue(writer, "RSP");
     try writer.writeAll(cbor_id);
-    try cbor.writeValue(cb.writer(), result);
-    to.send_raw(.{ .buf = cb.items }) catch return error.SendFailed;
+    try cbor.writeValue(writer, result);
+    to.send_raw(.{ .buf = cb.written() }) catch return error.SendFailed;
 }
 
-pub fn send_error_response(allocator: std.mem.Allocator, to: tp.pid_ref, cbor_id: []const u8, code: ErrorCode, message: []const u8) (SendError || OutOfMemoryError)!void {
-    var cb = std.ArrayList(u8).init(allocator);
+pub fn send_error_response(allocator: std.mem.Allocator, to: tp.pid_ref, cbor_id: []const u8, code: ErrorCode, message: []const u8) (SendError || OutOfMemoryError || std.Io.Writer.Error)!void {
+    var cb: std.Io.Writer.Allocating = .init(allocator);
     defer cb.deinit();
-    const writer = cb.writer();
+    const writer = &cb.writer;
     try cbor.writeArrayHeader(writer, 4);
     try cbor.writeValue(writer, "ERR");
     try writer.writeAll(cbor_id);
-    try cbor.writeValue(cb.writer(), code);
-    try cbor.writeValue(cb.writer(), message);
-    to.send_raw(.{ .buf = cb.items }) catch return error.SendFailed;
+    try cbor.writeValue(writer, code);
+    try cbor.writeValue(writer, message);
+    to.send_raw(.{ .buf = cb.written() }) catch return error.SendFailed;
 }
 
 pub fn close(self: *Self) void {
@@ -172,6 +172,8 @@ const Process = struct {
     sp_tag: [:0]const u8,
     log_file: ?std.fs.File = null,
     log_file_path: ?[]const u8 = null,
+    log_file_writer: ?std.fs.File.Writer = null,
+    log_file_writer_buf: [1024]u8 = undefined,
     next_id: i32 = 0,
     requests: std.StringHashMap(tp.pid),
     state: enum { init, running } = .init,
@@ -181,7 +183,7 @@ const Process = struct {
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidLspCommand } || OutOfMemoryError || cbor.Error)!tp.pid {
+    pub fn create(allocator: std.mem.Allocator, project: []const u8, cmd: tp.message) (error{ ThespianSpawnFailed, InvalidLspCommand } || OutOfMemoryError || cbor.Error || std.Io.Writer.Error)!tp.pid {
         var tag: []const u8 = undefined;
         if (try cbor.match(cmd.buf, .{tp.extract(&tag)})) {
             //
@@ -194,15 +196,15 @@ const Process = struct {
         }
         const self = try allocator.create(Process);
         errdefer allocator.destroy(self);
-        var sp_tag_ = std.ArrayList(u8).init(allocator);
+        var sp_tag_: std.Io.Writer.Allocating = .init(allocator);
         defer sp_tag_.deinit();
-        try sp_tag_.appendSlice(tag);
-        try sp_tag_.appendSlice("-" ++ sp_tag);
+        try sp_tag_.writer.writeAll(tag);
+        try sp_tag_.writer.writeAll("-" ++ sp_tag);
         self.* = .{
             .allocator = allocator,
             .cmd = try cmd.clone(allocator),
             .receiver = Receiver.init(receive, self),
-            .recv_buf = std.ArrayList(u8).init(allocator),
+            .recv_buf = .empty,
             .parent = tp.self_pid().clone(),
             .tag = try allocator.dupeZ(u8, tag),
             .project = try allocator.dupeZ(u8, project),
@@ -220,11 +222,14 @@ const Process = struct {
             req.value_ptr.deinit();
         }
         self.allocator.free(self.sp_tag);
-        self.recv_buf.deinit();
+        self.recv_buf.deinit(self.allocator);
         self.allocator.free(self.cmd.buf);
         self.close() catch {};
         self.write_log("### terminated LSP process ###\n", .{});
-        if (self.log_file) |file| file.close();
+        if (self.log_file) |file| {
+            if (self.log_file_writer) |*writer| writer.interface.flush() catch {};
+            file.close();
+        }
         if (self.log_file_path) |file_path| self.allocator.free(file_path);
     }
 
@@ -265,12 +270,13 @@ const Process = struct {
         self.sp = tp.subprocess.init(self.allocator, self.cmd, self.sp_tag, .Pipe) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
 
-        var log_file_path = std.ArrayList(u8).init(self.allocator);
+        var log_file_path: std.Io.Writer.Allocating = .init(self.allocator);
         defer log_file_path.deinit();
         const state_dir = root.get_state_dir() catch |e| return tp.exit_error(e, @errorReturnTrace());
-        log_file_path.writer().print("{s}{c}lsp-{s}.log", .{ state_dir, std.fs.path.sep, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.log_file = std.fs.createFileAbsolute(log_file_path.items, .{ .truncate = true }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        log_file_path.writer.print("{s}{c}lsp-{s}.log", .{ state_dir, std.fs.path.sep, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.log_file = std.fs.createFileAbsolute(log_file_path.written(), .{ .truncate = true }) catch |e| return tp.exit_error(e, @errorReturnTrace());
         self.log_file_path = log_file_path.toOwnedSlice() catch null;
+        if (self.log_file) |log_file| self.log_file_writer = log_file.writer(&self.log_file_writer_buf);
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
@@ -441,7 +447,7 @@ const Process = struct {
     }
 
     fn handle_output(self: *Process, bytes: []const u8) Error!void {
-        try self.recv_buf.appendSlice(bytes);
+        try self.recv_buf.appendSlice(self.allocator, bytes);
         self.write_log("### RECV:\n{s}\n###\n", .{bytes});
         self.frame_message_recv() catch |e| {
             self.write_log("### RECV error: {any}\n", .{e});
@@ -473,9 +479,9 @@ const Process = struct {
         const id = self.next_id;
         self.next_id += 1;
 
-        var request = std.ArrayList(u8).init(self.allocator);
+        var request: std.Io.Writer.Allocating = .init(self.allocator);
         defer request.deinit();
-        const msg_writer = request.writer();
+        const msg_writer = &request.writer;
         try cbor.writeMapHeader(msg_writer, 4);
         try cbor.writeValue(msg_writer, "jsonrpc");
         try cbor.writeValue(msg_writer, "2.0");
@@ -486,32 +492,32 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "params");
         _ = try msg_writer.write(params_cb);
 
-        const json = try cbor.toJsonAlloc(self.allocator, request.items);
+        const json = try cbor.toJsonAlloc(self.allocator, request.written());
         defer self.allocator.free(json);
-        var output = std.ArrayList(u8).init(self.allocator);
+        var output: std.Io.Writer.Allocating = .init(self.allocator);
         defer output.deinit();
-        const writer = output.writer();
+        const writer = &output.writer;
         const terminator = "\r\n";
         const content_length = json.len + terminator.len;
         try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
-        sp.send(output.items) catch return error.SendFailed;
-        self.write_log("### SEND request:\n{s}\n###\n", .{output.items});
+        sp.send(output.written()) catch return error.SendFailed;
+        self.write_log("### SEND request:\n{s}\n###\n", .{output.written()});
 
-        var cbor_id = std.ArrayList(u8).init(self.allocator);
+        var cbor_id: std.Io.Writer.Allocating = .init(self.allocator);
         defer cbor_id.deinit();
-        try cbor.writeValue(cbor_id.writer(), id);
+        try cbor.writeValue(&cbor_id.writer, id);
         try self.requests.put(try cbor_id.toOwnedSlice(), from.clone());
     }
 
     fn send_response(self: *Process, cbor_id: []const u8, result_cb: []const u8) (error{Closed} || SendError || cbor.Error || cbor.JsonEncodeError)!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
-        var response = std.ArrayList(u8).init(self.allocator);
+        var response: std.Io.Writer.Allocating = .init(self.allocator);
         defer response.deinit();
-        const msg_writer = response.writer();
+        const msg_writer = &response.writer;
         try cbor.writeMapHeader(msg_writer, 3);
         try cbor.writeValue(msg_writer, "jsonrpc");
         try cbor.writeValue(msg_writer, "2.0");
@@ -520,27 +526,28 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "result");
         _ = try msg_writer.write(result_cb);
 
-        const json = try cbor.toJsonAlloc(self.allocator, response.items);
+        const json = try cbor.toJsonAlloc(self.allocator, response.written());
         defer self.allocator.free(json);
-        var output = std.ArrayList(u8).init(self.allocator);
+
+        var output: std.Io.Writer.Allocating = .init(self.allocator);
         defer output.deinit();
-        const writer = output.writer();
+        const writer = &output.writer;
         const terminator = "\r\n";
         const content_length = json.len + terminator.len;
         try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
-        sp.send(output.items) catch return error.SendFailed;
-        self.write_log("### SEND response:\n{s}\n###\n", .{output.items});
+        sp.send(output.written()) catch return error.SendFailed;
+        self.write_log("### SEND response:\n{s}\n###\n", .{output.written()});
     }
 
     fn send_error_response(self: *Process, cbor_id: []const u8, error_code: ErrorCode, message: []const u8) (error{Closed} || SendError || cbor.Error || cbor.JsonEncodeError)!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
-        var response = std.ArrayList(u8).init(self.allocator);
+        var response: std.Io.Writer.Allocating = .init(self.allocator);
         defer response.deinit();
-        const msg_writer = response.writer();
+        const msg_writer = &response.writer;
         try cbor.writeMapHeader(msg_writer, 3);
         try cbor.writeValue(msg_writer, "jsonrpc");
         try cbor.writeValue(msg_writer, "2.0");
@@ -553,19 +560,20 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "message");
         try cbor.writeValue(msg_writer, message);
 
-        const json = try cbor.toJsonAlloc(self.allocator, response.items);
+        const json = try cbor.toJsonAlloc(self.allocator, response.written());
         defer self.allocator.free(json);
-        var output = std.ArrayList(u8).init(self.allocator);
+
+        var output: std.Io.Writer.Allocating = .init(self.allocator);
         defer output.deinit();
-        const writer = output.writer();
+        const writer = &output.writer;
         const terminator = "\r\n";
         const content_length = json.len + terminator.len;
         try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
-        sp.send(output.items) catch return error.SendFailed;
-        self.write_log("### SEND error response:\n{s}\n###\n", .{output.items});
+        sp.send(output.written()) catch return error.SendFailed;
+        self.write_log("### SEND error response:\n{s}\n###\n", .{output.written()});
     }
 
     fn send_notification(self: *Process, method: []const u8, params_cb: []const u8) Error!void {
@@ -573,9 +581,9 @@ const Process = struct {
 
         const have_params = !(cbor.match(params_cb, cbor.null_) catch false);
 
-        var notification = std.ArrayList(u8).init(self.allocator);
+        var notification: std.Io.Writer.Allocating = .init(self.allocator);
         defer notification.deinit();
-        const msg_writer = notification.writer();
+        const msg_writer = &notification.writer;
         try cbor.writeMapHeader(msg_writer, 3);
         try cbor.writeValue(msg_writer, "jsonrpc");
         try cbor.writeValue(msg_writer, "2.0");
@@ -588,19 +596,20 @@ const Process = struct {
             try cbor.writeMapHeader(msg_writer, 0);
         }
 
-        const json = try cbor.toJsonAlloc(self.allocator, notification.items);
+        const json = try cbor.toJsonAlloc(self.allocator, notification.written());
         defer self.allocator.free(json);
-        var output = std.ArrayList(u8).init(self.allocator);
+
+        var output: std.Io.Writer.Allocating = .init(self.allocator);
         defer output.deinit();
-        const writer = output.writer();
+        const writer = &output.writer;
         const terminator = "\r\n";
         const content_length = json.len + terminator.len;
         try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
-        sp.send(output.items) catch return error.SendFailed;
-        self.write_log("### SEND notification:\n{s}\n###\n", .{output.items});
+        sp.send(output.written()) catch return error.SendFailed;
+        self.write_log("### SEND notification:\n{s}\n###\n", .{output.written()});
     }
 
     fn frame_message_recv(self: *Process) Error!void {
@@ -609,11 +618,11 @@ const Process = struct {
         const headers_data = self.recv_buf.items[0..headers_end];
         const headers = try Headers.parse(headers_data);
         if (self.recv_buf.items.len - (headers_end + sep.len) < headers.content_length) return;
-        const buf = try self.recv_buf.toOwnedSlice();
+        const buf = try self.recv_buf.toOwnedSlice(self.allocator);
         const data = buf[headers_end + sep.len .. headers_end + sep.len + headers.content_length];
         const rest = buf[headers_end + sep.len + headers.content_length ..];
         defer self.allocator.free(buf);
-        if (rest.len > 0) try self.recv_buf.appendSlice(rest);
+        if (rest.len > 0) try self.recv_buf.appendSlice(self.allocator, rest);
         const message = .{ .body = data[0..headers.content_length] };
         const cb = try cbor.fromJsonAlloc(self.allocator, message.body);
         defer self.allocator.free(cb);
@@ -627,9 +636,9 @@ const Process = struct {
         const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json) |p| self.allocator.free(p);
         self.write_log("### RECV req: {s}\nmethod: {s}\n{s}\n###\n", .{ json_id, method, json orelse "no params" });
-        var request = std.ArrayList(u8).init(self.allocator);
+        var request: std.Io.Writer.Allocating = .init(self.allocator);
         defer request.deinit();
-        const writer = request.writer();
+        const writer = &request.writer;
         try cbor.writeArrayHeader(writer, 7);
         try cbor.writeValue(writer, sp_tag);
         try cbor.writeValue(writer, self.project);
@@ -638,7 +647,7 @@ const Process = struct {
         try cbor.writeValue(writer, method);
         try writer.writeAll(cbor_id);
         if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
-        self.parent.send_raw(.{ .buf = request.items }) catch return error.SendFailed;
+        self.parent.send_raw(.{ .buf = request.written() }) catch return error.SendFailed;
     }
 
     fn receive_lsp_response(self: *Process, cbor_id: []const u8, result: ?[]const u8, err: ?[]const u8) Error!void {
@@ -650,9 +659,9 @@ const Process = struct {
         defer if (json_err) |p| self.allocator.free(p);
         self.write_log("### RECV rsp: {s} {s}\n{s}\n###\n", .{ json_id, if (json_err) |_| "error" else "response", json_err orelse json orelse "no result" });
         const from = self.requests.get(cbor_id) orelse return;
-        var response = std.ArrayList(u8).init(self.allocator);
+        var response: std.Io.Writer.Allocating = .init(self.allocator);
         defer response.deinit();
-        const writer = response.writer();
+        const writer = &response.writer;
         try cbor.writeArrayHeader(writer, 4);
         try cbor.writeValue(writer, sp_tag);
         try cbor.writeValue(writer, self.tag);
@@ -663,16 +672,16 @@ const Process = struct {
             try cbor.writeValue(writer, "result");
             _ = try writer.write(result_);
         }
-        from.send_raw(.{ .buf = response.items }) catch return error.SendFailed;
+        from.send_raw(.{ .buf = response.written() }) catch return error.SendFailed;
     }
 
     fn receive_lsp_notification(self: *Process, method: []const u8, params: ?[]const u8) Error!void {
         const json = if (params) |p| try cbor.toJsonPrettyAlloc(self.allocator, p) else null;
         defer if (json) |p| self.allocator.free(p);
         self.write_log("### RECV notify:\nmethod: {s}\n{s}\n###\n", .{ method, json orelse "no params" });
-        var notification = std.ArrayList(u8).init(self.allocator);
+        var notification: std.Io.Writer.Allocating = .init(self.allocator);
         defer notification.deinit();
-        const writer = notification.writer();
+        const writer = &notification.writer;
         try cbor.writeArrayHeader(writer, 6);
         try cbor.writeValue(writer, sp_tag);
         try cbor.writeValue(writer, self.project);
@@ -680,13 +689,13 @@ const Process = struct {
         try cbor.writeValue(writer, "notify");
         try cbor.writeValue(writer, method);
         if (params) |p| _ = try writer.write(p) else try cbor.writeValue(writer, null);
-        self.parent.send_raw(.{ .buf = notification.items }) catch return error.SendFailed;
+        self.parent.send_raw(.{ .buf = notification.written() }) catch return error.SendFailed;
     }
 
     fn write_log(self: *Process, comptime format: []const u8, args: anytype) void {
         if (!debug_lsp) return;
-        const file = self.log_file orelse return;
-        file.writer().print(format, args) catch {};
+        const file_writer = if (self.log_file_writer) |*writer| writer else return;
+        file_writer.interface.print(format, args) catch {};
     }
 };
 

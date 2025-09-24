@@ -14,13 +14,13 @@ pub const Context = struct {
 
     pub fn fmt(value: anytype) Context {
         context_buffer.clearRetainingCapacity();
-        cbor.writeValue(context_buffer.writer(), value) catch @panic("command.Context.fmt failed");
-        return .{ .args = .{ .buf = context_buffer.items } };
+        cbor.writeValue(&context_buffer.writer, value) catch @panic("command.Context.fmt failed");
+        return .{ .args = .{ .buf = context_buffer.written() } };
     }
 };
 
 const context_buffer_allocator = std.heap.c_allocator;
-threadlocal var context_buffer: std.ArrayList(u8) = std.ArrayList(u8).init(context_buffer_allocator);
+threadlocal var context_buffer: std.Io.Writer.Allocating = .init(context_buffer_allocator);
 pub const fmt = Context.fmt;
 
 const Vtable = struct {
@@ -96,12 +96,12 @@ pub fn Closure(comptime T: type) type {
 }
 
 const CommandTable = std.ArrayList(?*Vtable);
-pub var commands: CommandTable = CommandTable.init(command_table_allocator);
+pub var commands: CommandTable = .empty;
 var command_names: std.StringHashMap(ID) = std.StringHashMap(ID).init(command_table_allocator);
 const command_table_allocator = std.heap.c_allocator;
 
 fn addCommand(cmd: *Vtable) !ID {
-    try commands.append(cmd);
+    try commands.append(command_table_allocator, cmd);
     return commands.items.len - 1;
 }
 
@@ -121,9 +121,9 @@ pub fn execute(id: ID, ctx: Context) tp.result {
         if (len < 1) {
             tp.trace(tp.channel.debug, .{ "command", "execute", id, get_name(id) });
         } else {
-            var msg_cb = std.ArrayList(u8).init(command_table_allocator);
+            var msg_cb: std.Io.Writer.Allocating = .init(command_table_allocator);
             defer msg_cb.deinit();
-            const writer = msg_cb.writer();
+            const writer = &msg_cb.writer;
             cbor.writeArrayHeader(writer, 4 + len) catch break :trace;
             cbor.writeValue(writer, "command") catch break :trace;
             cbor.writeValue(writer, "execute") catch break :trace;
@@ -132,9 +132,9 @@ pub fn execute(id: ID, ctx: Context) tp.result {
             while (len > 0) : (len -= 1) {
                 var arg: []const u8 = undefined;
                 if (cbor.matchValue(&iter, cbor.extract_cbor(&arg)) catch break :trace)
-                    msg_cb.appendSlice(arg) catch break :trace;
+                    writer.writeAll(arg) catch break :trace;
             }
-            const msg: tp.message = .{ .buf = msg_cb.items };
+            const msg: tp.message = .{ .buf = msg_cb.written() };
             tp.trace(tp.channel.debug, msg);
         }
     }
