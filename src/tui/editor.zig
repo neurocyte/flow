@@ -4420,10 +4420,12 @@ pub const Editor = struct {
         const root = try self.buf_root();
         const cursel = self.get_primary();
         cursel.check_selection(root, self.metrics);
-        try if (unnamed)
-            self.select_next_sibling_node(root, cursel, self.metrics)
-        else
-            self.select_next_named_sibling_node(root, cursel, self.metrics);
+        if (cursel.selection) |_| {
+            try if (unnamed)
+                self.select_next_sibling_node(root, cursel, self.metrics)
+            else
+                self.select_next_named_sibling_node(root, cursel, self.metrics);
+        } else try cursel.select_node(try self.top_node_at_cursel(cursel, root, self.metrics), root, self.metrics);
         self.clamp();
         try self.send_editor_jump_destination();
     }
