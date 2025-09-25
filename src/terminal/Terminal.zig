@@ -242,11 +242,15 @@ pub fn tryEvent(self: *Terminal) ?Event {
 
 pub fn update(self: *Terminal, event: InputEvent) !void {
     switch (event) {
-        .key_press => |k| try key.encode(self.writer(), k, true, self.back_screen.csi_u_flags),
+        .key_press => |k| {
+            const pty_writer = self.get_pty_writer();
+            defer pty_writer.flush() catch {};
+            try key.encode(pty_writer, k, true, self.back_screen.csi_u_flags);
+        },
     }
 }
 
-pub fn writer(self: *Terminal) *std.Io.Writer {
+pub fn get_pty_writer(self: *Terminal) *std.Io.Writer {
     return &self.pty_writer.interface;
 }
 
@@ -502,16 +506,18 @@ fn run(self: *Terminal) !void {
                     },
                     // Device Attributes
                     'c' => {
+                        const pty_writer = self.get_pty_writer();
+                        defer pty_writer.flush() catch {};
                         if (seq.private_marker) |pm| {
                             switch (pm) {
                                 // Secondary
-                                '>' => try self.writer().writeAll("\x1B[>1;69;0c"),
-                                '=' => try self.writer().writeAll("\x1B[=0000c"),
+                                '>' => try pty_writer.writeAll("\x1B[>1;69;0c"),
+                                '=' => try pty_writer.writeAll("\x1B[=0000c"),
                                 else => log.info("unhandled CSI: {f}", .{seq}),
                             }
                         } else {
                             // Primary
-                            try self.writer().writeAll("\x1B[?62;22c");
+                            try pty_writer.writeAll("\x1B[?62;22c");
                         }
                     },
                     // Cursor Vertical Position Absolute
@@ -575,9 +581,11 @@ fn run(self: *Terminal) !void {
                         var iter = seq.iterator(u16);
                         const ps = iter.next() orelse 0;
                         if (seq.intermediate == null and seq.private_marker == null) {
+                            const pty_writer = self.get_pty_writer();
+                            defer pty_writer.flush() catch {};
                             switch (ps) {
-                                5 => try self.writer().writeAll("\x1b[0n"),
-                                6 => try self.writer().print("\x1b[{d};{d}R", .{
+                                5 => try pty_writer.writeAll("\x1b[0n"),
+                                6 => try pty_writer.print("\x1b[{d};{d}R", .{
                                     self.back_screen.cursor.row + 1,
                                     self.back_screen.cursor.col + 1,
                                 }),
@@ -592,11 +600,13 @@ fn run(self: *Terminal) !void {
                             switch (int) {
                                 // report mode
                                 '$' => {
+                                    const pty_writer = self.get_pty_writer();
+                                    defer pty_writer.flush() catch {};
                                     switch (ps) {
-                                        2026 => try self.writer().writeAll("\x1b[?2026;2$p"),
+                                        2026 => try pty_writer.writeAll("\x1b[?2026;2$p"),
                                         else => {
                                             std.log.warn("unhandled mode: {}", .{ps});
-                                            try self.writer().print("\x1b[?{d};0$p", .{ps});
+                                            try pty_writer.print("\x1b[?{d};0$p", .{ps});
                                         },
                                     }
                                 },
@@ -616,9 +626,11 @@ fn run(self: *Terminal) !void {
                             }
                         }
                         if (seq.private_marker) |pm| {
+                            const pty_writer = self.get_pty_writer();
+                            defer pty_writer.flush() catch {};
                             switch (pm) {
                                 // XTVERSION
-                                '>' => try self.writer().print(
+                                '>' => try pty_writer.print(
                                     "\x1bP>|libvaxis {s}\x1B\\",
                                     .{"dev"},
                                 ),
