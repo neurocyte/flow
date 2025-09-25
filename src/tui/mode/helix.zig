@@ -45,6 +45,11 @@ const cmds_ = struct {
     }
     pub const @"q!_meta": Meta = .{ .description = "q! (quit without saving)" };
 
+    pub fn @"qa!"(_: *void, _: Ctx) Result {
+        try cmd("quit_without_saving", .{});
+    }
+    pub const @"qa!_meta": Meta = .{ .description = "qa! (quit without saving)" };
+
     pub fn wq(_: *void, _: Ctx) Result {
         try cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
     }
@@ -54,6 +59,11 @@ const cmds_ = struct {
         try cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
     }
     pub const x_meta: Meta = .{ .description = "x (write/save file and quit)" };
+
+    pub fn rl(_: *void, _: Ctx) Result {
+        try cmd("reload_file", .{});
+    }
+    pub const rl_meta: Meta = .{ .description = "rl (force reload current file)" };
 
     pub fn o(_: *void, _: Ctx) Result {
         try cmd("open_file", .{});
@@ -65,6 +75,26 @@ const cmds_ = struct {
         try cmd("quit_without_saving", .{});
     }
     pub const @"wq!_meta": Meta = .{ .description = "wq! (write/save file and quit without saving)" };
+
+    pub fn n(_: *void, _: Ctx) Result {
+        try cmd("create_new_file", .{});
+    }
+    pub const n_meta: Meta = .{ .description = "n (Create new buffer/tab)" };
+
+    pub fn bn(_: *void, _: Ctx) Result {
+        try cmd("next_tab", .{});
+    }
+    pub const bn_meta: Meta = .{ .description = "bn (Next buffer/tab)" };
+
+    pub fn bp(_: *void, _: Ctx) Result {
+        try cmd("previous_tab", .{});
+    }
+    pub const bp_meta: Meta = .{ .description = "bp (Previous buffer/tab)" };
+
+    pub fn bc(_: *void, _: Ctx) Result {
+        try cmd("delete_buffer", .{});
+    }
+    pub const bc_meta: Meta = .{ .description = "bc (Close buffer/tab)" };
 
     pub fn save_selection(_: *void, _: Ctx) Result {
         const logger = log.logger("helix-mode");
