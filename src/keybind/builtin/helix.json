@@ -14,6 +14,7 @@
             ["ctrl+f", "move_scroll_page_down"],
             ["ctrl+u", "move_scroll_half_page_up"],
             ["ctrl+d", "move_scroll_half_page_down"],
+            ["z z", "scroll_view_center"],
             ["ctrl+c", "toggle_comment"],
             ["ctrl+i", "jump_forward"],
             ["ctrl+o", "jump_back"],
@@ -191,6 +192,7 @@
             ["u", "undo"],
 
             ["y", ["enable_selection"], ["copy_helix"], ["enter_mode", "normal"]],
+            ["%", "select_all"],
             ["p", "paste_after"],
 
             ["q", "record_macro"],
@@ -265,6 +267,7 @@
             ["ctrl+f", "select_page_down"],
             ["ctrl+u", "select_half_page_up"],
             ["ctrl+d", "select_half_page_down"],
+            ["z z", "scroll_view_center"],
 
             ["ctrl+c", "toggle_comment"],
 
@@ -390,6 +393,7 @@
             ["kp_down", "select_down"],
             ["kp_up", "select_up"],
             ["kp_right", "select_right"],
+            ["%", "select_all"],
 
             ["t", "extend_till_char"],
             ["f", "move_to_char", "select_to_char_right_helix"],
