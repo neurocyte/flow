@@ -34,7 +34,7 @@ pub fn load_entries(palette: *Type) !usize {
             .indicator = indicator,
         };
     }
-    return if (palette.entries.items.len == 0) label.len else 4;
+    return if (palette.entries.items.len == 0) label.len + 3 else 4;
 }
 
 pub fn clear_entries(palette: *Type) void {
