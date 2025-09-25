@@ -55,33 +55,26 @@ pub const CSI = struct {
         return .{ .bytes = self.params };
     }
 
-    pub fn format(
-        self: CSI,
-        comptime layout: []const u8,
-        opts: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = layout;
-        _ = opts;
+    pub fn format(self: CSI, writer: anytype) !void {
         if (self.private_marker == null and self.intermediate == null)
-            try std.fmt.format(writer, "CSI {s} {c}", .{
+            try writer.print("CSI {s} {c}", .{
                 self.params,
                 self.final,
             })
         else if (self.private_marker != null and self.intermediate == null)
-            try std.fmt.format(writer, "CSI {c} {s} {c}", .{
+            try writer.print("CSI {c} {s} {c}", .{
                 self.private_marker.?,
                 self.params,
                 self.final,
             })
         else if (self.private_marker == null and self.intermediate != null)
-            try std.fmt.format(writer, "CSI {s} {c} {c}", .{
+            try writer.print("CSI {s} {c} {c}", .{
                 self.params,
                 self.intermediate.?,
                 self.final,
             })
         else
-            try std.fmt.format(writer, "CSI {c} {s} {c} {c}", .{
+            try writer.print("CSI {c} {s} {c} {c}", .{
                 self.private_marker.?,
                 self.params,
                 self.intermediate.?,

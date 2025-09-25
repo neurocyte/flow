@@ -53,6 +53,7 @@ allocator: std.mem.Allocator,
 scrollback_size: u16,
 
 pty: Pty,
+pty_writer: std.fs.File.Writer,
 cmd: Command,
 thread: ?std.Thread = null,
 
@@ -76,8 +77,8 @@ should_quit: bool = false,
 mode: Mode = .{},
 
 tab_stops: std.ArrayList(u16),
-title: std.ArrayList(u8),
-working_directory: std.ArrayList(u8),
+title: std.ArrayList(u8) = .empty,
+working_directory: std.ArrayList(u8) = .empty,
 
 last_printed: []const u8 = "",
 
@@ -91,6 +92,7 @@ pub fn init(
     env: *const std.process.EnvMap,
     unicode: *const vaxis.Unicode,
     opts: Options,
+    write_buf: []u8,
 ) !Terminal {
     // Verify we have an absolute path
     if (opts.initial_working_directory) |pwd| {
@@ -104,14 +106,15 @@ pub fn init(
         .pty = pty,
         .working_directory = opts.initial_working_directory,
     };
-    var tabs = try std.ArrayList(u16).initCapacity(allocator, opts.winsize.cols / 8);
+    var tabs: std.ArrayList(u16) = try .initCapacity(allocator, opts.winsize.cols / 8);
     var col: u16 = 0;
     while (col < opts.winsize.cols) : (col += 8) {
-        try tabs.append(col);
+        try tabs.append(allocator, col);
     }
     return .{
         .allocator = allocator,
         .pty = pty,
+        .pty_writer = pty.pty.writerStreaming(write_buf),
         .cmd = cmd,
         .scrollback_size = opts.scrollback_size,
         .front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
@@ -119,8 +122,6 @@ pub fn init(
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .unicode = unicode,
         .tab_stops = tabs,
-        .title = std.ArrayList(u8).init(allocator),
-        .working_directory = std.ArrayList(u8).init(allocator),
     };
 }
 
@@ -143,7 +144,7 @@ pub fn deinit(self: *Terminal) void {
     if (self.thread) |thread| {
         // write an EOT into the tty to trigger a read on our thread
         const EOT = "\x04";
-        _ = std.posix.write(self.pty.tty, EOT) catch {};
+        _ = self.pty.tty.write(EOT) catch {};
         thread.join();
         self.thread = null;
     }
@@ -151,9 +152,9 @@ pub fn deinit(self: *Terminal) void {
     self.front_screen.deinit(self.allocator);
     self.back_screen_pri.deinit(self.allocator);
     self.back_screen_alt.deinit(self.allocator);
-    self.tab_stops.deinit();
-    self.title.deinit();
-    self.working_directory.deinit();
+    self.tab_stops.deinit(self.allocator);
+    self.title.deinit(self.allocator);
+    self.working_directory.deinit(self.allocator);
 }
 
 pub fn spawn(self: *Terminal) !void {
@@ -164,12 +165,12 @@ pub fn spawn(self: *Terminal) !void {
 
     self.working_directory.clearRetainingCapacity();
     if (self.cmd.working_directory) |pwd| {
-        try self.working_directory.appendSlice(pwd);
+        try self.working_directory.appendSlice(self.allocator, pwd);
     } else {
         const pwd = std.fs.cwd();
         var buffer: [std.fs.max_path_bytes]u8 = undefined;
         const out_path = try std.os.getFdPath(pwd.fd, &buffer);
-        try self.working_directory.appendSlice(out_path);
+        try self.working_directory.appendSlice(self.allocator, out_path);
     }
 
     {
@@ -208,13 +209,13 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
     try self.pty.setSize(ws);
 }
 
-pub fn draw(self: *Terminal, win: vaxis.Window) !void {
+pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window) !void {
     if (self.back_mutex.tryLock()) {
         defer self.back_mutex.unlock();
         // We keep this as a separate condition so we don't deadlock by obtaining the lock but not
         // having sync
         if (!self.mode.sync) {
-            try self.back_screen.copyTo(&self.front_screen);
+            try self.back_screen.copyTo(allocator, &self.front_screen);
             self.dirty = false;
         }
     }
@@ -245,45 +246,26 @@ pub fn update(self: *Terminal, event: InputEvent) !void {
     }
 }
 
-fn opaqueWrite(ptr: *const anyopaque, buf: []const u8) !usize {
-    const self: *const Terminal = @ptrCast(@alignCast(ptr));
-    return posix.write(self.pty.pty, buf);
+pub fn writer(self: *Terminal) *std.Io.Writer {
+    return &self.pty_writer.interface;
 }
 
-pub fn writer(self: *const Terminal) *std.io.Writer {
-    const local = struct {
-        var writer: std.io.Writer = .{
-            .context = self,
-            .writeFn = Terminal.opaqueWrite,
-        };
-    };
-    return &local.writer;
-}
-
-fn opaqueRead(ptr: *const anyopaque, buf: []u8) !usize {
-    const self: *const Terminal = @ptrCast(@alignCast(ptr));
-    return posix.read(self.pty.pty, buf);
-}
-
-fn anyReader(self: *const Terminal) std.io.AnyReader {
-    return .{
-        .context = self,
-        .readFn = Terminal.opaqueRead,
-    };
+fn reader(self: *const Terminal, buf: []u8) std.fs.File.Reader {
+    return self.pty.pty.readerStreaming(buf);
 }
 
 /// process the output from the command on the pty
 fn run(self: *Terminal) !void {
     var parser: Parser = .{
-        .buf = try std.ArrayList(u8).initCapacity(self.allocator, 128),
+        .buf = try .initCapacity(self.allocator, 128),
     };
     defer parser.buf.deinit();
 
-    // Use our anyReader to make a buffered reader, then get *that* any reader
-    var reader = std.io.bufferedReader(self.anyReader());
+    var reader_buf: [4096]u8 = undefined;
+    var reader_ = self.reader(&reader_buf);
 
     while (!self.should_quit) {
-        const event = try parser.parseReader(&reader);
+        const event = try parser.parseReader(&reader_.interface);
         self.back_mutex.lock();
         defer self.back_mutex.unlock();
 
@@ -318,7 +300,7 @@ fn run(self: *Terminal) !void {
                             if (ts == self.back_screen.cursor.col) break true;
                         } else false;
                         if (already_set) continue;
-                        try self.tab_stops.append(@truncate(self.back_screen.cursor.col));
+                        try self.tab_stops.append(self.allocator, @truncate(self.back_screen.cursor.col));
                         std.mem.sort(u16, self.tab_stops.items, {}, std.sort.asc(u16));
                     },
                     // Reverse Index
@@ -469,7 +451,7 @@ fn run(self: *Terminal) !void {
                             self.tab_stops.clearRetainingCapacity();
                             var col: u16 = 0;
                             while (col < self.back_screen.width) : (col += 8) {
-                                try self.tab_stops.append(col);
+                                try self.tab_stops.append(self.allocator, col);
                             }
                         }
                     },
@@ -485,7 +467,7 @@ fn run(self: *Terminal) !void {
                         );
                         var i: usize = start;
                         while (i < end) : (i += 1) {
-                            self.back_screen.buf[i].erase(self.back_screen.cursor.style.bg);
+                            self.back_screen.buf[i].erase(self.allocator, self.back_screen.cursor.style.bg);
                         }
                     },
                     'Z' => {
@@ -525,7 +507,7 @@ fn run(self: *Terminal) !void {
                                 // Secondary
                                 '>' => try self.writer().writeAll("\x1B[>1;69;0c"),
                                 '=' => try self.writer().writeAll("\x1B[=0000c"),
-                                else => log.info("unhandled CSI: {}", .{seq}),
+                                else => log.info("unhandled CSI: {f}", .{seq}),
                             }
                         } else {
                             // Primary
@@ -563,16 +545,16 @@ fn run(self: *Terminal) !void {
                         const n = iter.next() orelse 0;
                         switch (n) {
                             0 => {
-                                const current = try self.tab_stops.toOwnedSlice();
-                                defer self.tab_stops.allocator.free(current);
+                                const current = try self.tab_stops.toOwnedSlice(self.allocator);
+                                defer self.allocator.free(current);
                                 self.tab_stops.clearRetainingCapacity();
                                 for (current) |stop| {
                                     if (stop == self.back_screen.cursor.col) continue;
-                                    try self.tab_stops.append(stop);
+                                    try self.tab_stops.append(self.allocator, stop);
                                 }
                             },
-                            3 => self.tab_stops.clearAndFree(),
-                            else => log.info("unhandled CSI: {}", .{seq}),
+                            3 => self.tab_stops.clearAndFree(self.allocator),
+                            else => log.info("unhandled CSI: {f}", .{seq}),
                         }
                     },
                     'h', 'l' => {
@@ -599,7 +581,7 @@ fn run(self: *Terminal) !void {
                                     self.back_screen.cursor.row + 1,
                                     self.back_screen.cursor.col + 1,
                                 }),
-                                else => log.info("unhandled CSI: {}", .{seq}),
+                                else => log.info("unhandled CSI: {f}", .{seq}),
                             }
                         }
                     },
@@ -618,7 +600,7 @@ fn run(self: *Terminal) !void {
                                         },
                                     }
                                 },
-                                else => log.info("unhandled CSI: {}", .{seq}),
+                                else => log.info("unhandled CSI: {f}", .{seq}),
                             }
                         }
                     },
@@ -640,7 +622,7 @@ fn run(self: *Terminal) !void {
                                     "\x1bP>|libvaxis {s}\x1B\\",
                                     .{"dev"},
                                 ),
-                                else => log.info("unhandled CSI: {}", .{seq}),
+                                else => log.info("unhandled CSI: {f}", .{seq}),
                             }
                         }
                     },
@@ -668,7 +650,7 @@ fn run(self: *Terminal) !void {
                             self.back_screen.cursor.row = 0;
                         }
                     },
-                    else => log.info("unhandled CSI: {}", .{seq}),
+                    else => log.info("unhandled CSI: {f}", .{seq}),
                 }
             },
             .osc => |osc| {
@@ -683,7 +665,7 @@ fn run(self: *Terminal) !void {
                 switch (ps) {
                     0 => {
                         self.title.clearRetainingCapacity();
-                        try self.title.appendSlice(osc[semicolon + 1 ..]);
+                        try self.title.appendSlice(self.allocator, osc[semicolon + 1 ..]);
                         self.event_queue.push(.{ .title_change = self.title.items });
                     },
                     7 => {
@@ -702,7 +684,7 @@ fn run(self: *Terminal) !void {
                                 defer i += 2;
                                 break :blk try std.fmt.parseUnsigned(u8, enc[i + 1 .. i + 3], 16);
                             } else enc[i];
-                            try self.working_directory.append(b);
+                            try self.working_directory.append(self.allocator, b);
                         }
                         self.event_queue.push(.{ .pwd_change = self.working_directory.items });
                     },

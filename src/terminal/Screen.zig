@@ -9,18 +9,18 @@ const log = std.log.scoped(.vaxis_terminal);
 const Screen = @This();
 
 pub const Cell = struct {
-    char: std.ArrayList(u8) = undefined,
+    char: std.ArrayList(u8) = .empty,
     style: vaxis.Style = .{},
-    uri: std.ArrayList(u8) = undefined,
-    uri_id: std.ArrayList(u8) = undefined,
+    uri: std.ArrayList(u8) = .empty,
+    uri_id: std.ArrayList(u8) = .empty,
     width: u8 = 1,
 
     wrapped: bool = false,
     dirty: bool = true,
 
-    pub fn erase(self: *Cell, bg: vaxis.Color) void {
+    pub fn erase(self: *Cell, allocator: std.mem.Allocator, bg: vaxis.Color) void {
         self.char.clearRetainingCapacity();
-        self.char.append(' ') catch unreachable; // we never completely free this list
+        self.char.append(allocator, ' ') catch unreachable; // we never completely free this list
         self.style = .{};
         self.style.bg = bg;
         self.uri.clearRetainingCapacity();
@@ -30,14 +30,14 @@ pub const Cell = struct {
         self.dirty = true;
     }
 
-    pub fn copyFrom(self: *Cell, src: Cell) !void {
+    pub fn copyFrom(self: *Cell, allocator: std.mem.Allocator, src: Cell) !void {
         self.char.clearRetainingCapacity();
-        try self.char.appendSlice(src.char.items);
+        try self.char.appendSlice(allocator, src.char.items);
         self.style = src.style;
         self.uri.clearRetainingCapacity();
-        try self.uri.appendSlice(src.uri.items);
+        try self.uri.appendSlice(allocator, src.uri.items);
         self.uri_id.clearRetainingCapacity();
-        try self.uri_id.appendSlice(src.uri_id.items);
+        try self.uri_id.appendSlice(allocator, src.uri_id.items);
         self.width = src.width;
         self.wrapped = src.wrapped;
 
@@ -81,6 +81,8 @@ pub const ScrollingRegion = struct {
     }
 };
 
+allocator: std.mem.Allocator,
+
 width: u16 = 0,
 height: u16 = 0,
 
@@ -95,6 +97,7 @@ csi_u_flags: vaxis.Key.KittyFlags = @bitCast(@as(u5, 0)),
 /// sets each cell to the default cell
 pub fn init(alloc: std.mem.Allocator, w: u16, h: u16) !Screen {
     var screen = Screen{
+        .allocator = alloc,
         .buf = try alloc.alloc(Cell, @as(usize, @intCast(w)) * h),
         .scrolling_region = .{
             .top = 0,
@@ -107,34 +110,32 @@ pub fn init(alloc: std.mem.Allocator, w: u16, h: u16) !Screen {
     };
     for (screen.buf, 0..) |_, i| {
         screen.buf[i] = .{
-            .char = try std.ArrayList(u8).initCapacity(alloc, 1),
-            .uri = std.ArrayList(u8).init(alloc),
-            .uri_id = std.ArrayList(u8).init(alloc),
+            .char = try .initCapacity(alloc, 1),
         };
-        try screen.buf[i].char.append(' ');
+        try screen.buf[i].char.append(alloc, ' ');
     }
     return screen;
 }
 
 pub fn deinit(self: *Screen, alloc: std.mem.Allocator) void {
     for (self.buf, 0..) |_, i| {
-        self.buf[i].char.deinit();
-        self.buf[i].uri.deinit();
-        self.buf[i].uri_id.deinit();
+        self.buf[i].char.deinit(alloc);
+        self.buf[i].uri.deinit(alloc);
+        self.buf[i].uri_id.deinit(alloc);
     }
 
     alloc.free(self.buf);
 }
 
 /// copies the visible area to the destination screen
-pub fn copyTo(self: *Screen, dst: *Screen) !void {
+pub fn copyTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen) !void {
     dst.cursor = self.cursor;
     for (self.buf, 0..) |cell, i| {
         if (!cell.dirty) continue;
         self.buf[i].dirty = false;
         const grapheme = cell.char.items;
         dst.buf[i].char.clearRetainingCapacity();
-        try dst.buf[i].char.appendSlice(grapheme);
+        try dst.buf[i].char.appendSlice(allocator, grapheme);
         dst.buf[i].width = cell.width;
         dst.buf[i].style = cell.style;
     }
@@ -182,15 +183,15 @@ pub fn print(
     const i = (row * self.width) + col;
     assert(i < self.buf.len);
     self.buf[i].char.clearRetainingCapacity();
-    self.buf[i].char.appendSlice(grapheme) catch {
+    self.buf[i].char.appendSlice(self.allocator, grapheme) catch {
         log.warn("couldn't write grapheme", .{});
     };
     self.buf[i].uri.clearRetainingCapacity();
-    self.buf[i].uri.appendSlice(self.cursor.uri.items) catch {
+    self.buf[i].uri.appendSlice(self.allocator, self.cursor.uri.items) catch {
         log.warn("couldn't write uri", .{});
     };
     self.buf[i].uri_id.clearRetainingCapacity();
-    self.buf[i].uri_id.appendSlice(self.cursor.uri_id.items) catch {
+    self.buf[i].uri_id.appendSlice(self.allocator, self.cursor.uri_id.items) catch {
         log.warn("couldn't write uri_id", .{});
     };
     self.buf[i].style = self.cursor.style;
@@ -368,7 +369,7 @@ pub fn eraseRight(self: *Screen) void {
     const end = (self.cursor.row * self.width) + (self.width);
     var i = (self.cursor.row * self.width) + self.cursor.col;
     while (i < end) : (i += 1) {
-        self.buf[i].erase(self.cursor.style.bg);
+        self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
 }
 
@@ -378,7 +379,7 @@ pub fn eraseLeft(self: *Screen) void {
     const end = start + self.cursor.col + 1;
     var i = start;
     while (i < end) : (i += 1) {
-        self.buf[i].erase(self.cursor.style.bg);
+        self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
 }
 
@@ -388,7 +389,7 @@ pub fn eraseLine(self: *Screen) void {
     const end = start + self.width;
     var i = start;
     while (i < end) : (i += 1) {
-        self.buf[i].erase(self.cursor.style.bg);
+        self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
 }
 
@@ -411,9 +412,9 @@ pub fn deleteLine(self: *Screen, n: usize) !void {
         while (col <= self.scrolling_region.right) : (col += 1) {
             const i = (row * self.width) + col;
             if (row + cnt > self.scrolling_region.bottom)
-                self.buf[i].erase(self.cursor.style.bg)
+                self.buf[i].erase(self.allocator, self.cursor.style.bg)
             else
-                try self.buf[i].copyFrom(self.buf[i + stride]);
+                try self.buf[i].copyFrom(self.allocator, self.buf[i + stride]);
         }
     }
 }
@@ -434,7 +435,7 @@ pub fn insertLine(self: *Screen, n: usize) !void {
         var col: usize = self.scrolling_region.left;
         while (col <= self.scrolling_region.right) : (col += 1) {
             const i = (row * self.width) + col;
-            try self.buf[i].copyFrom(self.buf[i - stride]);
+            try self.buf[i].copyFrom(self.allocator, self.buf[i - stride]);
         }
     }
 
@@ -443,7 +444,7 @@ pub fn insertLine(self: *Screen, n: usize) !void {
         var col: usize = self.scrolling_region.left;
         while (col <= self.scrolling_region.right) : (col += 1) {
             const i = (row * self.width) + col;
-            self.buf[i].erase(self.cursor.style.bg);
+            self.buf[i].erase(self.allocator, self.cursor.style.bg);
         }
     }
 }
@@ -454,7 +455,7 @@ pub fn eraseBelow(self: *Screen) void {
     const start = (self.cursor.row * self.width) + (self.width);
     var i = start;
     while (i < self.buf.len) : (i += 1) {
-        self.buf[i].erase(self.cursor.style.bg);
+        self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
 }
 
@@ -465,14 +466,14 @@ pub fn eraseAbove(self: *Screen) void {
     const end = self.cursor.row * self.width;
     var i = start;
     while (i < end) : (i += 1) {
-        self.buf[i].erase(self.cursor.style.bg);
+        self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
 }
 
 pub fn eraseAll(self: *Screen) void {
     var i: usize = 0;
     while (i < self.buf.len) : (i += 1) {
-        self.buf[i].erase(self.cursor.style.bg);
+        self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
 }
 
@@ -483,9 +484,9 @@ pub fn deleteCharacters(self: *Screen, n: usize) !void {
     var col = self.cursor.col;
     while (col <= self.scrolling_region.right) : (col += 1) {
         if (col + n <= self.scrolling_region.right)
-            try self.buf[col].copyFrom(self.buf[col + n])
+            try self.buf[col].copyFrom(self.allocator, self.buf[col + n])
         else
-            self.buf[col].erase(self.cursor.style.bg);
+            self.buf[col].erase(self.allocator, self.cursor.style.bg);
     }
 }
 

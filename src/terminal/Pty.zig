@@ -7,8 +7,8 @@ const Winsize = @import("../../main.zig").Winsize;
 
 const posix = std.posix;
 
-pty: posix.fd_t,
-tty: posix.fd_t,
+pty: std.fs.File,
+tty: std.fs.File,
 
 /// opens a new tty/pty pair
 pub fn init() !Pty {
@@ -20,8 +20,8 @@ pub fn init() !Pty {
 
 /// closes the tty and pty
 pub fn deinit(self: Pty) void {
-    posix.close(self.pty);
-    posix.close(self.tty);
+    self.pty.close();
+    self.tty.close();
 }
 
 /// sets the size of the pty
@@ -32,7 +32,7 @@ pub fn setSize(self: Pty, ws: Winsize) !void {
         .xpixel = @truncate(ws.x_pixel),
         .ypixel = @truncate(ws.y_pixel),
     };
-    if (posix.system.ioctl(self.pty, posix.T.IOCSWINSZ, @intFromPtr(&_ws)) != 0)
+    if (posix.system.ioctl(self.pty.handle, posix.T.IOCSWINSZ, @intFromPtr(&_ws)) != 0)
         return error.SetWinsizeError;
 }
 
@@ -53,7 +53,7 @@ fn openPtyLinux() !Pty {
     const t = try posix.open(sname, .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
 
     return .{
-        .pty = p,
-        .tty = t,
+        .pty = .{ .handle = p },
+        .tty = .{ .handle = t },
     };
 }

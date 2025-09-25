@@ -2,7 +2,7 @@ const std = @import("std");
 const vaxis = @import("../../main.zig");
 
 pub fn encode(
-    writer: std.io.AnyWriter,
+    writer: *std.Io.Writer,
     key: vaxis.Key,
     press: bool,
     kitty_flags: vaxis.Key.KittyFlags,
@@ -19,7 +19,7 @@ pub fn encode(
     }
 }
 
-fn legacy(writer: std.io.AnyWriter, key: vaxis.Key) !void {
+fn legacy(writer: *std.Io.Writer, key: vaxis.Key) !void {
     // If we have text, we always write it directly
     if (key.text) |text| {
         try writer.writeAll(text);

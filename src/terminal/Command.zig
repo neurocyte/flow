@@ -36,15 +36,15 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
         // set the controlling terminal
         var u: c_uint = std.posix.STDIN_FILENO;
-        if (posix.system.ioctl(self.pty.tty, posix.T.IOCSCTTY, @intFromPtr(&u)) != 0) return error.IoctlError;
+        if (posix.system.ioctl(self.pty.tty.handle, posix.T.IOCSCTTY, @intFromPtr(&u)) != 0) return error.IoctlError;
 
         // set up io
-        try posix.dup2(self.pty.tty, std.posix.STDIN_FILENO);
-        try posix.dup2(self.pty.tty, std.posix.STDOUT_FILENO);
-        try posix.dup2(self.pty.tty, std.posix.STDERR_FILENO);
+        try posix.dup2(self.pty.tty.handle, std.posix.STDIN_FILENO);
+        try posix.dup2(self.pty.tty.handle, std.posix.STDOUT_FILENO);
+        try posix.dup2(self.pty.tty.handle, std.posix.STDERR_FILENO);
 
-        posix.close(self.pty.tty);
-        if (self.pty.pty > 2) posix.close(self.pty.pty);
+        self.pty.tty.close();
+        if (self.pty.pty.handle > 2) self.pty.pty.close();
 
         if (self.working_directory) |wd| {
             try std.posix.chdir(wd);
@@ -75,7 +75,7 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
     return;
 }
 
-fn handleSigChild(_: c_int) callconv(.C) void {
+fn handleSigChild(_: c_int) callconv(.c) void {
     const result = std.posix.waitpid(-1, 0);
 
     Terminal.global_vt_mutex.lock();
@@ -107,7 +107,7 @@ fn createEnvironFromMap(
     {
         var it = map.iterator();
         while (it.next()) |pair| {
-            envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={s}", .{ pair.key_ptr.*, pair.value_ptr.* });
+            envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "{s}={s}", .{ pair.key_ptr.*, pair.value_ptr.* }, 0);
             i += 1;
         }
     }
