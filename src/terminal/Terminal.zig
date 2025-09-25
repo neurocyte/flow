@@ -241,7 +241,7 @@ pub fn tryEvent(self: *Terminal) ?Event {
 
 pub fn update(self: *Terminal, event: InputEvent) !void {
     switch (event) {
-        .key_press => |k| try key.encode(self.anyWriter(), k, true, self.back_screen.csi_u_flags),
+        .key_press => |k| try key.encode(self.writer(), k, true, self.back_screen.csi_u_flags),
     }
 }
 
@@ -250,12 +250,14 @@ fn opaqueWrite(ptr: *const anyopaque, buf: []const u8) !usize {
     return posix.write(self.pty.pty, buf);
 }
 
-pub fn anyWriter(self: *const Terminal) *std.io.Writer {
-    const writer: std.io.Writer = .{
-        .context = self,
-        .writeFn = Terminal.opaqueWrite,
+pub fn writer(self: *const Terminal) *std.io.Writer {
+    const local = struct {
+        var writer: std.io.Writer = .{
+            .context = self,
+            .writeFn = Terminal.opaqueWrite,
+        };
     };
-    return @constCast(&writer);
+    return &local.writer;
 }
 
 fn opaqueRead(ptr: *const anyopaque, buf: []u8) !usize {
@@ -521,13 +523,13 @@ fn run(self: *Terminal) !void {
                         if (seq.private_marker) |pm| {
                             switch (pm) {
                                 // Secondary
-                                '>' => try self.anyWriter().writeAll("\x1B[>1;69;0c"),
-                                '=' => try self.anyWriter().writeAll("\x1B[=0000c"),
+                                '>' => try self.writer().writeAll("\x1B[>1;69;0c"),
+                                '=' => try self.writer().writeAll("\x1B[=0000c"),
                                 else => log.info("unhandled CSI: {}", .{seq}),
                             }
                         } else {
                             // Primary
-                            try self.anyWriter().writeAll("\x1B[?62;22c");
+                            try self.writer().writeAll("\x1B[?62;22c");
                         }
                     },
                     // Cursor Vertical Position Absolute
@@ -592,8 +594,8 @@ fn run(self: *Terminal) !void {
                         const ps = iter.next() orelse 0;
                         if (seq.intermediate == null and seq.private_marker == null) {
                             switch (ps) {
-                                5 => try self.anyWriter().writeAll("\x1b[0n"),
-                                6 => try self.anyWriter().print("\x1b[{d};{d}R", .{
+                                5 => try self.writer().writeAll("\x1b[0n"),
+                                6 => try self.writer().print("\x1b[{d};{d}R", .{
                                     self.back_screen.cursor.row + 1,
                                     self.back_screen.cursor.col + 1,
                                 }),
@@ -609,10 +611,10 @@ fn run(self: *Terminal) !void {
                                 // report mode
                                 '$' => {
                                     switch (ps) {
-                                        2026 => try self.anyWriter().writeAll("\x1b[?2026;2$p"),
+                                        2026 => try self.writer().writeAll("\x1b[?2026;2$p"),
                                         else => {
                                             std.log.warn("unhandled mode: {}", .{ps});
-                                            try self.anyWriter().print("\x1b[?{d};0$p", .{ps});
+                                            try self.writer().print("\x1b[?{d};0$p", .{ps});
                                         },
                                     }
                                 },
@@ -634,7 +636,7 @@ fn run(self: *Terminal) !void {
                         if (seq.private_marker) |pm| {
                             switch (pm) {
                                 // XTVERSION
-                                '>' => try self.anyWriter().print(
+                                '>' => try self.writer().print(
                                     "\x1bP>|libvaxis {s}\x1B\\",
                                     .{"dev"},
                                 ),
