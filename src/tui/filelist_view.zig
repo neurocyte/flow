@@ -56,7 +56,7 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(name), parent),
         .logger = log.logger(@typeName(Self)),
-        .entries = std.ArrayList(Entry).init(allocator),
+        .entries = .empty,
         .menu = try Menu.create(*Self, allocator, tui.plane(), .{
             .ctx = self,
             .style = widget_type,
@@ -105,15 +105,14 @@ pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) boo
 
 pub fn add_item(self: *Self, entry_: Entry) !void {
     const idx = self.entries.items.len;
-    const entry = (try self.entries.addOne());
+    const entry = (try self.entries.addOne(self.allocator));
     entry.* = entry_;
     entry.path = try self.allocator.dupe(u8, entry_.path);
     entry.lines = try self.allocator.dupe(u8, entry_.lines);
-    var label = std.ArrayList(u8).init(self.allocator);
+    var label: std.Io.Writer.Allocating = .init(self.allocator);
     defer label.deinit();
-    const writer = label.writer();
-    cbor.writeValue(writer, idx) catch return;
-    self.menu.add_item_with_handler(label.items, handle_menu_action) catch return;
+    cbor.writeValue(&label.writer, idx) catch return;
+    self.menu.add_item_with_handler(label.written(), handle_menu_action) catch return;
     self.menu.resize(self.box);
     self.update_scrollbar();
 }
@@ -182,7 +181,7 @@ fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), th
         .Warning => button.plane.set_style(style_warning),
         .Error => button.plane.set_style(style_error),
     }
-    _ = button.plane.print("{s}", .{std.fmt.fmtSliceEscapeLower(entry.lines)}) catch {};
+    _ = button.plane.print("{f}", .{std.ascii.hexEscape(entry.lines, .lower)}) catch {};
     return false;
 }
 

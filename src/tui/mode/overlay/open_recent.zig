@@ -139,15 +139,15 @@ fn add_item(
     indicator: []const u8,
     matches: ?[]const u8,
 ) !void {
-    var label = std.ArrayList(u8).init(self.allocator);
+    var label: std.Io.Writer.Allocating = .init(self.allocator);
     defer label.deinit();
-    const writer = label.writer();
+    const writer = &label.writer;
     try cbor.writeValue(writer, file_name);
     try cbor.writeValue(writer, file_icon);
     try cbor.writeValue(writer, file_color);
     try cbor.writeValue(writer, indicator);
     if (matches) |cb| _ = try writer.write(cb) else try cbor.writeValue(writer, &[_]usize{});
-    try self.menu.add_item_with_handler(label.items, menu_action_open_file);
+    try self.menu.add_item_with_handler(label.written(), menu_action_open_file);
 }
 
 fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
@@ -259,13 +259,13 @@ fn delete_code_point(self: *Self) !void {
 fn insert_code_point(self: *Self, c: u32) !void {
     var buf: [6]u8 = undefined;
     const bytes = try input.ucs32_to_utf8(&[_]u32{c}, &buf);
-    try self.inputbox.text.appendSlice(buf[0..bytes]);
+    try self.inputbox.text.appendSlice(self.allocator, buf[0..bytes]);
     self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
     return self.start_query();
 }
 
 fn insert_bytes(self: *Self, bytes: []const u8) !void {
-    try self.inputbox.text.appendSlice(bytes);
+    try self.inputbox.text.appendSlice(self.allocator, bytes);
     self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
     return self.start_query();
 }

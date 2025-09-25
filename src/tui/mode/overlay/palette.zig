@@ -78,7 +78,7 @@ pub fn Create(options: type) type {
                     .icon = if (@hasDecl(options, "icon")) options.icon else null,
                 }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
                 .view_rows = get_view_rows(tui.screen()),
-                .entries = std.ArrayList(Entry).init(allocator),
+                .entries = .empty,
             };
             if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
             self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
@@ -103,7 +103,7 @@ pub fn Create(options: type) type {
             self.commands.deinit();
             if (@hasDecl(options, "deinit"))
                 options.deinit(self);
-            self.entries.deinit();
+            self.entries.deinit(self.allocator);
             tui.message_filters().remove_ptr(self);
             if (tui.mainview()) |mv| {
                 mv.floating_views.remove(self.menu.container_widget);
@@ -270,7 +270,7 @@ pub fn Create(options: type) type {
             }
         }
 
-        fn query_entries(self: *Self, query: []const u8) error{OutOfMemory}!usize {
+        fn query_entries(self: *Self, query: []const u8) error{ OutOfMemory, WriteFailed }!usize {
             var searcher = try fuzzig.Ascii.init(
                 self.allocator,
                 self.longest, // haystack max size
@@ -285,12 +285,12 @@ pub fn Create(options: type) type {
                 matches: []const usize,
             };
 
-            var matches = std.ArrayList(Match).init(self.allocator);
+            var matches: std.ArrayList(Match) = .empty;
 
             for (self.entries.items) |*entry| {
                 const match = searcher.scoreMatches(entry.label, query);
                 if (match.score) |score|
-                    (try matches.addOne()).* = .{
+                    (try matches.addOne(self.allocator)).* = .{
                         .entry = entry,
                         .score = score,
                         .matches = try self.allocator.dupe(usize, match.matches),
@@ -343,14 +343,14 @@ pub fn Create(options: type) type {
         fn insert_code_point(self: *Self, c: u32) !void {
             var buf: [6]u8 = undefined;
             const bytes = try input.ucs32_to_utf8(&[_]u32{c}, &buf);
-            try self.inputbox.text.appendSlice(buf[0..bytes]);
+            try self.inputbox.text.appendSlice(self.allocator, buf[0..bytes]);
             self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
             self.view_pos = 0;
             return self.start_query(0);
         }
 
         fn insert_bytes(self: *Self, bytes: []const u8) !void {
-            try self.inputbox.text.appendSlice(bytes);
+            try self.inputbox.text.appendSlice(self.allocator, bytes);
             self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
             self.view_pos = 0;
             return self.start_query(0);

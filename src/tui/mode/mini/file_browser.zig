@@ -47,10 +47,10 @@ pub fn Create(options: type) type {
             errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
-                .file_path = std.ArrayList(u8).init(allocator),
-                .query = std.ArrayList(u8).init(allocator),
-                .match = std.ArrayList(u8).init(allocator),
-                .entries = std.ArrayList(Entry).init(allocator),
+                .file_path = .empty,
+                .query = .empty,
+                .match = .empty,
+                .entries = .empty,
             };
             try self.commands.init(self);
             try tui.message_filters().add(MessageFilter.bind(self, receive_path_entry));
@@ -68,10 +68,10 @@ pub fn Create(options: type) type {
             self.commands.deinit();
             tui.message_filters().remove_ptr(self);
             self.clear_entries();
-            self.entries.deinit();
-            self.match.deinit();
-            self.query.deinit();
-            self.file_path.deinit();
+            self.entries.deinit(self.allocator);
+            self.match.deinit(self.allocator);
+            self.query.deinit(self.allocator);
+            self.file_path.deinit(self.allocator);
             self.rendered_mini_buffer.deinit(self.allocator);
             self.allocator.destroy(self);
         }
@@ -80,7 +80,7 @@ pub fn Create(options: type) type {
             var text: []const u8 = undefined;
 
             if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-                self.file_path.appendSlice(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+                self.file_path.appendSlice(self.allocator, text) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
             self.update_mini_mode_text();
             return false;
@@ -102,14 +102,14 @@ pub fn Create(options: type) type {
                 self.match.clearRetainingCapacity();
                 self.clear_entries();
                 if (root.is_directory(self.file_path.items)) {
-                    try self.query.appendSlice(self.file_path.items);
+                    try self.query.appendSlice(self.allocator, self.file_path.items);
                 } else if (self.file_path.items.len > 0) blk: {
                     const basename_begin = std.mem.lastIndexOfScalar(u8, self.file_path.items, std.fs.path.sep) orelse {
-                        try self.match.appendSlice(self.file_path.items);
+                        try self.match.appendSlice(self.allocator, self.file_path.items);
                         break :blk;
                     };
-                    try self.query.appendSlice(self.file_path.items[0 .. basename_begin + 1]);
-                    try self.match.appendSlice(self.file_path.items[basename_begin + 1 ..]);
+                    try self.query.appendSlice(self.allocator, self.file_path.items[0 .. basename_begin + 1]);
+                    try self.match.appendSlice(self.allocator, self.file_path.items[basename_begin + 1 ..]);
                 }
                 // log.logger("file_browser").print("query: '{s}' match: '{s}'", .{ self.query.items, self.match.items });
                 try project_manager.request_path_files(max_complete_paths, self.query.items);
@@ -125,7 +125,7 @@ pub fn Create(options: type) type {
                 if (self.match.items.len > 0) {
                     try self.construct_path(self.query.items, self.match.items, .file, 0);
                 } else {
-                    try self.file_path.appendSlice(self.query.items);
+                    try self.file_path.appendSlice(self.allocator, self.query.items);
                 }
                 self.update_mini_mode_text();
                 return;
@@ -177,7 +177,7 @@ pub fn Create(options: type) type {
         }
 
         fn add_entry(self: *Self, file_name: []const u8, entry_type: EntryType, file_type: []const u8, icon: []const u8, color: u24) !void {
-            (try self.entries.addOne()).* = .{
+            (try self.entries.addOne(self.allocator)).* = .{
                 .name = try self.allocator.dupe(u8, file_name),
                 .type = entry_type,
                 .file_type = try self.allocator.dupe(u8, file_type),
@@ -212,12 +212,12 @@ pub fn Create(options: type) type {
         fn construct_path(self: *Self, path_: []const u8, entry_name: []const u8, entry_type: EntryType, entry_no: usize) error{OutOfMemory}!void {
             self.matched_entry = entry_no;
             const path = project_manager.normalize_file_path(path_);
-            try self.file_path.appendSlice(path);
+            try self.file_path.appendSlice(self.allocator, path);
             if (path.len > 0 and path[path.len - 1] != std.fs.path.sep)
-                try self.file_path.append(std.fs.path.sep);
-            try self.file_path.appendSlice(entry_name);
+                try self.file_path.append(self.allocator, std.fs.path.sep);
+            try self.file_path.appendSlice(self.allocator, entry_name);
             if (entry_type == .dir)
-                try self.file_path.append(std.fs.path.sep);
+                try self.file_path.append(self.allocator, std.fs.path.sep);
         }
 
         fn match_path(self: *Self) !void {
@@ -351,7 +351,7 @@ pub fn Create(options: type) type {
                 self.complete_trigger_count = 0;
                 var buf: [32]u8 = undefined;
                 const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
-                try self.file_path.appendSlice(buf[0..bytes]);
+                try self.file_path.appendSlice(self.allocator, buf[0..bytes]);
                 self.update_mini_mode_text();
             }
             pub const mini_mode_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
@@ -361,7 +361,7 @@ pub fn Create(options: type) type {
                 if (!try ctx.args.match(.{tp.extract(&bytes)}))
                     return error.InvalidFileBrowserInsertBytesArgument;
                 self.complete_trigger_count = 0;
-                try self.file_path.appendSlice(bytes);
+                try self.file_path.appendSlice(self.allocator, bytes);
                 self.update_mini_mode_text();
             }
             pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };

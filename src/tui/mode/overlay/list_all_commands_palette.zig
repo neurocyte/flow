@@ -26,8 +26,9 @@ pub fn load_entries(palette: *Type) !usize {
     const hints = if (tui.input_mode()) |m| m.keybind_hints else @panic("no keybind hints");
     var longest_hint: usize = 0;
     for (command.commands.items) |cmd_| if (cmd_) |p| {
-        var label_ = std.ArrayList(u8).init(palette.allocator);
-        const writer = label_.writer();
+        var label_: std.Io.Writer.Allocating = .init(palette.allocator);
+        defer label_.deinit();
+        const writer = &label_.writer;
         try writer.writeAll(p.name);
         if (p.meta.description.len > 0) try writer.print(" ({s})", .{p.meta.description});
         if (p.meta.arguments.len > 0) {
@@ -47,7 +48,7 @@ pub fn load_entries(palette: *Type) !usize {
         const hint = hints.get(p.name) orelse "";
         longest_hint = @max(longest_hint, hint.len);
 
-        (try palette.entries.addOne()).* = .{
+        (try palette.entries.addOne(palette.allocator)).* = .{
             .label = try label_.toOwnedSlice(),
             .hint = hint,
             .id = p.id,
@@ -57,14 +58,14 @@ pub fn load_entries(palette: *Type) !usize {
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-    var value = std.ArrayList(u8).init(palette.allocator);
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
-    const writer = value.writer();
+    const writer = &value.writer;
     try cbor.writeValue(writer, entry.label);
     try cbor.writeValue(writer, entry.hint);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
     try cbor.writeValue(writer, entry.id);
-    try palette.menu.add_item_with_handler(value.items, select);
+    try palette.menu.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 

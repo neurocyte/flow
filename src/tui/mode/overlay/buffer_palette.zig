@@ -27,7 +27,7 @@ pub fn load_entries(palette: *Type) !usize {
     defer palette.allocator.free(buffers);
     for (buffers) |buffer| {
         const indicator = tui.get_buffer_state_indicator(buffer);
-        (try palette.entries.addOne()).* = .{
+        (try palette.entries.addOne(palette.allocator)).* = .{
             .label = buffer.get_file_path(),
             .icon = buffer.file_type_icon orelse "",
             .color = buffer.file_type_color,
@@ -42,15 +42,15 @@ pub fn clear_entries(palette: *Type) void {
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-    var value = std.ArrayList(u8).init(palette.allocator);
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
-    const writer = value.writer();
+    const writer = &value.writer;
     try cbor.writeValue(writer, entry.label);
     try cbor.writeValue(writer, entry.icon);
     try cbor.writeValue(writer, entry.color);
     try cbor.writeValue(writer, entry.indicator);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.items, select);
+    try palette.menu.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 

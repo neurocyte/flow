@@ -124,7 +124,7 @@ pub fn clamp(self: *Self, cursor: *const Cursor, abs: bool) void {
     self.clamp_col(cursor, abs);
 }
 
-pub fn write(self: *const Self, writer: Buffer.MetaWriter) !void {
+pub fn write(self: *const Self, writer: *std.Io.Writer) !void {
     try cbor.writeValue(writer, .{
         self.row,
         self.col,

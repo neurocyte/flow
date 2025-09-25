@@ -19,14 +19,14 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
     self.* = .{
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(name), parent),
-        .lines = std.ArrayList([]const u8).init(allocator),
+        .lines = .empty,
     };
     return Widget.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     self.clear();
-    self.lines.deinit();
+    self.lines.deinit(self.allocator);
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -47,7 +47,7 @@ pub fn set_content(self: *Self, content: []const u8) !void {
     self.clear();
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line|
-        (try self.lines.addOne()).* = try self.allocator.dupe(u8, line);
+        (try self.lines.addOne(self.allocator)).* = try self.allocator.dupe(u8, line);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

@@ -57,7 +57,7 @@ fn remove_prefix_in_line(prefix: []const u8, text: []const u8, writer: TextWrite
 
 pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, allocator: std.mem.Allocator) ![]const u8 {
     var result = try std.ArrayList(u8).initCapacity(allocator, prefix.len + text.len);
-    const writer = result.writer();
+    const writer = result.writer(allocator);
     var pos: usize = 0;
     var prefix_pos: usize = std.math.maxInt(usize);
     var have_prefix = true;
@@ -87,5 +87,5 @@ pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, allocator: st
         _ = try writer.write("\n");
         pos = next + 1;
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }

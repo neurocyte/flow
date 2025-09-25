@@ -39,9 +39,9 @@ pub const AsyncDiffer = struct {
     }
 
     fn text_from_root(root: Buffer.Root, eol_mode: Buffer.EolMode) ![]const u8 {
-        var text = std.ArrayList(u8).init(std.heap.c_allocator);
+        var text: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
         defer text.deinit();
-        try root.store(text.writer(), eol_mode);
+        try root.store(&text.writer, eol_mode);
         return text.toOwnedSlice();
     }
 

@@ -55,7 +55,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .symbols = tui.config().gutter_symbols,
         .editor = editor,
         .diff_ = try diff.create(),
-        .diff_symbols = std.ArrayList(Symbol).init(allocator),
+        .diff_symbols = .empty,
     };
     try tui.message_filters().add(MessageFilter.bind(self, filter_receive));
     try event_source.subscribe(EventHandler.bind(self, handle_event));
@@ -68,7 +68,7 @@ pub fn widget(self: *Self) Widget {
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     self.diff_symbols_clear();
-    self.diff_symbols.deinit();
+    self.diff_symbols.deinit(self.allocator);
     tui.message_filters().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
@@ -351,22 +351,21 @@ fn diff_result(from: tp.pid_ref, edits: []diff.Diff) void {
 
 fn diff_result_send(from: tp.pid_ref, edits: []diff.Diff) !void {
     var buf: [tp.max_message_size]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    const writer = stream.writer();
-    try cbor.writeArrayHeader(writer, 2);
-    try cbor.writeValue(writer, "DIFF");
-    try cbor.writeArrayHeader(writer, edits.len);
+    var writer: std.Io.Writer = .fixed(&buf);
+    try cbor.writeArrayHeader(&writer, 2);
+    try cbor.writeValue(&writer, "DIFF");
+    try cbor.writeArrayHeader(&writer, edits.len);
     for (edits) |edit| {
-        try cbor.writeArrayHeader(writer, 4);
-        try cbor.writeValue(writer, switch (edit.kind) {
+        try cbor.writeArrayHeader(&writer, 4);
+        try cbor.writeValue(&writer, switch (edit.kind) {
             .insert => "I",
             .delete => "D",
         });
-        try cbor.writeValue(writer, edit.line);
-        try cbor.writeValue(writer, edit.offset);
-        try cbor.writeValue(writer, edit.bytes);
+        try cbor.writeValue(&writer, edit.line);
+        try cbor.writeValue(&writer, edit.offset);
+        try cbor.writeValue(&writer, edit.bytes);
     }
-    from.send_raw(tp.message{ .buf = stream.getWritten() }) catch return;
+    from.send_raw(tp.message{ .buf = writer.buffered() }) catch return;
 }
 
 pub fn process_diff(self: *Self, cb: []const u8) MessageFilter.Error!void {
@@ -403,7 +402,7 @@ fn process_edit(self: *Self, kind: Kind, line: usize, offset: usize, bytes: []co
         self.diff_symbols.items[self.diff_symbols.items.len - 1].kind = .modified;
         return;
     }
-    (try self.diff_symbols.addOne()).* = switch (kind) {
+    (try self.diff_symbols.addOne(self.allocator)).* = switch (kind) {
         .insert => ret: {
             if (offset > 0)
                 break :ret .{ .kind = .modified, .line = line };

@@ -1,4 +1,5 @@
 const cbor = @import("cbor");
+const Writer = @import("std").Io.Writer;
 
 const Buffer = @import("Buffer.zig");
 const Cursor = @import("Cursor.zig");
@@ -45,7 +46,7 @@ pub fn normalize(self: *Self) void {
     if (self.is_reversed()) self.reverse();
 }
 
-pub fn write(self: *const Self, writer: Buffer.MetaWriter) !void {
+pub fn write(self: *const Self, writer: *Writer) !void {
     try cbor.writeArrayHeader(writer, 2);
     try self.begin.write(writer);
     try self.end.write(writer);

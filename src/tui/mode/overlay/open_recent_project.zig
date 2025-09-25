@@ -43,7 +43,7 @@ pub fn load_entries_with_args(palette: *Type, ctx: command.Context) !usize {
             return error.InvalidMessageField;
         if (!try cbor.matchValue(&iter, cbor.extract(&open)))
             return error.InvalidMessageField;
-        (try palette.entries.addOne()).* = .{ .label = try palette.allocator.dupe(u8, name_), .open = open };
+        (try palette.entries.addOne(palette.allocator)).* = .{ .label = try palette.allocator.dupe(u8, name_), .open = open };
     }
     return 1;
 }
@@ -53,13 +53,13 @@ pub fn clear_entries(palette: *Type) void {
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-    var value = std.ArrayList(u8).init(palette.allocator);
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
-    const writer = value.writer();
+    const writer = &value.writer;
     try cbor.writeValue(writer, entry.label);
     try cbor.writeValue(writer, if (entry.open) "-" else "");
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.items, select);
+    try palette.menu.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 

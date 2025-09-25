@@ -85,7 +85,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
         .no_alternate = no_alternate,
         .event_buffer = .init(allocator),
         .input_buffer = .init(allocator),
-        .bracketed_paste_buffer = std.ArrayList(u8).init(allocator),
+        .bracketed_paste_buffer = .init(allocator),
         .handler_ctx = handler_ctx,
         .logger = log.logger(log_name),
         .loop = undefined,
@@ -96,7 +96,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
 pub fn deinit(self: *Self) void {
     panic_cleanup = null;
     self.loop.stop();
-    self.vx.deinit(self.allocator, self.tty.anyWriter());
+    self.vx.deinit(self.allocator, self.tty.writer());
     self.tty.deinit();
     self.allocator.free(self.tty_buffer);
     self.bracketed_paste_buffer.deinit();
@@ -117,7 +117,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
     const cleanup = panic_cleanup;
     panic_cleanup = null;
     if (cleanup) |self| {
-        self.vx.deinit(self.allocator, self.tty.anyWriter());
+        self.vx.deinit(self.allocator, self.tty.writer());
         self.tty.deinit();
     }
     return std.debug.defaultPanic(msg, ret_addr orelse @returnAddress());
@@ -158,7 +158,7 @@ fn handle_crash(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque
     panic_cleanup = null;
 
     if (cleanup) |self| {
-        self.vx.deinit(self.allocator, self.tty.anyWriter());
+        self.vx.deinit(self.allocator, self.tty.writer());
         self.tty.deinit();
     }
     if (builtin.os.tag == .linux and jit_debugger_enabled) {
@@ -194,14 +194,14 @@ pub fn run(self: *Self) Error!void {
     self.vx.enable_workarounds = true;
 
     panic_cleanup = .{ .allocator = self.allocator, .tty = &self.tty, .vx = &self.vx };
-    if (!self.no_alternate) self.vx.enterAltScreen(self.tty.anyWriter()) catch return error.TtyWriteError;
+    if (!self.no_alternate) self.vx.enterAltScreen(self.tty.writer()) catch return error.TtyWriteError;
     if (builtin.os.tag == .windows) {
         try self.resize(.{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 }); // dummy resize to fully init vaxis
     } else {
         self.sigwinch() catch return error.TtyWriteError;
     }
-    self.vx.setBracketedPaste(self.tty.anyWriter(), true) catch return error.TtyWriteError;
-    self.vx.queryTerminalSend(self.tty.anyWriter()) catch return error.TtyWriteError;
+    self.vx.setBracketedPaste(self.tty.writer(), true) catch return error.TtyWriteError;
+    self.vx.queryTerminalSend(self.tty.writer()) catch return error.TtyWriteError;
 
     self.loop = Loop.init(&self.tty, &self.vx);
     try self.loop.start();
@@ -209,8 +209,8 @@ pub fn run(self: *Self) Error!void {
 
 pub fn render(self: *Self) !void {
     if (in_panic.load(.acquire)) return;
-    try self.vx.render(&self.tty.writer.interface);
-    try self.tty.writer.interface.flush();
+    try self.vx.render(self.tty.writer());
+    try self.tty.writer().flush();
 }
 
 pub fn sigwinch(self: *Self) !void {
@@ -219,7 +219,7 @@ pub fn sigwinch(self: *Self) !void {
 }
 
 fn resize(self: *Self, ws: vaxis.Winsize) error{ TtyWriteError, OutOfMemory, WriteFailed }!void {
-    self.vx.resize(self.allocator, self.tty.anyWriter(), ws) catch return error.TtyWriteError;
+    self.vx.resize(self.allocator, self.tty.writer(), ws) catch return error.TtyWriteError;
     self.vx.queueRefresh();
     if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"resize"}));
 }
@@ -373,8 +373,8 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         },
         .cap_da1 => {
             self.queries_done = true;
-            self.vx.enableDetectedFeatures(self.tty.anyWriter()) catch |e| self.logger.err("enable features", e);
-            self.vx.setMouseMode(self.tty.anyWriter(), true) catch return error.TtyWriteError;
+            self.vx.enableDetectedFeatures(self.tty.writer()) catch |e| self.logger.err("enable features", e);
+            self.vx.setMouseMode(self.tty.writer(), true) catch return error.TtyWriteError;
         },
         .cap_kitty_keyboard => {
             self.logger.print("kitty keyboard capability detected", .{});
@@ -451,37 +451,37 @@ fn handle_bracketed_paste_error(self: *Self, e: Error) !void {
 }
 
 pub fn set_terminal_title(self: *Self, text: []const u8) void {
-    self.vx.setTitle(self.tty.anyWriter(), text) catch {};
+    self.vx.setTitle(self.tty.writer(), text) catch {};
 }
 
 pub fn set_terminal_style(self: *Self, style_: Style) void {
     if (style_.fg) |color|
-        self.vx.setTerminalForegroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+        self.vx.setTerminalForegroundColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
     if (style_.bg) |color|
-        self.vx.setTerminalBackgroundColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+        self.vx.setTerminalBackgroundColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
-    self.vx.setTerminalCursorColor(self.tty.anyWriter(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+    self.vx.setTerminalCursorColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
 }
 
 pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
     const rgb = RGB.from_u24(color.color);
-    self.tty.anyWriter().print("\x1b[>40;2:{d}:{d}:{d} q", .{ rgb.r, rgb.g, rgb.b }) catch {};
+    self.tty.writer().print("\x1b[>40;2:{d}:{d}:{d} q", .{ rgb.r, rgb.g, rgb.b }) catch {};
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
-    self.vx.setTerminalWorkingDirectory(self.tty.anyWriter(), absolute_path) catch {};
+    self.vx.setTerminalWorkingDirectory(self.tty.writer(), absolute_path) catch {};
 }
 
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
-    var bufferedWriter = self.tty.bufferedWriter();
-    self.vx.copyToSystemClipboard(bufferedWriter.writer().any(), text, self.allocator) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
-    bufferedWriter.flush() catch @panic("flush failed");
+    var writer = self.tty.writer();
+    self.vx.copyToSystemClipboard(writer, text, self.allocator) catch |e| log.logger(log_name).err("copy_to_system_clipboard", e);
+    writer.flush() catch @panic("flush failed");
 }
 
 pub fn request_system_clipboard(self: *Self) void {
-    self.vx.requestSystemClipboard(self.tty.anyWriter()) catch |e| log.logger(log_name).err("request_system_clipboard", e);
+    self.vx.requestSystemClipboard(self.tty.writer()) catch |e| log.logger(log_name).err("request_system_clipboard", e);
 }
 
 const win32 = struct {
@@ -555,11 +555,11 @@ pub fn cursor_disable(self: *Self) void {
 }
 
 pub fn clear_all_multi_cursors(self: *Self) !void {
-    try self.tty.anyWriter().print("\x1b[>0;4 q", .{});
+    try self.tty.writer().print("\x1b[>0;4 q", .{});
 }
 
 pub fn show_multi_cursor_yx(self: *Self, y: c_int, x: c_int) !void {
-    try self.tty.anyWriter().print("\x1b[>29;2:{d}:{d} q", .{ y + 1, x + 1 });
+    try self.tty.writer().print("\x1b[>29;2:{d}:{d} q", .{ y + 1, x + 1 });
 }
 
 fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !void {
@@ -644,7 +644,7 @@ const Loop = struct {
     pub fn stop(self: *Loop) void {
         self.should_quit = true;
         // trigger a read
-        self.vaxis.deviceStatusReport(self.tty.anyWriter()) catch {};
+        self.vaxis.deviceStatusReport(self.tty.writer()) catch {};
 
         if (self.thread) |thread| {
             thread.join();

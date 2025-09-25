@@ -105,18 +105,18 @@ pub const List = struct {
     pub fn init(allocator: Allocator) List {
         return .{
             .allocator = allocator,
-            .list = ArrayList(MessageFilter).init(allocator),
+            .list = .empty,
         };
     }
 
     pub fn deinit(self: *List) void {
         for (self.list.items) |*i|
             i.deinit();
-        self.list.deinit();
+        self.list.deinit(self.allocator);
     }
 
     pub fn add(self: *List, h: MessageFilter) error{OutOfMemory}!void {
-        (try self.list.addOne()).* = h;
+        (try self.list.addOne(self.allocator)).* = h;
         // @import("log").print("MessageFilter", "add: {d} {s}", .{ self.list.items.len, self.list.items[self.list.items.len - 1].vtable.type_name });
     }
 

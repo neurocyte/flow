@@ -11,7 +11,7 @@ const tui = @import("../tui.zig");
 const logview = @import("../logview.zig");
 
 plane: Plane,
-msg: std.ArrayList(u8),
+msg: std.Io.Writer.Allocating,
 msg_counter: usize = 0,
 clear_timer: ?tp.Cancellable = null,
 level: Level = .info,
@@ -31,7 +31,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
     errdefer allocator.destroy(self);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
-        .msg = std.ArrayList(u8).init(allocator),
+        .msg = .init(allocator),
         .on_event = event_handler,
     };
     logview.init(allocator);
@@ -63,7 +63,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 }
 
 pub fn layout(self: *Self) Widget.Layout {
-    return .{ .static = if (self.msg.items.len > 0) self.msg.items.len + 2 else 1 };
+    return .{ .static = if (self.msg.written().len > 0) self.msg.written().len + 2 else 1 };
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -77,7 +77,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.fill(" ");
     self.plane.home();
     self.plane.set_style(if (self.level == .err) style_error else style_info);
-    _ = self.plane.print(" {s} ", .{self.msg.items}) catch {};
+    _ = self.plane.print(" {s} ", .{self.msg.written()}) catch {};
     return false;
 }
 
@@ -113,9 +113,9 @@ fn process_log(self: *Self, m: tp.message) MessageFilter.Error!void {
         try self.set(msg, .err);
     } else if (try cbor.match(m.buf, .{ "log", tp.extract(&src), tp.more })) {
         self.level = .err;
-        var s = std.json.writeStream(self.msg.writer(), .{});
+        var s: std.json.Stringify = .{ .writer = &self.msg.writer };
         var iter: []const u8 = m.buf;
-        try @import("cbor").JsonStream(@TypeOf(self.msg)).jsonWriteValue(&s, &iter);
+        try @import("cbor").JsonWriter.jsonWriteValue(&s, &iter);
         Widget.need_render();
         try self.update_clear_timer();
     }
@@ -143,7 +143,7 @@ fn set(self: *Self, msg: []const u8, level: Level) !void {
     self.msg.clearRetainingCapacity();
     var iter = std.mem.splitScalar(u8, msg, '\n');
     const line1 = iter.next() orelse msg;
-    try self.msg.appendSlice(line1);
+    try self.msg.writer.writeAll(line1);
     self.level = level;
     Widget.need_render();
     try self.update_clear_timer();

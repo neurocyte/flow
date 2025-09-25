@@ -16,7 +16,6 @@ pub const Manager = @import("Manager.zig");
 pub const Cursor = @import("Cursor.zig");
 pub const View = @import("View.zig");
 pub const Selection = @import("Selection.zig");
-pub const MetaWriter = std.ArrayListUnmanaged(u8).Writer;
 
 pub const Metrics = struct {
     ctx: *const anyopaque,
@@ -410,7 +409,7 @@ const Node = union(enum) {
         }
     }
 
-    pub fn walk_from_line_begin_const(self: *const Node, line: usize, f: Walker.F, ctx: *anyopaque, metrics: Metrics) !bool {
+    pub fn walk_from_line_begin_const(self: *const Node, line: usize, f: Walker.F, ctx: *anyopaque, metrics: Metrics) anyerror!bool {
         const result = self.walk_from_line_begin_const_internal(line, f, ctx, metrics);
         if (result.err) |e| return e;
         return result.found_;
@@ -498,7 +497,7 @@ const Node = union(enum) {
 
     const EgcF = *const fn (ctx: *anyopaque, egc: []const u8, wcwidth: usize, metrics: Metrics) Walker;
 
-    pub fn walk_egc_forward(self: *const Node, line: usize, walker_f: EgcF, walker_ctx: *anyopaque, metrics_: Metrics) !void {
+    pub fn walk_egc_forward(self: *const Node, line: usize, walker_f: EgcF, walker_ctx: *anyopaque, metrics_: Metrics) anyerror!void {
         const Ctx = struct {
             walker_f: EgcF,
             walker_ctx: @TypeOf(walker_ctx),
@@ -1541,10 +1540,10 @@ pub fn redo(self: *Self) error{Stop}![]const u8 {
     return h.meta;
 }
 
-pub fn write_state(self: *const Self, writer: MetaWriter) error{ Stop, OutOfMemory }!void {
-    var content = std.ArrayListUnmanaged(u8).empty;
-    defer content.deinit(self.external_allocator);
-    try self.root.store(content.writer(self.external_allocator), self.file_eol_mode);
+pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOfMemory, WriteFailed }!void {
+    var content: std.Io.Writer.Allocating = .init(self.external_allocator);
+    defer content.deinit();
+    try self.root.store(&content.writer, self.file_eol_mode);
     const dirty = self.is_dirty();
 
     try cbor.writeArrayHeader(writer, 9);
@@ -1556,7 +1555,7 @@ pub fn write_state(self: *const Self, writer: MetaWriter) error{ Stop, OutOfMemo
     try cbor.writeValue(writer, dirty);
     try cbor.writeValue(writer, self.meta);
     try cbor.writeValue(writer, self.file_type_name);
-    try cbor.writeValue(writer, content.items);
+    try cbor.writeValue(writer, content.written());
 }
 
 pub const ExtractStateOperation = enum { none, open_file };

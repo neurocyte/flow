@@ -1097,7 +1097,7 @@ pub fn printSourceAtAddress(debug_info: *SelfInfo, out_stream: anytype, address:
 }
 
 fn printLineInfo(
-    out_stream: anytype,
+    out_stream: *std.Io.Writer,
     source_location: ?SourceLocation,
     address: usize,
     symbol_name: []const u8,
@@ -1128,7 +1128,7 @@ fn printLineInfo(
                     // The caret already takes one char
                     const space_needed = @as(usize, @intCast(sl.column - 1));
 
-                    try out_stream.writeByteNTimes(' ', space_needed);
+                    for (0..space_needed) |_| try out_stream.writeByte(' ');
                     try tty_config.setColor(out_stream, .green);
                     try out_stream.writeAll("^");
                     try tty_config.setColor(out_stream, .reset);

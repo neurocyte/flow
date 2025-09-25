@@ -28,7 +28,7 @@ pub fn load_entries(palette: *Type) !usize {
             const hint = hints.get(p.name) orelse "";
             longest_description = @max(longest_description, p.meta.description.len);
             longest_total = @max(longest_total, p.meta.description.len + hint.len + 1);
-            (try palette.entries.addOne()).* = .{
+            (try palette.entries.addOne(palette.allocator)).* = .{
                 .label = if (p.meta.description.len > 0) p.meta.description else p.name,
                 .name = p.name,
                 .hint = hint,
@@ -41,14 +41,14 @@ pub fn load_entries(palette: *Type) !usize {
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-    var value = std.ArrayList(u8).init(palette.allocator);
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
-    const writer = value.writer();
+    const writer = &value.writer;
     try cbor.writeValue(writer, entry.label);
     try cbor.writeValue(writer, entry.hint);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
     try cbor.writeValue(writer, entry.id);
-    try palette.menu.add_item_with_handler(value.items, select);
+    try palette.menu.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 
@@ -93,9 +93,10 @@ fn write_state(palette: *Type) !void {
     const state_file = try std.fmt.bufPrint(&state_file_buffer, "{s}/{s}", .{ try root.get_state_dir(), "commands" });
     var file = try std.fs.createFileAbsolute(state_file, .{ .truncate = true });
     defer file.close();
-    var buffer = std.io.bufferedWriter(file.writer());
-    defer buffer.flush() catch {};
-    const writer = buffer.writer();
+    var buf: [4096]u8 = undefined;
+    var file_writer = file.writer(&buf);
+    const writer = &file_writer.interface;
+    defer writer.flush() catch {};
 
     for (palette.entries.items) |cmd_| {
         if (cmd_.used_time == 0) continue;

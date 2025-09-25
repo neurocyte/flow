@@ -25,7 +25,7 @@ pub fn Create(options: type) type {
             errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
-                .input = std.ArrayList(u8).init(allocator),
+                .input = .empty,
             };
             try self.commands.init(self);
             if (@hasDecl(options, "restore_state"))
@@ -39,7 +39,7 @@ pub fn Create(options: type) type {
 
         pub fn deinit(self: *Self) void {
             self.commands.deinit();
-            self.input.deinit();
+            self.input.deinit(self.allocator);
             self.allocator.destroy(self);
         }
 
@@ -47,7 +47,7 @@ pub fn Create(options: type) type {
             var text: []const u8 = undefined;
 
             if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
-                self.input.appendSlice(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
+                self.input.appendSlice(self.allocator, text) catch |e| return tp.exit_error(e, @errorReturnTrace());
             }
             self.update_mini_mode_text();
             return false;
@@ -96,7 +96,7 @@ pub fn Create(options: type) type {
                     return error.InvalidMiniBufferInsertCodePointArgument;
                 var buf: [32]u8 = undefined;
                 const bytes = try input.ucs32_to_utf8(&[_]u32{egc}, &buf);
-                try self.input.appendSlice(buf[0..bytes]);
+                try self.input.appendSlice(self.allocator, buf[0..bytes]);
                 self.update_mini_mode_text();
             }
             pub const mini_mode_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
@@ -105,7 +105,7 @@ pub fn Create(options: type) type {
                 var bytes: []const u8 = undefined;
                 if (!try ctx.args.match(.{tp.extract(&bytes)}))
                     return error.InvalidMiniBufferInsertBytesArgument;
-                try self.input.appendSlice(bytes);
+                try self.input.appendSlice(self.allocator, bytes);
                 self.update_mini_mode_text();
             }
             pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };

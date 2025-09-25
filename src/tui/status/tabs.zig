@@ -269,7 +269,7 @@ pub const TabBar = struct {
             tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.get_file_path() } }) catch {};
     }
 
-    pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) error{OutOfMemory}!void {
+    pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{WriteFailed}!void {
         try cbor.writeArrayHeader(writer, self.tabs.len);
         for (self.tabs) |tab| try cbor.writeValue(writer, ref_to_name(tab.buffer_ref));
     }
@@ -498,7 +498,7 @@ const Tab = struct {
         return basename;
     }
 
-    fn write_state(self: *const @This(), writer: Buffer.MetaWriter) error{OutOfMemory}!void {
+    fn write_state(self: *const @This(), writer: *std.Io.Writer) error{OutOfMemory}!void {
         try cbor.writeArrayHeader(writer, 9);
         try cbor.writeValue(writer, self.get_file_path());
         try cbor.writeValue(writer, self.file_exists);

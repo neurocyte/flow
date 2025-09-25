@@ -160,14 +160,14 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
         self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
     }
 
-    var value = std.ArrayList(u8).init(self.allocator);
+    var value: std.Io.Writer.Allocating = .init(self.allocator);
     defer value.deinit();
-    const writer = value.writer();
+    const writer = &value.writer;
     try cbor.writeValue(writer, description);
     try cbor.writeValue(writer, hint);
     try cbor.writeValue(writer, command_name);
 
-    try menu.add_item_with_handler(value.items, menu_action);
+    try menu.add_item_with_handler(value.written(), menu_action);
 }
 
 pub fn update(self: *Self) void {

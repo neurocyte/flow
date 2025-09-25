@@ -44,7 +44,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             for (file_type_config.get_all_names()) |file_type_name| {
                 const file_type = try file_type_config.get(file_type_name) orelse unreachable;
                 idx += 1;
-                (try palette.entries.addOne()).* = .{
+                (try palette.entries.addOne(palette.allocator)).* = .{
                     .label = file_type.description orelse file_type_config.default.description,
                     .name = file_type.name,
                     .icon = file_type.icon orelse file_type_config.default.icon,
@@ -59,15 +59,15 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
         }
 
         pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-            var value = std.ArrayList(u8).init(palette.allocator);
+            var value: std.Io.Writer.Allocating = .init(palette.allocator);
             defer value.deinit();
-            const writer = value.writer();
+            const writer = &value.writer;
             try cbor.writeValue(writer, entry.label);
             try cbor.writeValue(writer, entry.icon);
             try cbor.writeValue(writer, entry.color);
             try cbor.writeValue(writer, entry.name);
             try cbor.writeValue(writer, matches orelse &[_]usize{});
-            try palette.menu.add_item_with_handler(value.items, select);
+            try palette.menu.add_item_with_handler(value.written(), select);
             palette.items += 1;
         }
 

@@ -979,11 +979,11 @@ const cmds = struct {
     pub fn run_task(self: *Self, ctx: Ctx) Result {
         var task: []const u8 = undefined;
         if (try ctx.args.match(.{tp.extract(&task)})) {
-            var buffer_name = std.ArrayList(u8).init(self.allocator);
+            var buffer_name: std.Io.Writer.Allocating = .init(self.allocator);
             defer buffer_name.deinit();
-            buffer_name.writer().print("*{s}*", .{task}) catch {};
+            buffer_name.writer.print("*{s}*", .{task}) catch {};
             call_add_task(task);
-            tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{ buffer_name.items, "", "conf" } }) catch |e| self.logger.err("task", e);
+            tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{ buffer_name.written(), "", "conf" } }) catch |e| self.logger.err("task", e);
             tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{task} }) catch |e| self.logger.err("task", e);
         } else {
             return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
@@ -1134,33 +1134,33 @@ const cmds = struct {
             return tp.exit_error(error.InvalidRunAsyncArgument, null);
         len -= 1;
 
-        var args = std.ArrayList([]const u8).init(self.allocator);
-        defer args.deinit();
+        var args: std.ArrayList([]const u8) = .empty;
+        defer args.deinit(self.allocator);
         while (len > 0) : (len -= 1) {
             var arg: []const u8 = undefined;
             if (try cbor.matchValue(&iter, cbor.extract_cbor(&arg))) {
-                try args.append(arg);
+                try args.append(self.allocator, arg);
             } else return tp.exit_error(error.InvalidRunAsyncArgument, null);
         }
 
-        var args_cb = std.ArrayList(u8).init(self.allocator);
+        var args_cb: std.Io.Writer.Allocating = .init(self.allocator);
         defer args_cb.deinit();
         {
-            const writer = args_cb.writer();
+            const writer = &args_cb.writer;
             try cbor.writeArrayHeader(writer, args.items.len);
             for (args.items) |arg| try writer.writeAll(arg);
         }
 
-        var msg_cb = std.ArrayList(u8).init(self.allocator);
+        var msg_cb: std.Io.Writer.Allocating = .init(self.allocator);
         defer msg_cb.deinit();
         {
-            const writer = msg_cb.writer();
+            const writer = &msg_cb.writer;
             try cbor.writeArrayHeader(writer, 3);
             try cbor.writeValue(writer, "cmd");
             try cbor.writeValue(writer, cmd);
-            try writer.writeAll(args_cb.items);
+            try writer.writeAll(args_cb.written());
         }
-        try tp.self_pid().send_raw(.{ .buf = msg_cb.items });
+        try tp.self_pid().send_raw(.{ .buf = msg_cb.written() });
     }
     pub const run_async_meta: Meta = .{};
 
@@ -1612,12 +1612,13 @@ fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const 
     if (root.read_theme(allocator, theme_name)) |content| {
         allocator.free(content);
     } else {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf: std.Io.Writer.Allocating = .init(self.allocator);
         defer buf.deinit();
-        try std.json.stringify(self.theme_, .{ .whitespace = .indent_2 }, buf.writer());
+        var s: std.json.Stringify = .{ .writer = &buf.writer, .options = .{ .whitespace = .indent_2 } };
+        try s.write(self.theme_);
         try root.write_theme(
             theme_name,
-            buf.items,
+            buf.written(),
         );
     }
     return try root.get_theme_file_name(theme_name);

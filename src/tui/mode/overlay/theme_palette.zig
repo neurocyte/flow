@@ -30,7 +30,7 @@ pub fn load_entries(palette: *Type) !usize {
     previous_theme = tui.theme().name;
     for (Widget.themes) |theme| {
         idx += 1;
-        (try palette.entries.addOne()).* = .{
+        (try palette.entries.addOne(palette.allocator)).* = .{
             .label = theme.description,
             .name = theme.name,
         };
@@ -43,13 +43,13 @@ pub fn load_entries(palette: *Type) !usize {
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-    var value = std.ArrayList(u8).init(palette.allocator);
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
-    const writer = value.writer();
+    const writer = &value.writer;
     try cbor.writeValue(writer, entry.label);
     try cbor.writeValue(writer, entry.name);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.items, select);
+    try palette.menu.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 

@@ -26,7 +26,7 @@ pub fn load_entries(palette: *Type) !usize {
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
-        (try palette.entries.addOne()).* = .{ .cbor = cbor_item, .label = undefined, .sort_text = undefined };
+        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = undefined, .sort_text = undefined };
     }
 
     var max_label_len: usize = 0;
@@ -54,12 +54,12 @@ pub fn clear_entries(palette: *Type) void {
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-    var value = std.ArrayList(u8).init(palette.allocator);
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
-    const writer = value.writer();
+    const writer = &value.writer;
     try writer.writeAll(entry.cbor);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.items, select);
+    try palette.menu.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 

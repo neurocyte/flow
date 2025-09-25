@@ -2,7 +2,7 @@ const eql = @import("std").mem.eql;
 const fmt = @import("std").fmt;
 const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
-const ArrayList = @import("std").ArrayList;
+const array_list = @import("std").array_list;
 
 const tp = @import("thespian");
 const cbor = @import("cbor");
@@ -12,7 +12,7 @@ const Plane = @import("renderer").Plane;
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 
-const escape = fmt.fmtSliceEscapeLower;
+const escape = @import("std").ascii.hexEscape;
 
 pub const name = @typeName(Self);
 
@@ -30,7 +30,7 @@ const Entry = struct {
     tdiff: i64,
     level: Level,
 };
-const Buffer = ArrayList(Entry);
+const Buffer = array_list.Managed(Entry);
 
 const Level = enum {
     info,
@@ -65,7 +65,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         if (first) first = false else _ = self.plane.putstr("\n") catch return false;
         self.output_tdiff(item.tdiff) catch return false;
         self.plane.set_style(if (item.level == .err) style_error else style_info);
-        _ = self.plane.print("{s}: {s}", .{ escape(item.src), escape(item.msg) }) catch {};
+        _ = self.plane.print("{f}: {f}", .{ escape(item.src, .lower), escape(item.msg, .lower) }) catch {};
         self.plane.set_style(style_normal);
     }
     if (last_count > 0)
@@ -128,7 +128,7 @@ fn append_error(buffer: *Buffer, src: []const u8, context: []const u8, msg_: []c
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     var sfa = std.heap.stackFallback(4096, arena.allocator());
-    var msg = std.ArrayList(u8).init(sfa.get());
+    var msg = std.array_list.Managed(u8).init(sfa.get());
     try fmt.format(msg.writer(), "error in {s}: {s}", .{ context, msg_ });
     try append(buffer, src, msg.items, .err);
 }

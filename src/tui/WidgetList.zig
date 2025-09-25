@@ -73,7 +73,7 @@ fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction,
         .plane = undefined,
         .parent = parent,
         .allocator = allocator,
-        .widgets = ArrayList(WidgetState).init(allocator),
+        .widgets = .empty,
         .layout_ = layout_,
         .direction = dir,
         .widget_type = widget_type,
@@ -96,7 +96,7 @@ pub fn layout(self: *Self) Widget.Layout {
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     for (self.widgets.items) |*w|
         w.widget.deinit(self.allocator);
-    self.widgets.deinit();
+    self.widgets.deinit(self.allocator);
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -106,7 +106,7 @@ pub fn add(self: *Self, w_: Widget) !void {
 }
 
 pub fn addP(self: *Self, w_: Widget) !*Widget {
-    var w: *WidgetState = try self.widgets.addOne();
+    var w: *WidgetState = try self.widgets.addOne(self.allocator);
     w.* = .{
         .widget = w_,
         .layout = w_.layout(),

@@ -753,9 +753,9 @@ pub fn get_or_create_namespace_config_file(allocator: std.mem.Allocator, namespa
 const KeyEventSequenceFmt = struct {
     key_events: []const KeyEvent,
 
-    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) !void {
         for (self.key_events) |key_event|
-            try writer.print(" {}", .{input.key_event_short_fmt(key_event)});
+            try writer.print(" {f}", .{input.key_event_short_fmt(key_event)});
     }
 };
 

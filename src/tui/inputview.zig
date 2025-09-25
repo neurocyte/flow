@@ -2,6 +2,7 @@ const eql = @import("std").mem.eql;
 const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
 const ArrayList = @import("std").ArrayList;
+const Writer = @import("std").Io.Writer;
 
 const tp = @import("thespian");
 
@@ -38,7 +39,7 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
         .allocator = allocator,
         .parent = parent,
         .plane = n,
-        .buffer = Buffer.init(allocator),
+        .buffer = .empty,
     };
     try tui.input_listeners().add(EventHandler.bind(self, listen));
     return Widget.to(self);
@@ -47,8 +48,8 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
 pub fn deinit(self: *Self, allocator: Allocator) void {
     tui.input_listeners().remove_ptr(self);
     for (self.buffer.items) |item|
-        self.buffer.allocator.free(item.json);
-    self.buffer.deinit();
+        self.allocator.free(item.json);
+    self.buffer.deinit(self.allocator);
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -93,7 +94,7 @@ fn append(self: *Self, json: []const u8) !void {
         break :ret ts - last.time;
     } else 0;
     self.last_count = 0;
-    (try self.buffer.addOne()).* = .{
+    (try self.buffer.addOne(self.allocator)).* = .{
         .time = ts,
         .tdiff = tdiff,
         .json = try self.allocator.dupeZ(u8, json),
@@ -104,9 +105,9 @@ pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "M", tp.more })) return;
     var buf: [4096]u8 = undefined;
     const json = m.to_json(&buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    var result = ArrayList(u8).init(self.allocator);
+    var result: Writer.Allocating = .init(self.allocator);
     defer result.deinit();
-    const writer = result.writer();
+    const writer = &result.writer;
     writer.writeAll(json) catch |e| return tp.exit_error(e, @errorReturnTrace());
 
     var event: input.Event = 0;
@@ -123,9 +124,9 @@ pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
         tp.extract(&modifiers),
     })) {
         const key_event = input.KeyEvent.from_message(event, keypress, keypress_shifted, text, modifiers);
-        writer.print(" -> {}", .{key_event}) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        writer.print(" -> {f}", .{key_event}) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
-    self.append(result.items) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    self.append(result.written()) catch |e| return tp.exit_error(e, @errorReturnTrace());
 }
 
 pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {

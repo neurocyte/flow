@@ -74,7 +74,7 @@ const Process = struct {
     query: []const u8,
     receiver: Receiver,
     sp: ?tp.subprocess = null,
-    output: std.ArrayList(u8),
+    output: std.Io.Writer.Allocating,
     parent: tp.pid,
     tag: [:0]const u8,
     logger: log.Logger,
@@ -90,7 +90,7 @@ const Process = struct {
             .allocator = allocator,
             .query = try allocator.dupe(u8, query),
             .receiver = Receiver.init(receive, self),
-            .output = std.ArrayList(u8).init(allocator),
+            .output = .init(allocator),
             .parent = tp.self_pid().clone(),
             .tag = try allocator.dupeZ(u8, tag),
             .logger = log.logger(@typeName(Self)),
@@ -157,7 +157,7 @@ const Process = struct {
     }
 
     fn handle_output(self: *Process, bytes: []const u8) !void {
-        try self.output.appendSlice(bytes);
+        try self.output.writer.writeAll(bytes);
     }
 
     fn handle_terminated(self: *Process, m: tp.message) !void {

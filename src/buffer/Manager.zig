@@ -52,7 +52,7 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buf
     return buffer;
 }
 
-pub fn write_state(self: *const Self, writer: Buffer.MetaWriter) error{ Stop, OutOfMemory }!void {
+pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOfMemory, WriteFailed }!void {
     const buffers = self.list_unordered(self.allocator) catch return;
     defer self.allocator.free(buffers);
     try cbor.writeArrayHeader(writer, buffers.len);

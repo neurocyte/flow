@@ -169,7 +169,7 @@ fn tryUtf8Decode(bytes: []const u8) !u21 {
     };
 }
 
-pub fn ucs32_to_utf8(ucs32: []const u32, utf8: []u8) !usize {
+pub fn ucs32_to_utf8(ucs32: []const u32, utf8: []u8) error{ Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }!usize {
     return @intCast(try unicode.utf8Encode(@intCast(ucs32[0]), utf8));
 }
 
@@ -392,7 +392,7 @@ pub fn key_short_fmt(key_: Key) struct {
         var key_string = utils.key_id_string_short(self.key);
         var buf: [6]u8 = undefined;
         if (key_string.len == 0) {
-            const bytes = try ucs32_to_utf8(&[_]u32{self.key}, &buf);
+            const bytes = ucs32_to_utf8(&[_]u32{self.key}, &buf) catch return error.WriteFailed;
             key_string = buf[0..bytes];
         }
         try writer.writeAll(key_string);

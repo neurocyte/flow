@@ -30,11 +30,11 @@ pub fn load_entries(palette: *Type) !usize {
     while (len > 0) : (len -= 1) {
         var task: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract(&task))) {
-            (try palette.entries.addOne()).* = .{ .label = try palette.allocator.dupe(u8, task) };
+            (try palette.entries.addOne(palette.allocator)).* = .{ .label = try palette.allocator.dupe(u8, task) };
         } else return error.InvalidTaskMessageField;
     }
-    (try palette.entries.addOne()).* = .{ .label = "", .command = "add_task" };
-    (try palette.entries.addOne()).* = .{ .label = "", .command = "palette_menu_delete_item" };
+    (try palette.entries.addOne(palette.allocator)).* = .{ .label = "", .command = "add_task" };
+    (try palette.entries.addOne(palette.allocator)).* = .{ .label = "", .command = "palette_menu_delete_item" };
     return if (palette.entries.items.len == 0) label.len else blk: {
         var longest: usize = 0;
         for (palette.entries.items) |item| longest = @max(longest, item.label.len);
@@ -49,12 +49,12 @@ pub fn clear_entries(palette: *Type) void {
 }
 
 pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !void {
-    var value = std.ArrayList(u8).init(palette.allocator);
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
-    const writer = value.writer();
+    const writer = &value.writer;
     try cbor.writeValue(writer, entry);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
-    try palette.menu.add_item_with_handler(value.items, select);
+    try palette.menu.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
 

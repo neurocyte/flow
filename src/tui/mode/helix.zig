@@ -235,9 +235,11 @@ const cmds_ = struct {
         const ed = mv.get_active_editor() orelse return;
         const root = ed.buf_root() catch return;
         var first = true;
-        var text = std.ArrayList(u8).init(ed.allocator);
+        var buffer: std.Io.Writer.Allocating = .init(ed.allocator);
+        defer buffer.deinit();
+        const writer = &buffer.writer;
 
-        if (ed.get_primary().selection) |sel| if (sel.begin.col == 0 and sel.end.row > sel.begin.row) try text.appendSlice("\n");
+        if (ed.get_primary().selection) |sel| if (sel.begin.col == 0 and sel.end.row > sel.begin.row) try writer.writeAll("\n");
 
         for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |sel| {
@@ -245,18 +247,19 @@ const cmds_ = struct {
                 if (first) {
                     first = false;
                 } else {
-                    try text.appendSlice("\n");
+                    try writer.writeAll("\n");
                 }
-                try text.appendSlice(copy_text);
+                try writer.writeAll(copy_text);
             }
         };
-        if (text.items.len > 0) {
-            if (text.items.len > 100) {
-                ed.logger.print("copy:{s}...", .{std.fmt.fmtSliceEscapeLower(text.items[0..100])});
+        const text = buffer.written();
+        if (text.len > 0) {
+            if (text.len > 100) {
+                ed.logger.print("copy:{f}...", .{std.ascii.hexEscape(text[0..100], .lower)});
             } else {
-                ed.logger.print("copy:{s}", .{std.fmt.fmtSliceEscapeLower(text.items)});
+                ed.logger.print("copy:{f}", .{std.ascii.hexEscape(text, .lower)});
             }
-            ed.set_clipboard_internal(text.items);
+            ed.set_clipboard_internal(text);
         }
     }
     pub const copy_helix_meta: Meta = .{ .description = "Copy selection to clipboard (helix)" };

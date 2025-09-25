@@ -11,13 +11,13 @@ pub const create = Type.create;
 
 pub fn load_entries(self: *Type) !void {
     const editor = tui.get_active_editor() orelse return;
-    try self.file_path.appendSlice(editor.file_path orelse "");
+    try self.file_path.appendSlice(self.allocator, editor.file_path orelse "");
     if (editor.get_primary().selection) |sel| ret: {
         const text = editor.get_selection(sel, self.allocator) catch break :ret;
         defer self.allocator.free(text);
         if (!(text.len > 2 and std.mem.eql(u8, text[0..2], "..")))
             self.file_path.clearRetainingCapacity();
-        try self.file_path.appendSlice(text);
+        try self.file_path.appendSlice(self.allocator, text);
     }
 }
 

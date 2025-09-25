@@ -69,20 +69,22 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = .{
+        .allocator = allocator,
         .parent = parent,
         .plane = n,
         .opts = opts,
-        .label = std.ArrayList(u8).init(allocator),
-        .text = std.ArrayList(u8).init(allocator),
+        .label = .empty,
+        .text = .empty,
         .icon_width = @intCast(if (tui.config().show_fileicons) if (opts.icon) |icon| n.egc_chunk_width(icon, 0, 1) else 0 else 0),
     };
-    try self.label.appendSlice(self.opts.label);
+    try self.label.appendSlice(self.allocator, self.opts.label);
     self.opts.label = self.label.items;
     return Widget.to(self);
 }
 
 pub fn State(ctx_type: type) type {
     return struct {
+        allocator: std.mem.Allocator,
         parent: Plane,
         plane: Plane,
         active: bool = false,
@@ -97,8 +99,8 @@ pub fn State(ctx_type: type) type {
         pub const Context = ctx_type;
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            self.text.deinit();
-            self.label.deinit();
+            self.text.deinit(self.allocator);
+            self.label.deinit(self.allocator);
             self.plane.deinit();
             allocator.destroy(self);
         }

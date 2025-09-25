@@ -253,14 +253,14 @@ fn open_style_config(self: *Self, Style: type) command.Result {
         break :blk .{ style, style_bufs };
     } else .{ Style{}, &.{} };
     defer root.free_config(self.allocator, style_bufs);
-    var conf = std.ArrayListUnmanaged(u8).empty;
-    defer conf.deinit(self.allocator);
-    root.write_config_to_writer(Style, style, conf.writer(self.allocator)) catch {};
+    var conf: std.Io.Writer.Allocating = .init(self.allocator);
+    defer conf.deinit();
+    root.write_config_to_writer(Style, style, &conf.writer) catch {};
     tui.reset_drag_context();
     try self.create_editor();
     try command.executeName("open_scratch_buffer", command.fmt(.{
         file_name[0 .. file_name.len - ".json".len],
-        conf.items,
+        conf.written(),
         "conf",
     }));
     if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
@@ -387,9 +387,9 @@ const cmds = struct {
         }
 
         const f_ = project_manager.normalize_file_path(file orelse return);
-        var buf = std.ArrayList(u8).init(self.allocator);
-        defer buf.deinit();
-        const f = project_manager.expand_home(&buf, f_);
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.allocator);
+        const f = project_manager.expand_home(self.allocator, &buf, f_);
         const same_file = if (self.get_active_file_path()) |fp| std.mem.eql(u8, fp, f) else false;
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
@@ -556,11 +556,11 @@ const cmds = struct {
     pub fn create_new_file(self: *Self, _: Ctx) Result {
         var n: usize = 1;
         var found_unique = false;
-        var name = std.ArrayList(u8).init(self.allocator);
-        defer name.deinit();
+        var name: std.ArrayList(u8) = .empty;
+        defer name.deinit(self.allocator);
         while (!found_unique) {
             name.clearRetainingCapacity();
-            try name.writer().print("Untitled-{d}", .{n});
+            try name.writer(self.allocator).print("Untitled-{d}", .{n});
             if (self.buffer_manager.get_buffer_for_file(name.items)) |_| {
                 n += 1;
             } else {
@@ -580,9 +580,9 @@ const cmds = struct {
 
         if (self.get_active_editor()) |editor| {
             const buffer = editor.buffer orelse return;
-            var content = std.ArrayListUnmanaged(u8).empty;
-            defer content.deinit(self.allocator);
-            try buffer.root.store(content.writer(self.allocator), buffer.file_eol_mode);
+            var content: std.Io.Writer.Allocating = .init(self.allocator);
+            defer content.deinit();
+            try buffer.root.store(&content.writer, buffer.file_eol_mode);
 
             var existing = false;
             if (self.buffer_manager.get_buffer_for_file(file_path)) |new_buffer| {
@@ -601,7 +601,7 @@ const cmds = struct {
             if (self.get_active_editor()) |new_editor| {
                 const new_buffer = new_editor.buffer orelse return;
                 if (existing) new_editor.update_buf(new_buffer.root) catch {}; // store an undo point
-                try new_buffer.reset_from_string_and_update(content.items);
+                try new_buffer.reset_from_string_and_update(content.written());
                 new_buffer.mark_not_ephemeral();
                 new_buffer.mark_dirty();
                 new_editor.clamp();
@@ -1310,8 +1310,9 @@ fn create_home_split(self: *Self) !void {
 pub fn write_restore_info(self: *Self) void {
     var sfa = std.heap.stackFallback(512, self.allocator);
     const a = sfa.get();
-    var meta = std.ArrayListUnmanaged(u8).empty;
-    const writer = meta.writer(a);
+    var meta: std.Io.Writer.Allocating = .init(a);
+    defer meta.deinit();
+    const writer = &meta.writer;
 
     if (self.get_active_editor()) |editor| {
         cbor.writeValue(writer, editor.file_path) catch return;
@@ -1330,7 +1331,7 @@ pub fn write_restore_info(self: *Self) void {
     const file_name = root.get_restore_file_name() catch return;
     var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch return;
     defer file.close();
-    file.writeAll(meta.items) catch return;
+    file.writeAll(meta.written()) catch return;
 }
 
 fn read_restore_info(self: *Self) !void {
@@ -1370,15 +1371,15 @@ fn read_restore_info(self: *Self) !void {
 
 fn send_buffer_did_open(allocator: std.mem.Allocator, buffer: *Buffer) !void {
     const ft = try file_type_config.get(buffer.file_type_name orelse return) orelse return;
-    var content = std.ArrayListUnmanaged(u8).empty;
-    defer content.deinit(allocator);
-    try buffer.root.store(content.writer(allocator), buffer.file_eol_mode);
+    var content: std.Io.Writer.Allocating = .init(allocator);
+    defer content.deinit();
+    try buffer.root.store(&content.writer, buffer.file_eol_mode);
 
     try project_manager.did_open(
         buffer.get_file_path(),
         ft,
         buffer.lsp_version,
-        try content.toOwnedSlice(allocator),
+        try content.toOwnedSlice(),
         buffer.is_ephemeral(),
     );
 }

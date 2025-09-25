@@ -32,8 +32,8 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
     errdefer allocator.destroy(self);
     self.* = .{
         .allocator = allocator,
-        .input_ = ArrayList(u8).init(allocator),
-        .last_input = ArrayList(u8).init(allocator),
+        .input_ = .empty,
+        .last_input = .empty,
         .start_view = editor.view,
         .start_cursor = editor.get_primary().cursor,
         .editor = editor,
@@ -42,7 +42,7 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
     if (editor.get_primary().selection) |sel| ret: {
         const text = editor.get_selection(sel, self.allocator) catch break :ret;
         defer self.allocator.free(text);
-        try self.input_.appendSlice(text);
+        try self.input_.appendSlice(self.allocator, text);
     }
     var mode = try keybind.mode("mini/find", allocator, .{
         .insert_command = "mini_mode_insert_bytes",
@@ -53,8 +53,8 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
 
 pub fn deinit(self: *Self) void {
     self.commands.deinit();
-    self.input_.deinit();
-    self.last_input.deinit();
+    self.input_.deinit(self.allocator);
+    self.last_input.deinit(self.allocator);
     self.allocator.destroy(self);
 }
 
@@ -74,11 +74,11 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn insert_code_point(self: *Self, c: u32) !void {
     var buf: [16]u8 = undefined;
     const bytes = input.ucs32_to_utf8(&[_]u32{c}, &buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    try self.input_.appendSlice(buf[0..bytes]);
+    try self.input_.appendSlice(self.allocator, buf[0..bytes]);
 }
 
 fn insert_bytes(self: *Self, bytes: []const u8) !void {
-    try self.input_.appendSlice(bytes);
+    try self.input_.appendSlice(self.allocator, bytes);
 }
 
 fn flush_input(self: *Self) !void {
@@ -86,7 +86,7 @@ fn flush_input(self: *Self) !void {
         if (eql(u8, self.input_.items, self.last_input.items))
             return;
         self.last_input.clearRetainingCapacity();
-        try self.last_input.appendSlice(self.input_.items);
+        try self.last_input.appendSlice(self.allocator, self.input_.items);
         self.editor.find_operation = .goto_next_match;
         const primary = self.editor.get_primary();
         primary.selection = null;
@@ -136,7 +136,7 @@ fn find_history_next(self: *Self) void {
 fn load_history(self: *Self, pos: usize) void {
     if (self.editor.find_history) |*history| {
         self.input_.clearRetainingCapacity();
-        self.input_.appendSlice(history.items[pos]) catch {};
+        self.input_.appendSlice(self.allocator, history.items[pos]) catch {};
     }
 }
 
@@ -189,7 +189,7 @@ const cmds = struct {
     pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn mini_mode_delete_backwards(self: *Self, _: Ctx) Result {
-        self.input_.resize(self.input_.items.len - tui.egc_last(self.input_.items).len) catch {};
+        self.input_.resize(self.allocator, self.input_.items.len - tui.egc_last(self.input_.items).len) catch {};
         self.update_mini_mode_text();
     }
     pub const mini_mode_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };

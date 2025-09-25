@@ -14,18 +14,18 @@ widgets: ArrayList(Widget),
 pub fn init(allocator: Allocator) Self {
     return .{
         .allocator = allocator,
-        .widgets = ArrayList(Widget).init(allocator),
+        .widgets = .empty,
     };
 }
 
 pub fn deinit(self: *Self) void {
     for (self.widgets.items) |*widget|
         widget.deinit(self.allocator);
-    self.widgets.deinit();
+    self.widgets.deinit(self.allocator);
 }
 
 pub fn add(self: *Self, widget: Widget) !void {
-    (try self.widgets.addOne()).* = widget;
+    (try self.widgets.addOne(self.allocator)).* = widget;
 }
 
 pub fn swap(self: *Self, n: usize, widget: Widget) Widget {

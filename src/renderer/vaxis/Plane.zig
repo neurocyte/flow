@@ -207,7 +207,7 @@ pub fn putstr(self: *Plane, text: []const u8) !usize {
 
 pub fn putstr_unicode(self: *Plane, text: []const u8) !usize {
     var result: usize = 0;
-    var iter = self.window.screen.unicode.graphemeIterator(text);
+    var iter = self.window.unicode.graphemeIterator(text);
     while (iter.next()) |grapheme| {
         const s_ = grapheme.bytes(text);
         const s = switch (s_[0]) {

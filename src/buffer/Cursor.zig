@@ -188,7 +188,7 @@ pub fn test_at(self: *const Self, root: Buffer.Root, pred: *const fn (c: []const
     return root.test_at(pred, self.row, self.col, metrics);
 }
 
-pub fn write(self: *const Self, writer: Buffer.MetaWriter) !void {
+pub fn write(self: *const Self, writer: *std.Io.Writer) !void {
     try cbor.writeValue(writer, .{
         self.row,
         self.col,

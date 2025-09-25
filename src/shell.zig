@@ -29,6 +29,7 @@ pub const Error = error{
     BadArrayAllocExtract,
     InvalidMapType,
     InvalidUnion,
+    WriteFailed,
 };
 
 pub const OutputHandler = fn (context: usize, parent: tp.pid_ref, arg0: []const u8, output: []const u8) void;
@@ -300,20 +301,20 @@ const Process = struct {
 fn parse_arg0_to_argv(allocator: std.mem.Allocator, arg0: *[]const u8) !tp.message {
     // this is horribly simplistic
     // TODO: add quotes parsing and workspace variables, etc.
-    var args = std.ArrayList([]const u8).init(allocator);
-    defer args.deinit();
+    var args: std.ArrayList([]const u8) = .empty;
+    defer args.deinit(allocator);
 
     var it = std.mem.splitScalar(u8, arg0.*, ' ');
     while (it.next()) |arg|
-        try args.append(arg);
+        try args.append(allocator, arg);
 
-    var msg_cb = std.ArrayList(u8).init(allocator);
+    var msg_cb: std.Io.Writer.Allocating = .init(allocator);
     defer msg_cb.deinit();
 
-    try cbor.writeArrayHeader(msg_cb.writer(), args.items.len);
+    try cbor.writeArrayHeader(&msg_cb.writer, args.items.len);
     for (args.items) |arg|
-        try cbor.writeValue(msg_cb.writer(), arg);
+        try cbor.writeValue(&msg_cb.writer, arg);
 
-    _ = try cbor.match(msg_cb.items, .{ tp.extract(arg0), tp.more });
+    _ = try cbor.match(msg_cb.written(), .{ tp.extract(arg0), tp.more });
     return .{ .buf = try msg_cb.toOwnedSlice() };
 }
