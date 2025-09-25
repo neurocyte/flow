@@ -50,6 +50,11 @@ const cmds_ = struct {
     }
     pub const wq_meta: Meta = .{ .description = "wq (write/save file and quit)" };
 
+    pub fn x(_: *void, _: Ctx) Result {
+        try cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
+    }
+    pub const x_meta: Meta = .{ .description = "x (write/save file and quit)" };
+
     pub fn o(_: *void, _: Ctx) Result {
         try cmd("open_file", .{});
     }
