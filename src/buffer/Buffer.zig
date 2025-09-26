@@ -1370,8 +1370,8 @@ pub fn refresh_from_file(self: *Self) LoadFromFileError!void {
 }
 
 pub fn store_to_string(self: *const Self, allocator: Allocator, eol_mode: EolMode) ![]u8 {
-    var s = try ArrayList(u8).initCapacity(allocator, self.root.weights_sum().len);
-    try self.root.store(s.writer(), eol_mode);
+    var s: std.Io.Writer.Allocating = try .initCapacity(allocator, self.root.weights_sum().len);
+    try self.root.store(&s.writer, eol_mode);
     return s.toOwnedSlice();
 }
 
