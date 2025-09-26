@@ -957,7 +957,6 @@ const Node = union(enum) {
             const Ctx = @This();
             fn drain(w: *std.Io.Writer, data_: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
                 const ctx: *Ctx = @alignCast(@fieldParentPtr("writer", w));
-                std.debug.assert(splat == 0);
                 if (data_.len == 0) return 0;
                 var written: usize = 0;
                 for (data_[0 .. data_.len - 1]) |bytes| {
