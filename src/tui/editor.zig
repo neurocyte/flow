@@ -820,10 +820,10 @@ pub const Editor = struct {
     fn update_buf_and_eol_mode(self: *Self, root: Buffer.Root, eol_mode: Buffer.EolMode, utf8_sanitized: bool) !void {
         const b = self.buffer orelse return error.Stop;
         var sfa = std.heap.stackFallback(512, self.allocator);
-        const allocator = sfa.get();
+        const sfa_allocator = sfa.get();
         if (!self.pause_undo) {
-            const meta = try self.store_undo_meta(allocator);
-            defer allocator.free(meta);
+            const meta = try self.store_undo_meta(sfa_allocator);
+            defer sfa_allocator.free(meta);
             try b.store_undo(meta);
         }
         b.update(root);
@@ -850,9 +850,9 @@ pub const Editor = struct {
             try self.send_editor_jump_source();
             self.cancel_all_matches();
             var sfa = std.heap.stackFallback(512, self.allocator);
-            const allocator = sfa.get();
-            const redo_metadata = try self.store_current_undo_meta(allocator);
-            defer allocator.free(redo_metadata);
+            const sfa_allocator = sfa.get();
+            const redo_metadata = try self.store_current_undo_meta(sfa_allocator);
+            defer sfa_allocator.free(redo_metadata);
             const meta = b_mut.undo(redo_metadata) catch |e| switch (e) {
                 error.Stop => {
                     self.logger.print("nothing to undo", .{});
@@ -893,9 +893,9 @@ pub const Editor = struct {
         self.pause_undo = false;
         const b = self.buffer orelse return;
         var sfa = std.heap.stackFallback(512, self.allocator);
-        const allocator = sfa.get();
-        const meta = try self.store_undo_meta(allocator);
-        defer allocator.free(meta);
+        const sfa_allocator = sfa.get();
+        const meta = try self.store_undo_meta(sfa_allocator);
+        defer sfa_allocator.free(meta);
         const root = self.buf_root() catch return;
         if (self.pause_undo_root) |paused_root| b.update(paused_root);
         try b.store_undo(meta);
@@ -3574,8 +3574,9 @@ pub const Editor = struct {
         const saved = cursel.*;
         const sel = cursel.expand_selection_to_line(root, self.metrics) catch return error.Stop;
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
-        defer allocator.free(cut_text);
+        const sfa_allocator = sfa.get();
+        const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(cut_text);
         root = try self.delete_selection(root, cursel, allocator);
         try cursel.cursor.move_up(root, self.metrics);
         root = self.insert(root, cursel, cut_text, allocator) catch return error.Stop;
@@ -3601,8 +3602,9 @@ pub const Editor = struct {
         const saved = cursel.*;
         const sel = cursel.expand_selection_to_line(root, self.metrics) catch return error.Stop;
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
-        defer allocator.free(cut_text);
+        const sfa_allocator = sfa.get();
+        const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(cut_text);
         root = try self.delete_selection(root, cursel, allocator);
         try cursel.cursor.move_down(root, self.metrics);
         root = self.insert(root, cursel, cut_text, allocator) catch return error.Stop;
@@ -3628,8 +3630,9 @@ pub const Editor = struct {
         const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
         cursel.disable_selection(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const text = copy_selection(root, sel, sfa.get(), self.metrics) catch return error.Stop;
-        defer allocator.free(text);
+        const sfa_allocator = sfa.get();
+        const text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(text);
         cursel.cursor = sel.begin;
         root = self.insert(root, cursel, text, allocator) catch return error.Stop;
         cursel.selection = .{ .begin = sel.begin, .end = sel.end };
@@ -3650,8 +3653,9 @@ pub const Editor = struct {
         const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
         cursel.disable_selection(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const text = copy_selection(root, sel, sfa.get(), self.metrics) catch return error.Stop;
-        defer allocator.free(text);
+        const sfa_allocator = sfa.get();
+        const text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(text);
         cursel.cursor = sel.end;
         root = self.insert(root, cursel, text, allocator) catch return error.Stop;
         cursel.selection = .{ .begin = sel.end, .end = cursel.cursor };
@@ -3671,11 +3675,12 @@ pub const Editor = struct {
         const saved = cursel.*;
         const sel = cursel.expand_selection_to_line(root, self.metrics) catch return error.Stop;
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const alloc = sfa.get();
-        const text = copy_selection(root, sel.*, alloc, self.metrics) catch return error.Stop;
-        defer allocator.free(text);
+        const sfa_allocator = sfa.get();
+        const text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(text);
         root = try self.delete_selection(root, cursel, allocator);
-        const new_text = text_manip.toggle_prefix_in_text(self.prefix, text, alloc) catch return error.Stop;
+        const new_text = text_manip.toggle_prefix_in_text(self.prefix, text, sfa_allocator) catch return error.Stop;
+        defer sfa_allocator.free(new_text);
         root = self.insert(root, cursel, new_text, allocator) catch return error.Stop;
         cursel.* = saved;
         cursel.cursor.clamp_to_buffer(root, self.metrics);
@@ -4471,8 +4476,8 @@ pub const Editor = struct {
         const row = cursel.cursor.row;
         const leading_ws = @min(find_first_non_ws(root, row, self.metrics), cursel.cursor.col);
         var sfa = std.heap.stackFallback(512, self.allocator);
-        const allocator = sfa.get();
-        var stream: std.Io.Writer.Allocating = .init(allocator);
+        const sfa_allocator = sfa.get();
+        var stream: std.Io.Writer.Allocating = .init(sfa_allocator);
         defer stream.deinit();
         const writer = &stream.writer;
         _ = try writer.write("\n");
@@ -4548,8 +4553,8 @@ pub const Editor = struct {
             const row = cursel.cursor.row;
             try move_cursor_left(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
-            const allocator = sfa.get();
-            var stream: std.Io.Writer.Allocating = .init(allocator);
+            const sfa_allocator = sfa.get();
+            var stream: std.Io.Writer.Allocating = .init(sfa_allocator);
             defer stream.deinit();
             try self.generate_leading_ws(&stream.writer, leading_ws);
             if (stream.written().len > 0)
@@ -4581,8 +4586,8 @@ pub const Editor = struct {
             const row = cursel.cursor.row;
             try move_cursor_end(root, &cursel.cursor, self.metrics);
             var sfa = std.heap.stackFallback(512, self.allocator);
-            const allocator = sfa.get();
-            var stream: std.Io.Writer.Allocating = .init(allocator);
+            const sfa_allocator = sfa.get();
+            var stream: std.Io.Writer.Allocating = .init(sfa_allocator);
             defer stream.deinit();
             try stream.writer.writeAll("\n");
             try self.generate_leading_ws(&stream.writer, leading_ws);
@@ -5887,10 +5892,11 @@ pub const Editor = struct {
             break :ret sel;
         };
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
-        defer allocator.free(cut_text);
-        const ucased = Buffer.unicode.get_letter_casing().toUpperStr(allocator, cut_text) catch return error.Stop;
-        defer allocator.free(ucased);
+        const sfa_allocator = sfa.get();
+        const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(cut_text);
+        const ucased = Buffer.unicode.get_letter_casing().toUpperStr(sfa_allocator, cut_text) catch return error.Stop;
+        defer sfa_allocator.free(ucased);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
         cursel.* = saved;
@@ -5915,10 +5921,11 @@ pub const Editor = struct {
             break :ret sel;
         };
         var sfa = std.heap.stackFallback(4096, self.allocator);
-        const cut_text = copy_selection(root, sel.*, sfa.get(), self.metrics) catch return error.Stop;
-        defer allocator.free(cut_text);
-        const ucased = Buffer.unicode.get_letter_casing().toLowerStr(allocator, cut_text) catch return error.Stop;
-        defer allocator.free(ucased);
+        const sfa_allocator = sfa.get();
+        const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(cut_text);
+        const ucased = Buffer.unicode.get_letter_casing().toLowerStr(sfa_allocator, cut_text) catch return error.Stop;
+        defer sfa_allocator.free(ucased);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
         cursel.* = saved;
