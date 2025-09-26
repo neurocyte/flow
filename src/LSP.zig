@@ -696,6 +696,7 @@ const Process = struct {
         if (!debug_lsp) return;
         const file_writer = if (self.log_file_writer) |*writer| writer else return;
         file_writer.interface.print(format, args) catch {};
+        file_writer.interface.flush() catch {};
     }
 };
 
