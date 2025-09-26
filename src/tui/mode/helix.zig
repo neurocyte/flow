@@ -40,6 +40,11 @@ const cmds_ = struct {
     }
     pub const q_meta: Meta = .{ .description = "q (quit)" };
 
+    pub fn qa(_: *void, _: Ctx) Result {
+        try cmd("quit", .{});
+    }
+    pub const qa_meta: Meta = .{ .description = "qa (close all)" };
+
     pub fn @"q!"(_: *void, _: Ctx) Result {
         try cmd("quit_without_saving", .{});
     }
@@ -59,6 +64,52 @@ const cmds_ = struct {
         try cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
     }
     pub const x_meta: Meta = .{ .description = "x (write/save file and quit)" };
+
+    // This one needs some help, the intention is to close only the current buffer
+    // , if is the only buffer, exit...
+    // TODO
+    // pub fn @"x!"(_: *void, _: Ctx) Result {
+    //     try cmd("save_file", .{});
+    //     try cmd("close_file_without_saving", .{});
+    // }
+    // pub const @"x!_meta": Meta = .{ .description = "x! (write/save file and close forcefully, ignoring unsaved changes)" };
+
+    pub fn wa(_: *void, _: Ctx) Result {
+        if (tui.get_buffer_manager()) |bm|
+            bm.save_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const wa_meta: Meta = .{ .description = "wa (save all)" };
+
+    pub fn xa(_: *void, _: Ctx) Result {
+        if (tui.get_buffer_manager()) |bm| {
+            bm.save_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            try cmd("quit", .{});
+        }
+    }
+    pub const xa_meta: Meta = .{ .description = "xa (write all and quit)" };
+
+    pub fn @"xa!"(_: *void, _: Ctx) Result {
+        if (tui.get_buffer_manager()) |bm| {
+            bm.save_all() catch {};
+            try cmd("quit_without_saving", .{});
+        }
+    }
+    pub const @"xa!_meta": Meta = .{ .description = "xa! (write all and quit forcefully, ignoring unsaved changes)" };
+
+    pub fn wqa(_: *void, _: Ctx) Result {
+        if (tui.get_buffer_manager()) |bm|
+            bm.save_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        try cmd("quit", .{});
+    }
+    pub const wqa_meta: Meta = .{ .description = "wqa (write all and quit)" };
+
+    pub fn @"wqa!"(_: *void, _: Ctx) Result {
+        if (tui.get_buffer_manager()) |bm| {
+            bm.save_all() catch {};
+            try cmd("quit_without_saving", .{});
+        }
+    }
+    pub const @"wqa!_meta": Meta = .{ .description = "wqa! (write all and quit forcefully, ignoring unsaved changes)" };
 
     pub fn rl(_: *void, _: Ctx) Result {
         try cmd("reload_file", .{});
@@ -95,6 +146,11 @@ const cmds_ = struct {
         try cmd("delete_buffer", .{});
     }
     pub const bc_meta: Meta = .{ .description = "bc (Close buffer/tab)" };
+
+    pub fn @"bc!"(_: *void, _: Ctx) Result {
+        try cmd("close_file_without_saving", .{});
+    }
+    pub const @"bc!_meta": Meta = .{ .description = "bc! (Close buffer/tab forcefully, ignoring changes)" };
 
     pub fn save_selection(_: *void, _: Ctx) Result {
         const logger = log.logger("helix-mode");

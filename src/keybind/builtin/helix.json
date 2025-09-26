@@ -71,7 +71,7 @@
             ["A", ["enter_mode", "insert"], ["move_end"]],
             ["O", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
-            ["C", "copy_selection_on_next_line"],
+            ["C", "add_cursor_down"],
             ["S", "split_selection"],
             ["X", "extend_to_line_bounds"],
             ["?", "rfind"],
@@ -129,7 +129,7 @@
             ["g s", "smart_move_begin"],
             ["g d", "goto_definition"],
             ["g y", "goto_type_definition"],
-            ["g r", "goto_reference"],
+            ["g r", "references"],
             ["g i", "goto_implementation"],
             ["g t", "goto_window_top"],
             ["g c", "goto_window_center"],
@@ -218,7 +218,7 @@
             ["space b", "switch_buffers"],
             ["space j", "jumplist_picker"],
             ["space s", "symbol_picker"],
-            ["space d", "diagnostics_picker"],
+            ["space d", "show_diagnostics"],
             ["space a", "code_action"],
             ["space '", "last_picker"],
             ["space y", "copy"],
@@ -253,6 +253,7 @@
             ["ctrl+y", "redo"],
             ["ctrl+c", "enter_mode", "normal"],
             ["ctrl+o", "run_ls"],
+            ["ctrl+k", "delete_to_end"],
             ["escape", "enter_mode", "normal"]
         ]
     },
@@ -263,6 +264,12 @@
         "selection": "inclusive",
         "init_command": ["enable_selection"],
         "press": [
+
+            ["b", "select_word_left"],
+            ["w", "select_word_right"],
+            ["g g", "select_buffer_begin"],
+            ["g e", "select_buffer_end"],
+
             ["ctrl+b", "select_page_up"],
             ["ctrl+f", "select_page_down"],
             ["ctrl+u", "select_half_page_up"],
@@ -505,7 +512,7 @@
             ["space b", "switch_buffers"],
             ["space j", "jumplist_picker"],
             ["space s", "symbol_picker"],
-            ["space d", "diagnostics_picker"],
+            ["space d", "show_diagnostics"],
             ["space a", "code_action"],
             ["space '", "last_picker"],
             ["space y", "copy"],
