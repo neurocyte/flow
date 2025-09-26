@@ -562,12 +562,14 @@ const BindingSet = struct {
 
         for (self.press.items) |binding| {
             const cmd = binding.commands[0].command;
-            var hint: std.Io.Writer.Allocating = if (hints_map.get(cmd)) |previous|
-                .initOwnedSlice(allocator, previous)
-            else
-                .init(allocator);
+            var end: usize = 0;
+            var hint: std.Io.Writer.Allocating = if (hints_map.get(cmd)) |previous| blk: {
+                end = previous.len;
+                break :blk .initOwnedSlice(allocator, previous);
+            } else .init(allocator);
             defer hint.deinit();
             const writer = &hint.writer;
+            writer.end = end;
             if (hint.written().len > 0) try writer.writeAll(", ");
             const count = binding.key_events.len;
             for (binding.key_events, 0..) |key_, n| {

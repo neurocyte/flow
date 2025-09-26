@@ -93,9 +93,11 @@ pub fn get(file_type_name: []const u8) !?@This() {
 }
 
 pub fn get_config_file_path(allocator: std.mem.Allocator, file_type: []const u8) ![]u8 {
-    var stream: std.Io.Writer.Allocating = .initOwnedSlice(allocator, try get_config_dir_path(allocator));
+    const config_dir_path = try get_config_dir_path(allocator);
+    var stream: std.Io.Writer.Allocating = .initOwnedSlice(allocator, config_dir_path);
     defer stream.deinit();
     const writer = &stream.writer;
+    writer.end = config_dir_path.len;
     _ = try writer.writeAll(file_type);
     _ = try writer.writeAll(".conf");
     return stream.toOwnedSlice();
