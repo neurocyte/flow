@@ -1119,6 +1119,49 @@ const Node = union(enum) {
             break :blk l.toOwnedSlice();
         } else error.NotFound;
     }
+
+    pub fn write_range(
+        self: *const Node,
+        sel: Selection,
+        writer: *std.Io.Writer,
+        wcwidth_: ?*usize,
+        metrics: Metrics,
+    ) std.Io.Writer.Error!void {
+        const Ctx = struct {
+            col: usize = 0,
+            sel: Selection,
+            writer: *std.Io.Writer,
+            wcwidth: usize = 0,
+            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Metrics) Walker {
+                const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+                if (ctx.col < ctx.sel.begin.col) {
+                    ctx.col += wcwidth;
+                    return Walker.keep_walking;
+                }
+                _ = ctx.writer.write(egc) catch |e| return Walker{ .err = e };
+                ctx.wcwidth += wcwidth;
+                if (egc[0] == '\n') {
+                    ctx.col = 0;
+                    ctx.sel.begin.col = 0;
+                    ctx.sel.begin.row += 1;
+                } else {
+                    ctx.col += wcwidth;
+                    ctx.sel.begin.col += wcwidth;
+                }
+                return if (ctx.sel.begin.eql(ctx.sel.end))
+                    Walker.stop
+                else
+                    Walker.keep_walking;
+            }
+        };
+
+        var ctx: Ctx = .{ .sel = sel, .writer = writer };
+        ctx.sel.normalize();
+        if (sel.begin.eql(sel.end))
+            return;
+        self.walk_egc_forward(sel.begin.row, Ctx.walker, &ctx, metrics) catch return error.WriteFailed;
+        if (wcwidth_) |p| p.* = ctx.wcwidth;
+    }
 };
 
 pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {

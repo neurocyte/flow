@@ -947,49 +947,6 @@ pub const Editor = struct {
         return ctx.col;
     }
 
-    fn write_range(
-        self: *const Self,
-        root: Buffer.Root,
-        sel: Selection,
-        writer: *std.Io.Writer,
-        wcwidth_: ?*usize,
-    ) std.Io.Writer.Error!void {
-        const Ctx = struct {
-            col: usize = 0,
-            sel: Selection,
-            writer: *std.Io.Writer,
-            wcwidth: usize = 0,
-            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Buffer.Metrics) Buffer.Walker {
-                const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-                if (ctx.col < ctx.sel.begin.col) {
-                    ctx.col += wcwidth;
-                    return Buffer.Walker.keep_walking;
-                }
-                _ = ctx.writer.write(egc) catch |e| return Buffer.Walker{ .err = e };
-                ctx.wcwidth += wcwidth;
-                if (egc[0] == '\n') {
-                    ctx.col = 0;
-                    ctx.sel.begin.col = 0;
-                    ctx.sel.begin.row += 1;
-                } else {
-                    ctx.col += wcwidth;
-                    ctx.sel.begin.col += wcwidth;
-                }
-                return if (ctx.sel.begin.eql(ctx.sel.end))
-                    Buffer.Walker.stop
-                else
-                    Buffer.Walker.keep_walking;
-            }
-        };
-
-        var ctx: Ctx = .{ .sel = sel, .writer = writer };
-        ctx.sel.normalize();
-        if (sel.begin.eql(sel.end))
-            return;
-        root.walk_egc_forward(sel.begin.row, Ctx.walker, &ctx, self.metrics) catch return error.WriteFailed;
-        if (wcwidth_) |p| p.* = ctx.wcwidth;
-    }
-
     pub fn update(self: *Self) void {
         self.update_scroll();
         self.update_event() catch {};
@@ -5840,7 +5797,7 @@ pub const Editor = struct {
         }
         var sp_buf: [tp.subprocess.max_chunk_size]u8 = undefined;
         var writer = sp.writer(&sp_buf);
-        try self.write_range(state.before_root, sel, &writer.interface, null);
+        try state.before_root.write_range(sel, &writer.interface, null, self.metrics);
         try writer.interface.flush();
         self.logger.print("filter: sent", .{});
         state.work_root = try state.work_root.delete_range(sel, buf_a_, null, self.metrics);
@@ -5987,7 +5944,7 @@ pub const Editor = struct {
         };
         var range: std.Io.Writer.Allocating = .init(self.allocator);
         defer range.deinit();
-        self.write_range(root, sel.*, &range.writer, null) catch return error.Stop;
+        root.write_range(sel.*, &range.writer, null, self.metrics) catch return error.Stop;
 
         const bytes = range.written();
         const letter_casing = Buffer.unicode.get_letter_casing();
