@@ -1039,53 +1039,34 @@ const Node = union(enum) {
         };
     }
 
-    pub fn get_byte_pos(self: *const Node, pos_: Cursor, metrics_: Metrics, eol_mode: EolMode) !usize {
-        const Ctx = struct {
+    pub fn get_byte_pos(self: *const Node, pos_: Cursor, metrics: Metrics, eol_mode: EolMode) !usize {
+        const ctx_ = struct {
+            pos: usize = 0,
             line: usize = 0,
-            abs_col: usize = 0,
-            pos: Cursor,
-            byte_pos: usize = 0,
-            metrics: Metrics,
-            const Ctx = @This();
-            const Writer = std.io.Writer(*Ctx, error{Stop}, write);
-            fn write(ctx: *Ctx, bytes: []const u8) error{Stop}!usize {
-                if (ctx.line >= ctx.pos.row) {
-                    return ctx.get_col_bytes(bytes, bytes.len);
-                } else for (bytes, 1..) |char, i| {
-                    ctx.byte_pos += 1;
-                    if (char == '\n') {
-                        ctx.line += 1;
-                        if (ctx.line >= ctx.pos.row)
-                            return ctx.get_col_bytes(bytes[i..], bytes.len);
-                    }
+            col: usize = 0,
+            target_line: usize,
+            target_col: usize,
+            eol_mode: EolMode,
+            fn walker(ctx_: *anyopaque, egc: []const u8, wcwidth: usize, _: Metrics) Walker {
+                const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+                if (ctx.line == ctx.target_line and ctx.col == ctx.target_col) return Walker.stop;
+                if (egc[0] == '\n') {
+                    ctx.pos += switch (ctx.eol_mode) {
+                        .lf => 1,
+                        .crlf => 2,
+                    };
+                    ctx.line += 1;
+                    ctx.col = 0;
+                } else {
+                    ctx.pos += egc.len;
+                    ctx.col += wcwidth;
                 }
-                return bytes.len;
-            }
-            fn get_col_bytes(ctx: *Ctx, bytes: []const u8, result: usize) error{Stop}!usize {
-                var buf: []const u8 = bytes;
-                while (buf.len > 0) {
-                    if (ctx.abs_col >= ctx.pos.col) return error.Stop;
-                    if (buf[0] == '\n') return error.Stop;
-                    var cols: c_int = undefined;
-                    const egc_bytes = ctx.metrics.egc_length(ctx.metrics, buf, &cols, ctx.abs_col);
-                    ctx.abs_col += @intCast(cols);
-                    ctx.byte_pos += egc_bytes;
-                    buf = buf[egc_bytes..];
-                }
-                return result;
-            }
-            fn writer(ctx: *Ctx) Writer {
-                return .{ .context = ctx };
+                return Walker.keep_walking;
             }
         };
-        var ctx: Ctx = .{
-            .pos = pos_,
-            .metrics = metrics_,
-        };
-        self.store(ctx.writer(), eol_mode) catch |e| switch (e) {
-            error.Stop => return ctx.byte_pos,
-        };
-        return error.NotFound;
+        var ctx: ctx_ = .{ .target_line = pos_.row, .target_col = pos_.col, .eol_mode = eol_mode };
+        self.walk_egc_forward(0, ctx_.walker, &ctx, metrics) catch {};
+        return ctx.pos;
     }
 
     pub fn debug_render_chunks(self: *const Node, allocator: std.mem.Allocator, line: usize, metrics_: Metrics) ![]const u8 {
