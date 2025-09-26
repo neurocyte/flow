@@ -28,51 +28,18 @@ fn metrics() Buffer.Metrics {
 }
 
 fn get_big_doc(eol_mode: *Buffer.EolMode) !*Buffer {
-    const BigDocGen = struct {
-        line_num: usize = 0,
-        lines: usize = 10000,
+    const nl_lines = 10000;
 
-        buf: [128]u8 = undefined,
-        line_buf: []u8 = "",
-        read_count: usize = 0,
-
-        const Self = @This();
-        const Reader = std.io.Reader(*Self, Err, read);
-        const Err = error{NoSpaceLeft};
-
-        fn gen_line(self: *Self) Err!void {
-            var stream = std.io.fixedBufferStream(&self.buf);
-            const writer = stream.writer();
-            try writer.print("this is line {d}\n", .{self.line_num});
-            self.line_buf = stream.getWritten();
-            self.read_count = 0;
-            self.line_num += 1;
-        }
-
-        fn read(self: *Self, buffer: []u8) Err!usize {
-            if (self.line_num > self.lines)
-                return 0;
-            if (self.line_buf.len == 0 or self.line_buf.len - self.read_count == 0)
-                try self.gen_line();
-            const read_count = self.read_count;
-            const bytes_to_read = @min(self.line_buf.len - read_count, buffer.len);
-            @memcpy(buffer[0..bytes_to_read], self.line_buf[read_count .. read_count + bytes_to_read]);
-            self.read_count += bytes_to_read;
-            return bytes_to_read;
-        }
-
-        fn reader(self: *Self) Reader {
-            return .{ .context = self };
-        }
-    };
-    var gen: BigDocGen = .{};
-    var doc = ArrayList(u8).init(a);
+    var doc: std.Io.Writer.Allocating = .init(a);
     defer doc.deinit();
-    try gen.reader().readAllArrayList(&doc, std.math.maxInt(usize));
+
+    for (0..nl_lines) |line_num| {
+        try doc.writer.print("this is line {d}\n", .{line_num});
+    }
+
     var buf = try Buffer.create(a);
-    var fis = std.io.fixedBufferStream(doc.items);
     var sanitized: bool = false;
-    buf.update(try buf.load(fis.reader(), doc.items.len, eol_mode, &sanitized));
+    buf.update(try buf.load_from_string(doc.written(), eol_mode, &sanitized));
     return buf;
 }
 
@@ -108,8 +75,8 @@ test "buffer" {
 }
 
 fn get_line(buf: *const Buffer, line: usize) ![]const u8 {
-    var result = ArrayList(u8).init(a);
-    try buf.root.get_line(line, &result, metrics());
+    var result: std.Io.Writer.Allocating = .init(a);
+    try buf.root.get_line(line, &result.writer, metrics());
     return result.toOwnedSlice();
 }
 
@@ -119,7 +86,7 @@ test "walk_from_line" {
     defer buffer.deinit();
 
     const lines = buffer.root.lines();
-    try std.testing.expectEqual(lines, 10002);
+    try std.testing.expectEqual(lines, 10001);
 
     const line0 = try get_line(buffer, 0);
     defer a.free(line0);
@@ -135,7 +102,7 @@ test "walk_from_line" {
 
     const line9999 = try get_line(buffer, 9999);
     defer a.free(line9999);
-    try std.testing.expect(std.mem.eql(u8, line9999, "this is line 9999"));
+    try std.testing.expectEqualDeep("this is line 9999", line9999);
 }
 
 test "line_len" {
@@ -394,7 +361,7 @@ test "get_from_pos" {
     defer buffer.deinit();
 
     const lines = buffer.root.lines();
-    try std.testing.expectEqual(lines, 10002);
+    try std.testing.expectEqual(lines, 10001);
 
     const line0 = try get_line(buffer, 0);
     defer a.free(line0);
