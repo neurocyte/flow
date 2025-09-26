@@ -751,12 +751,12 @@ const Node = union(enum) {
         return Node.new(allocator, try merge_in_place(leaves[0..mid], allocator), try merge_in_place(leaves[mid..], allocator));
     }
 
-    pub fn get_line(self: *const Node, line: usize, result: *ArrayList(u8), metrics: Metrics) !void {
+    pub fn get_line(self: *const Node, line: usize, result: *std.Io.Writer, metrics: Metrics) !void {
         const Ctx = struct {
-            line: *ArrayList(u8),
+            line: *std.Io.Writer,
             fn walker(ctx_: *anyopaque, leaf: *const Leaf, _: Metrics) Walker {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-                ctx.line.appendSlice(leaf.buf) catch |e| return .{ .err = e };
+                ctx.line.writeAll(leaf.buf) catch |e| return .{ .err = e };
                 return if (!leaf.eol) Walker.keep_walking else Walker.stop;
             }
         };
