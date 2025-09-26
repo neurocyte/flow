@@ -804,7 +804,7 @@ test "parse" {
         const actual: []const KeyEvent = parsed;
         try expectEqual(expected.len, actual.len);
         for (expected, 0..) |expected_event, i| {
-            try std.testing.expectFmt(expected_event, "{}", .{actual[i]});
+            try std.testing.expectFmt(expected_event, "{f}", .{actual[i]});
         }
     }
 }
