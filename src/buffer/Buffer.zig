@@ -333,21 +333,21 @@ const Node = union(enum) {
         };
     }
 
-    fn collect(self: *const Node, l: *ArrayList(*const Node)) !void {
+    fn collect(self: *const Node, allocator: Allocator, l: *ArrayList(*const Node)) !void {
         switch (self.*) {
             .node => |*node| {
-                try node.left.collect(l);
-                try node.right.collect(l);
+                try node.left.collect(allocator, l);
+                try node.right.collect(allocator, l);
             },
-            .leaf => (try l.addOne()).* = self,
+            .leaf => (try l.addOne(allocator)).* = self,
         }
     }
 
     fn collect_leaves(self: *const Node, allocator: Allocator) ![]*const Node {
-        var leaves = ArrayList(*const Node).init(allocator);
-        try leaves.ensureTotalCapacity(self.lines());
-        try self.collect(&leaves);
-        return leaves.toOwnedSlice();
+        var leaves: ArrayList(*const Node) = .empty;
+        try leaves.ensureTotalCapacity(allocator, self.lines());
+        try self.collect(allocator, &leaves);
+        return leaves.toOwnedSlice(allocator);
     }
 
     fn walk_const(self: *const Node, f: Walker.F, ctx: *anyopaque, metrics: Metrics) Walker {
