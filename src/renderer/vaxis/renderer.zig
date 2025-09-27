@@ -346,7 +346,9 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
         },
         .color_report => {},
-        .color_scheme => {},
+        .color_scheme => |scheme| {
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "color_scheme", scheme }));
+        },
         .winsize => |ws| {
             if (!self.vx.state.in_band_resize) {
                 self.vx.state.in_band_resize = true;
@@ -382,8 +384,11 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             self.logger.print("rgb capability detected", .{});
             self.vx.caps.rgb = true;
         },
-        .cap_color_scheme_updates => {},
-
+        .cap_color_scheme_updates => {
+            self.logger.print("color scheme updates capability detected", .{});
+            self.vx.caps.color_scheme_updates = true;
+            self.vx.subscribeToColorSchemeUpdates(self.tty.anyWriter()) catch return error.TtyWriteError;
+        },
         .cap_multi_cursor => {
             self.logger.print("multi cursor capability detected", .{});
             self.vx.caps.multi_cursor = true;

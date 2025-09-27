@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 
 frame_rate: usize = 60,
 theme: []const u8 = "default",
+light_theme: []const u8 = "default-light",
 input_mode: []const u8 = "flow",
 gutter_line_numbers_mode: ?LineNumberMode = null,
 gutter_line_numbers_style: DigitStyle = .ascii,
