@@ -19,7 +19,7 @@ Binary release builds are found here: [neurocyte/flow/releases](https://github.c
 
 Fetch and install the latest release to `/usr/local/bin` with the installation helper script:
 
-```shell
+```bash
 curl -fsSL https://flow-control.dev/install | sh
 ```
 
@@ -27,13 +27,13 @@ Nightly binary builds are found here: [neurocyte/flow-nightly/releases](https://
 
 Install latest nightly build and (optionally) specify the installation destination:
 
-```
+```bash
 curl -fsSL https://flow-control.dev/install | sh -s -- --nightly --dest ~/.local/bin
 ```
 
 See all avalable options for the installer script:
 
-```
+```bash
 curl -fsSL https://flow-control.dev/install | sh -s -- --help
 ```
 
@@ -47,7 +47,7 @@ Make sure your system meets the requirements listed above.
 
 Flow builds with zig 0.14.1 at this time. Build with:
 
-```shell
+```bash
 zig build -Doptimize=ReleaseSafe
 ```
 
@@ -57,7 +57,7 @@ Zig will by default build a binary optimized for your specific CPU. If you get i
 Thanks to Zig you may also cross-compile from any host to pretty much any
 target. For example:
 
-```shell
+```bash
 zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows --prefix zig-out/x86_64-windows
 zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos-none --prefix zig-out/x86_64-macos
 zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/aarch64-linux
@@ -71,32 +71,32 @@ When cross-compiling zig will build a binary with generic CPU support.
 
 The binary is:
 
-```shell
+```bash
 zig-out/bin/flow
 ```
 
 Place it in your path for convenient access:
 
-```shell
+```bash
 sudo cp zig-out/bin/flow /usr/local/bin
 ```
 
 Or if you prefer, let zig install it in your home directory:
 
-```shell
+```bash
 zig build -Doptimize=ReleaseSafe --prefix ~/.local
 ```
 
 Flow Control is a single statically linked binary. No further runtime files are required.
 You may install it on another system by simply copying the binary.
 
-```shell
+```bash
 scp zig-out/bin/flow root@otherhost:/usr/local/bin
 ```
 
 Files to load may be specifed on the command line:
 
-```shell
+```bash
 flow fileA.zig fileB.zig
 ```
 
@@ -105,19 +105,19 @@ order at the top of the recent files list. Switch to recent files with Ctrl-e.
 
 Common target line specifiers are supported too:
 
-```shell
+```bash
 flow file.txt:123
 ```
 
 Or Vim style:
 
-```shell
+```bash
 flow file.txt +123
 ```
 
 Use the --language option to force the file type of a file:
 
-```shell
+```bash
 flow --language bash ~/.bash_profile
 ```
 
