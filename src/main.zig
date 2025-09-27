@@ -419,11 +419,18 @@ fn trace_json(json: thespian.message.json_string_view) callconv(.c) void {
 }
 extern fn ___tracy_emit_message(txt: [*]const u8, size: usize, callstack: c_int) void;
 
+var trace_mutex: std.Thread.Mutex = .{};
+
 fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.c) void {
+    trace_mutex.lock();
+    defer trace_mutex.unlock();
+
     const State = struct {
         file: std.fs.File,
+        file_writer: std.fs.File.Writer,
         last_time: i64,
         var state: ?@This() = null;
+        var trace_buffer: [4096]u8 = undefined;
 
         fn write_tdiff(writer: anytype, tdiff: i64) !void {
             const msi = @divFloor(tdiff, std.time.us_per_ms);
@@ -445,13 +452,12 @@ fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.c) void {
         const file = std.fs.createFileAbsolute(path.written(), .{ .truncate = true }) catch return;
         State.state = .{
             .file = file,
+            .file_writer = file.writer(&State.trace_buffer),
             .last_time = std.time.microTimestamp(),
         };
         break :init State.state.?;
     });
-    var buffer: [4096]u8 = undefined;
-    var file_writer = state.file.writer(&buffer);
-    const writer = &file_writer.interface;
+    const writer = &state.file_writer.interface;
 
     const ts = std.time.microTimestamp();
     State.write_tdiff(writer, ts - state.last_time) catch {};
