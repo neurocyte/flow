@@ -47,8 +47,10 @@ last_hover_y: c_int = -1,
 commands: Commands = undefined,
 logger: log.Logger,
 drag_source: ?*Widget = null,
-theme_: Widget.Theme,
-parsed_theme: ?std.json.Parsed(Widget.Theme),
+dark_theme: Widget.Theme,
+dark_parsed_theme: ?std.json.Parsed(Widget.Theme),
+light_theme: Widget.Theme,
+light_parsed_theme: ?std.json.Parsed(Widget.Theme),
 idle_frame_count: usize = 0,
 unrendered_input_events_count: usize = 0,
 init_timer: ?tp.timeout,
@@ -65,6 +67,7 @@ enable_mouse_idle_timer: bool = false,
 query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
 clipboard: ?[]const u8 = null,
+color_scheme: enum { dark, light } = .dark,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -112,8 +115,10 @@ fn init(allocator: Allocator) InitError!*Self {
     if (@hasDecl(renderer, "install_crash_handler") and conf.start_debugger_on_crash)
         renderer.jit_debugger_enabled = true;
 
-    const theme_, const parsed_theme = get_theme_by_name(allocator, conf.theme) orelse get_theme_by_name(allocator, "dark_modern") orelse return error.UnknownTheme;
-    conf.theme = theme_.name;
+    const dark_theme, const dark_parsed_theme = get_theme_by_name(allocator, conf.theme) orelse get_theme_by_name(allocator, "dark_modern") orelse return error.UnknownTheme;
+    conf.theme = dark_theme.name;
+    const light_theme, const light_parsed_theme = get_theme_by_name(allocator, conf.light_theme) orelse get_theme_by_name(allocator, "default-light") orelse return error.UnknownTheme;
+    conf.light_theme = light_theme.name;
     if (build_options.gui) conf.enable_terminal_cursor = false;
 
     const frame_rate: usize = @intCast(tp.env.get().num("frame-rate"));
@@ -146,10 +151,12 @@ fn init(allocator: Allocator) InitError!*Self {
         .init_timer = if (build_options.gui) null else try tp.timeout.init_ms(init_delay, tp.message.fmt(
             .{"init"},
         )),
-        .theme_ = theme_,
         .no_sleep = tp.env.get().is("no-sleep"),
         .query_cache_ = try syntax.QueryCache.create(allocator, .{}),
-        .parsed_theme = parsed_theme,
+        .dark_theme = dark_theme,
+        .light_theme = light_theme,
+        .dark_parsed_theme = dark_parsed_theme,
+        .light_parsed_theme = light_parsed_theme,
     };
     instance_ = self;
     defer instance_ = null;
@@ -450,6 +457,16 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    if (try m.match(.{ "color_scheme", "dark" })) {
+        self.color_scheme = .dark;
+        return;
+    }
+
+    if (try m.match(.{ "color_scheme", "light" })) {
+        self.color_scheme = .light;
+        return;
+    }
+
     return tp.unexpected(m);
 }
 
@@ -477,7 +494,7 @@ fn render(self: *Self) void {
         const frame = tracy.initZone(@src(), .{ .name = "tui render" });
         defer frame.deinit();
         self.rdr_.stdplane().erase();
-        break :ret if (self.mainview_) |mv| mv.render(&self.theme_) else false;
+        break :ret if (self.mainview_) |mv| mv.render(self.current_theme()) else false;
     };
 
     {
@@ -736,21 +753,44 @@ fn refresh_input_mode(self: *Self) command.Result {
 }
 
 fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }) !void {
-    const old = self.parsed_theme;
+    const old = switch (self.color_scheme) {
+        .dark => self.dark_parsed_theme,
+        .light => self.light_parsed_theme,
+    };
     defer if (old) |p| p.deinit();
-    self.theme_, self.parsed_theme = get_theme_by_name(self.allocator, name) orelse {
+    const theme_, const parsed_theme = get_theme_by_name(self.allocator, name) orelse {
         self.logger.print("theme not found: {s}", .{name});
         return;
     };
+    switch (self.color_scheme) {
+        .dark => {
+            self.dark_theme = theme_;
+            self.dark_parsed_theme = parsed_theme;
+        },
+        .light => {
+            self.light_theme = theme_;
+            self.light_parsed_theme = parsed_theme;
+        },
+    }
     self.set_terminal_style();
-    self.logger.print("theme: {s}", .{self.theme_.description});
+    self.logger.print("theme: {s}", .{theme_.description});
     switch (action) {
         .none => {},
         .store => {
-            self.config_.theme = self.theme_.name;
+            switch (self.color_scheme) {
+                .dark => self.config_.theme = self.dark_theme.name,
+                .light => self.config_.light_theme = self.light_theme.name,
+            }
             try save_config();
         },
     }
+}
+
+fn current_theme(self: *const Self) *const Widget.Theme {
+    return switch (self.color_scheme) {
+        .dark => &self.dark_theme,
+        .light => &self.light_theme,
+    };
 }
 
 const cmds = struct {
@@ -826,13 +866,13 @@ const cmds = struct {
     pub const set_theme_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn theme_next(self: *Self, _: Ctx) Result {
-        const name = get_next_theme_by_name(self.theme_.name);
+        const name = get_next_theme_by_name(self.current_theme().name);
         return self.set_theme_by_name(name, .store);
     }
     pub const theme_next_meta: Meta = .{ .description = "Next color theme" };
 
     pub fn theme_prev(self: *Self, _: Ctx) Result {
-        const name = get_prev_theme_by_name(self.theme_.name);
+        const name = get_prev_theme_by_name(self.current_theme().name);
         return self.set_theme_by_name(name, .store);
     }
     pub const theme_prev_meta: Meta = .{ .description = "Previous color theme" };
@@ -1344,7 +1384,7 @@ pub fn fontfaces(allocator: std.mem.Allocator) error{OutOfMemory}![][]const u8 {
 }
 
 pub fn theme() *const Widget.Theme {
-    return &current().theme_;
+    return current().current_theme();
 }
 
 pub fn get_theme_by_name(allocator: std.mem.Allocator, name: []const u8) ?struct { Widget.Theme, ?std.json.Parsed(Widget.Theme) } {
@@ -1468,10 +1508,10 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
 
 fn set_terminal_style(self: *Self) void {
     if (build_options.gui or self.config_.enable_terminal_color_scheme) {
-        self.rdr_.set_terminal_style(self.theme_.editor);
-        self.rdr_.set_terminal_cursor_color(self.theme_.editor_cursor.bg.?);
+        self.rdr_.set_terminal_style(self.current_theme().editor);
+        self.rdr_.set_terminal_cursor_color(self.current_theme().editor_cursor.bg.?);
         if (self.rdr_.vx.caps.multi_cursor)
-            self.rdr_.set_terminal_secondary_cursor_color(self.theme_.editor_cursor_secondary.bg orelse self.theme_.editor_cursor.bg.?);
+            self.rdr_.set_terminal_secondary_cursor_color(self.current_theme().editor_cursor_secondary.bg orelse self.current_theme().editor_cursor.bg.?);
     }
 }
 
@@ -1608,14 +1648,14 @@ pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, 
 }
 
 fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const u8 {
-    const theme_name = self.theme_.name;
+    const theme_name = self.current_theme().name;
     if (root.read_theme(allocator, theme_name)) |content| {
         allocator.free(content);
     } else {
         var buf: std.Io.Writer.Allocating = .init(self.allocator);
         defer buf.deinit();
         var s: std.json.Stringify = .{ .writer = &buf.writer, .options = .{ .whitespace = .indent_2 } };
-        try s.write(self.theme_);
+        try s.write(self.current_theme().*);
         try root.write_theme(
             theme_name,
             buf.written(),
