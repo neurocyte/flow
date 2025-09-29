@@ -5755,7 +5755,7 @@ pub const Editor = struct {
             defer args.deinit();
             try cbor.writeArrayHeader(&args.writer, fmtr.len);
             for (fmtr) |arg| try cbor.writeValue(&args.writer, arg);
-            try self.filter_cmd(.{ .buf = try args.toOwnedSlice() });
+            try self.filter_cmd(.{ .buf = args.written() });
             return;
         }
         return tp.exit("no formatter");
