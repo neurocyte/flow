@@ -5779,7 +5779,7 @@ pub const Editor = struct {
             try expand_selection_to_all(root, &sel_, self.metrics);
             break :val sel_;
         };
-        const reversed = sel.begin.right_of(sel.end);
+        const reversed = sel.is_reversed();
         sel.normalize();
         self.filter_ = .{
             .before_root = root,
