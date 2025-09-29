@@ -1504,6 +1504,7 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "keyword.type", .tm = "keyword.structure" },
     .{ .ts = "keyword.function", .tm = "storage.type.function" },
     .{ .ts = "constant.builtin", .tm = "keyword.constant" },
+    .{ .ts = "text.title", .tm = "entity.name.section" },
 };
 
 fn set_terminal_style(self: *Self) void {

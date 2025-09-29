@@ -187,7 +187,7 @@ pub const CurSel = struct {
         };
     }
 
-    fn selection_from_node(node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Selection {
+    pub fn selection_from_node(node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Selection {
         return selection_from_range(node.getRange(), root, metrics);
     }
 
