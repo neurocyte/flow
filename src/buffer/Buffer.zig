@@ -1027,8 +1027,6 @@ const Node = union(enum) {
             .writer = .{
                 .vtable = &.{
                     .drain = Ctx.drain,
-                    .flush = std.Io.Writer.noopFlush,
-                    .rebase = std.Io.Writer.failingRebase,
                 },
                 .buffer = &.{},
             },
