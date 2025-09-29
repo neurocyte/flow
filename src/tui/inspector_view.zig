@@ -73,7 +73,8 @@ fn inspect_location(self: *Self, row: usize, col: usize) void {
     const syn = self.editor.syntax orelse return;
     const root = (self.editor.buffer orelse return).root;
     const col_pos = root.get_line_width_to_pos(row, col, self.editor.metrics) catch return;
-    syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col_pos) });
+    if (!syn.highlights_at_point(self, dump_highlight, .{ .row = @intCast(row), .column = @intCast(col_pos) }))
+        self.ast_at_point(syn, row, col_pos, root);
 }
 
 fn get_buffer_text(self: *Self, buf: []u8, sel: Buffer.Selection) ?[]const u8 {
@@ -81,9 +82,57 @@ fn get_buffer_text(self: *Self, buf: []u8, sel: Buffer.Selection) ?[]const u8 {
     return root.get_range(sel, buf, null, null, self.plane.metrics(self.editor.tab_width)) catch return null;
 }
 
+fn ast_at_point(self: *Self, syn: anytype, row: usize, col_pos: usize, root: Buffer.Root) void {
+    const node = syn.node_at_point_range(.{
+        .start_point = .{
+            .row = @intCast(row),
+            .column = @intCast(col_pos),
+        },
+        .end_point = .{
+            .row = @intCast(row),
+            .column = @intCast(col_pos),
+        },
+        .start_byte = 0,
+        .end_byte = 0,
+    }) catch return;
+    if (node.isNull()) return;
+
+    const sel = ed.CurSel.selection_from_node(node, root, self.editor.metrics) catch return;
+
+    self.dump_ast_node(sel, &node);
+}
+
 fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, ast_node: *const syntax.Node) error{Stop}!void {
     const sel = self.pos_cache.range_to_selection(range, self.editor.get_current_root() orelse return, self.editor.metrics) orelse return;
 
+    self.dump_ast_node(sel, ast_node);
+
+    var buf: [1024]u8 = undefined;
+    const text = self.get_buffer_text(&buf, sel) orelse "";
+    if (self.editor.style_lookup(self.theme, scope, id)) |token| {
+        if (text.len > 14) {
+            _ = self.plane.print("scope: {s} -> \"{s}...\" matched: {s}", .{
+                scope,
+                text[0..15],
+                Widget.scopes[token.id],
+            }) catch {};
+        } else {
+            _ = self.plane.print("scope: {s} -> \"{s}\" matched: {s}", .{
+                scope,
+                text,
+                Widget.scopes[token.id],
+            }) catch {};
+        }
+        self.show_color("fg", token.style.fg);
+        self.show_color("bg", token.style.bg);
+        self.show_font(token.style.fs);
+        _ = self.plane.print("\n", .{}) catch {};
+        return;
+    }
+    _ = self.plane.print("scope: {s} -> \"{s}\"\n", .{ scope, text }) catch return;
+}
+
+fn dump_ast_node(self: *Self, sel: Buffer.Selection, ast_node: *const syntax.Node) void {
     var update_match: enum { no, add, set } = .no;
     var match = ed.Match.from_selection(sel);
     if (self.theme) |theme| match.style = .{ .bg = theme.editor_gutter_modified.fg };
@@ -124,30 +173,6 @@ fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, 
         }
     }
     self.last_node = @intFromPtr(ast_node);
-
-    var buf: [1024]u8 = undefined;
-    const text = self.get_buffer_text(&buf, sel) orelse "";
-    if (self.editor.style_lookup(self.theme, scope, id)) |token| {
-        if (text.len > 14) {
-            _ = self.plane.print("scope: {s} -> \"{s}...\" matched: {s}", .{
-                scope,
-                text[0..15],
-                Widget.scopes[token.id],
-            }) catch {};
-        } else {
-            _ = self.plane.print("scope: {s} -> \"{s}\" matched: {s}", .{
-                scope,
-                text,
-                Widget.scopes[token.id],
-            }) catch {};
-        }
-        self.show_color("fg", token.style.fg);
-        self.show_color("bg", token.style.bg);
-        self.show_font(token.style.fs);
-        _ = self.plane.print("\n", .{}) catch {};
-        return;
-    }
-    _ = self.plane.print("scope: {s} -> \"{s}\"\n", .{ scope, text }) catch return;
 }
 
 fn show_color(self: *Self, tag: []const u8, c_: ?Widget.Theme.Color) void {
