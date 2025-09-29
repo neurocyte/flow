@@ -97,8 +97,8 @@ fn build_release(
         .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .musleabihf },
         .{ .cpu_arch = .x86_64, .os_tag = .macos },
         .{ .cpu_arch = .aarch64, .os_tag = .macos },
-        .{ .cpu_arch = .x86_64, .os_tag = .windows },
-        .{ .cpu_arch = .aarch64, .os_tag = .windows },
+        // .{ .cpu_arch = .x86_64, .os_tag = .windows },
+        // .{ .cpu_arch = .aarch64, .os_tag = .windows },
     };
     const optimize_release = .ReleaseFast;
     const optimize_debug = .ReleaseSafe;
