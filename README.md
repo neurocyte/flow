@@ -27,13 +27,13 @@ Nightly binary builds are found here: [neurocyte/flow-nightly/releases](https://
 
 Install latest nightly build and (optionally) specify the installation destination:
 
-```
+```shell
 curl -fsSL https://flow-control.dev/install | sh -s -- --nightly --dest ~/.local/bin
 ```
 
 See all avalable options for the installer script:
 
-```
+```shell
 curl -fsSL https://flow-control.dev/install | sh -s -- --help
 ```
 
