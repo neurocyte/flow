@@ -112,7 +112,7 @@ var panic_cleanup: ?struct {
 } = null;
 
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    _ = error_return_trace; // TODO: what to do with this in zig-0.14?
+    _ = error_return_trace;
     in_panic.store(true, .release);
     const cleanup = panic_cleanup;
     panic_cleanup = null;
