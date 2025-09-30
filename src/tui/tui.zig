@@ -458,12 +458,12 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{ "color_scheme", "dark" })) {
-        self.color_scheme = .dark;
+        self.set_color_scheme(.dark);
         return;
     }
 
     if (try m.match(.{ "color_scheme", "light" })) {
-        self.color_scheme = .light;
+        self.set_color_scheme(.light);
         return;
     }
 
@@ -786,6 +786,11 @@ fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }
     }
 }
 
+fn set_color_scheme(self: *Self, color_scheme: @TypeOf(self.color_scheme)) void {
+    self.color_scheme = color_scheme;
+    self.logger.print("color scheme: {s} ({s})", .{ @tagName(self.color_scheme), self.current_theme().name });
+}
+
 fn current_theme(self: *const Self) *const Widget.Theme {
     return switch (self.color_scheme) {
         .dark => &self.dark_theme,
@@ -908,12 +913,21 @@ const cmds = struct {
     }
     pub const toggle_highlight_columns_meta: Meta = .{ .description = "Toggle highlight columns" };
 
+    pub fn set_color_scheme(self: *Self, ctx: Ctx) Result {
+        self.set_color_scheme(if (try ctx.args.match(.{"dark"}))
+            .dark
+        else if (try ctx.args.match(.{"light"}))
+            .light
+        else
+            .dark);
+    }
+    pub const set_color_scheme_meta: Meta = .{ .description = "Toggle dark/light color scheme" };
+
     pub fn toggle_color_scheme(self: *Self, _: Ctx) Result {
-        self.color_scheme = switch (self.color_scheme) {
+        self.set_color_scheme(switch (self.color_scheme) {
             .dark => .light,
             .light => .dark,
-        };
-        self.logger.print("color scheme: {s}", .{@tagName(self.color_scheme)});
+        });
     }
     pub const toggle_color_scheme_meta: Meta = .{ .description = "Toggle dark/light color scheme" };
 
