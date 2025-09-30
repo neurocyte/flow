@@ -28,6 +28,7 @@
             ["f9", "theme_prev"],
             ["f10", "theme_next"],
             ["f11", "toggle_panel"],
+            ["alt+f11", "toggle_color_scheme"],
             ["f12", "toggle_inputview"],
             ["alt+!", "run_task"],
             ["ctrl+1", "add_task"],

@@ -908,6 +908,15 @@ const cmds = struct {
     }
     pub const toggle_highlight_columns_meta: Meta = .{ .description = "Toggle highlight columns" };
 
+    pub fn toggle_color_scheme(self: *Self, _: Ctx) Result {
+        self.color_scheme = switch (self.color_scheme) {
+            .dark => .light,
+            .light => .dark,
+        };
+        self.logger.print("color scheme: {s}", .{@tagName(self.color_scheme)});
+    }
+    pub const toggle_color_scheme_meta: Meta = .{ .description = "Toggle dark/light color scheme" };
+
     pub fn toggle_input_mode(self: *Self, _: Ctx) Result {
         var it = std.mem.splitScalar(u8, self.config_.input_mode, '/');
         self.config_.input_mode = it.first();
