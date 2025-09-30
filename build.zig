@@ -582,6 +582,9 @@ pub fn build_exe(
     if (use_llvm) |value| {
         exe.use_llvm = value;
         exe.use_lld = value;
+    } else {
+        exe.use_llvm = true;
+        exe.use_lld = true;
     }
     if (pie) |value| exe.pie = value;
     exe.root_module.addImport("build_options", options_mod);
