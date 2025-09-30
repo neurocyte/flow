@@ -83,7 +83,7 @@ echo running tests...
 
 echo building...
 
-./zig build -Dpackage_release --prefix "$DESTDIR/build"
+./zig build --release --prefix "$DESTDIR/build"
 
 VERSION=$(/bin/cat "$DESTDIR/build/version")
 

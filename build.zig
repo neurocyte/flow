@@ -4,7 +4,6 @@ const builtin = @import("builtin");
 const optimize_deps = .ReleaseFast;
 
 pub fn build(b: *std.Build) void {
-    const release = b.option(bool, "package_release", "Build all release targets") orelse false;
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
     const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
@@ -22,6 +21,15 @@ pub fn build(b: *std.Build) void {
     gen_version(b, version.writer(b.allocator)) catch {
         version.clearAndFree(b.allocator);
         version.appendSlice(b.allocator, "unknown") catch {};
+    };
+
+    const release = switch (b.release_mode) {
+        .off => false,
+        .any => blk: {
+            b.release_mode = .safe;
+            break :blk true;
+        },
+        else => true,
     };
 
     return (if (release) &build_release else &build_development)(
