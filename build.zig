@@ -744,8 +744,8 @@ fn gen_version_info(
     else
         try writer.print("branch: {s} at {s}\n", .{ branch, remote });
 
-    try writer.print("built with: zig {s} ({s})\n", .{ builtin.zig_version_string, @tagName(builtin.zig_backend) });
-    try writer.print("build mode: {s}\n", .{@tagName(optimize)});
+    try writer.print("built-with: zig {s} ({s})\n", .{ builtin.zig_version_string, @tagName(builtin.zig_backend) });
+    try writer.print("build-mode: {s}\n", .{@tagName(optimize)});
 
     if (log.len > 0)
         try writer.print("\nwith the following diverging commits:\n{s}\n", .{log});

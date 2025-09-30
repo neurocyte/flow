@@ -476,7 +476,7 @@ const cmds = struct {
     pub fn open_version_info(self: *Self, _: Ctx) Result {
         tui.reset_drag_context();
         try self.create_editor();
-        try command.executeName("open_scratch_buffer", command.fmt(.{ "version", root.version_info, "diff" }));
+        try command.executeName("open_scratch_buffer", command.fmt(.{ "version", root.version_info, "gitcommit" }));
         tui.need_render();
     }
     pub const open_version_info_meta: Meta = .{ .description = "Version" };
