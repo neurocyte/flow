@@ -83,6 +83,8 @@ pub fn main() anyerror!void {
             .literal = "Disable :LINE and +LINE syntax",
             .scratch = "Open a scratch (temporary) buffer on start",
             .new_file = "Create a new untitled file on start",
+            .dark = "Use dark color scheme",
+            .light = "Use light color scheme",
             .version = "Show build version and exit",
         };
 
@@ -121,6 +123,8 @@ pub fn main() anyerror!void {
         literal: bool,
         scratch: bool,
         new_file: bool,
+        dark: bool,
+        light: bool,
         version: bool,
 
         positional: struct {
@@ -345,6 +349,11 @@ pub fn main() anyerror!void {
     } else if (args.scratch) {
         try tui_proc.send(.{ "cmd", "create_scratch_buffer", .{} });
     }
+
+    if (args.dark)
+        try tui_proc.send(.{ "cmd", "force_color_scheme", .{"dark"} })
+    else if (args.light)
+        try tui_proc.send(.{ "cmd", "force_color_scheme", .{"light"} });
 
     if (args.exec) |exec_str| {
         var cmds = std.mem.splitScalar(u8, exec_str, ';');
