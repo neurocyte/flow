@@ -108,8 +108,9 @@ fn build_release(
         // .{ .cpu_arch = .x86_64, .os_tag = .windows },
         // .{ .cpu_arch = .aarch64, .os_tag = .windows },
     };
-    const optimize_release = .ReleaseFast;
-    const optimize_debug = .ReleaseSafe;
+    const optimize = b.standardOptimizeOption(.{});
+    const optimize_release = optimize;
+    const optimize_debug = optimize;
 
     const write_file_step = b.addWriteFiles();
     const version_file = write_file_step.add("version", version);
