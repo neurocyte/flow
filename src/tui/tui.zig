@@ -68,6 +68,7 @@ query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
 clipboard: ?[]const u8 = null,
 color_scheme: enum { dark, light } = .dark,
+color_scheme_locked: bool = false,
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -786,7 +787,14 @@ fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }
     }
 }
 
+fn force_color_scheme(self: *Self, color_scheme: @TypeOf(self.color_scheme)) void {
+    self.color_scheme = color_scheme;
+    self.color_scheme_locked = true;
+    self.logger.print("color scheme: {s} ({s})", .{ @tagName(self.color_scheme), self.current_theme().name });
+}
+
 fn set_color_scheme(self: *Self, color_scheme: @TypeOf(self.color_scheme)) void {
+    if (self.color_scheme_locked) return;
     self.color_scheme = color_scheme;
     self.logger.print("color scheme: {s} ({s})", .{ @tagName(self.color_scheme), self.current_theme().name });
 }
@@ -913,18 +921,28 @@ const cmds = struct {
     }
     pub const toggle_highlight_columns_meta: Meta = .{ .description = "Toggle highlight columns" };
 
-    pub fn set_color_scheme(self: *Self, ctx: Ctx) Result {
-        self.set_color_scheme(if (try ctx.args.match(.{"dark"}))
+    pub fn force_color_scheme(self: *Self, ctx: Ctx) Result {
+        self.force_color_scheme(if (try ctx.args.match(.{"dark"}))
             .dark
         else if (try ctx.args.match(.{"light"}))
             .light
         else
             .dark);
     }
-    pub const set_color_scheme_meta: Meta = .{ .description = "Toggle dark/light color scheme" };
+    pub const force_color_scheme_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn set_color_scheme(self: *Self, ctx: Ctx) Result {
+        self.force_color_scheme(if (try ctx.args.match(.{"dark"}))
+            .dark
+        else if (try ctx.args.match(.{"light"}))
+            .light
+        else
+            .dark);
+    }
+    pub const set_color_scheme_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn toggle_color_scheme(self: *Self, _: Ctx) Result {
-        self.set_color_scheme(switch (self.color_scheme) {
+        self.force_color_scheme(switch (self.color_scheme) {
             .dark => .light,
             .light => .dark,
         });
