@@ -582,7 +582,7 @@ pub fn build_exe(
     if (use_llvm) |value| {
         exe.use_llvm = value;
         exe.use_lld = value;
-    } else {
+    } else if (target.result.os.tag != .macos) {
         exe.use_llvm = true;
         exe.use_lld = true;
     }
