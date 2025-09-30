@@ -1038,6 +1038,11 @@ const cmds = struct {
     }
     pub const toggle_terminal_view_meta: Meta = .{ .description = "Toggle terminal" };
 
+    pub fn hide_filelist_view(self: *Self, _: Ctx) Result {
+        try self.toggle_panel_view(filelist_view, .disable);
+    }
+    pub const hide_filelist_view_meta: Meta = .{ .description = "Hide filelist" };
+
     pub fn open_terminal(self: *Self, ctx: Ctx) Result {
         const have_args = ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more });
 
