@@ -3,6 +3,7 @@ const cbor = @import("cbor");
 const tp = @import("thespian");
 const root = @import("root");
 const command = @import("command");
+const Buffer = @import("Buffer");
 
 const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
@@ -20,8 +21,14 @@ pub const Entry = struct {
     cbor: []const u8,
 };
 
+pub const ValueType = struct {
+    start: ?Buffer.Selection = null,
+};
+pub const defaultValue: ValueType = .{};
+
 pub fn load_entries(palette: *Type) !usize {
     const editor = tui.get_active_editor() orelse return error.NotFound;
+    palette.value.start = editor.get_primary().selection;
     var iter: []const u8 = editor.completions.items;
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
@@ -31,7 +38,7 @@ pub fn load_entries(palette: *Type) !usize {
 
     var max_label_len: usize = 0;
     for (palette.entries.items) |*item| {
-        const label_, const sort_text, _ = get_values(item.cbor);
+        const label_, const sort_text, _, _ = get_values(item.cbor);
         item.label = label_;
         item.sort_text = sort_text;
         max_label_len = @max(max_label_len, item.label.len);
@@ -71,7 +78,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&item_cbor)) catch false)) return false;
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) return false;
 
-    const label_, _, const kind = get_values(item_cbor);
+    const label_, _, const kind, _ = get_values(item_cbor);
     const icon_: []const u8 = kind_icon(@enumFromInt(kind));
     const color: u24 = 0x0;
     const indicator: []const u8 = &.{};
@@ -79,10 +86,11 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.
     return tui.render_file_item(&button.plane, label_, icon_, color, indicator, matches_cbor, button.active, selected, button.hover, theme);
 }
 
-fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8 } {
+fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer.Selection } {
     var label_: []const u8 = "";
     var sort_text: []const u8 = "";
     var kind: u8 = 0;
+    var replace: Buffer.Selection = .{};
     _ = cbor.match(item_cbor, .{
         cbor.any, // file_path
         cbor.any, // row
@@ -102,18 +110,30 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8 } {
         cbor.any, // insert.begin.col
         cbor.any, // insert.end.row
         cbor.any, // insert.end.col
-        cbor.any, // replace.begin.row
-        cbor.any, // replace.begin.col
-        cbor.any, // replace.end.row
-        cbor.any, // replace.end.col
+        cbor.extract(&replace.begin.row), // replace.begin.row
+        cbor.extract(&replace.begin.col), // replace.begin.col
+        cbor.extract(&replace.end.row), // replace.end.row
+        cbor.extract(&replace.end.col), // replace.end.col
     }) catch false;
-    return .{ label_, sort_text, kind };
+    return .{ label_, sort_text, kind, replace };
 }
 
 fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
-    const label_, _, _ = get_values(button.opts.label);
+    const label_, _, _, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "insert_chars", .{label_} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+}
+
+pub fn updated(palette: *Type, button_: ?*Type.ButtonState) !void {
+    const button = button_ orelse return cancel(palette);
+    _, _, _, const replace = get_values(button.opts.label);
+    const editor = tui.get_active_editor() orelse return error.NotFound;
+    editor.get_primary().selection = replace;
+}
+
+pub fn cancel(palette: *Type) !void {
+    const editor = tui.get_active_editor() orelse return;
+    editor.get_primary().selection = palette.value.start;
 }
 
 const CompletionItemKind = enum(u8) {
