@@ -16,7 +16,6 @@ const win32 = @import("win32").everything;
 pub const Cell = @import("tuirenderer").Cell;
 pub const StyleBits = @import("tuirenderer").style;
 const gui = @import("gui");
-const DropWriter = gui.DropWriter;
 pub const style = StyleBits;
 pub const styles = @import("tuirenderer").styles;
 
@@ -38,6 +37,7 @@ pub const Error = error{
     BadArrayAllocExtract,
     InvalidMapType,
     InvalidUnion,
+    WriteFailed,
 } || std.Thread.SpawnError;
 
 pub const panic = messageBoxThenPanic(.{ .title = "Flow Panic" });
@@ -49,7 +49,7 @@ fn messageBoxThenPanic(
         style: win32.MESSAGEBOX_STYLE = .{ .ICONASTERISK = 1 },
         // TODO: add option/logic to include the stacktrace in the messagebox
     },
-) std.builtin.PanicFn {
+) fn ([]const u8, ?*std.builtin.StackTrace, ?usize) noreturn {
     return struct {
         pub fn panic(
             msg: []const u8,
@@ -59,10 +59,11 @@ fn messageBoxThenPanic(
             if (!thread_is_panicing) {
                 thread_is_panicing = true;
                 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-                const msg_z: [:0]const u8 = if (std.fmt.allocPrintZ(
+                const msg_z: [:0]const u8 = if (std.fmt.allocPrintSentinel(
                     arena.allocator(),
                     "{s}",
                     .{msg},
+                    0,
                 )) |msg_z| msg_z else |_| "failed allocate error message";
                 _ = win32.MessageBoxA(null, msg_z, opt.title, opt.style);
             }
@@ -74,6 +75,8 @@ fn messageBoxThenPanic(
 allocator: std.mem.Allocator,
 vx: vaxis.Vaxis,
 
+event_buffer: std.Io.Writer.Allocating,
+
 handler_ctx: *anyopaque,
 dispatch_initialized: *const fn (ctx: *anyopaque) void,
 dispatch_input: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
@@ -84,7 +87,7 @@ dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 thread: ?std.Thread = null,
 
 hwnd: ?win32.HWND = null,
-title_buf: std.ArrayList(u16),
+title_buf: std.array_list.Managed(u16),
 style_: ?Style = null,
 
 const global = struct {
@@ -120,8 +123,9 @@ pub fn init(
     var result: Self = .{
         .allocator = allocator,
         .vx = try vaxis.init(allocator, opts),
+        .event_buffer = .init(allocator),
         .handler_ctx = handler_ctx,
-        .title_buf = std.ArrayList(u16).init(allocator),
+        .title_buf = .init(allocator),
         .dispatch_initialized = dispatch_initialized,
     };
     result.vx.caps.unicode = .unicode;
@@ -131,31 +135,30 @@ pub fn init(
 
 pub fn deinit(self: *Self) void {
     std.debug.assert(self.thread == null);
-    var drop_writer = DropWriter{};
-    self.vx.deinit(self.allocator, drop_writer.writer().any());
+    var drop: std.Io.Writer.Discarding = .init(&.{});
+    self.vx.deinit(self.allocator, &drop.writer);
     self.title_buf.deinit();
+    self.event_buffer.deinit();
 }
 
 pub fn run(self: *Self) Error!void {
     if (self.thread) |_| return;
 
     // dummy resize to fully init vaxis
-    const drop_writer = DropWriter{};
+    var drop: std.Io.Writer.Discarding = .init(&.{});
     self.vx.resize(
         self.allocator,
-        drop_writer.writer().any(),
+        &drop.writer,
         .{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     ) catch return error.VaxisResizeError;
 
     self.thread = try gui.start();
 }
 
-pub fn fmtmsg(buf: []u8, value: anytype) []const u8 {
-    var fbs = std.io.fixedBufferStream(buf);
-    cbor.writeValue(fbs.writer(), value) catch |e| switch (e) {
-        error.NoSpaceLeft => std.debug.panic("buffer of size {} not big enough", .{buf.len}),
-    };
-    return buf[0..fbs.pos];
+fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
+    self.event_buffer.clearRetainingCapacity();
+    try cbor.writeValue(&self.event_buffer.writer, value);
+    return self.event_buffer.written();
 }
 
 pub fn render(self: *Self) error{}!void {
@@ -216,8 +219,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             cbor.extract(&args.text),
             cbor.extract(&args.mods),
         })) {
-            var buf: [300]u8 = undefined;
-            const cbor_msg = fmtmsg(&buf, .{
+            const cbor_msg = try self.fmtmsg(.{
                 "I",
                 args.kind,
                 args.codepoint,
@@ -240,8 +242,8 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             cbor.extract(&args.pixel_width),
             cbor.extract(&args.pixel_height),
         })) {
-            var drop_writer = DropWriter{};
-            self.vx.resize(self.allocator, drop_writer.writer().any(), .{
+            var drop: std.Io.Writer.Discarding = .init(&.{});
+            self.vx.resize(self.allocator, &drop.writer, .{
                 .rows = @intCast(args.cell_height),
                 .cols = @intCast(args.cell_width),
                 .x_pixel = @intCast(args.pixel_width),
@@ -249,8 +251,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             }) catch |err| std.debug.panic("resize failed with {s}", .{@errorName(err)});
             self.vx.queueRefresh();
             {
-                var buf: [200]u8 = undefined;
-                if (self.dispatch_event) |f| f(self.handler_ctx, fmtmsg(&buf, .{"resize"}));
+                if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"resize"}));
             }
             return;
         }
@@ -265,12 +266,11 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             cbor.extract(&args.xoffset),
             cbor.extract(&args.yoffset),
         })) {
-            var buf: [200]u8 = undefined;
             if (self.dispatch_mouse) |f| f(
                 self.handler_ctx,
                 @intCast(args.row),
                 @intCast(args.col),
-                fmtmsg(&buf, .{
+                try self.fmtmsg(.{
                     "M",
                     args.col,
                     args.row,
@@ -299,12 +299,11 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             cbor.extract(&args.pos.xoffset),
             cbor.extract(&args.pos.yoffset),
         })) {
-            var buf: [200]u8 = undefined;
             if (self.dispatch_mouse) |f| f(
                 self.handler_ctx,
                 @intCast(args.pos.row),
                 @intCast(args.pos.col),
-                fmtmsg(&buf, .{
+                try self.fmtmsg(.{
                     "B",
                     args.button.press,
                     args.button.id,
@@ -332,12 +331,11 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             cbor.extract(&args.pos.xoffset),
             cbor.extract(&args.pos.yoffset),
         })) {
-            var buf: [200]u8 = undefined;
             if (self.dispatch_mouse_drag) |f| f(
                 self.handler_ctx,
                 @intCast(args.pos.row),
                 @intCast(args.pos.col),
-                fmtmsg(&buf, .{
+                try self.fmtmsg(.{
                     "D",
                     input.event.press,
                     args.button_id,
@@ -386,8 +384,8 @@ fn update_window_title(self: *Self) void {
 
     const title = self.title_buf.toOwnedSliceSentinel(0) catch @panic("OOM:update_window_title");
     if (win32.SetWindowTextW(hwnd, title) == 0) {
-        std.log.warn("SetWindowText failed, error={}", .{win32.GetLastError()});
-        self.title_buf = std.ArrayList(u16).fromOwnedSlice(self.allocator, title);
+        std.log.warn("SetWindowText failed, error={f}", .{win32.GetLastError()});
+        self.title_buf = .fromOwnedSlice(self.allocator, title);
     } else {
         self.allocator.free(title);
     }

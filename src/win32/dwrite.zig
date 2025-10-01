@@ -42,7 +42,7 @@ pub const Font = struct {
                 &text_format_single,
             );
             if (hr < 0) std.debug.panic(
-                "CreateTextFormat '{}' height {d} failed, hresult=0x{x}",
+                "CreateTextFormat '{f}' height {d} failed, hresult=0x{x}",
                 .{ std.unicode.fmtUtf16Le(face.slice()), size, @as(u32, @bitCast(hr)) },
             );
         }
@@ -61,7 +61,7 @@ pub const Font = struct {
                 &text_format_double,
             );
             if (hr < 0) std.debug.panic(
-                "CreateTextFormat '{}' height {d} failed, hresult=0x{x}",
+                "CreateTextFormat '{f}' height {d} failed, hresult=0x{x}",
                 .{ std.unicode.fmtUtf16Le(face.slice()), size, @as(u32, @bitCast(hr)) },
             );
         }

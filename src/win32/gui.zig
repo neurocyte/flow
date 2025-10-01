@@ -43,18 +43,6 @@ const WM_APP_RESET_FONTFACE_RESULT = 0x0101f996;
 const WM_APP_GET_FONTFACES_RESULT = 0x07e228f5;
 const WM_APP_UPDATE_SCREEN_RESULT = 0x3add213b;
 
-pub const DropWriter = struct {
-    pub const WriteError = error{};
-    pub const Writer = std.io.Writer(DropWriter, WriteError, write);
-    pub fn writer(self: DropWriter) Writer {
-        return .{ .context = self };
-    }
-    pub fn write(self: DropWriter, bytes: []const u8) WriteError!usize {
-        _ = self;
-        return bytes.len;
-    }
-};
-
 fn oom(e: error{OutOfMemory}) noreturn {
     @panic(@errorName(e));
 }
@@ -266,7 +254,7 @@ fn calcWindowPlacement(
         var info: win32.MONITORINFO = undefined;
         info.cbSize = @sizeOf(win32.MONITORINFO);
         if (0 == win32.GetMonitorInfoW(monitor, &info)) {
-            std.log.warn("GetMonitorInfo failed, error={}", .{win32.GetLastError()});
+            std.log.warn("GetMonitorInfo failed, error={f}", .{win32.GetLastError()});
             return result;
         }
         break :blk info.rcWork;
@@ -333,7 +321,7 @@ fn entry(pid: thespian.pid) !void {
             },
             win32.MONITOR_DEFAULTTOPRIMARY,
         ) orelse {
-            std.log.warn("MonitorFromPoint failed, error={}", .{win32.GetLastError()});
+            std.log.warn("MonitorFromPoint failed, error={f}", .{win32.GetLastError()});
             break :blk null;
         };
     };
@@ -423,7 +411,7 @@ fn entry(pid: thespian.pid) !void {
             @sizeOf(@TypeOf(dark_value)),
         );
         if (hr < 0) std.log.warn(
-            "DwmSetWindowAttribute for dark={} failed, error={}",
+            "DwmSetWindowAttribute for dark={} failed, error={f}",
             .{ dark_value, win32.GetLastError() },
         );
     }
@@ -826,7 +814,7 @@ fn sendKey(
     }
 
     if (unicode_result == 0) {
-        std.log.warn("unknown virtual key {} (0x{x})", .{ winkey, winkey.vk });
+        std.log.warn("unknown virtual key {f} (0x{x})", .{ winkey, winkey.vk });
         return;
     }
     for (char_buf[0..@intCast(unicode_result)]) |codepoint| {
@@ -861,12 +849,8 @@ const WinKey = struct {
     }
     pub fn format(
         self: WinKey,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
         const e_suffix: []const u8 = if (self.extended) "e" else "";
         try writer.print("{}{s}", .{ self.vk, e_suffix });
     }
@@ -1008,7 +992,7 @@ fn WndProc(
     msg: u32,
     wparam: win32.WPARAM,
     lparam: win32.LPARAM,
-) callconv(std.os.windows.WINAPI) win32.LRESULT {
+) callconv(.winapi) win32.LRESULT {
     const frame = tracy.initZone(@src(), .{ .name = "gui WndProc" });
     defer frame.deinit();
     var msg_node: windowmsg.MessageNode = undefined;
@@ -1291,7 +1275,6 @@ fn WndProc(
                 .cursor_row = screen.cursor_row,
                 .cursor_col = screen.cursor_col,
                 .cursor_vis = screen.cursor_vis,
-                .unicode = undefined,
                 .width_method = undefined,
                 .mouse_shape = screen.mouse_shape,
                 .cursor_shape = undefined,
