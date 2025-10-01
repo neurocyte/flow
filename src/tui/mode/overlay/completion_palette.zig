@@ -140,7 +140,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonState) !void {
     const button = button_ orelse return cancel(palette);
     _, _, _, const replace = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
-    editor.get_primary().selection = replace;
+    editor.get_primary().selection = if (replace.empty()) null else replace;
 }
 
 pub fn cancel(palette: *Type) !void {
