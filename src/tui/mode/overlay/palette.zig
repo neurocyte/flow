@@ -40,8 +40,11 @@ pub fn Create(options: type) type {
         view_pos: usize = 0,
         total_items: usize = 0,
 
+        value: ValueType = if (@hasDecl(options, "defaultValue")) options.defaultValue else {},
+
         const Entry = options.Entry;
         const Self = @This();
+        const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else void;
 
         pub const MenuState = Menu.State(*Self);
         pub const ButtonState = Button.State(*Menu.State(*Self));
