@@ -1012,6 +1012,7 @@ fn send_completion_items(to: tp.pid_ref, file_path: []const u8, row: usize, col:
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidMessageField;
         try send_completion_item(to, file_path, row, col, item, if (len > 1) true else is_incomplete);
     }
+    return to.send(.{ "cmd", "add_completion_done", .{ file_path, row, col } }) catch error.ClientFailed;
 }
 
 fn invalid_field(field: []const u8) error{InvalidMessage} {

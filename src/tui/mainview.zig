@@ -838,11 +838,8 @@ const cmds = struct {
             tp.more,
         })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
-        if (self.get_active_editor()) |editor| {
-            if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
-                try editor.add_completion(row, col, is_incomplete, ctx.args);
-            try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type);
-        }
+        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+            try editor.add_completion(row, col, is_incomplete, ctx.args);
     }
     pub const add_completion_meta: Meta = .{
         .arguments = &.{
@@ -868,6 +865,28 @@ const cmds = struct {
             .integer, // replace.begin.col
             .integer, // replace.end.row
             .integer, // replace.end.col
+        },
+    };
+
+    pub fn add_completion_done(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        var row: usize = undefined;
+        var col: usize = undefined;
+
+        if (!try ctx.args.match(.{
+            tp.extract(&file_path),
+            tp.extract(&row),
+            tp.extract(&col),
+        })) return error.InvalidAddDiagnosticArgument;
+        file_path = project_manager.normalize_file_path(file_path);
+        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+            try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type);
+    }
+    pub const add_completion_done_meta: Meta = .{
+        .arguments = &.{
+            .string, // file_path
+            .integer, // row
+            .integer, // col
         },
     };
 
