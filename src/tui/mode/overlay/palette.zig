@@ -91,6 +91,12 @@ pub fn Create(options: type) type {
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             try self.commands.init(self);
+            if (@hasDecl(options, "initial_query")) blk: {
+                const initial_query = options.initial_query(self, self.allocator) catch break :blk;
+                defer self.allocator.free(initial_query);
+                try self.inputbox.text.appendSlice(self.allocator, initial_query);
+                self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
+            }
             try self.start_query(0);
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
