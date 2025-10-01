@@ -40,10 +40,10 @@ fn find_binary_in_path_windows(allocator: std.mem.Allocator, binary_name_: []con
         defer dir.close();
         var bin_extensions_iterator = std.mem.splitScalar(u8, bin_extensions, ';');
         while (bin_extensions_iterator.next()) |bin_extension| {
-            var path = std.ArrayList(u8).init(allocator);
-            try path.appendSlice(binary_name_);
-            try path.appendSlice(bin_extension);
-            const binary_name = try path.toOwnedSlice();
+            var path: std.ArrayList(u8) = .empty;
+            try path.appendSlice(allocator, binary_name_);
+            try path.appendSlice(allocator, bin_extension);
+            const binary_name = try path.toOwnedSlice(allocator);
             defer allocator.free(binary_name);
             _ = dir.statFile(binary_name) catch continue;
             const resolved_binary_path = try std.fs.path.join(allocator, &[_][]const u8{ bin_path, binary_name });

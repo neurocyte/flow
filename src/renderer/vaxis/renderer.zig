@@ -491,10 +491,10 @@ pub fn request_system_clipboard(self: *Self) void {
 
 const win32 = struct {
     const windows = std.os.windows;
-    pub extern "user32" fn OpenClipboard(hWndNewOwner: ?windows.HWND) callconv(windows.WINAPI) windows.BOOL;
-    pub extern "user32" fn CloseClipboard() callconv(windows.WINAPI) windows.BOOL;
-    pub extern "user32" fn SetClipboardData(uFormat: windows.UINT, hMem: windows.HANDLE) callconv(windows.WINAPI) ?windows.HANDLE;
-    pub extern "user32" fn GetClipboardData(uFormat: windows.UINT) callconv(windows.WINAPI) ?windows.HANDLE;
+    pub extern "user32" fn OpenClipboard(hWndNewOwner: ?windows.HWND) callconv(.winapi) windows.BOOL;
+    pub extern "user32" fn CloseClipboard() callconv(.winapi) windows.BOOL;
+    pub extern "user32" fn SetClipboardData(uFormat: windows.UINT, hMem: windows.HANDLE) callconv(.winapi) ?windows.HANDLE;
+    pub extern "user32" fn GetClipboardData(uFormat: windows.UINT) callconv(.winapi) ?windows.HANDLE;
     pub extern "user32" fn EmptyClipboard() windows.BOOL;
     pub extern "kernel32" fn GlobalAlloc(flags: c_int, size: usize) ?windows.HANDLE;
     pub extern "kernel32" fn GlobalFree(hMem: windows.HANDLE) windows.BOOL;
