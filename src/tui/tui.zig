@@ -189,7 +189,7 @@ fn init(allocator: Allocator) InitError!*Self {
     }
     self.mainview_ = try MainView.create(allocator);
     resize();
-    self.set_terminal_style();
+    self.set_terminal_style(self.current_theme());
     try save_config();
     try self.init_input_namespace();
     if (tp.env.get().is("restore-session")) {
@@ -773,7 +773,7 @@ fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }
             self.light_parsed_theme = parsed_theme;
         },
     }
-    self.set_terminal_style();
+    self.set_terminal_style(&theme_);
     self.logger.print("theme: {s}", .{theme_.description});
     switch (action) {
         .none => {},
@@ -1548,12 +1548,12 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
     .{ .ts = "text.title", .tm = "entity.name.section" },
 };
 
-fn set_terminal_style(self: *Self) void {
+fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
     if (build_options.gui or self.config_.enable_terminal_color_scheme) {
-        self.rdr_.set_terminal_style(self.current_theme().editor);
-        self.rdr_.set_terminal_cursor_color(self.current_theme().editor_cursor.bg.?);
+        self.rdr_.set_terminal_style(theme_.editor);
+        self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
         if (self.rdr_.vx.caps.multi_cursor)
-            self.rdr_.set_terminal_secondary_cursor_color(self.current_theme().editor_cursor_secondary.bg orelse self.current_theme().editor_cursor.bg.?);
+            self.rdr_.set_terminal_secondary_cursor_color(theme_.editor_cursor_secondary.bg orelse theme_.editor_cursor.bg.?);
     }
 }
 
