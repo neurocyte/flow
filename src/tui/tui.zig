@@ -790,12 +790,14 @@ fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }
 fn force_color_scheme(self: *Self, color_scheme: @TypeOf(self.color_scheme)) void {
     self.color_scheme = color_scheme;
     self.color_scheme_locked = true;
+    self.set_terminal_style(self.current_theme());
     self.logger.print("color scheme: {s} ({s})", .{ @tagName(self.color_scheme), self.current_theme().name });
 }
 
 fn set_color_scheme(self: *Self, color_scheme: @TypeOf(self.color_scheme)) void {
     if (self.color_scheme_locked) return;
     self.color_scheme = color_scheme;
+    self.set_terminal_style(self.current_theme());
     self.logger.print("color scheme: {s} ({s})", .{ @tagName(self.color_scheme), self.current_theme().name });
 }
 
