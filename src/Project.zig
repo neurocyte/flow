@@ -1086,7 +1086,7 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
                     var range_: []const u8 = undefined;
                     if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return invalid_field("textEdit.insert");
                     textEdit_insert = try read_range(range_);
-                } else if (std.mem.eql(u8, field_name, "replace")) {
+                } else if (std.mem.eql(u8, field_name, "replace") or std.mem.eql(u8, field_name, "range")) {
                     var range_: []const u8 = undefined;
                     if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return invalid_field("textEdit.replace");
                     textEdit_replace = try read_range(range_);
