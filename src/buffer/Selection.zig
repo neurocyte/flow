@@ -19,6 +19,19 @@ pub fn from_cursor(cursor: *const Cursor) Self {
     return .{ .begin = cursor.*, .end = cursor.* };
 }
 
+pub fn from_pos(sel: Self, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Self {
+    return .{
+        .begin = .{
+            .row = sel.begin.row,
+            .col = try root.pos_to_width(sel.begin.row, sel.begin.col, metrics),
+        },
+        .end = .{
+            .row = sel.end.row,
+            .col = try root.pos_to_width(sel.end.row, sel.end.col, metrics),
+        },
+    };
+}
+
 pub fn line_from_cursor(cursor: Cursor, root: Buffer.Root, mtrx: Buffer.Metrics) Self {
     var begin = cursor;
     var end = cursor;
