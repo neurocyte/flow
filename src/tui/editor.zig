@@ -2632,6 +2632,7 @@ pub const Editor = struct {
     }
 
     pub fn insert(self: *Self, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+        cursel.check_selection(root, self.metrics);
         var root_ = if (cursel.selection) |_| try self.delete_selection(root, cursel, allocator) else root;
         const cursor = &cursel.cursor;
         const begin = cursel.cursor;
