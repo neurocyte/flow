@@ -421,20 +421,42 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []co
     return @min(max, matches.items.len);
 }
 
-pub fn walk_tree_entry(
-    self: *Self,
-    file_path: []const u8,
-    mtime: i128,
-) OutOfMemoryError!void {
+fn walk_tree_entry_callback(parent: tp.pid_ref, root_path: []const u8, file_path: []const u8, mtime_high: i64, mtime_low: i64) error{Exit}!void {
     const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(file_path);
+    try parent.send(.{ "walk_tree_entry", root_path, file_path, mtime_high, mtime_low, file_type, file_icon, file_color });
+}
+
+pub fn walk_tree_entry(self: *Self, m: tp.message) OutOfMemoryError!void {
+    var file_path: []const u8 = undefined;
+    var mtime_high: i64 = 0;
+    var mtime_low: i64 = 0;
+    var file_type: []const u8 = undefined;
+    var file_icon: []const u8 = undefined;
+    var file_color: u32 = 0;
+    if (!(cbor.match(m.buf, .{
+        tp.string,
+        tp.string,
+        tp.extract(&file_path),
+        tp.extract(&mtime_high),
+        tp.extract(&mtime_low),
+        tp.extract(&file_type),
+        tp.extract(&file_icon),
+        tp.extract(&file_color),
+    }) catch return)) return;
+    const mtime = (@as(i128, @intCast(mtime_high)) << 64) | @as(i128, @intCast(mtime_low));
+
     self.longest_file_path = @max(self.longest_file_path, file_path.len);
     (try self.pending.addOne(self.allocator)).* = .{
         .path = try self.allocator.dupe(u8, file_path),
         .type = file_type,
         .icon = file_icon,
-        .color = file_color,
+        .color = @intCast(file_color),
         .mtime = mtime,
     };
+}
+
+fn walk_tree_done_callback(parent: tp.pid_ref, root_path: []const u8) error{Exit}!void {
+    try parent.send(.{ "walk_tree_done", root_path });
 }
 
 pub fn walk_tree_done(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
@@ -1987,7 +2009,7 @@ pub fn query_git(self: *Self) void {
 
 fn start_walker(self: *Self) void {
     self.state.walk_tree = .running;
-    self.walker = walk_tree.start(self.allocator, self.name) catch blk: {
+    self.walker = walk_tree.start(self.allocator, self.name, walk_tree_entry_callback, walk_tree_done_callback) catch blk: {
         self.state.walk_tree = .failed;
         break :blk null;
     };

@@ -318,8 +318,6 @@ const Process = struct {
         var method: []const u8 = undefined;
         var cbor_id: []const u8 = undefined;
         var params_cb: []const u8 = undefined;
-        var high: i64 = 0;
-        var low: i64 = 0;
         var max: usize = 0;
         var row: usize = 0;
         var col: usize = 0;
@@ -338,10 +336,9 @@ const Process = struct {
 
         var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
 
-        if (try cbor.match(m.buf, .{ "walk_tree_entry", tp.extract(&project_directory), tp.extract(&path), tp.extract(&high), tp.extract(&low) })) {
-            const mtime = (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low));
+        if (try cbor.match(m.buf, .{ "walk_tree_entry", tp.extract(&project_directory), tp.more })) {
             if (self.projects.get(project_directory)) |project|
-                project.walk_tree_entry(path, mtime) catch |e| self.logger.err("walk_tree_entry", e);
+                project.walk_tree_entry(m) catch |e| self.logger.err("walk_tree_entry", e);
         } else if (try cbor.match(m.buf, .{ "walk_tree_done", tp.extract(&project_directory) })) {
             if (self.projects.get(project_directory)) |project|
                 project.walk_tree_done(self.parent.ref()) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
