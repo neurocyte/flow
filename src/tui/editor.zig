@@ -179,16 +179,10 @@ pub const CurSel = struct {
     }
 
     fn selection_from_range(range: syntax.Range, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Selection {
-        return .{
-            .begin = .{
-                .row = range.start_point.row,
-                .col = try root.pos_to_width(range.start_point.row, range.start_point.column, metrics),
-            },
-            .end = .{
-                .row = range.end_point.row,
-                .col = try root.pos_to_width(range.end_point.row, range.end_point.column, metrics),
-            },
-        };
+        return Selection.from_pos(.{
+            .begin = .{ .row = range.start_point.row, .col = range.start_point.column },
+            .end = .{ .row = range.end_point.row, .col = range.end_point.column },
+        }, root, metrics);
     }
 
     pub fn selection_from_node(node: syntax.Node, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Selection {
@@ -5446,10 +5440,8 @@ pub const Editor = struct {
         if (pos_type == .byte) {
             column = root.pos_to_width(line - 1, column - 1, self.metrics) catch return;
             column += 1;
-            if (have_sel) {
-                sel.begin.col = root.pos_to_width(sel.begin.row, sel.begin.col, self.metrics) catch return;
-                sel.end.col = root.pos_to_width(sel.end.row, sel.end.col, self.metrics) catch return;
-            }
+            if (have_sel)
+                sel = sel.from_pos(root, self.metrics) catch return;
             // self.logger.print("goto_byte_pos: l:{d} c:{d} {any} {}", .{ line, column, sel, pos_type });
         }
         const primary = self.get_primary();
@@ -5549,16 +5541,7 @@ pub const Editor = struct {
             .push => try self.push_cursor(),
         }
         const root = self.buf_root() catch return;
-        const sel: Selection = .{
-            .begin = .{
-                .row = sel_.begin.row,
-                .col = try root.pos_to_width(sel_.begin.row, sel_.begin.col, self.metrics),
-            },
-            .end = .{
-                .row = sel_.end.row,
-                .col = try root.pos_to_width(sel_.end.row, sel_.end.col, self.metrics),
-            },
-        };
+        const sel = try sel_.from_pos(root, self.metrics);
         const primary = self.get_primary();
         primary.selection = sel;
         primary.cursor = sel.end;
@@ -5599,18 +5582,16 @@ pub const Editor = struct {
                         }
                         first = false;
                     }
-                    const begin_col = try root.pos_to_width(begin_row, begin_col_pos, self.metrics);
-                    const end_col = try root.pos_to_width(end_row, end_col_pos, self.metrics);
 
                     last_begin_row = begin_row;
                     last_begin_col_pos = begin_col_pos;
                     last_end_row = end_row;
                     last_end_col_pos = end_col_pos;
 
-                    const sel: Selection = .{
-                        .begin = .{ .row = begin_row, .col = begin_col },
-                        .end = .{ .row = end_row, .col = end_col },
-                    };
+                    const sel = try Selection.from_pos(.{
+                        .begin = .{ .row = begin_row, .col = begin_col_pos },
+                        .end = .{ .row = end_row, .col = end_col_pos },
+                    }, root, self.metrics);
                     const primary = self.get_primary();
                     primary.selection = sel;
                     primary.cursor = sel.end;
@@ -5687,23 +5668,13 @@ pub const Editor = struct {
         if (!std.mem.eql(u8, file_path, self.file_path orelse return)) return;
 
         const root = self.buf_root() catch return;
-        const sel: Selection = .{
-            .begin = .{
-                .row = sel_.begin.row,
-                .col = root.pos_to_width(sel_.begin.row, sel_.begin.col, self.metrics) catch return,
-            },
-            .end = .{
-                .row = sel_.end.row,
-                .col = root.pos_to_width(sel_.end.row, sel_.end.col, self.metrics) catch return,
-            },
-        };
 
         (try self.diagnostics.addOne(self.allocator)).* = .{
             .source = try self.allocator.dupe(u8, source),
             .code = try self.allocator.dupe(u8, code),
             .message = try self.allocator.dupe(u8, message),
             .severity = severity,
-            .sel = sel,
+            .sel = sel_.from_pos(root, self.metrics) catch return,
         };
 
         switch (Diagnostic.to_severity(severity)) {
