@@ -40,7 +40,7 @@ pub fn load_entries(palette: *Type) !usize {
 
     var max_label_len: usize = 0;
     for (palette.entries.items) |*item| {
-        const label_, const sort_text, _, const maybe_replace = get_values(item.cbor);
+        const label_, const sort_text, _, const maybe_replace, _ = get_values(item.cbor);
         if (get_replace_selection(maybe_replace)) |replace| {
             if (palette.value.replace == null) palette.value.replace = replace;
         }
@@ -91,7 +91,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&item_cbor)) catch false)) return false;
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) return false;
 
-    const label_, _, const kind, _ = get_values(item_cbor);
+    const label_, _, const kind, _, _ = get_values(item_cbor);
     const icon_: []const u8 = kind_icon(@enumFromInt(kind));
     const color: u24 = 0x0;
     const indicator: []const u8 = &.{};
@@ -99,11 +99,12 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.
     return tui.render_file_item(&button.plane, label_, icon_, color, indicator, matches_cbor, button.active, selected, button.hover, theme);
 }
 
-fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer.Selection } {
+fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer.Selection, []const u8 } {
     var label_: []const u8 = "";
     var sort_text: []const u8 = "";
     var kind: u8 = 0;
     var replace: Buffer.Selection = .{};
+    var additionalTextEdits: []const u8 = &.{};
     _ = cbor.match(item_cbor, .{
         cbor.any, // file_path
         cbor.any, // row
@@ -127,9 +128,14 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer
         cbor.extract(&replace.begin.col), // replace.begin.col
         cbor.extract(&replace.end.row), // replace.end.row
         cbor.extract(&replace.end.col), // replace.end.col
+        cbor.extract_cbor(&additionalTextEdits),
     }) catch false;
-    return .{ label_, sort_text, kind, replace };
+    return .{ label_, sort_text, kind, replace, additionalTextEdits };
 }
+
+const TextEdit = struct { newText: []const u8 = &.{}, insert: ?Range = null, replace: ?Range = null };
+const Range = struct { start: Position, end: Position };
+const Position = struct { line: usize, character: usize };
 
 fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
     return if (tui.get_active_editor()) |edt|
@@ -141,14 +147,14 @@ fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
 }
 
 fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
-    const label_, _, _, _ = get_values(button.opts.label);
+    const label_, _, _, _, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "insert_chars", .{label_} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonState) !void {
     const button = button_ orelse return cancel(palette);
-    _, _, _, const replace = get_values(button.opts.label);
+    _, _, _, const replace, _ = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
     editor.get_primary().selection = get_replace_selection(replace);
 }

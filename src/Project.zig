@@ -1054,9 +1054,9 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
     var documentation_kind: []const u8 = "";
     var sortText: []const u8 = "";
     var insertTextFormat: usize = 0;
-    var textEdit_newText: []const u8 = "";
-    var textEdit_insert: ?Range = null;
-    var textEdit_replace: ?Range = null;
+    var textEdit: TextEdit = .{};
+    var additionalTextEdits: [32]TextEdit = undefined;
+    var additionalTextEdits_len: usize = 0;
 
     var iter = item;
     var len = cbor.decodeMapHeader(&iter) catch return;
@@ -1098,30 +1098,22 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
         } else if (std.mem.eql(u8, field_name, "insertTextFormat")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&insertTextFormat)))) return invalid_field("insertTextFormat");
         } else if (std.mem.eql(u8, field_name, "textEdit")) {
-            // var textEdit: []const u8 = ""; // { "newText": "wait_expired(${1:timeout_ns: isize})", "insert": Range, "replace": Range },
-            var len_ = cbor.decodeMapHeader(&iter) catch return;
+            textEdit = try read_textEdit(&iter);
+        } else if (std.mem.eql(u8, field_name, "additionalTextEdits")) {
+            var len_ = cbor.decodeArrayHeader(&iter) catch return;
+            additionalTextEdits_len = len_;
+            var idx: usize = 0;
             while (len_ > 0) : (len_ -= 1) {
-                if (!(try cbor.matchString(&iter, &field_name))) return invalid_field("textEdit");
-                if (std.mem.eql(u8, field_name, "newText")) {
-                    if (!(try cbor.matchValue(&iter, cbor.extract(&textEdit_newText)))) return invalid_field("textEdit.newText");
-                } else if (std.mem.eql(u8, field_name, "insert")) {
-                    var range_: []const u8 = undefined;
-                    if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return invalid_field("textEdit.insert");
-                    textEdit_insert = try read_range(range_);
-                } else if (std.mem.eql(u8, field_name, "replace") or std.mem.eql(u8, field_name, "range")) {
-                    var range_: []const u8 = undefined;
-                    if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return invalid_field("textEdit.replace");
-                    textEdit_replace = try read_range(range_);
-                } else {
-                    try cbor.skipValue(&iter);
-                }
+                additionalTextEdits[idx] = try read_textEdit(&iter);
+                idx += 1;
             }
+            try cbor.skipValue(&iter);
         } else {
             try cbor.skipValue(&iter);
         }
     }
-    const insert = textEdit_insert orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
-    const replace = textEdit_replace orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
+    const insert = textEdit.insert orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
+    const replace = textEdit.replace orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
     return to.send(.{
         "cmd", "add_completion", .{
             file_path,
@@ -1137,7 +1129,7 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
             documentation_kind,
             sortText,
             insertTextFormat,
-            textEdit_newText,
+            textEdit.newText,
             insert.start.line,
             insert.start.character,
             insert.end.line,
@@ -1146,9 +1138,41 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
             replace.start.character,
             replace.end.line,
             replace.end.character,
+            additionalTextEdits[0..additionalTextEdits_len],
         },
     }) catch error.ClientFailed;
 }
+
+fn read_textEdit(iter: *[]const u8) !TextEdit {
+    var field_name: []const u8 = undefined;
+    var newText: []const u8 = "";
+    var insert: ?Range = null;
+    var replace: ?Range = null;
+    var len_ = cbor.decodeMapHeader(iter) catch return invalid_field("textEdit");
+    while (len_ > 0) : (len_ -= 1) {
+        if (!(try cbor.matchString(iter, &field_name))) return invalid_field("textEdit");
+        if (std.mem.eql(u8, field_name, "newText")) {
+            if (!(try cbor.matchValue(iter, cbor.extract(&newText)))) return invalid_field("textEdit.newText");
+        } else if (std.mem.eql(u8, field_name, "insert")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(iter, cbor.extract_cbor(&range_)))) return invalid_field("textEdit.insert");
+            insert = try read_range(range_);
+        } else if (std.mem.eql(u8, field_name, "replace") or std.mem.eql(u8, field_name, "range")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(iter, cbor.extract_cbor(&range_)))) return invalid_field("textEdit.replace");
+            replace = try read_range(range_);
+        } else {
+            try cbor.skipValue(iter);
+        }
+    }
+    return .{ .newText = newText, .insert = insert, .replace = replace };
+}
+
+const TextEdit = struct {
+    newText: []const u8 = &.{},
+    insert: ?Range = null,
+    replace: ?Range = null,
+};
 
 const Rename = struct {
     uri: []const u8,
