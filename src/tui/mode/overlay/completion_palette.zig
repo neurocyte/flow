@@ -130,6 +130,15 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer
     return .{ label_, sort_text, kind, replace };
 }
 
+fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
+    return if (tui.get_active_editor()) |edt|
+        edt.selection_pos_to_width(replace)
+    else if (replace.empty())
+        null
+    else
+        replace;
+}
+
 fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     const label_, _, _, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
