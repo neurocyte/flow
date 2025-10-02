@@ -40,9 +40,10 @@ pub fn load_entries(palette: *Type) !usize {
 
     var max_label_len: usize = 0;
     for (palette.entries.items) |*item| {
-        const label_, const sort_text, _, const replace = get_values(item.cbor);
-        if (palette.value.replace == null and !(replace.begin.row == 0 and replace.begin.col == 0 and replace.end.row == 0 and replace.end.col == 0))
-            palette.value.replace = replace;
+        const label_, const sort_text, _, const maybe_replace = get_values(item.cbor);
+        if (get_replace_selection(maybe_replace)) |replace| {
+            if (palette.value.replace == null) palette.value.replace = replace;
+        }
         item.label = label_;
         item.sort_text = sort_text;
         max_label_len = @max(max_label_len, item.label.len);
@@ -149,7 +150,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonState) !void {
     const button = button_ orelse return cancel(palette);
     _, _, _, const replace = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
-    editor.get_primary().selection = if (replace.empty()) null else replace;
+    editor.get_primary().selection = get_replace_selection(replace);
 }
 
 pub fn cancel(palette: *Type) !void {
