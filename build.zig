@@ -111,6 +111,8 @@ fn build_release(
         .{ .cpu_arch = .aarch64, .os_tag = .macos },
         .{ .cpu_arch = .x86_64, .os_tag = .windows },
         .{ .cpu_arch = .aarch64, .os_tag = .windows },
+        .{ .cpu_arch = .x86_64, .os_tag = .freebsd },
+        .{ .cpu_arch = .aarch64, .os_tag = .freebsd },
     } else blk: {
         const maybe_triple = b.option(
             []const u8,
