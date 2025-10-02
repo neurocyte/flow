@@ -74,6 +74,10 @@ pub const Match = struct {
         return .{ .begin = self.begin, .end = self.end };
     }
 
+    pub fn from_pos(self: Self, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Self {
+        return from_selection(try self.to_selection().from_pos(root, metrics));
+    }
+
     fn nudge_insert(self: *Self, nudge: Selection) void {
         self.begin.nudge_insert(nudge);
         self.end.nudge_insert(nudge);
