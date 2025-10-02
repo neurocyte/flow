@@ -18,7 +18,7 @@ echo running tests...
 
 echo building...
 
-./zig build --release --prefix "$DESTDIR/build"
+./zig build -Dall_targets --release --prefix "$DESTDIR/build"
 
 cd "$DESTDIR/build"
 

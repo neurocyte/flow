@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const optimize_deps = .ReleaseFast;
 
 pub fn build(b: *std.Build) void {
+    const all_targets = b.option(bool, "all_targets", "Build all known good targets during release builds (default: no)") orelse false;
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
     const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
@@ -45,6 +46,7 @@ pub fn build(b: *std.Build) void {
         pie,
         gui,
         version.items,
+        all_targets,
     );
 }
 
@@ -61,6 +63,7 @@ fn build_development(
     pie: ?bool,
     gui: bool,
     version: []const u8,
+    _: bool, // all_targets
 ) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
     const optimize = b.standardOptimizeOption(.{});
@@ -97,8 +100,9 @@ fn build_release(
     pie: ?bool,
     _: bool, //gui
     version: []const u8,
+    all_targets: bool,
 ) void {
-    const targets: []const std.Target.Query = &.{
+    const targets: []const std.Target.Query = if (all_targets) &.{
         .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
         .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl },
         .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
@@ -107,6 +111,11 @@ fn build_release(
         .{ .cpu_arch = .aarch64, .os_tag = .macos },
         .{ .cpu_arch = .x86_64, .os_tag = .windows },
         .{ .cpu_arch = .aarch64, .os_tag = .windows },
+    } else blk: {
+        const native_target = b.resolveTargetQuery(.{}).result;
+        break :blk &.{
+            .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag },
+        };
     };
     const optimize = b.standardOptimizeOption(.{});
     const optimize_release = optimize;
