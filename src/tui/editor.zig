@@ -5520,9 +5520,11 @@ pub const Editor = struct {
 
     pub fn completion(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
+        const root = self.buf_root() catch return;
         const primary = self.get_primary();
+        const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
         self.completions.clearRetainingCapacity();
-        return project_manager.completion(file_path, primary.cursor.row, primary.cursor.col);
+        return project_manager.completion(file_path, primary.cursor.row, col);
     }
     pub const completion_meta: Meta = .{ .description = "Language: Show completions at cursor" };
 
