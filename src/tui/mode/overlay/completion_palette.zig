@@ -41,7 +41,7 @@ pub fn load_entries(palette: *Type) !usize {
     var max_label_len: usize = 0;
     for (palette.entries.items) |*item| {
         const label_, const sort_text, _, const replace = get_values(item.cbor);
-        if (palette.value.replace == null)
+        if (palette.value.replace == null and !(replace.begin.row == 0 and replace.begin.col == 0 and replace.end.row == 0 and replace.end.col == 0))
             palette.value.replace = replace;
         item.label = label_;
         item.sort_text = sort_text;
