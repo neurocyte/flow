@@ -112,9 +112,24 @@ fn build_release(
         .{ .cpu_arch = .x86_64, .os_tag = .windows },
         .{ .cpu_arch = .aarch64, .os_tag = .windows },
     } else blk: {
-        const native_target = b.resolveTargetQuery(.{}).result;
+        const maybe_triple = b.option(
+            []const u8,
+            "target",
+            "The CPU architecture, OS, and ABI to build for",
+        );
+        const triple = maybe_triple orelse {
+            const native_target = b.resolveTargetQuery(.{}).result;
+            break :blk &.{
+                .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag },
+            };
+        };
+        const selected_target = std.Build.parseTargetQuery(.{
+            .arch_os_abi = triple,
+        }) catch |err| switch (err) {
+            error.ParseFailed => @panic("unknown target"),
+        };
         break :blk &.{
-            .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag },
+            .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi },
         };
     };
     const optimize = b.standardOptimizeOption(.{});
