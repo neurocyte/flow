@@ -15,6 +15,7 @@ kitty_mod ctrl+alt
 For other editors you will probably have to disable or rebind them each
 individually.
 
+
 ## Searching
 
 Press ctrl+f to search this help file. Type a search term and press 
@@ -22,15 +23,26 @@ ctrl+n/ctrl+p or f3/shift+f3 to jump through the matches. Press Enter
 to exit find mode at the current match or Escape to return to your
 starting point.
 
+
+## Messages and logs
+
+Messages of issues regarding tasks that are not accomplished, like
+trying to close flow with unsaved files, as well as other information
+are shown briefly in the bottom status bar; most recent messages can
+be seen in the log view too, to open it, use ctrl+shift+p > `View log`;
+it's possible to make it taller dragging the toolbar with the mouse
+up or downwards.
+
+
 ## Input Modes
 
 Flow Control supports multiple input modes that may be changed
 interactively at runtime. The current input mode (and some other
 settings) is persisted in the configuration file automatically.
 
-- f4 => Cycle major input modes (flow, vim, ...)
+- f4 => Cycle major input modes (flow, emacs, vim, helix,...)
 
-The current input mode is displayed in the at the left side of the statusbar.
+The current input mode is displayed at the left side of the statusbar.
 
 - ctrl+shift+p or alt+x => Show the command palette
 
@@ -87,30 +99,43 @@ Multiple inheritance is supported with the `inherits` options like this:
         ...
 ```
 
-## Flow mode
+### Flow mode
 
 The default input mode, called just flow, is based on common GUI
 programming editors. It most closely resembles Visual Studio Code, but
 also takes some inspiration from Emacs and others. This mode focuses
-on powerful multi cursor support with a find -> select -> modify 
+on powerful multi cursor support with a find -> select -> modify
 cycle style of editing.
 
 See the `ctrl+f2` palette when flow mode is selected to see the full
 list of keybindings for this mode.
 
-## Vim mode
+
+### Vim mode
 
 The vim modes, shown as NORMAL, INSERT or VISUAL in the status bar,
 follow the basic modal editing style of vim. The basics follow vim
-closely, but more advanced vim functions (e.g. macrosand registers)
+closely, but more advanced vim functions (e.g. macros and registers)
 are not supported (yet). Keybindings from flow mode that do not conflict
 with vim keybindings also work in vim mode.
 
+
+### Helix mode
+
+The helix modes, shown as NOR, INS or SEL in the status bar, follow
+the basic modal editing style of helix. The basics are being adapted
+closely, more advanced functions (e.g. surround, macros, selections,
+registers) are not supported (yet). Usual keybinding with LSPs are
+used for tasks like 'go to definition', 'go to reference' and
+'inline documentation' featuring inline diagnostics. Keybindings
+from flow mode that do not conflict with helix keybindings also work in
+helix mode.
+
 (work in progress)
 
-### Mouse Commands
+## Mouse Commands
 
-Mouse commands are not rebindable and are not listed in the command palette.
+Mouse commands are NOT rebindable and are not listed in the command palette.
 
 - Left Click =>
         Clear all cursors and selections and the place cursor at the mouse pointer
@@ -170,7 +195,7 @@ animation_min_lag 0
 animation_max_lag 150
 ```
 
-Most of these options are fairly self explanitory.
+Most of these options are fairly self explanatory.
 
 `theme`, `input_mode` and `show_whitespace` are automatically
 persisted when changed interactively with keybindings.
@@ -185,3 +210,9 @@ animation altogether.
 File types may be configured with the `Edit file type configuration` command. You
 can also create a new file type by adding a new `.conf` file to the `file_type`
 directory. Have a look at an existing file type to see what options are available.
+
+## Flags and options
+
+As every respectable terminal program, flow provide various invoking
+options that among others, will allow you to inspect various aspects of
+the running session.  Feel free to run `flow --help` to explore them.
