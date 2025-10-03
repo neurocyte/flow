@@ -163,9 +163,16 @@ const cmds_ = struct {
     pub const @"bco!_meta": Meta = .{ .description = "bco! (Close other buffers/tabs forcefully, ignoring changes)" };
 
     pub fn bco(_: *void, _: Ctx) Result {
+        const logger = log.logger("helix-mode");
+        defer logger.deinit();
         const mv = tui.mainview() orelse return;
         const bm = tui.get_buffer_manager() orelse return;
-        if (mv.get_active_buffer()) |buffer| _ = bm.close_others(buffer);
+        if (mv.get_active_buffer()) |buffer| {
+            const remaining = bm.close_others(buffer);
+            if (remaining > 0) {
+                logger.print("{} unsaved buffer(s) remaining", .{remaining});
+            }
+        }
     }
     pub const bco_meta: Meta = .{ .description = "bco (Close other buffers/tabs, except this one)" };
 
