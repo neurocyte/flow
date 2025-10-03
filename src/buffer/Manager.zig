@@ -134,6 +134,19 @@ pub fn is_dirty(self: *const Self) bool {
     return false;
 }
 
+pub fn number_of_dirties(self: *const Self) usize {
+    var dirties: usize = 0;
+    var i = self.buffers.iterator();
+
+    while (i.next()) |p| {
+        const buffer = p.value_ptr.*;
+        if (!buffer.is_ephemeral() and buffer.is_dirty()) {
+            dirties += 1;
+        }
+    }
+    return dirties;
+}
+
 pub fn is_buffer_dirty(self: *const Self, file_path: []const u8) bool {
     return if (self.buffers.get(file_path)) |buffer| buffer.is_dirty() else false;
 }
@@ -181,18 +194,18 @@ pub fn delete_others(self: *Self, protected: *Buffer) void {
 }
 
 pub fn close_others(self: *Self, protected: *Buffer) usize {
-    var removed: usize = 0;
+    var remaining: usize = 0;
     var i = self.buffers.iterator();
-    if (self.is_dirty()) return 0;
     while (i.next()) |p| {
         const buffer = p.value_ptr.*;
         if (buffer != protected) {
-            if (self.buffers.remove(buffer.get_file_path()))
-                removed += 1;
-            buffer.deinit();
+            if (buffer.is_ephemeral() or !buffer.is_dirty()) {
+                _ = self.buffers.remove(buffer.get_file_path());
+                buffer.deinit();
+            } else remaining += 1;
         }
     }
-    return removed;
+    return remaining;
 }
 
 pub fn buffer_from_ref(self: *Self, buffer_ref: usize) ?*Buffer {

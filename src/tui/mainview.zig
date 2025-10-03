@@ -273,7 +273,13 @@ const cmds = struct {
     const Result = command.Result;
 
     pub fn quit(self: *Self, _: Ctx) Result {
-        try self.check_all_not_dirty();
+        const logger = log.logger("buffer");
+        defer logger.deinit();
+        self.check_all_not_dirty() catch |err| {
+            const dirties = self.buffer_manager.number_of_dirties();
+            logger.print("There are {} unsaved buffer(s), use 'quit without saving' if not needed to save them", .{dirties});
+            return err;
+        };
         try tp.self_pid().send("quit");
     }
     pub const quit_meta: Meta = .{ .description = "Quit" };

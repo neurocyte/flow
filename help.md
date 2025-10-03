@@ -22,15 +22,23 @@ ctrl+n/ctrl+p or f3/shift+f3 to jump through the matches. Press Enter
 to exit find mode at the current match or Escape to return to your
 starting point.
 
+## Messages and logs
+
+Messages of issues regarding tasks that are not accomplished are
+reported to the log view, to open it, use ctrl+shift+p > View log. For
+example, when you try to close a buffer that is not saved, or try to
+exit Flow without all the buffers saved, it will be reported in the log.
+
+
 ## Input Modes
 
 Flow Control supports multiple input modes that may be changed
 interactively at runtime. The current input mode (and some other
 settings) is persisted in the configuration file automatically.
 
-- f4 => Cycle major input modes (flow, vim, ...)
+- f4 => Cycle major input modes (flow, emacs, vim, helix,...)
 
-The current input mode is displayed in the at the left side of the statusbar.
+The current input mode is displayed at the left side of the statusbar.
 
 - ctrl+shift+p or alt+x => Show the command palette
 
@@ -102,15 +110,26 @@ list of keybindings for this mode.
 
 The vim modes, shown as NORMAL, INSERT or VISUAL in the status bar,
 follow the basic modal editing style of vim. The basics follow vim
-closely, but more advanced vim functions (e.g. macrosand registers)
+closely, but more advanced vim functions (e.g. macros and registers)
 are not supported (yet). Keybindings from flow mode that do not conflict
 with vim keybindings also work in vim mode.
+
+## Helix mode
+
+The Helix modes, shown as NOR, INS or SEL in the status bar, follow
+the basic modal editing style of Helix. The basics are being adapted
+closely, more advanced functions (e.g. surround, macros,
+selections, registers) are not supported (yet). Usual keybinding
+with LSPs are used for tasks like 'go to definition', 'go to reference'
+and 'inline documentation' featuring inline diagnostics. Keybindings
+from flow mode that do not conflict with helix keybindings also work in
+helix mode.
 
 (work in progress)
 
 ### Mouse Commands
 
-Mouse commands are not rebindable and are not listed in the command palette.
+Mouse commands are NOT rebindable and are not listed in the command palette.
 
 - Left Click =>
         Clear all cursors and selections and the place cursor at the mouse pointer
@@ -170,7 +189,7 @@ animation_min_lag 0
 animation_max_lag 150
 ```
 
-Most of these options are fairly self explanitory.
+Most of these options are fairly self explanatory.
 
 `theme`, `input_mode` and `show_whitespace` are automatically
 persisted when changed interactively with keybindings.
