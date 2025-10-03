@@ -60,19 +60,15 @@ const cmds_ = struct {
     }
     pub const wq_meta: Meta = .{ .description = "wq (write/save file and quit)" };
 
+    pub fn @"x!"(_: *void, _: Ctx) Result {
+        try cmd("save_file", command.fmt(.{ "then", .{ "quit_without_saving", .{} } }));
+    }
+    pub const @"x!_meta": Meta = .{ .description = "x! (write/save file and close forcefully, ignoring other unsaved changes)" };
+
     pub fn x(_: *void, _: Ctx) Result {
         try cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
     }
     pub const x_meta: Meta = .{ .description = "x (write/save file and quit)" };
-
-    // This one needs some help, the intention is to close only the current buffer
-    // , if is the only buffer, exit...
-    // TODO
-    // pub fn @"x!"(_: *void, _: Ctx) Result {
-    //     try cmd("save_file", .{});
-    //     try cmd("close_file_without_saving", .{});
-    // }
-    // pub const @"x!_meta": Meta = .{ .description = "x! (write/save file and close forcefully, ignoring unsaved changes)" };
 
     pub fn wa(_: *void, _: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
@@ -116,6 +112,12 @@ const cmds_ = struct {
     }
     pub const rl_meta: Meta = .{ .description = "rl (force reload current file)" };
 
+    pub fn rla(_: *void, _: Ctx) Result {
+        if (tui.get_buffer_manager()) |bm|
+            bm.reload_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+    pub const rla_meta: Meta = .{ .description = "rla (reload all files discarding the current contents)" };
+
     pub fn o(_: *void, _: Ctx) Result {
         try cmd("open_file", .{});
     }
@@ -151,6 +153,21 @@ const cmds_ = struct {
         try cmd("close_file_without_saving", .{});
     }
     pub const @"bc!_meta": Meta = .{ .description = "bc! (Close buffer/tab forcefully, ignoring changes)" };
+
+    pub fn @"bco!"(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        if (tui.get_buffer_manager()) |bm| {
+            if (mv.get_active_buffer()) |buffer| bm.delete_others(buffer);
+        }
+    }
+    pub const @"bco!_meta": Meta = .{ .description = "bco! (Close other buffers/tabs forcefully, ignoring changes)" };
+
+    pub fn bco(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const bm = tui.get_buffer_manager() orelse return;
+        if (mv.get_active_buffer()) |buffer| _ = bm.close_others(buffer);
+    }
+    pub const bco_meta: Meta = .{ .description = "bco (Close other buffers/tabs, except this one)" };
 
     pub fn save_selection(_: *void, _: Ctx) Result {
         const logger = log.logger("helix-mode");

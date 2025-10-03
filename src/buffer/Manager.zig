@@ -149,6 +149,17 @@ pub fn save_all(self: *const Self) Buffer.StoreToFileError!void {
     }
 }
 
+pub fn reload_all(self: *const Self) Buffer.LoadFromFileError!void {
+    var i = self.buffers.iterator();
+    while (i.next()) |kv| {
+        const buffer = kv.value_ptr.*;
+        if (buffer.is_ephemeral())
+            buffer.mark_clean()
+        else
+            try buffer.refresh_from_file();
+    }
+}
+
 pub fn delete_all(self: *Self) void {
     var i = self.buffers.iterator();
     while (i.next()) |p| {
@@ -156,6 +167,32 @@ pub fn delete_all(self: *Self) void {
         p.value_ptr.*.deinit();
     }
     self.buffers.clearRetainingCapacity();
+}
+
+pub fn delete_others(self: *Self, protected: *Buffer) void {
+    var i = self.buffers.iterator();
+    while (i.next()) |p| {
+        const buffer = p.value_ptr.*;
+        if (buffer != protected) {
+            buffer.reset_to_last_saved();
+            self.close_buffer(buffer);
+        }
+    }
+}
+
+pub fn close_others(self: *Self, protected: *Buffer) usize {
+    var removed: usize = 0;
+    var i = self.buffers.iterator();
+    if (self.is_dirty()) return 0;
+    while (i.next()) |p| {
+        const buffer = p.value_ptr.*;
+        if (buffer != protected) {
+            if (self.buffers.remove(buffer.get_file_path()))
+                removed += 1;
+            buffer.deinit();
+        }
+    }
+    return removed;
 }
 
 pub fn buffer_from_ref(self: *Self, buffer_ref: usize) ?*Buffer {
