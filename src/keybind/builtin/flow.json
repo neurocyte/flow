@@ -228,7 +228,7 @@
             ["kp_page_up", "move_page_up"],
             ["kp_page_down", "move_page_down"],
             ["tab", "indent"],
-            ["shift+space", "enter_mode", "select"],
+            ["ctrl+shift+a", "enter_mode", "select"],
 
             ["\"", "smart_insert_pair", "\"", "\""],
             ["'", "smart_insert_pair", "'", "'"],
