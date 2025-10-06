@@ -632,7 +632,7 @@ const cmds = struct {
             return tp.exit("unsaved changes");
         if (self.get_active_editor()) |editor| if (editor.buffer == buffer)
             editor.close_file(.{}) catch |e| return e;
-        _ = self.buffer_manager.delete_buffer(file_path);
+        self.buffer_manager.delete_buffer(buffer);
         const logger = log.logger("buffer");
         defer logger.deinit();
         logger.print("deleted buffer {s}", .{file_path});

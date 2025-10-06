@@ -24,12 +24,27 @@ pub fn deinit(self: *Self) void {
     self.buffers.deinit(self.allocator);
 }
 
+fn get_buffer(self: *const Self, file_path: []const u8) ?*Buffer {
+    return self.buffers.get(file_path);
+}
+
+fn add_buffer(self: *Self, buffer: *Buffer) error{OutOfMemory}!void {
+    try self.buffers.put(self.allocator, try self.allocator.dupe(u8, buffer.get_file_path()), buffer);
+}
+
+pub fn delete_buffer(self: *Self, buffer: *Buffer) void {
+    if (self.buffers.fetchRemove(buffer.get_file_path())) |kv| {
+        self.allocator.free(kv.key);
+        kv.value.deinit();
+    } else buffer.deinit();
+}
+
 pub fn open_file(self: *Self, file_path: []const u8) Buffer.LoadFromFileError!*Buffer {
-    const buffer = if (self.buffers.get(file_path)) |buffer| buffer else blk: {
+    const buffer = if (self.get_buffer(file_path)) |buffer| buffer else blk: {
         var buffer = try Buffer.create(self.allocator);
         errdefer buffer.deinit();
         try buffer.load_from_file_and_update(file_path);
-        try self.buffers.put(self.allocator, try self.allocator.dupe(u8, file_path), buffer);
+        try self.add_buffer(buffer);
         break :blk buffer;
     };
     buffer.update_last_used_time();
@@ -43,7 +58,7 @@ pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buf
         errdefer buffer.deinit();
         try buffer.load_from_string_and_update(file_path, content);
         buffer.file_exists = true;
-        try self.buffers.put(self.allocator, try self.allocator.dupe(u8, file_path), buffer);
+        try self.add_buffer(buffer);
         break :blk buffer;
     };
     buffer.update_last_used_time();
@@ -75,20 +90,13 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
             buffer.deinit();
         }
         try buffer.extract_state(iter);
-        try self.buffers.put(self.allocator, try self.allocator.dupe(u8, buffer.get_file_path()), buffer);
+        try self.add_buffer(buffer);
         tp.trace(tp.channel.debug, .{ "buffer", "extract", buffer.get_file_path(), buffer.file_type_name });
     }
 }
 
 pub fn get_buffer_for_file(self: *const Self, file_path: []const u8) ?*Buffer {
-    return self.buffers.get(file_path);
-}
-
-pub fn delete_buffer(self: *Self, file_path: []const u8) bool {
-    const buffer = self.buffers.get(file_path) orelse return false;
-    const did_remove = self.buffers.remove(file_path);
-    buffer.deinit();
-    return did_remove;
+    return self.get_buffer(file_path);
 }
 
 pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
@@ -100,10 +108,8 @@ pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
 pub fn close_buffer(self: *Self, buffer: *Buffer) void {
     buffer.hidden = true;
     tp.trace(tp.channel.debug, .{ "buffer", "close", buffer.get_file_path(), "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
-    if (buffer.is_ephemeral()) {
-        _ = self.buffers.remove(buffer.get_file_path());
-        buffer.deinit();
-    }
+    if (buffer.is_ephemeral())
+        self.delete_buffer(buffer);
 }
 
 pub fn list_most_recently_used(self: *Self, allocator: std.mem.Allocator) error{OutOfMemory}![]*Buffer {
@@ -148,7 +154,7 @@ pub fn count_dirty_buffers(self: *const Self) usize {
 }
 
 pub fn is_buffer_dirty(self: *const Self, file_path: []const u8) bool {
-    return if (self.buffers.get(file_path)) |buffer| buffer.is_dirty() else false;
+    return if (self.get_buffer(file_path)) |buffer| buffer.is_dirty() else false;
 }
 
 pub fn save_all(self: *const Self) Buffer.StoreToFileError!void {
@@ -183,45 +189,38 @@ pub fn delete_all(self: *Self) void {
 }
 
 pub fn delete_others(self: *Self, protected: *Buffer) error{OutOfMemory}!void {
-    var keys = try std.ArrayList(*[]const u8).initCapacity(self.allocator, self.buffers.size);
-    defer keys.deinit(self.allocator);
+    var to_delete = try std.ArrayList(*Buffer).initCapacity(self.allocator, self.buffers.size);
+    defer to_delete.deinit(self.allocator);
 
     var it = self.buffers.iterator();
 
     while (it.next()) |p| {
         const buffer = p.value_ptr.*;
-        if (buffer != protected) {
-            try keys.append(self.allocator, p.key_ptr);
-        }
+        if (buffer != protected)
+            to_delete.appendAssumeCapacity(buffer);
     }
-    for (keys.items) |k| {
-        const buffer = self.buffers.get(k.*) orelse continue;
-        _ = self.buffers.remove(k.*);
-        buffer.deinit();
-    }
+    for (to_delete.items) |buffer|
+        _ = self.delete_buffer(buffer);
 }
 
 pub fn close_others(self: *Self, protected: *Buffer) error{OutOfMemory}!usize {
     var remaining: usize = 0;
-    var keys = try std.ArrayList(*[]const u8).initCapacity(self.allocator, self.buffers.size);
-    defer keys.deinit(self.allocator);
+    var to_delete = try std.ArrayList(*Buffer).initCapacity(self.allocator, self.buffers.size);
+    defer to_delete.deinit(self.allocator);
 
     var it = self.buffers.iterator();
     while (it.next()) |p| {
         const buffer = p.value_ptr.*;
         if (buffer != protected) {
             if (buffer.is_ephemeral() or !buffer.is_dirty()) {
-                try keys.append(self.allocator, p.key_ptr);
+                to_delete.appendAssumeCapacity(buffer);
             } else {
                 remaining += 1;
             }
         }
     }
-    for (keys.items) |k| {
-        const buffer = self.buffers.get(k.*) orelse continue;
-        _ = self.buffers.remove(k.*);
-        buffer.deinit();
-    }
+    for (to_delete.items) |buffer|
+        self.delete_buffer(buffer);
     return remaining;
 }
 
