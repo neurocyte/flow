@@ -621,6 +621,67 @@ pub fn build_exe(
         },
     });
 
+    const helix_mod = b.createModule(.{
+        .root_source_file = b.path("src/tui/mode/helix.zig"),
+    });
+    // const editor_mod = b.createModule(.{
+    //     .root_source_file = b.path("src/tui/editor.zig"),
+    // });
+    // const Widget_mod = b.createModule(.{
+    //     .root_source_file = b.path("src/tui/Widget.zig"),
+    // });
+    // const mainview_mod = b.createModule(.{
+    //     .root_source_file = b.path("src/tui/mainview.zig"),
+    // });
+    // const WidgetList_mod = b.createModule(.{
+    //     .root_source_file = b.path("src/tui/WidgetList.zig"),
+    // });
+    // const MessageFilter_mod = b.createModule(.{
+    //     .root_source_file = b.path("src/tui/MessageFilter.zig"),
+    // });
+    // const editor_gutter_mod = b.createModule(.{
+    //     .root_source_file = b.path("src/tui/editor_gutter.zig"),
+    // });
+    // const scrollbar_v_mod = b.createModule(.{
+    //     .root_source_file = b.path("src/tui//scrollbar_v.zig"),
+    // });
+    // const palette_mod = b.createModule(.{
+    //     .root_source_file = b.path("src/tui/mode/overlay/palette.zig"),
+    // });
+    // const open_recent_project_mod = b.createModule(.{
+    //     .root_source_file = b.path("src/tui/mode/overlay/open_recent_project.zig"),
+    // });
+
+    // const helix_test_run_cmd = blk: {
+    //     const tests = b.addTest(.{
+    //         .root_module = b.createModule(.{
+    //             .root_source_file = b.path("src/tui/mode/helix.zig"),
+    //             .target = target,
+    //             .optimize = optimize,
+    //         }),
+    //     });
+    //     tests.root_module.addImport("cbor", cbor_mod);
+    //     tests.root_module.addImport("command", command_mod);
+    //     tests.root_module.addImport("EventHandler", EventHandler_mod);
+    //     tests.root_module.addImport("input", input_mod);
+    //     tests.root_module.addImport("thespian", thespian_mod);
+    //     tests.root_module.addImport("log", log_mod);
+    //     tests.root_module.addImport("tui", tui_mod);
+    //     tests.root_module.addImport("helix", helix_mod);
+    //     tests.root_module.addImport("editor", editor_mod);
+    //     tests.root_module.addImport("Widget", Widget_mod);
+    //     tests.root_module.addImport("WidgetList", WidgetList_mod);
+    //     tests.root_module.addImport("mainview", mainview_mod);
+    //     tests.root_module.addImport("Buffer", Buffer_mod);
+    //     tests.root_module.addImport("MessageFilter", MessageFilter_mod);
+    //     tests.root_module.addImport("editor_gutter", editor_gutter_mod);
+    //     tests.root_module.addImport("scrollbar_v", scrollbar_v_mod);
+    //     tests.root_module.addImport("palette", palette_mod);
+    //     tests.root_module.addImport("open_recent_project", open_recent_project_mod);
+    //     tests.root_module.addImport("renderer", renderer_mod);
+    //     break :blk b.addRunArtifact(tests);
+    // };
+
     const exe_name = if (gui) "flow-gui" else "flow";
 
     const exe = b.addExecutable(.{
@@ -712,6 +773,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     check_step.dependOn(&check_exe.step);
 
+    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("test/tests.zig"),
@@ -721,6 +783,7 @@ pub fn build_exe(
         }),
         .use_llvm = use_llvm,
         .use_lld = use_llvm,
+        .filters = test_filters,
     });
 
     tests.pie = pie;
@@ -730,6 +793,7 @@ pub fn build_exe(
     tests.root_module.addImport("log", log_mod);
     tests.root_module.addImport("Buffer", Buffer_mod);
     tests.root_module.addImport("color", color_mod);
+    tests.root_module.addImport("helix", helix_mod);
     // b.installArtifact(tests);
 
     const test_run_cmd = b.addRunArtifact(tests);
