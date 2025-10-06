@@ -79,11 +79,11 @@ git log "${last_nightly_version}..HEAD" --pretty="format:neurocyte/$APPNAME@%h %
 echo
 echo running tests...
 
-./zig build test
+zig build test
 
 echo building...
 
-./zig build -Dall_targets --release --prefix "$DESTDIR/build"
+zig build -Dall_targets --release --prefix "$DESTDIR/build"
 
 VERSION=$(/bin/cat "$DESTDIR/build/version")
 

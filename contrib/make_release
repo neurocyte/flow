@@ -14,11 +14,11 @@ fi
 
 echo running tests...
 
-./zig build test
+zig build test
 
 echo building...
 
-./zig build -Dall_targets --release --prefix "$DESTDIR/build"
+zig build -Dall_targets --release --prefix "$DESTDIR/build"
 
 cd "$DESTDIR/build"
 
