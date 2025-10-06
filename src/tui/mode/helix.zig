@@ -232,6 +232,20 @@ const cmds_ = struct {
     }
     pub const move_next_word_start_meta: Meta = .{ .description = "Move next word start", .arguments = &.{.integer} };
 
+    pub fn move_next_long_word_start(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            cursel.selection = null;
+        };
+
+        ed.with_selections_const_repeat(root, move_cursor_long_word_right, ctx) catch {};
+        ed.clamp();
+    }
+    pub const move_next_long_word_start_meta: Meta = .{ .description = "Move next long word start", .arguments = &.{.integer} };
+
     pub fn move_prev_word_start(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -246,6 +260,20 @@ const cmds_ = struct {
     }
     pub const move_prev_word_start_meta: Meta = .{ .description = "Move previous word start", .arguments = &.{.integer} };
 
+    pub fn move_prev_long_word_start(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            cursel.selection = null;
+        };
+
+        ed.with_selections_const_repeat(root, move_cursor_long_word_left, ctx) catch {};
+        ed.clamp();
+    }
+    pub const move_prev_long_word_start_meta: Meta = .{ .description = "Move previous long word start", .arguments = &.{.integer} };
+
     pub fn move_next_word_end(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -259,6 +287,20 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const move_next_word_end_meta: Meta = .{ .description = "Move next word end", .arguments = &.{.integer} };
+
+    pub fn move_next_long_word_end(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            cursel.selection = null;
+        };
+
+        ed.with_selections_const_repeat(root, move_cursor_long_word_right_end, ctx) catch {};
+        ed.clamp();
+    }
+    pub const move_next_long_word_end_meta: Meta = .{ .description = "Move next long word end", .arguments = &.{.integer} };
 
     pub fn cut_forward_internal_inclusive(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
@@ -466,4 +508,89 @@ fn insert_line(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, a
     cursor.target = cursor.col;
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
     return root_;
+}
+
+fn is_not_whitespace_or_eol(c: []const u8) bool {
+    return !Editor.is_whitespace_or_eol(c);
+}
+
+fn is_whitespace_or_eol_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    return cursor.test_at(root, Editor.is_whitespace_or_eol, metrics);
+}
+
+fn is_non_whitespace_or_eol_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    return cursor.test_at(root, is_not_whitespace_or_eol, metrics);
+}
+
+fn is_long_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    if (cursor.test_at(root, Editor.is_whitespace, metrics)) return false;
+    var next = cursor.*;
+    next.move_left(root, metrics) catch return true;
+
+    const next_is_whitespace = Editor.is_whitespace_at_cursor(root, &next, metrics);
+    if (next_is_whitespace) return true;
+
+    const curr_is_non_word = is_non_whitespace_or_eol_at_cursor(root, cursor, metrics);
+    const next_is_non_word = is_non_whitespace_or_eol_at_cursor(root, &next, metrics);
+    return curr_is_non_word != next_is_non_word;
+}
+
+pub fn move_cursor_long_word_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    try Editor.move_cursor_left(root, cursor, metrics);
+
+    // Consume " "
+    while (Editor.is_whitespace_at_cursor(root, cursor, metrics)) {
+        try Editor.move_cursor_left(root, cursor, metrics);
+    }
+
+    var next = cursor.*;
+    next.move_left(root, metrics) catch return;
+    var next_next = next;
+    next_next.move_left(root, metrics) catch return;
+
+    const cur = next.test_at(root, is_not_whitespace_or_eol, metrics);
+    const nxt = next_next.test_at(root, is_not_whitespace_or_eol, metrics);
+    if (cur != nxt) {
+        try Editor.move_cursor_left(root, cursor, metrics);
+        return;
+    } else {
+        try move_cursor_long_word_left(root, cursor, metrics);
+    }
+}
+
+fn is_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    if (Editor.is_whitespace_at_cursor(root, cursor, metrics)) return false;
+    var next = cursor.*;
+    next.move_right(root, metrics) catch return true;
+
+    const next_is_whitespace = Editor.is_whitespace_at_cursor(root, &next, metrics);
+    if (next_is_whitespace) return true;
+
+    const curr_is_non_word = is_non_whitespace_or_eol_at_cursor(root, cursor, metrics);
+    const next_is_non_word = is_non_whitespace_or_eol_at_cursor(root, &next, metrics);
+    return curr_is_non_word != next_is_non_word;
+}
+
+pub fn move_cursor_long_word_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    try cursor.move_right(root, metrics);
+    Editor.move_cursor_right_until(root, cursor, is_long_word_boundary_left, metrics);
+}
+
+fn is_long_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    if (Editor.is_whitespace_at_cursor(root, cursor, metrics)) return false;
+    var next = cursor.*;
+    next.move_right(root, metrics) catch return true;
+
+    const next_is_whitespace = Editor.is_whitespace_at_cursor(root, &next, metrics);
+    if (next_is_whitespace) return true;
+
+    const curr_is_non_word = is_non_whitespace_or_eol_at_cursor(root, cursor, metrics);
+    const next_is_non_word = is_non_whitespace_or_eol_at_cursor(root, &next, metrics);
+    return curr_is_non_word != next_is_non_word;
+}
+
+pub fn move_cursor_long_word_right_end(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    // try Editor.move_cursor_right(root, cursor, metrics);
+    Editor.move_cursor_right_until(root, cursor, is_long_word_boundary_right, metrics);
+    try cursor.move_right(root, metrics);
 }

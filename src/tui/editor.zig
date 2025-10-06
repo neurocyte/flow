@@ -2143,11 +2143,11 @@ pub const Editor = struct {
         return false;
     }
 
-    fn is_whitespace(c: []const u8) bool {
+    pub fn is_whitespace(c: []const u8) bool {
         return (c.len == 0) or (c[0] == ' ') or (c[0] == '\t');
     }
 
-    fn is_whitespace_or_eol(c: []const u8) bool {
+    pub fn is_whitespace_or_eol(c: []const u8) bool {
         return is_whitespace(c) or c[0] == '\n';
     }
 
