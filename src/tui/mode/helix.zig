@@ -63,7 +63,7 @@ const cmds_ = struct {
     pub fn @"x!"(_: *void, _: Ctx) Result {
         try cmd("save_file", command.fmt(.{ "then", .{ "quit_without_saving", .{} } }));
     }
-    pub const @"x!_meta": Meta = .{ .description = "x! (write/save file and close forcefully, ignoring other unsaved changes)" };
+    pub const @"x!_meta": Meta = .{ .description = "x! (write/save file and exit, ignoring other unsaved changes)" };
 
     pub fn x(_: *void, _: Ctx) Result {
         try cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
@@ -90,7 +90,7 @@ const cmds_ = struct {
             try cmd("quit_without_saving", .{});
         }
     }
-    pub const @"xa!_meta": Meta = .{ .description = "xa! (write all and quit forcefully, ignoring unsaved changes)" };
+    pub const @"xa!_meta": Meta = .{ .description = "xa! (write all and exit, ignoring other unsaved changes)" };
 
     pub fn wqa(_: *void, _: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
@@ -105,18 +105,18 @@ const cmds_ = struct {
             try cmd("quit_without_saving", .{});
         }
     }
-    pub const @"wqa!_meta": Meta = .{ .description = "wqa! (write all and quit forcefully, ignoring unsaved changes)" };
+    pub const @"wqa!_meta": Meta = .{ .description = "wqa! (write all and exit, ignoring unsaved changes)" };
 
     pub fn rl(_: *void, _: Ctx) Result {
         try cmd("reload_file", .{});
     }
-    pub const rl_meta: Meta = .{ .description = "rl (force reload current file)" };
+    pub const rl_meta: Meta = .{ .description = "rl (reload current file)" };
 
     pub fn rla(_: *void, _: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
             bm.reload_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
-    pub const rla_meta: Meta = .{ .description = "rla (reload all files discarding the current contents)" };
+    pub const rla_meta: Meta = .{ .description = "rla (reload all files)" };
 
     pub fn o(_: *void, _: Ctx) Result {
         try cmd("open_file", .{});
@@ -152,15 +152,15 @@ const cmds_ = struct {
     pub fn @"bc!"(_: *void, _: Ctx) Result {
         try cmd("close_file_without_saving", .{});
     }
-    pub const @"bc!_meta": Meta = .{ .description = "bc! (Close buffer/tab forcefully, ignoring changes)" };
+    pub const @"bc!_meta": Meta = .{ .description = "bc! (Close buffer/tab, ignoring changes)" };
 
     pub fn @"bco!"(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
         if (tui.get_buffer_manager()) |bm| {
-            if (mv.get_active_buffer()) |buffer| bm.delete_others(buffer);
+            if (mv.get_active_buffer()) |buffer| try bm.delete_others(buffer);
         }
     }
-    pub const @"bco!_meta": Meta = .{ .description = "bco! (Close other buffers/tabs forcefully, ignoring changes)" };
+    pub const @"bco!_meta": Meta = .{ .description = "bco! (Close other buffers/tabs, discarding changes)" };
 
     pub fn bco(_: *void, _: Ctx) Result {
         const logger = log.logger("helix-mode");
@@ -168,13 +168,14 @@ const cmds_ = struct {
         const mv = tui.mainview() orelse return;
         const bm = tui.get_buffer_manager() orelse return;
         if (mv.get_active_buffer()) |buffer| {
-            const remaining = bm.close_others(buffer);
+            const remaining = try bm.close_others(buffer);
             if (remaining > 0) {
                 logger.print("{} unsaved buffer(s) remaining", .{remaining});
+                try cmd("next_tab", .{});
             }
         }
     }
-    pub const bco_meta: Meta = .{ .description = "bco (Close other buffers/tabs, except this one)" };
+    pub const bco_meta: Meta = .{ .description = "bco (Close other buffers/tabs)" };
 
     pub fn save_selection(_: *void, _: Ctx) Result {
         const logger = log.logger("helix-mode");

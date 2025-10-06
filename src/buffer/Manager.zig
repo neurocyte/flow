@@ -134,17 +134,17 @@ pub fn is_dirty(self: *const Self) bool {
     return false;
 }
 
-pub fn number_of_dirties(self: *const Self) usize {
-    var dirties: usize = 0;
+pub fn count_dirty_buffers(self: *const Self) usize {
+    var count: usize = 0;
     var i = self.buffers.iterator();
 
     while (i.next()) |p| {
         const buffer = p.value_ptr.*;
         if (!buffer.is_ephemeral() and buffer.is_dirty()) {
-            dirties += 1;
+            count += 1;
         }
     }
-    return dirties;
+    return count;
 }
 
 pub fn is_buffer_dirty(self: *const Self, file_path: []const u8) bool {
@@ -182,28 +182,45 @@ pub fn delete_all(self: *Self) void {
     self.buffers.clearRetainingCapacity();
 }
 
-pub fn delete_others(self: *Self, protected: *Buffer) void {
-    var i = self.buffers.iterator();
-    while (i.next()) |p| {
+pub fn delete_others(self: *Self, protected: *Buffer) error{OutOfMemory}!void {
+    var keys = try std.ArrayList(*[]const u8).initCapacity(self.allocator, self.buffers.size);
+    defer keys.deinit(self.allocator);
+
+    var it = self.buffers.iterator();
+
+    while (it.next()) |p| {
         const buffer = p.value_ptr.*;
         if (buffer != protected) {
-            buffer.reset_to_last_saved();
-            self.close_buffer(buffer);
+            try keys.append(self.allocator, p.key_ptr);
         }
+    }
+    for (keys.items) |k| {
+        const buffer = self.buffers.get(k.*) orelse continue;
+        _ = self.buffers.remove(k.*);
+        buffer.deinit();
     }
 }
 
-pub fn close_others(self: *Self, protected: *Buffer) usize {
+pub fn close_others(self: *Self, protected: *Buffer) error{OutOfMemory}!usize {
     var remaining: usize = 0;
-    var i = self.buffers.iterator();
-    while (i.next()) |p| {
+    var keys = try std.ArrayList(*[]const u8).initCapacity(self.allocator, self.buffers.size);
+    defer keys.deinit(self.allocator);
+
+    var it = self.buffers.iterator();
+    while (it.next()) |p| {
         const buffer = p.value_ptr.*;
         if (buffer != protected) {
             if (buffer.is_ephemeral() or !buffer.is_dirty()) {
-                _ = self.buffers.remove(buffer.get_file_path());
-                buffer.deinit();
-            } else remaining += 1;
+                try keys.append(self.allocator, p.key_ptr);
+            } else {
+                remaining += 1;
+            }
         }
+    }
+    for (keys.items) |k| {
+        const buffer = self.buffers.get(k.*) orelse continue;
+        _ = self.buffers.remove(k.*);
+        buffer.deinit();
     }
     return remaining;
 }
