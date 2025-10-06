@@ -276,8 +276,8 @@ const cmds = struct {
         const logger = log.logger("buffer");
         defer logger.deinit();
         self.check_all_not_dirty() catch |err| {
-            const dirties = self.buffer_manager.number_of_dirties();
-            logger.print("There are {} unsaved buffer(s), use 'quit without saving' if not needed to save them", .{dirties});
+            const count_dirty_buffers = self.buffer_manager.count_dirty_buffers();
+            logger.print("{} unsaved buffer(s), use 'quit without saving' to exit", .{count_dirty_buffers});
             return err;
         };
         try tp.self_pid().send("quit");
