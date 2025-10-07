@@ -2064,14 +2064,16 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
         try self.loaded(parent);
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&path) })) {
         self.longest_file_path = @max(self.longest_file_path, path.len);
-        const stat = std.fs.cwd().statFile(path) catch return;
+        const mtime: i128 = blk: {
+            break :blk (std.fs.cwd().statFile(path) catch break :blk 0).mtime;
+        };
         const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(path);
         (try self.pending.addOne(self.allocator)).* = .{
             .path = try self.allocator.dupe(u8, path),
             .type = file_type,
             .icon = file_icon,
             .color = file_color,
-            .mtime = stat.mtime,
+            .mtime = mtime,
         };
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.null_ })) {
         self.state.workspace_files = .done;
