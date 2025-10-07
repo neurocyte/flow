@@ -81,3 +81,24 @@ pub fn get_letter_casing() *LetterCasing {
     letter_casing = LetterCasing.init(letter_casing_arena.allocator()) catch @panic("LetterCasing.init");
     return &letter_casing.?;
 }
+
+const spinner = [_][]const u8{
+    "⠋",
+    "⠙",
+    "⠹",
+    "⠸",
+    "⠼",
+    "⠴",
+    "⠦",
+    "⠧",
+    "⠇",
+};
+
+const spinner_short = [_][]const u8{
+    "⠋",
+    "⠙",
+    "⠸",
+    "⠴",
+    "⠦",
+    "⠇",
+};
