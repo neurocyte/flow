@@ -1423,9 +1423,12 @@ pub const StoreToFileError = error{
 };
 
 pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
-    const stat = try cwd().statFile(file_path);
-    var write_buffer: [4096]u8 = undefined;
-    var atomic = try cwd().atomicFile(file_path, .{ .mode = stat.mode, .write_buffer = &write_buffer });
+    var atomic = blk: {
+        var write_buffer: [4096]u8 = undefined;
+        const stat = cwd().statFile(file_path) catch
+            break :blk try cwd().atomicFile(file_path, .{ .write_buffer = &write_buffer });
+        break :blk try cwd().atomicFile(file_path, .{ .mode = stat.mode, .write_buffer = &write_buffer });
+    };
     defer atomic.deinit();
     try self.store_to_file_const(&atomic.file_writer.interface);
     try atomic.finish();
