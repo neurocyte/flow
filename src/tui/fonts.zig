@@ -234,6 +234,14 @@ pub const font_test_text: []const u8 =
     \\Full-width (double): ＡＢＣ　１２３
     \\Punctuation: 。，、；：「」『』
     \\Symbols: ○●□■△▲☆★◇◆
+    \\German umlauts: äÄäÄöÖ
+    \\More emojis: ☝😍💓🔥🎆😎😂🖐🍻🍺
+    \\
+    \\Width challenged emojis:
+    \\xx☝xx
+    \\xx☝ xx
+    \\xx🖐xx
+    \\xx🖐 xx
     \\
     \\ recommended fonts for terminals with no nerdfont fallback support (e.g. flow-gui):
     \\
