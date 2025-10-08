@@ -7,7 +7,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const builtin = @import("builtin");
 const log = @import("log");
-const root = @import("root");
+const root = @import("soft_root").root;
 
 const input = @import("input");
 const command = @import("command");

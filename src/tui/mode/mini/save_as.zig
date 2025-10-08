@@ -1,6 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
-const root = @import("root");
+const root = @import("soft_root").root;
 const command = @import("command");
 
 const tui = @import("../../tui.zig");

@@ -4,7 +4,7 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 const diff = @import("diff");
 const cbor = @import("cbor");
-const root = @import("root");
+const root = @import("soft_root").root;
 
 const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;

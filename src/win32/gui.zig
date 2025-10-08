@@ -1,7 +1,7 @@
 const std = @import("std");
 const tracy = @import("tracy");
 const build_options = @import("build_options");
-const root = @import("root");
+const root = @import("soft_root").root;
 
 const ID_ICON_FLOW = 1;
 

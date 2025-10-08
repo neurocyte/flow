@@ -5,7 +5,7 @@ const Allocator = @import("std").mem.Allocator;
 const Plane = @import("renderer").Plane;
 const tp = @import("thespian");
 const log = @import("log");
-const root = @import("root");
+const root = @import("soft_root").root;
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 

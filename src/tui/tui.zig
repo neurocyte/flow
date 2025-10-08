@@ -4,9 +4,10 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
 const project_manager = @import("project_manager");
-const root = @import("root");
+const root = @import("soft_root").root;
 const tracy = @import("tracy");
 const builtin = @import("builtin");
+const file_link = @import("file_link");
 
 pub const renderer = @import("renderer");
 const command = @import("command");
@@ -1151,10 +1152,10 @@ const cmds = struct {
     pub fn open_file(self: *Self, ctx: Ctx) Result {
         if (get_active_selection(self.allocator)) |text| {
             defer self.allocator.free(text);
-            const link = try root.file_link.parse(text);
+            const link = try file_link.parse(text);
             switch (link) {
                 .file => |file| if (file.exists)
-                    return root.file_link.navigate(tp.self_pid(), &link),
+                    return file_link.navigate(tp.self_pid(), &link),
                 else => {},
             }
         }

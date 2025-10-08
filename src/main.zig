@@ -9,7 +9,7 @@ const bin_path = @import("bin_path");
 const sep = std.fs.path.sep;
 
 const list_languages = @import("list_languages.zig");
-pub const file_link = @import("file_link.zig");
+const file_link = @import("file_link");
 
 const c = @cImport({
     @cInclude("locale.h");
@@ -21,8 +21,8 @@ const log = @import("log");
 pub const version = @embedFile("version");
 pub const version_info = @embedFile("version_info");
 
-pub var max_diff_lines: usize = 50000;
-pub var max_syntax_lines: usize = 50000;
+pub const max_diff_lines: usize = 50000;
+pub const max_syntax_lines: usize = 50000;
 
 pub const application_name = "flow";
 pub const application_title = "Flow Control";

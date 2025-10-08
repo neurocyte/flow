@@ -6,7 +6,7 @@ const cbor = @import("cbor");
 const builtin = @import("builtin");
 
 const Plane = @import("renderer").Plane;
-const root = @import("root");
+const root = @import("soft_root").root;
 
 const Widget = @import("Widget.zig");
 const Button = @import("Button.zig");

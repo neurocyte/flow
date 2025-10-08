@@ -4,7 +4,7 @@ const cbor = @import("cbor");
 const log = @import("log");
 const tracy = @import("tracy");
 const file_type_config = @import("file_type_config");
-const root = @import("root");
+const root = @import("soft_root").root;
 const Buffer = @import("Buffer");
 const builtin = @import("builtin");
 

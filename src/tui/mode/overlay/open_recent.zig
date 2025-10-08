@@ -3,7 +3,7 @@ const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
 const file_type_config = @import("file_type_config");
-const root = @import("root");
+const root = @import("soft_root").root;
 
 const Plane = @import("renderer").Plane;
 const input = @import("input");

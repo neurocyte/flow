@@ -1,7 +1,7 @@
 const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian");
-const root = @import("root");
+const root = @import("soft_root").root;
 
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;

@@ -1,6 +1,6 @@
 const std = @import("std");
 const tp = @import("thespian");
-const root = @import("root");
+const root = @import("soft_root").root;
 
 pub const Dest = union(enum) {
     file: FileDest,

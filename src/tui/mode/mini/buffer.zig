@@ -2,7 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
-const root = @import("root");
+const root = @import("soft_root").root;
 
 const input = @import("input");
 const keybind = @import("keybind");

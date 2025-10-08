@@ -246,4 +246,4 @@ fn vec(comptime args: anytype) []const []const u8 {
 
 const syntax = @import("syntax");
 const std = @import("std");
-const root = @import("root");
+const root = @import("soft_root").root;

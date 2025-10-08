@@ -10,7 +10,7 @@ const text_manip = @import("text_manip");
 const syntax = @import("syntax");
 const file_type_config = @import("file_type_config");
 const project_manager = @import("project_manager");
-const root_mod = @import("root");
+const root_mod = @import("soft_root").root;
 
 const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;

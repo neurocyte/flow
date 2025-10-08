@@ -4,7 +4,7 @@ const tp = @import("thespian");
 const tracy = @import("tracy");
 const config = @import("config");
 const Buffer = @import("Buffer");
-const root = @import("root");
+const root = @import("soft_root").root;
 const project_manager = @import("project_manager");
 
 const Plane = @import("renderer").Plane;

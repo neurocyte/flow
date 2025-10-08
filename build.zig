@@ -338,6 +338,11 @@ pub fn build_exe(
         .root_source_file = b.path("help.md"),
     });
 
+    const soft_root_mod = b.createModule(.{
+        .root_source_file = b.path("src/soft_root.zig"),
+        .imports = &.{},
+    });
+
     const config_mod = b.createModule(.{
         .root_source_file = b.path("src/config.zig"),
         .imports = &.{
@@ -352,9 +357,18 @@ pub fn build_exe(
         },
     });
 
+    const file_link_mod = b.createModule(.{
+        .root_source_file = b.path("src/file_link.zig"),
+        .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+
     const file_type_config_mod = b.createModule(.{
         .root_source_file = b.path("src/file_type_config.zig"),
         .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "syntax", .module = syntax_mod },
         },
     });
@@ -470,6 +484,7 @@ pub fn build_exe(
     const keybind_mod = b.createModule(.{
         .root_source_file = b.path("src/keybind/keybind.zig"),
         .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "command", .module = command_mod },
             .{ .name = "EventHandler", .module = EventHandler_mod },
@@ -538,6 +553,7 @@ pub fn build_exe(
     const project_manager_mod = b.createModule(.{
         .root_source_file = b.path("src/project_manager.zig"),
         .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
@@ -570,6 +586,8 @@ pub fn build_exe(
     const tui_mod = b.createModule(.{
         .root_source_file = b.path("src/tui/tui.zig"),
         .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
+            .{ .name = "file_link", .module = file_link_mod },
             .{ .name = "renderer", .module = renderer_mod },
             .{ .name = "input", .module = input_mod },
             .{ .name = "thespian", .module = thespian_mod },
@@ -623,6 +641,8 @@ pub fn build_exe(
     }
     if (pie) |value| exe.pie = value;
     exe.root_module.addImport("build_options", options_mod);
+    exe.root_module.addImport("soft_root", soft_root_mod);
+    exe.root_module.addImport("file_link", file_link_mod);
     exe.root_module.addImport("flags", flags_dep.module("flags"));
     exe.root_module.addImport("cbor", cbor_mod);
     exe.root_module.addImport("config", config_mod);
@@ -670,6 +690,8 @@ pub fn build_exe(
     });
 
     check_exe.root_module.addImport("build_options", options_mod);
+    check_exe.root_module.addImport("file_link", file_link_mod);
+    check_exe.root_module.addImport("soft_root", soft_root_mod);
     check_exe.root_module.addImport("flags", flags_dep.module("flags"));
     check_exe.root_module.addImport("cbor", cbor_mod);
     check_exe.root_module.addImport("config", config_mod);
@@ -701,6 +723,8 @@ pub fn build_exe(
 
     tests.pie = pie;
     tests.root_module.addImport("build_options", options_mod);
+    tests.root_module.addImport("soft_root", soft_root_mod);
+    tests.root_module.addImport("file_link", file_link_mod);
     tests.root_module.addImport("log", log_mod);
     tests.root_module.addImport("Buffer", Buffer_mod);
     tests.root_module.addImport("color", color_mod);
