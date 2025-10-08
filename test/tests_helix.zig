@@ -1,10 +1,8 @@
 const std = @import("std");
 const Buffer = @import("Buffer");
-const Cursor = @import("Cursor");
-const helix = @import("helix");
+const Cursor = @import("Buffer").Cursor;
 
-// error: import of file outside module path
-// const helix = @import("../src/tui/mode/helix.zig");
+const helix = @import("tui").exports.mode.helix;
 
 const ArrayList = std.ArrayList;
 const a = std.testing.allocator;
