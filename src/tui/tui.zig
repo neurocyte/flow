@@ -19,6 +19,14 @@ const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const MainView = @import("mainview.zig");
 
+// exports for unittesting
+pub const exports = struct {
+    pub const mode = struct {
+        pub const helix = @import("mode/helix.zig");
+    };
+    pub const editor = @import("editor.zig");
+};
+
 const Allocator = std.mem.Allocator;
 
 allocator: Allocator,
