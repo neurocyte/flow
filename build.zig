@@ -444,6 +444,7 @@ pub fn build_exe(
                     .root_source_file = b.path("src/win32/gui.zig"),
                     .imports = &.{
                         .{ .name = "build_options", .module = options_mod },
+                        .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "win32", .module = win32_mod },
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "thespian", .module = thespian_mod },
@@ -461,6 +462,7 @@ pub fn build_exe(
                     .root_source_file = b.path("src/renderer/win32/renderer.zig"),
                     .imports = &.{
                         .{ .name = "theme", .module = themes_dep.module("theme") },
+                        .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "win32", .module = win32_mod },
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "thespian", .module = thespian_mod },
