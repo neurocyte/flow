@@ -316,14 +316,16 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.position_menu(self.v_center(5, self.menu_len, 5), self.center(x, self.menu_w));
     }
 
-    if (self.plane.dim_y() < 3 or self.plane.dim_x() < root.version.len + 4) return false;
+    const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
+
+    if (self.plane.dim_y() < 3 or self.plane.dim_x() < version.len + 4) return false;
 
     self.plane.cursor_move_yx(
         @intCast(self.plane.dim_y() - 2),
-        @intCast(@max(self.plane.dim_x(), root.version.len + 3) - root.version.len - 3),
+        @intCast(@max(self.plane.dim_x(), version.len + 3) - version.len - 3),
     ) catch {};
     self.plane.set_style_bg_transparent(style_subtext);
-    _ = self.plane.print("{s}", .{root.version}) catch return false;
+    _ = self.plane.print("{s}", .{version}) catch return false;
     if (builtin.mode == .Debug) {
         const debug_warning_text = "debug build";
         if (self.plane.dim_y() < 4 or self.plane.dim_x() < debug_warning_text.len + 4) return false;
