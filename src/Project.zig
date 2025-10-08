@@ -1673,6 +1673,8 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
         .project = self,
     };
 
+    const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
+
     try lsp.send_request(self.allocator, "initialize", .{
         .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
         .rootPath = project_path,
@@ -1687,7 +1689,7 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
         .locale = "en-us",
         .clientInfo = .{
             .name = root.application_name,
-            .version = "0.0.1",
+            .version = version,
         },
         .capabilities = .{
             .workspace = .{
