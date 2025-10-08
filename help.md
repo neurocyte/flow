@@ -12,13 +12,13 @@ usually enough:
 kitty_mod ctrl+alt
 ```
 
-For other editors you will probably have to disable or rebind them each
+For other terminals you will probably have to disable or rebind them each
 individually.
 
 
 ## Searching
 
-Press ctrl+f to search this help file. Type a search term and press 
+Press ctrl+f to search this help file. Type a search term and press
 ctrl+n/ctrl+p or f3/shift+f3 to jump through the matches. Press Enter
 to exit find mode at the current match or Escape to return to your
 starting point.
@@ -207,9 +207,10 @@ of frames rendered.
 for rendering scrolling animations. Set to 0 to disable scrolling
 animation altogether.
 
-File types may be configured with the `Edit file type configuration` command. You
-can also create a new file type by adding a new `.conf` file to the `file_type`
-directory. Have a look at an existing file type to see what options are available.
+File types may be configured with the `Edit file type configuration` command.
+You can also create a new file type by adding a new `.conf` file to the
+`file_type` directory. Have a look at an existing file type to see what options
+are available.
 
 ## Flags and options
 
