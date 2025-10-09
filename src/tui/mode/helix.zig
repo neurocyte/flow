@@ -454,7 +454,7 @@ const cmds_ = struct {
     pub const paste_after_meta: Meta = .{ .description = "Paste from clipboard after selection" };
 };
 
-fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+pub fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     try Editor.move_cursor_left(root, cursor, metrics);
 
     // Consume " "
@@ -479,7 +479,7 @@ fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buff
 
 fn move_noop(_: Buffer.Root, _: *Cursor, _: Buffer.Metrics) error{Stop}!void {}
 
-fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+pub fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     try Editor.move_cursor_right(root, cursor, metrics);
     Editor.move_cursor_right_until(root, cursor, Editor.is_word_boundary_right_vim, metrics);
     try cursor.move_right(root, metrics);
