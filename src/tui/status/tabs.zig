@@ -324,6 +324,7 @@ const Tab = struct {
     tabbar: *TabBar,
     buffer_ref: usize,
     tab_style: *const Style,
+    close_pos: ?c_uint = null,
 
     const Mode = enum { active, inactive, selected };
 
@@ -348,10 +349,15 @@ const Tab = struct {
         });
     }
 
-    fn on_click(self: *@This(), _: *ButtonType, _: Button.Cursor) void {
+    fn on_click(self: *@This(), _: *ButtonType, pos: Button.Cursor) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer|
+        if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| {
+            if (self.close_pos) |close_pos| if (pos.col == close_pos) {
+                tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.get_file_path()} }) catch {};
+                return;
+            };
             tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.get_file_path() } }) catch {};
+        }
     }
 
     fn on_click2(self: *@This(), _: *ButtonType, _: Button.Cursor) void {
@@ -491,8 +497,10 @@ const Tab = struct {
         };
         _ = btn.plane.putstr(btn.opts.label) catch {};
         _ = btn.plane.putstr(" ") catch {};
+        self.close_pos = null;
         if (btn.hover) {
             btn.plane.set_style(.{ .fg = self.tab_style.close_icon_fg.from_theme(theme) });
+            self.close_pos = btn.plane.cursor_x();
             _ = btn.plane.putstr(self.tabbar.tab_style.close_icon) catch {};
         } else if (is_dirty) {
             if (self.tab_style.dirty_indicator_fg) |color|
