@@ -53,6 +53,8 @@ const @"style.config" = struct {
     selected_right_fg: colors = .active_bg,
     selected_right_bg: colors = .inactive_bg,
 
+    file_type_icon: bool = true,
+
     include_files: []const u8 = "",
 };
 pub const Style = @"style.config";
@@ -387,7 +389,7 @@ const Tab = struct {
             .fg = self.tab_style.selected_fg.from_theme(theme),
             .bg = self.tab_style.selected_bg.from_theme(theme),
         });
-        self.render_content(btn);
+        self.render_content(btn, self.tab_style.selected_fg.from_theme(theme));
 
         btn.plane.set_style(.{
             .fg = self.tab_style.selected_right_fg.from_theme(theme),
@@ -423,7 +425,7 @@ const Tab = struct {
             .fg = self.tab_style.active_fg.from_theme(theme),
             .bg = self.tab_style.active_bg.from_theme(theme),
         });
-        self.render_content(btn);
+        self.render_content(btn, self.tab_style.active_fg.from_theme(theme));
 
         btn.plane.set_style(.{
             .fg = self.tab_style.active_right_fg.from_theme(theme),
@@ -453,7 +455,7 @@ const Tab = struct {
             .fg = self.tab_style.inactive_fg.from_theme(theme),
             .bg = self.tab_style.inactive_bg.from_theme(theme),
         });
-        self.render_content(btn);
+        self.render_content(btn, self.tab_style.inactive_fg.from_theme(theme));
 
         btn.plane.set_style(.{
             .fg = self.tab_style.inactive_right_fg.from_theme(theme),
@@ -462,9 +464,18 @@ const Tab = struct {
         _ = btn.plane.putstr(self.tab_style.inactive_right) catch {};
     }
 
-    fn render_content(self: *@This(), btn: *Button.State(@This())) void {
+    fn render_content(self: *@This(), btn: *Button.State(@This()), fg: ?Widget.Theme.Color) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        const is_dirty = if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| buffer.is_dirty() else false;
+        const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
+        const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
+        if (self.tab_style.file_type_icon) if (buffer_) |buffer| if (buffer.file_type_icon) |icon| {
+            if (buffer.file_type_color) |color|
+                btn.plane.set_style(.{ .fg = .{ .color = color } });
+            _ = btn.plane.putstr(icon) catch {};
+            if (buffer.file_type_color) |_|
+                btn.plane.set_style(.{ .fg = fg });
+            _ = btn.plane.putstr("  ") catch {};
+        };
         if (is_dirty)
             _ = btn.plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
         _ = btn.plane.putstr(btn.opts.label) catch {};
@@ -480,8 +491,9 @@ const Tab = struct {
     }
 
     fn padding_len(plane: Plane, tab_style: Style, active: bool, dirty: bool) usize {
+        const len_file_icon: usize = if (tab_style.file_type_icon) 2 else 0;
         const len_dirty_indicator = if (dirty) plane.egc_chunk_width(tab_style.dirty_indicator, 0, 1) else 0;
-        return len_dirty_indicator + if (active)
+        return len_file_icon + len_dirty_indicator + if (active)
             plane.egc_chunk_width(tab_style.active_left, 0, 1) +
                 plane.egc_chunk_width(tab_style.active_right, 0, 1)
         else
