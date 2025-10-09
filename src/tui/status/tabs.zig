@@ -469,10 +469,11 @@ const Tab = struct {
         const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
         const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
         if (self.tab_style.file_type_icon) if (buffer_) |buffer| if (buffer.file_type_icon) |icon| {
-            if (buffer.file_type_color) |color|
+            const color_: ?u24 = if (buffer.file_type_color) |color| if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) color else null else null;
+            if (color_) |color|
                 btn.plane.set_style(.{ .fg = .{ .color = color } });
             _ = btn.plane.putstr(icon) catch {};
-            if (buffer.file_type_color) |_|
+            if (color_) |_|
                 btn.plane.set_style(.{ .fg = fg });
             _ = btn.plane.putstr("  ") catch {};
         };
