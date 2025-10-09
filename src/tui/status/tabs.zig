@@ -27,6 +27,8 @@ const @"style.config" = struct {
     dirty_indicator_fg: ?colors = null,
     close_icon: []const u8 = "󰅖",
     close_icon_fg: colors = .Error,
+    save_icon: []const u8 = "󰆓",
+    save_icon_fg: ?colors = null,
 
     spacer: []const u8 = "|",
     spacer_fg: colors = .active_bg,
@@ -325,6 +327,7 @@ const Tab = struct {
     buffer_ref: usize,
     tab_style: *const Style,
     close_pos: ?c_uint = null,
+    save_pos: ?c_uint = null,
 
     const Mode = enum { active, inactive, selected };
 
@@ -354,6 +357,10 @@ const Tab = struct {
         if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| {
             if (self.close_pos) |close_pos| if (pos.col == close_pos) {
                 tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.get_file_path()} }) catch {};
+                return;
+            };
+            if (self.save_pos) |save_pos| if (pos.col == save_pos) {
+                tp.self_pid().send(.{ "cmd", "save_buffer", .{buffer.get_file_path()} }) catch {};
                 return;
             };
             tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.get_file_path() } }) catch {};
@@ -498,10 +505,18 @@ const Tab = struct {
         _ = btn.plane.putstr(btn.opts.label) catch {};
         _ = btn.plane.putstr(" ") catch {};
         self.close_pos = null;
+        self.save_pos = null;
         if (btn.hover) {
-            btn.plane.set_style(.{ .fg = self.tab_style.close_icon_fg.from_theme(theme) });
-            self.close_pos = btn.plane.cursor_x();
-            _ = btn.plane.putstr(self.tabbar.tab_style.close_icon) catch {};
+            if (is_dirty) {
+                if (self.tab_style.save_icon_fg) |color|
+                    btn.plane.set_style(.{ .fg = color.from_theme(theme) });
+                self.save_pos = btn.plane.cursor_x();
+                _ = btn.plane.putstr(self.tabbar.tab_style.save_icon) catch {};
+            } else {
+                btn.plane.set_style(.{ .fg = self.tab_style.close_icon_fg.from_theme(theme) });
+                self.close_pos = btn.plane.cursor_x();
+                _ = btn.plane.putstr(self.tabbar.tab_style.close_icon) catch {};
+            }
         } else if (is_dirty) {
             if (self.tab_style.dirty_indicator_fg) |color|
                 btn.plane.set_style(.{ .fg = color.from_theme(theme) });
