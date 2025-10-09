@@ -69,7 +69,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     palette.items += 1;
 }
 
-fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
     var unused: []const u8 = undefined;
     var command_id: command.ID = undefined;
     var iter = button.opts.label;

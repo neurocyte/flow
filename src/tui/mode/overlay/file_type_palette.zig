@@ -71,7 +71,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             palette.items += 1;
         }
 
-        pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.Theme, selected: bool) bool {
+        pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
             const style_base = theme.editor_widget;
             const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
             const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
@@ -116,7 +116,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             return false;
         }
 
-        fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
+        fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
             var description_: []const u8 = undefined;
             var icon_: []const u8 = undefined;
             var color: u24 = undefined;

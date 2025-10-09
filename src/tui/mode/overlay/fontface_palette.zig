@@ -56,7 +56,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     palette.items += 1;
 }
 
-fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
     var label_: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &label_) catch false)) return;
@@ -64,7 +64,7 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     tp.self_pid().send(.{ "cmd", "set_fontface", .{label_} }) catch |e| menu.*.opts.ctx.logger.err("fontface_palette", e);
 }
 
-pub fn updated(palette: *Type, button_: ?*Type.ButtonState) !void {
+pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
     var label_: []const u8 = undefined;
     var iter = button.opts.label;

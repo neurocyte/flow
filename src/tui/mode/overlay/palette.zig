@@ -46,8 +46,9 @@ pub fn Create(options: type) type {
         const Self = @This();
         const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else void;
 
-        pub const MenuState = Menu.State(*Self);
-        pub const ButtonState = Button.State(*Menu.State(*Self));
+        pub const MenuType = Menu.Options(*Self).MenuType;
+        pub const ButtonType = MenuType.ButtonType;
+        pub const Cursor = Button.Cursor;
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
             return create_with_args(allocator, .{});
@@ -131,7 +132,7 @@ pub fn Create(options: type) type {
                 .{ .fg = theme.scrollbar.fg, .bg = theme.editor_widget.bg };
         }
 
-        fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+        fn on_render_menu(_: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
             const style_base = theme.editor_widget;
             const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
             const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
@@ -211,7 +212,7 @@ pub fn Create(options: type) type {
                 scrollbar.set(@intCast(@max(self.total_items, 1) - 1), @intCast(self.view_rows), @intCast(self.view_pos));
         }
 
-        fn mouse_click_button4(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+        fn mouse_click_button4(menu: **Menu.State(*Self), _: *ButtonType, _: Button.Cursor) void {
             const self = &menu.*.opts.ctx.*;
             if (self.view_pos < Menu.scroll_lines) {
                 self.view_pos = 0;
@@ -222,7 +223,7 @@ pub fn Create(options: type) type {
             self.start_query(0) catch {};
         }
 
-        fn mouse_click_button5(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+        fn mouse_click_button5(menu: **Menu.State(*Self), _: *ButtonType, _: Button.Cursor) void {
             const self = &menu.*.opts.ctx.*;
             if (self.view_pos < @max(self.total_items, self.view_rows) - self.view_rows)
                 self.view_pos += Menu.scroll_lines;

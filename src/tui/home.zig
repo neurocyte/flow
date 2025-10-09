@@ -82,6 +82,8 @@ home_style_bufs: [][]const u8,
 const Self = @This();
 
 const widget_type: Widget.Type = .home;
+const MenuType = Menu.Options(*Self).MenuType;
+const ButtonType = MenuType.ButtonType;
 
 pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
     const logger = log.logger("home");
@@ -188,7 +190,7 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn menu_on_render(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+fn menu_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var description: []const u8 = undefined;
     var hint: []const u8 = undefined;
     var command_name: []const u8 = undefined;
@@ -257,7 +259,7 @@ fn menu_on_render(self: *Self, button: *Button.State(*Menu.State(*Self)), theme:
     return false;
 }
 
-fn menu_action(_: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
+fn menu_action(_: **Menu.State(*Self), button: *ButtonType, _: Button.Cursor) void {
     var description: []const u8 = undefined;
     var hint: []const u8 = undefined;
     var command_name: []const u8 = undefined;

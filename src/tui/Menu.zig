@@ -16,20 +16,24 @@ pub fn Options(context: type) type {
         ctx: Context,
         style: Widget.Type,
 
-        on_click: *const fn (ctx: context, button: *Button.State(*State(Context))) void = do_nothing,
-        on_click4: *const fn (menu: **State(Context), button: *Button.State(*State(Context))) void = do_nothing_click,
-        on_click5: *const fn (menu: **State(Context), button: *Button.State(*State(Context))) void = do_nothing_click,
-        on_render: *const fn (ctx: context, button: *Button.State(*State(Context)), theme: *const Widget.Theme, selected: bool) bool = on_render_default,
-        on_layout: *const fn (ctx: context, button: *Button.State(*State(Context))) Widget.Layout = on_layout_default,
-        prepare_resize: *const fn (ctx: context, menu: *State(Context), box: Widget.Box) Widget.Box = prepare_resize_default,
-        after_resize: *const fn (ctx: context, menu: *State(Context), box: Widget.Box) void = after_resize_default,
+        on_click: ClickHandler = do_nothing,
+        on_click4: ButtonClickHandler = do_nothing_click,
+        on_click5: ButtonClickHandler = do_nothing_click,
+        on_render: *const fn (ctx: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool = on_render_default,
+        on_layout: *const fn (ctx: context, button: *ButtonType) Widget.Layout = on_layout_default,
+        prepare_resize: *const fn (ctx: context, menu: *MenuType, box: Widget.Box) Widget.Box = prepare_resize_default,
+        after_resize: *const fn (ctx: context, menu: *MenuType, box: Widget.Box) void = after_resize_default,
         on_scroll: ?EventHandler = null,
 
         pub const Context = context;
-        pub fn do_nothing(_: context, _: *Button.State(*State(Context))) void {}
-        pub fn do_nothing_click(_: **State(Context), _: *Button.State(*State(Context))) void {}
+        pub const MenuType = State(Context);
+        pub const ButtonType = Button.Options(*MenuType).ButtonType;
+        pub const ButtonClickHandler = Button.Options(*MenuType).ClickHandler;
+        pub const ClickHandler = *const fn (ctx: context, button: *ButtonType) void;
+        pub fn do_nothing(_: context, _: *ButtonType) void {}
+        pub fn do_nothing_click(_: **MenuType, _: *ButtonType, _: Button.Cursor) void {}
 
-        pub fn on_render_default(_: context, button: *Button.State(*State(Context)), theme: *const Widget.Theme, selected: bool) bool {
+        pub fn on_render_default(_: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
             const style_base = theme.editor;
             const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else style_base;
             button.plane.set_base_style(style_base);
@@ -44,17 +48,17 @@ pub fn Options(context: type) type {
             return false;
         }
 
-        pub fn on_layout_default(_: context, _: *Button.State(*State(Context))) Widget.Layout {
+        pub fn on_layout_default(_: context, _: *ButtonType) Widget.Layout {
             return .{ .static = 1 };
         }
 
-        pub fn prepare_resize_default(_: context, state: *State(Context), box_: Widget.Box) Widget.Box {
+        pub fn prepare_resize_default(_: context, state: *MenuType, box_: Widget.Box) Widget.Box {
             var box = box_;
             box.h = if (box_.h == 0) state.menu.widgets.items.len else box_.h;
             return box;
         }
 
-        pub fn after_resize_default(_: context, _: *State(Context), _: Widget.Box) void {}
+        pub fn after_resize_default(_: context, _: *MenuType, _: Widget.Box) void {}
     };
 }
 
@@ -92,15 +96,15 @@ pub fn State(ctx_type: type) type {
         container_widget: Widget,
         frame_widget: ?Widget,
         scrollbar: ?*scrollbar_v,
-        opts: options_type,
+        opts: OptionsType,
         selected: ?usize = null,
         render_idx: usize = 0,
         selected_active: bool = false,
         header_count: usize = 0,
 
         const Self = @This();
-        const options_type = Options(ctx_type);
-        const button_type = Button.State(*Self);
+        pub const OptionsType = Options(ctx_type);
+        pub const ButtonType = Button.Options(*Self).ButtonType;
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.menu.deinit(allocator);
@@ -125,7 +129,7 @@ pub fn State(ctx_type: type) type {
             }));
         }
 
-        pub fn add_item_with_handler(self: *Self, label: []const u8, on_click: *const fn (_: **Self, _: *Button.State(*Self)) void) !void {
+        pub fn add_item_with_handler(self: *Self, label: []const u8, on_click: OptionsType.ButtonClickHandler) !void {
             try self.menu.add(try Button.create_widget(*Self, self.allocator, self.menu.parent, .{
                 .ctx = self,
                 .on_layout = on_layout,
@@ -163,11 +167,11 @@ pub fn State(ctx_type: type) type {
             self.opts.after_resize(self.*.opts.ctx, self, box);
         }
 
-        pub fn on_layout(self: **Self, button: *Button.State(*Self)) Widget.Layout {
+        pub fn on_layout(self: **Self, button: *ButtonType) Widget.Layout {
             return self.*.opts.on_layout(self.*.opts.ctx, button);
         }
 
-        pub fn on_render(self: **Self, button: *Button.State(*Self), theme: *const Widget.Theme) bool {
+        pub fn on_render(self: **Self, button: *ButtonType, theme: *const Widget.Theme) bool {
             defer self.*.render_idx += 1;
             std.debug.assert(self.*.render_idx < self.*.menu.widgets.items.len);
             return self.*.opts.on_render(self.*.opts.ctx, button, theme, self.*.render_idx == self.*.selected);
@@ -217,15 +221,15 @@ pub fn State(ctx_type: type) type {
 
         pub fn activate_selected(self: *Self) void {
             const button = self.get_selected() orelse return;
-            button.opts.on_click(&button.opts.ctx, button);
+            button.opts.on_click(&button.opts.ctx, button, .{});
         }
 
-        pub fn get_selected(self: *Self) ?*button_type {
+        pub fn get_selected(self: *Self) ?*ButtonType {
             const selected = self.selected orelse return null;
             self.selected_active = true;
             const pos = selected + self.header_count;
             return if (pos < self.menu.widgets.items.len)
-                self.menu.widgets.items[pos].widget.dynamic_cast(button_type)
+                self.menu.widgets.items[pos].widget.dynamic_cast(ButtonType)
             else
                 null;
         }

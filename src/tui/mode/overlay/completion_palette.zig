@@ -83,7 +83,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     palette.items += 1;
 }
 
-pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var item_cbor: []const u8 = undefined;
     var matches_cbor: []const u8 = undefined;
 
@@ -146,13 +146,13 @@ fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
         replace;
 }
 
-fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
     const label_, _, _, _, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "insert_chars", .{label_} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
-pub fn updated(palette: *Type, button_: ?*Type.ButtonState) !void {
+pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
     _, _, _, const replace, _ = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;

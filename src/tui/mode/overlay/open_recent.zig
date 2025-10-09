@@ -28,7 +28,7 @@ const widget_type: Widget.Type = .palette;
 allocator: std.mem.Allocator,
 f: usize = 0,
 modal: *ModalBackground.State(*Self),
-menu: *Menu.State(*Self),
+menu: *MenuType,
 inputbox: *InputBox.State(*Self),
 logger: log.Logger,
 query_pending: bool = false,
@@ -39,6 +39,8 @@ commands: Commands = undefined,
 buffer_manager: ?*BufferManager,
 
 const inputbox_label = "Search files by name";
+const MenuType = Menu.Options(*Self).MenuType;
+const ButtonType = MenuType.ButtonType;
 
 pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     const mv = tui.mainview() orelse return error.NotFound;
@@ -104,11 +106,11 @@ inline fn max_menu_width() usize {
     return @max(15, width - (width / 5));
 }
 
-fn on_render_menu(_: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+fn on_render_menu(_: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     return tui.render_file_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
 }
 
-fn prepare_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) Widget.Box {
+fn prepare_resize_menu(self: *Self, _: *MenuType, _: Widget.Box) Widget.Box {
     return self.prepare_resize();
 }
 
@@ -123,7 +125,7 @@ fn do_resize(self: *Self) void {
     self.menu.resize(self.prepare_resize());
 }
 
-fn menu_action_open_file(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
+fn menu_action_open_file(menu: **MenuType, button: *ButtonType, _: Button.Cursor) void {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;

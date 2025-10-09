@@ -18,6 +18,8 @@ const Style = enum {
 };
 const default_style = .fancy;
 
+const ButtonType = Button.Options(Style).ButtonType;
+
 pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) CreateError!Widget {
     const style_ = if (arg) |str_style| std.meta.stringToEnum(Style, str_style) orelse default_style else default_style;
     return Button.create_widget(Style, allocator, parent, .{
@@ -32,7 +34,7 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
     });
 }
 
-pub fn layout(_: *Style, btn: *Button.State(Style)) Widget.Layout {
+pub fn layout(_: *Style, btn: *ButtonType) Widget.Layout {
     const name = btn.plane.egc_chunk_width(tui.get_mode(), 0, 1);
     const logo = if (is_mini_mode() or is_overlay_mode()) 1 else btn.plane.egc_chunk_width(left ++ symbol ++ right, 0, 1);
     const padding: usize = 2;
@@ -48,7 +50,7 @@ fn is_overlay_mode() bool {
     return tui.input_mode_outer() != null;
 }
 
-pub fn render(ctx: *Style, self: *Button.State(Style), theme: *const Widget.Theme) bool {
+pub fn render(ctx: *Style, self: *ButtonType, theme: *const Widget.Theme) bool {
     const style_base = theme.statusbar;
     const style_label = switch (ctx.*) {
         .fancy => if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover,
@@ -78,7 +80,7 @@ pub fn render(ctx: *Style, self: *Button.State(Style), theme: *const Widget.Them
     return false;
 }
 
-fn render_separator(self: *Button.State(Style), theme: *const Widget.Theme) void {
+fn render_separator(self: *ButtonType, theme: *const Widget.Theme) void {
     self.plane.reverse_style();
     self.plane.set_base_style(.{ .bg = theme.editor.bg });
     if (theme.statusbar.bg) |bg| self.plane.set_style(.{ .bg = bg });
@@ -89,7 +91,7 @@ const left = " ";
 const symbol = "󱞏";
 const right = " ";
 
-fn render_logo(self: *Button.State(Style), theme: *const Widget.Theme, style_label: Widget.Theme.Style) void {
+fn render_logo(self: *ButtonType, theme: *const Widget.Theme, style_label: Widget.Theme.Style) void {
     const style_braces: Widget.Theme.Style = if (tui.find_scope_style(theme, "punctuation")) |sty| .{ .fg = sty.style.fg, .bg = style_label.bg, .fs = style_label.fs } else style_label;
     if (left.len > 0) {
         self.plane.set_style(style_braces);
@@ -103,7 +105,7 @@ fn render_logo(self: *Button.State(Style), theme: *const Widget.Theme, style_lab
     }
 }
 
-fn on_click(_: *Style, _: *Button.State(Style)) void {
+fn on_click(_: *Style, _: *ButtonType, _: Button.Cursor) void {
     if (is_mini_mode()) {
         command.executeName("exit_mini_mode", .{}) catch {};
     } else if (is_overlay_mode()) {
@@ -113,6 +115,6 @@ fn on_click(_: *Style, _: *Button.State(Style)) void {
     }
 }
 
-fn toggle_panel(_: *Style, _: *Button.State(Style)) void {
+fn toggle_panel(_: *Style, _: *ButtonType, _: Button.Cursor) void {
     command.executeName("toggle_panel", .{}) catch {};
 }

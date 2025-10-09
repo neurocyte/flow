@@ -17,6 +17,7 @@ buf: [256]u8 = undefined,
 rendered: [:0]const u8 = "",
 
 const Self = @This();
+const ButtonType = Button.Options(Self).ButtonType;
 
 pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
     return Button.create_widget(Self, allocator, parent, .{
@@ -30,15 +31,15 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
     });
 }
 
-fn on_click(_: *Self, _: *Button.State(Self)) void {
+fn on_click(_: *Self, _: *ButtonType, _: Button.Cursor) void {
     command.executeName("show_diagnostics", .{}) catch {};
 }
 
-pub fn layout(self: *Self, _: *Button.State(Self)) Widget.Layout {
+pub fn layout(self: *Self, _: *ButtonType) Widget.Layout {
     return .{ .static = self.rendered.len };
 }
 
-pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
+pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     const bg_style = if (btn.active) theme.editor_cursor else if (btn.hover) theme.statusbar_hover else theme.statusbar;
     btn.plane.set_base_style(theme.editor);
     btn.plane.erase();
@@ -61,7 +62,7 @@ fn format(self: *Self) void {
     self.buf[self.rendered.len] = 0;
 }
 
-pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "E", "diag", tp.extract(&self.errors), tp.extract(&self.warnings), tp.extract(&self.info), tp.extract(&self.hints) }))
         self.format();
     return false;

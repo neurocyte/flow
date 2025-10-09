@@ -33,6 +33,7 @@ const Leader = enum {
     zero,
 };
 const Self = @This();
+const ButtonType = Button.Options(Self).ButtonType;
 
 pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const padding: ?usize, const leader: ?Leader, const style: ?DigitStyle = if (arg) |fmt| blk: {
@@ -59,17 +60,17 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
     });
 }
 
-fn on_click(_: *Self, _: *Button.State(Self)) void {
+fn on_click(_: *Self, _: *ButtonType, _: Button.Cursor) void {
     command.executeName("goto", .{}) catch {};
 }
 
-pub fn layout(self: *Self, btn: *Button.State(Self)) Widget.Layout {
+pub fn layout(self: *Self, btn: *ButtonType) Widget.Layout {
     const warn_len = if (self.utf8_sanitized) btn.plane.egc_chunk_width(utf8_sanitized_warning, 0, 1) else 0;
     const len = btn.plane.egc_chunk_width(self.rendered, 0, 1) + warn_len;
     return .{ .static = len };
 }
 
-pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
+pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     btn.plane.set_base_style(theme.editor);
     btn.plane.erase();
     btn.plane.home();
@@ -120,7 +121,7 @@ fn format_count(self: *Self, writer: anytype, value: usize, width: usize) !void 
     for (value_str, 0..) |_, i| try writer.writeAll(fonts.get_digit_ascii(value_str[i .. i + 1], self.style orelse .ascii));
 }
 
-pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "E", "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.extract(&self.column) })) {
         self.format();
     } else if (try m.match(.{ "E", "eol_mode", tp.extract(&self.eol_mode), tp.extract(&self.utf8_sanitized), tp.extract(&self.indent_mode) })) {

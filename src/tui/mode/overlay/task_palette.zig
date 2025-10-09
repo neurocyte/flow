@@ -58,7 +58,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     palette.items += 1;
 }
 
-pub fn on_render_menu(palette: *Type, button: *Type.ButtonState, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var entry: Entry = undefined;
     var iter = button.opts.label; // label contains cbor entry object and matches
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false))
@@ -116,7 +116,7 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonState, theme: *const W
     return false;
 }
 
-fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
@@ -130,7 +130,7 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     }
 }
 
-pub fn delete_item(menu: *Type.MenuState, button: *Type.ButtonState) bool {
+pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return false;

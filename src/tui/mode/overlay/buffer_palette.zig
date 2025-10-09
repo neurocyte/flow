@@ -54,11 +54,11 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     palette.items += 1;
 }
 
-pub fn on_render_menu(_: *Type, button: *Type.ButtonState, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     return tui.render_file_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
 }
 
-fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
@@ -66,7 +66,7 @@ fn select(menu: **Type.MenuState, button: *Type.ButtonState) void {
     tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
-pub fn delete_item(menu: *Type.MenuState, button: *Type.ButtonState) bool {
+pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return false;

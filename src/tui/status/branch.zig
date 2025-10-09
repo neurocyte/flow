@@ -29,6 +29,7 @@ untracked: usize = 0,
 done: bool = true,
 
 const Self = @This();
+const ButtonType = Button.Options(Self).ButtonType;
 
 pub fn create(
     allocator: std.mem.Allocator,
@@ -61,7 +62,7 @@ pub fn ctx_deinit(self: *Self) void {
     if (self.behind) |p| self.allocator.free(p);
 }
 
-fn on_click(self: *Self, _: *Button.State(Self)) void {
+fn on_click(self: *Self, _: *ButtonType, _: Button.Cursor) void {
     self.refresh_git_status();
     command.executeName("show_git_status", .{}) catch {};
 }
@@ -70,7 +71,7 @@ fn refresh_git_status(self: *Self) void {
     if (self.workspace_path) |_| git.status(0) catch {};
 }
 
-pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "E", tp.more }))
         return self.process_event(m);
     if (try m.match(.{ "PRJ", "open" }))
@@ -195,14 +196,14 @@ fn format(self: *Self, buf: []u8) []const u8 {
     return fbs.getWritten();
 }
 
-pub fn layout(self: *Self, btn: *Button.State(Self)) Widget.Layout {
+pub fn layout(self: *Self, btn: *ButtonType) Widget.Layout {
     var buf: [256]u8 = undefined;
     const text = self.format(&buf);
     const len = btn.plane.egc_chunk_width(text, 0, 1);
     return .{ .static = len };
 }
 
-pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
+pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     var buf: [256]u8 = undefined;
     const text = self.format(&buf);
     if (text.len == 0) return false;

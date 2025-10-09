@@ -184,7 +184,7 @@ pub const TabBar = struct {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         try self.update_tab_buffers();
         const prev_widget_count = self.widget_list.widgets.items.len;
-        while (self.widget_list.pop()) |widget| if (widget.dynamic_cast(Button.State(Tab)) == null)
+        while (self.widget_list.pop()) |widget| if (widget.dynamic_cast(Tab.ButtonType) == null)
             widget.deinit(self.widget_list.allocator);
         var first = true;
         for (self.tabs) |tab| {
@@ -194,7 +194,7 @@ pub const TabBar = struct {
                 try self.widget_list.add(try self.make_spacer());
             }
             try self.widget_list.add(tab.widget);
-            if (tab.widget.dynamic_cast(Button.State(Tab))) |btn| {
+            if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                 if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer|
                     try btn.update_label(Tab.name_from_buffer(buffer));
             }
@@ -327,6 +327,8 @@ const Tab = struct {
 
     const Mode = enum { active, inactive, selected };
 
+    const ButtonType = Button.Options(@This()).ButtonType;
+
     fn create(
         tabbar: *TabBar,
         buffer_ref: usize,
@@ -346,19 +348,19 @@ const Tab = struct {
         });
     }
 
-    fn on_click(self: *@This(), _: *Button.State(@This())) void {
+    fn on_click(self: *@This(), _: *ButtonType, _: Button.Cursor) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer|
             tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.get_file_path() } }) catch {};
     }
 
-    fn on_click2(self: *@This(), _: *Button.State(@This())) void {
+    fn on_click2(self: *@This(), _: *ButtonType, _: Button.Cursor) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer|
             tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.get_file_path()} }) catch {};
     }
 
-    fn render(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) bool {
+    fn render(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
         const active = self.tabbar.active_buffer_ref == self.buffer_ref;
         const mode: Mode = if (btn.hover) .selected else if (active) .active else .inactive;
         switch (mode) {
@@ -369,7 +371,7 @@ const Tab = struct {
         return false;
     }
 
-    fn render_selected(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme, active: bool) void {
+    fn render_selected(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme, active: bool) void {
         btn.plane.set_base_style(theme.editor);
         btn.plane.erase();
         btn.plane.home();
@@ -407,7 +409,7 @@ const Tab = struct {
         _ = btn.plane.putstr(self.tab_style.selected_right) catch {};
     }
 
-    fn render_active(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) void {
+    fn render_active(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) void {
         btn.plane.set_base_style(theme.editor);
         btn.plane.erase();
         btn.plane.home();
@@ -443,7 +445,7 @@ const Tab = struct {
         _ = btn.plane.putstr(self.tab_style.active_right) catch {};
     }
 
-    fn render_inactive(self: *@This(), btn: *Button.State(@This()), theme: *const Widget.Theme) void {
+    fn render_inactive(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) void {
         btn.plane.set_base_style(theme.editor);
         btn.plane.erase();
         btn.plane.home();
@@ -473,7 +475,7 @@ const Tab = struct {
         _ = btn.plane.putstr(self.tab_style.inactive_right) catch {};
     }
 
-    fn render_content(self: *@This(), btn: *Button.State(@This()), fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
+    fn render_content(self: *@This(), btn: *ButtonType, fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
         const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
@@ -513,7 +515,7 @@ const Tab = struct {
         while (padding > 0) : (padding -= 1) _ = plane.putstr(self.tab_style.padding) catch {};
     }
 
-    fn layout(self: *@This(), btn: *Button.State(@This())) Widget.Layout {
+    fn layout(self: *@This(), btn: *ButtonType) Widget.Layout {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const is_dirty = if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| buffer.is_dirty() else false;
         const active = self.tabbar.active_buffer_ref == self.buffer_ref;

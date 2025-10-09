@@ -40,6 +40,7 @@ indent_mode: config.IndentMode = .spaces,
 
 const project_icon = "";
 const Self = @This();
+const ButtonType = Button.Options(Self).ButtonType;
 
 pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, _: ?[]const u8) @import("widget.zig").CreateError!Widget {
     const btn = try Button.create(Self, allocator, parent, .{
@@ -64,23 +65,23 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
     return Widget.to(btn);
 }
 
-fn on_click(_: *Self, _: *Button.State(Self)) void {
+fn on_click(_: *Self, _: *ButtonType, _: Button.Cursor) void {
     command.executeName("open_recent", .{}) catch {};
 }
 
-fn on_click2(_: *Self, _: *Button.State(Self)) void {
+fn on_click2(_: *Self, _: *ButtonType, _: Button.Cursor) void {
     command.executeName("close_file", .{}) catch {};
 }
 
-fn on_click3(self: *Self, _: *Button.State(Self)) void {
+fn on_click3(self: *Self, _: *ButtonType, _: Button.Cursor) void {
     self.detailed = !self.detailed;
 }
 
-pub fn layout(_: *Self, _: *Button.State(Self)) Widget.Layout {
+pub fn layout(_: *Self, _: *ButtonType) Widget.Layout {
     return .dynamic;
 }
 
-pub fn render(self: *Self, btn: *Button.State(Self), theme: *const Widget.Theme) bool {
+pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     const style_base = theme.statusbar;
     const style_label = if (btn.active) theme.editor_cursor else style_base;
     btn.plane.set_base_style(theme.editor);
@@ -205,7 +206,7 @@ fn render_terminal_title(self: *Self) void {
     tui.rdr().set_terminal_title(new_title);
 }
 
-pub fn receive(self: *Self, _: *Button.State(Self), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "E", tp.more }))
         return self.process_event(m);
     if (try m.match(.{ "PRJ", "open" })) {

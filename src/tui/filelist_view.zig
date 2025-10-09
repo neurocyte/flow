@@ -23,7 +23,7 @@ const Commands = command.Collection(cmds);
 
 allocator: std.mem.Allocator,
 plane: Plane,
-menu: *Menu.State(*Self),
+menu: *MenuType,
 logger: log.Logger,
 commands: Commands = undefined,
 
@@ -35,6 +35,8 @@ entries: std.ArrayList(Entry) = undefined,
 selected: ?usize = null,
 box: Widget.Box = .{},
 
+const MenuType = Menu.Options(*Self).MenuType;
+const ButtonType = MenuType.ButtonType;
 const path_column_ratio = 4;
 const widget_type: Widget.Type = .panel;
 
@@ -136,7 +138,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     return self.menu.container_widget.render(theme);
 }
 
-fn handle_render_menu(self: *Self, button: *Button.State(*Menu.State(*Self)), theme: *const Widget.Theme, selected: bool) bool {
+fn handle_render_menu(self: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     const style_base = theme.panel;
     const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.panel;
     const style_hint: Widget.Theme.Style = .{ .fg = theme.editor_hint.fg, .fs = theme.editor_hint.fs, .bg = style_label.bg };
@@ -195,7 +197,7 @@ fn update_scrollbar(self: *Self) void {
         scrollbar.set(@intCast(self.entries.items.len), @intCast(self.view_rows), @intCast(self.view_pos));
 }
 
-fn mouse_click_button4(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+fn mouse_click_button4(menu: **MenuType, _: *ButtonType, _: Button.Cursor) void {
     const self = &menu.*.opts.ctx.*;
     self.selected = if (self.menu.selected) |sel_| sel_ + self.view_pos else self.selected;
     if (self.view_pos < Menu.scroll_lines) {
@@ -207,7 +209,7 @@ fn mouse_click_button4(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*
     self.update_scrollbar();
 }
 
-fn mouse_click_button5(menu: **Menu.State(*Self), _: *Button.State(*Menu.State(*Self))) void {
+fn mouse_click_button5(menu: **MenuType, _: *ButtonType, _: Button.Cursor) void {
     const self = &menu.*.opts.ctx.*;
     self.selected = if (self.menu.selected) |sel_| sel_ + self.view_pos else self.selected;
     if (self.view_pos < @max(self.entries.items.len, self.view_rows) - self.view_rows)
@@ -226,7 +228,7 @@ fn update_selected(self: *Self) void {
     }
 }
 
-fn handle_menu_action(menu: **Menu.State(*Self), button: *Button.State(*Menu.State(*Self))) void {
+fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Button.Cursor) void {
     const self = menu.*.opts.ctx;
     var idx: usize = undefined;
     var iter = button.opts.label;
