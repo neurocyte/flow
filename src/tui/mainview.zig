@@ -579,10 +579,33 @@ const cmds = struct {
     }
     pub const create_new_file_meta: Meta = .{ .description = "New file" };
 
+    pub fn save_buffer(self: *Self, ctx: Ctx) Result {
+        var file_path: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
+            return error.InvalidSaveBufferArgument;
+
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+
+        if (self.get_active_editor()) |editor| blk: {
+            const editor_buffer = editor.buffer orelse break :blk;
+            if (buffer == editor_buffer) {
+                try editor.save_file(.{});
+                return;
+            }
+        }
+
+        const logger = log.logger("buffer");
+        defer logger.deinit();
+        if (buffer.is_ephemeral()) return logger.print_err("save", "ephemeral buffer, use save as", .{});
+        if (!buffer.is_dirty()) return logger.print("no changes to save", .{});
+        try buffer.store_to_file_and_clean(file_path);
+    }
+    pub const save_buffer_meta: Meta = .{ .arguments = &.{.string} };
+
     pub fn save_file_as(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
-            return error.InvalidSafeFileAsArgument;
+            return error.InvalidSaveFileAsArgument;
 
         if (self.get_active_editor()) |editor| {
             const buffer = editor.buffer orelse return;
