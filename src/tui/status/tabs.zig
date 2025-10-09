@@ -492,7 +492,7 @@ const Tab = struct {
     }
 
     fn padding_len(plane: Plane, tab_style: Style, active: bool, dirty: bool) usize {
-        const len_file_icon: usize = if (tab_style.file_type_icon) 2 else 0;
+        const len_file_icon: usize = if (tab_style.file_type_icon) 3 else 0;
         const len_dirty_indicator = if (dirty) plane.egc_chunk_width(tab_style.dirty_indicator, 0, 1) else 0;
         return len_file_icon + len_dirty_indicator + if (active)
             plane.egc_chunk_width(tab_style.active_left, 0, 1) +
