@@ -17,7 +17,10 @@ const default_min_tabs = 2;
 const @"style.config" = struct {
     default_minimum_tabs_shown: usize = 2,
 
-    dirty_indicator: []const u8 = " ",
+    dirty_indicator: []const u8 = "",
+    dirty_indicator_fg: ?colors = null,
+    close_icon: []const u8 = "󰅖",
+    close_icon_fg: colors = .Error,
 
     spacer: []const u8 = "|",
     spacer_fg: colors = .active_bg,
@@ -389,7 +392,7 @@ const Tab = struct {
             .fg = self.tab_style.selected_fg.from_theme(theme),
             .bg = self.tab_style.selected_bg.from_theme(theme),
         });
-        self.render_content(btn, self.tab_style.selected_fg.from_theme(theme));
+        self.render_content(btn, self.tab_style.selected_fg.from_theme(theme), theme);
 
         btn.plane.set_style(.{
             .fg = self.tab_style.selected_right_fg.from_theme(theme),
@@ -425,7 +428,7 @@ const Tab = struct {
             .fg = self.tab_style.active_fg.from_theme(theme),
             .bg = self.tab_style.active_bg.from_theme(theme),
         });
-        self.render_content(btn, self.tab_style.active_fg.from_theme(theme));
+        self.render_content(btn, self.tab_style.active_fg.from_theme(theme), theme);
 
         btn.plane.set_style(.{
             .fg = self.tab_style.active_right_fg.from_theme(theme),
@@ -455,7 +458,7 @@ const Tab = struct {
             .fg = self.tab_style.inactive_fg.from_theme(theme),
             .bg = self.tab_style.inactive_bg.from_theme(theme),
         });
-        self.render_content(btn, self.tab_style.inactive_fg.from_theme(theme));
+        self.render_content(btn, self.tab_style.inactive_fg.from_theme(theme), theme);
 
         btn.plane.set_style(.{
             .fg = self.tab_style.inactive_right_fg.from_theme(theme),
@@ -464,7 +467,7 @@ const Tab = struct {
         _ = btn.plane.putstr(self.tab_style.inactive_right) catch {};
     }
 
-    fn render_content(self: *@This(), btn: *Button.State(@This()), fg: ?Widget.Theme.Color) void {
+    fn render_content(self: *@This(), btn: *Button.State(@This()), fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
         const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
@@ -477,9 +480,18 @@ const Tab = struct {
                 btn.plane.set_style(.{ .fg = fg });
             _ = btn.plane.putstr("  ") catch {};
         };
-        if (is_dirty)
-            _ = btn.plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
         _ = btn.plane.putstr(btn.opts.label) catch {};
+        _ = btn.plane.putstr(" ") catch {};
+        if (btn.hover) {
+            btn.plane.set_style(.{ .fg = self.tab_style.close_icon_fg.from_theme(theme) });
+            _ = btn.plane.putstr(self.tabbar.tab_style.close_icon) catch {};
+        } else if (is_dirty) {
+            if (self.tab_style.dirty_indicator_fg) |color|
+                btn.plane.set_style(.{ .fg = color.from_theme(theme) });
+            _ = btn.plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
+        } else {
+            _ = btn.plane.putstr(" ") catch {};
+        }
     }
 
     fn layout(self: *@This(), btn: *Button.State(@This())) Widget.Layout {
@@ -493,8 +505,10 @@ const Tab = struct {
 
     fn padding_len(plane: Plane, tab_style: Style, active: bool, dirty: bool) usize {
         const len_file_icon: usize = if (tab_style.file_type_icon) 3 else 0;
+        const len_close_icon = plane.egc_chunk_width(tab_style.close_icon, 0, 1);
         const len_dirty_indicator = if (dirty) plane.egc_chunk_width(tab_style.dirty_indicator, 0, 1) else 0;
-        return len_file_icon + len_dirty_indicator + if (active)
+        const len_dirty_close = @max(len_close_icon, len_dirty_indicator) + 1; // +1 for the leading space
+        return len_file_icon + len_dirty_close + if (active)
             plane.egc_chunk_width(tab_style.active_left, 0, 1) +
                 plane.egc_chunk_width(tab_style.active_right, 0, 1)
         else
@@ -602,6 +616,11 @@ const colors = enum {
     selected_bg,
     selected_fg,
 
+    Error,
+    Warning,
+    Information,
+    Hint,
+
     fn from_theme(color: colors, theme: *const Widget.Theme) ?Widget.Theme.Color {
         return switch (color) {
             .default_bg => theme.editor.bg,
@@ -612,6 +631,10 @@ const colors = enum {
             .inactive_fg => theme.tab_inactive.fg,
             .selected_bg => theme.tab_selected.bg,
             .selected_fg => theme.tab_selected.fg,
+            .Error => theme.editor_error.fg,
+            .Warning => theme.editor_warning.fg,
+            .Information => theme.editor_information.fg,
+            .Hint => theme.editor_hint.fg,
         };
     }
 };
