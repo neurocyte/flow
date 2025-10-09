@@ -88,7 +88,7 @@ fn store_reset(self: *Self) void {
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
     errdefer self.deinit();
     var output: []const u8 = undefined;
-    if (try m.match(.{ "log", "error", tp.string, "std.log", "->", tp.extract(&output) })) {
+    if (try m.match(.{ "log", "error", tp.string, tp.string, "->", tp.extract(&output) })) {
         if (self.subscriber) |subscriber| {
             subscriber.send_raw(m) catch {};
         } else {
