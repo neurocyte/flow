@@ -21,6 +21,8 @@ const @"style.config" = struct {
     padding_left: usize = 2,
     padding_right: usize = 1,
 
+    clean_indicator: []const u8 = " ",
+    clean_indicator_fg: ?colors = null,
     dirty_indicator: []const u8 = "",
     dirty_indicator_fg: ?colors = null,
     close_icon: []const u8 = "󰅖",
@@ -495,8 +497,11 @@ const Tab = struct {
                 btn.plane.set_style(.{ .fg = color.from_theme(theme) });
             _ = btn.plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
         } else {
-            _ = btn.plane.putstr(" ") catch {};
+            if (self.tab_style.clean_indicator_fg) |color|
+                btn.plane.set_style(.{ .fg = color.from_theme(theme) });
+            _ = btn.plane.putstr(self.tabbar.tab_style.clean_indicator) catch {};
         }
+        btn.plane.set_style(.{ .fg = fg });
         self.render_padding(&btn.plane, .right);
     }
 
