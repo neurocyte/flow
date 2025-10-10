@@ -30,6 +30,7 @@ direction: Direction,
 deco_box: Widget.Box,
 ctx: ?*anyopaque = null,
 on_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
+render_decoration: ?*const fn (self: *Self, theme: *const Widget.Theme, widget_style: *const Widget.Style) void = render_decoration_default,
 after_render: *const fn (ctx: ?*anyopaque, theme: *const Widget.Theme) void = on_render_default,
 prepare_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) Widget.Box = prepare_resize_default,
 after_resize: *const fn (ctx: ?*anyopaque, self: *Self, box: Widget.Box) void = after_resize_default,
@@ -172,7 +173,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     };
 
     self.on_render(self.ctx, theme);
-    self.render_decoration(theme, widget_style);
+    if (self.render_decoration) |render_decoration| render_decoration(self, theme, widget_style);
 
     const client_box = self.to_client_box(self.deco_box, padding);
 
@@ -192,7 +193,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
 
-fn render_decoration(self: *Self, theme: *const Widget.Theme, widget_style: *const Widget.Style) void {
+fn render_decoration_default(self: *Self, theme: *const Widget.Theme, widget_style: *const Widget.Style) void {
     const style = Widget.Style.theme_style_from_type(self.widget_type, theme);
     const padding = widget_style.padding;
     const border = widget_style.border;
