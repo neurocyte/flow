@@ -12,22 +12,22 @@ fn apply_movements(movements: []const u8, root: Buffer.Root, cursor: *Cursor, th
     for (movements) |move| {
         switch (move) {
             'W' => {
-                try helix.move_cursor_long_word_right(root, cursor, the_metrics);
+                try helix.test_internal.move_cursor_long_word_right(root, cursor, the_metrics);
             },
             'B' => {
-                try helix.move_cursor_long_word_left(root, cursor, the_metrics);
+                try helix.test_internal.move_cursor_long_word_left(root, cursor, the_metrics);
             },
             'E' => {
-                try helix.move_cursor_long_word_right_end(root, cursor, the_metrics);
+                try helix.test_internal.move_cursor_long_word_right_end(root, cursor, the_metrics);
             },
             'w' => {
                 try Editor.move_cursor_word_right_vim(root, cursor, the_metrics);
             },
             'b' => {
-                try helix.move_cursor_word_left_helix(root, cursor, the_metrics);
+                try helix.test_internal.move_cursor_word_left_helix(root, cursor, the_metrics);
             },
             'e' => {
-                try helix.move_cursor_word_right_end_helix(root, cursor, the_metrics);
+                try helix.test_internal.move_cursor_word_right_end_helix(root, cursor, the_metrics);
             },
             else => {},
         }
