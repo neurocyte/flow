@@ -4863,6 +4863,51 @@ pub const Editor = struct {
     }
     pub const dump_current_line_tree_meta: Meta = .{ .description = "Debug: dump current line (tree)" };
 
+    pub fn dump_document_tree(self: *Self, _: Context) Result {
+        const syn = self.syntax orelse return error.Stop;
+        const tree = syn.tree orelse return error.Stop;
+        const ast_ = tree.getRootNode().asSExpressionString();
+        defer syntax.Node.freeSExpressionString(ast_);
+        var scratch_name: std.Io.Writer.Allocating = .init(self.allocator);
+        defer scratch_name.deinit();
+
+        var ast: std.Io.Writer.Allocating = .init(self.allocator);
+        defer ast.deinit();
+        var iter = ast_;
+        var indt: usize = 0;
+        while (iter.len > 0) : (iter = iter[1..]) {
+            const char = iter[0];
+            switch (char) {
+                '(' => {
+                    if (indt > 0) {
+                        try ast.writer.writeByte('\n');
+                        for (0..indt) |_| try ast.writer.writeAll("  ");
+                    }
+                    indt += 1;
+                    try ast.writer.writeByte(char);
+                },
+                ')' => {
+                    indt -= 1;
+                    try ast.writer.writeByte(char);
+                },
+                ' ' => {
+                    if (iter.len > 1 and iter[1] == '(')
+                        continue;
+                    try ast.writer.writeByte(char);
+                },
+                else => try ast.writer.writeByte(char),
+            }
+        }
+
+        try if (self.file_path) |file_path|
+            scratch_name.writer.print("*ast: {s}*", .{file_path})
+        else
+            scratch_name.writer.print("*ast*", .{});
+        try command.executeName("open_scratch_buffer", command.fmt(.{ scratch_name.written(), ast.written(), "scheme" }));
+        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = scratch_name.written() } }) catch return;
+    }
+    pub const dump_document_tree_meta: Meta = .{ .description = "Debug: dump current document tree" };
+
     pub fn undo(self: *Self, _: Context) Result {
         try self.restore_undo();
         self.clamp();
