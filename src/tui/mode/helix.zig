@@ -368,7 +368,7 @@ const cmds_ = struct {
                 try writer.writeAll(copy_text);
             }
         };
-        const text = buffer.written();
+        const text = buffer.toOwnedSlice() catch &.{};
         if (text.len > 0) {
             if (text.len > 100) {
                 ed.logger.print("copy:{f}...", .{std.ascii.hexEscape(text[0..100], .lower)});
