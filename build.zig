@@ -11,6 +11,7 @@ pub fn build(b: *std.Build) void {
     const use_llvm = b.option(bool, "use_llvm", "Enable llvm backend (default: none)");
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
     const gui = b.option(bool, "gui", "Standalone GUI mode") orelse false;
+    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     const run_step = b.step("run", "Run the app");
     const check_step = b.step("check", "Check the app");
@@ -47,6 +48,7 @@ pub fn build(b: *std.Build) void {
         gui,
         version.items,
         all_targets,
+        test_filters,
     );
 }
 
@@ -64,6 +66,7 @@ fn build_development(
     gui: bool,
     version: []const u8,
     _: bool, // all_targets
+    test_filters: []const []const u8,
 ) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
     const optimize = b.standardOptimizeOption(.{});
@@ -84,6 +87,7 @@ fn build_development(
         pie,
         gui,
         version,
+        test_filters,
     );
 }
 
@@ -101,6 +105,7 @@ fn build_release(
     _: bool, //gui
     version: []const u8,
     all_targets: bool,
+    test_filters: []const []const u8,
 ) void {
     const targets: []const std.Target.Query = if (all_targets) &.{
         .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
@@ -166,6 +171,7 @@ fn build_release(
             pie,
             false, //gui
             version,
+            test_filters,
         );
 
         build_exe(
@@ -184,6 +190,7 @@ fn build_release(
             pie,
             false, //gui
             version,
+            test_filters,
         );
 
         if (t.os_tag == .windows) {
@@ -203,6 +210,7 @@ fn build_release(
                 pie,
                 true, //gui
                 version,
+                test_filters,
             );
 
             build_exe(
@@ -221,6 +229,7 @@ fn build_release(
                 pie,
                 true, //gui
                 version,
+                test_filters,
             );
         }
     }
@@ -242,6 +251,7 @@ pub fn build_exe(
     pie: ?bool,
     gui: bool,
     version: []const u8,
+    test_filters: []const []const u8,
 ) void {
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
@@ -712,7 +722,6 @@ pub fn build_exe(
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
     check_step.dependOn(&check_exe.step);
 
-    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("test/tests.zig"),
