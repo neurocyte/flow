@@ -4903,9 +4903,7 @@ pub const Editor = struct {
             scratch_name.writer.print("*ast: {s}*", .{file_path})
         else
             scratch_name.writer.print("*ast*", .{});
-        try command.executeName("open_scratch_buffer", command.fmt(.{ scratch_name.written(), ast.written(), "text" }));
-        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = scratch_name.written() } }) catch return;
-        tp.self_pid().send(.{ "cmd", "set_file_type", .{"scheme"} }) catch return;
+        try command.executeName("create_scratch_buffer", command.fmt(.{ scratch_name.written(), ast.written(), "scheme" }));
     }
     pub const dump_document_tree_meta: Meta = .{ .description = "Debug: dump current document tree" };
 
