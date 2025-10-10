@@ -32,7 +32,8 @@ fn add_buffer(self: *Self, buffer: *Buffer) error{OutOfMemory}!void {
     try self.buffers.put(self.allocator, try self.allocator.dupe(u8, buffer.get_file_path()), buffer);
 }
 
-pub fn delete_buffer(self: *Self, buffer: *Buffer) void {
+pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
+    const buffer = self.buffer_from_ref(self.buffer_to_ref(buffer_)) orelse return; // check buffer is valid
     if (self.buffers.fetchRemove(buffer.get_file_path())) |kv| {
         self.allocator.free(kv.key);
         kv.value.deinit();
