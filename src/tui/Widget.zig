@@ -7,6 +7,7 @@ const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 pub const Box = @import("Box.zig");
+pub const Pos = struct { y: i32 = 0, x: i32 = 0 };
 pub const Theme = @import("theme");
 pub const themes = @import("themes").themes;
 pub const scopes = @import("themes").scopes;

@@ -353,14 +353,14 @@ const Tab = struct {
         });
     }
 
-    fn on_click(self: *@This(), _: *ButtonType, pos: Button.Cursor) void {
+    fn on_click(self: *@This(), _: *ButtonType, pos: Widget.Pos) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| {
-            if (self.close_pos) |close_pos| if (pos.col == close_pos) {
+            if (self.close_pos) |close_pos| if (pos.x == close_pos) {
                 tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.get_file_path()} }) catch {};
                 return;
             };
-            if (self.save_pos) |save_pos| if (pos.col == save_pos) {
+            if (self.save_pos) |save_pos| if (pos.x == save_pos) {
                 tp.self_pid().send(.{ "cmd", "save_buffer", .{buffer.get_file_path()} }) catch {};
                 return;
             };
@@ -368,7 +368,7 @@ const Tab = struct {
         }
     }
 
-    fn on_click2(self: *@This(), _: *ButtonType, _: Button.Cursor) void {
+    fn on_click2(self: *@This(), _: *ButtonType, _: Widget.Pos) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer|
             tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.get_file_path()} }) catch {};

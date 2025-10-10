@@ -31,7 +31,7 @@ pub fn Options(context: type) type {
         pub const ButtonClickHandler = Button.Options(*MenuType).ClickHandler;
         pub const ClickHandler = *const fn (ctx: context, button: *ButtonType) void;
         pub fn do_nothing(_: context, _: *ButtonType) void {}
-        pub fn do_nothing_click(_: **MenuType, _: *ButtonType, _: Button.Cursor) void {}
+        pub fn do_nothing_click(_: **MenuType, _: *ButtonType, _: Widget.Pos) void {}
 
         pub fn on_render_default(_: context, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
             const style_base = theme.editor;

@@ -4,7 +4,6 @@ const tp = @import("thespian");
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 const input = @import("input");
-pub const Cursor = @import("Buffer").Cursor;
 
 const Widget = @import("Widget.zig");
 const tui = @import("tui.zig");
@@ -27,9 +26,9 @@ pub fn Options(context: type) type {
 
         pub const ButtonType = State(Context);
         pub const Context = context;
-        pub const ClickHandler = *const fn (ctx: *context, button: *ButtonType, pos: Cursor) void;
+        pub const ClickHandler = *const fn (ctx: *context, button: *ButtonType, pos: Widget.Pos) void;
 
-        pub fn do_nothing(_: *context, _: *ButtonType, _: Cursor) void {}
+        pub fn do_nothing(_: *context, _: *ButtonType, _: Widget.Pos) void {}
 
         pub fn on_render_default(_: *context, self: *ButtonType, theme: *const Widget.Theme) bool {
             self.plane.set_base_style(if (self.active) theme.scrollbar_active else if (self.hover) theme.scrollbar_hover else theme.scrollbar);
@@ -156,12 +155,12 @@ fn State(ctx_type: type) type {
             return self.opts.on_receive(&self.opts.ctx, self, from, m);
         }
 
-        fn to_rel_cursor(self: *const Self, abs_x: c_int, abs_y: c_int) Cursor {
+        fn to_rel_cursor(self: *const Self, abs_x: c_int, abs_y: c_int) Widget.Pos {
             const rel_y, const rel_x = self.plane.abs_yx_to_rel(abs_y, abs_x);
-            return .{ .row = @intCast(rel_y), .col = @intCast(rel_x) };
+            return .{ .y = @intCast(rel_y), .x = @intCast(rel_x) };
         }
 
-        fn call_click_handler(self: *Self, btn: input.Mouse, pos: Cursor) void {
+        fn call_click_handler(self: *Self, btn: input.Mouse, pos: Widget.Pos) void {
             if (btn == input.mouse.BUTTON1) {
                 if (!self.active) return;
                 self.active = false;

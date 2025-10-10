@@ -125,7 +125,7 @@ fn do_resize(self: *Self) void {
     self.menu.resize(self.prepare_resize());
 }
 
-fn menu_action_open_file(menu: **MenuType, button: *ButtonType, _: Button.Cursor) void {
+fn menu_action_open_file(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;

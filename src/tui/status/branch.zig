@@ -62,7 +62,7 @@ pub fn ctx_deinit(self: *Self) void {
     if (self.behind) |p| self.allocator.free(p);
 }
 
-fn on_click(self: *Self, _: *ButtonType, _: Button.Cursor) void {
+fn on_click(self: *Self, _: *ButtonType, _: Widget.Pos) void {
     self.refresh_git_status();
     command.executeName("show_git_status", .{}) catch {};
 }

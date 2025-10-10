@@ -259,7 +259,7 @@ fn menu_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, 
     return false;
 }
 
-fn menu_action(_: **Menu.State(*Self), button: *ButtonType, _: Button.Cursor) void {
+fn menu_action(_: **Menu.State(*Self), button: *ButtonType, _: Widget.Pos) void {
     var description: []const u8 = undefined;
     var hint: []const u8 = undefined;
     var command_name: []const u8 = undefined;

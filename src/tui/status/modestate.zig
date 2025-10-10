@@ -105,7 +105,7 @@ fn render_logo(self: *ButtonType, theme: *const Widget.Theme, style_label: Widge
     }
 }
 
-fn on_click(_: *Style, _: *ButtonType, _: Button.Cursor) void {
+fn on_click(_: *Style, _: *ButtonType, _: Widget.Pos) void {
     if (is_mini_mode()) {
         command.executeName("exit_mini_mode", .{}) catch {};
     } else if (is_overlay_mode()) {
@@ -115,6 +115,6 @@ fn on_click(_: *Style, _: *ButtonType, _: Button.Cursor) void {
     }
 }
 
-fn toggle_panel(_: *Style, _: *ButtonType, _: Button.Cursor) void {
+fn toggle_panel(_: *Style, _: *ButtonType, _: Widget.Pos) void {
     command.executeName("toggle_panel", .{}) catch {};
 }

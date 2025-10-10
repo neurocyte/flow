@@ -146,7 +146,7 @@ fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
         replace;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     const label_, _, _, _, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "insert_chars", .{label_} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);

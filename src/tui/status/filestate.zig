@@ -65,15 +65,15 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
     return Widget.to(btn);
 }
 
-fn on_click(_: *Self, _: *ButtonType, _: Button.Cursor) void {
+fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
     command.executeName("open_recent", .{}) catch {};
 }
 
-fn on_click2(_: *Self, _: *ButtonType, _: Button.Cursor) void {
+fn on_click2(_: *Self, _: *ButtonType, _: Widget.Pos) void {
     command.executeName("close_file", .{}) catch {};
 }
 
-fn on_click3(self: *Self, _: *ButtonType, _: Button.Cursor) void {
+fn on_click3(self: *Self, _: *ButtonType, _: Widget.Pos) void {
     self.detailed = !self.detailed;
 }
 

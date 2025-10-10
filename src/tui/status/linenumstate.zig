@@ -60,7 +60,7 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
     });
 }
 
-fn on_click(_: *Self, _: *ButtonType, _: Button.Cursor) void {
+fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
     command.executeName("goto", .{}) catch {};
 }
 

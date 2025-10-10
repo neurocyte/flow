@@ -58,7 +58,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     return tui.render_file_item_cbor(&button.plane, button.opts.label, button.active, selected, button.hover, theme);
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;

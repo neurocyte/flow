@@ -116,7 +116,7 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     return false;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;

@@ -48,7 +48,7 @@ pub fn Create(options: type) type {
 
         pub const MenuType = Menu.Options(*Self).MenuType;
         pub const ButtonType = MenuType.ButtonType;
-        pub const Cursor = Button.Cursor;
+        pub const Pos = Widget.Pos;
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
             return create_with_args(allocator, .{});
@@ -212,7 +212,7 @@ pub fn Create(options: type) type {
                 scrollbar.set(@intCast(@max(self.total_items, 1) - 1), @intCast(self.view_rows), @intCast(self.view_pos));
         }
 
-        fn mouse_click_button4(menu: **Menu.State(*Self), _: *ButtonType, _: Button.Cursor) void {
+        fn mouse_click_button4(menu: **Menu.State(*Self), _: *ButtonType, _: Widget.Pos) void {
             const self = &menu.*.opts.ctx.*;
             if (self.view_pos < Menu.scroll_lines) {
                 self.view_pos = 0;
@@ -223,7 +223,7 @@ pub fn Create(options: type) type {
             self.start_query(0) catch {};
         }
 
-        fn mouse_click_button5(menu: **Menu.State(*Self), _: *ButtonType, _: Button.Cursor) void {
+        fn mouse_click_button5(menu: **Menu.State(*Self), _: *ButtonType, _: Widget.Pos) void {
             const self = &menu.*.opts.ctx.*;
             if (self.view_pos < @max(self.total_items, self.view_rows) - self.view_rows)
                 self.view_pos += Menu.scroll_lines;

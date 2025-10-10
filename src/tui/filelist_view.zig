@@ -197,7 +197,7 @@ fn update_scrollbar(self: *Self) void {
         scrollbar.set(@intCast(self.entries.items.len), @intCast(self.view_rows), @intCast(self.view_pos));
 }
 
-fn mouse_click_button4(menu: **MenuType, _: *ButtonType, _: Button.Cursor) void {
+fn mouse_click_button4(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
     const self = &menu.*.opts.ctx.*;
     self.selected = if (self.menu.selected) |sel_| sel_ + self.view_pos else self.selected;
     if (self.view_pos < Menu.scroll_lines) {
@@ -209,7 +209,7 @@ fn mouse_click_button4(menu: **MenuType, _: *ButtonType, _: Button.Cursor) void 
     self.update_scrollbar();
 }
 
-fn mouse_click_button5(menu: **MenuType, _: *ButtonType, _: Button.Cursor) void {
+fn mouse_click_button5(menu: **MenuType, _: *ButtonType, _: Widget.Pos) void {
     const self = &menu.*.opts.ctx.*;
     self.selected = if (self.menu.selected) |sel_| sel_ + self.view_pos else self.selected;
     if (self.view_pos < @max(self.entries.items.len, self.view_rows) - self.view_rows)
@@ -228,7 +228,7 @@ fn update_selected(self: *Self) void {
     }
 }
 
-fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Button.Cursor) void {
+fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void {
     const self = menu.*.opts.ctx;
     var idx: usize = undefined;
     var iter = button.opts.label;

@@ -56,7 +56,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     palette.items += 1;
 }
 
-fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
+fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     var label_: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &label_) catch false)) return;

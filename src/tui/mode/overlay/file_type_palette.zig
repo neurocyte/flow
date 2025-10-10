@@ -116,7 +116,7 @@ pub fn Variant(comptime command: []const u8, comptime label_: []const u8, allow_
             return false;
         }
 
-        fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Cursor) void {
+        fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
             var description_: []const u8 = undefined;
             var icon_: []const u8 = undefined;
             var color: u24 = undefined;
