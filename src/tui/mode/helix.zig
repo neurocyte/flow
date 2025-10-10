@@ -454,7 +454,7 @@ const cmds_ = struct {
     pub const paste_after_meta: Meta = .{ .description = "Paste from clipboard after selection" };
 };
 
-pub fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     try Editor.move_cursor_left(root, cursor, metrics);
 
     // Consume " "
@@ -479,7 +479,7 @@ pub fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: 
 
 fn move_noop(_: Buffer.Root, _: *Cursor, _: Buffer.Metrics) error{Stop}!void {}
 
-pub fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     try Editor.move_cursor_right(root, cursor, metrics);
     Editor.move_cursor_right_until(root, cursor, Editor.is_word_boundary_right_vim, metrics);
     try cursor.move_right(root, metrics);
@@ -535,7 +535,7 @@ fn is_long_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics:
     return curr_is_non_word != next_is_non_word;
 }
 
-pub fn move_cursor_long_word_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+fn move_cursor_long_word_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     try Editor.move_cursor_left(root, cursor, metrics);
 
     // Consume " "
@@ -571,7 +571,7 @@ fn is_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buf
     return curr_is_non_word != next_is_non_word;
 }
 
-pub fn move_cursor_long_word_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+fn move_cursor_long_word_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     try cursor.move_right(root, metrics);
     Editor.move_cursor_right_until(root, cursor, is_long_word_boundary_left, metrics);
 }
@@ -589,8 +589,18 @@ fn is_long_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics
     return curr_is_non_word != next_is_non_word;
 }
 
-pub fn move_cursor_long_word_right_end(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+fn move_cursor_long_word_right_end(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     // try Editor.move_cursor_right(root, cursor, metrics);
     Editor.move_cursor_right_until(root, cursor, is_long_word_boundary_right, metrics);
     try cursor.move_right(root, metrics);
 }
+
+const private = @This();
+// exports for unittests
+pub const test_internal = struct {
+    pub const move_cursor_long_word_right = private.move_cursor_long_word_right;
+    pub const move_cursor_long_word_left = private.move_cursor_long_word_left;
+    pub const move_cursor_long_word_right_end = private.move_cursor_long_word_right_end;
+    pub const move_cursor_word_left_helix = private.move_cursor_word_left_helix;
+    pub const move_cursor_word_right_end_helix = private.move_cursor_word_right_end_helix;
+};
