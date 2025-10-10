@@ -100,6 +100,7 @@ pub const TabBar = struct {
 
     fn init(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, min_tabs: ?usize) !Self {
         var w = try WidgetList.createH(allocator, parent, "tabs", .dynamic);
+        w.render_decoration = null;
         w.ctx = w;
         const tab_style, const tab_style_bufs = root.read_config(Style, allocator);
         return .{
