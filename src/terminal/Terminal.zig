@@ -10,10 +10,8 @@ const Pty = @import("Pty.zig");
 const vaxis = @import("../../main.zig");
 const Winsize = vaxis.Winsize;
 const Screen = @import("Screen.zig");
-const DisplayWidth = @import("DisplayWidth");
 const Key = vaxis.Key;
 const Queue = vaxis.Queue(Event, 16);
-const code_point = @import("code_point");
 const key = @import("key.zig");
 
 pub const Event = union(enum) {
@@ -279,10 +277,10 @@ fn run(self: *Terminal) !void {
         switch (event) {
             .print => |str| {
                 var iter = self.unicode.graphemeIterator(str);
-                while (iter.next()) |g| {
-                    const gr = g.bytes(str);
+                while (iter.next()) |grapheme| {
+                    const gr = grapheme.bytes(str);
                     // TODO: use actual instead of .unicode
-                    const w = vaxis.gwidth.gwidth(gr, .unicode, &self.unicode.width_data);
+                    const w = vaxis.gwidth.gwidth(gr, .unicode);
                     try self.back_screen.print(gr, @truncate(w), self.mode.autowrap);
                 }
             },
@@ -498,7 +496,7 @@ fn run(self: *Terminal) !void {
                         var iter = seq.iterator(u16);
                         const n = iter.next() orelse 1;
                         // TODO: maybe not .unicode
-                        const w = vaxis.gwidth.gwidth(self.last_printed, .unicode, &self.unicode.width_data);
+                        const w = vaxis.gwidth.gwidth(self.last_printed, .unicode);
                         var i: usize = 0;
                         while (i < n) : (i += 1) {
                             try self.back_screen.print(self.last_printed, @truncate(w), self.mode.autowrap);
