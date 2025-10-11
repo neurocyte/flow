@@ -69,7 +69,6 @@ back_mutex: std.Thread.Mutex = .{},
 // dirty is protected by back_mutex. Only access this field when you hold that mutex
 dirty: bool = false,
 
-unicode: *const vaxis.Unicode,
 should_quit: bool = false,
 
 mode: Mode = .{},
@@ -88,7 +87,6 @@ pub fn init(
     allocator: std.mem.Allocator,
     argv: []const []const u8,
     env: *const std.process.EnvMap,
-    unicode: *const vaxis.Unicode,
     opts: Options,
     write_buf: []u8,
 ) !Terminal {
@@ -118,7 +116,6 @@ pub fn init(
         .front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .back_screen_pri = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows + opts.scrollback_size),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
-        .unicode = unicode,
         .tab_stops = tabs,
     };
 }
@@ -276,7 +273,7 @@ fn run(self: *Terminal) !void {
 
         switch (event) {
             .print => |str| {
-                var iter = self.unicode.graphemeIterator(str);
+                var iter = vaxis.unicode.graphemeIterator(str);
                 while (iter.next()) |grapheme| {
                     const gr = grapheme.bytes(str);
                     // TODO: use actual instead of .unicode
