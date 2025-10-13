@@ -391,7 +391,16 @@ const cmds_ = struct {
     pub const select_to_char_right_helix_meta: Meta = .{ .description = "Move to char right" };
 
     pub fn copy_helix(_: *void, _: Ctx) Result {
-        try copy_internal_helix();
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        tui.clipboard_clear_all();
+
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| if (cursel.selection) |sel|
+            tui.clipboard_add_chunk(try Editor.copy_selection(root, sel, tui.clipboard_allocator(), ed.metrics));
+
+        ed.logger.print("copy: {d} selections", .{ed.cursels.items.len});
     }
     pub const copy_helix_meta: Meta = .{ .description = "Copy selection to clipboard (helix)" };
 
@@ -604,70 +613,35 @@ const pasting_function = @TypeOf(insert_before);
 fn paste_helix(ctx: command.Context, do_paste: pasting_function) command.Result {
     const mv = tui.mainview() orelse return;
     const ed = mv.get_active_editor() orelse return;
-    var text: []const u8 = undefined;
+    var text_: []const u8 = undefined;
 
-    if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
-        if (tui.get_clipboard()) |text_| text = text_ else return;
-    }
-
-    ed.logger.print("paste: {d} bytes", .{text.len});
+    const clipboard: []const []const u8 = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text_)}))
+        &[_][]const u8{text_}
+    else
+        tui.clipboard_get_history() orelse return;
 
     const b = try ed.buf_for_update();
     var root = b.root;
 
-    if (std.mem.indexOf(u8, text, serial_separator)) |_| {
-        // Chunks from clipboard are paired to selections
-        // If more selections than chunks in the clipboard, the exceding selections
-        // use the last chunk in the clipboard
-        var pos: usize = 0;
-        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            if (std.mem.indexOfPos(u8, text, pos, serial_separator)) |next| {
-                root = try do_paste(ed, root, cursel, text[pos..next], b.allocator);
-                pos = next + serial_separator.len;
-            } else {
-                root = try do_paste(ed, root, cursel, text[pos..], b.allocator);
-            }
-        };
-    } else {
-        // The clipboard has only one chunk, which is pasted in all selections
-        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            root = try do_paste(ed, root, cursel, text, b.allocator);
-        };
-    }
+    // Chunks from clipboard are paired to selections
+    // If more selections than chunks in the clipboard, the exceding selections
+    // use the last chunk in the clipboard
+
+    var bytes: usize = 0;
+    for (ed.cursels.items, 0..) |*cursel_, idx| if (cursel_.*) |*cursel| {
+        if (idx < clipboard.len) {
+            root = try do_paste(ed, root, cursel, clipboard[idx], b.allocator);
+            bytes += clipboard[idx].len;
+        } else {
+            bytes += clipboard[clipboard.len - 1].len;
+            root = try do_paste(ed, root, cursel, clipboard[clipboard.len - 1], b.allocator);
+        }
+    };
+    ed.logger.print("paste: {d} bytes", .{bytes});
 
     try ed.update_buf(root);
     ed.clamp();
     ed.need_render();
-}
-
-fn copy_internal_helix() command.Result {
-    const mv = tui.mainview() orelse return;
-    const editor = mv.get_active_editor() orelse return;
-    const root = editor.buf_root() catch return;
-    var first = true;
-    var text = std.ArrayListUnmanaged(u8).empty;
-    defer text.deinit(editor.allocator);
-
-    for (editor.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-        if (cursel.selection) |sel| {
-            const copy_text = try Editor.copy_selection(root, sel, editor.allocator, editor.metrics);
-            if (first) {
-                first = false;
-            } else {
-                try text.appendSlice(editor.allocator, serial_separator);
-            }
-            try text.appendSlice(editor.allocator, copy_text);
-            editor.allocator.free(copy_text);
-        }
-    };
-    if (text.items.len > 0) {
-        if (text.items.len > 100) {
-            editor.logger.print("copy:{f}...", .{std.ascii.hexEscape(text.items[0..100], .lower)});
-        } else {
-            editor.logger.print("copy:{f}", .{std.ascii.hexEscape(text.items, .lower)});
-        }
-        editor.set_clipboard_internal(try text.toOwnedSlice(editor.allocator));
-    }
 }
 
 fn move_cursor_carriage_return(root: Buffer.Root, cursel: CurSel, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
