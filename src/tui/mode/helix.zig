@@ -306,7 +306,7 @@ const cmds_ = struct {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const b = try ed.buf_for_update();
-        const text, const root = try ed.cut_to(move_noop, b.root);
+        const text, const root = try ed.cut_to(move_noop, b.root, ed.allocator);
         ed.set_clipboard_internal(text);
         try ed.update_buf(root);
         ed.clamp();

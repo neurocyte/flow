@@ -2612,11 +2612,11 @@ pub const Editor = struct {
         return try copy_selection(root, sel.*, text_allocator, self.metrics);
     }
 
-    pub fn cut_selection(self: *Self, root: Buffer.Root, cursel: *CurSel) !struct { []const u8, Buffer.Root } {
+    pub fn cut_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, text_allocator: Allocator) !struct { []const u8, Buffer.Root } {
         return if (cursel.selection) |sel| ret: {
             var old_selection: Selection = sel;
             old_selection.normalize();
-            const cut_text = try copy_selection(root, sel, self.allocator, self.metrics);
+            const cut_text = try copy_selection(root, sel, text_allocator, self.metrics);
             if (cut_text.len > 100) {
                 self.logger.print("cut:{f}...", .{std.ascii.hexEscape(cut_text[0..100], .lower)});
             } else {
@@ -2652,41 +2652,43 @@ pub const Editor = struct {
         return root_;
     }
 
-    pub fn cut_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root) !struct { []const u8, Buffer.Root } {
+    pub fn cut_to(self: *Self, move: cursor_operator_const, root_: Buffer.Root, text_allocator: Allocator) !struct { []const u8, Buffer.Root } {
         var all_stop = true;
         var root = root_;
 
         var text = std.ArrayListUnmanaged(u8).empty;
-        defer text.deinit(self.allocator);
+        defer text.deinit(text_allocator);
         var first = true;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |_| {
-                const cut_text, root = self.cut_selection(root, cursel) catch continue;
+                const cut_text, root = self.cut_selection(root, cursel, text_allocator) catch continue;
+                defer text_allocator.free(cut_text);
                 all_stop = false;
                 if (first) {
                     first = false;
                 } else {
-                    try text.appendSlice(self.allocator, "\n");
+                    try text.appendSlice(text_allocator, "\n");
                 }
-                try text.appendSlice(self.allocator, cut_text);
+                try text.appendSlice(text_allocator, cut_text);
                 continue;
             }
 
             with_selection_const(root, move, cursel, self.metrics) catch continue;
-            const cut_text, root = self.cut_selection(root, cursel) catch continue;
+            const cut_text, root = self.cut_selection(root, cursel, text_allocator) catch continue;
+            defer text_allocator.free(cut_text);
 
             if (first) {
                 first = false;
             } else {
-                try text.appendSlice(self.allocator, "\n");
+                try text.appendSlice(text_allocator, "\n");
             }
-            try text.appendSlice(self.allocator, cut_text);
+            try text.appendSlice(text_allocator, cut_text);
             all_stop = false;
         };
 
         if (all_stop)
             return error.Stop;
-        return .{ try text.toOwnedSlice(self.allocator), root };
+        return .{ try text.toOwnedSlice(text_allocator), root };
     }
 
     pub fn cut_internal_vim(self: *Self, _: Context) Result {
@@ -2705,7 +2707,8 @@ pub const Editor = struct {
             };
         var first = true;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const cut_text, root = try self.cut_selection(root, cursel);
+            const cut_text, root = try self.cut_selection(root, cursel, self.allocator);
+            defer self.allocator.free(cut_text);
             if (first) {
                 first = false;
             } else {
@@ -2740,7 +2743,8 @@ pub const Editor = struct {
         var text = std.ArrayListUnmanaged(u8).empty;
         defer text.deinit(self.allocator);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const cut_text, root = try self.cut_selection(root, cursel);
+            const cut_text, root = try self.cut_selection(root, cursel, self.allocator);
+            defer self.allocator.free(cut_text);
             if (first) {
                 first = false;
             } else {
@@ -2770,6 +2774,8 @@ pub const Editor = struct {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |sel| {
                 const copy_text = try copy_selection(root, sel, self.allocator, self.metrics);
+                defer self.allocator.free(copy_text);
+
                 if (first) {
                     first = false;
                 } else {
@@ -2866,6 +2872,7 @@ pub const Editor = struct {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |sel| {
                 const copy_text = try copy_selection(root, sel, self.allocator, self.metrics);
+                defer self.allocator.free(copy_text);
                 if (first) {
                     first = false;
                 } else {
@@ -2901,6 +2908,7 @@ pub const Editor = struct {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |sel| {
                 const copy_text = try copy_selection(root, sel, self.allocator, self.metrics);
+                defer self.allocator.free(copy_text);
                 if (first) {
                     first = false;
                 } else {
@@ -3010,7 +3018,7 @@ pub const Editor = struct {
 
     pub fn cut_forward_internal(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const text, const root = try self.cut_to(move_cursor_right, b.root);
+        const text, const root = try self.cut_to(move_cursor_right, b.root, self.allocator);
         self.set_clipboard_internal(text);
         try self.update_buf(root);
         self.clamp();
@@ -3094,7 +3102,7 @@ pub const Editor = struct {
 
     pub fn cut_buffer_end(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const text, const root = try self.cut_to(move_cursor_buffer_end, b.root);
+        const text, const root = try self.cut_to(move_cursor_buffer_end, b.root, self.allocator);
         self.set_clipboard_internal(text);
         try self.update_buf(root);
         self.clamp();
@@ -3103,7 +3111,7 @@ pub const Editor = struct {
 
     pub fn cut_buffer_begin(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const text, const root = try self.cut_to(move_cursor_buffer_begin, b.root);
+        const text, const root = try self.cut_to(move_cursor_buffer_begin, b.root, self.allocator);
         self.set_clipboard_internal(text);
         try self.update_buf(root);
         self.clamp();
@@ -3112,7 +3120,7 @@ pub const Editor = struct {
 
     pub fn cut_word_left_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const text, const root = try self.cut_to(move_cursor_word_left_vim, b.root);
+        const text, const root = try self.cut_to(move_cursor_word_left_vim, b.root, self.allocator);
         self.set_clipboard_internal(text);
         try self.update_buf(root);
         self.clamp();
@@ -3129,7 +3137,7 @@ pub const Editor = struct {
 
     pub fn cut_word_right_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const text, const root = try self.cut_to(move_cursor_word_right_vim, b.root);
+        const text, const root = try self.cut_to(move_cursor_word_right_vim, b.root, self.allocator);
         self.set_clipboard_internal(text);
         try self.update_buf(root);
         self.clamp();
@@ -3154,7 +3162,7 @@ pub const Editor = struct {
 
     pub fn cut_to_end_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const text, const root = try self.cut_to(move_cursor_end_vim, b.root);
+        const text, const root = try self.cut_to(move_cursor_end_vim, b.root, self.allocator);
         self.set_clipboard_internal(text);
         try self.update_buf(root);
         self.clamp();
@@ -5038,8 +5046,8 @@ pub const Editor = struct {
     pub fn find_word_at_cursor(self: *Self, ctx: Context) Result {
         _ = ctx;
         const query: []const u8 = try self.copy_word_at_cursor(self.allocator);
+        defer self.allocator.free(query);
         try self.find_in_buffer(query);
-        self.allocator.free(query);
     }
     pub const find_word_at_cursor_meta: Meta = .{ .description = "Search for the word under the cursor" };
 
