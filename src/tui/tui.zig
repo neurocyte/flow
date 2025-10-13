@@ -75,7 +75,7 @@ fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
 enable_mouse_idle_timer: bool = false,
 query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
-clipboard: ?[]const u8 = null,
+clipboard: ?std.ArrayList([]const u8) = null,
 color_scheme: enum { dark, light } = .dark,
 color_scheme_locked: bool = false,
 
@@ -270,7 +270,7 @@ fn deinit(self: *Self) void {
     self.logger.deinit();
     self.query_cache_.deinit();
     root.free_config(self.allocator, self.config_bufs);
-    if (self.clipboard) |text| self.allocator.free(text);
+    self.clipboard_deinit();
     self.allocator.destroy(self);
 }
 
@@ -1767,14 +1767,73 @@ fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
     };
 }
 
-pub fn get_clipboard() ?[]const u8 {
-    const self = current();
-    return self.clipboard;
+fn clipboard_deinit(self: *Self) void {
+    if (self.clipboard) |*clipboard| {
+        for (clipboard.items) |chunk|
+            self.allocator.free(chunk);
+        clipboard.deinit(self.allocator);
+    }
+    self.clipboard = null;
 }
 
-pub fn set_clipboard(text: []const u8) void {
+pub fn clipboard_allocator() Allocator {
     const self = current();
-    if (self.clipboard) |old|
-        self.allocator.free(old);
-    self.clipboard = text;
+    return self.allocator;
+}
+
+pub fn clipboard_get_history() ?[]const []const u8 {
+    const self = current();
+    return if (self.clipboard) |clipboard| clipboard.items else null;
+}
+
+pub fn clipboard_peek_chunk() ?[]const u8 {
+    const self = current();
+    const clipboard = self.clipboard orelse return null;
+    return clipboard[clipboard.len - 1];
+}
+
+pub fn clipboard_clear_all() void {
+    const self = current();
+    self.clipboard_deinit();
+}
+
+pub fn clipboard_add_chunk(text: []const u8) void {
+    const self = current();
+    const clipboard = if (self.clipboard) |*clipboard| clipboard else blk: {
+        self.clipboard = .empty;
+        break :blk &self.clipboard.?;
+    };
+    const chunk = clipboard.addOne(self.allocator) catch @panic("OOM clipboard_add_chunk");
+    chunk.* = text;
+}
+
+pub fn clipboard_send_to_system(n_chunks: usize) error{ Stop, WriteFailed }!void {
+    const self = current();
+    var buffer: std.Io.Writer.Allocating = .init(self.allocator);
+    defer buffer.deinit();
+    const writer = &buffer.writer;
+    const clipboard = if (self.clipboard) |clipboard| clipboard.items else return error.Stop;
+    if (clipboard.len < n_chunks) return error.Stop;
+    if (n_chunks == 1) return self.clipboard_send_to_system_internal(clipboard[clipboard.len - 1]);
+    var first = true;
+    const chunks = clipboard[clipboard.len - n_chunks ..];
+    for (chunks) |chunk| {
+        if (first) first = false else try writer.writeByte('\n');
+        try writer.writeAll(chunk);
+    }
+}
+
+fn clipboard_send_to_system_internal(self: *Self, text: []const u8) void {
+    if (text.len > 0) {
+        if (text.len > 100)
+            self.logger.print("copy:{f}...", .{std.ascii.hexEscape(text[0..100], .lower)})
+        else
+            self.logger.print("copy:{f}", .{std.ascii.hexEscape(text, .lower)});
+    }
+    if (builtin.os.tag == .windows) {
+        @import("renderer").copy_to_windows_clipboard(text) catch |e|
+            self.logger.print_err("clipboard", "failed to set clipboard: {any}", .{e});
+    } else {
+        self.rdr_.copy_to_system_clipboard(text);
+    }
 }
