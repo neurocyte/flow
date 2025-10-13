@@ -31,7 +31,7 @@ pub fn load_entries(palette: *Type) !usize {
             if (idx == 0) break;
         }
     }
-    return if (palette.entries.items.len == 0) label.len + 3 else 4;
+    return if (palette.entries.items.len == 0) label.len + 3 else 10;
 }
 
 pub fn clear_entries(palette: *Type) void {
@@ -43,8 +43,21 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     defer value.deinit();
     const writer = &value.writer;
     try cbor.writeValue(writer, entry.label);
-    try cbor.writeValue(writer, entry.idx);
+
+    var hint: std.Io.Writer.Allocating = .init(palette.allocator);
+    defer hint.deinit();
+    var line_count: usize = 1;
+    for (0..entry.label.len) |i| if (entry.label[i] == '\n') {
+        line_count += 1;
+    };
+    if (line_count > 1)
+        try hint.writer.print(" {d} lines", .{line_count})
+    else
+        try hint.writer.print(" {d} {s}", .{ entry.label.len, if (entry.label.len == 1) "byte" else "bytes" });
+    try cbor.writeValue(writer, hint.written());
+
     try cbor.writeValue(writer, matches orelse &[_]usize{});
+    try cbor.writeValue(writer, entry.idx);
     try palette.menu.add_item_with_handler(value.written(), select);
     palette.items += 1;
 }
@@ -54,6 +67,10 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     var idx: usize = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &unused) catch false)) return;
+    if (!(cbor.matchString(&iter, &unused) catch false)) return;
+    var len = cbor.decodeArrayHeader(&iter) catch return;
+    while (len > 0) : (len -= 1)
+        cbor.skipValue(&iter) catch return;
     if (!(cbor.matchValue(&iter, cbor.extract(&idx)) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
 
@@ -67,6 +84,10 @@ pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
     var idx: usize = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &unused) catch false)) return false;
+    if (!(cbor.matchString(&iter, &unused) catch false)) return false;
+    var len = cbor.decodeArrayHeader(&iter) catch return false;
+    while (len > 0) : (len -= 1)
+        cbor.skipValue(&iter) catch return false;
     if (!(cbor.matchValue(&iter, cbor.extract(&idx)) catch false)) return false;
     command.executeName("clipboard_delete", command.fmt(.{idx})) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     return true; //refresh list
