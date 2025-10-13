@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const root = @import("soft_root").root;
 const command = @import("command");
+const project_manager = @import("project_manager");
 
 const tui = @import("../../tui.zig");
 
@@ -26,8 +27,13 @@ pub fn name(_: *Type) []const u8 {
 }
 
 pub fn select(self: *Type) void {
-    if (root.is_directory(self.file_path.items)) return;
-    if (self.file_path.items.len > 0)
-        tp.self_pid().send(.{ "cmd", "save_file_as", .{self.file_path.items} }) catch {};
+    {
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.allocator);
+        const file_path = project_manager.expand_home(self.allocator, &buf, self.file_path.items);
+        if (root.is_directory(file_path)) return;
+        if (file_path.len > 0)
+            tp.self_pid().send(.{ "cmd", "save_file_as", .{file_path} }) catch {};
+    }
     command.executeName("exit_mini_mode", .{}) catch {};
 }
