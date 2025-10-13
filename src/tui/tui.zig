@@ -1276,6 +1276,11 @@ const cmds = struct {
     }
     pub const exit_helix_mode_meta: Meta = .{};
 
+    pub fn clipboard_history(_: *Self, _: Ctx) Result {
+        return try open_overlay(@import("mode/overlay/clipboard_palette.zig").Type);
+    }
+    pub const clipboard_history_meta: Meta = .{ .description = "Paste from clipboard history" };
+
     pub fn clipboard_delete(self: *Self, ctx: Ctx) Result {
         var idx: usize = 0;
         if (!try ctx.args.match(.{tp.extract(&idx)}))

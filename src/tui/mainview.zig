@@ -1018,11 +1018,6 @@ const cmds = struct {
     }
     pub const system_paste_meta: Meta = .{ .description = "Paste from system clipboard" };
 
-    pub fn paste_history(_: *Self, _: Ctx) Result {
-        return try tui.open_overlay(@import("mode/overlay/clipboard_palette.zig").Type);
-    }
-    pub const paste_history_meta: Meta = .{ .description = "Paste from clipboard history" };
-
     pub fn find_in_files_query(self: *Self, ctx: Ctx) Result {
         var query: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&query)})) return error.InvalidFindInFilesQueryArgument;

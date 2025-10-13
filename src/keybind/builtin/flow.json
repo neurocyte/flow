@@ -37,7 +37,7 @@
             ["ctrl+page_down", "next_tab"],
             ["ctrl+page_up", "previous_tab"],
             ["ctrl+shift+e", "switch_buffers"],
-            ["alt+shift+v", "paste_history"],
+            ["alt+shift+v", "clipboard_history"],
             ["ctrl+0", "reset_fontsize"],
             ["ctrl+plus", "adjust_fontsize", 1.0],
             ["ctrl+minus", "adjust_fontsize", -1.0],
