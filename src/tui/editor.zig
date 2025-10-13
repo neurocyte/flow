@@ -2229,7 +2229,7 @@ pub const Editor = struct {
         return false;
     }
 
-    fn is_eol_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    pub fn is_eol_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         const line_width = root.line_width(cursor.row, metrics) catch return true;
         if (cursor.col >= line_width)
             return true;
@@ -2250,15 +2250,6 @@ pub const Editor = struct {
         if (cursor.col >= line_width)
             return true;
         return false;
-    }
-
-    pub fn move_cursor_carriage_return(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
-        if (is_eol_right(root, cursor, metrics)) {
-            try move_cursor_right(root, cursor, metrics);
-        } else {
-            try move_cursor_down(root, cursor, metrics);
-            try move_cursor_begin(root, cursor, metrics);
-        }
     }
 
     pub fn move_cursor_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
@@ -2317,7 +2308,7 @@ pub const Editor = struct {
         if (is_eol_vim(root, cursor, metrics)) try move_cursor_left_vim(root, cursor, metrics);
     }
 
-    fn move_cursor_down(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+    pub fn move_cursor_down(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
         cursor.move_down(root, metrics) catch |e| switch (e) {
             error.Stop => cursor.move_end(root, metrics),
         };
