@@ -1371,6 +1371,13 @@ pub fn write_restore_info(self: *Self) void {
         cbor.writeValue(writer, null) catch return;
     }
 
+    if (tui.clipboard_get_history()) |clipboard| {
+        cbor.writeArrayHeader(writer, clipboard.len) catch return;
+        for (clipboard) |item| cbor.writeValue(writer, item) catch return;
+    } else {
+        cbor.writeValue(writer, null) catch return;
+    }
+
     const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
     buffer_manager.write_state(writer) catch return;
 
@@ -1397,6 +1404,16 @@ fn read_restore_info(self: *Self) !void {
     tp.trace(tp.channel.debug, .{ "mainview", "extract" });
     var editor_file_path: ?[]const u8 = undefined;
     if (!try cbor.matchValue(&iter, cbor.extract(&editor_file_path))) return error.Stop;
+
+    tui.clipboard_clear_all();
+    var len = try cbor.decodeArrayHeader(&iter);
+    const clipboard_allocator = tui.clipboard_allocator();
+    while (len > 0) : (len -= 1) {
+        var chunk: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, cbor.extract(&chunk))) return error.Stop;
+        tui.clipboard_add_chunk(try clipboard_allocator.dupe(u8, chunk));
+    }
+
     try self.buffer_manager.extract_state(&iter);
 
     if (self.widgets.get("tabs")) |tabs_widget|
