@@ -25,7 +25,6 @@
             ["ctrl+^", "open_previous_file"],
 
             ["alt+.", "repeat_last_motion"],
-            ["alt+`", "to_upper"],
             ["alt+d", "delete_backward"],
             ["alt+c", "change_backward_helix"],
 
@@ -60,7 +59,6 @@
             ["alt+|", "shell_pipe_to"],
             ["alt+!", "shell_append_output"],
 
-            ["~", "switch_case"],
             ["T", "till_prev_char"],
             ["F", "move_to_char", "move_to_char_left"],
             ["W", "move_next_long_word_start"],
@@ -72,15 +70,21 @@
             ["O", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
             ["C", "add_cursor_down"],
+
             ["S", "split_selection"],
             ["X", "extend_to_line_bounds"],
             ["?", "rfind"],
             ["N", "goto_prev_match"],
             ["*", "search_selection"],
 
-            ["U", "redo"],
-            ["P", "paste"],
-            ["Q", "replay_macro"],
+            ["~", "switch_case"],
+            ["`", "to_lower"],
+            ["alt+`", "to_upper"],
+
+            ["r", "replace"],
+            ["P", "paste_clipboard_before"],
+            ["R", "replace_selections_with_clipboard"],
+            ["p", "paste_after"],
 
             [">", "indent"],
             ["<", "unindent"],
@@ -108,8 +112,6 @@
             ["t", "find_till_char"],
             ["f", "move_to_char", "move_to_char_right"],
 
-            ["`", "to_lower"],
-
             ["home", "move_begin"],
             ["end", "move_end"],
             ["kp_home", "move_begin"],
@@ -121,7 +123,7 @@
 
             ["v", "enter_mode", "select"],
 
-            ["g g", "goto_line_vim"],
+            ["g g", "move_buffer_begin"],
             ["g e", "move_buffer_end"],
             ["g f", "goto_file"],
             ["g h", "move_begin"],
@@ -129,7 +131,7 @@
             ["g s", "smart_move_begin"],
             ["g d", "goto_definition"],
             ["g y", "goto_type_definition"],
-            ["g r", "references"],
+            ["g r", "goto_reference"],
             ["g i", "goto_implementation"],
             ["g t", "goto_window_top"],
             ["g c", "goto_window_center"],
@@ -189,13 +191,15 @@
 
             ["/", "find"],
             ["n", "goto_next_match"],
+
             ["u", "undo"],
+            ["U", "redo"],
 
             ["y", ["enable_selection"], ["copy_helix"], ["enter_mode", "normal"]],
             ["%", "select_all"],
-            ["p", "paste_after"],
 
             ["q", "record_macro"],
+            ["Q", "replay_macro"],
 
             ["=", "format_selections"],
 
@@ -267,8 +271,6 @@
 
             ["b", "select_word_left"],
             ["w", "select_word_right"],
-            ["g g", "select_buffer_begin"],
-            ["g e", "select_buffer_end"],
 
             ["ctrl+b", "select_page_up"],
             ["ctrl+f", "select_page_down"],
@@ -364,11 +366,9 @@
             ["N", "extend_search_next"],
             ["*", "extend_search_prev"],
 
-            ["U", "redo"],
-
-            ["P", "paste"],
-
-            ["Q", "replay_macro"],
+            ["P", "paste_clipboard_before"],
+            ["R", ["replace_selections_with_clipboard"], ["enter_mode", "normal"]],
+            ["p", "paste_after"],
 
             [">", "indent"],
             ["<", "unindent"],
@@ -488,12 +488,14 @@
 
             ["/", "find"],
             ["n", "goto_next_match"],
+
             ["u", "undo"],
+            ["U", "redo"],
 
             ["y", ["copy_helix"], ["enter_mode", "normal"]],
-            ["p", "paste_after"],
 
             ["q", "record_macro"],
+            ["Q", "replay_macro"],
 
             ["=", "format_selections"],
 

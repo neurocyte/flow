@@ -150,7 +150,7 @@ pub const CurSel = struct {
         }
     }
 
-    fn disable_selection_normal(self: *Self) void {
+    pub fn disable_selection_normal(self: *Self) void {
         self.selection = null;
     }
 
@@ -1917,7 +1917,7 @@ pub const Editor = struct {
         return try move(root, &cursel.cursor, allocator);
     }
 
-    fn with_selection_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
+    pub fn with_selection_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
         const sel = try cursel.enable_selection(root, metrics);
         try move(root, &sel.end, metrics);
         cursel.cursor = sel.end;
@@ -2250,6 +2250,15 @@ pub const Editor = struct {
         if (cursor.col >= line_width)
             return true;
         return false;
+    }
+
+    pub fn move_cursor_carriage_return(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        if (is_eol_right(root, cursor, metrics)) {
+            try move_cursor_right(root, cursor, metrics);
+        } else {
+            try move_cursor_down(root, cursor, metrics);
+            try move_cursor_begin(root, cursor, metrics);
+        }
     }
 
     pub fn move_cursor_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {

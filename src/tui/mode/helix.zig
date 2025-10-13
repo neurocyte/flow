@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const log = @import("log");
 const tp = @import("thespian");
 const location_history = @import("location_history");
@@ -11,6 +12,8 @@ const CurSel = @import("../editor.zig").CurSel;
 const Buffer = @import("Buffer");
 const Cursor = Buffer.Cursor;
 const Selection = Buffer.Selection;
+
+const serial_separator = "\n\t\t\n";
 
 var commands: Commands = undefined;
 
@@ -388,49 +391,25 @@ const cmds_ = struct {
     pub const select_to_char_right_helix_meta: Meta = .{ .description = "Move to char right" };
 
     pub fn copy_helix(_: *void, _: Ctx) Result {
-        const mv = tui.mainview() orelse return;
-        const ed = mv.get_active_editor() orelse return;
-        const root = ed.buf_root() catch return;
-
-        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| if (cursel.selection) |sel|
-            tui.clipboard_add_chunk(try Editor.copy_selection(root, sel, tui.clipboard_allocator(), ed.metrics));
+        try copy_internal_helix();
     }
     pub const copy_helix_meta: Meta = .{ .description = "Copy selection to clipboard (helix)" };
 
     pub fn paste_after(_: *void, ctx: Ctx) Result {
-        const mv = tui.mainview() orelse return;
-        const ed = mv.get_active_editor() orelse return;
-
-        var text_: []const u8 = undefined;
-        const clipboard: []const []const u8 = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text_)}))
-            &[_][]const u8{text_}
-        else
-            tui.clipboard_get_history() orelse return;
-
-        const b = try ed.buf_for_update();
-        var root = b.root;
-
-        var bytes: usize = 0;
-        var cursel_idx = ed.cursels.items.len - 1;
-        var idx = clipboard.len - 1;
-        while (true) {
-            const cursel_ = &ed.cursels.items[cursel_idx];
-            if (cursel_.*) |*cursel| {
-                const text = clipboard[idx];
-                root = try insert(ed, root, cursel, text, b.allocator);
-                idx = if (idx == 0) clipboard.len - 1 else idx - 1;
-                bytes += text.len;
-            }
-            if (cursel_idx == 0) break;
-            cursel_idx -= 1;
-        }
-        ed.logger.print("paste: {d} bytes", .{bytes});
-
-        try ed.update_buf(root);
-        ed.clamp();
-        ed.need_render();
+        try paste_helix(ctx, insert_after);
     }
     pub const paste_after_meta: Meta = .{ .description = "Paste from clipboard after selection" };
+
+    pub fn replace_selections_with_clipboard(_: *void, ctx: Ctx) Result {
+        try paste_helix(ctx, insert_replace_selection);
+    }
+    pub const replace_selections_with_clipboard_meta: Meta = .{ .description = "Replace selection from clipboard" };
+
+    pub fn paste_clipboard_before(_: *void, ctx: Ctx) Result {
+        try paste_helix(ctx, insert_before);
+    }
+
+    pub const paste_clipboard_before_meta: Meta = .{ .description = "Paste from clipboard before selection" };
 };
 
 fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
@@ -464,14 +443,84 @@ fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics:
     try cursor.move_right(root, metrics);
 }
 
-fn insert(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: std.mem.Allocator) !Buffer.Root {
-    var root_ = root;
-    const cursor = &cursel.cursor;
-    if (cursel.selection == null) cursor.move_right(root_, ed.metrics) catch {};
+fn insert_before(editor: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+    var root_: Buffer.Root = root;
+    const cursor: *Cursor = &cursel.cursor;
+
+    cursel.check_selection(root, editor.metrics);
+    if (s[s.len - 1] == '\n') {
+        if (cursel.selection) |*sel_| {
+            sel_.*.normalize();
+            cursor.move_to(root, sel_.*.begin.row, sel_.*.begin.col, editor.metrics) catch {};
+        } else {
+            cursor.move_begin();
+        }
+    } else {
+        if (cursel.selection) |*sel_| {
+            sel_.*.normalize();
+            cursor.move_to(root, sel_.*.begin.row, sel_.*.begin.col, editor.metrics) catch {};
+        }
+    }
+    cursel.disable_selection_normal();
     const begin = cursel.cursor;
-    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
+
+    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, editor.metrics);
     cursor.target = cursor.col;
-    ed.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+    cursel.selection = Selection{ .begin = begin, .end = cursor.* };
+    return root_;
+}
+
+fn insert_replace_selection(editor: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+    var root_: Buffer.Root = root;
+    cursel.check_selection(root, editor.metrics);
+
+    if (cursel.selection) |_| {
+        root_ = try editor.delete_selection(root, cursel, allocator);
+    } else {
+        // Replace current character when no explicit selection
+        try Editor.with_selection_const(root, move_noop, cursel, editor.metrics);
+        root_ = try editor.delete_selection(root, cursel, allocator);
+    }
+
+    const cursor = &cursel.cursor;
+    const begin = cursel.cursor;
+
+    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, editor.metrics);
+    cursor.target = cursor.col;
+    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+    cursel.selection = Selection{ .begin = begin, .end = cursor.* };
+    return root_;
+}
+
+fn insert_after(editor: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+    var root_: Buffer.Root = root;
+    const cursor = &cursel.cursor;
+    cursel.check_selection(root, editor.metrics);
+    if (s[s.len - 1] == '\n') {
+        if (cursel.selection) |*sel_| {
+            sel_.*.normalize();
+            if (sel_.*.end.row == sel_.*.begin.row or sel_.*.end.col != 0) {
+                cursel.disable_selection_normal();
+                Editor.move_cursor_carriage_return(root, cursor, editor.metrics) catch {};
+            }
+        } else {
+            cursel.disable_selection_normal();
+            Editor.move_cursor_carriage_return(root, cursor, editor.metrics) catch {};
+        }
+    } else {
+        if (cursel.selection) |*sel_| {
+            sel_.*.normalize();
+            cursor.move_to(root, sel_.*.end.row, sel_.*.end.col, editor.metrics) catch {};
+        } else {
+            cursor.move_right(root_, editor.metrics) catch {};
+        }
+        cursel.disable_selection_normal();
+    }
+    const begin = cursel.cursor;
+    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, editor.metrics);
+    cursor.target = cursor.col;
+    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
     return root_;
 }
@@ -561,6 +610,76 @@ fn move_cursor_long_word_right_end(root: Buffer.Root, cursor: *Cursor, metrics: 
     try cursor.move_right(root, metrics);
 }
 
+const pasting_function = @TypeOf(insert_before);
+
+fn paste_helix(ctx: command.Context, do_paste: pasting_function) command.Result {
+    const mv = tui.mainview() orelse return;
+    const ed = mv.get_active_editor() orelse return;
+    var text: []const u8 = undefined;
+
+    if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
+        if (tui.get_clipboard()) |text_| text = text_ else return;
+    }
+
+    ed.logger.print("paste: {d} bytes", .{text.len});
+
+    const b = try ed.buf_for_update();
+    var root = b.root;
+
+    if (std.mem.indexOf(u8, text, serial_separator)) |_| {
+        // Chunks from clipboard are paired to selections
+        // If more selections than chunks in the clipboard, the exceding selections
+        // use the last chunk in the clipboard
+        var pos: usize = 0;
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (std.mem.indexOfPos(u8, text, pos, serial_separator)) |next| {
+                root = try do_paste(ed, root, cursel, text[pos..next], b.allocator);
+                pos = next + serial_separator.len;
+            } else {
+                root = try do_paste(ed, root, cursel, text[pos..], b.allocator);
+            }
+        };
+    } else {
+        // The clipboard has only one chunk, which is pasted in all selections
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            root = try do_paste(ed, root, cursel, text, b.allocator);
+        };
+    }
+
+    try ed.update_buf(root);
+    ed.clamp();
+    ed.need_render();
+}
+
+fn copy_internal_helix() command.Result {
+    const mv = tui.mainview() orelse return;
+    const editor = mv.get_active_editor() orelse return;
+    const root = editor.buf_root() catch return;
+    var first = true;
+    var text = std.ArrayListUnmanaged(u8).empty;
+    defer text.deinit(editor.allocator);
+
+    for (editor.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+        if (cursel.selection) |sel| {
+            const copy_text = try Editor.copy_selection(root, sel, editor.allocator, editor.metrics);
+            if (first) {
+                first = false;
+            } else {
+                try text.appendSlice(editor.allocator, serial_separator);
+            }
+            try text.appendSlice(editor.allocator, copy_text);
+        }
+    };
+    if (text.items.len > 0) {
+        if (text.items.len > 100) {
+            editor.logger.print("copy:{f}...", .{std.ascii.hexEscape(text.items[0..100], .lower)});
+        } else {
+            editor.logger.print("copy:{f}", .{std.ascii.hexEscape(text.items, .lower)});
+        }
+        editor.set_clipboard_internal(try text.toOwnedSlice(editor.allocator));
+    }
+}
+
 const private = @This();
 // exports for unittests
 pub const test_internal = struct {
@@ -569,4 +688,7 @@ pub const test_internal = struct {
     pub const move_cursor_long_word_right_end = private.move_cursor_long_word_right_end;
     pub const move_cursor_word_left_helix = private.move_cursor_word_left_helix;
     pub const move_cursor_word_right_end_helix = private.move_cursor_word_right_end_helix;
+    pub const insert_before = private.insert_before;
+    pub const insert_replace_selection = private.insert_replace_selection;
+    pub const insert_after = private.insert_after;
 };
