@@ -13,8 +13,6 @@ const Buffer = @import("Buffer");
 const Cursor = Buffer.Cursor;
 const Selection = Buffer.Selection;
 
-const serial_separator = "\n\t\t\n";
-
 var commands: Commands = undefined;
 
 pub fn init() !void {
