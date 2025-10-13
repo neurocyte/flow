@@ -306,8 +306,7 @@ const cmds_ = struct {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const b = try ed.buf_for_update();
-        const text, const root = try ed.cut_to(move_noop, b.root, ed.allocator);
-        ed.set_clipboard_internal(text);
+        const root = try ed.cut_to(move_noop, b.root);
         try ed.update_buf(root);
         ed.clamp();
     }
@@ -392,33 +391,9 @@ const cmds_ = struct {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const root = ed.buf_root() catch return;
-        var first = true;
-        var buffer: std.Io.Writer.Allocating = .init(ed.allocator);
-        defer buffer.deinit();
-        const writer = &buffer.writer;
 
-        if (ed.get_primary().selection) |sel| if (sel.begin.col == 0 and sel.end.row > sel.begin.row) try writer.writeAll("\n");
-
-        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            if (cursel.selection) |sel| {
-                const copy_text = try Editor.copy_selection(root, sel, ed.allocator, ed.metrics);
-                if (first) {
-                    first = false;
-                } else {
-                    try writer.writeAll("\n");
-                }
-                try writer.writeAll(copy_text);
-            }
-        };
-        const text = buffer.toOwnedSlice() catch &.{};
-        if (text.len > 0) {
-            if (text.len > 100) {
-                ed.logger.print("copy:{f}...", .{std.ascii.hexEscape(text[0..100], .lower)});
-            } else {
-                ed.logger.print("copy:{f}", .{std.ascii.hexEscape(text, .lower)});
-            }
-            ed.set_clipboard_internal(text);
-        }
+        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| if (cursel.selection) |sel|
+            tui.clipboard_add_chunk(try Editor.copy_selection(root, sel, tui.clipboard_allocator(), ed.metrics));
     }
     pub const copy_helix_meta: Meta = .{ .description = "Copy selection to clipboard (helix)" };
 
@@ -426,26 +401,30 @@ const cmds_ = struct {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
 
-        var text: []const u8 = undefined;
-        if (!(ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text)}))) {
-            if (tui.get_clipboard()) |text_| text = text_ else return;
-        }
+        var text_: []const u8 = undefined;
+        const clipboard: []const []const u8 = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text_)}))
+            &[_][]const u8{text_}
+        else
+            tui.clipboard_get_history() orelse return;
 
-        ed.logger.print("paste: {d} bytes", .{text.len});
         const b = try ed.buf_for_update();
         var root = b.root;
 
-        if (std.mem.eql(u8, text[text.len - 1 ..], "\n")) text = text[0 .. text.len - 1];
-
-        if (std.mem.indexOfScalar(u8, text, '\n') != null and text[0] == '\n') {
-            for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-                root = try insert_line(ed, root, cursel, text, b.allocator);
-            };
-        } else {
-            for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+        var bytes: usize = 0;
+        var cursel_idx = ed.cursels.items.len - 1;
+        var idx = clipboard.len - 1;
+        while (true) {
+            const cursel_ = &ed.cursels.items[cursel_idx];
+            if (cursel_.*) |*cursel| {
+                const text = clipboard[idx];
                 root = try insert(ed, root, cursel, text, b.allocator);
-            };
+                idx = if (idx == 0) clipboard.len - 1 else idx - 1;
+                bytes += text.len;
+            }
+            if (cursel_idx == 0) break;
+            cursel_idx -= 1;
         }
+        ed.logger.print("paste: {d} bytes", .{bytes});
 
         try ed.update_buf(root);
         ed.clamp();
@@ -493,19 +472,6 @@ fn insert(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, alloca
     cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
     cursor.target = cursor.col;
     ed.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
-    cursel.selection = Selection{ .begin = begin, .end = cursor.* };
-    return root_;
-}
-
-fn insert_line(ed: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: std.mem.Allocator) !Buffer.Root {
-    var root_ = root;
-    const cursor = &cursel.cursor;
-    cursel.disable_selection(root, ed.metrics);
-    cursel.cursor.move_end(root, ed.metrics);
-    var begin = cursel.cursor;
-    begin.move_right(root, ed.metrics) catch {};
-    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, ed.metrics);
-    cursor.target = cursor.col;
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
     return root_;
 }
