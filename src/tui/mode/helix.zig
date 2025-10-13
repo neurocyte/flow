@@ -408,7 +408,6 @@ const cmds_ = struct {
     pub fn paste_clipboard_before(_: *void, ctx: Ctx) Result {
         try paste_helix(ctx, insert_before);
     }
-
     pub const paste_clipboard_before_meta: Meta = .{ .description = "Paste from clipboard before selection" };
 };
 
@@ -443,85 +442,75 @@ fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics:
     try cursor.move_right(root, metrics);
 }
 
-fn insert_before(editor: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+fn insert_before(editor: *Editor, root: Buffer.Root, cursel: *CurSel, text: []const u8, allocator: Allocator) !Buffer.Root {
     var root_: Buffer.Root = root;
     const cursor: *Cursor = &cursel.cursor;
 
     cursel.check_selection(root, editor.metrics);
-    if (s[s.len - 1] == '\n') {
-        if (cursel.selection) |*sel_| {
-            sel_.*.normalize();
-            cursor.move_to(root, sel_.*.begin.row, sel_.*.begin.col, editor.metrics) catch {};
-        } else {
+    if (cursel.selection) |sel_| {
+        var sel = sel_;
+        sel.normalize();
+        cursor.move_to(root, sel.begin.row, sel.begin.col, editor.metrics) catch {};
+
+        if (text[text.len - 1] == '\n') {
             cursor.move_begin();
         }
-    } else {
-        if (cursel.selection) |*sel_| {
-            sel_.*.normalize();
-            cursor.move_to(root, sel_.*.begin.row, sel_.*.begin.col, editor.metrics) catch {};
-        }
+    } else if (text[text.len - 1] == '\n') {
+        cursor.move_begin();
     }
+
     cursel.disable_selection_normal();
     const begin = cursel.cursor;
-
-    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, editor.metrics);
+    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, text, allocator, editor.metrics);
     cursor.target = cursor.col;
-    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
+    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, text.len);
     return root_;
 }
 
-fn insert_replace_selection(editor: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+fn insert_replace_selection(editor: *Editor, root: Buffer.Root, cursel: *CurSel, text: []const u8, allocator: Allocator) !Buffer.Root {
+    // replaces the selection, if no selection, replaces the current
+    // character and sets the selection to the replacement text
     var root_: Buffer.Root = root;
     cursel.check_selection(root, editor.metrics);
 
-    if (cursel.selection) |_| {
-        root_ = try editor.delete_selection(root, cursel, allocator);
-    } else {
-        // Replace current character when no explicit selection
-        try Editor.with_selection_const(root, move_noop, cursel, editor.metrics);
-        root_ = try editor.delete_selection(root, cursel, allocator);
+    if (cursel.selection == null) {
+        // Select current character to replace it
+        Editor.with_selection_const(root, move_noop, cursel, editor.metrics) catch {};
     }
+    root_ = editor.delete_selection(root, cursel, allocator) catch root;
 
     const cursor = &cursel.cursor;
     const begin = cursel.cursor;
-
-    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, editor.metrics);
+    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, text, allocator, editor.metrics);
     cursor.target = cursor.col;
-    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
+    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, text.len);
     return root_;
 }
 
-fn insert_after(editor: *Editor, root: Buffer.Root, cursel: *CurSel, s: []const u8, allocator: Allocator) !Buffer.Root {
+fn insert_after(editor: *Editor, root: Buffer.Root, cursel: *CurSel, text: []const u8, allocator: Allocator) !Buffer.Root {
     var root_: Buffer.Root = root;
     const cursor = &cursel.cursor;
     cursel.check_selection(root, editor.metrics);
-    if (s[s.len - 1] == '\n') {
-        if (cursel.selection) |*sel_| {
-            sel_.*.normalize();
-            if (sel_.*.end.row == sel_.*.begin.row or sel_.*.end.col != 0) {
-                cursel.disable_selection_normal();
-                Editor.move_cursor_carriage_return(root, cursor, editor.metrics) catch {};
-            }
-        } else {
-            cursel.disable_selection_normal();
-            Editor.move_cursor_carriage_return(root, cursor, editor.metrics) catch {};
-        }
+    if (text[text.len - 1] == '\n') {
+        move_cursor_carriage_return(root, cursel.*, cursor, editor.metrics) catch {};
     } else {
-        if (cursel.selection) |*sel_| {
-            sel_.*.normalize();
-            cursor.move_to(root, sel_.*.end.row, sel_.*.end.col, editor.metrics) catch {};
+        if (cursel.selection) |sel_| {
+            var sel = sel_;
+            sel.normalize();
+            cursor.move_to(root, sel.end.row, sel.end.col, editor.metrics) catch {};
         } else {
             cursor.move_right(root_, editor.metrics) catch {};
         }
-        cursel.disable_selection_normal();
     }
+
+    cursel.disable_selection_normal();
     const begin = cursel.cursor;
-    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, editor.metrics);
+    cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, text, allocator, editor.metrics);
     cursor.target = cursor.col;
-    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
+    editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, text.len);
     return root_;
 }
 
@@ -668,6 +657,7 @@ fn copy_internal_helix() command.Result {
                 try text.appendSlice(editor.allocator, serial_separator);
             }
             try text.appendSlice(editor.allocator, copy_text);
+            editor.allocator.free(copy_text);
         }
     };
     if (text.items.len > 0) {
@@ -678,6 +668,26 @@ fn copy_internal_helix() command.Result {
         }
         editor.set_clipboard_internal(try text.toOwnedSlice(editor.allocator));
     }
+}
+
+fn move_cursor_carriage_return(root: Buffer.Root, cursel: CurSel, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    if (is_cursel_from_extend_line_below(cursel)) {
+        //The cursor is already beginning next line
+        return;
+    }
+    if (!Editor.is_eol_right(root, cursor, metrics)) {
+        try Editor.move_cursor_end(root, cursor, metrics);
+    }
+    try Editor.move_cursor_right(root, cursor, metrics);
+}
+
+fn is_cursel_from_extend_line_below(cursel: CurSel) bool {
+    if (cursel.selection) |sel_| {
+        var sel = sel_;
+        sel.normalize();
+        return sel.end.row != sel.begin.row and sel.end.col == 0;
+    }
+    return false;
 }
 
 const private = @This();
