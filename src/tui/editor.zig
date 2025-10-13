@@ -5946,7 +5946,7 @@ pub const Editor = struct {
     }
     pub const to_upper_meta: Meta = .{ .description = "Convert selection or word to upper case" };
 
-    fn to_lower_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+    fn to_lower_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, buffer_allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
         const sel = if (cursel.selection) |*sel| sel else ret: {
@@ -5961,8 +5961,8 @@ pub const Editor = struct {
         defer sfa_allocator.free(cut_text);
         const ucased = Buffer.unicode.get_letter_casing().toLowerStr(sfa_allocator, cut_text) catch return error.Stop;
         defer sfa_allocator.free(ucased);
-        root = try self.delete_selection(root, cursel, allocator);
-        root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
+        root = try self.delete_selection(root, cursel, buffer_allocator);
+        root = self.insert(root, cursel, ucased, buffer_allocator) catch return error.Stop;
         cursel.* = saved;
         return root;
     }
