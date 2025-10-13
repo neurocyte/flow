@@ -1275,6 +1275,16 @@ const cmds = struct {
         @import("mode/helix.zig").deinit();
     }
     pub const exit_helix_mode_meta: Meta = .{};
+
+    pub fn clipboard_delete(self: *Self, ctx: Ctx) Result {
+        var idx: usize = 0;
+        if (!try ctx.args.match(.{tp.extract(&idx)}))
+            return error.InvalidClipboardDeleteArgument;
+        const clipboard = if (self.clipboard) |*clipboard| clipboard else return;
+        const removed = clipboard.orderedRemove(idx);
+        self.allocator.free(removed);
+    }
+    pub const clipboard_delete_meta: Meta = .{};
 };
 
 pub const MiniMode = struct {
