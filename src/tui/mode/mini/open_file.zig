@@ -34,12 +34,14 @@ pub fn name(_: *Type) []const u8 {
 }
 
 pub fn select(self: *Type) void {
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(self.allocator);
-    const file_path = project_manager.expand_home(self.allocator, &buf, self.file_path.items);
-    if (root.is_directory(file_path))
-        tp.self_pid().send(.{ "cmd", "change_project", .{file_path} }) catch {}
-    else if (file_path.len > 0)
-        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch {};
+    {
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.allocator);
+        const file_path = project_manager.expand_home(self.allocator, &buf, self.file_path.items);
+        if (root.is_directory(file_path))
+            tp.self_pid().send(.{ "cmd", "change_project", .{file_path} }) catch {}
+        else if (file_path.len > 0)
+            tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch {};
+    }
     command.executeName("exit_mini_mode", .{}) catch {};
 }
