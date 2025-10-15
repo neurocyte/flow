@@ -7,44 +7,57 @@ and is my daily driver for almost everything.
 
 
 # Features
-- fast TUI interface. no user interaction should take longer than one frame
-  (6ms) (even debug builds)
-- tree sitter based syntax highlighting
-- linting (diagnostics) and code navigation (goto definition) via language
-  server
-- multi cursor editing support
-- first class mouse support (yes, even with a scrollbar that actually works
-  properly!) (Windows included)
-- vscode compatible keybindings (thanks to kitty keyboard protocol)
-- vim compatible keybindings (the standard vimtutor bindings, more on request)
-- user configurable keybindings
-- excellent unicode support including 2027 mode
-- hybrid rope/piece-table buffer for fast loading, saving and editing with
-  hundreds of cursors
-- theme support (compatible with vscode themes via the flow-themes project)
-- infinite undo/redo (at least until you run out of ram)
-- find in files
-- command palette
-- stuff I've forgotten to mention...
 
-# Features in progress (aka, the road to 1.0)
-- completion UI/LSP support for completion
-- persistent undo/redo
-- file watcher for auto reload
-
-# Features planned for the future
-- multi tty support (shared editor sessions across multiple ttys)
-- multi user editing
-- multi host editing
+- **Lightning Fast** TUI with ≤6ms frame times, **low latency** input handling
+  and smooth **animated scrolling**
+- Intuitive UI with **tabs**, **scrollbars** and **palettes** with full
+  **mouse** support for all UI elements
+- Support for more than **70 programming languages**, **zero
+  configuration** needed, via **tree-sitter** powered syntax highlighting
+- **Language Server Protocol** pre configured support for most language servers
+- Powerful **multi-cursor** editing and integrated **clipboard history**
+- Powerful configurable keybinding system that supports **modal** and
+  **non-modal** editing styles
+- Multiple pre-configured **keybinding modes**
+    - Flow Control - GUI IDE style bindings (similar to vscode)
+    - Emacs
+    - Vim
+    - Helix
+    - User created
+- Hybrid rope/piece-table buffer system, edit **very large files** with
+  **thousands of cursors**
+- Infinite **undo** (at least until you run out of ram)
+- Full **unicode** support, including support for the kitty text sizing protocol
+- Plenty of **themes** included and support for vscode themes via the flow-themes project
+- Runs on **Linux, FreeBSD, MacOS, Windows and Android** (under termux) with
+  easy **cross-compilation** to all supported targets
 
 
 # Requirements
-- A modern terminal with 24bit color and, ideally, kitty keyboard protocol
-  support. Kitty, Foot and Ghostty are the only recommended terminals at this
-  time. Most other terminals will work, but with reduced functionality.
-- NerdFont support. Either via terminal font fallback or a patched font.
-- Linux, MacOS, Windows, Android (Termux) or FreeBSD.
-- A UTF-8 locale
+
+- A modern terminal with **24bit color** and, ideally, **kitty keyboard
+  protocol** support. **Kitty**, **Foot** and **Ghostty** are the recommended
+  terminals at this time. **Zellij** also works well. Most other terminals will
+  work, but likely with reduced functionality.
+- **NerdFont** support. Either via terminal font fallback or a patched font.
+- A **UTF-8** locale
+
+
+# Roadmap
+
+See our [devlog](/devlog/2025) for on-going updates from the development team.
+
+## In Development
+
+- LSP completion support
+- Persistent undo/redo
+- File watcher integration
+
+## Future
+
+- Collaborative editing
+- Plugin system
+- Multi-terminal sessions
 
 
 # Download / Install
