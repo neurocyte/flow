@@ -1,9 +1,41 @@
 # Flow Control: a programmer's text editor
 
-This is my Zig text editor. It is under active development, but usually stable
-and is my daily driver for most things coding related.
+This is my Zig text editor. It is under active development, but very stable
+and is my daily driver for almost everything.
 
 [![Announcement](https://img.youtube.com/vi/iwPg3sIxMGw/maxresdefault.jpg)](https://www.youtube.com/watch?v=iwPg3sIxMGw)
+
+
+# Features
+- fast TUI interface. no user interaction should take longer than one frame
+  (6ms) (even debug builds)
+- tree sitter based syntax highlighting
+- linting (diagnostics) and code navigation (goto definition) via language
+  server
+- multi cursor editing support
+- first class mouse support (yes, even with a scrollbar that actually works
+  properly!) (Windows included)
+- vscode compatible keybindings (thanks to kitty keyboard protocol)
+- vim compatible keybindings (the standard vimtutor bindings, more on request)
+- user configurable keybindings
+- excellent unicode support including 2027 mode
+- hybrid rope/piece-table buffer for fast loading, saving and editing with
+  hundreds of cursors
+- theme support (compatible with vscode themes via the flow-themes project)
+- infinite undo/redo (at least until you run out of ram)
+- find in files
+- command palette
+- stuff I've forgotten to mention...
+
+# Features in progress (aka, the road to 1.0)
+- completion UI/LSP support for completion
+- persistent undo/redo
+- file watcher for auto reload
+
+# Features planned for the future
+- multi tty support (shared editor sessions across multiple ttys)
+- multi user editing
+- multi host editing
 
 
 # Requirements
@@ -53,30 +85,19 @@ zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/aa
 When cross-compiling zig will build a binary with generic CPU support.
 
 
-# Documentation
+The output binary is:
 
-## User manual
+```
+zig-out/bin/flow
+```
 
-A basic user manual is available inside flow. You can open it with the
-`Open help` command (F1).
-
-## Development Resources
-
-Also, additional developer resources can be found on the Flow Control website at
-[flow-control.dev/docs](https://flow-control.dev/docs/).
-
-There is also an AI generated developer guide at
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/neurocyte/flow).
-Accuracy may vary. Check details against the referenced source code.
+It is statically built (by default) and contains all the required tree-sitter parsers
+and queries. No additional runtime files are required.
 
 
 # Running Flow Control
 
-The binary is:
-
-```shell
-zig-out/bin/flow
-```
+The Flow Control binary is called `flow`.
 
 Place it in your path for convenient access:
 
@@ -128,6 +149,27 @@ Show supported language names with `--list-languages`.
 
 See `flow --help` for the full list of command line options.
 
+
+# Documentation
+
+## User manual
+
+A basic user manual is available inside flow. You can open it with the
+`Open help` command (F1).
+
+It is also available in the website [documentation]{https://flow-control.dev/docs/}
+section.
+
+## Development Resources
+
+Additional developer resources can be found on the Flow Control website at
+[flow-control.dev/docs](https://flow-control.dev/docs/).
+
+There is also an AI generated developer guide at
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/neurocyte/flow).
+Accuracy may vary. Check details against the referenced source code.
+
+
 # Configuration
 
 Configuration is mostly dynamically maintained with various commands in the UI.
@@ -148,8 +190,10 @@ Logs, traces and per-project most recently used file lists are stored in the
 standard user application state directory. Usually `~/.local/state/flow` on
 Linux and %APPDATA%\Roaming\flow on Windows.
 
+
 # Key bindings and commands
 
+Press `F1` to view the online manual.
 Press `F4` to switch the current keybinding mode. (flow, vim, emacs, etc.)
 Press `ctrl+shift+p` or `alt+x` to show the command palette.
 Press `ctrl+F2` to see a full list of all current keybindings and commands.
@@ -158,6 +202,7 @@ Run the `Edit keybindings` command to save the current keybinding mode to a
 file and open it for editing. Save your customized keybinds under a new name
 in the same directory to create an entirely new keybinding mode. Keybinding
 changes will take effect on restart.
+
 
 # Terminal configuration
 
@@ -172,36 +217,6 @@ kitty_mod ctrl+alt
 
 For Ghostty each conflicting binding has to be reconfigured individually.
 
-# Features
-- fast TUI interface. no user interaction should take longer than one frame
-  (6ms) (even debug builds)
-- tree sitter based syntax highlighting
-- linting (diagnostics) and code navigation (goto definition) via language
-  server
-- multi cursor editing support
-- first class mouse support (yes, even with a scrollbar that actually works
-  properly!) (Windows included)
-- vscode compatible keybindings (thanks to kitty keyboard protocol)
-- vim compatible keybindings (the standard vimtutor bindings, more on request)
-- user configurable keybindings
-- excellent unicode support including 2027 mode
-- hybrid rope/piece-table buffer for fast loading, saving and editing with
-  hundreds of cursors
-- theme support (compatible with vscode themes via the flow-themes project)
-- infinite undo/redo (at least until you run out of ram)
-- find in files
-- command palette
-- stuff I've forgotten to mention...
-
-# Features in progress (aka, the road to 1.0)
-- completion UI/LSP support for completion
-- persistent undo/redo
-- file watcher for auto reload
-
-# Features planned for the future
-- multi tty support (shared editor sessions across multiple ttys)
-- multi user editing
-- multi host editing
 
 # Community
 
