@@ -1,4 +1,3 @@
 /.cache/
-src/.cache
 /zig-out/
 /.zig-cache/
