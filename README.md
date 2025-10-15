@@ -28,7 +28,8 @@ and is my daily driver for almost everything.
   **thousands of cursors**
 - Infinite **undo** (at least until you run out of ram)
 - Full **unicode** support, including support for the kitty text sizing protocol
-- Plenty of **themes** included and support for vscode themes via the flow-themes project
+- Plenty of **themes** included and support for vscode themes via the
+  flow-themes project
 - Runs on **Linux, FreeBSD, MacOS, Windows and Android** (under termux) with
   easy **cross-compilation** to all supported targets
 
@@ -170,13 +171,13 @@ See `flow --help` for the full list of command line options.
 A basic user manual is available inside flow. You can open it with the
 `Open help` command (F1).
 
-It is also available in the website [documentation]{https://flow-control.dev/docs/}
+It is also available in the website [documentation](https://flow-control.dev/docs/)
 section.
 
 ## Development Resources
 
-Additional developer resources can be found on the Flow Control website at
-[flow-control.dev/docs](https://flow-control.dev/docs/).
+Additional [developer](https://flow-control.dev/docs/#resources) resources can
+be found on the Flow Control website at.
 
 There is also an AI generated developer guide at
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/neurocyte/flow).
