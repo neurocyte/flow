@@ -17,29 +17,9 @@ and is my daily driver for most things coding related.
 
 # Download / Install
 
-Binary release builds are found here:[neurocyte/flow/releases](https://github.com/neurocyte/flow/releases/latest)
-
-Fetch and install the latest release to `/usr/local/bin` with the installation
-helper script:
-
-```shell
-curl -fsSL https://flow-control.dev/install | sh
-```
-
-Nightly binary builds are found here: [neurocyte/flow-nightly/releases](https://github.com/neurocyte/flow-nightly/releases/latest)
-
-Install latest nightly build and (optionally) specify the installation
-destination:
-
-```shell
-curl -fsSL https://flow-control.dev/install | sh -s -- --nightly --dest ~/.local/bin
-```
-
-See all avalable options for the installer script:
-
-```shell
-curl -fsSL https://flow-control.dev/install | sh -s -- --help
-```
+There is an [installation guide](https://flow-control.dev/installation) on the
+main website, and source, release and nightly build binary
+[downloads](https://flow-control.dev/downloads).
 
 Or check your favorite local system package repository.
 
