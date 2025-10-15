@@ -1632,6 +1632,27 @@ pub const Editor = struct {
         return self.primary.col - self.view.col;
     }
 
+    pub fn cursel_length(root: Buffer.Root, cursel_: CurSel, metrics: Buffer.Metrics) usize {
+        // Includes newlines count
+        var length: usize = 0;
+        var cursel = cursel_;
+        cursel.check_selection(root, metrics);
+        if (cursel.selection) |*sel| {
+            sel.normalize();
+            if (sel.begin.row == sel.end.row) {
+                length = sel.end.col - sel.begin.col;
+            } else {
+                length = (sel.end.row - sel.begin.row) - sel.begin.col + sel.end.col;
+                var row = sel.begin.row;
+                while (row < sel.end.row) {
+                    length += root.line_width(row, metrics) catch 0;
+                    row += 1;
+                }
+            }
+        }
+        return length;
+    }
+
     fn update_event(self: *Self) !void {
         const primary = self.get_primary();
         const dirty = if (self.buffer) |buf| buf.is_dirty() else false;
@@ -3269,6 +3290,66 @@ pub const Editor = struct {
             move_cursor_right(root, &next, metrics) catch return error.Stop;
         }
     }
+
+    pub fn replace_with_character_helix(self: *Self, ctx: Context) Result {
+        // A single character is replaced, aswell as multiple selections
+        var text_: []const u8 = undefined;
+        if (!(ctx.args.match(.{tp.extract(&text_)}) catch return error.Stop))
+            return error.Stop;
+
+        const b = try self.buf_for_update();
+        var root = b.root;
+
+        var repetitions: std.Io.Writer.Allocating = .init(self.allocator);
+        defer repetitions.deinit();
+        const writer = &repetitions.writer;
+        var slot_capacity: usize = 0;
+        var bytes: usize = 0;
+        var cursel_idx = self.cursels.items.len - 1;
+        while (true) {
+            const cursel_ = &self.cursels.items[cursel_idx];
+            if (cursel_.*) |*cursel| {
+                cursel.check_selection(root, self.metrics);
+                var begin: Cursor = undefined;
+                var slots: usize = undefined;
+                if (cursel.selection) |*sel| {
+                    sel.normalize();
+                    begin = sel.*.begin;
+                    slots = Editor.cursel_length(root, cursel.*, self.metrics);
+                } else {
+                    // Select current character to replace it
+                    begin = cursel.cursor;
+                    const sel_ = cursel.to_selection_inclusive(root, self.metrics) catch null;
+                    if (sel_) |sel| {
+                        cursel.selection = sel;
+                        cursel.cursor = sel.end;
+                    } //when the buffer is empty, we add the replacement char
+                    slots = 1;
+                }
+                cursel.check_selection(root, self.metrics);
+
+                self.logger.print("selection length: {d}", .{slots});
+                if (slot_capacity < slots) {
+                    for (slot_capacity..slots) |_| {
+                        try writer.writeAll(text_);
+                    }
+                    slot_capacity = slots;
+                }
+                const text = repetitions.written()[0 .. slots * text_.len];
+                bytes += text.len;
+                root = try self.insert(root, cursel, text, self.allocator);
+                cursel.selection = Selection{ .begin = begin, .end = cursel.cursor };
+            }
+            if (cursel_idx == 0) break;
+            cursel_idx -= 1;
+        }
+        self.logger.print("pasted: {d} bytes", .{bytes});
+
+        try self.update_buf(root);
+        self.clamp();
+        self.need_render();
+    }
+    pub const replace_with_character_helix_meta: Meta = .{ .description = "Replace with character" };
 
     pub fn move_to_char_left(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
