@@ -72,7 +72,23 @@ zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix zig-out/aa
 
 When cross-compiling zig will build a binary with generic CPU support.
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/neurocyte/flow)
+
+# Documentation
+
+## User manual
+
+A basic user manual is available inside flow. You can open it with the
+`Open help` command (F1).
+
+## Development Resources
+
+Also, additional developer resources can be found on the Flow Control website at
+[flow-control.dev/docs](https://flow-control.dev/docs/).
+
+There is also an AI generated developer guide at
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/neurocyte/flow).
+Accuracy may vary. Check details against the referenced source code.
+
 
 # Running Flow Control
 
