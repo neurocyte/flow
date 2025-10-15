@@ -5,19 +5,22 @@ and is my daily driver for most things coding related.
 
 [![Announcement](https://img.youtube.com/vi/iwPg3sIxMGw/maxresdefault.jpg)](https://www.youtube.com/watch?v=iwPg3sIxMGw)
 
+
 # Requirements
-- A modern terminal with 24bit color and, ideally, kitty keyboard protocol support. Kitty,
-    Foot and Ghostty are the only recommended terminals at this time. Most other terminals
-    will work, but with reduced functionality.
+- A modern terminal with 24bit color and, ideally, kitty keyboard protocol
+  support. Kitty, Foot and Ghostty are the only recommended terminals at this
+  time. Most other terminals will work, but with reduced functionality.
 - NerdFont support. Either via terminal font fallback or a patched font.
 - Linux, MacOS, Windows, Android (Termux) or FreeBSD.
 - A UTF-8 locale
 
+
 # Download / Install
 
-Binary release builds are found here: [neurocyte/flow/releases](https://github.com/neurocyte/flow/releases/latest)
+Binary release builds are found here:[neurocyte/flow/releases](https://github.com/neurocyte/flow/releases/latest)
 
-Fetch and install the latest release to `/usr/local/bin` with the installation helper script:
+Fetch and install the latest release to `/usr/local/bin` with the installation
+helper script:
 
 ```shell
 curl -fsSL https://flow-control.dev/install | sh
@@ -25,7 +28,8 @@ curl -fsSL https://flow-control.dev/install | sh
 
 Nightly binary builds are found here: [neurocyte/flow-nightly/releases](https://github.com/neurocyte/flow-nightly/releases/latest)
 
-Install latest nightly build and (optionally) specify the installation destination:
+Install latest nightly build and (optionally) specify the installation
+destination:
 
 ```shell
 curl -fsSL https://flow-control.dev/install | sh -s -- --nightly --dest ~/.local/bin
@@ -41,6 +45,7 @@ Or check your favorite local system package repository.
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/flow-control.svg)](https://repology.org/project/flow-control/versions)
 
+
 # Building
 
 Make sure your system meets the requirements listed above.
@@ -51,7 +56,9 @@ Flow builds with zig 0.15.1 at this time. Build with:
 zig build -Doptimize=ReleaseSafe
 ```
 
-Zig will by default build a binary optimized for your specific CPU. If you get illegal instruction errors add `-Dcpu=baseline` to the build command to produce a binary with generic CPU support.
+Zig will by default build a binary optimized for your specific CPU. If you get
+illegal instruction errors add `-Dcpu=baseline` to the build command to produce
+a binary with generic CPU support.
 
 
 Thanks to Zig you may also cross-compile from any host to pretty much any
@@ -87,8 +94,8 @@ Or if you prefer, let zig install it in your home directory:
 zig build -Doptimize=ReleaseSafe --prefix ~/.local
 ```
 
-Flow Control is a single statically linked binary. No further runtime files are required.
-You may install it on another system by simply copying the binary.
+Flow Control is a single statically linked binary. No further runtime files are
+required. You may install it on another system by simply copying the binary.
 
 ```shell
 scp zig-out/bin/flow root@otherhost:/usr/local/bin
@@ -128,15 +135,18 @@ See `flow --help` for the full list of command line options.
 # Configuration
 
 Configuration is mostly dynamically maintained with various commands in the UI.
-It is stored under the standard user configuration path. Usually `~/.config/flow`
-on Linux. %APPDATA%\Roaming\flow on Windows. Somewhere magical on MacOS.
+It is stored under the standard user configuration path. Usually
+`~/.config/flow` on Linux. %APPDATA%\Roaming\flow on Windows. Somewhere magical
+on MacOS.
 
 There are commands to open the various configuration files, so you don't have to
-manually find them. Look for commands starting with `Edit` in the command palette.
+manually find them. Look for commands starting with `Edit` in the command
+palette.
 
-File types may be configured with the `Edit file type configuration` command. You
-can also create a new file type by adding a new `.conf` file to the `file_type`
-directory. Have a look at an existing file type to see what options are available.
+File types may be configured with the `Edit file type configuration` command.
+You can also create a new file type by adding a new `.conf` file to the
+`file_type` directory. Have a look at an existing file type to see what options
+are available.
 
 Logs, traces and per-project most recently used file lists are stored in the
 standard user application state directory. Usually `~/.local/state/flow` on
@@ -167,16 +177,20 @@ kitty_mod ctrl+alt
 For Ghostty each conflicting binding has to be reconfigured individually.
 
 # Features
-- fast TUI interface. no user interaction should take longer than one frame (6ms) (even debug builds)
+- fast TUI interface. no user interaction should take longer than one frame
+  (6ms) (even debug builds)
 - tree sitter based syntax highlighting
-- linting (diagnostics) and code navigation (goto definition) via language server
+- linting (diagnostics) and code navigation (goto definition) via language
+  server
 - multi cursor editing support
-- first class mouse support (yes, even with a scrollbar that actually works properly!) (Windows included)
+- first class mouse support (yes, even with a scrollbar that actually works
+  properly!) (Windows included)
 - vscode compatible keybindings (thanks to kitty keyboard protocol)
 - vim compatible keybindings (the standard vimtutor bindings, more on request)
 - user configurable keybindings
 - excellent unicode support including 2027 mode
-- hybrid rope/piece-table buffer for fast loading, saving and editing with hundreds of cursors
+- hybrid rope/piece-table buffer for fast loading, saving and editing with
+  hundreds of cursors
 - theme support (compatible with vscode themes via the flow-themes project)
 - infinite undo/redo (at least until you run out of ram)
 - find in files
@@ -197,5 +211,5 @@ For Ghostty each conflicting binding has to be reconfigured individually.
 
 ![Discord](https://img.shields.io/discord/1214308467553341470)
 
-Join our [Discord](https://discord.com/invite/4wvteUPphx) server or use the discussions section here on GitHub
-to meet with other Flow users!
+Join our [Discord](https://discord.com/invite/4wvteUPphx) server or use the
+discussions section here on GitHub to meet with other Flow users!
