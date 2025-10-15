@@ -431,6 +431,24 @@ const cmds_ = struct {
         ed.need_render();
     }
     pub const paste_after_meta: Meta = .{ .description = "Paste from clipboard after selection" };
+
+    pub fn goto_last_accessed_file(_: *void, ctx: Ctx) Result {
+        const logger = log.logger("helix-mode");
+        defer logger.deinit();
+
+        _ = ctx;
+
+        const bm = tui.get_buffer_manager() orelse return;
+
+        const most_recently_used = bm.list_most_recently_used(bm.allocator) catch |e| {
+            logger.err("list most recently used buffers", e);
+            return;
+        };
+        defer bm.allocator.free(most_recently_used);
+        if (most_recently_used.len < 2) return;
+        tp.self_pid().send(.{ "cmd", "navigate", .{ .file = most_recently_used[1].file_path_buf.items } }) catch |e| logger.err("send cmd navigate", e);
+    }
+    pub const goto_last_accessed_file_meta: Meta = .{ .description = "Goto the last accessed file" };
 };
 
 fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
