@@ -128,7 +128,7 @@
 
 
             ["G", "goto_line"],
-            ["g g", "move_buffer_begin"],
+            ["g g", "goto_line_helix"],
             ["g e", "move_buffer_end"],
             ["g f", "goto_file"],
             ["g h", "move_begin"],
@@ -426,7 +426,7 @@
 
             ["v", "enter_mode", "normal"],
 
-            ["g g", "move_buffer_begin"],
+            ["g g", "goto_line_helix"],
             ["g e", "move_buffer_end"],
             ["g f", "goto_file"],
             ["g h", "move_begin"],

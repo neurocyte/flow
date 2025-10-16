@@ -196,6 +196,22 @@ const cmds_ = struct {
     }
     pub const save_selection_meta: Meta = .{ .description = "Save current selection to location history" };
 
+    pub fn goto_line_helix(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+
+        try ed.send_editor_jump_source();
+        var line: usize = 0;
+        const prefix_line: bool = ctx.args.match(.{tp.extract(&line)}) catch false;
+        if (!prefix_line) return try ed.move_buffer_begin(ctx);
+        const root = ed.buf_root() catch return;
+        const primary = ed.get_primary();
+        try primary.cursor.move_to(root, @intCast(if (line < 1) 0 else line - 1), primary.cursor.col, ed.metrics);
+        ed.clamp();
+        try ed.send_editor_jump_destination();
+    }
+    pub const goto_line_helix_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn extend_line_below(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
