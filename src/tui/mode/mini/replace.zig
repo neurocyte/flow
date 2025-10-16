@@ -19,7 +19,7 @@ commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
     var operation_command: []const u8 = undefined;
-    _ = ctx.args.match(.{tp.extract(&operation_command)}) catch return error.InvalidMoveToCharArgument;
+    _ = ctx.args.match(.{tp.extract(&operation_command)}) catch return error.InvalidReplaceArgument;
 
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -61,11 +61,11 @@ const cmds = struct {
     pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
         var code_point: u32 = 0;
         if (!try ctx.args.match(.{tp.extract(&code_point)}))
-            return error.InvalidMoveToCharInsertCodePointArgument;
+            return error.InvalidRepaceInsertCodePointArgument;
 
         log.logger("replace").print("replacement '{d}'", .{code_point});
         var buf: [6]u8 = undefined;
-        const bytes = input.ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidMoveToCharCodePoint;
+        const bytes = input.ucs32_to_utf8(&[_]u32{code_point}, &buf) catch return error.InvalidReplaceCodePoint;
         log.logger("replace").print("replacement '{s}'", .{buf[0..bytes]});
         return self.execute_operation(ctx);
     }
@@ -74,7 +74,7 @@ const cmds = struct {
     pub fn mini_mode_insert_bytes(self: *Self, ctx: Ctx) Result {
         var bytes: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&bytes)}))
-            return error.InvalidMoveToCharInsertBytesArgument;
+            return error.InvalidReplaceInsertBytesArgument;
         log.logger("replace").print("replacement '{s}'", .{bytes});
         return self.execute_operation(ctx);
     }

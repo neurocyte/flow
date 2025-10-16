@@ -167,6 +167,21 @@ pub const CurSel = struct {
         };
     }
 
+    pub fn select_char_if_no_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !bool {
+        if (self.selection) |*sel_| {
+            const sel: *Selection = sel_;
+            if (sel.*.empty()) {
+                sel.*.begin = .{ .row = self.cursor.row, .col = self.cursor.col + 1, .target = self.cursor.target + 1 };
+                return true;
+            }
+            return false;
+        } else {
+            const sel = try self.enable_selection(root, metrics);
+            sel.begin = .{ .row = self.cursor.row, .col = self.cursor.col + 1, .target = self.cursor.target + 1 };
+            return true;
+        }
+    }
+
     fn expand_selection_to_line(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
         const sel = try self.enable_selection(root, metrics);
         sel.normalize();
@@ -3306,25 +3321,20 @@ pub const Editor = struct {
         var slot_capacity: usize = 0;
         var bytes: usize = 0;
         var cursel_idx = self.cursels.items.len - 1;
+        var single_char_without_selection: bool = false;
+        var repetitions_buffer_size: usize = 0;
+
         while (true) {
             const cursel_ = &self.cursels.items[cursel_idx];
             if (cursel_.*) |*cursel| {
                 cursel.check_selection(root, self.metrics);
                 var begin: Cursor = undefined;
                 var slots: usize = undefined;
+                single_char_without_selection = try cursel.select_char_if_no_selection(root, self.metrics);
                 if (cursel.selection) |*sel| {
                     sel.normalize();
                     begin = sel.*.begin;
                     slots = Editor.cursel_length(root, cursel.*, self.metrics);
-                } else {
-                    // Select current character to replace it
-                    begin = cursel.cursor;
-                    const sel_ = cursel.to_selection_inclusive(root, self.metrics) catch null;
-                    if (sel_) |sel| {
-                        cursel.selection = sel;
-                        cursel.cursor = sel.end;
-                    } //when the buffer is empty, we add the replacement char
-                    slots = 1;
                 }
                 cursel.check_selection(root, self.metrics);
 
@@ -3335,16 +3345,22 @@ pub const Editor = struct {
                     }
                     slot_capacity = slots;
                 }
-                const text = repetitions.written()[0 .. slots * text_.len];
+                repetitions_buffer_size = slots * text_.len;
+                const text = repetitions.written()[0..repetitions_buffer_size];
                 bytes += text.len;
                 root = try self.insert(root, cursel, text, self.allocator);
-                cursel.selection = Selection{ .begin = begin, .end = cursel.cursor };
+
+                if (single_char_without_selection) {
+                    try cursel.cursor.move_left(root, self.metrics);
+                    cursel.disable_selection(root, self.metrics);
+                } else {
+                    cursel.selection = Selection{ .begin = begin, .end = cursel.cursor };
+                }
             }
             if (cursel_idx == 0) break;
             cursel_idx -= 1;
         }
         self.logger.print("pasted: {d} bytes", .{bytes});
-
         try self.update_buf(root);
         self.clamp();
         self.need_render();
