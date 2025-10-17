@@ -1888,7 +1888,13 @@ pub const Editor = struct {
     }
 
     fn with_cursor_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
-        try move(root, &cursel.cursor, ctx, metrics);
+        var test_cursor: Cursor = cursel.*.cursor;
+        move(root, &test_cursor, ctx, metrics) catch return;
+
+        // if move was successful, we use the moved cursor
+        cursel.*.cursor.row = test_cursor.row;
+        cursel.*.cursor.col = test_cursor.col;
+        cursel.*.cursor.target = test_cursor.target;
     }
 
     fn with_cursors_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
@@ -1951,8 +1957,13 @@ pub const Editor = struct {
 
     fn with_selection_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         const sel = try cursel.enable_selection(root, metrics);
-        try move(root, &sel.end, ctx, metrics);
-        cursel.cursor = sel.end;
+        var test_cursor: Cursor = sel.end;
+        move(root, &test_cursor, ctx, metrics) catch return;
+
+        // if move was successful, we use the moved cursor
+        cursel.cursor.row = test_cursor.row;
+        cursel.cursor.col = test_cursor.col;
+        cursel.cursor.target = test_cursor.target;
         cursel.check_selection(root, metrics);
     }
 
@@ -3213,9 +3224,7 @@ pub const Editor = struct {
             const curr_egc, _, _ = root.egc_at(cursor.row, cursor.col, metrics) catch return error.Stop;
             if (std.mem.eql(u8, curr_egc, egc))
                 return;
-            if (is_eol_left(root, cursor, metrics))
-                return;
-            move_cursor_left(root, cursor, metrics) catch return error.Stop;
+            try move_cursor_left(root, cursor, metrics);
         }
     }
 
@@ -3228,12 +3237,11 @@ pub const Editor = struct {
             const curr_egc, _, _ = root.egc_at(cursor.row, cursor.col, metrics) catch return error.Stop;
             if (std.mem.eql(u8, curr_egc, egc))
                 return;
-            if (is_eol_right(root, cursor, metrics))
-                return;
-            move_cursor_right(root, cursor, metrics) catch return error.Stop;
+            try move_cursor_right(root, cursor, metrics);
         }
     }
 
+    /// Moves cursor to the left until egc(retrieved with theaspian) is found, else raises Stop
     fn move_cursor_till_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
@@ -3245,13 +3253,12 @@ pub const Editor = struct {
             const prev_egc, _, _ = root.egc_at(prev.row, prev.col, metrics) catch return error.Stop;
             if (std.mem.eql(u8, prev_egc, egc))
                 return;
-            if (is_eol_left(root, cursor, metrics))
-                return;
-            move_cursor_left(root, cursor, metrics) catch return error.Stop;
-            move_cursor_left(root, &prev, metrics) catch return error.Stop;
+            try move_cursor_left(root, cursor, metrics);
+            try move_cursor_left(root, &prev, metrics);
         }
     }
 
+    /// Moves cursor to the right until egc(retrieved with theaspian) is found, else raises Stop
     pub fn move_cursor_till_char_right(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
@@ -3263,10 +3270,8 @@ pub const Editor = struct {
             const next_egc, _, _ = root.egc_at(next.row, next.col, metrics) catch return error.Stop;
             if (std.mem.eql(u8, next_egc, egc))
                 return;
-            if (is_eol_right(root, cursor, metrics))
-                return;
-            move_cursor_right(root, cursor, metrics) catch return error.Stop;
-            move_cursor_right(root, &next, metrics) catch return error.Stop;
+            try move_cursor_right(root, cursor, metrics);
+            try move_cursor_right(root, &next, metrics);
         }
     }
 
