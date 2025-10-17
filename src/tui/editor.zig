@@ -1897,6 +1897,12 @@ pub const Editor = struct {
         cursel.*.cursor.target = test_cursor.target;
     }
 
+    /// Cursor can be moved and the selection can be modified, but the contents of the
+    /// selection are not modified
+    pub fn with_cursel_const_arg(root: Buffer.Root, move: cursel_operator_const_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
+        try move(root, cursel, ctx, metrics);
+    }
+
     fn with_cursors_const_arg(self: *Self, root: Buffer.Root, move: cursor_operator_const_arg, ctx: Context) error{Stop}!void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             cursel.disable_selection(root, self.metrics);
@@ -1971,6 +1977,18 @@ pub const Editor = struct {
         var someone_stopped = false;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             with_selection_const_arg(root, move, cursel, ctx, self.metrics) catch {
+                someone_stopped = true;
+            };
+        self.collapse_cursors();
+        return if (someone_stopped) error.Stop else {};
+    }
+
+    /// For each cursel, the cursor can be moved and the selection can be modified, but
+    /// the contents of the selection are not modified
+    pub fn with_cursels_const_arg(self: *Self, root: Buffer.Root, move: cursel_operator_const_arg, ctx: Context) error{Stop}!void {
+        var someone_stopped = false;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
+            with_cursel_const_arg(root, move, cursel, ctx, self.metrics) catch {
                 someone_stopped = true;
             };
         self.collapse_cursors();
@@ -2091,6 +2109,7 @@ pub const Editor = struct {
     const cursor_predicate = *const fn (root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) bool;
     const cursor_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void;
     const cursor_operator_const_arg = *const fn (root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void;
+    pub const cursel_operator_const_arg = *const fn (root: Buffer.Root, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void;
     const cursor_view_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) error{Stop}!void;
     const cursel_operator_const = *const fn (root: Buffer.Root, cursel: *CurSel) error{Stop}!void;
     const cursor_operator = *const fn (root: Buffer.Root, cursor: *Cursor, allocator: Allocator) error{Stop}!Buffer.Root;

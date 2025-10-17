@@ -373,20 +373,9 @@ const cmds_ = struct {
     pub const select_left_helix_meta: Meta = .{ .description = "Select left", .arguments = &.{.integer} };
 
     pub fn select_to_char_right_helix(_: *void, ctx: Ctx) Result {
-        const mv = tui.mainview() orelse return;
-        const ed = mv.get_active_editor() orelse return;
-        const root = try ed.buf_root();
-
-        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const sel = try cursel.enable_selection(root, ed.metrics);
-            try Editor.move_cursor_to_char_right(root, &sel.end, ctx, ed.metrics);
-            try Editor.move_cursor_right(root, &sel.end, ed.metrics);
-            cursel.cursor = sel.end;
-            cursel.check_selection(root, ed.metrics);
-        };
-        ed.clamp();
+        try helix_with_selections_const_arg(ctx, &select_cursel_to_char_right_helix);
     }
-    pub const select_to_char_right_helix_meta: Meta = .{ .description = "Move to char right" };
+    pub const select_to_char_right_helix_meta: Meta = .{ .description = "Select to char right" };
 
     pub fn copy_helix(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
@@ -662,6 +651,25 @@ fn is_cursel_from_extend_line_below(cursel: CurSel) bool {
     return false;
 }
 
+fn helix_with_selections_const_arg(ctx: command.Context, action: Editor.cursel_operator_const_arg) command.Result {
+    const mv = tui.mainview() orelse return;
+    const ed = mv.get_active_editor() orelse return;
+    const root = try ed.buf_root();
+    try ed.with_cursels_const_arg(root, action, ctx);
+    ed.clamp();
+}
+
+fn select_cursel_to_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var moving_cursor: Cursor = cursel.*.cursor;
+    const begin = cursel.*.cursor;
+    try Editor.move_cursor_to_char_right(root, &moving_cursor, ctx, metrics);
+    try Editor.move_cursor_right(root, &moving_cursor, metrics);
+    moving_cursor.target = moving_cursor.col;
+    const sel = try cursel.enable_selection(root, metrics);
+    sel.begin = begin;
+    sel.end = moving_cursor;
+    cursel.cursor = moving_cursor;
+}
 const private = @This();
 // exports for unittests
 pub const test_internal = struct {
