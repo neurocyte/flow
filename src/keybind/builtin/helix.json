@@ -59,12 +59,12 @@
             ["alt+|", "shell_pipe_to"],
             ["alt+!", "shell_append_output"],
 
-            ["F", "move_to_char", "move_to_char_left"],
-            ["T", "move_to_char", "move_till_char_left"],
+            ["F", "move_to_char", "select_to_char_left_helix"],
+            ["T", "move_to_char", "select_till_char_left_helix"],
             ["W", "move_next_long_word_start"],
             ["B", "move_prev_long_word_start"],
             ["E", "move_next_long_word_end"],
-            ["t", "move_to_char", "move_till_char_right"],
+            ["t", "move_to_char", "select_till_char_right_helix"],
             ["f", "move_to_char", "select_to_char_right_helix"],
 
             ["I", ["enter_mode", "insert"], ["smart_move_begin"]],
@@ -340,13 +340,13 @@
 
             ["~", "switch_case"],
 
-            ["F", "move_to_char", "select_to_char_left_vim"],
-            ["T", "move_to_char", "move_till_char_left"],
+            ["F", "move_to_char", "extend_to_char_left_helix"],
+            ["T", "move_to_char", "extend_till_char_left_helix"],
             ["W", "extend_next_long_word_start"],
             ["B", "extend_prev_long_word_start"],
             ["E", "extend_next_long_word_end"],
-            ["t", "move_to_char", "move_till_char_right"],
-            ["f", "move_to_char", "select_to_char_right_helix"],
+            ["t", "move_to_char", "extend_till_char_right_helix"],
+            ["f", "move_to_char", "extend_to_char_right_helix"],
 
             ["G", "move_buffer_end_or_count_line"],
 

@@ -3234,7 +3234,7 @@ pub const Editor = struct {
     }
     pub const move_word_right_end_vim_meta: Meta = .{ .description = "Move cursor right by end of word (vim)", .arguments = &.{.integer} };
 
-    fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
+    pub fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
             return error.Stop;
@@ -3261,7 +3261,7 @@ pub const Editor = struct {
     }
 
     /// Moves cursor to the left until egc(retrieved with theaspian) is found, else raises Stop
-    fn move_cursor_till_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
+    pub fn move_cursor_till_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
             return error.Stop;
