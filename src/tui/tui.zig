@@ -763,23 +763,20 @@ fn refresh_input_mode(self: *Self) command.Result {
 }
 
 fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }) !void {
-    const old = switch (self.color_scheme) {
-        .dark => self.dark_parsed_theme,
-        .light => self.light_parsed_theme,
-    };
-    defer if (old) |p| p.deinit();
     const theme_, const parsed_theme = get_theme_by_name(self.allocator, name) orelse {
         self.logger.print("theme not found: {s}", .{name});
         return;
     };
     switch (self.color_scheme) {
         .dark => {
-            self.dark_theme = theme_;
+            if (self.dark_parsed_theme) |p| p.deinit();
             self.dark_parsed_theme = parsed_theme;
+            self.dark_theme = theme_;
         },
         .light => {
-            self.light_theme = theme_;
+            if (self.light_parsed_theme) |p| p.deinit();
             self.light_parsed_theme = parsed_theme;
+            self.light_theme = theme_;
         },
     }
     self.set_terminal_style(&theme_);
