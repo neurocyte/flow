@@ -21,7 +21,7 @@ pending: std.ArrayListUnmanaged(File) = .empty,
 longest_file_path: usize = 0,
 open_time: i64,
 language_servers: std.StringHashMap(*const LSP),
-file_language_server: std.StringHashMap(*const LSP),
+file_language_server_name: std.StringHashMap([]const u8),
 tasks: std.ArrayList(Task),
 persistent: bool = false,
 logger: log.Logger,
@@ -79,7 +79,7 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
         .name = try allocator.dupe(u8, name),
         .open_time = std.time.milliTimestamp(),
         .language_servers = std.StringHashMap(*const LSP).init(allocator),
-        .file_language_server = std.StringHashMap(*const LSP).init(allocator),
+        .file_language_server_name = std.StringHashMap([]const u8).init(allocator),
         .tasks = .empty,
         .logger = log.logger("project"),
         .logger_lsp = log.logger("lsp"),
@@ -91,9 +91,10 @@ pub fn deinit(self: *Self) void {
     if (self.walker) |pid| pid.send(.{"stop"}) catch {};
     if (self.workspace) |p| self.allocator.free(p);
     if (self.branch) |p| self.allocator.free(p);
-    var i_ = self.file_language_server.iterator();
+    var i_ = self.file_language_server_name.iterator();
     while (i_.next()) |p| {
         self.allocator.free(p.key_ptr.*);
+        self.allocator.free(p.value_ptr.*);
     }
     var i = self.language_servers.iterator();
     while (i.next()) |p| {
@@ -274,15 +275,19 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     }
 }
 
-fn get_language_server_instance(self: *Self, language_server: []const u8) StartLspError!*const LSP {
+fn get_existing_language_server(self: *Self, language_server: []const u8) ?*const LSP {
     if (self.language_servers.get(language_server)) |lsp| {
-        if (lsp.pid.expired()) {
-            _ = self.language_servers.remove(language_server);
-            lsp.deinit();
-        } else {
-            return lsp;
+        if (!lsp.pid.expired()) return lsp;
+        if (self.language_servers.fetchRemove(language_server)) |kv| {
+            self.allocator.free(kv.key);
+            kv.value.deinit();
         }
     }
+    return null;
+}
+
+fn get_language_server_instance(self: *Self, language_server: []const u8) StartLspError!*const LSP {
+    if (self.get_existing_language_server(language_server)) |lsp| return lsp;
     const lsp = try LSP.open(self.allocator, self.name, .{ .buf = language_server });
     errdefer lsp.deinit();
     const uri = try self.make_URI(null);
@@ -290,29 +295,25 @@ fn get_language_server_instance(self: *Self, language_server: []const u8) StartL
     const basename_begin = std.mem.lastIndexOfScalar(u8, self.name, std.fs.path.sep);
     const basename = if (basename_begin) |begin| self.name[begin + 1 ..] else self.name;
 
+    errdefer lsp.deinit();
     try self.send_lsp_init_request(lsp, self.name, basename, uri, language_server);
     try self.language_servers.put(try self.allocator.dupe(u8, language_server), lsp);
     return lsp;
 }
 
 fn get_or_start_language_server(self: *Self, file_path: []const u8, language_server: []const u8) StartLspError!*const LSP {
-    const lsp = self.file_language_server.get(file_path) orelse blk: {
-        const new_lsp = try self.get_language_server_instance(language_server);
-        const key = try self.allocator.dupe(u8, file_path);
-        try self.file_language_server.put(key, new_lsp);
-        break :blk new_lsp;
-    };
+    if (self.file_language_server_name.get(file_path)) |lsp_name|
+        return self.get_existing_language_server(lsp_name) orelse error.LspFailed;
+    const lsp = try self.get_language_server_instance(language_server);
+    const key = try self.allocator.dupe(u8, file_path);
+    const value = try self.allocator.dupe(u8, language_server);
+    try self.file_language_server_name.put(key, value);
     return lsp;
 }
 
 fn get_language_server(self: *Self, file_path: []const u8) LspError!*const LSP {
-    const lsp = self.file_language_server.get(file_path) orelse return error.NoLsp;
-    if (lsp.pid.expired()) {
-        if (self.file_language_server.fetchRemove(file_path)) |kv|
-            self.allocator.free(kv.key);
-        return error.LspFailed;
-    }
-    return lsp;
+    const lsp_name = self.file_language_server_name.get(file_path) orelse return error.NoLsp;
+    return self.get_existing_language_server(lsp_name) orelse error.LspFailed;
 }
 
 fn make_URI(self: *Self, file_path: ?[]const u8) LspError![]const u8 {
