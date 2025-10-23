@@ -174,6 +174,105 @@ pub fn status(context_: usize) Error!void {
     }.result, exit_null(tag));
 }
 
+pub fn new_or_modified_files(context_: usize) Error!void {
+    const tag = @src().fn_name;
+    try git_err(context_, .{
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v2",
+        "--null",
+    }, struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            var it_ = std.mem.splitScalar(u8, output, 0);
+            var counter: u8 = 0;
+
+            while (it_.next()) |line| {
+                var it = std.mem.splitScalar(u8, line, ' ');
+                const rec_type = if (it.next()) |type_tag|
+                    std.meta.stringToEnum(StatusRecordType, type_tag) orelse {
+                        if (type_tag.len > 0)
+                            std.log.debug("found {s}, it happens when a file is renamed and not modified. Check `git --no-optional-locks status --porcelain=v2`", .{type_tag});
+                        continue;
+                    }
+                else
+                    return;
+                switch (rec_type) {
+                    .@"1" => { // ordinary file: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+                        const sub = it.next() orelse return;
+                        const mH = it.next() orelse return;
+                        var vcs_status: u8 = undefined;
+                        if (sub[0] == 'A') {
+                            // New staged file is shown as new
+                            vcs_status = '+';
+                        } else if (sub[0] == 'M' or sub[1] == 'M') {
+                            if (mH[0] == 'S') {
+                                // We do not handle submodules, yet
+                                continue;
+                            }
+                            vcs_status = '~';
+                        } else {
+                            // We will not edit deleted files
+                            continue;
+                        }
+
+                        for (0..5) |_| {
+                            _ = it.next() orelse return;
+                        }
+                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        defer path.deinit(allocator);
+                        while (it.next()) |path_part| {
+                            if (path.items.len > 0) path.append(allocator, ' ') catch return;
+                            path.appendSlice(allocator, path_part) catch return;
+                        }
+
+                        parent.send(.{ module_name, context, tag, vcs_status, path.items }) catch {};
+                        counter += 1;
+                    },
+                    .@"2" => {
+                        const sub = it.next() orelse return;
+                        if (sub[0] != 'R') {
+                            continue;
+                        }
+                        // An staged file is editable
+                        // renamed: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <rn> <path>
+                        for (0..7) |_| {
+                            _ = it.next() orelse return;
+                        }
+                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        defer path.deinit(allocator);
+                        while (it.next()) |path_part| {
+                            if (path.items.len > 0) path.append(allocator, ' ') catch return;
+                            path.appendSlice(allocator, path_part) catch return;
+                        }
+                        parent.send(.{ module_name, context, tag, '+', path.items }) catch {};
+                        counter += 1;
+                    },
+                    .@"?" => { // untracked file: <path>
+                        var path: std.ArrayListUnmanaged(u8) = .empty;
+                        defer path.deinit(allocator);
+                        while (it.next()) |path_part| {
+                            if (path.items.len > 0) path.append(allocator, ' ') catch return;
+                            path.appendSlice(allocator, path_part) catch return;
+                        }
+                        parent.send(.{ module_name, context, tag, '+', path.items }) catch {};
+                        counter += 1;
+                    },
+                    else => {
+                        // Omit showing other statuses
+                    },
+                }
+            }
+            std.log.info("git: {} changed files", .{counter});
+        }
+    }.result, struct {
+        fn result(_: usize, _: tp.pid_ref, output: []const u8) void {
+            var it = std.mem.splitScalar(u8, output, '\n');
+            while (it.next()) |line| if (line.len > 0)
+                std.log.err("{s}: {s}", .{ module_name, line });
+        }
+    }.result, exit_null(tag));
+}
+
 fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
     try git_err(context_, cmd, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
