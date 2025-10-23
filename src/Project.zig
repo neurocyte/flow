@@ -197,9 +197,12 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
         }
         tp.trace(tp.channel.debug, .{ "restore_state_v1", "file", path, mtime, row, col });
         self.longest_file_path = @max(self.longest_file_path, path.len);
-        const stat = std.fs.cwd().statFile(path) catch {
-            try self.update_mru_internal(path, mtime, row, col);
-            continue;
+        const stat = std.fs.cwd().statFile(path) catch |e| switch (e) {
+            error.FileNotFound => continue,
+            else => {
+                try self.update_mru_internal(path, mtime, row, col);
+                continue;
+            },
         };
         switch (stat.kind) {
             .sym_link, .file => try self.update_mru_internal(path, mtime, row, col),
@@ -264,9 +267,12 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     }) {
         tp.trace(tp.channel.debug, .{ "restore_state_v0", "file", path, mtime, row, col });
         self.longest_file_path = @max(self.longest_file_path, path.len);
-        const stat = std.fs.cwd().statFile(path) catch {
-            try self.update_mru_internal(path, mtime, row, col);
-            continue;
+        const stat = std.fs.cwd().statFile(path) catch |e| switch (e) {
+            error.FileNotFound => continue,
+            else => {
+                try self.update_mru_internal(path, mtime, row, col);
+                continue;
+            },
         };
         switch (stat.kind) {
             .sym_link, .file => try self.update_mru_internal(path, mtime, row, col),
