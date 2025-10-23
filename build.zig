@@ -743,6 +743,7 @@ pub fn build_exe(
     tests.root_module.addImport("color", color_mod);
     tests.root_module.addImport("tui", tui_mod);
     tests.root_module.addImport("command", command_mod);
+    tests.root_module.addImport("project_manager", project_manager_mod);
     // b.installArtifact(tests);
 
     const test_run_cmd = b.addRunArtifact(tests);

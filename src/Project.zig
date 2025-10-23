@@ -11,6 +11,7 @@ const git = @import("git");
 const file_type_config = @import("file_type_config");
 const builtin = @import("builtin");
 
+const project_manager = @import("project_manager.zig");
 const LSP = @import("LSP.zig");
 const walk_tree = @import("walk_tree.zig");
 
@@ -182,12 +183,12 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
     var files = try cbor.decodeArrayHeader(&iter);
     tp.trace(tp.channel.debug, .{ "restore_state_v1", "files", files });
     while (files > 0) : (files -= 1) {
-        var path: []const u8 = undefined;
+        var path_: []const u8 = undefined;
         var mtime: i128 = undefined;
         var row: usize = undefined;
         var col: usize = undefined;
         if (!try cbor.matchValue(&iter, .{
-            tp.extract(&path),
+            tp.extract(&path_),
             tp.extract(&mtime),
             tp.extract(&row),
             tp.extract(&col),
@@ -195,7 +196,8 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
             try cbor.skipValue(&iter);
             continue;
         }
-        tp.trace(tp.channel.debug, .{ "restore_state_v1", "file", path, mtime, row, col });
+        tp.trace(tp.channel.debug, .{ "restore_state_v1", "file", path_, mtime, row, col });
+        const path = project_manager.normalize_file_path_dot_prefix(path_);
         self.longest_file_path = @max(self.longest_file_path, path.len);
         const stat = std.fs.cwd().statFile(path) catch |e| switch (e) {
             error.FileNotFound => continue,
@@ -249,7 +251,7 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     tp.trace(tp.channel.debug, .{"restore_state_v0"});
     defer self.sort_files_by_mtime();
     var name: []const u8 = undefined;
-    var path: []const u8 = undefined;
+    var path_: []const u8 = undefined;
     var mtime: i128 = undefined;
     var row: usize = undefined;
     var col: usize = undefined;
@@ -257,7 +259,7 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
     _ = cbor.matchValue(&iter, tp.extract(&name)) catch {};
     tp.trace(tp.channel.debug, .{ "restore_state_v0", "name", name });
     while (cbor.matchValue(&iter, .{
-        tp.extract(&path),
+        tp.extract(&path_),
         tp.extract(&mtime),
         tp.extract(&row),
         tp.extract(&col),
@@ -265,7 +267,8 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
         error.TooShort => return,
         else => return e,
     }) {
-        tp.trace(tp.channel.debug, .{ "restore_state_v0", "file", path, mtime, row, col });
+        tp.trace(tp.channel.debug, .{ "restore_state_v0", "file", path_, mtime, row, col });
+        const path = project_manager.normalize_file_path_dot_prefix(path_);
         self.longest_file_path = @max(self.longest_file_path, path.len);
         const stat = std.fs.cwd().statFile(path) catch |e| switch (e) {
             error.FileNotFound => continue,

@@ -825,10 +825,29 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
 
 pub fn normalize_file_path(file_path: []const u8) []const u8 {
     const project = tp.env.get().str("project");
-    if (project.len == 0) return file_path;
-    if (project.len >= file_path.len) return file_path;
-    if (std.mem.eql(u8, project, file_path[0..project.len]) and file_path[project.len] == std.fs.path.sep)
-        return file_path[project.len + 1 ..];
+    const file_path_ = if (project.len == 0)
+        file_path
+    else if (project.len >= file_path.len)
+        file_path
+    else if (std.mem.eql(u8, project, file_path[0..project.len]) and file_path[project.len] == std.fs.path.sep)
+        file_path[project.len + 1 ..]
+    else
+        file_path;
+    return normalize_file_path_dot_prefix(file_path_);
+}
+
+pub fn normalize_file_path_dot_prefix(file_path: []const u8) []const u8 {
+    if (file_path.len == 2 and file_path[0] == '.' and file_path[1] == std.fs.path.sep)
+        return file_path;
+    if (file_path.len >= 2 and file_path[0] == '.' and file_path[1] == std.fs.path.sep) {
+        const file_path_ = file_path[2..];
+        return if (file_path_.len > 1 and file_path_[0] == std.fs.path.sep)
+            normalize_file_path_dot_prefix(file_path_[1..])
+        else if (file_path_.len > 1)
+            normalize_file_path_dot_prefix(file_path_)
+        else
+            file_path_;
+    }
     return file_path;
 }
 
