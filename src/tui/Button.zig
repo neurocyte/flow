@@ -77,6 +77,8 @@ fn State(ctx_type: type) type {
         plane: Plane,
         active: bool = false,
         hover: bool = false,
+        drag_anchor: ?Widget.Pos = null,
+        drag_pos: ?Widget.Pos = null,
         opts: Options(ctx_type),
 
         const Self = @This();
@@ -120,6 +122,7 @@ fn State(ctx_type: type) type {
                 switch (btn_enum) {
                     input.mouse.BUTTON1 => {
                         self.active = true;
+                        self.drag_anchor = self.to_rel_cursor(x, y);
                         tui.need_render();
                     },
                     input.mouse.BUTTON4, input.mouse.BUTTON5 => {
@@ -131,9 +134,12 @@ fn State(ctx_type: type) type {
                 return true;
             } else if (try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
                 self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
+                self.drag_anchor = null;
+                self.drag_pos = null;
                 tui.need_render();
                 return true;
-            } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.more })) {
+            } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
+                self.drag_pos = .{ .x = x, .y = y };
                 if (self.opts.on_event) |h| {
                     self.active = false;
                     h.send(from, m) catch {};
@@ -145,6 +151,8 @@ fn State(ctx_type: type) type {
                     h.send(from, m) catch {};
                 }
                 self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
+                self.drag_anchor = null;
+                self.drag_pos = null;
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
@@ -152,6 +160,8 @@ fn State(ctx_type: type) type {
                 tui.need_render();
                 return true;
             }
+            self.drag_anchor = null;
+            self.drag_pos = null;
             return self.opts.on_receive(&self.opts.ctx, self, from, m);
         }
 
