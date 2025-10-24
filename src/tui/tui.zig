@@ -1409,6 +1409,11 @@ pub fn get_keybind_mode() ?Mode {
     return self.input_mode_ orelse self.delayed_init_input_mode;
 }
 
+pub fn set_drag_source(drag_source: *Widget) void {
+    const self = current();
+    self.drag_source = drag_source;
+}
+
 pub fn reset_drag_context() void {
     const self = current();
     self.drag_source = null;
