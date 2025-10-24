@@ -1192,6 +1192,28 @@ const cmds = struct {
         _ = try self.widgets_widget.msg(.{"move_tab_previous"});
     }
     pub const move_tab_previous_meta: Meta = .{ .description = "Move tab to previous position" };
+
+    pub fn swap_tabs(self: *Self, ctx: Ctx) Result {
+        var buffer_ref_a: usize = undefined;
+        var buffer_ref_b: usize = undefined;
+        if (!try ctx.args.match(.{
+            tp.extract(&buffer_ref_a),
+            tp.extract(&buffer_ref_b),
+        })) return error.InvalidSwapTabsArgument;
+        _ = try self.widgets_widget.msg(.{ "swap_tabs", buffer_ref_a, buffer_ref_b });
+    }
+    pub const swap_tabs_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
+
+    pub fn place_next_tab(self: *Self, ctx: Ctx) Result {
+        var pos: enum { before, after } = undefined;
+        var buffer_ref: usize = undefined;
+        if (try ctx.args.match(.{ tp.extract(&pos), tp.extract(&buffer_ref) })) {
+            _ = try self.widgets_widget.msg(.{ "place_next_tab", pos, buffer_ref });
+        } else if (try ctx.args.match(.{"atend"})) {
+            _ = try self.widgets_widget.msg(.{ "place_next_tab", "atend" });
+        } else return error.InvalidSwapTabsArgument;
+    }
+    pub const place_next_tab_meta: Meta = .{ .arguments = &.{ .string, .integer } };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {

@@ -87,11 +87,18 @@ pub const TabBar = struct {
     tabs: []TabBarTab = &[_]TabBarTab{},
     active_buffer_ref: ?usize = null,
     minimum_tabs_shown: usize,
+    place_next: Placement = .atend,
 
     tab_style: Style,
     tab_style_bufs: [][]const u8,
 
     const Self = @This();
+
+    const Placement = union(enum) {
+        atend,
+        before: usize,
+        after: usize,
+    };
 
     const TabBarTab = struct {
         buffer_ref: usize,
@@ -151,6 +158,8 @@ pub const TabBar = struct {
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         var file_path: []const u8 = undefined;
+        var buffer_ref_a: usize = undefined;
+        var buffer_ref_b: usize = undefined;
         if (try m.match(.{"next_tab"})) {
             self.select_next_tab();
         } else if (try m.match(.{"previous_tab"})) {
@@ -159,6 +168,14 @@ pub const TabBar = struct {
             self.move_tab_next();
         } else if (try m.match(.{"move_tab_previous"})) {
             self.move_tab_previous();
+        } else if (try m.match(.{ "swap_tabs", tp.extract(&buffer_ref_a), tp.extract(&buffer_ref_b) })) {
+            self.swap_tabs(buffer_ref_a, buffer_ref_b);
+        } else if (try m.match(.{ "place_next_tab", "after", tp.extract(&buffer_ref_a) })) {
+            self.place_next_tab(.after, buffer_ref_a);
+        } else if (try m.match(.{ "place_next_tab", "before", tp.extract(&buffer_ref_a) })) {
+            self.place_next_tab(.before, buffer_ref_a);
+        } else if (try m.match(.{ "place_next_tab", "atend" })) {
+            self.place_next = .atend;
         } else if (try m.match(.{ "E", "open", tp.extract(&file_path), tp.more })) {
             self.active_buffer_ref = if (buffer_manager.get_buffer_for_file(file_path)) |buffer|
                 buffer_manager.buffer_to_ref(buffer)
@@ -231,16 +248,30 @@ pub const TabBar = struct {
         outer: for (buffers) |buffer| {
             for (result.items) |result_tab| if (result_tab.buffer_ref == buffer_manager.buffer_to_ref(buffer))
                 continue :outer;
-            if (!buffer.hidden) {
-                const buffer_ref = buffer_manager.buffer_to_ref(buffer);
-                (try result.addOne(self.allocator)).* = .{
-                    .buffer_ref = buffer_ref,
-                    .widget = try Tab.create(self, buffer_ref, &self.tab_style, self.event_handler),
-                };
-            }
+            if (!buffer.hidden)
+                try self.place_new_tab(&result, buffer);
         }
 
         self.tabs = try result.toOwnedSlice(self.allocator);
+    }
+
+    fn place_new_tab(self: *Self, result: *std.ArrayListUnmanaged(TabBarTab), buffer: *Buffer) !void {
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        const buffer_ref = buffer_manager.buffer_to_ref(buffer);
+        const tab = try Tab.create(self, buffer_ref, &self.tab_style, self.event_handler);
+        const pos = switch (self.place_next) {
+            .atend => try result.addOne(self.allocator),
+            .before => |i| if (i < result.items.len)
+                &(try result.addManyAt(self.allocator, i, 1))[0]
+            else
+                try result.addOne(self.allocator),
+            .after => |i| if (i < result.items.len - 1)
+                &(try result.addManyAt(self.allocator, i + 1, 1))[0]
+            else
+                try result.addOne(self.allocator),
+        };
+        pos.* = .{ .buffer_ref = buffer_ref, .widget = tab };
+        self.place_next = .atend;
     }
 
     fn make_spacer(self: @This()) !Widget {
@@ -298,6 +329,38 @@ pub const TabBar = struct {
             self.tabs[idx - 1] = self.tabs[idx];
             self.tabs[idx] = tmp;
             break;
+        };
+    }
+
+    fn swap_tabs(self: *Self, buffer_ref_a: usize, buffer_ref_b: usize) void {
+        tp.trace(tp.channel.debug, .{ "swap_tabs", "buffers", buffer_ref_a, buffer_ref_b });
+        if (buffer_ref_a == buffer_ref_b) {
+            tp.trace(tp.channel.debug, .{ "swap_tabs", "same_buffer" });
+            return;
+        }
+        const tab_a_idx = for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == buffer_ref_a) break idx else continue else {
+            tp.trace(tp.channel.debug, .{ "swap_tabs", "not_found", "buffer_ref_a" });
+            return;
+        };
+        const tab_b_idx = for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == buffer_ref_b) break idx else continue else {
+            tp.trace(tp.channel.debug, .{ "swap_tabs", "not_found", "buffer_ref_b" });
+            return;
+        };
+        const tmp = self.tabs[tab_a_idx];
+        self.tabs[tab_a_idx] = self.tabs[tab_b_idx];
+        self.tabs[tab_b_idx] = tmp;
+        tp.trace(tp.channel.debug, .{ "swap_tabs", "swapped", "indexes", tab_a_idx, tab_b_idx });
+    }
+
+    fn place_next_tab(self: *Self, position: enum { before, after }, buffer_ref: usize) void {
+        tp.trace(tp.channel.debug, .{ "place_next_tab", position, buffer_ref });
+        const tab_idx = for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == buffer_ref) break idx else continue else {
+            tp.trace(tp.channel.debug, .{ "place_next_tab", "not_found", buffer_ref });
+            return;
+        };
+        self.place_next = switch (position) {
+            .before => .{ .before = tab_idx },
+            .after => .{ .after = tab_idx },
         };
     }
 
