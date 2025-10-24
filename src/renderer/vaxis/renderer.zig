@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const RGB = @import("color").RGB;
 
 pub const Plane = @import("Plane.zig");
+pub const Layer = @import("Layer.zig");
 pub const Cell = @import("Cell.zig");
 pub const CursorShape = vaxis.Cell.CursorShape;
 
