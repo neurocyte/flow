@@ -638,8 +638,8 @@ const cmds = struct {
                 tui.need_render();
             }
             try command.executeName("save_file", .{});
-            if (buffer.is_ephemeral() and !buffer.is_dirty())
-                _ = self.buffer_manager.close_buffer(buffer);
+            if (buffer.is_ephemeral())
+                self.buffer_manager.close_buffer(buffer);
         }
     }
     pub const save_file_as_meta: Meta = .{ .arguments = &.{.string} };
