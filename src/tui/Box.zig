@@ -1,4 +1,5 @@
 const Plane = @import("renderer").Plane;
+const Layer = @import("renderer").Layer;
 
 const Self = @This();
 
@@ -32,6 +33,15 @@ pub fn from(n: Plane) Self {
         .x = @intCast(n.abs_x()),
         .h = @intCast(n.dim_y()),
         .w = @intCast(n.dim_x()),
+    };
+}
+
+pub fn to_layer(self: Self) Layer.Options {
+    return .{
+        .y = @intCast(self.y),
+        .x = @intCast(self.x),
+        .h = @intCast(self.h),
+        .w = @intCast(self.w),
     };
 }
 
