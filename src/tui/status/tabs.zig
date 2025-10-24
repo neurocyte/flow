@@ -6,6 +6,7 @@ const root = @import("soft_root").root;
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 const Buffer = @import("Buffer");
+const input = @import("input");
 
 const tui = @import("../tui.zig");
 const Widget = @import("../Widget.zig");
@@ -187,6 +188,30 @@ pub const TabBar = struct {
         return false;
     }
 
+    fn handle_event(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
+        if (self.event_handler) |event_handler| try event_handler.send(from, m);
+        if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
+            const dragging = for (self.tabs, 0..) |*tab, idx| {
+                if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
+                    if (btn.drag_pos) |_| break idx;
+            } else return;
+            const hover_ = for (self.tabs, 0..) |*tab, idx| {
+                if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
+                    if (btn.hover) break idx;
+            } else return;
+            if (dragging != hover_) {
+                const tmp = self.tabs[dragging];
+                self.tabs[dragging] = self.tabs[hover_];
+                self.tabs[hover_] = tmp;
+                if (self.tabs[dragging].widget.dynamic_cast(Tab.ButtonType)) |btn| btn.hover = false;
+                self.update();
+                for (self.widget_list.widgets.items) |*widgetstate| if (widgetstate.widget.dynamic_cast(Tab.ButtonType)) |btn| if (btn.drag_pos) |_|
+                    tui.set_drag_source(&widgetstate.widget);
+                tui.refresh_hover();
+            }
+        }
+    }
+
     pub fn handle_resize(self: *Self, pos: Widget.Box) void {
         self.widget_list_widget.resize(pos);
         self.plane = self.widget_list.plane;
@@ -258,7 +283,7 @@ pub const TabBar = struct {
     fn place_new_tab(self: *Self, result: *std.ArrayListUnmanaged(TabBarTab), buffer: *Buffer) !void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer_ref = buffer_manager.buffer_to_ref(buffer);
-        const tab = try Tab.create(self, buffer_ref, &self.tab_style, self.event_handler);
+        const tab = try Tab.create(self, buffer_ref, &self.tab_style);
         const pos = switch (self.place_next) {
             .atend => try result.addOne(self.allocator),
             .before => |i| if (i < result.items.len)
@@ -395,7 +420,7 @@ pub const TabBar = struct {
             if (buffer_name) |name| if (name_to_ref(name)) |buffer_ref| {
                 (try result.addOne(self.allocator)).* = .{
                     .buffer_ref = buffer_ref,
-                    .widget = try Tab.create(self, buffer_ref, &self.tab_style, self.event_handler),
+                    .widget = try Tab.create(self, buffer_ref, &self.tab_style),
                 };
             };
         }
@@ -416,6 +441,7 @@ const Tab = struct {
     tab_style: *const Style,
     close_pos: ?c_uint = null,
     save_pos: ?c_uint = null,
+    on_event: ?EventHandler = null,
 
     const Mode = enum { active, inactive, selected };
 
@@ -425,7 +451,6 @@ const Tab = struct {
         tabbar: *TabBar,
         buffer_ref: usize,
         tab_style: *const Style,
-        event_handler: ?EventHandler,
     ) !Widget {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer = buffer_manager.buffer_from_ref(buffer_ref);
@@ -436,7 +461,7 @@ const Tab = struct {
             .on_click2 = Tab.on_click2,
             .on_layout = Tab.layout,
             .on_render = Tab.render,
-            .on_event = event_handler,
+            .on_event = EventHandler.bind(tabbar, TabBar.handle_event),
         });
     }
 
@@ -463,159 +488,182 @@ const Tab = struct {
 
     fn render(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
         const active = self.tabbar.active_buffer_ref == self.buffer_ref;
-        const mode: Mode = if (btn.hover) .selected else if (active) .active else .inactive;
-        switch (mode) {
-            .selected => self.render_selected(btn, theme, active),
-            .active => self.render_active(btn, theme),
-            .inactive => self.render_inactive(btn, theme),
+        if (btn.drag_pos) |pos| {
+            self.render_dragging(&btn.plane, theme);
+            const anchor: Widget.Pos = btn.drag_anchor orelse .{};
+            var box = Widget.Box.from(btn.plane);
+            box.y = @intCast(@max(pos.y, anchor.y) - anchor.y);
+            box.x = @intCast(@max(pos.x, anchor.x) - anchor.x);
+            if (tui.top_layer(box.to_layer())) |top_layer| {
+                self.render_selected(top_layer, btn.opts.label, false, theme, active);
+            }
+        } else {
+            const mode: Mode = if (btn.hover) .selected else if (active) .active else .inactive;
+            switch (mode) {
+                .selected => self.render_selected(&btn.plane, btn.opts.label, btn.hover, theme, active),
+                .active => self.render_active(&btn.plane, btn.opts.label, btn.hover, theme),
+                .inactive => self.render_inactive(&btn.plane, btn.opts.label, btn.hover, theme),
+            }
         }
         return false;
     }
 
-    fn render_selected(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme, active: bool) void {
-        btn.plane.set_base_style(theme.editor);
-        btn.plane.erase();
-        btn.plane.home();
-        btn.plane.set_style(.{
+    fn render_selected(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme, active: bool) void {
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
             .fg = self.tab_style.inactive_fg.from_theme(theme),
             .bg = self.tab_style.inactive_bg.from_theme(theme),
         });
-        btn.plane.fill(" ");
-        btn.plane.home();
+        plane.fill(" ");
+        plane.home();
         if (active) {
-            btn.plane.set_style(.{
+            plane.set_style(.{
                 .fg = self.tab_style.selected_fg.from_theme(theme),
                 .bg = self.tab_style.selected_bg.from_theme(theme),
             });
-            btn.plane.fill(" ");
-            btn.plane.home();
+            plane.fill(" ");
+            plane.home();
         }
 
-        btn.plane.set_style(.{
+        plane.set_style(.{
             .fg = self.tab_style.selected_left_fg.from_theme(theme),
             .bg = self.tab_style.selected_left_bg.from_theme(theme),
         });
-        _ = btn.plane.putstr(self.tab_style.selected_left) catch {};
+        _ = plane.putstr(self.tab_style.selected_left) catch {};
 
-        btn.plane.set_style(.{
+        plane.set_style(.{
             .fg = self.tab_style.selected_fg.from_theme(theme),
             .bg = self.tab_style.selected_bg.from_theme(theme),
         });
-        self.render_content(btn, self.tab_style.selected_fg.from_theme(theme), theme);
+        self.render_content(plane, label, hover, self.tab_style.selected_fg.from_theme(theme), theme);
 
-        btn.plane.set_style(.{
+        plane.set_style(.{
             .fg = self.tab_style.selected_right_fg.from_theme(theme),
             .bg = self.tab_style.selected_right_bg.from_theme(theme),
         });
-        _ = btn.plane.putstr(self.tab_style.selected_right) catch {};
+        _ = plane.putstr(self.tab_style.selected_right) catch {};
     }
 
-    fn render_active(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) void {
-        btn.plane.set_base_style(theme.editor);
-        btn.plane.erase();
-        btn.plane.home();
-        btn.plane.set_style(.{
+    fn render_active(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
             .fg = self.tab_style.inactive_fg.from_theme(theme),
             .bg = self.tab_style.inactive_bg.from_theme(theme),
         });
-        btn.plane.fill(" ");
-        btn.plane.home();
-        btn.plane.set_style(.{
+        plane.fill(" ");
+        plane.home();
+        plane.set_style(.{
             .fg = self.tab_style.active_fg.from_theme(theme),
             .bg = self.tab_style.active_bg.from_theme(theme),
         });
-        btn.plane.fill(" ");
-        btn.plane.home();
+        plane.fill(" ");
+        plane.home();
 
-        btn.plane.set_style(.{
+        plane.set_style(.{
             .fg = self.tab_style.active_left_fg.from_theme(theme),
             .bg = self.tab_style.active_left_bg.from_theme(theme),
         });
-        _ = btn.plane.putstr(self.tab_style.active_left) catch {};
+        _ = plane.putstr(self.tab_style.active_left) catch {};
 
-        btn.plane.set_style(.{
+        plane.set_style(.{
             .fg = self.tab_style.active_fg.from_theme(theme),
             .bg = self.tab_style.active_bg.from_theme(theme),
         });
-        self.render_content(btn, self.tab_style.active_fg.from_theme(theme), theme);
+        self.render_content(plane, label, hover, self.tab_style.active_fg.from_theme(theme), theme);
 
-        btn.plane.set_style(.{
+        plane.set_style(.{
             .fg = self.tab_style.active_right_fg.from_theme(theme),
             .bg = self.tab_style.active_right_bg.from_theme(theme),
         });
-        _ = btn.plane.putstr(self.tab_style.active_right) catch {};
+        _ = plane.putstr(self.tab_style.active_right) catch {};
     }
 
-    fn render_inactive(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) void {
-        btn.plane.set_base_style(theme.editor);
-        btn.plane.erase();
-        btn.plane.home();
-        btn.plane.set_style(.{
+    fn render_inactive(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
             .fg = self.tab_style.inactive_fg.from_theme(theme),
             .bg = self.tab_style.inactive_bg.from_theme(theme),
         });
-        btn.plane.fill(" ");
-        btn.plane.home();
+        plane.fill(" ");
+        plane.home();
 
-        btn.plane.set_style(.{
+        plane.set_style(.{
             .fg = self.tab_style.inactive_left_fg.from_theme(theme),
             .bg = self.tab_style.inactive_left_bg.from_theme(theme),
         });
-        _ = btn.plane.putstr(self.tab_style.inactive_left) catch {};
+        _ = plane.putstr(self.tab_style.inactive_left) catch {};
 
-        btn.plane.set_style(.{
+        plane.set_style(.{
             .fg = self.tab_style.inactive_fg.from_theme(theme),
             .bg = self.tab_style.inactive_bg.from_theme(theme),
         });
-        self.render_content(btn, self.tab_style.inactive_fg.from_theme(theme), theme);
+        self.render_content(plane, label, hover, self.tab_style.inactive_fg.from_theme(theme), theme);
 
-        btn.plane.set_style(.{
+        plane.set_style(.{
             .fg = self.tab_style.inactive_right_fg.from_theme(theme),
             .bg = self.tab_style.inactive_right_bg.from_theme(theme),
         });
-        _ = btn.plane.putstr(self.tab_style.inactive_right) catch {};
+        _ = plane.putstr(self.tab_style.inactive_right) catch {};
     }
 
-    fn render_content(self: *@This(), btn: *ButtonType, fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
+    fn render_dragging(self: *@This(), plane: *Plane, theme: *const Widget.Theme) void {
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
+            .fg = self.tab_style.inactive_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+    }
+
+    fn render_content(self: *@This(), plane: *Plane, label: []const u8, hover: bool, fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
         const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
-        self.render_padding(&btn.plane, .left);
+        self.render_padding(plane, .left);
         if (self.tab_style.file_type_icon) if (buffer_) |buffer| if (buffer.file_type_icon) |icon| {
             const color_: ?u24 = if (buffer.file_type_color) |color| if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) color else null else null;
             if (color_) |color|
-                btn.plane.set_style(.{ .fg = .{ .color = color } });
-            _ = btn.plane.putstr(icon) catch {};
+                plane.set_style(.{ .fg = .{ .color = color } });
+            _ = plane.putstr(icon) catch {};
             if (color_) |_|
-                btn.plane.set_style(.{ .fg = fg });
-            _ = btn.plane.putstr("  ") catch {};
+                plane.set_style(.{ .fg = fg });
+            _ = plane.putstr("  ") catch {};
         };
-        _ = btn.plane.putstr(btn.opts.label) catch {};
-        _ = btn.plane.putstr(" ") catch {};
+        _ = plane.putstr(label) catch {};
+        _ = plane.putstr(" ") catch {};
         self.close_pos = null;
         self.save_pos = null;
-        if (btn.hover) {
+        if (hover) {
             if (is_dirty) {
                 if (self.tab_style.save_icon_fg) |color|
-                    btn.plane.set_style(.{ .fg = color.from_theme(theme) });
-                self.save_pos = btn.plane.cursor_x();
-                _ = btn.plane.putstr(self.tabbar.tab_style.save_icon) catch {};
+                    plane.set_style(.{ .fg = color.from_theme(theme) });
+                self.save_pos = plane.cursor_x();
+                _ = plane.putstr(self.tabbar.tab_style.save_icon) catch {};
             } else {
-                btn.plane.set_style(.{ .fg = self.tab_style.close_icon_fg.from_theme(theme) });
-                self.close_pos = btn.plane.cursor_x();
-                _ = btn.plane.putstr(self.tabbar.tab_style.close_icon) catch {};
+                plane.set_style(.{ .fg = self.tab_style.close_icon_fg.from_theme(theme) });
+                self.close_pos = plane.cursor_x();
+                _ = plane.putstr(self.tabbar.tab_style.close_icon) catch {};
             }
         } else if (is_dirty) {
             if (self.tab_style.dirty_indicator_fg) |color|
-                btn.plane.set_style(.{ .fg = color.from_theme(theme) });
-            _ = btn.plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
+                plane.set_style(.{ .fg = color.from_theme(theme) });
+            _ = plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
         } else {
             if (self.tab_style.clean_indicator_fg) |color|
-                btn.plane.set_style(.{ .fg = color.from_theme(theme) });
-            _ = btn.plane.putstr(self.tabbar.tab_style.clean_indicator) catch {};
+                plane.set_style(.{ .fg = color.from_theme(theme) });
+            _ = plane.putstr(self.tabbar.tab_style.clean_indicator) catch {};
         }
-        btn.plane.set_style(.{ .fg = fg });
-        self.render_padding(&btn.plane, .right);
+        plane.set_style(.{ .fg = fg });
+        self.render_padding(plane, .right);
     }
 
     fn render_padding(self: *@This(), plane: *Plane, side: enum { left, right }) void {
