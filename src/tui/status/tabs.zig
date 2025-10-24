@@ -155,6 +155,10 @@ pub const TabBar = struct {
             self.select_next_tab();
         } else if (try m.match(.{"previous_tab"})) {
             self.select_previous_tab();
+        } else if (try m.match(.{"move_tab_next"})) {
+            self.move_tab_next();
+        } else if (try m.match(.{"move_tab_previous"})) {
+            self.move_tab_previous();
         } else if (try m.match(.{ "E", "open", tp.extract(&file_path), tp.more })) {
             self.active_buffer_ref = if (buffer_manager.get_buffer_for_file(file_path)) |buffer|
                 buffer_manager.buffer_to_ref(buffer)
@@ -275,6 +279,26 @@ pub const TabBar = struct {
             goto = tab;
         }
         if (goto) |tab| navigate_to_tab(tab);
+    }
+
+    fn move_tab_next(self: *Self) void {
+        tp.trace(tp.channel.debug, .{"move_tab_next"});
+        for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == self.active_buffer_ref and idx < self.tabs.len - 1) {
+            const tmp = self.tabs[idx + 1];
+            self.tabs[idx + 1] = self.tabs[idx];
+            self.tabs[idx] = tmp;
+            break;
+        };
+    }
+
+    fn move_tab_previous(self: *Self) void {
+        tp.trace(tp.channel.debug, .{"move_tab_previous"});
+        for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == self.active_buffer_ref and idx > 0) {
+            const tmp = self.tabs[idx - 1];
+            self.tabs[idx - 1] = self.tabs[idx];
+            self.tabs[idx] = tmp;
+            break;
+        };
     }
 
     fn navigate_to_tab(tab: *const TabBarTab) void {

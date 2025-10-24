@@ -1182,6 +1182,16 @@ const cmds = struct {
         _ = try self.widgets_widget.msg(.{"previous_tab"});
     }
     pub const previous_tab_meta: Meta = .{ .description = "Switch to previous tab" };
+
+    pub fn move_tab_next(self: *Self, _: Ctx) Result {
+        _ = try self.widgets_widget.msg(.{"move_tab_next"});
+    }
+    pub const move_tab_next_meta: Meta = .{ .description = "Move tab to next position" };
+
+    pub fn move_tab_previous(self: *Self, _: Ctx) Result {
+        _ = try self.widgets_widget.msg(.{"move_tab_previous"});
+    }
+    pub const move_tab_previous_meta: Meta = .{ .description = "Move tab to previous position" };
 };
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
