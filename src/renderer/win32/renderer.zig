@@ -9,6 +9,7 @@ const Color = @import("theme").Color;
 pub const CursorShape = vaxis.Cell.CursorShape;
 
 pub const Plane = @import("tuirenderer").Plane;
+pub const Layer = @import("tuirenderer").Layer;
 const input = @import("input");
 
 const win32 = @import("win32").everything;
