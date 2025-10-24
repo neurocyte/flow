@@ -31,6 +31,7 @@ const Allocator = std.mem.Allocator;
 
 allocator: Allocator,
 rdr_: renderer,
+top_layer_: ?*renderer.Layer = null,
 config_: @import("config"),
 config_bufs: [][]const u8,
 session_tab_width: ?usize = null,
@@ -507,12 +508,25 @@ fn render(self: *Self) void {
         break :ret if (self.mainview_) |mv| mv.render(self.current_theme()) else false;
     };
 
+    if (self.top_layer_) |top_layer_| {
+        const frame = tracy.initZone(@src(), .{ .name = "tui blit top layer" });
+        defer frame.deinit();
+        self.logger.print("top_layer: {}:{}:{}:{}", .{
+            top_layer_.y_off,
+            top_layer_.x_off,
+            top_layer_.view.screen.height,
+            top_layer_.view.screen.width,
+        });
+        top_layer_.draw(self.rdr_.stdplane());
+    }
+
     {
         const frame = tracy.initZone(@src(), .{ .name = renderer.log_name ++ " render" });
         defer frame.deinit();
         self.rdr_.render() catch |e| self.logger.err("render", e);
         tracy.frameMark();
     }
+    self.top_layer_reset();
 
     self.idle_frame_count = if (self.unrendered_input_events_count > 0)
         0
@@ -1425,6 +1439,24 @@ pub fn plane() renderer.Plane {
 
 fn stdplane(self: *Self) renderer.Plane {
     return self.rdr_.stdplane();
+}
+
+pub fn top_layer(opts: renderer.Layer.Options) ?*renderer.Plane {
+    const self = current();
+    if (self.top_layer_) |_| return null;
+    self.top_layer_ = renderer.Layer.init(
+        self.allocator,
+        self.rdr_.stdplane().window.unicode,
+        opts,
+    ) catch @panic("OOM toplayer");
+    return self.top_layer_.?.plane();
+}
+
+fn top_layer_reset(self: *Self) void {
+    if (self.top_layer_) |top_layer_| {
+        top_layer_.deinit();
+        self.top_layer_ = null;
+    }
 }
 
 pub fn egc_chunk_width(chunk: []const u8, abs_col: usize, tab_width: usize) usize {
