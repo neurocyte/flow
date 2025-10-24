@@ -638,6 +638,10 @@ const cmds = struct {
                 tui.need_render();
             }
             try command.executeName("save_file", .{});
+            try command.executeName("place_next_tab", command.fmt(.{
+                if (buffer.is_ephemeral()) "before" else "after",
+                self.buffer_manager.buffer_to_ref(buffer),
+            }));
             if (buffer.is_ephemeral())
                 self.buffer_manager.close_buffer(buffer);
         }
