@@ -2174,6 +2174,8 @@ pub fn query_git(self: *Self) void {
         self.state.status = .failed;
     };
     // TODO: This needs to be invoked when there are identified changes in the fs
+    for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
+    self.new_or_modified_files.clearRetainingCapacity();
     self.state.vcs_new_or_modified_files = .running;
     git.new_or_modified_files(@intFromPtr(self)) catch {
         self.state.vcs_new_or_modified_files = .failed;
