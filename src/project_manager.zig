@@ -98,6 +98,13 @@ pub fn request_recent_files(max: usize) (ProjectManagerError || ProjectError)!vo
     return send(.{ "request_recent_files", project, max });
 }
 
+pub fn request_new_or_modified_files(max: usize) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "request_new_or_modified_files", project, max });
+}
+
 pub fn request_recent_projects() (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     return send(.{ "request_recent_projects", project });
@@ -108,6 +115,13 @@ pub fn query_recent_files(max: usize, query: []const u8) (ProjectManagerError ||
     if (project.len == 0)
         return error.NoProject;
     return send(.{ "query_recent_files", project, max, query });
+}
+
+pub fn query_new_or_modified_files(max: usize, query: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "query_new_or_modified_files", project, max, query });
 }
 
 pub fn request_path_files(max: usize, path: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -370,10 +384,14 @@ const Process = struct {
             self.request_n_most_recent_file(from, project_directory, n) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_recent_files", tp.extract(&project_directory), tp.extract(&max) })) {
             self.request_recent_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_new_or_modified_files", tp.extract(&project_directory), tp.extract(&max) })) {
+            self.request_new_or_modified_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_recent_projects", tp.extract(&project_directory) })) {
             self.request_recent_projects(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "query_recent_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
             self.query_recent_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "query_new_or_modified_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
+            self.query_new_or_modified_files(from, project_directory, max, query) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_path_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&path) })) {
             self.request_path_files(from, project_directory, max, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_tasks", tp.extract(&project_directory) })) {
@@ -468,6 +486,11 @@ const Process = struct {
         return project.request_recent_files(from, max);
     }
 
+    fn request_new_or_modified_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.ClientError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.request_new_or_modified_files(from, max);
+    }
+
     fn request_recent_projects(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
         var recent_projects: std.ArrayList(RecentProject) = .empty;
         defer recent_projects.deinit(self.allocator);
@@ -493,6 +516,15 @@ const Process = struct {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         const start_time = std.time.milliTimestamp();
         const matched = try project.query_recent_files(from, max, query);
+        const query_time = std.time.milliTimestamp() - start_time;
+        if (query_time > 250)
+            self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
+    }
+
+    fn query_new_or_modified_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.ClientError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        const start_time = std.time.milliTimestamp();
+        const matched = try project.query_new_or_modified_files(from, max, query);
         const query_time = std.time.milliTimestamp() - start_time;
         if (query_time > 250)
             self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
