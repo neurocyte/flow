@@ -228,6 +228,7 @@
             ["space R", "replace_selections_with_clipboard"],
             ["space ?", "open_command_palette"],
             ["space f", "find_file"],
+            ["space g", "open_changed_files"],
             ["space b", "switch_buffers"],
             ["space j", "jumplist_picker"],
             ["space s", "symbol_picker"],
