@@ -1032,6 +1032,11 @@ const cmds = struct {
     }
     pub const open_recent_meta: Meta = .{ .description = "Open recent" };
 
+    pub fn open_changed_files(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/open_changed.zig"));
+    }
+    pub const open_changed_files_meta: Meta = .{ .description = "Open changed files (vcs)" };
+
     pub fn open_recent_project(_: *Self, _: Ctx) Result {
         try project_manager.request_recent_projects();
     }
@@ -1679,6 +1684,15 @@ pub fn render_pointer(self: *renderer.Plane, selected: bool) void {
     _ = self.print("{s}", .{pointer}) catch {};
 }
 
+pub fn render_pointer_vcs(self: *renderer.Plane, vcs_status: u8, selected: bool) void {
+    const pointer = "⏵";
+    if (selected) {
+        _ = self.print("{s}{c}", .{ pointer, vcs_status }) catch {};
+    } else {
+        _ = self.print("{c} ", .{vcs_status}) catch {};
+    }
+}
+
 pub fn render_file_item(
     self: *renderer.Plane,
     file_path_: []const u8,
@@ -1740,6 +1754,72 @@ pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, 
 
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) @panic("invalid matches cbor");
     return render_file_item(self, file_path_, icon, color, indicator, matches_cbor, active, selected, hover, theme_);
+}
+
+pub fn render_file_vcs_item(
+    self: *renderer.Plane,
+    file_path_: []const u8,
+    icon: []const u8,
+    color: u24,
+    indicator: []const u8,
+    vcs_status: u8,
+    matches_cbor: []const u8,
+    active: bool,
+    selected: bool,
+    hover: bool,
+    theme_: *const Widget.Theme,
+) bool {
+    const style_base = theme_.editor_widget;
+    const style_label = if (active) theme_.editor_cursor else if (hover or selected) theme_.editor_selection else theme_.editor_widget;
+    const style_hint = if (find_scope_style(theme_, "entity.name")) |sty| sty.style else style_label;
+    self.set_base_style(style_base);
+    self.erase();
+    self.home();
+    self.set_style(style_label);
+    if (active or hover or selected) {
+        self.fill(" ");
+        self.home();
+    }
+
+    self.set_style(style_hint);
+    render_pointer_vcs(self, vcs_status, selected);
+
+    const icon_width = render_file_icon(self, icon, color);
+
+    self.set_style(style_label);
+    _ = self.print("{s} ", .{file_path_}) catch {};
+
+    self.set_style(style_hint);
+    _ = self.print_aligned_right(0, "{s} ", .{indicator}) catch {};
+
+    var iter = matches_cbor;
+    var index: usize = 0;
+    var len = cbor.decodeArrayHeader(&iter) catch return false;
+    while (len > 0) : (len -= 1) {
+        if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
+            render_match_cell(self, 0, index + 2 + icon_width, theme_) catch break;
+        } else break;
+    }
+    return false;
+}
+
+pub fn render_file_vcs_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, active: bool, selected: bool, hover: bool, theme_: *const Widget.Theme) bool {
+    var iter = file_item_cbor;
+    var file_path_: []const u8 = undefined;
+    var icon: []const u8 = undefined;
+    var color: u24 = undefined;
+    var indicator: []const u8 = undefined;
+    var vcs_status: u8 = undefined;
+    var matches_cbor: []const u8 = undefined;
+
+    if (!(cbor.matchString(&iter, &file_path_) catch false)) @panic("invalid buffer file path");
+    if (!(cbor.matchString(&iter, &icon) catch false)) @panic("invalid buffer file type icon");
+    if (!(cbor.matchInt(u24, &iter, &color) catch false)) @panic("invalid buffer file type color");
+    if (!(cbor.matchString(&iter, &indicator) catch false)) indicator = "";
+    if (!(cbor.matchInt(u8, &iter, &vcs_status) catch false)) indicator = " ";
+
+    if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) @panic("invalid matches cbor");
+    return render_file_vcs_item(self, file_path_, icon, color, indicator, vcs_status, matches_cbor, active, selected, hover, theme_);
 }
 
 fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const u8 {
