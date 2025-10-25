@@ -105,6 +105,13 @@ pub fn request_new_or_modified_files(max: usize) (ProjectManagerError || Project
     return send(.{ "request_new_or_modified_files", project, max });
 }
 
+pub fn request_sync_with_vcs() (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "sync_with_vcs", project });
+}
+
 pub fn request_recent_projects() (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     return send(.{ "request_recent_projects", project });
@@ -386,6 +393,8 @@ const Process = struct {
             self.request_recent_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_new_or_modified_files", tp.extract(&project_directory), tp.extract(&max) })) {
             self.request_new_or_modified_files(from, project_directory, max) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "sync_with_vcs", tp.extract(&project_directory) })) {
+            self.request_sync_with_vcs(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_recent_projects", tp.extract(&project_directory) })) {
             self.request_recent_projects(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "query_recent_files", tp.extract(&project_directory), tp.extract(&max), tp.extract(&query) })) {
@@ -484,6 +493,11 @@ const Process = struct {
     fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.ClientError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.request_recent_files(from, max);
+    }
+
+    fn request_sync_with_vcs(self: *Process, _: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.query_git();
     }
 
     fn request_new_or_modified_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.ClientError)!void {
