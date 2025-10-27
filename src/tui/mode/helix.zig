@@ -418,6 +418,10 @@ const cmds_ = struct {
     pub const paste_clipboard_before_meta: Meta = .{ .description = "Paste from clipboard before selection" };
 };
 
+fn move_cursor_find_egc_beyond_eol(root: Buffer.Root, cursor: *Cursor, ctx: command.Context, metrics: Buffer.Metrics, move: find_char_function) error{Stop}!void {
+    move(root, cursor, metrics, ctx);
+}
+
 fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     try Editor.move_cursor_left(root, cursor, metrics);
 
@@ -447,6 +451,83 @@ fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics:
     try Editor.move_cursor_right(root, cursor, metrics);
     Editor.move_cursor_right_until(root, cursor, Editor.is_word_boundary_right_vim, metrics);
     try cursor.move_right(root, metrics);
+}
+
+fn move_cursor_to_char_left_beyond_eol(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics, ctx: command.Context) error{Stop}!void {
+    var egc: []const u8 = undefined;
+    if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
+        return error.Stop;
+    var test_cursor = cursor.*;
+    try test_cursor.move_left(root, metrics);
+    while (true) {
+        const curr_egc, _, _ = root.egc_at(test_cursor.row, test_cursor.col, metrics) catch return error.Stop;
+        if (std.mem.eql(u8, curr_egc, egc)) {
+            cursor.row = test_cursor.row;
+            cursor.col = test_cursor.col;
+            cursor.target = cursor.col;
+            return;
+        }
+        test_cursor.move_left(root, metrics) catch return error.Stop;
+    }
+}
+
+fn move_cursor_to_char_right_beyond_eol(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics, ctx: command.Context) error{Stop}!void {
+    var egc: []const u8 = undefined;
+    if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
+        return error.Stop;
+    var test_cursor = cursor.*;
+    while (true) {
+        const curr_egc, _, _ = root.egc_at(test_cursor.row, test_cursor.col, metrics) catch return error.Stop;
+        if (std.mem.eql(u8, curr_egc, egc)) {
+            cursor.row = test_cursor.row;
+            cursor.col = test_cursor.col;
+            cursor.target = cursor.col;
+            return;
+        }
+        test_cursor.move_right(root, metrics) catch return error.Stop;
+    }
+}
+
+fn move_cursor_till_char_left_beyond_eol(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics, ctx: command.Context) error{Stop}!void {
+    var egc: []const u8 = undefined;
+    if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
+        return error.Stop;
+    var test_cursor = cursor;
+    try test_cursor.move_left(root, metrics);
+    var prev = test_cursor.*;
+    try prev.move_left(root, metrics);
+    while (true) {
+        const prev_egc, _, _ = root.egc_at(prev.row, prev.col, metrics) catch return error.Stop;
+        if (std.mem.eql(u8, prev_egc, egc)) {
+            cursor.row = test_cursor.row;
+            cursor.col = test_cursor.col;
+            cursor.target = cursor.col;
+            return;
+        }
+        test_cursor.move_left(root, metrics) catch return error.Stop;
+        prev.move_left(root, metrics) catch return error.Stop;
+    }
+}
+
+fn move_cursor_till_char_right_beyond_eol(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics, ctx: command.Context) error{Stop}!void {
+    var egc: []const u8 = undefined;
+    if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
+        return error.Stop;
+    var test_cursor = cursor;
+    try test_cursor.move_right(root, metrics);
+    var next = test_cursor.*;
+    try next.move_right(root, metrics);
+    while (true) {
+        const next_egc, _, _ = root.egc_at(next.row, next.col, metrics) catch return error.Stop;
+        if (std.mem.eql(u8, next_egc, egc)) {
+            cursor.row = test_cursor.row;
+            cursor.col = test_cursor.col;
+            cursor.target = cursor.col;
+            return;
+        }
+        test_cursor.move_right(root, metrics) catch return error.Stop;
+        next.move_right(root, metrics) catch return error.Stop;
+    }
 }
 
 fn insert_before(editor: *Editor, root: Buffer.Root, cursel: *CurSel, text: []const u8, allocator: Allocator) !Buffer.Root {
@@ -607,6 +688,7 @@ fn move_cursor_long_word_right_end(root: Buffer.Root, cursor: *Cursor, metrics: 
 }
 
 const pasting_function = @TypeOf(insert_before);
+const find_char_function = @TypeOf(move_cursor_to_char_left_beyond_eol);
 
 fn paste_helix(ctx: command.Context, do_paste: pasting_function) command.Result {
     const mv = tui.mainview() orelse return;
@@ -670,6 +752,10 @@ pub const test_internal = struct {
     pub const move_cursor_long_word_right_end = private.move_cursor_long_word_right_end;
     pub const move_cursor_word_left_helix = private.move_cursor_word_left_helix;
     pub const move_cursor_word_right_end_helix = private.move_cursor_word_right_end_helix;
+    pub const move_cursor_to_char_left_beyond_eol = private.move_cursor_to_char_left_beyond_eol;
+    pub const move_cursor_to_char_right_beyond_eol = private.move_cursor_to_char_right_beyond_eol;
+    pub const move_cursor_till_char_left_beyond_eol = private.move_cursor_till_char_left_beyond_eol;
+    pub const move_cursor_till_char_right_beyond_eol = private.move_cursor_till_char_right_beyond_eol;
     pub const insert_before = private.insert_before;
     pub const insert_replace_selection = private.insert_replace_selection;
     pub const insert_after = private.insert_after;
