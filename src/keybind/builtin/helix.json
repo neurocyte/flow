@@ -117,7 +117,7 @@
             ["l", "move_right"],
 
             ["t", "find_till_char"],
-            ["f", "move_to_char", "move_to_char_right"],
+            ["f", "move_to_char", "select_to_char_right_helix"],
 
             ["home", "move_begin"],
             ["end", "move_end"],
