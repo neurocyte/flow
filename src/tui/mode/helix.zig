@@ -372,14 +372,45 @@ const cmds_ = struct {
     }
     pub const select_left_helix_meta: Meta = .{ .description = "Select left", .arguments = &.{.integer} };
 
+    pub fn select_to_char_left_helix(_: *void, ctx: Ctx) Result {
+        try to_char_helix(ctx, &select_cursel_to_char_left_helix);
+    }
+    pub const select_to_char_left_helix_meta: Meta = .{ .description = "Select to char left" };
+
+    pub fn select_till_char_left_helix(_: *void, ctx: Ctx) Result {
+        try to_char_helix(ctx, &select_cursel_till_char_left_helix);
+    }
+    pub const select_till_char_left_helix_meta: Meta = .{ .description = "Select until char left" };
+
+    pub fn extend_to_char_left_helix(_: *void, ctx: Ctx) Result {
+        try to_char_helix(ctx, &extend_cursel_to_char_left_helix);
+    }
+    pub const extend_to_char_left_helix_meta: Meta = .{ .description = "Extend Selection to char left" };
+
+    pub fn extend_till_char_left_helix(_: *void, ctx: Ctx) Result {
+        try to_char_helix(ctx, &extend_cursel_till_char_left_helix);
+    }
+    pub const extend_till_char_left_helix_meta: Meta = .{ .description = "Extend Selection until char left" };
+
+    pub fn select_till_char_right_helix(_: *void, ctx: Ctx) Result {
+        try to_char_helix(ctx, &select_cursel_till_char_right_helix);
+    }
+    pub const select_till_char_right_helix_meta: Meta = .{ .description = "Select until char right" };
+
     pub fn select_to_char_right_helix(_: *void, ctx: Ctx) Result {
-        const mv = tui.mainview() orelse return;
-        const ed = mv.get_active_editor() orelse return;
-        const root = ed.buf_root() catch return;
-        try ed.with_cursels_const_once_arg(root, &select_cursel_to_char_right_helix, ctx);
-        ed.clamp();
+        try to_char_helix(ctx, &select_cursel_to_char_right_helix);
     }
     pub const select_to_char_right_helix_meta: Meta = .{ .description = "Select to char right" };
+
+    pub fn extend_till_char_right_helix(_: *void, ctx: Ctx) Result {
+        try to_char_helix(ctx, &extend_cursel_till_char_right_helix);
+    }
+    pub const extend_till_char_right_helix_meta: Meta = .{ .description = "Extend Selection until char right" };
+
+    pub fn extend_to_char_right_helix(_: *void, ctx: Ctx) Result {
+        try to_char_helix(ctx, &extend_cursel_to_char_right_helix);
+    }
+    pub const extend_to_char_right_helix_meta: Meta = .{ .description = "Extend Selection to char right" };
 
     pub fn copy_helix(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
@@ -411,6 +442,101 @@ const cmds_ = struct {
     pub const paste_clipboard_before_meta: Meta = .{ .description = "Paste from clipboard before selection" };
 };
 
+fn to_char_helix(ctx: command.Context, move: Editor.cursel_operator_mut_once_arg) command.Result {
+    const mv = tui.mainview() orelse return;
+    const ed = mv.get_active_editor() orelse return;
+    const root = ed.buf_root() catch return;
+    try ed.with_cursels_const_once_arg(root, move, ctx);
+    ed.clamp();
+}
+
+fn select_cursel_to_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var moving_cursor: Cursor = cursel.*.cursor;
+    var begin = cursel.*.cursor;
+    move_cursor_to_char_left_beyond_eol(root, &moving_cursor, metrics, ctx) catch return;
+
+    // Character found, selecting
+    Editor.move_cursor_right(root, &begin, metrics) catch {
+        //At end of file, it's ok
+    };
+    moving_cursor.target = moving_cursor.col;
+    const sel = try cursel.enable_selection(root, metrics);
+    sel.begin = begin;
+    sel.end = moving_cursor;
+    cursel.cursor = moving_cursor;
+}
+
+fn extend_cursel_to_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var moving_cursor: Cursor = cursel.*.cursor;
+    const begin = if (cursel.*.selection) |sel| sel.end else cursel.*.cursor;
+    move_cursor_to_char_left_beyond_eol(root, &moving_cursor, metrics, ctx) catch return;
+
+    //Character found, selecting
+    moving_cursor.target = moving_cursor.col;
+    const sel = try cursel.enable_selection(root, metrics);
+    if (sel.empty())
+        sel.begin = begin;
+    sel.end = moving_cursor;
+    cursel.cursor = moving_cursor;
+}
+
+fn select_cursel_till_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var moving_cursor: Cursor = cursel.*.cursor;
+    var begin = cursel.*.cursor;
+    move_cursor_till_char_left_beyond_eol(root, &moving_cursor, metrics, ctx) catch return;
+    Editor.move_cursor_right(root, &begin, metrics) catch {
+        //At end of file, it's ok
+    };
+
+    // Character found, selecting
+    moving_cursor.target = moving_cursor.col;
+    const sel = try cursel.enable_selection(root, metrics);
+    sel.begin = begin;
+    sel.end = moving_cursor;
+    cursel.cursor = moving_cursor;
+}
+
+fn extend_cursel_till_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var moving_cursor: Cursor = cursel.*.cursor;
+    const begin = if (cursel.*.selection) |sel| sel.end else cursel.*.cursor;
+    move_cursor_till_char_left_beyond_eol(root, &moving_cursor, metrics, ctx) catch return;
+
+    //Character found, selecting
+    moving_cursor.target = moving_cursor.col;
+    const sel = try cursel.enable_selection(root, metrics);
+    if (sel.empty())
+        sel.begin = begin;
+    sel.end = moving_cursor;
+    cursel.cursor = moving_cursor;
+}
+
+fn select_cursel_till_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var moving_cursor: Cursor = cursel.*.cursor;
+    const begin = cursel.*.cursor;
+    move_cursor_to_char_right_beyond_eol(root, &moving_cursor, metrics, ctx) catch return;
+
+    //Character found, selecting
+    moving_cursor.target = moving_cursor.col;
+    const sel = try cursel.enable_selection(root, metrics);
+    sel.begin = begin;
+    sel.end = moving_cursor;
+    cursel.cursor = moving_cursor;
+}
+
+fn extend_cursel_till_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var moving_cursor: Cursor = cursel.*.cursor;
+    const begin = cursel.*.cursor;
+    move_cursor_to_char_right_beyond_eol(root, &moving_cursor, metrics, ctx) catch return;
+
+    //Character found, selecting
+    moving_cursor.target = moving_cursor.col;
+    const sel = try cursel.enable_selection(root, metrics);
+    if (sel.empty())
+        sel.begin = begin;
+    sel.end = moving_cursor;
+    cursel.cursor = moving_cursor;
+}
+
 fn select_cursel_to_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
     var moving_cursor: Cursor = cursel.*.cursor;
     const begin = cursel.*.cursor;
@@ -423,6 +549,23 @@ fn select_cursel_to_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: co
     moving_cursor.target = moving_cursor.col;
     const sel = try cursel.enable_selection(root, metrics);
     sel.begin = begin;
+    sel.end = moving_cursor;
+    cursel.cursor = moving_cursor;
+}
+
+fn extend_cursel_to_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var moving_cursor: Cursor = cursel.*.cursor;
+    const begin = cursel.*.cursor;
+    move_cursor_to_char_right_beyond_eol(root, &moving_cursor, metrics, ctx) catch return;
+
+    //Character found, selecting
+    Editor.move_cursor_right(root, &moving_cursor, metrics) catch {
+        // We might be at end of file
+    };
+    moving_cursor.target = moving_cursor.col;
+    const sel = try cursel.enable_selection(root, metrics);
+    if (sel.empty())
+        sel.begin = begin;
     sel.end = moving_cursor;
     cursel.cursor = moving_cursor;
 }
