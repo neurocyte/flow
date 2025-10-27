@@ -66,11 +66,13 @@
             ["alt+|", "shell_pipe_to"],
             ["alt+!", "shell_append_output"],
 
-            ["T", "till_prev_char"],
-            ["F", "move_to_char", "move_to_char_left"],
+            ["F", "move_to_char", "select_to_char_left_helix"],
+            ["T", "move_to_char", "select_till_char_left_helix"],
             ["W", "move_next_long_word_start"],
             ["B", "move_prev_long_word_start"],
             ["E", "move_next_long_word_end"],
+            ["t", "move_to_char", "select_till_char_right_helix"],
+            ["f", "move_to_char", "select_to_char_right_helix"],
 
             ["I", ["enter_mode", "insert"], ["smart_move_begin"]],
             ["A", ["enter_mode", "insert"], ["move_end"]],
@@ -115,9 +117,6 @@
             ["j", "move_down"],
             ["k", "move_up"],
             ["l", "move_right"],
-
-            ["t", "find_till_char"],
-            ["f", "move_to_char", "select_to_char_right_helix"],
 
             ["home", "move_begin"],
             ["end", "move_end"],
@@ -353,12 +352,13 @@
 
             ["~", "switch_case"],
 
-            ["T", "extend_till_prev_char"],
-            ["F", "move_to_char", "select_to_char_left_vim"],
-
+            ["F", "move_to_char", "extend_to_char_left_helix"],
+            ["T", "move_to_char", "extend_till_char_left_helix"],
             ["W", "extend_next_long_word_start"],
             ["B", "extend_prev_long_word_start"],
             ["E", "extend_next_long_word_end"],
+            ["t", "move_to_char", "extend_till_char_right_helix"],
+            ["f", "move_to_char", "extend_to_char_right_helix"],
 
             ["G", "goto_line"],
 
@@ -413,9 +413,6 @@
             ["kp_up", "select_up"],
             ["kp_right", "select_right"],
             ["%", "select_all"],
-
-            ["t", "extend_till_char"],
-            ["f", "move_to_char", "select_to_char_right_helix"],
 
             ["`", "switch_to_lowercase"],
 
