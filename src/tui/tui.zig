@@ -511,12 +511,6 @@ fn render(self: *Self) void {
     if (self.top_layer_) |top_layer_| {
         const frame = tracy.initZone(@src(), .{ .name = "tui blit top layer" });
         defer frame.deinit();
-        self.logger.print("top_layer: {}:{}:{}:{}", .{
-            top_layer_.y_off,
-            top_layer_.x_off,
-            top_layer_.view.screen.height,
-            top_layer_.view.screen.width,
-        });
         top_layer_.draw(self.rdr_.stdplane());
     }
 
