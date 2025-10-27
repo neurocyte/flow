@@ -2017,6 +2017,20 @@ pub const Editor = struct {
         return if (someone_stopped) error.Stop else root;
     }
 
+    fn with_cursel_const_once_arg(root: Buffer.Root, move: cursel_operator_mut_once_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
+        try move(root, cursel, ctx, metrics);
+    }
+
+    pub fn with_cursels_const_once_arg(self: *Self, root: Buffer.Root, move: cursel_operator_mut_once_arg, ctx: Context) error{Stop}!void {
+        var someone_stopped = false;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
+            with_cursel_const_once_arg(root, move, cursel, ctx, self.metrics) catch {
+                someone_stopped = true;
+            };
+        self.collapse_cursors();
+        return if (someone_stopped) error.Stop else {};
+    }
+
     fn with_cursel_const(root: Buffer.Root, op: cursel_operator_const, cursel: *CurSel) error{Stop}!void {
         return op(root, cursel);
     }
@@ -2080,6 +2094,7 @@ pub const Editor = struct {
     const cursor_predicate = *const fn (root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) bool;
     const cursor_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void;
     const cursor_operator_const_arg = *const fn (root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void;
+    const cursel_operator_mut_once_arg = *const fn (root: Buffer.Root, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void;
     const cursor_view_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) error{Stop}!void;
     const cursel_operator_const = *const fn (root: Buffer.Root, cursel: *CurSel) error{Stop}!void;
     const cursor_operator = *const fn (root: Buffer.Root, cursor: *Cursor, allocator: Allocator) error{Stop}!Buffer.Root;

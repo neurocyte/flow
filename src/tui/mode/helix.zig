@@ -375,18 +375,11 @@ const cmds_ = struct {
     pub fn select_to_char_right_helix(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
-        const root = try ed.buf_root();
-
-        for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const sel = try cursel.enable_selection(root, ed.metrics);
-            try Editor.move_cursor_to_char_right(root, &sel.end, ctx, ed.metrics);
-            try Editor.move_cursor_right(root, &sel.end, ed.metrics);
-            cursel.cursor = sel.end;
-            cursel.check_selection(root, ed.metrics);
-        };
+        const root = ed.buf_root() catch return;
+        try ed.with_cursels_const_once_arg(root, &select_cursel_to_char_right_helix, ctx);
         ed.clamp();
     }
-    pub const select_to_char_right_helix_meta: Meta = .{ .description = "Move to char right" };
+    pub const select_to_char_right_helix_meta: Meta = .{ .description = "Select to char right" };
 
     pub fn copy_helix(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
@@ -417,6 +410,22 @@ const cmds_ = struct {
     }
     pub const paste_clipboard_before_meta: Meta = .{ .description = "Paste from clipboard before selection" };
 };
+
+fn select_cursel_to_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var moving_cursor: Cursor = cursel.*.cursor;
+    const begin = cursel.*.cursor;
+    move_cursor_to_char_right_beyond_eol(root, &moving_cursor, metrics, ctx) catch return;
+
+    //Character found, selecting
+    Editor.move_cursor_right(root, &moving_cursor, metrics) catch {
+        // We might be at end of file
+    };
+    moving_cursor.target = moving_cursor.col;
+    const sel = try cursel.enable_selection(root, metrics);
+    sel.begin = begin;
+    sel.end = moving_cursor;
+    cursel.cursor = moving_cursor;
+}
 
 fn move_cursor_find_egc_beyond_eol(root: Buffer.Root, cursor: *Cursor, ctx: command.Context, metrics: Buffer.Metrics, move: find_char_function) error{Stop}!void {
     move(root, cursor, metrics, ctx);
