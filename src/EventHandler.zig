@@ -108,7 +108,8 @@ pub fn dynamic_cast(self: Self, comptime T: type) ?*T {
 }
 
 pub fn msg(self: Self, m: anytype) tp.result {
-    return self.vtable.send(self.ptr, tp.self_pid(), tp.message.fmt(m));
+    var buf: [tp.max_message_size]u8 = undefined;
+    return self.vtable.send(self.ptr, tp.self_pid(), tp.message.fmtbuf(&buf, m) catch |e| std.debug.panic("EventHandler.msg: {any}", .{e}));
 }
 
 pub fn send(self: Self, from_: tp.pid_ref, m: tp.message) tp.result {
@@ -172,7 +173,8 @@ pub const List = struct {
     }
 
     pub fn msg(self: *const List, m: anytype) tp.result {
-        return self.send(tp.self_pid(), tp.message.fmt(m));
+        var buf: [tp.max_message_size]u8 = undefined;
+        return self.send(tp.self_pid(), tp.message.fmtbuf(&buf, m) catch |e| std.debug.panic("EventHandler.List.msg: {any}", .{e}));
     }
 
     pub fn send(self: *const List, from: tp.pid_ref, m: tp.message) tp.result {

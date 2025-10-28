@@ -178,7 +178,8 @@ pub fn deinit(self: Self, allocator: Allocator) void {
 }
 
 pub fn msg(self: *const Self, m: anytype) error{Exit}!bool {
-    return self.vtable.send(self.ptr, tp.self_pid(), tp.message.fmt(m));
+    var buf: [tp.max_message_size]u8 = undefined;
+    return self.vtable.send(self.ptr, tp.self_pid(), tp.message.fmtbuf(&buf, m) catch |e| std.debug.panic("Widget.msg: {any}", .{e}));
 }
 
 pub fn send(self: *const Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
