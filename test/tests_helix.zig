@@ -2,6 +2,7 @@ const std = @import("std");
 const Buffer = @import("Buffer");
 const Cursor = @import("Buffer").Cursor;
 const Result = @import("command").Result;
+const fmt_command = @import("command").fmt;
 
 const helix = @import("tui").exports.mode.helix;
 const Editor = @import("tui").exports.editor.Editor;
@@ -155,4 +156,63 @@ test "long_words_movement" {
     for (movements) |move| {
         try apply_movements(move.moves, root, &the_cursor, metrics(), move.row, move.col);
     }
+}
+
+test "to_char_right_beyond_eol" {
+    const buffer = try Buffer.create(a);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    const root: Buffer.Root = buffer.root;
+    the_cursor.col = 0;
+    the_cursor.row = 0;
+    const expected_error = error.Stop;
+
+    // Not found to begin of file
+    var result = helix.test_internal.move_cursor_to_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"a"}));
+    try std.testing.expectError(expected_error, result);
+    try std.testing.expectEqual(0, the_cursor.row);
+    try std.testing.expectEqual(0, the_cursor.col);
+
+    // Move found in the next line
+    try helix.test_internal.move_cursor_to_char_right_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"T"}));
+    try std.testing.expectEqual(1, the_cursor.row);
+    try std.testing.expectEqual(11, the_cursor.col);
+
+    // Move found in the previous line
+    try helix.test_internal.move_cursor_to_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"t"}));
+    try std.testing.expectEqual(0, the_cursor.row);
+    try std.testing.expectEqual(51, the_cursor.col);
+
+    // Not found to end of buffer, cursor not moved
+    result = helix.test_internal.move_cursor_to_char_right_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"Z"}));
+    try std.testing.expectError(expected_error, result);
+    try std.testing.expectEqual(0, the_cursor.row);
+    try std.testing.expectEqual(51, the_cursor.col);
+
+    // Not found to begin of buffer
+    result = helix.test_internal.move_cursor_to_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"Z"}));
+    try std.testing.expectError(expected_error, result);
+    try std.testing.expectEqual(0, the_cursor.row);
+    try std.testing.expectEqual(51, the_cursor.col);
+
+    // till char difference
+    // Move found in the next line
+    try helix.test_internal.move_cursor_till_char_right_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"T"}));
+    try std.testing.expectEqual(1, the_cursor.row);
+    try std.testing.expectEqual(10, the_cursor.col);
+
+    // Move found in the previous line
+    try helix.test_internal.move_cursor_till_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"t"}));
+    try std.testing.expectEqual(0, the_cursor.row);
+    try std.testing.expectEqual(52, the_cursor.col);
+
+    // Move found in the same line
+    try helix.test_internal.move_cursor_till_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"x"}));
+    try std.testing.expectEqual(0, the_cursor.row);
+    try std.testing.expectEqual(46, the_cursor.col);
+
+    // Move found in the same line
+    try helix.test_internal.move_cursor_till_char_right_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"t"}));
+    try std.testing.expectEqual(0, the_cursor.row);
+    try std.testing.expectEqual(50, the_cursor.col);
 }
