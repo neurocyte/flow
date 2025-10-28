@@ -1517,6 +1517,8 @@ pub fn publish_diagnostics(self: *Self, to: tp.pid_ref, params_cb: []const u8) (
 fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
     var source: []const u8 = "unknown";
     var code: []const u8 = "none";
+    var code_int: i64 = 0;
+    var code_int_buf: [64]u8 = undefined;
     var message: []const u8 = "empty";
     var severity: i64 = 1;
     var range: ?Range = null;
@@ -1528,7 +1530,12 @@ fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: 
         if (std.mem.eql(u8, field_name, "source") or std.mem.eql(u8, field_name, "uri")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&source)))) return error.InvalidMessageField;
         } else if (std.mem.eql(u8, field_name, "code")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&code)))) return error.InvalidMessageField;
+            if (try cbor.matchValue(&iter, cbor.extract(&code_int))) {
+                var writer = std.Io.Writer.fixed(&code_int_buf);
+                try writer.print("{}", .{code_int});
+                code = writer.buffered();
+            } else if (!(try cbor.matchValue(&iter, cbor.extract(&code))))
+                return error.InvalidMessageField;
         } else if (std.mem.eql(u8, field_name, "message")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&message)))) return error.InvalidMessageField;
         } else if (std.mem.eql(u8, field_name, "severity")) {
