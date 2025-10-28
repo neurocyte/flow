@@ -33,6 +33,7 @@
             ["alt+!", "run_task"],
             ["ctrl+1", "add_task"],
             ["ctrl+tab", "next_tab"],
+            ["ctrl+shift+g", "show_vcs_status"],
             ["ctrl+shift+tab", "previous_tab"],
             ["ctrl+page_down", "next_tab"],
             ["ctrl+page_up", "previous_tab"],
