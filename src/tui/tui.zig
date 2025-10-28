@@ -1032,10 +1032,10 @@ const cmds = struct {
     }
     pub const open_recent_meta: Meta = .{ .description = "Open recent" };
 
-    pub fn open_changed_files(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/open_changed.zig"));
+    pub fn show_vcs_status(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/vcs_status.zig"));
     }
-    pub const open_changed_files_meta: Meta = .{ .description = "Open changed files (vcs)" };
+    pub const show_vcs_status_meta: Meta = .{ .description = "Show git status" };
 
     pub fn open_recent_project(_: *Self, _: Ctx) Result {
         try project_manager.request_recent_projects();

@@ -37,7 +37,7 @@ longest: usize,
 commands: Commands = undefined,
 buffer_manager: ?*BufferManager,
 
-const inputbox_label = "Open changed files by name";
+const inputbox_label = "Changed or untracked files";
 const MenuType = Menu.Options(*Self).MenuType;
 const ButtonType = MenuType.ButtonType;
 
@@ -75,7 +75,7 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
         .insert_command = "overlay_insert_bytes",
     });
     mode.event_handler = EventHandler.to_owned(self);
-    mode.name = "󰈞 open changed";
+    mode.name = " status";
     return mode;
 }
 
