@@ -124,6 +124,13 @@ pub fn request_tasks(allocator: std.mem.Allocator) (ProjectError || CallError)!t
     return (try get()).pid.call(allocator, request_timeout, .{ "request_tasks", project });
 }
 
+pub fn request_vcs_status() (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "request_vcs_status", project });
+}
+
 pub fn add_task(task: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -371,6 +378,8 @@ const Process = struct {
             self.request_path_files(from, project_directory, max, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_tasks", tp.extract(&project_directory) })) {
             self.request_tasks(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_status", tp.extract(&project_directory) })) {
+            self.request_vcs_status(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "add_task", tp.extract(&project_directory), tp.extract(&task) })) {
             self.add_task(project_directory, task) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "delete_task", tp.extract(&project_directory), tp.extract(&task) })) {
@@ -509,6 +518,11 @@ const Process = struct {
     fn delete_task(self: *Process, project_directory: []const u8, task: []const u8) (ProjectError || Project.ClientError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.delete_task(task);
+    }
+
+    fn request_vcs_status(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        try project.request_vcs_status(from);
     }
 
     fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) (ProjectError || Project.StartLspError || CallError || cbor.Error)!void {

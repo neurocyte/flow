@@ -4,7 +4,8 @@ const tp = @import("thespian");
 const EventHandler = @import("EventHandler");
 const Plane = @import("renderer").Plane;
 const command = @import("command");
-const git = @import("git");
+const project_manager = @import("project_manager");
+const VcsStatus = @import("VcsStatus");
 
 const Widget = @import("../Widget.zig");
 const Button = @import("../Button.zig");
@@ -19,14 +20,7 @@ const changed_symbol = "+";
 const untracked_symbol = "?";
 
 allocator: std.mem.Allocator,
-workspace_path: ?[]const u8 = null,
-branch: ?[]const u8 = null,
-ahead: ?[]const u8 = null,
-behind: ?[]const u8 = null,
-stash: ?[]const u8 = null,
-changed: usize = 0,
-untracked: usize = 0,
-done: bool = true,
+status: VcsStatus = .{},
 
 const Self = @This();
 const ButtonType = Button.Options(Self).ButtonType;
@@ -51,31 +45,29 @@ pub fn create(
 }
 
 pub fn ctx_init(self: *Self) error{OutOfMemory}!void {
-    try tui.message_filters().add(MessageFilter.bind(self, receive_git));
-    git.workspace_path(0) catch {};
+    try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
+    project_manager.request_vcs_status() catch {};
 }
 
 pub fn ctx_deinit(self: *Self) void {
     tui.message_filters().remove_ptr(self);
-    if (self.branch) |p| self.allocator.free(p);
-    if (self.ahead) |p| self.allocator.free(p);
-    if (self.behind) |p| self.allocator.free(p);
+    self.status.reset(self.allocator);
 }
 
 fn on_click(self: *Self, _: *ButtonType, _: Widget.Pos) void {
-    self.refresh_git_status();
-    command.executeName("show_git_status", .{}) catch {};
+    self.refresh_vcs_status();
+    command.executeName("show_vcs_status", .{}) catch {};
 }
 
-fn refresh_git_status(self: *Self) void {
-    if (self.workspace_path) |_| git.status(0) catch {};
+fn refresh_vcs_status(self: *Self) void {
+    if (self.status.branch) |_| project_manager.request_vcs_status() catch {};
 }
 
 pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "E", tp.more }))
         return self.process_event(m);
     if (try m.match(.{ "PRJ", "open" }))
-        self.refresh_git_status();
+        project_manager.request_vcs_status() catch {};
     return false;
 }
 
@@ -84,13 +76,13 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
         try m.match(.{ tp.any, "save", tp.more }) or
         try m.match(.{ tp.any, "open", tp.more }) or
         try m.match(.{ tp.any, "close" }))
-        self.refresh_git_status();
+        self.refresh_vcs_status();
     return false;
 }
 
-fn receive_git(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
-    return if (try match(m.buf, .{ "git", more }))
-        self.process_git(m)
+fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    return if (try match(m.buf, .{ "vcs_status", tp.more }))
+        self.process_vcs_status(m)
     else if (try match(m.buf, .{"focus_in"}))
         self.process_focus_in()
     else
@@ -98,100 +90,41 @@ fn receive_git(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bo
 }
 
 fn process_focus_in(self: *Self) MessageFilter.Error!bool {
-    self.refresh_git_status();
+    self.refresh_vcs_status();
     return false;
 }
 
-fn process_git(self: *Self, m: tp.message) MessageFilter.Error!bool {
-    var value: []const u8 = undefined;
-    if (try match(m.buf, .{ any, any, "workspace_path", null_ })) {
-        // do nothing, we do not have a git workspace
-    } else if (try match(m.buf, .{ any, any, "workspace_path", extract(&value) })) {
-        if (self.workspace_path) |p| self.allocator.free(p);
-        self.workspace_path = try self.allocator.dupe(u8, value);
-        // git.current_branch(0) catch {};
-        git.status(0) catch {};
-    } else if (try match(m.buf, .{ any, any, "current_branch", extract(&value) })) {
-        if (self.branch) |p| self.allocator.free(p);
-        self.branch = try self.allocator.dupe(u8, value);
-    } else if (try match(m.buf, .{ any, any, "status", tp.more })) {
-        return self.process_status(m);
-    } else {
-        return false;
-    }
-    return true;
-}
-
-fn process_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
+fn process_vcs_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
     defer if (tui.frames_rendered() > 0)
         Widget.need_render();
 
-    var value: []const u8 = undefined;
-    var ahead: []const u8 = undefined;
-    var behind: []const u8 = undefined;
+    var status: VcsStatus = .{};
+    self.status.reset(self.allocator);
+    if (!try match(m.buf, .{ any, extract(&status) })) return true;
 
-    if (self.done) {
-        self.done = false;
-        self.changed = 0;
-        self.untracked = 0;
-        if (self.ahead) |p| self.allocator.free(p);
-        self.ahead = null;
-        if (self.behind) |p| self.allocator.free(p);
-        self.behind = null;
-        if (self.stash) |p| self.allocator.free(p);
-        self.stash = null;
-    }
+    if (status.branch) |branch| self.status.branch = try self.allocator.dupe(u8, branch);
+    if (status.ahead) |ahead| self.status.ahead = try self.allocator.dupe(u8, ahead);
+    if (status.behind) |behind| self.status.behind = try self.allocator.dupe(u8, behind);
+    if (status.stash) |stash| self.status.stash = try self.allocator.dupe(u8, stash);
 
-    if (try match(m.buf, .{ any, any, "status", "#", "branch.oid", extract(&value) })) {
-        // commit | (initial)
-    } else if (try match(m.buf, .{ any, any, "status", "#", "branch.head", extract(&value) })) {
-        if (self.branch) |p| self.allocator.free(p);
-        self.branch = try self.allocator.dupe(u8, value);
-    } else if (try match(m.buf, .{ any, any, "status", "#", "branch.upstream", extract(&value) })) {
-        // upstream-branch
-    } else if (try match(m.buf, .{ any, any, "status", "#", "branch.ab", extract(&ahead), extract(&behind) })) {
-        if (self.ahead) |p| self.allocator.free(p);
-        self.ahead = try self.allocator.dupe(u8, ahead);
-        if (self.behind) |p| self.allocator.free(p);
-        self.behind = try self.allocator.dupe(u8, behind);
-    } else if (try match(m.buf, .{ any, any, "status", "#", "stash", extract(&value) })) {
-        if (self.stash) |p| self.allocator.free(p);
-        self.stash = try self.allocator.dupe(u8, value);
-    } else if (try match(m.buf, .{ any, any, "status", "1", tp.more })) {
-        // ordinary file: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
-        self.changed += 1;
-    } else if (try match(m.buf, .{ any, any, "status", "2", tp.more })) {
-        // rename or copy: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><sep><origPath>
-        self.changed += 1;
-    } else if (try match(m.buf, .{ any, any, "status", "u", tp.more })) {
-        // unmerged file: <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
-        self.changed += 1;
-    } else if (try match(m.buf, .{ any, any, "status", "?", tp.more })) {
-        // untracked file: <path>
-        self.untracked += 1;
-    } else if (try match(m.buf, .{ any, any, "status", "!", tp.more })) {
-        // ignored file: <path>
-    } else if (try match(m.buf, .{ any, any, "status", null_ })) {
-        self.done = true;
-    } else return false;
     return true;
 }
 
 fn format(self: *Self, buf: []u8) []const u8 {
-    const branch = self.branch orelse return "";
+    const branch = self.status.branch orelse return "";
     var fbs = std.io.fixedBufferStream(buf);
     const writer = fbs.writer();
     writer.print("   {s}{s}", .{ branch_symbol, branch }) catch {};
-    if (self.ahead) |ahead| if (ahead.len > 1 and ahead[1] != '0')
+    if (self.status.ahead) |ahead| if (ahead.len > 1 and ahead[1] != '0')
         writer.print(" {s}{s}", .{ ahead_symbol, ahead[1..] }) catch {};
-    if (self.behind) |behind| if (behind.len > 1 and behind[1] != '0')
+    if (self.status.behind) |behind| if (behind.len > 1 and behind[1] != '0')
         writer.print(" {s}{s}", .{ behind_symbol, behind[1..] }) catch {};
-    if (self.stash) |stash| if (stash.len > 0 and stash[0] != '0')
+    if (self.status.stash) |stash| if (stash.len > 0 and stash[0] != '0')
         writer.print(" {s}{s}", .{ stash_symbol, stash }) catch {};
-    if (self.changed > 0)
-        writer.print(" {s}{d}", .{ changed_symbol, self.changed }) catch {};
-    if (self.untracked > 0)
-        writer.print(" {s}{d}", .{ untracked_symbol, self.untracked }) catch {};
+    if (self.status.changed > 0)
+        writer.print(" {s}{d}", .{ changed_symbol, self.status.changed }) catch {};
+    if (self.status.untracked > 0)
+        writer.print(" {s}{d}", .{ untracked_symbol, self.status.untracked }) catch {};
     writer.print("   ", .{}) catch {};
     return fbs.getWritten();
 }

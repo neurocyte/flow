@@ -406,6 +406,11 @@ pub fn build_exe(
         },
     });
 
+    const VcsStatus_mod = b.createModule(.{
+        .root_source_file = b.path("src/VcsStatus.zig"),
+        .imports = &.{},
+    });
+
     const color_mod = b.createModule(.{
         .root_source_file = b.path("src/color.zig"),
     });
@@ -575,6 +580,7 @@ pub fn build_exe(
             .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
             .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
             .{ .name = "git", .module = git_mod },
+            .{ .name = "VcsStatus", .module = VcsStatus_mod },
         },
     });
 
@@ -628,6 +634,7 @@ pub fn build_exe(
             .{ .name = "help.md", .module = help_mod },
             .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
             .{ .name = "zeit", .module = zeit_mod },
+            .{ .name = "VcsStatus", .module = VcsStatus_mod },
         },
     });
 

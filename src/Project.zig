@@ -8,6 +8,7 @@ const Buffer = @import("Buffer");
 const fuzzig = @import("fuzzig");
 const tracy = @import("tracy");
 const git = @import("git");
+const VcsStatus = @import("VcsStatus");
 const file_type_config = @import("file_type_config");
 const builtin = @import("builtin");
 
@@ -30,7 +31,6 @@ logger_lsp: log.Logger,
 logger_git: log.Logger,
 
 workspace: ?[]const u8 = null,
-branch: ?[]const u8 = null,
 
 walker: ?tp.pid = null,
 
@@ -40,7 +40,11 @@ state: struct {
     workspace_path: State = .none,
     current_branch: State = .none,
     workspace_files: State = .none,
+    status: State = .none,
 } = .{},
+
+status: VcsStatus = .{},
+status_request: ?tp.pid = null,
 
 const Self = @This();
 
@@ -91,7 +95,6 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
 pub fn deinit(self: *Self) void {
     if (self.walker) |pid| pid.send(.{"stop"}) catch {};
     if (self.workspace) |p| self.allocator.free(p);
-    if (self.branch) |p| self.allocator.free(p);
     var i_ = self.file_language_server_name.iterator();
     while (i_.next()) |p| {
         self.allocator.free(p.key_ptr.*);
@@ -589,6 +592,25 @@ pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) Cl
         return;
     }
     from.send(.{"none"}) catch return error.ClientFailed;
+}
+
+pub fn request_vcs_status(self: *Self, from: tp.pid_ref) ClientError!void {
+    switch (self.state.status) {
+        .none => return error.ClientFailed,
+        .failed => return,
+        .running => {
+            if (self.status_request) |_| return;
+            self.status_request = from.clone();
+        },
+        .done => {
+            if (self.status_request) |_| return;
+            self.status_request = from.clone();
+            self.state.status = .running;
+            git.status(@intFromPtr(self)) catch {
+                self.state.status = .failed;
+            };
+        },
+    }
 }
 
 pub fn request_tasks(self: *Self, from: tp.pid_ref) ClientError!void {
@@ -2054,6 +2076,10 @@ pub fn query_git(self: *Self) void {
     git.current_branch(@intFromPtr(self)) catch {
         self.state.current_branch = .failed;
     };
+    self.state.status = .running;
+    git.status(@intFromPtr(self)) catch {
+        self.state.status = .failed;
+    };
 }
 
 fn start_walker(self: *Self) void {
@@ -2067,7 +2093,9 @@ fn start_walker(self: *Self) void {
 pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || error{Exit})!void {
     var value: []const u8 = undefined;
     var path: []const u8 = undefined;
-    if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.null_ })) {
+    if (try m.match(.{ tp.any, tp.any, "status", tp.more })) {
+        return self.process_status(m);
+    } else if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.null_ })) {
         self.state.workspace_path = .done;
         self.start_walker();
         try self.loaded(parent);
@@ -2083,8 +2111,8 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
         self.state.current_branch = .done;
         try self.loaded(parent);
     } else if (try m.match(.{ tp.any, tp.any, "current_branch", tp.extract(&value) })) {
-        if (self.branch) |p| self.allocator.free(p);
-        self.branch = try self.allocator.dupe(u8, value);
+        if (self.status.branch) |p| self.allocator.free(p);
+        self.status.branch = try self.allocator.dupe(u8, value);
         self.state.current_branch = .done;
         try self.loaded(parent);
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&path) })) {
@@ -2105,5 +2133,56 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
         try self.loaded(parent);
     } else {
         self.logger_git.err("git", tp.unexpected(m));
+    }
+}
+
+fn process_status(self: *Self, m: tp.message) (OutOfMemoryError || error{Exit})!void {
+    const any = cbor.any;
+    const extract = cbor.extract;
+    const null_ = cbor.null_;
+
+    var value: []const u8 = undefined;
+    var ahead: []const u8 = undefined;
+    var behind: []const u8 = undefined;
+
+    if (self.state.status == .done)
+        self.status.reset(self.allocator);
+
+    if (try m.match(.{ any, any, "status", "#", "branch.oid", extract(&value) })) {
+        // commit | (initial)
+    } else if (try m.match(.{ any, any, "status", "#", "branch.head", extract(&value) })) {
+        if (self.status.branch) |p| self.allocator.free(p);
+        self.status.branch = try self.allocator.dupe(u8, value);
+    } else if (try m.match(.{ any, any, "status", "#", "branch.upstream", extract(&value) })) {
+        // upstream-branch
+    } else if (try m.match(.{ any, any, "status", "#", "branch.ab", extract(&ahead), extract(&behind) })) {
+        if (self.status.ahead) |p| self.allocator.free(p);
+        self.status.ahead = try self.allocator.dupe(u8, ahead);
+        if (self.status.behind) |p| self.allocator.free(p);
+        self.status.behind = try self.allocator.dupe(u8, behind);
+    } else if (try m.match(.{ any, any, "status", "#", "stash", extract(&value) })) {
+        if (self.status.stash) |p| self.allocator.free(p);
+        self.status.stash = try self.allocator.dupe(u8, value);
+    } else if (try m.match(.{ any, any, "status", "1", tp.more })) {
+        // ordinary file: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+        self.status.changed += 1;
+    } else if (try m.match(.{ any, any, "status", "2", tp.more })) {
+        // rename or copy: <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><sep><origPath>
+        self.status.changed += 1;
+    } else if (try m.match(.{ any, any, "status", "u", tp.more })) {
+        // unmerged file: <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
+        self.status.changed += 1;
+    } else if (try m.match(.{ any, any, "status", "?", tp.more })) {
+        // untracked file: <path>
+        self.status.untracked += 1;
+    } else if (try m.match(.{ any, any, "status", "!", tp.more })) {
+        // ignored file: <path>
+    } else if (try m.match(.{ any, any, "status", null_ })) {
+        self.state.status = .done;
+        if (self.status_request) |from| {
+            from.send(.{ "vcs_status", self.status }) catch {};
+            from.deinit();
+            self.status_request = null;
+        }
     }
 }
