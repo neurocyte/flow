@@ -14,7 +14,10 @@
             ["ctrl+f", "move_scroll_page_down"],
             ["ctrl+u", "move_scroll_half_page_up"],
             ["ctrl+d", "move_scroll_half_page_down"],
+            ["z t", "scroll_view_top"],
+            ["z c", "scroll_view_center"],
             ["z z", "scroll_view_center"],
+            ["z b", "scroll_view_bottom"],
             ["ctrl+c", "toggle_comment"],
             ["ctrl+i", "jump_forward"],
             ["ctrl+o", "jump_back"],
@@ -127,6 +130,8 @@
 
             ["v", "enter_mode", "select"],
 
+
+            ["G", "goto_line"],
             ["g g", "goto_line_vim"],
             ["g e", "move_buffer_end"],
             ["g f", "goto_file"],
@@ -280,7 +285,10 @@
             ["ctrl+f", "select_page_down"],
             ["ctrl+u", "select_half_page_up"],
             ["ctrl+d", "select_half_page_down"],
+            ["z t", "scroll_view_top"],
+            ["z c", "scroll_view_center"],
             ["z z", "scroll_view_center"],
+            ["z b", "scroll_view_bottom"],
 
             ["ctrl+c", "toggle_comment"],
 
@@ -352,7 +360,7 @@
             ["B", "extend_prev_long_word_start"],
             ["E", "extend_next_long_word_end"],
 
-            ["G", "move_buffer_end_or_count_line"],
+            ["G", "goto_line"],
 
             ["I", ["enter_mode", "insert"], ["smart_move_begin"]],
             ["A", ["enter_mode", "insert"], ["move_end"]],
