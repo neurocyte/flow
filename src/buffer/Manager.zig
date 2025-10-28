@@ -41,7 +41,11 @@ pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
 }
 
 pub fn open_file(self: *Self, file_path: []const u8) Buffer.LoadFromFileError!*Buffer {
-    const buffer = if (self.get_buffer(file_path)) |buffer| buffer else blk: {
+    const buffer = if (self.get_buffer(file_path)) |buffer| blk: {
+        if (!buffer.ephemeral and buffer.hidden)
+            try buffer.refresh_from_file();
+        break :blk buffer;
+    } else blk: {
         var buffer = try Buffer.create(self.allocator);
         errdefer buffer.deinit();
         try buffer.load_from_file_and_update(file_path);
