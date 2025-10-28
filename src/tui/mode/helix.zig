@@ -484,11 +484,11 @@ fn select_cursel_till_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: c
     var moving_cursor: Cursor = cursel.*.cursor;
     var begin = cursel.*.cursor;
     move_cursor_till_char_left_beyond_eol(root, &moving_cursor, metrics, ctx) catch return;
+
+    // Character found, selecting
     Editor.move_cursor_right(root, &begin, metrics) catch {
         //At end of file, it's ok
     };
-
-    // Character found, selecting
     moving_cursor.target = moving_cursor.col;
     const sel = try cursel.enable_selection(root, metrics);
     sel.begin = begin;

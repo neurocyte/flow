@@ -29,6 +29,7 @@ const Direction = enum {
 const Operation = enum {
     move,
     select,
+    extend,
 };
 
 pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
@@ -36,7 +37,18 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     _ = ctx.args.match(.{tp.extract(&operation_command)}) catch return error.InvalidMoveToCharArgument;
 
     const direction: Direction = if (std.mem.indexOf(u8, operation_command, "_left")) |_| .left else .right;
-    const operation: Operation = if (tui.get_active_editor()) |editor| if (editor.get_primary().selection) |_| .select else .move else .move;
+    var operation: Operation = undefined;
+    if (std.mem.indexOf(u8, operation_command, "extend_")) |_| {
+        operation = .extend;
+    } else if (std.mem.indexOf(u8, operation_command, "select_")) |_| {
+        operation = .select;
+    } else if (tui.get_active_editor()) |editor| if (editor.get_primary().selection) |_| {
+        operation = .select;
+    } else {
+        operation = .move;
+    } else {
+        operation = .move;
+    }
 
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -69,6 +81,10 @@ fn name(self: *Self) []const u8 {
         .select => switch (self.direction) {
             .left => "󰒅 ↶ select",
             .right => "󰒅 ↷ select",
+        },
+        .extend => switch (self.direction) {
+            .left => "󰒅 ↶ extend",
+            .right => "󰒅 ↷ extend",
         },
     };
 }
