@@ -635,8 +635,6 @@ fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
         std.time.milliTimestamp() - self.open_time,
     });
 
-    self.logger.print("vcs outstanding files: {d}", .{self.new_or_modified_files.items.len});
-
     parent.send(.{ "PRJ", "open_done", self.name, self.longest_file_path, self.files.items.len }) catch {};
 }
 
