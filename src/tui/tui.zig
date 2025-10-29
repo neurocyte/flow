@@ -1167,6 +1167,11 @@ const cmds = struct {
     }
     pub const move_to_char_meta: Meta = .{ .description = "Move to character" };
 
+    pub fn replace(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/replace.zig"), ctx);
+    }
+    pub const replace_meta: Meta = .{ .description = "Replace with character" };
+
     pub fn open_file(self: *Self, ctx: Ctx) Result {
         if (get_active_selection(self.allocator)) |text| {
             defer self.allocator.free(text);
