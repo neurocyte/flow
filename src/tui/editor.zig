@@ -1632,6 +1632,26 @@ pub const Editor = struct {
         return self.primary.col - self.view.col;
     }
 
+    pub fn cursel_length(root: Buffer.Root, cursel_: CurSel, metrics: Buffer.Metrics) usize {
+        var length: usize = 0;
+        var cursel = cursel_;
+        cursel.check_selection(root, metrics);
+        if (cursel.selection) |*sel| {
+            sel.normalize();
+            if (sel.begin.row == sel.end.row) {
+                length = sel.end.col - sel.begin.col;
+            } else {
+                var row = sel.begin.row;
+                while (row < sel.end.row) {
+                    length += root.line_width(row, metrics) catch 0;
+                    row += 1;
+                }
+                length = length + sel.end.col - sel.begin.col;
+            }
+        }
+        return length;
+    }
+
     fn update_event(self: *Self) !void {
         const primary = self.get_primary();
         const dirty = if (self.buffer) |buf| buf.is_dirty() else false;
@@ -2031,6 +2051,23 @@ pub const Editor = struct {
         return if (someone_stopped) error.Stop else {};
     }
 
+    fn with_cursel_mut_arg(self: *Self, root: Buffer.Root, op: cursel_operator_mut_arg, cursel: *CurSel, allocator: Allocator, ctx: Context) error{Stop}!Buffer.Root {
+        return op(self, root, cursel, allocator, ctx);
+    }
+
+    pub fn with_cursels_mut_once_arg(self: *Self, root_: Buffer.Root, move: cursel_operator_mut_arg, allocator: Allocator, ctx: Context) error{Stop}!Buffer.Root {
+        var root = root_;
+        var someone_stopped = false;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            root = self.with_cursel_mut_arg(root, move, cursel, allocator, ctx) catch ret: {
+                someone_stopped = true;
+                break :ret root;
+            };
+        };
+        self.collapse_cursors();
+        return if (someone_stopped) error.Stop else root;
+    }
+
     fn with_cursel_const(root: Buffer.Root, op: cursel_operator_const, cursel: *CurSel) error{Stop}!void {
         return op(root, cursel);
     }
@@ -2100,6 +2137,7 @@ pub const Editor = struct {
     const cursor_operator = *const fn (root: Buffer.Root, cursor: *Cursor, allocator: Allocator) error{Stop}!Buffer.Root;
     const cursel_operator = *const fn (root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
     const cursel_operator_mut = *const fn (self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
+    const cursel_operator_mut_arg = *const fn (self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator, ctx: Context) error{Stop}!Buffer.Root;
 
     pub fn is_not_word_char(c: []const u8) bool {
         if (c.len == 0) return true;
