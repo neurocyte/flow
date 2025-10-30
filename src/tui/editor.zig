@@ -3015,22 +3015,26 @@ pub const Editor = struct {
     }
     pub const delete_to_end_meta: Meta = .{ .description = "Delete to end of line" };
 
-    pub fn delete_line(self: *Self, _: Context) Result {
+    pub fn delete_line(self: *Self, ctx: Context) Result {
         const b = try self.buf_for_update();
         var root = b.root;
-        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            const col = cursel.cursor.col;
-            const target = cursel.cursor.target;
-            try self.select_line_at_cursor(root, cursel, .include_eol);
-            root = try self.delete_selection(root, cursel, b.allocator);
-            cursel.cursor.col = col;
-            cursel.cursor.target = target;
-            cursel.cursor.clamp_to_buffer(root, self.metrics);
-        };
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                const col = cursel.cursor.col;
+                const target = cursel.cursor.target;
+                try self.select_line_at_cursor(root, cursel, .include_eol);
+                root = try self.delete_selection(root, cursel, b.allocator);
+                cursel.cursor.col = col;
+                cursel.cursor.target = target;
+                cursel.cursor.clamp_to_buffer(root, self.metrics);
+            };
+        }
         try self.update_buf(root);
         self.clamp();
     }
-    pub const delete_line_meta: Meta = .{ .description = "Delete current line" };
+    pub const delete_line_meta: Meta = .{ .description = "Delete current line", .arguments = &.{.integer} };
 
     pub fn cut_to_end_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
