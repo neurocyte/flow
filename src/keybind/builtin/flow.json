@@ -201,6 +201,7 @@
             ["shift+kp_page_down", "select_page_down"],
             ["shift+enter", "smart_insert_line_before"],
             ["shift+backspace", "delete_backward"],
+            ["ctrl+shift+k", "delete_line"],
             ["shift+tab", "unindent"],
             ["f2", "rename_symbol"],
             ["f3", "goto_next_match"],
