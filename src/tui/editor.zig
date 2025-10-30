@@ -3861,9 +3861,10 @@ pub const Editor = struct {
     pub const enable_selection_meta: Meta = .{ .description = "Enable selection" };
 
     pub fn select_line_vim(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
         self.selection_mode = .line;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            try self.select_line_around_cursor(cursel);
+            try self.select_line_at_cursor(root, cursel, .hold_cursor);
         self.collapse_cursors();
 
         self.clamp();
@@ -4103,7 +4104,7 @@ pub const Editor = struct {
         return sel;
     }
 
-    fn select_line_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, mode: enum { include_eol, exclude_eol }) !void {
+    fn select_line_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, mode: enum { include_eol, exclude_eol, hold_cursor }) !void {
         const sel = try cursel.enable_selection(root, self.metrics);
         sel.normalize();
         try move_cursor_begin(root, &sel.begin, self.metrics);
@@ -4112,15 +4113,10 @@ pub const Editor = struct {
             .include_eol => move_cursor_right(root, &sel.end, self.metrics) catch {}, // catch{} because may be impossible to get eol (e.g., we're at eof)
             else => {},
         }
-        cursel.cursor = sel.end;
-    }
-
-    pub fn select_line_around_cursor(self: *Self, cursel: *CurSel) !void {
-        const root = try self.buf_root();
-        const sel = try cursel.enable_selection(root, self.metrics);
-        sel.normalize();
-        try move_cursor_begin(root, &sel.begin, self.metrics);
-        try move_cursor_end(root, &sel.end, self.metrics);
+        switch (mode) {
+            .hold_cursor => {},
+            else => cursel.cursor = sel.end,
+        }
     }
 
     fn selection_reverse(_: Buffer.Root, cursel: *CurSel) !void {
