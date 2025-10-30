@@ -1901,7 +1901,7 @@ pub const Editor = struct {
         self.collapse_cursors();
     }
 
-    fn with_cursors_const_repeat(self: *Self, root: Buffer.Root, move: cursor_operator_const, ctx: Context) error{Stop}!void {
+    pub fn with_cursors_const_repeat(self: *Self, root: Buffer.Root, move: cursor_operator_const, ctx: Context) error{Stop}!void {
         var repeat: usize = 1;
         _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
         while (repeat > 0) : (repeat -= 1) {
@@ -2135,7 +2135,7 @@ pub const Editor = struct {
     }
 
     const cursor_predicate = *const fn (root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) bool;
-    const cursor_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void;
+    pub const cursor_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void;
     const cursor_operator_const_arg = *const fn (root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void;
     pub const cursel_operator_mut_once_arg = *const fn (root: Buffer.Root, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void;
     const cursor_view_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) error{Stop}!void;
@@ -3229,7 +3229,7 @@ pub const Editor = struct {
         move_cursor_left_until(root, cursor, is_word_boundary_left, metrics);
     }
 
-    fn move_cursor_word_left_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    pub fn move_cursor_word_left_vim(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try move_cursor_left(root, cursor, metrics);
         move_cursor_left_until(root, cursor, is_word_boundary_left_vim, metrics);
     }
