@@ -74,6 +74,32 @@ test "buffer" {
     try std.testing.expectEqual(doc.len, buffer.root.length());
 }
 
+test "buffer.store_to_file_and_clean" {
+    const local = struct {
+        fn read_file(allocator: std.mem.Allocator, file_path: []const u8) ![]const u8 {
+            const file = try std.fs.cwd().openFile(file_path, .{ .mode = .read_only });
+            defer file.close();
+            const stat = try file.stat();
+            const buf = try allocator.alloc(u8, @intCast(stat.size));
+            errdefer allocator.free(buf);
+            const read_size = try file.readAll(buf);
+            try std.testing.expectEqual(read_size, stat.size);
+            return buf;
+        }
+    };
+
+    const buffer = try Buffer.create(a);
+    defer buffer.deinit();
+    try buffer.load_from_file_and_update("test/tests_buffer_input.txt");
+    try buffer.store_to_file_and_clean("test/tests_buffer_output.txt");
+
+    const input = try local.read_file(a, "test/tests_buffer_input.txt");
+    defer a.free(input);
+    const output = try local.read_file(a, "test/tests_buffer_output.txt");
+    defer a.free(output);
+    try std.testing.expectEqualStrings(input, output);
+}
+
 fn get_line(buf: *const Buffer, line: usize) ![]const u8 {
     var result: std.Io.Writer.Allocating = .init(a);
     try buf.root.get_line(line, &result.writer, metrics());

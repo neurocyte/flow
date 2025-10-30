@@ -1,0 +1,1107 @@
+const std = @import("std");
+const tui = @import("tui");
+const cbor = @import("cbor");
+const thespian = @import("thespian");
+const color = @import("color");
+const flags = @import("flags");
+const builtin = @import("builtin");
+const bin_path = @import("bin_path");
+const sep = std.fs.path.sep;
+
+const list_languages = @import("list_languages.zig");
+const file_link = @import("file_link");
+
+const c = @cImport({
+    @cInclude("locale.h");
+});
+
+const build_options = @import("build_options");
+const log = @import("log");
+
+pub const version = @embedFile("version");
+pub const version_info = @embedFile("version_info");
+
+pub const max_diff_lines: usize = 50000;
+pub const max_syntax_lines: usize = 50000;
+
+pub const application_name = "flow";
+pub const application_title = "Flow Control";
+pub const application_subtext = "a programmer's text editor";
+pub const application_description = application_title ++ ": " ++ application_subtext;
+
+pub const std_options: std.Options = .{
+    // .log_level = if (builtin.mode == .Debug) .debug else .warn,
+    .log_level = if (builtin.mode == .Debug) .info else .warn,
+    .logFn = log.std_log_function,
+};
+
+const renderer = @import("renderer");
+
+pub const panic = if (@hasDecl(renderer, "panic")) renderer.panic else default_panic;
+
+fn default_panic(msg: []const u8, _: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+    return std.debug.defaultPanic(msg, ret_addr);
+}
+
+pub fn main() anyerror!void {
+    if (builtin.os.tag == .linux) {
+        // drain stdin so we don't pickup junk from previous application/shell
+        _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
+    }
+
+    const a = std.heap.c_allocator;
+    const letter_casing = @import("Buffer").unicode.get_letter_casing();
+    _ = letter_casing; // no need to free letter_casing as it is globally static
+
+    const Flags = struct {
+        pub const description =
+            application_title ++ ": " ++ application_subtext ++
+            \\
+            \\
+            \\Pass in file names to be opened with an optional :LINE or :LINE:COL appended to the
+            \\file name to specify a specific location, or pass +<LINE> separately to set the line.
+            ;
+
+        pub const descriptions = .{
+            .project = "Set project directory (default: cwd)",
+            .no_persist = "Do not persist new projects",
+            .frame_rate = "Set target frame rate (default: 60)",
+            .debug_wait = "Wait for key press before starting UI",
+            .debug_dump_on_error = "Dump stack traces on errors",
+            .no_sleep = "Do not sleep the main loop when idle",
+            .no_alternate = "Do not use the alternate terminal screen",
+            .trace_level = "Enable internal tracing (level of detail from 1-5)",
+            .no_trace = "Do not enable internal tracing",
+            .restore_session = "Restore restart session",
+            .show_input = "Open the input view on start",
+            .show_log = "Open the log view on start",
+            .language = "Force the language of the file to be opened",
+            .list_languages = "Show available languages",
+            .no_syntax = "Disable syntax highlighting",
+            .syntax_report_timing = "Report syntax highlighting time",
+            .exec = "Execute a command on startup",
+            .literal = "Disable :LINE and +LINE syntax",
+            .scratch = "Open a scratch (temporary) buffer on start",
+            .new_file = "Create a new untitled file on start",
+            .dark = "Use dark color scheme",
+            .light = "Use light color scheme",
+            .version = "Show build version and exit",
+        };
+
+        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds" };
+
+        pub const switches = .{
+            .project = 'p',
+            .no_persist = 'N',
+            .frame_rate = 'f',
+            .trace_level = 't',
+            .language = 'l',
+            .exec = 'e',
+            .literal = 'L',
+            .scratch = 'S',
+            .new_file = 'n',
+            .version = 'v',
+        };
+
+        project: ?[]const u8,
+        no_persist: bool,
+        frame_rate: ?usize,
+        debug_wait: bool,
+        debug_dump_on_error: bool,
+        no_sleep: bool,
+        no_alternate: bool,
+        trace_level: u8 = 0,
+        no_trace: bool,
+        restore_session: bool,
+        show_input: bool,
+        show_log: bool,
+        language: ?[]const u8,
+        list_languages: bool,
+        no_syntax: bool,
+        syntax_report_timing: bool,
+        exec: ?[]const u8,
+        literal: bool,
+        scratch: bool,
+        new_file: bool,
+        dark: bool,
+        light: bool,
+        version: bool,
+
+        positional: struct {
+            trailing: []const []const u8,
+        },
+    };
+
+    const args_alloc = try std.process.argsAlloc(a);
+    defer std.process.argsFree(a, args_alloc);
+
+    var diag: flags.Diagnostics = undefined;
+
+    const args = flags.parse(args_alloc, "flow", Flags, .{
+        .diagnostics = &diag,
+    }) catch |err| {
+        if (err == error.PrintedHelp) exit(0);
+        try diag.printUsage(&flags.ColorScheme.default);
+        exit(1);
+        return err;
+    };
+
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_file = std.fs.File.stdout().writer(&stdout_buf);
+    const stdout = &stdout_file.interface;
+    defer stdout.flush() catch {};
+    var stderr_buf: [4096]u8 = undefined;
+    var stderr_file = std.fs.File.stderr().writer(&stderr_buf);
+    const stderr = &stderr_file.interface;
+    defer stderr.flush() catch {};
+
+    if (args.version)
+        return std.fs.File.stdout().writeAll(version_info);
+
+    if (args.list_languages) {
+        const tty_config = std.io.tty.detectConfig(std.fs.File.stdout());
+        return list_languages.list(a, stdout, tty_config);
+    }
+
+    if (builtin.os.tag != .windows and @hasDecl(renderer, "install_crash_handler")) {
+        if (std.posix.getenv("JITDEBUG")) |_| renderer.jit_debugger_enabled = true;
+        renderer.install_crash_handler();
+    }
+
+    if (args.debug_wait) {
+        std.debug.print("press return to start", .{});
+        var buf: [1]u8 = undefined;
+        _ = try std.fs.File.stdin().read(&buf);
+    }
+
+    if (c.setlocale(c.LC_ALL, "") == null) {
+        try stderr.print("Failed to set locale. Is your locale valid?\n", .{});
+        stderr.flush() catch {};
+        exit(1);
+    }
+
+    thespian.stack_trace_on_errors = args.debug_dump_on_error;
+
+    var ctx = try thespian.context.init(a);
+    defer ctx.deinit();
+
+    const env = thespian.env.init();
+    defer env.deinit();
+    if (build_options.enable_tracy) {
+        if (!args.no_trace) {
+            env.enable_all_channels();
+            env.on_trace(trace);
+        }
+    } else {
+        if (args.trace_level != 0) {
+            var threshold: usize = 1;
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.debug);
+            }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.widget);
+            }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.event);
+            }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.input);
+            }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.receive);
+            }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.metronome);
+                env.enable(thespian.channel.execute);
+                env.enable(thespian.channel.link);
+            }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable(thespian.channel.send);
+            }
+            threshold += 1;
+            if (args.trace_level >= threshold) {
+                env.enable_all_channels();
+            }
+
+            env.on_trace(trace_to_file);
+        }
+    }
+
+    const log_proc = try log.spawn(&ctx, a, &env);
+    defer log_proc.deinit();
+    log.set_std_log_pid(log_proc.ref());
+    defer log.set_std_log_pid(null);
+
+    env.set("no-persist", args.no_persist);
+    env.set("restore-session", args.restore_session);
+    env.set("no-alternate", args.no_alternate);
+    env.set("show-input", args.show_input);
+    env.set("show-log", args.show_log);
+    env.set("no-sleep", args.no_sleep);
+    env.set("no-syntax", args.no_syntax);
+    env.set("syntax-report-timing", args.syntax_report_timing);
+    env.set("dump-stack-trace", args.debug_dump_on_error);
+    if (args.frame_rate) |s| env.num_set("frame-rate", @intCast(s));
+    env.proc_set("log", log_proc.ref());
+    if (args.language) |s| env.str_set("language", s);
+
+    var eh = thespian.make_exit_handler({}, print_exit_status);
+    const tui_proc = try tui.spawn(a, &ctx, &eh, &env);
+    defer tui_proc.deinit();
+
+    var links: std.ArrayList(file_link.Dest) = .empty;
+    defer links.deinit(a);
+    var prev: ?*file_link.Dest = null;
+    var line_next: ?usize = null;
+    var offset_next: ?usize = null;
+    for (args.positional.trailing) |arg| {
+        if (arg.len == 0) continue;
+
+        if (!args.literal and arg[0] == '+') {
+            if (arg.len > 2 and arg[1] == 'b') {
+                const offset = try std.fmt.parseInt(usize, arg[2..], 10);
+                if (prev) |p| switch (p.*) {
+                    .file => |*file| {
+                        file.offset = offset;
+                        continue;
+                    },
+                    else => {},
+                };
+                offset_next = offset;
+                line_next = null;
+            } else {
+                const line = try std.fmt.parseInt(usize, arg[1..], 10);
+                if (prev) |p| switch (p.*) {
+                    .file => |*file| {
+                        file.line = line;
+                        continue;
+                    },
+                    else => {},
+                };
+                line_next = line;
+                offset_next = null;
+            }
+            continue;
+        }
+
+        const curr = try links.addOne(a);
+        curr.* = if (!args.literal) try file_link.parse(arg) else .{ .file = .{ .path = arg } };
+        prev = curr;
+
+        if (line_next) |line| {
+            switch (curr.*) {
+                .file => |*file| {
+                    file.line = line;
+                    line_next = null;
+                },
+                else => {},
+            }
+        }
+        if (offset_next) |offset| {
+            switch (curr.*) {
+                .file => |*file| {
+                    file.offset = offset;
+                    offset_next = null;
+                },
+                else => {},
+            }
+        }
+    }
+
+    var have_project = false;
+    var have_file = false;
+    if (args.project) |project| {
+        try tui_proc.send(.{ "cmd", "open_project_dir", .{project} });
+        have_project = true;
+    }
+    for (links.items) |link| switch (link) {
+        .dir => |dir| {
+            if (have_project) {
+                std.debug.print("more than one project directory is not allowed\n", .{});
+                exit(1);
+            }
+            try tui_proc.send(.{ "cmd", "open_project_dir", .{dir.path} });
+            have_project = true;
+        },
+        else => {
+            have_file = true;
+        },
+    };
+
+    for (links.items) |link| {
+        try file_link.navigate(tui_proc.ref(), &link);
+    }
+
+    if (!have_file) {
+        if (!have_project)
+            try tui_proc.send(.{ "cmd", "open_project_cwd" });
+        try tui_proc.send(.{ "cmd", "show_home" });
+    }
+
+    if (args.new_file) {
+        try tui_proc.send(.{ "cmd", "create_new_file", .{} });
+    } else if (args.scratch) {
+        try tui_proc.send(.{ "cmd", "create_scratch_buffer", .{} });
+    }
+
+    if (args.dark)
+        try tui_proc.send(.{ "cmd", "force_color_scheme", .{"dark"} })
+    else if (args.light)
+        try tui_proc.send(.{ "cmd", "force_color_scheme", .{"light"} });
+
+    if (args.exec) |exec_str| {
+        var cmds = std.mem.splitScalar(u8, exec_str, ';');
+        while (cmds.next()) |cmd| {
+            var count_args_ = std.mem.splitScalar(u8, cmd, ':');
+            var count: usize = 0;
+            while (count_args_.next()) |_| count += 1;
+            if (count == 0) break;
+
+            var msg: std.Io.Writer.Allocating = .init(a);
+            defer msg.deinit();
+            const writer = &msg.writer;
+
+            var cmd_args = std.mem.splitScalar(u8, cmd, ':');
+            const cmd_ = cmd_args.next();
+            try cbor.writeArrayHeader(writer, 3);
+            try cbor.writeValue(writer, "cmd");
+            try cbor.writeValue(writer, cmd_);
+            try cbor.writeArrayHeader(writer, count - 1);
+
+            while (cmd_args.next()) |arg| {
+                if (std.fmt.parseInt(isize, arg, 10) catch null) |i|
+                    try cbor.writeValue(writer, i)
+                else
+                    try cbor.writeValue(writer, arg);
+            }
+
+            try tui_proc.send_raw(.{ .buf = msg.written() });
+        }
+    }
+
+    ctx.run();
+
+    if (want_restart) restart();
+    exit(final_exit_status);
+}
+
+var final_exit_status: u8 = 0;
+var want_restart: bool = false;
+
+pub fn print_exit_status(_: void, msg: []const u8) void {
+    if (std.mem.eql(u8, msg, "normal")) {
+        return;
+    } else if (std.mem.eql(u8, msg, "restart")) {
+        want_restart = true;
+    } else {
+        var stderr_buffer: [1024]u8 = undefined;
+        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+        stderr_writer.interface.print("\n" ++ application_name ++ " ERROR: {s}\n", .{msg}) catch {};
+        stderr_writer.interface.flush() catch {};
+        final_exit_status = 1;
+    }
+}
+
+fn count_args() usize {
+    var args = std.process.args();
+    _ = args.next();
+    var count: usize = 0;
+    while (args.next()) |_| {
+        count += 1;
+    }
+    return count;
+}
+
+fn trace(m: thespian.message.c_buffer_type) callconv(.c) void {
+    thespian.message.from(m).to_json_cb(trace_json);
+}
+
+fn trace_json(json: thespian.message.json_string_view) callconv(.c) void {
+    const callstack_depth = 10;
+    ___tracy_emit_message(json.base, json.len, callstack_depth);
+}
+extern fn ___tracy_emit_message(txt: [*]const u8, size: usize, callstack: c_int) void;
+
+var trace_mutex: std.Thread.Mutex = .{};
+
+fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.c) void {
+    trace_mutex.lock();
+    defer trace_mutex.unlock();
+
+    const State = struct {
+        file: std.fs.File,
+        file_writer: std.fs.File.Writer,
+        last_time: i64,
+        var state: ?@This() = null;
+        var trace_buffer: [4096]u8 = undefined;
+
+        fn write_tdiff(writer: anytype, tdiff: i64) !void {
+            const msi = @divFloor(tdiff, std.time.us_per_ms);
+            if (msi < 10) {
+                const d: f64 = @floatFromInt(tdiff);
+                const ms = d / std.time.us_per_ms;
+                _ = try writer.print("{d:6.2} ", .{ms});
+            } else {
+                const ms: u64 = @intCast(msi);
+                _ = try writer.print("{d:6} ", .{ms});
+            }
+        }
+    };
+    const a = std.heap.c_allocator;
+    var state: *State = &(State.state orelse init: {
+        var path: std.Io.Writer.Allocating = .init(a);
+        defer path.deinit();
+        path.writer.print("{s}{c}trace.log", .{ get_state_dir() catch return, sep }) catch return;
+        const file = std.fs.createFileAbsolute(path.written(), .{ .truncate = true }) catch return;
+        State.state = .{
+            .file = file,
+            .file_writer = file.writer(&State.trace_buffer),
+            .last_time = std.time.microTimestamp(),
+        };
+        break :init State.state.?;
+    });
+    const writer = &state.file_writer.interface;
+
+    const ts = std.time.microTimestamp();
+    State.write_tdiff(writer, ts - state.last_time) catch {};
+    state.last_time = ts;
+
+    var stream: std.json.Stringify = .{ .writer = writer };
+    var iter: []const u8 = m.base[0..m.len];
+    cbor.JsonWriter.jsonWriteValue(&stream, &iter) catch {};
+    _ = writer.write("\n") catch {};
+    writer.flush() catch {};
+}
+
+pub fn exit(status: u8) noreturn {
+    if (builtin.os.tag == .linux) {
+        // drain stdin so we don't leave junk at the next prompt
+        _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
+    }
+    std.posix.exit(status);
+}
+
+pub fn free_config(allocator: std.mem.Allocator, bufs: [][]const u8) void {
+    for (bufs) |buf| allocator.free(buf);
+}
+
+var config_mutex: std.Thread.Mutex = .{};
+
+pub fn exists_config(T: type) bool {
+    config_mutex.lock();
+    defer config_mutex.unlock();
+    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return false;
+    const text_file_name = json_file_name[0 .. json_file_name.len - ".json".len];
+    var file = std.fs.openFileAbsolute(text_file_name, .{ .mode = .read_only }) catch return false;
+    defer file.close();
+    return true;
+}
+
+fn get_default(T: type) T {
+    return switch (@typeInfo(T)) {
+        .array => &.{},
+        .pointer => |info| switch (info.size) {
+            .slice => &.{},
+            else => @compileError("unsupported config type " ++ @typeName(T)),
+        },
+        else => .{},
+    };
+}
+
+pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const u8 } {
+    config_mutex.lock();
+    defer config_mutex.unlock();
+    var bufs: [][]const u8 = &[_][]const u8{};
+    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ get_default(T), bufs };
+    const text_file_name = json_file_name[0 .. json_file_name.len - ".json".len];
+    var conf: T = get_default(T);
+    if (!read_config_file(T, allocator, &conf, &bufs, text_file_name)) {
+        _ = read_config_file(T, allocator, &conf, &bufs, json_file_name);
+    }
+    read_nested_include_files(T, allocator, &conf, &bufs);
+    return .{ conf, bufs };
+}
+
+// returns true if the file was found
+fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) bool {
+    std.log.info("loading {s}", .{file_name});
+    const err: anyerror = blk: {
+        if (std.mem.endsWith(u8, file_name, ".json")) if (read_json_config_file(T, allocator, conf, bufs, file_name)) return true else |e| break :blk e;
+        if (read_text_config_file(T, allocator, conf, bufs, file_name)) return true else |e| break :blk e;
+    };
+    switch (err) {
+        error.FileNotFound => return false,
+        else => |e| std.log.err("error reading config file '{s}': {s}", .{ file_name, @errorName(e) }),
+    }
+    return true;
+}
+
+fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
+    var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
+    defer file.close();
+    const content = try file.readToEndAlloc(allocator, 64 * 1024);
+    defer allocator.free(content);
+    return parse_text_config_file(T, allocator, conf, bufs_, file_name, content);
+}
+
+pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8, content: []const u8) !void {
+    var cbor_buf: std.Io.Writer.Allocating = .init(allocator);
+    defer cbor_buf.deinit();
+    const writer = &cbor_buf.writer;
+    var it = std.mem.splitScalar(u8, content, '\n');
+    var lineno: u32 = 0;
+    while (it.next()) |line| {
+        lineno += 1;
+        if (line.len == 0 or line[0] == '#')
+            continue;
+        const spc = std.mem.indexOfScalar(u8, line, ' ') orelse {
+            std.log.err("{s}:{}: {s} missing value", .{ file_name, lineno, line });
+            continue;
+        };
+        const name = line[0..spc];
+        const value_str = line[spc + 1 ..];
+        const cb = cbor.fromJsonAlloc(allocator, value_str) catch {
+            std.log.err("{s}:{}: {s} has bad value: {s}", .{ file_name, lineno, name, value_str });
+            continue;
+        };
+        defer allocator.free(cb);
+        try cbor.writeValue(writer, name);
+        try writer.writeAll(cb);
+    }
+    const cb = try cbor_buf.toOwnedSlice();
+    var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
+    bufs.append(allocator, cb) catch @panic("OOM:read_text_config_file");
+    bufs_.* = bufs.toOwnedSlice(allocator) catch @panic("OOM:read_text_config_file");
+    return read_cbor_config(T, allocator, conf, file_name, cb);
+}
+
+fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
+    var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
+    defer file.close();
+    const json = try file.readToEndAlloc(allocator, 64 * 1024);
+    defer allocator.free(json);
+    const cbor_buf: []u8 = try allocator.alloc(u8, json.len);
+    var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
+    bufs.append(allocator, cbor_buf) catch @panic("OOM:read_json_config_file");
+    bufs_.* = bufs.toOwnedSlice(allocator) catch @panic("OOM:read_json_config_file");
+    const cb = try cbor.fromJson(json, cbor_buf);
+    var iter = cb;
+    _ = try cbor.decodeMapHeader(&iter);
+    return read_cbor_config(T, allocator, conf, file_name, iter);
+}
+
+fn read_cbor_config(
+    T: type,
+    allocator: std.mem.Allocator,
+    conf: *T,
+    file_name: []const u8,
+    cb: []const u8,
+) !void {
+    var iter = cb;
+    var field_name: []const u8 = undefined;
+    while (cbor.matchString(&iter, &field_name) catch |e| switch (e) {
+        error.TooShort => return,
+        else => return e,
+    }) {
+        var known = false;
+        inline for (@typeInfo(T).@"struct".fields) |field_info|
+            if (comptime std.mem.eql(u8, "include_files", field_info.name)) {
+                if (std.mem.eql(u8, field_name, field_info.name)) {
+                    known = true;
+                    var value: field_info.type = undefined;
+                    if (try cbor.matchValue(&iter, cbor.extract(&value))) {
+                        if (conf.include_files.len > 0) {
+                            std.log.err("{s}: ignoring nested 'include_files' value '{s}'", .{ file_name, value });
+                        } else {
+                            @field(conf, field_info.name) = value;
+                        }
+                    } else {
+                        try cbor.skipValue(&iter);
+                        std.log.err("invalid value for key '{s}'", .{field_name});
+                    }
+                }
+            } else if (std.mem.eql(u8, field_name, field_info.name)) {
+                known = true;
+                switch (field_info.type) {
+                    u24, ?u24 => {
+                        var value: []const u8 = undefined;
+                        if (try cbor.matchValue(&iter, cbor.extract(&value))) {
+                            const color_ = color.RGB.from_string(value);
+                            if (color_) |color__|
+                                @field(conf, field_info.name) = color__.to_u24()
+                            else
+                                std.log.err("invalid value for key '{s}'", .{field_name});
+                        } else {
+                            try cbor.skipValue(&iter);
+                            std.log.err("invalid value for key '{s}'", .{field_name});
+                        }
+                    },
+                    else => {
+                        var value: field_info.type = undefined;
+                        if (try cbor.matchValue(&iter, cbor.extractAlloc(&value, allocator))) {
+                            @field(conf, field_info.name) = value;
+                        } else {
+                            try cbor.skipValue(&iter);
+                            std.log.err("invalid value for key '{s}'", .{field_name});
+                        }
+                    },
+                }
+            };
+        if (!known) {
+            try cbor.skipValue(&iter);
+            std.log.err("unknown config value '{s}' ignored", .{field_name});
+        }
+    }
+}
+
+fn read_nested_include_files(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8) void {
+    if (conf.include_files.len == 0) return;
+    var it = std.mem.splitScalar(u8, conf.include_files, std.fs.path.delimiter);
+    while (it.next()) |path| if (!read_config_file(T, allocator, conf, bufs, path)) {
+        std.log.err("config include file '{s}' is not found", .{path});
+    };
+}
+
+pub const ConfigWriteError = error{ CreateConfigFileFailed, WriteConfigFileFailed, WriteFailed };
+
+pub fn write_config(conf: anytype, allocator: std.mem.Allocator) (ConfigDirError || ConfigWriteError)!void {
+    config_mutex.lock();
+    defer config_mutex.unlock();
+    _ = allocator;
+    const file_name = try get_app_config_file_name(application_name, @typeName(@TypeOf(conf)));
+    return write_text_config_file(@TypeOf(conf), conf, file_name[0 .. file_name.len - 5]);
+    // return write_json_file(@TypeOf(conf), conf, allocator, try get_app_config_file_name(application_name, @typeName(@TypeOf(conf))));
+}
+
+fn write_text_config_file(comptime T: type, data: T, file_name: []const u8) ConfigWriteError!void {
+    var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch |e| {
+        std.log.err("createFileAbsolute failed with {any} for: {s}", .{ e, file_name });
+        return error.CreateConfigFileFailed;
+    };
+    defer file.close();
+    var buf: [4096]u8 = undefined;
+    var writer = file.writer(&buf);
+    write_config_to_writer(T, data, &writer.interface) catch |e| {
+        std.log.err("write file failed with {any} for: {s}", .{ e, file_name });
+        return error.WriteConfigFileFailed;
+    };
+    try writer.interface.flush();
+}
+
+pub fn write_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    const default: T = .{};
+    inline for (@typeInfo(T).@"struct".fields) |field_info| {
+        if (config_eql(
+            field_info.type,
+            @field(data, field_info.name),
+            @field(default, field_info.name),
+        )) {
+            try writer.print("# {s} ", .{field_info.name});
+        } else {
+            try writer.print("{s} ", .{field_info.name});
+        }
+        switch (field_info.type) {
+            u24 => try write_color_value(@field(data, field_info.name), writer),
+            ?u24 => if (@field(data, field_info.name)) |value|
+                try write_color_value(value, writer)
+            else
+                try writer.writeAll("null"),
+            else => {
+                var s: std.json.Stringify = .{ .writer = writer, .options = .{ .whitespace = .minified } };
+                try s.write(@field(data, field_info.name));
+            },
+        }
+        try writer.print("\n", .{});
+    }
+}
+
+fn write_color_value(value: u24, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    var hex: [7]u8 = undefined;
+    try writer.writeByte('"');
+    try writer.writeAll(color.RGB.to_string(color.RGB.from_u24(value), &hex));
+    try writer.writeByte('"');
+}
+
+fn config_eql(comptime T: type, a: T, b: T) bool {
+    switch (T) {
+        []const u8 => return std.mem.eql(u8, a, b),
+        []const []const u8 => {
+            if (a.len != b.len) return false;
+            for (a, 0..) |x, i| if (!config_eql([]const u8, x, b[i])) return false;
+            return true;
+        },
+        else => {},
+    }
+    switch (@typeInfo(T)) {
+        .bool, .int, .float, .@"enum" => return a == b,
+        .optional => |info| {
+            if (a == null and b == null)
+                return true;
+            if (a == null or b == null)
+                return false;
+            return config_eql(info.child, a.?, b.?);
+        },
+        .pointer => |info| switch (info.size) {
+            .slice => {
+                if (a.len != b.len) return false;
+                for (a, 0..) |x, i| if (!config_eql(info.child, x, b[i])) return false;
+                return true;
+            },
+            else => @compileError("unsupported config type " ++ @typeName(T)),
+        },
+        else => {},
+    }
+    @compileError("unsupported config type " ++ @typeName(T));
+}
+
+fn write_json_file(comptime T: type, data: T, allocator: std.mem.Allocator, file_name: []const u8) !void {
+    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
+    defer file.close();
+
+    var cb = std.ArrayList(u8).init(allocator);
+    defer cb.deinit();
+    try cbor.writeValue(cb.writer(), data);
+
+    var s = std.json.writeStream(file.writer(), .{ .whitespace = .indent_4 });
+    var iter: []const u8 = cb.items;
+    try cbor.JsonStream(std.fs.File).jsonWriteValue(&s, &iter);
+}
+
+pub fn read_keybind_namespace(allocator: std.mem.Allocator, namespace_name: []const u8) ?[]const u8 {
+    const file_name = get_keybind_namespace_file_name(namespace_name) catch return null;
+    var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
+    defer file.close();
+    return file.readToEndAlloc(allocator, 64 * 1024) catch null;
+}
+
+pub fn write_keybind_namespace(namespace_name: []const u8, content: []const u8) !void {
+    const file_name = try get_keybind_namespace_file_name(namespace_name);
+    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
+    defer file.close();
+    return file.writeAll(content);
+}
+
+pub fn list_keybind_namespaces(allocator: std.mem.Allocator) ![]const []const u8 {
+    var dir = try std.fs.openDirAbsolute(try get_keybind_namespaces_directory(), .{ .iterate = true });
+    defer dir.close();
+    var result: std.ArrayList([]const u8) = .empty;
+    var iter = dir.iterateAssumeFirstIteration();
+    while (try iter.next()) |entry| {
+        switch (entry.kind) {
+            .file, .sym_link => try result.append(allocator, try allocator.dupe(u8, std.fs.path.stem(entry.name))),
+            else => continue,
+        }
+    }
+    return result.toOwnedSlice(allocator);
+}
+
+pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const u8 {
+    const file_name = get_theme_file_name(theme_name) catch return null;
+    var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
+    defer file.close();
+    return file.readToEndAlloc(allocator, 64 * 1024) catch null;
+}
+
+pub fn write_theme(theme_name: []const u8, content: []const u8) !void {
+    const file_name = try get_theme_file_name(theme_name);
+    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
+    defer file.close();
+    return file.writeAll(content);
+}
+
+pub fn list_themes(allocator: std.mem.Allocator) ![]const []const u8 {
+    var dir = try std.fs.openDirAbsolute(try get_theme_directory(), .{ .iterate = true });
+    defer dir.close();
+    var result = std.ArrayList([]const u8).init(allocator);
+    var iter = dir.iterateAssumeFirstIteration();
+    while (try iter.next()) |entry| {
+        switch (entry.kind) {
+            .file, .sym_link => try result.append(try allocator.dupe(u8, std.fs.path.stem(entry.name))),
+            else => continue,
+        }
+    }
+    return result.toOwnedSlice();
+}
+
+pub fn get_config_dir() ConfigDirError![]const u8 {
+    return get_app_config_dir(application_name);
+}
+
+pub const ConfigDirError = error{
+    NoSpaceLeft,
+    MakeConfigDirFailed,
+    MakeHomeConfigDirFailed,
+    MakeAppConfigDirFailed,
+    AppConfigDirUnavailable,
+};
+
+fn make_dir_error(path: []const u8, err: anytype) @TypeOf(err) {
+    std.log.err("failed to create directory: '{s}'", .{path});
+    return err;
+}
+
+fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
+    const a = std.heap.c_allocator;
+    const local = struct {
+        var config_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var config_dir: ?[]const u8 = null;
+    };
+    const config_dir = if (local.config_dir) |dir|
+        dir
+    else if (std.process.getEnvVarOwned(a, "XDG_CONFIG_HOME") catch null) |xdg| ret: {
+        defer a.free(xdg);
+        break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
+    } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
+        defer a.free(home);
+        const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}.config", .{ home, sep });
+        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => return make_dir_error(dir, error.MakeHomeConfigDirFailed),
+        };
+        break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}.config{c}{s}", .{ home, sep, sep, appname });
+    } else if (builtin.os.tag == .windows) ret: {
+        if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
+            defer a.free(appdata);
+            const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
+            std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+                error.PathAlreadyExists => {},
+                else => return make_dir_error(dir, error.MakeAppConfigDirFailed),
+            };
+            break :ret dir;
+        } else return error.AppConfigDirUnavailable;
+    } else return error.AppConfigDirUnavailable;
+
+    local.config_dir = config_dir;
+    std.fs.makeDirAbsolute(config_dir) catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => return make_dir_error(config_dir, error.MakeConfigDirFailed),
+    };
+
+    var keybind_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&keybind_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, keybind_dir })) catch {};
+
+    var theme_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&theme_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, theme_dir })) catch {};
+
+    return config_dir;
+}
+
+pub fn get_cache_dir() ![]const u8 {
+    return get_app_cache_dir(application_name);
+}
+
+fn get_app_cache_dir(appname: []const u8) ![]const u8 {
+    const a = std.heap.c_allocator;
+    const local = struct {
+        var cache_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var cache_dir: ?[]const u8 = null;
+    };
+    const cache_dir = if (local.cache_dir) |dir|
+        dir
+    else if (std.process.getEnvVarOwned(a, "XDG_CACHE_HOME") catch null) |xdg| ret: {
+        defer a.free(xdg);
+        break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
+    } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
+        defer a.free(home);
+        const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}.cache", .{ home, sep });
+        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => return make_dir_error(dir, e),
+        };
+        break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}.cache{c}{s}", .{ home, sep, sep, appname });
+    } else if (builtin.os.tag == .windows) ret: {
+        if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
+            defer a.free(appdata);
+            const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
+            std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+                error.PathAlreadyExists => {},
+                else => return make_dir_error(dir, e),
+            };
+            break :ret dir;
+        } else return error.AppCacheDirUnavailable;
+    } else return error.AppCacheDirUnavailable;
+
+    local.cache_dir = cache_dir;
+    std.fs.makeDirAbsolute(cache_dir) catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => return make_dir_error(cache_dir, e),
+    };
+    return cache_dir;
+}
+
+pub fn get_state_dir() ![]const u8 {
+    return get_app_state_dir(application_name);
+}
+
+fn get_app_state_dir(appname: []const u8) ![]const u8 {
+    const a = std.heap.c_allocator;
+    const local = struct {
+        var state_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var state_dir: ?[]const u8 = null;
+    };
+    const state_dir = if (local.state_dir) |dir|
+        dir
+    else if (std.process.getEnvVarOwned(a, "XDG_STATE_HOME") catch null) |xdg| ret: {
+        defer a.free(xdg);
+        break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
+    } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
+        defer a.free(home);
+        var dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local", .{ home, sep });
+        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => return make_dir_error(dir, e),
+        };
+        dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local{c}state", .{ home, sep, sep });
+        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => return make_dir_error(dir, e),
+        };
+        break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local{c}state{c}{s}", .{ home, sep, sep, sep, appname });
+    } else if (builtin.os.tag == .windows) ret: {
+        if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
+            defer a.free(appdata);
+            const dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
+            std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+                error.PathAlreadyExists => {},
+                else => return make_dir_error(dir, e),
+            };
+            break :ret dir;
+        } else return error.AppCacheDirUnavailable;
+    } else return error.AppCacheDirUnavailable;
+
+    local.state_dir = state_dir;
+    std.fs.makeDirAbsolute(state_dir) catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => return make_dir_error(state_dir, e),
+    };
+    return state_dir;
+}
+
+fn get_app_config_file_name(appname: []const u8, comptime base_name: []const u8) ConfigDirError![]const u8 {
+    return get_app_config_dir_file_name(appname, base_name ++ ".json");
+}
+
+fn get_app_config_dir_file_name(appname: []const u8, comptime config_file_name: []const u8) ConfigDirError![]const u8 {
+    const local = struct {
+        var config_file_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    };
+    return std.fmt.bufPrint(&local.config_file_buffer, "{s}{c}{s}", .{ try get_app_config_dir(appname), sep, config_file_name });
+}
+
+pub fn get_config_file_name(T: type) ![]const u8 {
+    return get_app_config_file_name(application_name, @typeName(T));
+}
+
+pub fn get_restore_file_name() ![]const u8 {
+    const local = struct {
+        var restore_file_buffer: [std.posix.PATH_MAX]u8 = undefined;
+        var restore_file: ?[]const u8 = null;
+    };
+    const restore_file_name = "restore";
+    const restore_file = if (local.restore_file) |file|
+        file
+    else
+        try std.fmt.bufPrint(&local.restore_file_buffer, "{s}{c}{s}", .{ try get_app_state_dir(application_name), sep, restore_file_name });
+    local.restore_file = restore_file;
+    return restore_file;
+}
+
+const keybind_dir = "keys";
+
+fn get_keybind_namespaces_directory() ![]const u8 {
+    const local = struct {
+        var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    };
+    const a = std.heap.c_allocator;
+    if (std.process.getEnvVarOwned(a, "FLOW_KEYS_DIR") catch null) |dir| {
+        defer a.free(dir);
+        return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
+    }
+    return try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, keybind_dir });
+}
+
+pub fn get_keybind_namespace_file_name(namespace_name: []const u8) ![]const u8 {
+    const dir = try get_keybind_namespaces_directory();
+    const local = struct {
+        var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    };
+    return try std.fmt.bufPrint(&local.file_buffer, "{s}{c}{s}.json", .{ dir, sep, namespace_name });
+}
+
+const theme_dir = "themes";
+
+fn get_theme_directory() ![]const u8 {
+    const local = struct {
+        var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    };
+    const a = std.heap.c_allocator;
+    if (std.process.getEnvVarOwned(a, "FLOW_THEMES_DIR") catch null) |dir| {
+        defer a.free(dir);
+        return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
+    }
+    return try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, theme_dir });
+}
+
+pub fn get_theme_file_name(theme_name: []const u8) ![]const u8 {
+    const dir = try get_theme_directory();
+    const local = struct {
+        var file_buffer: [std.posix.PATH_MAX]u8 = undefined;
+    };
+    return try std.fmt.bufPrint(&local.file_buffer, "{s}{c}{s}.json", .{ dir, sep, theme_name });
+}
+
+fn restart() noreturn {
+    var executable: [:0]const u8 = std.mem.span(std.os.argv[0]);
+    var is_basename = true;
+    for (executable) |char| if (std.fs.path.isSep(char)) {
+        is_basename = false;
+    };
+    if (is_basename) {
+        const a = std.heap.c_allocator;
+        executable = bin_path.find_binary_in_path(a, executable) catch executable orelse executable;
+    }
+    const argv = [_]?[*:0]const u8{
+        executable,
+        "--restore-session",
+        null,
+    };
+    const ret = std.c.execve(executable, @ptrCast(&argv), @ptrCast(std.os.environ));
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    stderr_writer.interface.print("\nrestart failed: {d}", .{ret}) catch {};
+    stderr_writer.interface.flush() catch {};
+    exit(234);
+}
+
+pub fn is_directory(rel_path: []const u8) bool {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch return false;
+    var dir = std.fs.openDirAbsolute(abs_path, .{}) catch return false;
+    dir.close();
+    return true;
+}
+
+pub fn is_file(rel_path: []const u8) bool {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch return false;
+    var file = std.fs.openFileAbsolute(abs_path, .{ .mode = .read_only }) catch return false;
+    defer file.close();
+    return true;
+}
+
+pub fn shorten_path(buf: []u8, path: []const u8, removed_prefix: *usize, max_len: usize) []const u8 {
+    removed_prefix.* = 0;
+    if (path.len <= max_len) return path;
+    const ellipsis = "…";
+    const prefix = path.len - max_len;
+    defer removed_prefix.* = prefix - 1;
+    @memcpy(buf[0..ellipsis.len], ellipsis);
+    @memcpy(buf[ellipsis.len .. max_len + ellipsis.len], path[prefix..]);
+    return buf[0 .. max_len + ellipsis.len];
+}
