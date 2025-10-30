@@ -1632,26 +1632,6 @@ pub const Editor = struct {
         return self.primary.col - self.view.col;
     }
 
-    pub fn cursel_length(root: Buffer.Root, cursel_: CurSel, metrics: Buffer.Metrics) usize {
-        var length: usize = 0;
-        var cursel = cursel_;
-        cursel.check_selection(root, metrics);
-        if (cursel.selection) |*sel| {
-            sel.normalize();
-            if (sel.begin.row == sel.end.row) {
-                length = sel.end.col - sel.begin.col;
-            } else {
-                var row = sel.begin.row;
-                while (row < sel.end.row) {
-                    length += root.line_width(row, metrics) catch 0;
-                    row += 1;
-                }
-                length = length + sel.end.col - sel.begin.col;
-            }
-        }
-        return length;
-    }
-
     fn update_event(self: *Self) !void {
         const primary = self.get_primary();
         const dirty = if (self.buffer) |buf| buf.is_dirty() else false;

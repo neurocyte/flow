@@ -615,12 +615,12 @@ fn replace_cursel_with_character(ed: *Editor, root: Buffer.Root, cursel: *CurSel
         return error.Stop;
     const no_selection = try select_char_if_no_selection(cursel, root, ed.metrics);
     var begin: Cursor = undefined;
+    var sel_length: usize = 1;
     if (cursel.selection) |*sel| {
         sel.normalize();
         begin = sel.*.begin;
+        _ = root.get_range(sel.*, null, null, &sel_length, ed.metrics) catch return error.Stop;
     }
-
-    const sel_length = Editor.cursel_length(root, cursel.*, ed.metrics);
     const total_length = sel_length * egc.len;
     var sfa = std.heap.stackFallback(4096, ed.allocator);
     const sfa_allocator = sfa.get();
