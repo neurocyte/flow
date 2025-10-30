@@ -2678,13 +2678,8 @@ pub const Editor = struct {
         const primary = self.get_primary();
         const b = self.buf_for_update() catch return;
         var root = b.root;
-        if (self.cursels.items.len == 1)
-            if (primary.selection) |_| {} else {
-                const sel = primary.enable_selection(root, self.metrics) catch return;
-                try move_cursor_begin(root, &sel.begin, self.metrics);
-                try move_cursor_end(root, &sel.end, self.metrics);
-                try move_cursor_right(root, &sel.end, self.metrics);
-            };
+        if (self.cursels.items.len == 1 and primary.selection == null)
+            try self.select_line_at_cursor(root, primary, .include_eol);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             const cut_text, root = try self.cut_selection(root, cursel, tui.clipboard_allocator());
             tui.clipboard_add_chunk(cut_text);
