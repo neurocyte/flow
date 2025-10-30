@@ -1374,17 +1374,7 @@ pub fn store_to_string(self: *const Self, allocator: Allocator, eol_mode: EolMod
 }
 
 fn store_to_file_const(self: *const Self, writer: *std.Io.Writer) StoreToFileError!void {
-    switch (builtin.os.tag) {
-        .linux => {
-            try self.root.store(writer, self.file_eol_mode);
-        },
-        else => {
-            var content: std.Io.Writer.Allocating = .init(self.external_allocator);
-            defer content.deinit();
-            try self.root.store(&content.writer, self.file_eol_mode);
-            try writer.writeAll(content.written());
-        },
-    }
+    try self.root.store(writer, self.file_eol_mode);
     try writer.flush();
 }
 
