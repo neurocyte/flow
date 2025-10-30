@@ -2406,7 +2406,7 @@ pub const Editor = struct {
         primary.disable_selection(root, self.metrics);
         self.selection_mode = .line;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
-        try self.select_line_at_cursor(primary);
+        try self.select_line_at_cursor(root, primary, false);
         self.selection_drag_initial = primary.selection;
         self.clamp_mouse();
     }
@@ -3030,6 +3030,16 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const delete_to_end_meta: Meta = .{ .description = "Delete to end of line" };
+
+    pub fn delete_line(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const primary = self.get_primary();
+        try self.select_line_at_cursor(b.root, primary, true);
+        const root = try self.delete_selection(b.root, primary, b.allocator);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const delete_line_meta: Meta = .{ .description = "Delete current line" };
 
     pub fn cut_to_end_vim(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
@@ -4102,12 +4112,14 @@ pub const Editor = struct {
         return sel;
     }
 
-    fn select_line_at_cursor(self: *Self, cursel: *CurSel) !void {
-        const root = try self.buf_root();
+    fn select_line_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, include_newline: bool) !void {
         const sel = try cursel.enable_selection(root, self.metrics);
         sel.normalize();
         try move_cursor_begin(root, &sel.begin, self.metrics);
         move_cursor_end(root, &sel.end, self.metrics) catch {};
+        if (include_newline) {
+            move_cursor_right(root, &sel.end, self.metrics) catch {}; // catch{} because may be impossible to get eol (e.g., we're at eof)
+        }
         cursel.cursor = sel.end;
     }
 
