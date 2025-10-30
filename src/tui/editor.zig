@@ -3033,9 +3033,11 @@ pub const Editor = struct {
 
     pub fn delete_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
-        const primary = self.get_primary();
-        try self.select_line_at_cursor(b.root, primary, .include_eol);
-        const root = try self.delete_selection(b.root, primary, b.allocator);
+        var root = b.root;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            try self.select_line_at_cursor(root, cursel, .include_eol);
+            root = try self.delete_selection(root, cursel, b.allocator);
+        };
         try self.update_buf(root);
         self.clamp();
     }
