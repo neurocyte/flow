@@ -133,9 +133,9 @@ fn State(ctx_type: type) type {
                 }
                 return true;
             } else if (try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
-                self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
                 self.drag_anchor = null;
                 self.drag_pos = null;
+                self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
@@ -150,9 +150,9 @@ fn State(ctx_type: type) type {
                     self.active = false;
                     h.send(from, m) catch {};
                 }
-                self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
                 self.drag_anchor = null;
                 self.drag_pos = null;
+                self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
                 tui.need_render();
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
