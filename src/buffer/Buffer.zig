@@ -933,10 +933,10 @@ const Node = union(enum) {
                 try node.right.store(writer, eol_mode);
             },
             .leaf => |*leaf| {
-                _ = try writer.write(leaf.buf);
+                try writer.writeAll(leaf.buf);
                 if (leaf.eol) switch (eol_mode) {
-                    .lf => _ = try writer.write("\n"),
-                    .crlf => _ = try writer.write("\r\n"),
+                    .lf => try writer.writeByte('\n'),
+                    .crlf => try writer.writeAll("\r\n"),
                 };
             },
         }
