@@ -2406,7 +2406,7 @@ pub const Editor = struct {
         primary.disable_selection(root, self.metrics);
         self.selection_mode = .line;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
-        try self.select_line_at_cursor(root, primary, false);
+        try self.select_line_at_cursor(root, primary, .exclude_eol);
         self.selection_drag_initial = primary.selection;
         self.clamp_mouse();
     }
@@ -3034,7 +3034,7 @@ pub const Editor = struct {
     pub fn delete_line(self: *Self, _: Context) Result {
         const b = try self.buf_for_update();
         const primary = self.get_primary();
-        try self.select_line_at_cursor(b.root, primary, true);
+        try self.select_line_at_cursor(b.root, primary, .include_eol);
         const root = try self.delete_selection(b.root, primary, b.allocator);
         try self.update_buf(root);
         self.clamp();
@@ -4112,13 +4112,14 @@ pub const Editor = struct {
         return sel;
     }
 
-    fn select_line_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, include_newline: bool) !void {
+    fn select_line_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, mode: enum { include_eol, exclude_eol }) !void {
         const sel = try cursel.enable_selection(root, self.metrics);
         sel.normalize();
         try move_cursor_begin(root, &sel.begin, self.metrics);
         move_cursor_end(root, &sel.end, self.metrics) catch {};
-        if (include_newline) {
-            move_cursor_right(root, &sel.end, self.metrics) catch {}; // catch{} because may be impossible to get eol (e.g., we're at eof)
+        switch (mode) {
+            .include_eol => move_cursor_right(root, &sel.end, self.metrics) catch {}, // catch{} because may be impossible to get eol (e.g., we're at eof)
+            else => {},
         }
         cursel.cursor = sel.end;
     }
