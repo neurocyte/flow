@@ -140,19 +140,4 @@ const cmds_ = struct {
     }
 
     pub const copy_line_meta: Meta = .{ .description = "Copies the current line" };
-
-    pub fn delete_line(self: *void, ctx: Ctx) Result {
-        _ = self; // autofix
-        _ = ctx; // autofix
-        //TODO
-        return undefined;
-        //try self.move_begin(ctx);
-        //const b = try self.buf_for_update();
-        //var root = try self.delete_to(move_cursor_end, b.root, b.allocator);
-        //root = try self.delete_to(move_cursor_right, b.root, b.allocator);
-        //try self.delete_forward(ctx);
-        //try self.update_buf(root);
-        //self.clamp();
-    }
-    pub const delete_line_meta: Meta = .{ .description = "Delete the current line without copying" };
 };
