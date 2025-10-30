@@ -233,6 +233,16 @@ const cmds_ = struct {
     }
     pub const move_next_word_start_meta: Meta = .{ .description = "Move next word start", .arguments = &.{.integer} };
 
+    pub fn extend_next_word_start(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        ed.with_selections_const_repeat(root, Editor.move_cursor_word_right_vim, ctx) catch {};
+        ed.clamp();
+    }
+    pub const extend_next_word_start_meta: Meta = .{ .description = "Extend next word start", .arguments = &.{.integer} };
+
     pub fn move_next_long_word_start(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -246,6 +256,16 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const move_next_long_word_start_meta: Meta = .{ .description = "Move next long word start", .arguments = &.{.integer} };
+
+    pub fn extend_next_long_word_start(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        ed.with_selections_const_repeat(root, move_cursor_long_word_right, ctx) catch {};
+        ed.clamp();
+    }
+    pub const extend_next_long_word_start_meta: Meta = .{ .description = "Extend next long word start", .arguments = &.{.integer} };
 
     pub fn move_prev_word_start(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
@@ -289,6 +309,16 @@ const cmds_ = struct {
     }
     pub const move_next_word_end_meta: Meta = .{ .description = "Move next word end", .arguments = &.{.integer} };
 
+    pub fn extend_next_word_end(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        ed.with_selections_const_repeat(root, move_cursor_word_right_end_helix, ctx) catch {};
+        ed.clamp();
+    }
+    pub const extend_next_word_end_meta: Meta = .{ .description = "Extend next word end", .arguments = &.{.integer} };
+
     pub fn move_next_long_word_end(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -302,6 +332,16 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const move_next_long_word_end_meta: Meta = .{ .description = "Move next long word end", .arguments = &.{.integer} };
+
+    pub fn extend_next_long_word_end(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+
+        ed.with_selections_const_repeat(root, move_cursor_long_word_right_end, ctx) catch {};
+        ed.clamp();
+    }
+    pub const extend_next_long_word_end_meta: Meta = .{ .description = "Extend next long word end", .arguments = &.{.integer} };
 
     pub fn cut_forward_internal_inclusive(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
