@@ -25,6 +25,7 @@
             ["alt+x", "open_command_palette"],
             ["f4", "toggle_input_mode"],
             ["ctrl+f2", "insert_command_name"],
+            ["ctrl+k ctrl+s", "insert_command_name"],
             ["f9", "theme_prev"],
             ["f10", "theme_next"],
             ["f11", "toggle_panel"],
