@@ -3015,6 +3015,35 @@ pub const Editor = struct {
     }
     pub const delete_to_end_meta: Meta = .{ .description = "Delete to end of line" };
 
+    pub fn select_line(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+                if (cursel.selection) |*sel| {
+                    sel.normalize();
+                    move_cursor_begin(root, &sel.begin, self.metrics) catch {};
+                    move_cursor_end(root, &sel.end, self.metrics) catch {};
+                    blk: {
+                        cursel.cursor.move_down(root, self.metrics) catch |e| switch (e) {
+                            error.Stop => {
+                                cursel.cursor.move_end(root, self.metrics);
+                                break :blk;
+                            },
+                        };
+                        move_cursor_begin(root, &cursel.cursor, self.metrics) catch {};
+                    }
+                    sel.end = cursel.cursor;
+                } else {
+                    self.select_line_at_cursor(root, cursel, .include_eol) catch {};
+                }
+            };
+            self.collapse_cursors();
+        }
+    }
+    pub const select_line_meta: Meta = .{ .description = "Select current line", .arguments = &.{.integer} };
+
     pub fn delete_line(self: *Self, ctx: Context) Result {
         const b = try self.buf_for_update();
         var root = b.root;
