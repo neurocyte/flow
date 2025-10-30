@@ -3019,8 +3019,13 @@ pub const Editor = struct {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            const col = cursel.cursor.col;
+            const target = cursel.cursor.target;
             try self.select_line_at_cursor(root, cursel, .include_eol);
             root = try self.delete_selection(root, cursel, b.allocator);
+            cursel.cursor.col = col;
+            cursel.cursor.target = target;
+            cursel.cursor.clamp_to_buffer(root, self.metrics);
         };
         try self.update_buf(root);
         self.clamp();
