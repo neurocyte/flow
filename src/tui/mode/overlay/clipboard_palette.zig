@@ -16,6 +16,7 @@ pub const icon = "  ";
 pub const Entry = struct {
     label: []const u8,
     idx: usize,
+    group: usize,
 };
 
 pub fn load_entries(palette: *Type) !usize {
@@ -24,7 +25,8 @@ pub fn load_entries(palette: *Type) !usize {
     if (history.len > 0) {
         var idx = history.len - 1;
         while (true) : (idx -= 1) {
-            var label_ = history[idx];
+            const entry = &history[idx];
+            var label_ = entry.text;
             while (label_.len > 0) switch (label_[0]) {
                 ' ', '\t', '\n' => label_ = label_[1..],
                 else => break,
@@ -32,6 +34,7 @@ pub fn load_entries(palette: *Type) !usize {
             (try palette.entries.addOne(palette.allocator)).* = .{
                 .label = label_,
                 .idx = idx,
+                .group = entry.group,
             };
             if (idx == 0) break;
         }
@@ -51,7 +54,11 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
 
     var hint: std.Io.Writer.Allocating = .init(palette.allocator);
     defer hint.deinit();
-    const item = if (tui.clipboard_get_history()) |clipboard| clipboard[entry.idx] else &.{};
+    const clipboard_ = tui.clipboard_get_history();
+    const clipboard = clipboard_ orelse &.{};
+    const clipboard_entry: tui.ClipboardEntry = if (clipboard_) |_| clipboard[entry.idx] else .{};
+    const group_idx = tui.clipboard_current_group() - clipboard_entry.group;
+    const item = clipboard_entry.text;
     var line_count: usize = 1;
     for (0..item.len) |i| if (item[i] == '\n') {
         line_count += 1;
@@ -60,6 +67,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
         try hint.writer.print(" {d} lines", .{line_count})
     else
         try hint.writer.print(" {d} {s}", .{ item.len, if (item.len == 1) "byte " else "bytes" });
+    try hint.writer.print(":{d}", .{group_idx});
     try cbor.writeValue(writer, hint.written());
 
     try cbor.writeValue(writer, matches orelse &[_]usize{});

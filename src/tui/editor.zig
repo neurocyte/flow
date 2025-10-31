@@ -2675,6 +2675,7 @@ pub const Editor = struct {
         var all_stop = true;
         var root = root_;
 
+        tui.clipboard_start_group();
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             if (cursel.selection) |_| {
                 const cut_text, root = self.cut_selection(root, cursel, tui.clipboard_allocator()) catch continue;
@@ -2696,6 +2697,7 @@ pub const Editor = struct {
         const primary = self.get_primary();
         const b = self.buf_for_update() catch return;
         var root = b.root;
+        tui.clipboard_start_group();
         if (self.cursels.items.len == 1 and primary.selection == null)
             try self.select_line_at_cursor(root, primary, .include_eol);
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
@@ -2713,15 +2715,14 @@ pub const Editor = struct {
         var root = b.root;
         if (self.cursels.items.len == 1 and primary.selection == null)
             try self.select_line_at_cursor(root, primary, .include_eol);
-        var count: usize = 0;
+        tui.clipboard_start_group();
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            count += 1;
             const cut_text, root = try self.cut_selection(root, cursel, tui.clipboard_allocator());
             tui.clipboard_add_chunk(cut_text);
         };
         try self.update_buf(root);
         self.clamp();
-        try tui.clipboard_send_to_system(count);
+        try tui.clipboard_send_to_system();
     }
     pub const cut_meta: Meta = .{ .description = "Cut selection or current line to clipboard" };
 
@@ -2735,18 +2736,16 @@ pub const Editor = struct {
                 try move_cursor_end(root, &sel.end, self.metrics);
                 try move_cursor_right(root, &sel.end, self.metrics);
             };
-        var count: usize = 0;
+        tui.clipboard_start_group();
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| if (cursel.selection) |sel| {
-            count += 1;
             tui.clipboard_add_chunk(try copy_selection(root, sel, tui.clipboard_allocator(), self.metrics));
         };
-        return tui.clipboard_send_to_system(count);
+        return tui.clipboard_send_to_system();
     }
     pub const copy_meta: Meta = .{ .description = "Copy selection to clipboard" };
 
-    fn copy_cursel_file_name(self: *const Self) error{OutOfMemory}!usize {
+    fn copy_cursel_file_name(self: *const Self) error{OutOfMemory}!void {
         tui.clipboard_add_chunk(try tui.clipboard_allocator().dupe(u8, self.file_path orelse "*"));
-        return 1;
     }
 
     fn copy_cursel_file_name_and_location(self: *const Self, cursel: *const CurSel) error{ WriteFailed, OutOfMemory }!void {
@@ -2779,23 +2778,20 @@ pub const Editor = struct {
         tui.clipboard_add_chunk(try buffer.toOwnedSlice());
     }
 
-    fn copy_cursels_file_name_and_location(self: *const Self) error{OutOfMemory}!usize {
-        var count: usize = 0;
-        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-            count += 1;
+    fn copy_cursels_file_name_and_location(self: *const Self) error{OutOfMemory}!void {
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             self.copy_cursel_file_name_and_location(cursel) catch return error.OutOfMemory;
-        };
-        return count;
     }
 
     pub fn copy_file_name(self: *Self, ctx: Context) Result {
         var mode: enum { all, file_name_only } = .all;
         _ = ctx.args.match(.{tp.extract(&mode)}) catch false;
-        const n = switch (mode) {
+        tui.clipboard_start_group();
+        switch (mode) {
             .file_name_only => try self.copy_cursel_file_name(),
             .all => try self.copy_cursels_file_name_and_location(),
-        };
-        return tui.clipboard_send_to_system(n);
+        }
+        return tui.clipboard_send_to_system();
     }
     pub const copy_file_name_meta: Meta = .{
         .description = "Copy file name and location to clipboard",
@@ -2803,6 +2799,7 @@ pub const Editor = struct {
 
     pub fn copy_internal_vim(self: *Self, _: Context) Result {
         const root = self.buf_root() catch return;
+        tui.clipboard_start_group();
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| if (cursel.selection) |sel|
             tui.clipboard_add_chunk(try copy_selection(root, sel, tui.clipboard_allocator(), self.metrics));
     }
@@ -2817,49 +2814,69 @@ pub const Editor = struct {
             try move_cursor_end(root, &sel.end, self.metrics);
             try move_cursor_right(root, &sel.end, self.metrics);
         }
+        tui.clipboard_start_group();
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| if (cursel.selection) |sel|
             tui.clipboard_add_chunk(try copy_selection(root, sel, tui.clipboard_allocator(), self.metrics));
     }
     pub const copy_line_internal_vim_meta: Meta = .{ .description = "Copy line to internal clipboard (vim)" };
 
     pub fn paste(self: *Self, ctx: Context) Result {
-        var text_: []const u8 = undefined;
-        const clipboard: []const []const u8 = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text_)}))
-            &[_][]const u8{text_}
+        var group_idx: usize = 0;
+        var text_: []const u8 = &.{};
+        const clipboard: []const tui.ClipboardEntry = if (try ctx.args.match(.{tp.extract(&group_idx)})) blk: {
+            self.logger.print("paste: pasting group {d}", .{group_idx});
+            break :blk tui.clipboard_get_group(group_idx);
+        } else if (try ctx.args.match(.{tp.extract(&text_)}))
+            &[_]tui.ClipboardEntry{.{ .text = text_ }}
         else
-            tui.clipboard_get_history() orelse return;
+            tui.clipboard_get_group(0);
 
         const b = try self.buf_for_update();
         var root = b.root;
-
         var bytes: usize = 0;
-        var cursel_idx = self.cursels.items.len - 1;
-        var idx = clipboard.len - 1;
-        while (true) {
-            const cursel_ = &self.cursels.items[cursel_idx];
-            if (cursel_.*) |*cursel| {
-                const text = clipboard[idx];
-                root = try self.insert(root, cursel, text, b.allocator);
-                idx = if (idx == 0) clipboard.len - 1 else idx - 1;
-                bytes += text.len;
-            }
-            if (cursel_idx == 0) break;
-            cursel_idx -= 1;
+
+        if (clipboard.len == 0) {
+            self.logger.print("paste: nothing to paste", .{});
+            return;
         }
+
+        if (clipboard.len > 1 and self.cursels.items.len == 1) {
+            const cursel = self.get_primary();
+            for (clipboard) |item| {
+                root = try self.insert(root, cursel, item.text, b.allocator);
+                if (item.text[item.text.len - 1] != '\n')
+                    root = try self.insert(root, cursel, "\n", b.allocator);
+            }
+        } else {
+            var cursel_idx = self.cursels.items.len - 1;
+            var idx = clipboard.len - 1;
+            while (true) {
+                const cursel_ = &self.cursels.items[cursel_idx];
+                if (cursel_.*) |*cursel| {
+                    const text = clipboard[idx].text;
+                    root = try self.insert(root, cursel, text, b.allocator);
+                    idx = if (idx == 0) clipboard.len - 1 else idx - 1;
+                    bytes += text.len;
+                }
+                if (cursel_idx == 0) break;
+                cursel_idx -= 1;
+            }
+        }
+
         self.logger.print("paste: {d} bytes", .{bytes});
 
         try self.update_buf(root);
         self.clamp();
         self.need_render();
     }
-    pub const paste_meta: Meta = .{ .description = "Paste from internal clipboard" };
+    pub const paste_meta: Meta = .{ .description = "Paste from internal clipboard", .arguments = &.{.integer} };
 
     pub fn paste_internal_vim(self: *Self, ctx: Context) Result {
         var text_: []const u8 = undefined;
-        const clipboard: []const []const u8 = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text_)}))
-            &[_][]const u8{text_}
+        const clipboard: []const tui.ClipboardEntry = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text_)}))
+            &[_]tui.ClipboardEntry{.{ .text = text_ }}
         else
-            tui.clipboard_get_history() orelse return;
+            tui.clipboard_get_group(0);
 
         const b = try self.buf_for_update();
         var root = b.root;
@@ -2870,7 +2887,7 @@ pub const Editor = struct {
         while (true) {
             const cursel_ = &self.cursels.items[cursel_idx];
             if (cursel_.*) |*cursel| {
-                const text = clipboard[idx];
+                const text = clipboard[idx].text;
                 root = try self.insert_line_vim(root, cursel, text, b.allocator);
                 idx = if (idx == 0) clipboard.len - 1 else idx - 1;
                 bytes += text.len;

@@ -76,9 +76,15 @@ fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
 enable_mouse_idle_timer: bool = false,
 query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
-clipboard: ?std.ArrayList([]const u8) = null,
+clipboard: ?std.ArrayList(ClipboardEntry) = null,
+clipboard_current_group_number: usize = 0,
 color_scheme: enum { dark, light } = .dark,
 color_scheme_locked: bool = false,
+
+pub const ClipboardEntry = struct {
+    text: []const u8 = &.{},
+    group: usize = 0,
+};
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
@@ -377,10 +383,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     var text: []const u8 = undefined;
     if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
         try self.dispatch_flush_input_event();
-        return if (command.get_id("mini_mode_paste")) |id|
-            command.execute(id, command.fmt(.{text}))
-        else
-            command.executeName("paste", command.fmt(.{text}));
+        return self.handle_system_clipboard(text);
     }
 
     if (try m.match(.{ "system_clipboard", tp.null_ }))
@@ -603,6 +606,20 @@ fn dispatch_event(ctx: *anyopaque, cbor_msg: []const u8) void {
     self.unrendered_input_events_count += 1;
     self.dispatch_flush_input_event() catch |e| self.logger.err("dispatch event flush", e);
     tp.self_pid().send_raw(m) catch |e| self.logger.err("dispatch event", e);
+}
+
+fn handle_system_clipboard(self: *Self, text: []const u8) !void {
+    if (command.get_id("mini_mode_paste")) |id|
+        return command.execute(id, command.fmt(.{text}));
+
+    {
+        const text_ = try clipboard_system_clipboard_text(self.allocator);
+        defer self.allocator.free(text_);
+        if (std.mem.eql(u8, text_, text))
+            return command.executeName("paste", command.fmt(.{0}));
+    }
+
+    return command.executeName("paste", command.fmt(.{text}));
 }
 
 fn find_coord_widget(self: *Self, y: usize, x: usize) ?*Widget {
@@ -1302,7 +1319,7 @@ const cmds = struct {
             return error.InvalidClipboardDeleteArgument;
         const clipboard = if (self.clipboard) |*clipboard| clipboard else return;
         const removed = clipboard.orderedRemove(idx);
-        self.allocator.free(removed);
+        self.allocator.free(removed.text);
     }
     pub const clipboard_delete_meta: Meta = .{};
 };
@@ -1901,7 +1918,7 @@ fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
 fn clipboard_deinit(self: *Self) void {
     if (self.clipboard) |*clipboard| {
         for (clipboard.items) |chunk|
-            self.allocator.free(chunk);
+            self.allocator.free(chunk.text);
         clipboard.deinit(self.allocator);
     }
     self.clipboard = null;
@@ -1912,7 +1929,7 @@ pub fn clipboard_allocator() Allocator {
     return self.allocator;
 }
 
-pub fn clipboard_get_history() ?[]const []const u8 {
+pub fn clipboard_get_history() ?[]const ClipboardEntry {
     const self = current();
     return if (self.clipboard) |clipboard| clipboard.items else null;
 }
@@ -1920,12 +1937,55 @@ pub fn clipboard_get_history() ?[]const []const u8 {
 pub fn clipboard_peek_chunk() ?[]const u8 {
     const self = current();
     const clipboard = self.clipboard orelse return null;
-    return clipboard[clipboard.len - 1];
+    return clipboard[clipboard.len - 1].text;
+}
+
+pub fn clipboard_start_group() void {
+    const self = current();
+    self.clipboard_current_group_number += 1;
+}
+
+pub fn clipboard_current_group() usize {
+    const self = current();
+    return self.clipboard_current_group_number;
+}
+
+pub fn clipboard_group_size(group: usize) usize {
+    const self = current();
+    const clipboard = self.clipboard orelse return 0;
+    var count: usize = 0;
+    var idx: usize = clipboard.len - 1;
+    while (clipboard[idx].group != group) {
+        if (idx == 0) return 0 else idx -= 1;
+    }
+    while (clipboard[idx].group == group) {
+        count += 1;
+        if (idx == 0) break else idx -= 1;
+    }
+    return count;
+}
+
+pub fn clipboard_get_group(group_idx: usize) []const ClipboardEntry {
+    const self = current();
+    const clipboard = (self.clipboard orelse return &.{}).items;
+    const group = self.clipboard_current_group_number - group_idx;
+    if (clipboard.len == 0) return &.{};
+    var group_end: usize = clipboard.len;
+    while (clipboard[group_end - 1].group != group) {
+        if (group_end == 1) return &.{} else group_end -= 1;
+    }
+    var group_begin: usize = group_end;
+    while (clipboard[group_begin - 1].group == group) {
+        group_begin -= 1;
+        if (group_begin == 0) break;
+    }
+    return clipboard[group_begin..group_end];
 }
 
 pub fn clipboard_clear_all() void {
     const self = current();
     self.clipboard_deinit();
+    self.clipboard_current_group_number = 0;
 }
 
 pub fn clipboard_add_chunk(text: []const u8) void {
@@ -1935,23 +1995,28 @@ pub fn clipboard_add_chunk(text: []const u8) void {
         break :blk &self.clipboard.?;
     };
     const chunk = clipboard.addOne(self.allocator) catch @panic("OOM clipboard_add_chunk");
-    chunk.* = text;
+    chunk.text = text;
+    chunk.group = self.clipboard_current_group_number;
 }
 
-pub fn clipboard_send_to_system(n_chunks: usize) error{ Stop, WriteFailed }!void {
-    const self = current();
-    var buffer: std.Io.Writer.Allocating = .init(self.allocator);
+fn clipboard_system_clipboard_text(allocator: std.mem.Allocator) error{ Stop, WriteFailed, OutOfMemory }![]const u8 {
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
     defer buffer.deinit();
     const writer = &buffer.writer;
-    const clipboard = if (self.clipboard) |clipboard| clipboard.items else return error.Stop;
-    if (clipboard.len < n_chunks) return error.Stop;
-    if (n_chunks == 1) return self.clipboard_send_to_system_internal(clipboard[clipboard.len - 1]);
+    const clipboard = clipboard_get_group(0);
     var first = true;
-    const chunks = clipboard[clipboard.len - n_chunks ..];
-    for (chunks) |chunk| {
+    for (clipboard) |chunk| {
         if (first) first = false else try writer.writeByte('\n');
-        try writer.writeAll(chunk);
+        try writer.writeAll(chunk.text);
     }
+    return buffer.toOwnedSlice();
+}
+
+pub fn clipboard_send_to_system() error{ Stop, WriteFailed, OutOfMemory }!void {
+    const self = current();
+    const text = try clipboard_system_clipboard_text(self.allocator);
+    defer self.allocator.free(text);
+    return self.clipboard_send_to_system_internal(text);
 }
 
 fn clipboard_send_to_system_internal(self: *Self, text: []const u8) void {

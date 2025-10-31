@@ -307,7 +307,7 @@ const cmds_ = struct {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const b = try ed.buf_for_update();
-        tui.clipboard_clear_all();
+        tui.clipboard_start_group();
         const root = try ed.cut_to(move_noop, b.root);
         try ed.update_buf(root);
         ed.clamp();
@@ -418,7 +418,7 @@ const cmds_ = struct {
         const ed = mv.get_active_editor() orelse return;
         const root = ed.buf_root() catch return;
 
-        tui.clipboard_clear_all();
+        tui.clipboard_start_group();
 
         for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| if (cursel.selection) |sel|
             tui.clipboard_add_chunk(try Editor.copy_selection(root, sel, tui.clipboard_allocator(), ed.metrics));
@@ -890,10 +890,10 @@ fn paste_helix(ctx: command.Context, do_paste: pasting_function) command.Result 
     const ed = mv.get_active_editor() orelse return;
     var text_: []const u8 = undefined;
 
-    const clipboard: []const []const u8 = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text_)}))
-        &[_][]const u8{text_}
+    const clipboard: []const tui.ClipboardEntry = if (ctx.args.buf.len > 0 and try ctx.args.match(.{tp.extract(&text_)}))
+        &[_]tui.ClipboardEntry{.{ .text = text_ }}
     else
-        tui.clipboard_get_history() orelse return;
+        tui.clipboard_get_group(0);
 
     const b = try ed.buf_for_update();
     var root = b.root;
@@ -905,11 +905,11 @@ fn paste_helix(ctx: command.Context, do_paste: pasting_function) command.Result 
     var bytes: usize = 0;
     for (ed.cursels.items, 0..) |*cursel_, idx| if (cursel_.*) |*cursel| {
         if (idx < clipboard.len) {
-            root = try do_paste(ed, root, cursel, clipboard[idx], b.allocator);
-            bytes += clipboard[idx].len;
+            root = try do_paste(ed, root, cursel, clipboard[idx].text, b.allocator);
+            bytes += clipboard[idx].text.len;
         } else {
-            bytes += clipboard[clipboard.len - 1].len;
-            root = try do_paste(ed, root, cursel, clipboard[clipboard.len - 1], b.allocator);
+            bytes += clipboard[clipboard.len - 1].text.len;
+            root = try do_paste(ed, root, cursel, clipboard[clipboard.len - 1].text, b.allocator);
         }
     };
     ed.logger.print("paste: {d} bytes", .{bytes});

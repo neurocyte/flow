@@ -1409,7 +1409,11 @@ pub fn write_restore_info(self: *Self) void {
 
     if (tui.clipboard_get_history()) |clipboard| {
         cbor.writeArrayHeader(writer, clipboard.len) catch return;
-        for (clipboard) |item| cbor.writeValue(writer, item) catch return;
+        for (clipboard) |item| {
+            cbor.writeArrayHeader(writer, 2) catch return;
+            cbor.writeValue(writer, item.group) catch return;
+            cbor.writeValue(writer, item.text) catch return;
+        }
     } else {
         cbor.writeValue(writer, null) catch return;
     }
@@ -1443,11 +1447,18 @@ fn read_restore_info(self: *Self) !void {
 
     tui.clipboard_clear_all();
     var len = try cbor.decodeArrayHeader(&iter);
+    var prev_group: usize = 0;
     const clipboard_allocator = tui.clipboard_allocator();
     while (len > 0) : (len -= 1) {
-        var chunk: []const u8 = undefined;
-        if (!try cbor.matchValue(&iter, cbor.extract(&chunk))) return error.Stop;
-        tui.clipboard_add_chunk(try clipboard_allocator.dupe(u8, chunk));
+        const len_ = try cbor.decodeArrayHeader(&iter);
+        if (len_ != 2) return error.Stop;
+        var group: usize = 0;
+        var text: []const u8 = undefined;
+        if (!try cbor.matchValue(&iter, cbor.extract(&group))) return error.Stop;
+        if (!try cbor.matchValue(&iter, cbor.extract(&text))) return error.Stop;
+        if (prev_group != group) tui.clipboard_start_group();
+        prev_group = group;
+        tui.clipboard_add_chunk(try clipboard_allocator.dupe(u8, text));
     }
 
     try self.buffer_manager.extract_state(&iter);
