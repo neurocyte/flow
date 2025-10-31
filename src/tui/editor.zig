@@ -3556,12 +3556,32 @@ pub const Editor = struct {
 
     fn dupe_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
+        const had_selection = cursel.selection != null;
         const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
         cursel.disable_selection(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
-        const text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
+        var text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(text);
+
+        // Check if we're on the last line with no selection and no trailing EOL
+        if (!had_selection and sel.end.row == root.lines() - 1) {
+            var test_end = sel.end;
+            test_end.move_right(root, self.metrics) catch {
+                // No EOL at end of file, add magic EOL for duplication
+                const eol_mode = self.buf_eol_mode() catch .lf;
+                const eol_str = switch (eol_mode) {
+                    .lf => "\n",
+                    .crlf => "\r\n",
+                };
+                const text_with_eol = try sfa_allocator.alloc(u8, text.len + eol_str.len);
+                @memcpy(text_with_eol[0..text.len], text);
+                @memcpy(text_with_eol[text.len..], eol_str);
+                sfa_allocator.free(text);
+                text = text_with_eol;
+            };
+        }
+
         cursel.cursor = sel.begin;
         root = self.insert(root, cursel, text, allocator) catch return error.Stop;
         cursel.selection = .{ .begin = sel.begin, .end = sel.end };
@@ -3579,12 +3599,32 @@ pub const Editor = struct {
 
     fn dupe_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
+        const had_selection = cursel.selection != null;
         const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
         cursel.disable_selection(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
-        const text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
+        var text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(text);
+
+        // Check if we're on the last line with no selection and no trailing EOL
+        if (!had_selection and sel.end.row == root.lines() - 1) {
+            var test_end = sel.end;
+            test_end.move_right(root, self.metrics) catch {
+                // No EOL at end of file, add magic EOL for duplication
+                const eol_mode = self.buf_eol_mode() catch .lf;
+                const eol_str = switch (eol_mode) {
+                    .lf => "\n",
+                    .crlf => "\r\n",
+                };
+                const text_with_eol = try sfa_allocator.alloc(u8, text.len + eol_str.len);
+                @memcpy(text_with_eol[0..text.len], text);
+                @memcpy(text_with_eol[text.len..], eol_str);
+                sfa_allocator.free(text);
+                text = text_with_eol;
+            };
+        }
+
         cursel.cursor = sel.end;
         root = self.insert(root, cursel, text, allocator) catch return error.Stop;
         cursel.selection = .{ .begin = sel.end, .end = cursel.cursor };
