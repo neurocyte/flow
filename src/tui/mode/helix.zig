@@ -196,6 +196,18 @@ const cmds_ = struct {
     }
     pub const save_selection_meta: Meta = .{ .description = "Save current selection to location history" };
 
+    pub fn split_selection_on_newline(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+        const cursels = try ed.cursels.toOwnedSlice(ed.allocator);
+        defer ed.allocator.free(cursels);
+        for (cursels) |*cursel_| if (cursel_.*) |*cursel|
+            try add_cursors_to_cursel_line_ends_helix(ed, root, cursel);
+        ed.clamp();
+    }
+    pub const split_selection_on_newline_meta: Meta = .{ .description = "Add cursors to all lines in selection" };
+
     pub fn extend_line_below(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -722,6 +734,29 @@ fn move_cursor_till_char_right_beyond_eol(root: Buffer.Root, cursor: *Cursor, me
         }
         test_cursor.move_right(root, metrics) catch return error.Stop;
         next.move_right(root, metrics) catch return error.Stop;
+    }
+}
+
+pub fn add_cursors_to_cursel_line_ends_helix(ed: *Editor, root: Buffer.Root, cursel: *CurSel) !void {
+    const sel = try cursel.enable_selection(root, ed.metrics);
+    sel.normalize();
+    var row = sel.begin.row;
+    while (row < sel.end.row) : (row += 1) {
+        const new_cursel = try ed.cursels.addOne(ed.allocator);
+        new_cursel.* = CurSel{
+            .selection = null,
+            .cursor = .{
+                .row = row,
+                .col = 0,
+            },
+        };
+        if (new_cursel.*) |*the_cursel| {
+            the_cursel.*.selection = Selection.from_cursor(&the_cursel.*.cursor);
+            the_cursel.*.cursor.move_end(root, ed.metrics);
+            if (the_cursel.*.selection) |*sel_| {
+                sel_.*.end.col = the_cursel.*.cursor.col;
+            }
+        }
     }
 }
 
