@@ -68,9 +68,12 @@
 
             ["F", "move_to_char", "select_to_char_left_helix"],
             ["T", "move_to_char", "select_till_char_left_helix"],
-            ["W", "move_next_long_word_start"],
             ["B", "move_prev_long_word_start"],
+            ["b", "move_prev_word_start"],
+            ["e", "move_next_word_end"],
+            ["w", "move_next_word_start"],
             ["E", "move_next_long_word_end"],
+            ["W", "move_next_long_word_start"],
             ["t", "move_to_char", "select_till_char_right_helix"],
             ["f", "move_to_char", "select_to_char_right_helix"],
 
@@ -123,12 +126,7 @@
             ["kp_home", "move_begin"],
             ["kp_end", "move_end"],
 
-            ["w","move_next_word_start"],
-            ["b","move_prev_word_start"],
-            ["e","move_next_word_end"],
-
             ["v", "enter_mode", "select"],
-
 
             ["G", "goto_line"],
             ["g g", "goto_line_vim"],
@@ -278,9 +276,6 @@
         "init_command": ["enable_selection"],
         "press": [
 
-            ["b", "select_word_left"],
-            ["w", "select_word_right"],
-
             ["ctrl+b", "select_page_up"],
             ["ctrl+f", "select_page_down"],
             ["ctrl+u", "select_half_page_up"],
@@ -355,9 +350,12 @@
 
             ["F", "move_to_char", "extend_to_char_left_helix"],
             ["T", "move_to_char", "extend_till_char_left_helix"],
-            ["W", "extend_next_long_word_start"],
             ["B", "extend_prev_long_word_start"],
+            ["b", "extend_prev_word_start"],
+            ["e", "extend_next_word_end"],
+            ["w", "extend_next_word_start"],
             ["E", "extend_next_long_word_end"],
+            ["W", "extend_next_long_word_start"],
             ["t", "move_to_char", "extend_till_char_right_helix"],
             ["f", "move_to_char", "extend_to_char_right_helix"],
 
@@ -422,11 +420,6 @@
             ["end", "extend_to_line_end"],
             ["kp_home", "extend_to_line_start"],
             ["kp_end", "extend_to_line_end"],
-
-            ["w", "extend_next_word_start"],
-            ["b", "extend_pre_word_start"],
-            ["e", "extend_next_word_end"],
-
             ["v", "enter_mode", "normal"],
 
             ["g g", "goto_line_vim"],
