@@ -3568,15 +3568,28 @@ pub const Editor = struct {
 
     fn dupe_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
-        const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
-        cursel.disable_selection(root, self.metrics);
+        var sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
         const text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(text);
+
         cursel.cursor = sel.begin;
+        var add_eol = false;
+        if (cursel.selection) |_| {
+            cursel.disable_selection(root, self.metrics);
+        } else {
+            var test_eof = sel.end;
+            test_eof.move_right(root, self.metrics) catch { // test for EOF
+                add_eol = true;
+            };
+        }
         root = self.insert(root, cursel, text, allocator) catch return error.Stop;
-        cursel.selection = .{ .begin = sel.begin, .end = sel.end };
+        if (add_eol) {
+            root = self.insert(root, cursel, "\n", allocator) catch return error.Stop;
+            sel.end.move_right(root, self.metrics) catch {};
+        }
+        cursel.selection = .{ .begin = sel.end, .end = sel.begin };
         cursel.cursor = sel.begin;
         return root;
     }
