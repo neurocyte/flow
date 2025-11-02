@@ -34,7 +34,7 @@ pub fn Create(options: type) type {
             self.* = .{
                 .allocator = allocator,
                 .ctx = .{ .args = try ctx.args.clone(allocator) },
-                .value = options.start(self),
+                .value = if (@hasDecl(options, "start")) options.start(self) else {},
             };
             try self.commands.init(self);
             var mode = try keybind.mode("mini/get_char", allocator, .{
