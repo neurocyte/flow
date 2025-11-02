@@ -3632,6 +3632,60 @@ pub const Editor = struct {
     }
     pub const dupe_down_meta: Meta = .{ .description = "Duplicate line or selection down/forwards", .arguments = &.{.integer} };
 
+    fn underline_cursel_with_char(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator, ctx: command.Context) error{Stop}!Buffer.Root {
+        var symbol: []const u8 = undefined;
+        var mode: enum { solid, space } = .space;
+        if (!(ctx.args.match(.{tp.extract(&symbol)}) catch return error.Stop) and
+            !(ctx.args.match(.{ tp.extract(&symbol), tp.extract(&mode) }) catch return error.Stop))
+            return error.Stop;
+        var root = root_;
+        const sel: Selection = if (cursel.selection) |sel_| sel_ else Selection.line_from_cursor(cursel.cursor, root, self.metrics);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
+        const sfa_allocator = sfa.get();
+        const text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(text);
+
+        var underlined: std.Io.Writer.Allocating = .init(sfa_allocator);
+        defer underlined.deinit();
+
+        var text_egcs = text;
+        while (text_egcs.len > 0) {
+            var colcount: c_int = 1;
+            const egc_len = self.metrics.egc_length(self.metrics, text_egcs, &colcount, 0);
+            switch (text_egcs[0]) {
+                '\t' => underlined.writer.writeAll("\t") catch {},
+                '\n' => underlined.writer.writeAll(text_egcs[0..egc_len]) catch {},
+                ' ' => underlined.writer.writeAll(switch (mode) {
+                    .space => text_egcs[0..egc_len],
+                    .solid => symbol,
+                }) catch {},
+                else => while (colcount > 0) : (colcount -= 1) underlined.writer.writeAll(symbol) catch {},
+            }
+            text_egcs = text_egcs[egc_len..];
+        }
+
+        cursel.cursor = sel.end;
+        if (cursel.selection) |_| {
+            cursel.disable_selection(root, self.metrics);
+        } else {
+            var test_eof = sel.end;
+            test_eof.move_right(root, self.metrics) catch { // test for EOF
+                root = self.insert(root, cursel, "\n", allocator) catch return error.Stop;
+            };
+        }
+        root = self.insert(root, cursel, underlined.written(), allocator) catch return error.Stop;
+        cursel.selection = .{ .begin = sel.end, .end = cursel.cursor };
+        return root;
+    }
+
+    pub fn underline_with_char(self: *Self, ctx: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut_once_arg(b.root, underline_cursel_with_char, b.allocator, ctx);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const underline_with_char_meta: Meta = .{ .arguments = &.{.string} };
+
     fn toggle_cursel_prefix(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;

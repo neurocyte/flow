@@ -1189,6 +1189,11 @@ const cmds = struct {
     }
     pub const replace_meta: Meta = .{ .description = "Replace with character" };
 
+    pub fn underline(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/underline.zig"), ctx);
+    }
+    pub const underline_meta: Meta = .{ .description = "Underline with character" };
+
     pub fn open_file(self: *Self, ctx: Ctx) Result {
         if (get_active_selection(self.allocator)) |text| {
             defer self.allocator.free(text);
