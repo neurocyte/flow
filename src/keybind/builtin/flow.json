@@ -437,7 +437,7 @@
             ["backspace", "mini_mode_delete_backwards"]
         ]
     },
-    "mini/move_to_char": {
+    "mini/get_char": {
         "press": [
             ["ctrl+g", "mini_mode_cancel"],
             ["ctrl+c", "mini_mode_cancel"],
