@@ -44,13 +44,9 @@ pub fn start(self: *Type) ValueType {
 
     return .{
         .direction = direction,
-        .operation_command = self.allocator.dupe(u8, operation_command) catch @panic("OOM in move_to_char"),
+        .operation_command = operation_command,
         .operation = operation,
     };
-}
-
-pub fn deinit(self: *Type) void {
-    self.allocator.free(self.value.operation_command);
 }
 
 pub fn name(self: *Type) []const u8 {
