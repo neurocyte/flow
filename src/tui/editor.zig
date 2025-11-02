@@ -2710,13 +2710,12 @@ pub const Editor = struct {
     pub const cut_internal_vim_meta: Meta = .{ .description = "Cut selection or current line to internal clipboard (vim)" };
 
     pub fn cut(self: *Self, _: Context) Result {
-        const primary = self.get_primary();
         const b = self.buf_for_update() catch return;
         var root = b.root;
-        if (self.cursels.items.len == 1 and primary.selection == null)
-            try self.select_line_at_cursor(root, primary, .include_eol);
         tui.clipboard_start_group();
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            if (cursel.selection == null)
+                try self.select_line_at_cursor(root, cursel, .include_eol);
             const cut_text, root = try self.cut_selection(root, cursel, tui.clipboard_allocator());
             tui.clipboard_add_chunk(cut_text);
         };
@@ -2727,17 +2726,13 @@ pub const Editor = struct {
     pub const cut_meta: Meta = .{ .description = "Cut selection or current line to clipboard" };
 
     pub fn copy(self: *Self, _: Context) Result {
-        const primary = self.get_primary();
         const root = self.buf_root() catch return;
-        if (self.cursels.items.len == 1)
-            if (primary.selection) |_| {} else {
-                const sel = primary.enable_selection(root, self.metrics) catch return;
-                try move_cursor_begin(root, &sel.begin, self.metrics);
-                try move_cursor_end(root, &sel.end, self.metrics);
-                try move_cursor_right(root, &sel.end, self.metrics);
-            };
         tui.clipboard_start_group();
-        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| if (cursel.selection) |sel| {
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            const sel = if (cursel.selection) |sel| sel else blk: {
+                try self.select_line_at_cursor(root, cursel, .include_eol);
+                break :blk cursel.selection orelse continue;
+            };
             tui.clipboard_add_chunk(try copy_selection(root, sel, tui.clipboard_allocator(), self.metrics));
         };
         return tui.clipboard_send_to_system();
