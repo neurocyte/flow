@@ -694,7 +694,7 @@ pub const Editor = struct {
             var iter = meta;
             try self.extract_state(&iter, .none);
         }
-        try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc);
+        try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc, auto_save);
     }
 
     fn maybe_enable_auto_save(self: *Self) void {
@@ -768,7 +768,7 @@ pub const Editor = struct {
         if (self.file_path) |file_path| {
             if (self.buffer) |b_mut| try b_mut.store_to_file_and_clean(file_path);
         } else return error.SaveNoFileName;
-        try self.send_editor_save(self.file_path.?);
+        try self.send_editor_save(self.file_path.?, b.is_auto_save());
         self.last.dirty = false;
         self.update_event() catch {};
     }
@@ -1751,17 +1751,21 @@ pub const Editor = struct {
             self.handlers.msg(.{ "E", "location", tag, c.row, c.col });
     }
 
-    fn send_editor_open(self: *const Self, file_path: []const u8, file_exists: bool, file_type: []const u8, file_icon: []const u8, file_color: u24) !void {
-        _ = try self.handlers.msg(.{ "E", "open", file_path, file_exists, file_type, file_icon, file_color });
+    fn send_editor_open(self: *const Self, file_path: []const u8, file_exists: bool, file_type: []const u8, file_icon: []const u8, file_color: u24, auto_save: bool) !void {
+        _ = try self.handlers.msg(.{ "E", "open", file_path, file_exists, file_type, file_icon, file_color, auto_save });
     }
 
-    fn send_editor_save(self: *const Self, file_path: []const u8) !void {
-        _ = try self.handlers.msg(.{ "E", "save", file_path });
+    fn send_editor_save(self: *const Self, file_path: []const u8, auto_save: bool) !void {
+        _ = try self.handlers.msg(.{ "E", "save", file_path, auto_save });
         if (self.syntax) |_| project_manager.did_save(file_path) catch {};
     }
 
     fn send_editor_dirty(self: *const Self, file_dirty: bool) !void {
         _ = try self.handlers.msg(.{ "E", "dirty", file_dirty });
+    }
+
+    fn send_editor_auto_save(self: *const Self, auto_save: bool) !void {
+        _ = try self.handlers.msg(.{ "E", "auto_save", auto_save });
     }
 
     fn token_from(p: ?*const anyopaque) usize {
@@ -5004,7 +5008,12 @@ pub const Editor = struct {
     pub const SaveOption = enum { default, format, no_format };
 
     pub fn toggle_auto_save(self: *Self, _: Context) Result {
-        if (self.buffer) |b| if (b.is_auto_save()) b.disable_auto_save() else b.enable_auto_save();
+        const buffer = self.buffer orelse return;
+        if (!buffer.is_auto_save())
+            buffer.enable_auto_save()
+        else
+            buffer.disable_auto_save();
+        self.send_editor_auto_save(buffer.is_auto_save()) catch {};
     }
     pub const toggle_auto_save_meta: Meta = .{ .description = "Toggle auto save" };
 
@@ -6135,7 +6144,8 @@ pub const Editor = struct {
             buffer.file_type_color = ftc;
         }
         const file_exists = if (self.buffer) |b| b.file_exists else false;
-        try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc);
+        const auto_save = if (self.buffer) |b| b.is_auto_save() else false;
+        try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc, auto_save);
         self.logger.print("file type {s}", .{file_type});
     }
     pub const set_file_type_meta: Meta = .{ .arguments = &.{.string} };
