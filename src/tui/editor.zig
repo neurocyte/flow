@@ -1837,10 +1837,26 @@ pub const Editor = struct {
         var old = self.cursels;
         defer old.deinit(self.allocator);
         self.cursels = CurSel.List.initCapacity(self.allocator, old.items.len) catch return;
-        for (old.items[0 .. old.items.len - 1], 0..) |*a_, i| if (a_.*) |*a| {
-            for (old.items[i + 1 ..], i + 1..) |*b_, j| if (b_.*) |*b| {
-                if (a.cursor.eql(b.cursor))
-                    old.items[j] = null;
+        var a_idx = old.items.len - 1;
+        while (a_idx > 0) : (a_idx -= 1) if (old.items[a_idx]) |*a| {
+            var b_idx = a_idx - 1;
+            while (true) : ({
+                if (b_idx == 0) break else b_idx -= 1;
+            }) if (old.items[b_idx]) |*b| {
+                const b_cursor = b.cursor;
+                if (b.selection) |b_sel| {
+                    if (a.merge(b_sel)) {
+                        old.items[b_idx] = null;
+                        continue;
+                    }
+                }
+                if (a.selection) |*a_sel| if (b_cursor.within(a_sel.*)) {
+                    if (b.selection) |b_sel| a_sel.expand(b_sel);
+                    old.items[b_idx] = null;
+                    continue;
+                };
+                if (a.cursor.eql(b_cursor))
+                    old.items[b_idx] = null;
             };
         };
         for (old.items) |*item_| if (item_.*) |*item| {
