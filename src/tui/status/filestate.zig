@@ -37,6 +37,7 @@ file: bool = false,
 eol_mode: Buffer.EolMode = .lf,
 utf8_sanitized: bool = false,
 indent_mode: config.IndentMode = .spaces,
+auto_save: bool = false,
 
 const project_icon = "";
 const Self = @This();
@@ -141,7 +142,7 @@ fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
         self.render_file_icon(plane, theme);
         _ = plane.print(" ", .{}) catch {};
     }
-    _ = plane.putstr(if (!self.file_exists) "󰽂 " else if (self.file_dirty) "󰆓 " else "") catch {};
+    _ = plane.putstr(if (!self.file_exists) "󰽂 " else if (self.auto_save) "󱑛 " else if (self.file_dirty) "󰆓 " else "") catch {};
     _ = plane.print("{s}", .{self.name}) catch {};
     return;
 }
@@ -166,7 +167,7 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void 
             .tabs => "[⭾ = ␉]",
         };
 
-        _ = plane.putstr(if (!self.file_exists) "󰽂" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
+        _ = plane.putstr(if (!self.file_exists) "󰽂" else if (self.auto_save) "󱑛" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
         _ = plane.print(" {s}:{d}:{d}", .{ self.name, self.line + 1, self.column + 1 }) catch {};
         _ = plane.print(" of {d} lines", .{self.lines}) catch {};
         if (self.file_type.len > 0)
@@ -225,15 +226,26 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
         return false;
     if (try m.match(.{ tp.any, "dirty", tp.extract(&file_dirty) })) {
         self.file_dirty = file_dirty;
+    } else if (try m.match(.{ tp.any, "auto_save", tp.extract(&self.auto_save) })) {
+        //
     } else if (try m.match(.{ tp.any, "eol_mode", tp.extract(&self.eol_mode), tp.extract(&self.utf8_sanitized), tp.extract(&self.indent_mode) })) {
         //
-    } else if (try m.match(.{ tp.any, "save", tp.extract(&file_path) })) {
+    } else if (try m.match(.{ tp.any, "save", tp.extract(&file_path), tp.extract(&self.auto_save) })) {
         @memcpy(self.name_buf[0..file_path.len], file_path);
         self.name = self.name_buf[0..file_path.len];
         self.file_exists = true;
         self.file_dirty = false;
         self.name = project_manager.abbreviate_home(&self.name_buf, self.name);
-    } else if (try m.match(.{ tp.any, "open", tp.extract(&file_path), tp.extract(&self.file_exists), tp.extract(&file_type), tp.extract(&file_icon), tp.extract(&self.file_color) })) {
+    } else if (try m.match(.{
+        tp.any,
+        "open",
+        tp.extract(&file_path),
+        tp.extract(&self.file_exists),
+        tp.extract(&file_type),
+        tp.extract(&file_icon),
+        tp.extract(&self.file_color),
+        tp.extract(&self.auto_save),
+    })) {
         self.eol_mode = .lf;
         @memcpy(self.name_buf[0..file_path.len], file_path);
         self.name = self.name_buf[0..file_path.len];
