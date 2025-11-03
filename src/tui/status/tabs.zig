@@ -628,6 +628,7 @@ const Tab = struct {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
         const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
+        const auto_save = if (buffer_) |buffer| buffer.is_auto_save() else false;
         self.render_padding(plane, .left);
         if (self.tab_style.file_type_icon) if (buffer_) |buffer| if (buffer.file_type_icon) |icon| {
             const color_: ?u24 = if (buffer.file_type_color) |color| if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) color else null else null;
@@ -653,7 +654,7 @@ const Tab = struct {
                 self.close_pos = plane.cursor_x();
                 _ = plane.putstr(self.tabbar.tab_style.close_icon) catch {};
             }
-        } else if (is_dirty) {
+        } else if (is_dirty and !auto_save) {
             if (self.tab_style.dirty_indicator_fg) |color|
                 plane.set_style(.{ .fg = color.from_theme(theme) });
             _ = plane.putstr(self.tabbar.tab_style.dirty_indicator) catch {};
