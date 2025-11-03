@@ -242,6 +242,16 @@ pub const CurSel = struct {
                 return false;
         return self.cursor.nudge_delete(nudge);
     }
+
+    fn merge(self: *Self, other: Selection) bool {
+        if (self.selection) |*sel_| {
+            if (sel_.merge(other)) {
+                self.cursor = sel_.end;
+                return true;
+            }
+        }
+        return self.cursor.within(other);
+    }
 };
 
 pub const Diagnostic = struct {
