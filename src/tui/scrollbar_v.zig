@@ -68,17 +68,17 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.active = true;
         self.move_to(y, ypx);
         return true;
-    } else if (try m.match(.{ "B", input.event.release, tp.more })) {
+    } else if (try m.match(.{ "B", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
         self.active = false;
         return true;
     } else if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
         self.active = true;
         self.move_to(y, ypx);
         return true;
-    } else if (try m.match(.{ "B", input.event.release, tp.more })) {
+    } else if (try m.match(.{ "B", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
         self.active = false;
         return true;
-    } else if (try m.match(.{ "D", input.event.release, tp.more })) {
+    } else if (try m.match(.{ "D", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
         self.active = false;
         return true;
     } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
