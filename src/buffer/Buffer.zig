@@ -1583,17 +1583,18 @@ pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOf
     try self.root.store(&content.writer, self.file_eol_mode);
     const dirty = self.is_dirty();
 
-    try cbor.writeArrayHeader(writer, 9);
-    try cbor.writeValue(writer, self.get_file_path());
-    try cbor.writeValue(writer, self.file_exists);
-    try cbor.writeValue(writer, self.file_eol_mode);
-    try cbor.writeValue(writer, self.hidden);
-    try cbor.writeValue(writer, self.ephemeral);
-    try cbor.writeValue(writer, self.auto_save);
-    try cbor.writeValue(writer, dirty);
-    try cbor.writeValue(writer, self.meta);
-    try cbor.writeValue(writer, self.file_type_name);
-    try cbor.writeValue(writer, content.written());
+    try cbor.writeValue(writer, .{
+        self.get_file_path(),
+        self.file_exists,
+        self.file_eol_mode,
+        self.hidden,
+        self.ephemeral,
+        self.auto_save,
+        dirty,
+        self.meta,
+        self.file_type_name,
+        content.written(),
+    });
 }
 
 pub const ExtractStateOperation = enum { none, open_file };
