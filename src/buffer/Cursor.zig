@@ -33,6 +33,8 @@ pub fn clamp_to_buffer(self: *Self, root: Buffer.Root, metrics: Metrics) void {
         self.col = root.line_width(self.row, metrics) catch 0;
     } else {
         self.col = @min(self.col, root.line_width(self.row, metrics) catch 0);
+        _, _, const offset = root.egc_at(self.row, self.col, metrics) catch return;
+        self.col -= @min(self.col, offset);
     }
 }
 
