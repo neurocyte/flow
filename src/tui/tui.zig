@@ -10,6 +10,7 @@ const builtin = @import("builtin");
 const file_link = @import("file_link");
 
 pub const renderer = @import("renderer");
+const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const keybind = @import("keybind");
@@ -57,6 +58,7 @@ last_hover_y: c_int = -1,
 commands: Commands = undefined,
 logger: log.Logger,
 drag_source: ?*Widget = null,
+drag_button: ?input.MouseType = null,
 dark_theme: Widget.Theme,
 dark_parsed_theme: ?std.json.Parsed(Widget.Theme),
 light_theme: Widget.Theme,
@@ -587,7 +589,9 @@ fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) voi
     self.unrendered_input_events_count += 1;
     const send_func = if (self.drag_source) |_| &send_mouse_drag else &send_mouse;
     send_func(self, y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
-    self.drag_source = null;
+    var btn: input.MouseType = 0;
+    _ = m.match(.{ tp.string, tp.any, tp.extract(&btn), tp.more }) catch false;
+    self.maybe_reset_drag_source_internal(btn);
 }
 
 fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
@@ -596,7 +600,9 @@ fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
-    if (self.drag_source == null) self.drag_source = self.find_coord_widget(@intCast(y), @intCast(x));
+    var btn: input.MouseType = undefined;
+    if (m.match(.{ tp.string, tp.any, tp.extract(&btn), tp.more }) catch false)
+        if (self.drag_source == null) self.set_drag_source(self.find_coord_widget(@intCast(y), @intCast(x)), btn);
     self.send_mouse_drag(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
 
@@ -1439,14 +1445,26 @@ pub fn get_keybind_mode() ?Mode {
     return self.input_mode_ orelse self.delayed_init_input_mode;
 }
 
-pub fn set_drag_source(drag_source: *Widget) void {
+pub fn update_drag_source(drag_source: *Widget) void {
     const self = current();
     self.drag_source = drag_source;
+}
+
+fn set_drag_source(self: *Self, drag_source: ?*Widget, btn: input.MouseType) void {
+    self.drag_source = drag_source;
+    self.drag_button = btn;
 }
 
 pub fn reset_drag_context() void {
     const self = current();
     self.drag_source = null;
+    self.drag_button = 0;
+}
+
+fn maybe_reset_drag_source_internal(self: *Self, btn: input.MouseType) void {
+    if (self.drag_button != btn) return;
+    self.drag_source = null;
+    self.drag_button = 0;
 }
 
 pub fn need_render() void {
