@@ -3759,6 +3759,8 @@ pub const Editor = struct {
         var cursel: CurSel = .{};
         cursel.cursor = cursor;
         try move_cursor_begin(root, &cursel.cursor, self.metrics);
+        if (root.line_width(cursel.cursor.row, self.metrics) catch 0 == 0)
+            return root;
         switch (self.indent_mode) {
             .spaces, .auto => {
                 const cols = self.indent_size - find_first_non_ws(root, cursel.cursor.row, self.metrics) % self.indent_size;
