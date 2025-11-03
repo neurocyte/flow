@@ -245,3 +245,9 @@ pub fn nudge_delete(self: *Self, nudge: Selection) bool {
     self.row -= nudge.end.row - nudge.begin.row;
     return true;
 }
+
+pub fn within(self: *const Self, sel_: Selection) bool {
+    var sel = sel_;
+    sel.normalize();
+    return !sel.begin.right_of(self.*) and sel.end.right_of(self.*);
+}
