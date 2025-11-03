@@ -4522,7 +4522,7 @@ pub const Editor = struct {
 
     fn cursel_smart_insert_line(self: *Self, root: Buffer.Root, cursel: *CurSel, b_allocator: std.mem.Allocator, mode: WSCollapseMode) !Buffer.Root {
         const row = cursel.cursor.row;
-        const leading_ws = @min(find_first_non_ws(root, row, self.metrics), cursel.cursor.col);
+        const leading_ws = find_first_non_ws(root, row, self.metrics);
         var sfa = std.heap.stackFallback(512, self.allocator);
         const sfa_allocator = sfa.get();
         var stream: std.Io.Writer.Allocating = .init(sfa_allocator);
