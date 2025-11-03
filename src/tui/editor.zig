@@ -5014,6 +5014,8 @@ pub const Editor = struct {
         else
             buffer.disable_auto_save();
         self.send_editor_auto_save(buffer.is_auto_save()) catch {};
+        if (buffer.is_auto_save())
+            tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
     }
     pub const toggle_auto_save_meta: Meta = .{ .description = "Toggle auto save" };
 
