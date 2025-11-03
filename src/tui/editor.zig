@@ -383,7 +383,6 @@ pub const Editor = struct {
     completion_col: usize = 0,
     completion_is_complete: bool = true,
 
-    enable_auto_save: bool,
     enable_format_on_save: bool,
 
     restored_state: bool = false,
@@ -411,11 +410,10 @@ pub const Editor = struct {
     }
 
     pub fn write_state(self: *const Self, writer: *std.Io.Writer) !void {
-        try cbor.writeArrayHeader(writer, 11);
+        try cbor.writeArrayHeader(writer, 10);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
         try cbor.writeValue(writer, self.enable_format_on_save);
-        try cbor.writeValue(writer, self.enable_auto_save);
         try cbor.writeValue(writer, self.indent_size);
         try cbor.writeValue(writer, self.tab_width);
         try cbor.writeValue(writer, self.indent_mode);
@@ -450,7 +448,6 @@ pub const Editor = struct {
             tp.extract(&file_path),
             tp.extract(&last_find_query),
             tp.extract(&self.enable_format_on_save),
-            tp.extract(&self.enable_auto_save),
             tp.extract(&self.indent_size),
             tp.extract(&self.tab_width),
             tp.extract(&self.indent_mode),
@@ -514,7 +511,6 @@ pub const Editor = struct {
             .animation_lag = get_animation_max_lag(),
             .animation_frame_rate = frame_rate,
             .animation_last_time = time.microTimestamp(),
-            .enable_auto_save = tui.config().enable_auto_save,
             .enable_format_on_save = tui.config().enable_format_on_save,
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
             .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
@@ -598,6 +594,7 @@ pub const Editor = struct {
             defer frame.deinit();
             break :blk try self.buffer_manager.open_file(file_path);
         };
+        if (tui.config().enable_auto_save) buffer.enable_auto_save();
         return self.open_buffer(file_path, buffer, null);
     }
 
@@ -689,6 +686,7 @@ pub const Editor = struct {
             buffer.file_type_icon = fti;
             buffer.file_type_color = ftc;
         }
+        const auto_save = if (self.buffer) |b| b.is_auto_save() else false;
 
         if (buffer_meta) |meta| {
             const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
@@ -700,8 +698,9 @@ pub const Editor = struct {
     }
 
     fn maybe_enable_auto_save(self: *Self) void {
+        const buffer = self.buffer orelse return;
         if (self.restored_state) return;
-        self.enable_auto_save = false;
+        buffer.disable_auto_save();
         if (!tui.config().enable_auto_save) return;
         const self_file_type = self.file_type orelse return;
 
@@ -712,7 +711,7 @@ pub const Editor = struct {
                     break :enable;
             return;
         }
-        self.enable_auto_save = true;
+        buffer.enable_auto_save();
     }
 
     fn detect_indent_mode(self: *Self, content: []const u8) void {
@@ -1781,7 +1780,7 @@ pub const Editor = struct {
         _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root), @intFromEnum(eol_mode) });
         if (self.buffer) |buffer| if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
             project_manager.did_change(file_path, buffer.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
-        if (self.enable_auto_save)
+        if (self.buffer) |b| if (b.is_auto_save())
             tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
     }
 
@@ -5005,7 +5004,7 @@ pub const Editor = struct {
     pub const SaveOption = enum { default, format, no_format };
 
     pub fn toggle_auto_save(self: *Self, _: Context) Result {
-        self.enable_auto_save = !self.enable_auto_save;
+        if (self.buffer) |b| if (b.is_auto_save()) b.disable_auto_save() else b.enable_auto_save();
     }
     pub const toggle_auto_save_meta: Meta = .{ .description = "Toggle auto save" };
 

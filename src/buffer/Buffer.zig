@@ -42,6 +42,7 @@ last_save_eol_mode: EolMode = .lf,
 file_utf8_sanitized: bool = false,
 hidden: bool = false,
 ephemeral: bool = false,
+auto_save: bool = false,
 meta: ?[]const u8 = null,
 lsp_version: usize = 1,
 
@@ -1479,6 +1480,18 @@ pub fn mark_not_ephemeral(self: *Self) void {
     self.ephemeral = false;
 }
 
+pub fn enable_auto_save(self: *Self) void {
+    self.auto_save = true;
+}
+
+pub fn disable_auto_save(self: *Self) void {
+    self.auto_save = false;
+}
+
+pub fn is_auto_save(self: *const Self) bool {
+    return self.auto_save;
+}
+
 pub fn is_dirty(self: *const Self) bool {
     return if (!self.file_exists)
         self.root.length() > 0
@@ -1576,6 +1589,7 @@ pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOf
     try cbor.writeValue(writer, self.file_eol_mode);
     try cbor.writeValue(writer, self.hidden);
     try cbor.writeValue(writer, self.ephemeral);
+    try cbor.writeValue(writer, self.auto_save);
     try cbor.writeValue(writer, dirty);
     try cbor.writeValue(writer, self.meta);
     try cbor.writeValue(writer, self.file_type_name);
@@ -1597,6 +1611,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
         cbor.extract(&self.file_eol_mode),
         cbor.extract(&self.hidden),
         cbor.extract(&self.ephemeral),
+        cbor.extract(&self.auto_save),
         cbor.extract(&dirty),
         cbor.extract(&meta),
         cbor.extract(&file_type_name),
