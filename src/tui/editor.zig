@@ -2412,6 +2412,7 @@ pub const Editor = struct {
         self.selection_mode = .char;
         try self.send_editor_jump_source();
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
+        self.collapse_cursors();
         self.clamp_mouse();
         try self.send_editor_jump_destination();
         if (self.jump_mode) try self.goto_definition(.{});
@@ -2425,6 +2426,7 @@ pub const Editor = struct {
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         _ = try self.select_word_at_cursor(primary);
         self.selection_drag_initial = primary.selection;
+        self.collapse_cursors();
         self.clamp_mouse();
     }
 
@@ -2436,6 +2438,7 @@ pub const Editor = struct {
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
         try self.select_line_at_cursor(root, primary, .exclude_eol);
         self.selection_drag_initial = primary.selection;
+        self.collapse_cursors();
         self.clamp_mouse();
     }
 
@@ -2473,6 +2476,7 @@ pub const Editor = struct {
         }
         primary.cursor = sel.end;
         primary.check_selection(root, self.metrics);
+        self.collapse_cursors();
         self.clamp_mouse();
     }
 
