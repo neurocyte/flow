@@ -30,7 +30,9 @@ fn apply_movements(movements: []const u8, root: Buffer.Root, cursor: *Cursor, th
             'e' => {
                 try helix.test_internal.move_cursor_word_right_end_helix(root, cursor, the_metrics);
             },
-            else => {},
+            else => {
+                return error.Stop;
+            },
         }
     }
     try std.testing.expectEqual(col, cursor.col);
@@ -66,7 +68,9 @@ fn metrics() Buffer.Metrics {
     };
 }
 const doc: []const u8 =
-    \\gawk '{print length($0) }' testflowhelixwbe.txt  | tr '\n' ' '
+    \\gawk '{print length($0) }' testflowhelixwbe.txt  | tr '\n' ' 'i
+    \\
+    \\Allows you to know what is the length of each line ^^^^
     \\a small $% Test.here,   with.things()to demo
     \\ with surrounding.space    a bb  AA   a small and long
     \\
@@ -78,20 +82,17 @@ const doc: []const u8 =
     \\  $$%.  []{{}. dart de
     \\da
 ;
-//60 44 54 0 2 8 138 0 0 22 2 0
 
 var eol_mode: Buffer.EolMode = .lf;
 var sanitized: bool = false;
-var the_cursor = Cursor{ .row = 1, .col = 1, .target = 0 };
-
-// To run a specific test
-// zig build test -Dtest-filter=word_movement
 
 test "words_movement" {
     const buffer = try Buffer.create(a);
     defer buffer.deinit();
     buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
     const root: Buffer.Root = buffer.root;
+    var the_cursor = Cursor{ .row = 1, .col = 1, .target = 0 };
+
     the_cursor.col = 1;
     the_cursor.row = 0;
 
@@ -99,8 +100,6 @@ test "words_movement" {
         .{ .moves = "b", .row = 0, .col = 0 },
         .{ .moves = "w", .row = 0, .col = 5 },
         .{ .moves = "b", .row = 0, .col = 1 },
-        // TODO: Review the following line, an Stop is raising
-        // .{ .moves = "bb", .row = 0, .col = 0 },
         .{ .moves = "ww", .row = 0, .col = 7 },
         .{ .moves = "bb", .row = 0, .col = 1 },
         .{ .moves = "www", .row = 0, .col = 13 },
@@ -110,17 +109,40 @@ test "words_movement" {
         .{ .moves = "wb", .row = 0, .col = 1 },
         .{ .moves = "e", .row = 0, .col = 4 },
         .{ .moves = "b", .row = 0, .col = 1 },
-        // TODO: b has a bug when at the end of the view, it's
-        // not getting back.
-        //
-        // TODO: Another bug detected is when there are multiple
-        // lines, b is not able to get to the first non
-        // newline.
     };
-
     for (movements) |move| {
         try apply_movements(move.moves, root, &the_cursor, metrics(), move.row, move.col);
     }
+    the_cursor.row = 11;
+    the_cursor.col = 1;
+
+    const more_movements: [2]MoveExpected = .{
+        .{ .moves = "b", .row = 8, .col = 135 },
+        .{ .moves = "w", .row = 11, .col = 2 },
+    };
+    for (more_movements) |move| {
+        try apply_movements(move.moves, root, &the_cursor, metrics(), move.row, move.col);
+    }
+}
+
+test "edge_word_movements" {
+    const buffer = try Buffer.create(a);
+    defer buffer.deinit();
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    const root: Buffer.Root = buffer.root;
+    var cursor = Cursor{ .row = 1, .col = 1, .target = 0 };
+    cursor.col = 0;
+    cursor.row = 0;
+    const expected_error = error.Stop;
+    var result = helix.test_internal.move_cursor_word_left_helix(root, &cursor, metrics());
+    try std.testing.expectError(expected_error, result);
+    try std.testing.expectEqual(0, cursor.row);
+    try std.testing.expectEqual(0, cursor.col);
+
+    result = helix.test_internal.move_cursor_long_word_left(root, &cursor, metrics());
+    try std.testing.expectError(expected_error, result);
+    try std.testing.expectEqual(0, cursor.row);
+    try std.testing.expectEqual(0, cursor.col);
 }
 
 test "long_words_movement" {
@@ -128,6 +150,8 @@ test "long_words_movement" {
     defer buffer.deinit();
     buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
     const root: Buffer.Root = buffer.root;
+    var the_cursor = Cursor{ .row = 1, .col = 1, .target = 0 };
+
     the_cursor.col = 1;
     the_cursor.row = 0;
 
@@ -135,19 +159,12 @@ test "long_words_movement" {
         .{ .moves = "B", .row = 0, .col = 0 },
         .{ .moves = "W", .row = 0, .col = 5 },
         .{ .moves = "B", .row = 0, .col = 1 },
-        // TODO: Review the following line, an Stop is raising
-        // .{ .moves = "BB", .row = 0, .col = 0 },
         .{ .moves = "WW", .row = 0, .col = 13 },
         .{ .moves = "BB", .row = 0, .col = 1 },
         .{ .moves = "WWW", .row = 0, .col = 24 },
         .{ .moves = "BBB", .row = 0, .col = 1 },
         .{ .moves = "WWWW", .row = 0, .col = 27 },
         .{ .moves = "BBBB", .row = 0, .col = 1 },
-        // TODO:
-        // WWWWW should report 48, is reporting 49, when changing modes
-        // the others report 48.  This is an specific hx mode
-        // .{ .moves = "WWWWW", .row = 0, .col = 48 },
-        // Same bugs detected in b are in B
         .{ .moves = "WB", .row = 0, .col = 1 },
         .{ .moves = "E", .row = 0, .col = 4 },
         .{ .moves = "B", .row = 0, .col = 1 },
@@ -163,6 +180,8 @@ test "to_char_right_beyond_eol" {
     defer buffer.deinit();
     buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
     const root: Buffer.Root = buffer.root;
+    var the_cursor = Cursor{ .row = 1, .col = 1, .target = 0 };
+
     the_cursor.col = 0;
     the_cursor.row = 0;
     const expected_error = error.Stop;
@@ -175,44 +194,50 @@ test "to_char_right_beyond_eol" {
 
     // Move found in the next line
     try helix.test_internal.move_cursor_to_char_right_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"T"}));
-    try std.testing.expectEqual(1, the_cursor.row);
+    try std.testing.expectEqual(3, the_cursor.row);
     try std.testing.expectEqual(11, the_cursor.col);
 
     // Move found in the previous line
     try helix.test_internal.move_cursor_to_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"t"}));
-    try std.testing.expectEqual(0, the_cursor.row);
-    try std.testing.expectEqual(51, the_cursor.col);
+    try std.testing.expectEqual(2, the_cursor.row);
+    try std.testing.expectEqual(35, the_cursor.col);
 
     // Not found to end of buffer, cursor not moved
     result = helix.test_internal.move_cursor_to_char_right_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"Z"}));
     try std.testing.expectError(expected_error, result);
-    try std.testing.expectEqual(0, the_cursor.row);
-    try std.testing.expectEqual(51, the_cursor.col);
+    try std.testing.expectEqual(2, the_cursor.row);
+    try std.testing.expectEqual(35, the_cursor.col);
 
     // Not found to begin of buffer
     result = helix.test_internal.move_cursor_to_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"Z"}));
     try std.testing.expectError(expected_error, result);
-    try std.testing.expectEqual(0, the_cursor.row);
-    try std.testing.expectEqual(51, the_cursor.col);
+    try std.testing.expectEqual(2, the_cursor.row);
+    try std.testing.expectEqual(35, the_cursor.col);
 
     // till char difference
     // Move found in the next line
     try helix.test_internal.move_cursor_till_char_right_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"T"}));
-    try std.testing.expectEqual(1, the_cursor.row);
+    try std.testing.expectEqual(3, the_cursor.row);
     try std.testing.expectEqual(10, the_cursor.col);
 
     // Move found in the previous line
     try helix.test_internal.move_cursor_till_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"t"}));
-    try std.testing.expectEqual(0, the_cursor.row);
-    try std.testing.expectEqual(52, the_cursor.col);
+    try std.testing.expectEqual(2, the_cursor.row);
+    try std.testing.expectEqual(36, the_cursor.col);
 
     // Move found in the same line
-    try helix.test_internal.move_cursor_till_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"x"}));
-    try std.testing.expectEqual(0, the_cursor.row);
-    try std.testing.expectEqual(46, the_cursor.col);
+    try helix.test_internal.move_cursor_till_char_left_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"u"}));
+    try std.testing.expectEqual(2, the_cursor.row);
+    try std.testing.expectEqual(10, the_cursor.col);
 
     // Move found in the same line
     try helix.test_internal.move_cursor_till_char_right_beyond_eol(root, &the_cursor, metrics(), fmt_command(.{"t"}));
-    try std.testing.expectEqual(0, the_cursor.row);
-    try std.testing.expectEqual(50, the_cursor.col);
+    try std.testing.expectEqual(2, the_cursor.row);
+    try std.testing.expectEqual(21, the_cursor.col);
 }
+
+// TODO: When at end of file, enter sel mode makes
+// difficult to get back and is confusing for users.
+// Related to that is the fact that when a selection
+// is made, then trying to move to the right, the
+// first movement is swallowed
