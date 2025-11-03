@@ -85,3 +85,53 @@ pub fn nudge_delete(self: *Self, nudge: Self) bool {
         return false;
     return self.end.nudge_delete(nudge);
 }
+
+pub fn merge(self: *Self, other_: Self) bool {
+    var other = other_;
+    other.normalize();
+    if (self.is_reversed()) {
+        var this = self.*;
+        this.normalize();
+        if (this.merge_normal(other)) {
+            self.begin = this.end;
+            self.end = this.begin;
+            return true;
+        }
+        return false;
+    }
+    return self.merge_normal(other);
+}
+
+fn merge_normal(self: *Self, other: Self) bool {
+    var merged = false;
+    if (self.begin.within(other)) {
+        self.begin = other.begin;
+        merged = true;
+    }
+    if (self.end.within(other)) {
+        self.end = other.end;
+        merged = true;
+    }
+    return merged or
+        (other.begin.right_of(self.begin) and
+            self.end.right_of(other.end));
+}
+
+pub fn expand(self: *Self, other_: Self) void {
+    var other = other_;
+    other.normalize();
+    if (self.is_reversed()) {
+        var this = self.*;
+        this.normalize();
+        this.expand_normal(other);
+        self.begin = this.end;
+        self.end = this.begin;
+    } else self.expand_normal(other);
+}
+
+fn expand_normal(self: *Self, other: Self) void {
+    if (self.begin.right_of(other.begin))
+        self.begin = other.begin;
+    if (other.end.right_of(self.end))
+        self.end = other.end;
+}
