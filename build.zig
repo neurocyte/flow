@@ -635,6 +635,7 @@ pub fn build_exe(
             .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
             .{ .name = "zeit", .module = zeit_mod },
             .{ .name = "VcsStatus", .module = VcsStatus_mod },
+            .{ .name = "bin_path", .module = bin_path_mod },
         },
     });
 

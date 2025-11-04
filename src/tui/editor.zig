@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const tp = @import("thespian");
 const cbor = @import("cbor");
+const bin_path = @import("bin_path");
 const log = @import("log");
 const Buffer = @import("Buffer");
 const ripgrep = @import("ripgrep");
@@ -383,6 +384,8 @@ pub const Editor = struct {
     completion_col: usize = 0,
     completion_is_complete: bool = true,
 
+    checked_formatter: bool = false,
+    formatter: ?[]const []const u8 = null,
     enable_format_on_save: bool,
 
     restored_state: bool = false,
@@ -661,6 +664,8 @@ pub const Editor = struct {
                 else
                     file_type_config.guess_file_type(self.file_path, content.written());
             };
+            self.checked_formatter = false;
+            self.formatter = null;
 
             self.maybe_enable_auto_save();
 
@@ -5850,8 +5855,22 @@ pub const Editor = struct {
     pub const select_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
 
     fn get_formatter(self: *Self) ?[]const []const u8 {
-        if (self.file_type) |file_type| if (file_type.formatter) |fmtr| if (fmtr.len > 0) return fmtr;
+        if (self.checked_formatter) return self.formatter;
+        self.checked_formatter = true;
+        if (self.file_type) |file_type| if (file_type.formatter) |fmtr| if (fmtr.len > 0) if (can_execute(self.allocator, fmtr[0])) {
+            self.formatter = fmtr;
+            return fmtr;
+        } else {
+            self.logger.print_err("format", "formatter executable '{s}' not found", .{fmtr[0]});
+        };
+        self.formatter = null;
         return null;
+    }
+
+    fn can_execute(allocator: std.mem.Allocator, binary_name: []const u8) bool {
+        const resolved_binary_path = bin_path.find_binary_in_path(allocator, binary_name) catch return false;
+        defer if (resolved_binary_path) |path| allocator.free(path);
+        return resolved_binary_path != null;
     }
 
     pub fn format(self: *Self, ctx: Context) Result {
@@ -5867,7 +5886,7 @@ pub const Editor = struct {
             try self.filter_cmd(.{ .buf = args.written() });
             return;
         }
-        return tp.exit("no formatter");
+        self.logger.print("no formatter", .{});
     }
     pub const format_meta: Meta = .{ .description = "Language: Format file or selection" };
 
@@ -6136,6 +6155,8 @@ pub const Editor = struct {
 
         const file_type_config_ = try file_type_config.get(file_type);
         self.file_type = file_type_config_;
+        self.checked_formatter = false;
+        self.formatter = null;
 
         self.syntax = blk: {
             break :blk if (self.file_type) |ft|
