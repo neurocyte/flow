@@ -900,10 +900,11 @@ fn paste_helix(ctx: command.Context, do_paste: pasting_function) command.Result 
     const b = try ed.buf_for_update();
     var root = b.root;
 
+    if (clipboard.len == 0) return;
+
     // Chunks from clipboard are paired to selections
     // If more selections than chunks in the clipboard, the exceding selections
     // use the last chunk in the clipboard
-
     var bytes: usize = 0;
     for (ed.cursels.items, 0..) |*cursel_, idx| if (cursel_.*) |*cursel| {
         if (idx < clipboard.len) {
