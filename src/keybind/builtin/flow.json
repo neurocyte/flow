@@ -12,6 +12,7 @@
             ["ctrl+o", "open_file"],
             ["ctrl+e", "open_recent"],
             ["alt+o", "open_previous_file"],
+            ["ctrl+shift+t", "restore_closed_tab"],
             ["ctrl+shift+f5", "reload_file"],
             ["ctrl+k ctrl+t", "change_theme"],
             ["ctrl+shift+p", "open_command_palette"],
