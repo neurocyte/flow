@@ -172,6 +172,10 @@ pub const regex = .{};
 
 pub const rpmspec = .{};
 
+pub const rst = .{
+    .language_server = .{"esbonio"},
+};
+
 pub const ruby = .{
     .language_server = .{"ruby-lsp"},
 };
