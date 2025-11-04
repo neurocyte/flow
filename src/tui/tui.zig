@@ -591,7 +591,7 @@ fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) voi
     send_func(self, y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
     var btn: input.MouseType = 0;
     _ = m.match(.{ tp.string, tp.any, tp.extract(&btn), tp.more }) catch false;
-    self.maybe_reset_drag_source_internal(btn);
+    self.maybe_reset_drag_source(btn);
 }
 
 fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {
@@ -1461,7 +1461,7 @@ pub fn reset_drag_context() void {
     self.drag_button = 0;
 }
 
-fn maybe_reset_drag_source_internal(self: *Self, btn: input.MouseType) void {
+fn maybe_reset_drag_source(self: *Self, btn: input.MouseType) void {
     if (self.drag_button != btn) return;
     self.drag_source = null;
     self.drag_button = 0;
