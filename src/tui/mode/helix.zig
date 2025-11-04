@@ -897,6 +897,11 @@ fn paste_helix(ctx: command.Context, do_paste: pasting_function) command.Result 
     else
         tui.clipboard_get_group(0);
 
+    if (clipboard.len == 0) {
+        ed.logger.print("paste: nothing to paste", .{});
+        return;
+    }
+
     const b = try ed.buf_for_update();
     var root = b.root;
 
