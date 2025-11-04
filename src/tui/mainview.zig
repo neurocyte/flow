@@ -1002,7 +1002,7 @@ const cmds = struct {
     pub const show_diagnostics_meta: Meta = .{ .description = "Show diagnostics panel" };
 
     pub fn open_previous_file(self: *Self, _: Ctx) Result {
-        self.show_file_async(self.get_next_mru_buffer() orelse return error.Stop);
+        self.show_file_async(self.get_next_mru_buffer(.all) orelse return error.Stop);
     }
     pub const open_previous_file_meta: Meta = .{ .description = "Open the previous file" };
 
@@ -1228,7 +1228,7 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         return self.location_update(m);
 
     if (try m.match(.{ "E", "close" })) {
-        if (self.get_next_mru_buffer()) |file_path|
+        if (self.get_next_mru_buffer(.non_hidden)) |file_path|
             self.show_file_async(file_path)
         else
             self.show_home_async();
@@ -1498,15 +1498,18 @@ fn send_buffer_did_open(allocator: std.mem.Allocator, buffer: *Buffer) !void {
     );
 }
 
-fn get_next_mru_buffer(self: *Self) ?[]const u8 {
+fn get_next_mru_buffer(self: *Self, mode: enum { all, hidden, non_hidden }) ?[]const u8 {
     const buffers = self.buffer_manager.list_most_recently_used(self.allocator) catch return null;
     defer self.allocator.free(buffers);
     const active_file_path = self.get_active_file_path();
     for (buffers) |buffer| {
         if (active_file_path) |fp| if (std.mem.eql(u8, fp, buffer.get_file_path()))
             continue;
-        if (buffer.hidden)
-            continue;
+        if (switch (mode) {
+            .all => false,
+            .hidden => !buffer.hidden,
+            .non_hidden => buffer.hidden,
+        }) continue;
         return buffer.get_file_path();
     }
     return null;
