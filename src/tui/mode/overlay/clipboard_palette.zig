@@ -86,11 +86,11 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     while (len > 0) : (len -= 1)
         cbor.skipValue(&iter) catch return;
     if (!(cbor.matchValue(&iter, cbor.extract(&idx)) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("clipboard_palette", e);
 
     const history = tui.clipboard_get_history() orelse return;
     if (history.len <= idx) return;
-    tp.self_pid().send(.{ "cmd", "paste", .{history[idx]} }) catch {};
+    tp.self_pid().send(.{ "cmd", "paste", .{history[idx].text} }) catch {};
 }
 
 pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
