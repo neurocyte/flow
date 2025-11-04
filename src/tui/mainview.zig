@@ -264,6 +264,7 @@ fn open_style_config(self: *Self, Style: type) command.Result {
         "conf",
     }));
     if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
+    self.location_update_from_editor();
 }
 
 const cmds = struct {
@@ -461,6 +462,7 @@ const cmds = struct {
                 try command.executeName("scroll_view_center", .{});
         }
         tui.need_render();
+        self.location_update_from_editor();
     }
 
     pub fn open_help(self: *Self, _: Ctx) Result {
@@ -468,6 +470,7 @@ const cmds = struct {
         try self.create_editor();
         try command.executeName("open_scratch_buffer", command.fmt(.{ "help", @embedFile("help.md"), "markdown" }));
         tui.need_render();
+        self.location_update_from_editor();
     }
     pub const open_help_meta: Meta = .{ .description = "Open help" };
 
@@ -476,6 +479,7 @@ const cmds = struct {
         try self.create_editor();
         try command.executeName("open_scratch_buffer", command.fmt(.{ "font test", @import("fonts.zig").font_test_text, "text" }));
         tui.need_render();
+        self.location_update_from_editor();
     }
     pub const open_font_test_text_meta: Meta = .{ .description = "Open font glyph test text" };
 
@@ -484,6 +488,7 @@ const cmds = struct {
         try self.create_editor();
         try command.executeName("open_scratch_buffer", command.fmt(.{ "version", root.version_info, "gitcommit" }));
         tui.need_render();
+        self.location_update_from_editor();
     }
     pub const open_version_info_meta: Meta = .{ .description = "Version" };
 
@@ -543,6 +548,7 @@ const cmds = struct {
             "conf",
         }));
         if (self.get_active_buffer()) |buffer| buffer.mark_not_ephemeral();
+        self.location_update_from_editor();
     }
     pub const open_file_type_config_meta: Meta = .{
         .arguments = &.{.string},
@@ -556,6 +562,7 @@ const cmds = struct {
         try self.create_editor();
         try command.executeName("open_scratch_buffer", .{ .args = args });
         tui.need_render();
+        self.location_update_from_editor();
     }
     pub const create_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
 
@@ -645,6 +652,7 @@ const cmds = struct {
             if (buffer.is_ephemeral())
                 self.buffer_manager.close_buffer(buffer);
         }
+        self.location_update_from_editor();
     }
     pub const save_file_as_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -1276,6 +1284,16 @@ pub fn location_update(self: *Self, m: tp.message) tp.result {
         project_manager.update_mru(file_path, row, col, ephemeral) catch {};
         return self.location_history_.update(file_path, .{ .row = row + 1, .col = col + 1 }, sel);
     }
+}
+
+pub fn location_update_from_editor(self: *Self) void {
+    const editor = self.get_active_editor() orelse return;
+    const file_path = editor.file_path orelse return;
+    const ephemeral = if (editor.buffer) |buffer| buffer.is_ephemeral() else false;
+    const primary = editor.get_primary();
+    const row: usize = primary.cursor.row;
+    const col: usize = primary.cursor.col;
+    project_manager.update_mru(file_path, row, col, ephemeral) catch {};
 }
 
 fn location_jump(from: tp.pid_ref, file_path: []const u8, cursor: location_history.Cursor, selection: ?location_history.Selection) void {
