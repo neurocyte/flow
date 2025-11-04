@@ -3778,12 +3778,12 @@ pub const Editor = struct {
     }
     pub const toggle_comment_meta: Meta = .{ .description = "Toggle comment" };
 
-    fn indent_cursor(self: *Self, root: Buffer.Root, cursor: Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
+    fn indent_cursor(self: *Self, root: Buffer.Root, cursor: Cursor, no_blank_line: bool, allocator: Allocator) error{Stop}!Buffer.Root {
         const space = "                                ";
         var cursel: CurSel = .{};
         cursel.cursor = cursor;
         try move_cursor_begin(root, &cursel.cursor, self.metrics);
-        if (root.line_width(cursel.cursor.row, self.metrics) catch 0 == 0)
+        if (no_blank_line and (root.line_width(cursel.cursor.row, self.metrics) catch 0 == 0))
             return root;
         switch (self.indent_mode) {
             .spaces, .auto => {
@@ -3803,13 +3803,13 @@ pub const Editor = struct {
             const sel_from_start = sel_.begin.col == 0;
             sel.normalize();
             while (sel.begin.row < sel.end.row) : (sel.begin.row += 1)
-                root = try self.indent_cursor(root, sel.begin, allocator);
+                root = try self.indent_cursor(root, sel.begin, true, allocator);
             if (sel.end.col > 0)
-                root = try self.indent_cursor(root, sel.end, allocator);
+                root = try self.indent_cursor(root, sel.end, true, allocator);
             if (sel_from_start)
                 sel_.begin.col = 0;
             return root;
-        } else return try self.indent_cursor(root_, cursel.cursor, allocator);
+        } else return try self.indent_cursor(root_, cursel.cursor, self.cursels.items.len > 1, allocator);
     }
 
     pub fn indent(self: *Self, ctx: Context) Result {
