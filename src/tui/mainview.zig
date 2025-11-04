@@ -1012,6 +1012,11 @@ const cmds = struct {
     }
     pub const open_most_recent_file_meta: Meta = .{ .description = "Open the last changed file" };
 
+    pub fn restore_closed_tab(self: *Self, _: Ctx) Result {
+        self.show_file_async(self.get_next_mru_buffer(.hidden) orelse return error.Stop);
+    }
+    pub const restore_closed_tab_meta: Meta = .{ .description = "Restore last closed tab" };
+
     pub fn system_paste(self: *Self, _: Ctx) Result {
         if (builtin.os.tag == .windows) {
             const text = try @import("renderer").request_windows_clipboard(self.allocator);
