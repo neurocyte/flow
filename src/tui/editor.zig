@@ -409,6 +409,22 @@ pub const Editor = struct {
         if (self.buffer) |p| p.set_meta(meta.written()) catch {};
     }
 
+    fn count_cursels(self: *const Self) usize {
+        var count: usize = 0;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |_| {
+            count += 1;
+        };
+        return count;
+    }
+
+    fn count_cursels_saved(self: *const Self) usize {
+        var count: usize = 0;
+        for (self.cursels_saved.items) |*cursel_| if (cursel_.*) |_| {
+            count += 1;
+        };
+        return count;
+    }
+
     pub fn write_state(self: *const Self, writer: *std.Io.Writer) !void {
         try cbor.writeArrayHeader(writer, 10);
         try cbor.writeValue(writer, self.file_path orelse "");
@@ -427,11 +443,7 @@ pub const Editor = struct {
         }
         try self.view.write(writer);
 
-        var count_cursels: usize = 0;
-        for (self.cursels.items) |*cursel_| if (cursel_.*) |_| {
-            count_cursels += 1;
-        };
-        try cbor.writeArrayHeader(writer, count_cursels);
+        try cbor.writeArrayHeader(writer, self.count_cursels());
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             try cursel.write(writer);
         };
@@ -806,16 +818,17 @@ pub const Editor = struct {
     fn store_undo_meta(self: *Self, allocator: Allocator) ![]u8 {
         var meta: std.Io.Writer.Allocating = .init(allocator);
         defer meta.deinit();
+
+        try cbor.writeArrayHeader(&meta.writer, 2);
+
+        try cbor.writeArrayHeader(&meta.writer, self.count_cursels_saved());
         for (self.cursels_saved.items) |*cursel_| if (cursel_.*) |*cursel|
             try cursel.write(&meta.writer);
-        return meta.toOwnedSlice();
-    }
 
-    fn store_current_undo_meta(self: *Self, allocator: Allocator) ![]u8 {
-        var meta: std.Io.Writer.Allocating = .init(allocator);
-        defer meta.deinit();
+        try cbor.writeArrayHeader(&meta.writer, self.count_cursels());
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
             try cursel.write(&meta.writer);
+
         return meta.toOwnedSlice();
     }
 
@@ -839,15 +852,30 @@ pub const Editor = struct {
         try self.send_editor_modified();
     }
 
-    fn restore_undo_redo_meta(self: *Self, meta: []const u8) !void {
+    fn restore_cursels_array(self: *Self, iter: *[]const u8) !void {
+        var len = cbor.decodeArrayHeader(iter) catch return error.UndoMetaSyntaxCurSelsError;
+        while (len > 0) : (len -= 1) {
+            var cursel: CurSel = .{};
+            if (!try cursel.extract(iter)) return error.UndoMetaSyntaxCurSelError;
+            (try self.cursels.addOne(self.allocator)).* = cursel;
+        }
+    }
+
+    fn restore_undo_meta(self: *Self, meta: []const u8) !void {
         if (meta.len > 0)
             self.clear_all_cursors();
         var iter = meta;
-        while (iter.len > 0) {
-            var cursel: CurSel = .{};
-            if (!try cursel.extract(&iter)) return error.SyntaxError;
-            (try self.cursels.addOne(self.allocator)).* = cursel;
-        }
+        if ((cbor.decodeArrayHeader(&iter) catch return error.UndoMetaSyntaxError) != 2) return error.UndoMetaSyntaxError;
+        return self.restore_cursels_array(&iter);
+    }
+
+    fn restore_redo_meta(self: *Self, meta: []const u8) !void {
+        if (meta.len > 0)
+            self.clear_all_cursors();
+        var iter = meta;
+        if ((cbor.decodeArrayHeader(&iter) catch return error.UndoMetaSyntaxError) != 2) return error.UndoMetaSyntaxError;
+        try cbor.skipValue(&iter); // first array is pre-operation cursels
+        return self.restore_cursels_array(&iter); // second array is post-operation cursels
     }
 
     fn restore_undo(self: *Self) !void {
@@ -856,18 +884,14 @@ pub const Editor = struct {
         if (self.buffer) |b_mut| {
             try self.send_editor_jump_source();
             self.cancel_all_matches();
-            var sfa = std.heap.stackFallback(512, self.allocator);
-            const sfa_allocator = sfa.get();
-            const redo_metadata = try self.store_current_undo_meta(sfa_allocator);
-            defer sfa_allocator.free(redo_metadata);
-            const meta = b_mut.undo(redo_metadata) catch |e| switch (e) {
+            const meta = b_mut.undo() catch |e| switch (e) {
                 error.Stop => {
                     self.logger.print("nothing to undo", .{});
                     return;
                 },
                 else => return e,
             };
-            try self.restore_undo_redo_meta(meta);
+            try self.restore_undo_meta(meta);
             try self.send_editor_jump_destination();
         }
     }
@@ -883,7 +907,7 @@ pub const Editor = struct {
                 },
                 else => return e,
             };
-            try self.restore_undo_redo_meta(meta);
+            try self.restore_redo_meta(meta);
             try self.send_editor_jump_destination();
         }
     }

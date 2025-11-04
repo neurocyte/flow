@@ -46,9 +46,8 @@ auto_save: bool = false,
 meta: ?[]const u8 = null,
 lsp_version: usize = 1,
 
-undo_history: ?*UndoNode = null,
-redo_history: ?*UndoNode = null,
-curr_history: ?*UndoNode = null,
+undo_head: ?*UndoNode = null,
+redo_head: ?*UndoNode = null,
 
 mtime: i64,
 utime: i64,
@@ -62,14 +61,15 @@ pub const EolModeTag = @typeInfo(EolMode).@"enum".tag_type;
 
 const UndoNode = struct {
     root: Root,
-    next: ?*UndoNode = null,
+    next_undo: ?*UndoNode = null,
+    next_redo: ?*UndoNode = null,
     branches: ?*UndoBranch = null,
     meta: []const u8,
     file_eol_mode: EolMode,
 };
 
 const UndoBranch = struct {
-    redo: *UndoNode,
+    redo_head: *UndoNode,
     next: ?*UndoBranch,
 };
 
@@ -1511,9 +1511,8 @@ pub fn update(self: *Self, root: Root) void {
 }
 
 pub fn store_undo(self: *Self, meta: []const u8) error{OutOfMemory}!void {
-    self.push_undo(try self.create_undo(self.root, meta));
-    self.curr_history = null;
     try self.push_redo_branch();
+    self.push_undo(try self.create_undo(self.root, meta));
 }
 
 fn create_undo(self: *const Self, root: Root, meta_: []const u8) error{OutOfMemory}!*UndoNode {
@@ -1527,54 +1526,65 @@ fn create_undo(self: *const Self, root: Root, meta_: []const u8) error{OutOfMemo
     return h;
 }
 
-fn push_undo(self: *Self, h: *UndoNode) void {
-    const next = self.undo_history;
-    self.undo_history = h;
-    h.next = next;
+fn push_undo(self: *Self, node: *UndoNode) void {
+    node.next_undo = self.undo_head;
+    self.undo_head = node;
 }
 
-fn push_redo(self: *Self, h: *UndoNode) void {
-    const next = self.redo_history;
-    self.redo_history = h;
-    h.next = next;
+fn pop_undo(self: *Self) ?*UndoNode {
+    const node = self.undo_head orelse return null;
+    self.undo_head = node.next_undo;
+    return node;
+}
+
+fn push_redo(self: *Self, node: *UndoNode) void {
+    node.next_redo = self.redo_head;
+    self.redo_head = node;
+}
+
+fn pop_redo(self: *Self) ?*UndoNode {
+    const node = self.redo_head orelse return null;
+    self.redo_head = node.next_redo;
+    return node;
 }
 
 fn push_redo_branch(self: *Self) !void {
-    const r = self.redo_history orelse return;
-    const u = self.undo_history orelse return;
-    const next = u.branches;
-    const b = try self.allocator.create(UndoBranch);
-    b.* = .{
-        .redo = r,
-        .next = next,
+    const redo_head = self.redo_head orelse return;
+    const undo_head = self.undo_head orelse return;
+    const branch = try self.allocator.create(UndoBranch);
+    branch.* = .{
+        .redo_head = redo_head,
+        .next = undo_head.branches,
     };
-    u.branches = b;
-    self.redo_history = null;
+    undo_head.branches = branch;
+    self.redo_head = null;
 }
 
-pub fn undo(self: *Self, meta: []const u8) error{Stop}![]const u8 {
-    const r = self.curr_history orelse self.create_undo(self.root, meta) catch return error.Stop;
-    const h = self.undo_history orelse return error.Stop;
-    self.undo_history = h.next;
-    self.curr_history = h;
-    self.root = h.root;
-    self.file_eol_mode = h.file_eol_mode;
-    self.push_redo(r);
+pub fn undo(self: *Self) error{Stop}![]const u8 {
+    const node = self.pop_undo() orelse return error.Stop;
+    if (self.redo_head == null) blk: {
+        self.push_redo(self.create_undo(self.root, &.{}) catch break :blk);
+    }
+    self.push_redo(node);
+    self.root = node.root;
+    self.file_eol_mode = node.file_eol_mode;
     self.mtime = std.time.milliTimestamp();
-    return h.meta;
+    return node.meta;
 }
 
 pub fn redo(self: *Self) error{Stop}![]const u8 {
-    const u = self.curr_history orelse return error.Stop;
-    const h = self.redo_history orelse return error.Stop;
-    if (u.root != self.root) return error.Stop;
-    self.redo_history = h.next;
-    self.curr_history = h;
-    self.root = h.root;
-    self.file_eol_mode = h.file_eol_mode;
-    self.push_undo(u);
+    if (self.redo_head) |redo_head| if (self.root != redo_head.root)
+        return error.Stop;
+    const node = self.pop_redo() orelse return error.Stop;
+    self.push_undo(node);
+    if (self.redo_head) |head| {
+        self.root = head.root;
+        self.file_eol_mode = head.file_eol_mode;
+        if (head.next_redo == null)
+            self.redo_head = null;
+    }
     self.mtime = std.time.milliTimestamp();
-    return h.meta;
+    return node.meta;
 }
 
 pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOfMemory, WriteFailed }!void {
