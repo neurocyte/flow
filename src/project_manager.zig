@@ -521,6 +521,7 @@ const Process = struct {
             try cbor.writeArrayHeader(writer, 2);
             try cbor.writeValue(writer, project.name);
             try cbor.writeValue(writer, if (self.projects.get(project.name)) |_| true else false);
+            self.allocator.free(project.name);
         }
         from.send_raw(.{ .buf = message.written() }) catch return error.ClientFailed;
         self.logger.print("{d} projects found", .{recent_projects.items.len});
