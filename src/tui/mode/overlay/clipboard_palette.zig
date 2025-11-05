@@ -67,7 +67,7 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
         try hint.writer.print(" {d} lines", .{line_count})
     else
         try hint.writer.print(" {d} {s}", .{ item.len, if (item.len == 1) "byte " else "bytes" });
-    try hint.writer.print(":{d}", .{group_idx});
+    try hint.writer.print(" :{d}", .{group_idx});
     try cbor.writeValue(writer, hint.written());
 
     try cbor.writeValue(writer, matches orelse &[_]usize{});
