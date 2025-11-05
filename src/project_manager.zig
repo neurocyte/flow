@@ -463,15 +463,16 @@ const Process = struct {
     }
 
     fn open(self: *Process, project_directory: []const u8) (SpawnError || std.fs.Dir.OpenError)!void {
-        if (self.projects.get(project_directory) == null) {
+        if (self.projects.get(project_directory)) |project| {
+            project.last_used = std.time.nanoTimestamp();
+            self.logger.print("switched to: {s}", .{project_directory});
+        } else {
             self.logger.print("opening: {s}", .{project_directory});
             const project = try self.allocator.create(Project);
             project.* = try Project.init(self.allocator, project_directory);
             try self.projects.put(self.allocator, try self.allocator.dupe(u8, project_directory), project);
             self.restore_project(project) catch |e| self.logger.err("restore_project", e);
             project.query_git();
-        } else {
-            self.logger.print("switched to: {s}", .{project_directory});
         }
     }
 

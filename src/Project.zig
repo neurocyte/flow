@@ -31,6 +31,7 @@ persistent: bool = false,
 logger: log.Logger,
 logger_lsp: log.Logger,
 logger_git: log.Logger,
+last_used: i128,
 
 workspace: ?[]const u8 = null,
 
@@ -100,6 +101,7 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Sel
         .logger = log.logger("project"),
         .logger_lsp = log.logger("lsp"),
         .logger_git = log.logger("git"),
+        .last_used = std.time.nanoTimestamp(),
     };
 }
 
