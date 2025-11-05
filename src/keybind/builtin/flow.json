@@ -428,7 +428,7 @@
     },
     "mini/numeric": {
         "press": [
-            ["b", "goto_offset"],
+            ["b", "toggle_goto_style"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
             ["ctrl+u", "mini_mode_reset"],

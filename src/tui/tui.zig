@@ -1185,6 +1185,17 @@ const cmds = struct {
         .arguments = &.{.integer},
     };
 
+    pub fn toggle_goto_style(self: *Self, ctx: Ctx) Result {
+        return if (self.mini_mode_) |mode|
+            if (std.mem.eql(u8, mode.name, "＃goto byte"))
+                command.executeName("goto", ctx)
+            else
+                command.executeName("goto_offset", ctx)
+        else
+            command.executeName("goto", ctx);
+    }
+    pub const toggle_goto_style_meta: Meta = .{ .description = "Toggle goto byte offset mode" };
+
     pub fn move_to_char(self: *Self, ctx: Ctx) Result {
         return enter_mini_mode(self, @import("mode/mini/move_to_char.zig"), ctx);
     }
