@@ -4363,6 +4363,8 @@ pub const Editor = struct {
         while (parent_sel.eql(node_sel)) {
             node = parent;
             parent = parent.getParent();
+            if (parent.tree == null)
+                return node;
             parent_sel = CurSel.selection_from_node(parent, root, metrics) catch return node;
         }
         return node;
