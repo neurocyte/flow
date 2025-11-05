@@ -505,10 +505,21 @@ const Process = struct {
         return project.request_new_or_modified_files(from, max);
     }
 
-    fn request_recent_projects(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
+    fn request_recent_projects(self: *Process, from: tp.pid_ref, active_project: []const u8) (ProjectError || Project.ClientError)!void {
         var recent_projects: std.ArrayList(RecentProject) = .empty;
         defer recent_projects.deinit(self.allocator);
-        self.load_recent_projects(&recent_projects, project_directory) catch {};
+        self.load_recent_projects(&recent_projects) catch {};
+        for (recent_projects.items) |*recent_project| {
+            if (std.mem.eql(u8, active_project, recent_project.name)) {
+                recent_project.last_used = std.math.maxInt(i128);
+                break;
+            }
+        } else {
+            (try recent_projects.addOne(self.allocator)).* = .{
+                .name = try self.allocator.dupe(u8, active_project),
+                .last_used = std.math.maxInt(i128),
+            };
+        }
         self.sort_projects_by_last_used(&recent_projects);
         var message: std.Io.Writer.Allocating = .init(self.allocator);
         defer message.deinit();
