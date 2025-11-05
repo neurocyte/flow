@@ -20,9 +20,13 @@ echo building...
 
 zig build -Dall_targets --release --prefix "$DESTDIR/build"
 
+VERSION=$(/bin/cat "$DESTDIR/build/version")
+
+git archive --format=tar.gz --output="$DESTDIR/flow-$VERSION-source.tar.gz" HEAD
+git archive --format=zip --output="$DESTDIR/flow-$VERSION-source.zip" HEAD
+
 cd "$DESTDIR/build"
 
-VERSION=$(/bin/cat version)
 TARGETS=$(/bin/ls)
 
 for target in $TARGETS; do
