@@ -521,6 +521,20 @@ const Process = struct {
                 .last_used = std.math.maxInt(i128),
             };
         }
+        var iter = self.projects.iterator();
+        while (iter.next()) |item| {
+            for (recent_projects.items) |*recent_project| {
+                if (std.mem.eql(u8, item.value_ptr.*.name, recent_project.name)) {
+                    recent_project.last_used = item.value_ptr.*.last_used;
+                    break;
+                }
+            } else {
+                (try recent_projects.addOne(self.allocator)).* = .{
+                    .name = try self.allocator.dupe(u8, item.value_ptr.*.name),
+                    .last_used = item.value_ptr.*.last_used,
+                };
+            }
+        }
         self.sort_projects_by_last_used(&recent_projects);
         var message: std.Io.Writer.Allocating = .init(self.allocator);
         defer message.deinit();
