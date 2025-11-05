@@ -756,7 +756,7 @@ const Process = struct {
         return stream.toOwnedSlice();
     }
 
-    fn load_recent_projects(self: *Process, recent_projects: *std.ArrayList(RecentProject), project_directory: []const u8) !void {
+    fn load_recent_projects(self: *Process, recent_projects: *std.ArrayList(RecentProject)) !void {
         var path: std.Io.Writer.Allocating = .init(self.allocator);
         defer path.deinit();
         const writer = &path.writer;
@@ -769,7 +769,7 @@ const Process = struct {
         var iter = dir.iterate();
         while (try iter.next()) |entry| {
             if (entry.kind != .file) continue;
-            try self.read_project_name(path.written(), entry.name, recent_projects, project_directory);
+            try self.read_project_name(path.written(), entry.name, recent_projects);
         }
     }
 
@@ -778,7 +778,6 @@ const Process = struct {
         state_dir: []const u8,
         file_path: []const u8,
         recent_projects: *std.ArrayList(RecentProject),
-        project_directory: []const u8,
     ) !void {
         var path: std.Io.Writer.Allocating = .init(self.allocator);
         defer path.deinit();
@@ -796,10 +795,8 @@ const Process = struct {
 
         var iter: []const u8 = buffer;
         var name: []const u8 = undefined;
-        if (cbor.matchValue(&iter, tp.extract(&name)) catch return) {
-            const last_used = if (std.mem.eql(u8, project_directory, name)) std.math.maxInt(@TypeOf(stat.mtime)) else stat.mtime;
-            (try recent_projects.addOne(self.allocator)).* = .{ .name = try self.allocator.dupe(u8, name), .last_used = last_used };
-        }
+        if (cbor.matchValue(&iter, tp.extract(&name)) catch return)
+            (try recent_projects.addOne(self.allocator)).* = .{ .name = try self.allocator.dupe(u8, name), .last_used = stat.mtime };
     }
 
     fn sort_projects_by_last_used(_: *Process, recent_projects: *std.ArrayList(RecentProject)) void {
