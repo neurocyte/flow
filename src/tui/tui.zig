@@ -1170,7 +1170,7 @@ const cmds = struct {
     }
     pub const goto_meta: Meta = .{
         .description = "Goto line",
-        .arguments = &.{ .integer, .integer },
+        .arguments = &.{.integer},
     };
 
     pub fn goto_offset(self: *Self, ctx: Ctx) Result {
