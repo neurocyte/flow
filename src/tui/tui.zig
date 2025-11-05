@@ -554,7 +554,7 @@ fn active_event_handler(self: *Self) ?EventHandler {
 fn dispatch_flush_input_event(self: *Self) error{ Exit, NoSpaceLeft }!void {
     var buf: [32]u8 = undefined;
     const mode = self.input_mode_ orelse return;
-    try mode.input_handler.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
+    if (mode.input_handler) |ih| try ih.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
     if (mode.event_handler) |eh| try eh.send(tp.self_pid(), try tp.message.fmtbuf(&buf, .{"F"}));
 }
 
@@ -577,8 +577,8 @@ fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
             break :ret false;
         })
             return;
-    if (self.input_mode_) |mode|
-        mode.input_handler.send(from, m) catch |e| self.logger.err("input handler", e);
+    if (self.input_mode_) |mode| if (mode.input_handler) |ih|
+        ih.send(from, m) catch |e| self.logger.err("input handler", e);
 }
 
 fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void {

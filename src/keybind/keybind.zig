@@ -100,7 +100,7 @@ const Handler = struct {
 
 pub const Mode = struct {
     allocator: std.mem.Allocator,
-    input_handler: EventHandler,
+    input_handler: ?EventHandler,
     event_handler: ?EventHandler = null,
 
     mode: []const u8,
@@ -121,11 +121,24 @@ pub const Mode = struct {
     }
 
     pub fn deinit(self: *Mode) void {
-        if (self.deinit_command) |deinit_command|
-            deinit_command.execute_const();
-        self.allocator.free(self.mode);
-        self.input_handler.deinit();
+        if (self.deinit_command) |deinit_command| deinit_command.execute_const();
         if (self.event_handler) |eh| eh.deinit();
+        if (self.input_handler) |ih| ih.deinit();
+        self.allocator.free(self.mode);
+
+        self.deinit_command = null;
+        self.event_handler = null;
+        self.input_handler = null;
+        self.mode = &.{};
+
+        self.name = "";
+        self.line_numbers = .inherit;
+        self.keybind_hints = &.{};
+        self.cursor_shape = null;
+        self.selection_style = .normal;
+        self.init_command = null;
+        self.deinit_command = null;
+        self.initialized = false;
     }
 };
 
