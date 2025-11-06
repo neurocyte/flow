@@ -6212,6 +6212,7 @@ pub const EditorWidget = struct {
 
     editor: Editor,
     commands: Commands = undefined,
+    focused: bool = false,
 
     last_btn: input.Mouse = .none,
     last_btn_time_ms: i64 = 0,
@@ -6233,7 +6234,7 @@ pub const EditorWidget = struct {
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
         try self.init(allocator, container.plane, buffer_manager);
-        try self.commands.init(&self.editor);
+        self.commands.init_unregistered(&self.editor);
         const editorWidget = Widget.to(self);
         try container.add(try editor_gutter.create(allocator, container.widget(), editorWidget, &self.editor));
         try container.add(editorWidget);
@@ -6258,10 +6259,23 @@ pub const EditorWidget = struct {
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
         self.update_hover_timer(.cancel);
-        self.commands.deinit();
+        if (self.focused) self.commands.deinit();
         self.editor.deinit();
         self.plane.deinit();
         allocator.destroy(self);
+    }
+
+    pub fn focus(self: *Self) void {
+        self.unfocus();
+        self.commands.register() catch @panic("editor.commands.register");
+        self.focused = true;
+        self.editor.logger.print("editor focused", .{});
+    }
+
+    pub fn unfocus(self: *Self) void {
+        if (self.focused) self.commands.unregister();
+        self.focused = false;
+        self.editor.logger.print("editor unfocused", .{});
     }
 
     pub fn update(self: *Self) void {
