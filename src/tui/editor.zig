@@ -6362,6 +6362,10 @@ pub const EditorWidget = struct {
 
     fn mouse_click_event(self: *Self, event: input.Event, btn: input.Mouse, y: c_int, x: c_int, ypx: c_int, xpx: c_int) Result {
         if (event != input.event.press) return;
+        if (!self.focused) switch (btn) {
+            input.mouse.BUTTON1, input.mouse.BUTTON2, input.mouse.BUTTON3 => _ = tui.set_focus_by_mouse_event(),
+            else => {},
+        };
         const ret = (switch (btn) {
             input.mouse.BUTTON1 => &mouse_click_button1,
             input.mouse.BUTTON2 => &mouse_click_button2,
