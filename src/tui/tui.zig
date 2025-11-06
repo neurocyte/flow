@@ -663,6 +663,20 @@ fn is_live_widget_ptr(self: *Self, w_: *Widget) bool {
     return if (self.mainview_) |*mv| mv.walk(&ctx, Ctx.find) else false;
 }
 
+pub const FocusAction = enum { same, changed, notfound };
+
+pub fn set_focus_by_widget(w: *Widget) FocusAction {
+    const self = current();
+    const mv = self.mainview_ orelse return .notfound;
+    return mv.focus_view_by_widget(w);
+}
+
+pub fn set_focus_by_mouse_event() FocusAction {
+    const self = current();
+    const mv = mainview() orelse return .notfound;
+    return mv.focus_view_by_widget(self.hover_focus orelse return .notfound);
+}
+
 fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     const frame = tracy.initZone(@src(), .{ .name = "tui widgets" });
     defer frame.deinit();
