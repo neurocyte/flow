@@ -43,11 +43,10 @@ floating_views: WidgetStack,
 commands: Commands = undefined,
 top_bar: ?Widget = null,
 bottom_bar: ?Widget = null,
-active_editor: ?usize = null,
-editors: std.ArrayListUnmanaged(*ed.Editor) = .{},
+active_editor: ?*ed.Editor = null,
 views: *WidgetList,
 views_widget: Widget,
-active_view: ?usize = 0,
+active_view: usize = 0,
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
@@ -330,10 +329,7 @@ const cmds = struct {
             return;
         try self.check_all_not_dirty();
         try project_manager.open(project_dir);
-        for (self.editors.items) |editor| {
-            editor.clear_diagnostics();
-            try editor.close_file(.{});
-        }
+        try self.close_all_editors();
         self.delete_all_buffers();
         self.clear_find_in_files_results(.diagnostics);
         if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
@@ -764,7 +760,12 @@ const cmds = struct {
     pub fn add_split(self: *Self, _: Ctx) Result {
         return self.create_home_split();
     }
-    pub const add_split_meta: Meta = .{};
+    pub const add_split_meta: Meta = .{ .description = "Add split view" };
+
+    pub fn close_split(self: *Self, _: Ctx) Result {
+        return self.remove_active_view();
+    }
+    pub const close_split_meta: Meta = .{ .description = "Close split view" };
 
     pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
         const config = tui.config_mut();
@@ -1327,7 +1328,14 @@ fn store_last_match_text(self: *Self, text: ?[]const u8) void {
 }
 
 pub fn get_active_editor(self: *Self) ?*ed.Editor {
-    return self.editors.items[self.active_editor orelse return null];
+    if (self.active_editor) |editor| return editor;
+    const active_view = self.views.get_at(self.active_view) orelse return null;
+    const editor = active_view.get("editor") orelse return null;
+    if (editor.dynamic_cast(ed.EditorWidget)) |p| {
+        self.active_editor = &p.editor;
+        return &p.editor;
+    }
+    return null;
 }
 
 pub fn get_active_file_path(self: *Self) ?[]const u8 {
@@ -1342,37 +1350,71 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
     return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f, &self.widgets_widget) or f(ctx, w);
 }
 
-fn add_editor(self: *Self, p: *ed.Editor) !void {
-    try self.editors.resize(self.allocator, 1);
-    self.editors.items[0] = p;
-    self.active_editor = 0;
-}
-
-fn remove_editor(self: *Self, idx: usize) void {
-    _ = idx;
-    self.editors.clearRetainingCapacity();
+fn close_all_editors(self: *Self) !void {
     self.active_editor = null;
+    for (self.views.widgets.items) |*view| {
+        const editor = view.widget.get("editor") orelse continue;
+        if (editor.dynamic_cast(ed.EditorWidget)) |p| {
+            p.editor.clear_diagnostics();
+            try p.editor.close_file(.{});
+        }
+    }
 }
 
-fn add_view(self: *Self, widget: Widget) !void {
+fn add_and_activate_view(self: *Self, widget: Widget) !void {
+    self.active_editor = null;
+    if (self.views.get_at(self.active_view)) |view| view.unfocus();
     try self.views.add(widget);
+    self.active_view = self.views.widgets.items.len - 1;
+    if (self.views.get_at(self.active_view)) |view| view.focus();
 }
 
-fn delete_active_view(self: *Self) !void {
-    const n = self.active_view orelse return;
-    self.views.replace(n, try Widget.empty(self.allocator, self.plane, .dynamic));
+pub fn find_view_for_widget(self: *Self, w_: *Widget) ?usize {
+    const Ctx = struct {
+        w: *Widget,
+        fn find(ctx_: *anyopaque, w: *Widget) bool {
+            const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
+            return ctx.w == w;
+        }
+    };
+    var ctx: Ctx = .{ .w = w_ };
+    for (self.views.widgets.items, 0..) |*view, n|
+        if (view.widget.walk(&ctx, Ctx.find)) return n;
+    return null;
+}
+
+pub fn focus_view_by_widget(self: *Self, w: *Widget) tui.FocusAction {
+    const n = self.find_view_for_widget(w) orelse return .notfound;
+    if (n >= self.views.widgets.items.len) return .notfound;
+    if (n == self.active_view) return .same;
+    if (self.views.get_at(self.active_view)) |view| view.unfocus();
+    self.active_editor = null;
+    self.active_view = n;
+    if (self.views.get_at(self.active_view)) |view| view.focus();
+    return .changed;
+}
+
+fn remove_active_view(self: *Self) !void {
+    if (self.views.widgets.items.len == 1) return; // can't delete last view
+    self.active_editor = null;
+    self.views.delete(self.active_view);
+    if (self.active_view >= self.views.widgets.items.len)
+        self.active_view = self.views.widgets.items.len - 1;
+    if (self.views.get_at(self.active_view)) |view| view.focus();
+    tui.resize();
 }
 
 fn replace_active_view(self: *Self, widget: Widget) !void {
-    const n = self.active_view orelse return error.NotFound;
-    self.remove_editor(0);
+    const n = self.active_view;
+    self.active_editor = null;
+    if (self.views.get_at(n)) |view| view.unfocus();
     self.views.replace(n, widget);
+    if (self.views.get_at(n)) |view| view.focus();
 }
 
 fn create_editor(self: *Self) !void {
     const frame = tracy.initZone(@src(), .{ .name = "create_editor" });
     defer frame.deinit();
-    try self.delete_active_view();
     command.executeName("enter_mode_default", .{}) catch {};
     var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager);
     errdefer editor_widget.deinit(self.allocator);
@@ -1381,8 +1423,6 @@ fn create_editor(self: *Self) !void {
     if (self.bottom_bar) |*bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
     editor.subscribe(EventHandler.bind(self, handle_editor_event)) catch @panic("subscribe unsupported");
     try self.replace_active_view(editor_widget);
-    if (editor.dynamic_cast(ed.EditorWidget)) |p|
-        try self.add_editor(&p.editor);
     tui.resize();
 }
 
@@ -1404,15 +1444,13 @@ fn show_home_async(_: *Self) void {
 
 fn create_home(self: *Self) !void {
     tui.reset_drag_context();
-    if (self.active_editor) |_| return;
-    try self.delete_active_view();
     try self.replace_active_view(try home.create(self.allocator, Widget.to(self)));
     tui.resize();
 }
 
 fn create_home_split(self: *Self) !void {
     tui.reset_drag_context();
-    try self.add_view(try home.create(self.allocator, Widget.to(self)));
+    try self.add_and_activate_view(try home.create(self.allocator, Widget.to(self)));
     tui.resize();
 }
 
