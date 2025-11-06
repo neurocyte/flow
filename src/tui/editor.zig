@@ -6201,6 +6201,16 @@ pub const Editor = struct {
         self.logger.print("file type {s}", .{file_type});
     }
     pub const set_file_type_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn send_focus_events(self: *Self) !void {
+        const ftn = if (self.file_type) |ft| ft.name else file_type_config.default.name;
+        const fti = if (self.file_type) |ft| ft.icon orelse file_type_config.default.icon else file_type_config.default.icon;
+        const ftc = if (self.file_type) |ft| ft.color orelse file_type_config.default.color else file_type_config.default.color;
+        const file_exists = if (self.buffer) |b| b.file_exists else false;
+        const auto_save = if (self.buffer) |b| b.is_auto_save() else false;
+        try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc, auto_save);
+        self.last = .{};
+    }
 };
 
 pub fn create(allocator: Allocator, parent: Plane, buffer_manager: *Buffer.Manager) !Widget {
@@ -6267,16 +6277,15 @@ pub const EditorWidget = struct {
     }
 
     pub fn focus(self: *Self) void {
-        self.unfocus();
+        if (self.focused) return;
         self.commands.register() catch @panic("editor.commands.register");
         self.focused = true;
-        self.editor.logger.print("editor focused", .{});
+        self.editor.send_focus_events() catch {};
     }
 
     pub fn unfocus(self: *Self) void {
         if (self.focused) self.commands.unregister();
         self.focused = false;
-        self.editor.logger.print("editor unfocused", .{});
     }
 
     pub fn update(self: *Self) void {
