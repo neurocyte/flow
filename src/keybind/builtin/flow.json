@@ -6,6 +6,8 @@
             ["ctrl+shift+n", "create_new_file"],
             ["ctrl+r", "open_recent_project"],
             ["f1", "open_help"],
+            ["ctrl+\\", "add_split"],
+            ["ctrl+k w", "close_split"],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+q", "quit"],
             ["ctrl+w", "quit"],
