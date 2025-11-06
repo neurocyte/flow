@@ -38,7 +38,7 @@ pub fn load_entries(palette: *Type) !usize {
     return if (palette.entries.items.len == 0) label.len else blk: {
         var longest: usize = 0;
         for (palette.entries.items) |item| longest = @max(longest, item.label.len);
-        break :blk if (longest < label.len) return label.len - longest + 1 else 1;
+        break :blk longest + 3;
     };
 }
 
