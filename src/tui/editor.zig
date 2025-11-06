@@ -988,7 +988,7 @@ pub const Editor = struct {
         self.update_event() catch {};
     }
 
-    pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+    pub fn render(self: *Self, theme: *const Widget.Theme, focused: bool) bool {
         const frame = tracy.initZone(@src(), .{ .name = "editor render" });
         defer frame.deinit();
         self.update_syntax() catch |e| switch (e) {
@@ -1006,7 +1006,7 @@ pub const Editor = struct {
         }
         self.style_cache_theme = theme.name;
         const cache: *StyleCache = &self.style_cache.?;
-        self.render_screen(theme, cache);
+        self.render_screen(theme, cache, focused);
         return self.scroll_dest != self.view.row or self.syntax_refresh_full;
     }
 
@@ -1024,7 +1024,7 @@ pub const Editor = struct {
     };
     const CellMap = ViewMap(CellMapEntry, .{});
 
-    fn render_screen(self: *Self, theme: *const Widget.Theme, cache: *StyleCache) void {
+    fn render_screen(self: *Self, theme: *const Widget.Theme, cache: *StyleCache, focused: bool) void {
         const ctx = struct {
             self: *Self,
             buf_row: usize,
@@ -1182,7 +1182,8 @@ pub const Editor = struct {
         if (tui.config().inline_diagnostics)
             self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
         self.render_column_highlights() catch {};
-        self.render_cursors(theme, ctx_.cell_map) catch {};
+        if (focused)
+            self.render_cursors(theme, ctx_.cell_map) catch {};
     }
 
     fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
@@ -6283,7 +6284,7 @@ pub const EditorWidget = struct {
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-        return self.editor.render(theme);
+        return self.editor.render(theme, self.focused);
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
