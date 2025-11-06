@@ -110,7 +110,7 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            tui.render_match_cell(&button.plane, 0, index + 1, theme) catch break;
+            tui.render_match_cell(&button.plane, 0, index + 2, theme) catch break;
         } else break;
     }
     return false;
