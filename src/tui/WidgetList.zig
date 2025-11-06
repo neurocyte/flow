@@ -115,6 +115,17 @@ pub fn addP(self: *Self, w_: Widget) !*Widget {
     return &w.widget;
 }
 
+pub fn get(self: *Self, name_: []const u8) ?*Widget {
+    for (self.widgets.items) |*w|
+        if (w.widget.get(name_)) |p|
+            return p;
+    return null;
+}
+
+pub fn get_at(self: *const Self, n: usize) ?*Widget {
+    return if (n < self.widgets.items.len) &self.widgets.items[n].widget else null;
+}
+
 pub fn remove(self: *Self, w: Widget) void {
     for (self.widgets.items, 0..) |p, i| if (p.widget.ptr == w.ptr) {
         self.widgets.orderedRemove(i).widget.deinit(self.allocator);
@@ -389,13 +400,6 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
         self.get_loc_b(&w_pos).* = self.get_loc_b_const(&client_box);
         w.widget.resize(w_pos);
     }
-}
-
-pub fn get(self: *Self, name_: []const u8) ?*Widget {
-    for (self.widgets.items) |*w|
-        if (w.widget.get(name_)) |p|
-            return p;
-    return null;
 }
 
 pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, self_w: *Widget) bool {
