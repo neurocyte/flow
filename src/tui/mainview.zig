@@ -344,6 +344,12 @@ const cmds = struct {
     }
     pub const change_project_meta: Meta = .{ .arguments = &.{.string} };
 
+    pub fn navigate_split_vertical(self: *Self, ctx: Ctx) Result {
+        try command.executeName("add_split", .{});
+        try navigate(self, ctx);
+    }
+    pub const navigate_split_vertical_meta: Meta = .{ .arguments = &.{.object} };
+
     pub fn navigate(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });

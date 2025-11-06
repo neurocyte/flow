@@ -37,6 +37,7 @@ need_select_first: bool = true,
 longest: usize,
 commands: Commands = undefined,
 buffer_manager: ?*BufferManager,
+split: enum { none, vertical } = .none,
 
 const inputbox_label = "Search files by name";
 const MenuType = Menu.Options(*Self).MenuType;
@@ -130,7 +131,11 @@ fn menu_action_open_file(menu: **MenuType, button: *ButtonType, _: Widget.Pos) v
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
-    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
+    const cmd_ = switch (menu.*.opts.ctx.split) {
+        .none => "navigate",
+        .vertical => "navigate_split_vertical",
+    };
+    tp.self_pid().send(.{ "cmd", cmd_, .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
 }
 
 fn add_item(
@@ -325,6 +330,12 @@ const cmds = struct {
         self.menu.activate_selected();
     }
     pub const palette_menu_activate_meta: Meta = .{};
+
+    pub fn palette_menu_activate_alternate(self: *Self, _: Ctx) Result {
+        self.split = .vertical;
+        self.menu.activate_selected();
+    }
+    pub const palette_menu_activate_alternate_meta: Meta = .{};
 
     pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
         if (self.menu.selected orelse 0 > 0) self.menu.activate_selected();
