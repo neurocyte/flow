@@ -290,13 +290,29 @@ pub fn Collection(comptime Namespace: type) type {
         pub fn init(self: *Self, targetPtr: *Target) !void {
             if (cmds.len == 0)
                 @compileError("no commands found in type " ++ @typeName(Target) ++ " (did you mark them public?)");
+            inline for (cmds) |cmd|
+                @field(self.fields, cmd.name) = Closure(*Target).init(cmd.f, targetPtr, cmd.name, cmd.meta);
+            try self.register();
+        }
+
+        pub fn init_unregistered(self: *Self, targetPtr: *Target) void {
+            if (cmds.len == 0)
+                @compileError("no commands found in type " ++ @typeName(Target) ++ " (did you mark them public?)");
             inline for (cmds) |cmd| {
                 @field(self.fields, cmd.name) = Closure(*Target).init(cmd.f, targetPtr, cmd.name, cmd.meta);
-                try @field(self.fields, cmd.name).register();
             }
         }
 
         pub fn deinit(self: *Self) void {
+            self.unregister();
+        }
+
+        pub fn register(self: *Self) !void {
+            inline for (cmds) |cmd|
+                try @field(self.fields, cmd.name).register();
+        }
+
+        pub fn unregister(self: *Self) void {
             inline for (cmds) |cmd|
                 Closure(*Target).unregister(&@field(self.fields, cmd.name));
         }
