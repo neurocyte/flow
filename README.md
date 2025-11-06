@@ -46,7 +46,7 @@ and is my daily driver for almost everything.
 
 # Roadmap
 
-See our [devlog](/devlog/2025) for on-going updates from the development team.
+See our [devlog](https://flow-control.dev/devlog/2025/) for on-going updates from the development team.
 
 ## In Development
 
