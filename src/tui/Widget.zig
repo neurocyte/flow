@@ -53,6 +53,8 @@ pub const VTable = struct {
     unsubscribe: *const fn (ctx: *anyopaque, h: EventHandler) error{NotSupported}!void,
     get: *const fn (ctx: *anyopaque, name_: []const u8) ?*Self,
     walk: *const fn (ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn, self_widget: *Self) bool,
+    focus: *const fn (ctx: *anyopaque) void,
+    unfocus: *const fn (ctx: *anyopaque) void,
     hover: *const fn (ctx: *anyopaque) bool,
     type_name: []const u8,
 };
@@ -141,6 +143,16 @@ pub fn to(pimpl: anytype) Self {
                     return if (comptime @hasDecl(child, "walk")) child.walk(@as(*child, @ptrCast(@alignCast(ctx))), walk_ctx, f, self) else false;
                 }
             }.walk,
+            .focus = struct {
+                pub fn focus(ctx: *anyopaque) void {
+                    if (comptime @hasDecl(child, "focus")) @as(*child, @ptrCast(@alignCast(ctx))).focus();
+                }
+            }.focus,
+            .unfocus = struct {
+                pub fn unfocus(ctx: *anyopaque) void {
+                    if (comptime @hasDecl(child, "unfocus")) @as(*child, @ptrCast(@alignCast(ctx))).unfocus();
+                }
+            }.unfocus,
             .hover = struct {
                 pub fn hover(ctx: *anyopaque) bool {
                     return if (comptime @hasField(child, "hover")) @as(*child, @ptrCast(@alignCast(ctx))).hover else false;
@@ -222,6 +234,14 @@ pub fn walk(self: *Self, walk_ctx: *anyopaque, f: WalkFn) bool {
     return if (self.vtable.walk(self.ptr, walk_ctx, f, self)) true else f(walk_ctx, self);
 }
 
+pub fn focus(self: *Self) void {
+    self.vtable.focus(self.ptr);
+}
+
+pub fn unfocus(self: *Self) void {
+    self.vtable.unfocus(self.ptr);
+}
+
 pub fn hover(self: *Self) bool {
     return self.vtable.hover(self.ptr);
 }
@@ -286,6 +306,12 @@ pub fn empty(allocator: Allocator, parent: Plane, layout_: Layout) !Self {
                     return false;
                 }
             }.walk,
+            .focus = struct {
+                pub fn focus(_: *anyopaque) void {}
+            }.focus,
+            .unfocus = struct {
+                pub fn unfocus(_: *anyopaque) void {}
+            }.unfocus,
             .hover = struct {
                 pub fn hover(_: *anyopaque) bool {
                     return false;

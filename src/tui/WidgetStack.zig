@@ -100,3 +100,11 @@ pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
     }
     return false;
 }
+
+pub fn focus(self: *Self) void {
+    for (self.widgets.items) |*w| w.widget.focus();
+}
+
+pub fn unfocus(self: *Self) void {
+    for (self.widgets.items) |*w| w.widget.unfocus();
+}

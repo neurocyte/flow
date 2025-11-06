@@ -404,6 +404,14 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, self_w: *Widget) boo
     return f(ctx, self_w);
 }
 
+pub fn focus(self: *Self) void {
+    for (self.widgets.items) |*w| w.widget.focus();
+}
+
+pub fn unfocus(self: *Self) void {
+    for (self.widgets.items) |*w| w.widget.unfocus();
+}
+
 pub fn hover(self: *Self) bool {
     for (self.widgets.items) |*w| if (w.widget.hover()) return true;
     return false;
