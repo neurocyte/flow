@@ -68,6 +68,7 @@ plane: Plane,
 parent: Plane,
 fire: ?Fire = null,
 commands: Commands = undefined,
+focused: bool = false,
 menu: *Menu.State(*Self),
 menu_w: usize = 0,
 menu_label_max: usize = 0,
@@ -110,7 +111,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .home_style = home_style,
         .home_style_bufs = home_style_bufs,
     };
-    try self.commands.init(self);
+    self.commands.init_unregistered(self);
     var it = std.mem.splitAny(u8, self.home_style.menu_commands, "\n ");
     while (it.next()) |command_name| {
         const id = command.get_id(command_name) orelse {
@@ -136,10 +137,21 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     root.free_config(self.allocator, self.home_style_bufs);
     self.menu.deinit(allocator);
-    self.commands.deinit();
+    if (self.focused) self.commands.deinit();
     self.plane.deinit();
     if (self.fire) |*fire| fire.deinit();
     allocator.destroy(self);
+}
+
+pub fn focus(self: *Self) void {
+    self.unfocus();
+    self.commands.register() catch @panic("home.commands.register");
+    self.focused = true;
+}
+
+pub fn unfocus(self: *Self) void {
+    if (self.focused) self.commands.unregister();
+    self.focused = false;
 }
 
 fn add_menu_command(self: *Self, command_name: []const u8, description: []const u8, hint: []const u8, menu: anytype) !void {
