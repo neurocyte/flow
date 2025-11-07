@@ -93,7 +93,6 @@ pub const ClipboardEntry = struct {
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
-const input_idle_time_milliseconds = 500;
 const mouse_idle_time_milliseconds = 3000;
 
 const init_delay = 1; // ms
@@ -313,7 +312,7 @@ fn update_input_idle_timer(self: *Self) void {
         _ = self.send_widgets(tp.self_pid(), m) catch {};
     }
 
-    const delay = std.time.us_per_ms * @as(u64, input_idle_time_milliseconds);
+    const delay = std.time.us_per_ms * @as(u64, self.config_.input_idle_time_ms);
     if (self.input_idle_timer) |*t| {
         t.cancel() catch {};
         t.deinit();

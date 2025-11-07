@@ -6376,6 +6376,16 @@ pub const EditorWidget = struct {
             self.update_hover_timer(.fired);
             if (self.hover_y >= 0 and self.hover_x >= 0 and self.hover_mouse_event)
                 try self.editor.hover_at_abs(@intCast(self.hover_y), @intCast(self.hover_x));
+        } else if (try m.match(.{"input_idle"})) {
+            for (tui.config().idle_actions) |action| switch (action) {
+                .hover => {
+                    try self.editor.hover(.{});
+                },
+                .highlight_references => {
+                    if (self.editor.cursels.items.len == 1 and self.editor.get_primary().selection == null)
+                        try self.editor.highlight_references(.{});
+                },
+            };
         } else if (try m.match(.{ "whitespace_mode", tp.extract(&bytes) })) {
             self.editor.render_whitespace = Editor.from_whitespace_mode(bytes);
         } else {

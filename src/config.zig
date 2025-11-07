@@ -19,6 +19,8 @@ inline_diagnostics: bool = true,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 50, //milliseconds
 hover_time_ms: usize = 500, //milliseconds
+input_idle_time_ms: usize = 150, //milliseconds
+idle_actions: []IdleAction = &.{},
 enable_format_on_save: bool = false,
 restore_last_cursor_position: bool = true,
 follow_cursor_on_buffer_switch: bool = false, //scroll cursor into view on buffer switch
@@ -45,6 +47,11 @@ home_style: WidgetStyle = .bars_top_bottom,
 lsp_output: enum { quiet, verbose } = .quiet,
 
 include_files: []const u8 = "",
+
+pub const IdleAction = enum {
+    hover,
+    highlight_references,
+};
 
 pub const DigitStyle = enum {
     ascii,
