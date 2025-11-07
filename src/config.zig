@@ -20,7 +20,7 @@ animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 50, //milliseconds
 hover_time_ms: usize = 500, //milliseconds
 input_idle_time_ms: usize = 150, //milliseconds
-idle_actions: []IdleAction = &.{},
+idle_actions: []const IdleAction = &default_actions,
 enable_format_on_save: bool = false,
 restore_last_cursor_position: bool = true,
 follow_cursor_on_buffer_switch: bool = false, //scroll cursor into view on buffer switch
@@ -48,6 +48,7 @@ lsp_output: enum { quiet, verbose } = .quiet,
 
 include_files: []const u8 = "",
 
+const default_actions = [_]IdleAction{.highlight_references};
 pub const IdleAction = enum {
     hover,
     highlight_references,
