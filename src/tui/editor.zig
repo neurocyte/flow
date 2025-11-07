@@ -2108,13 +2108,13 @@ pub const Editor = struct {
         return if (someone_stopped) error.Stop else root;
     }
 
-    fn with_cursel_const(root: Buffer.Root, op: cursel_operator_const, cursel: *CurSel) error{Stop}!void {
-        return op(root, cursel);
+    fn with_cursel_const(root: Buffer.Root, op: cursel_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
+        return op(root, cursel, metrics);
     }
 
-    fn with_cursels_const(self: *Self, root: Buffer.Root, move: cursel_operator_const) error{Stop}!void {
+    pub fn with_cursels_const(self: *Self, root: Buffer.Root, move: cursel_operator_const, metrics: Buffer.Metrics) error{Stop}!void {
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
-            with_cursel_const(root, move, cursel) catch return error.Stop;
+            with_cursel_const(root, move, cursel, metrics) catch return error.Stop;
         self.collapse_cursors();
     }
 
@@ -2173,7 +2173,7 @@ pub const Editor = struct {
     const cursor_operator_const_arg = *const fn (root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void;
     pub const cursel_operator_mut_once_arg = *const fn (root: Buffer.Root, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void;
     const cursor_view_operator_const = *const fn (root: Buffer.Root, cursor: *Cursor, view: *const View, metrics: Buffer.Metrics) error{Stop}!void;
-    const cursel_operator_const = *const fn (root: Buffer.Root, cursel: *CurSel) error{Stop}!void;
+    const cursel_operator_const = *const fn (root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void;
     const cursor_operator = *const fn (root: Buffer.Root, cursor: *Cursor, allocator: Allocator) error{Stop}!Buffer.Root;
     const cursel_operator = *const fn (root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
     const cursel_operator_mut = *const fn (self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
@@ -4323,16 +4323,16 @@ pub const Editor = struct {
         }
     }
 
-    fn selection_reverse(_: Buffer.Root, cursel: *CurSel) !void {
+    fn selection_reverse(_: Buffer.Root, cursel: *CurSel, _: Buffer.Metrics) !void {
         if (cursel.selection) |*sel| {
             sel.reverse();
             cursel.cursor = sel.end;
         }
     }
 
-    pub fn selections_reverse(self: *Self, _: Context) Result {
+    pub fn selections_reverse(self: *Self, _: Context, metrics: Buffer.Metrics) Result {
         const root = try self.buf_root();
-        try self.with_cursels_const(root, selection_reverse);
+        try self.with_cursels_const(root, selection_reverse, metrics);
         self.clamp();
     }
     pub const selections_reverse_meta: Meta = .{ .description = "Reverse selection" };
