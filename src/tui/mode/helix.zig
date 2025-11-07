@@ -196,6 +196,19 @@ const cmds_ = struct {
     }
     pub const save_selection_meta: Meta = .{ .description = "Save current selection to location history" };
 
+    pub fn split_selection_on_newline(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = try ed.buf_root();
+        const cursels = try ed.cursels.toOwnedSlice(ed.allocator);
+        defer ed.allocator.free(cursels);
+        for (cursels) |*cursel_| if (cursel_.*) |*cursel| {
+            try add_cursors_to_cursel_line_ends_helix(ed, root, cursel);
+        };
+        ed.clamp();
+    }
+    pub const split_selection_on_newline_meta: Meta = .{ .description = "Add cursor to each line in selection helix" };
+
     pub fn extend_line_below(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -727,6 +740,59 @@ fn move_cursor_till_char_right_beyond_eol(root: Buffer.Root, cursor: *Cursor, me
     }
 }
 
+fn add_cursors_to_cursel_line_ends_helix(ed: *Editor, root: Buffer.Root, cursel: *CurSel) !void {
+    const original_cursel = cursel.*;
+    const sel = try cursel.enable_selection(root, ed.metrics);
+    sel.normalize();
+    var row = sel.begin.row;
+    const is_multiline = sel.begin.row != sel.end.row;
+    var last_cursel: *CurSel = cursel;
+    var first = true;
+
+    const selection_goes_to_eol = sel.end.col == 0;
+    const end_row = if (selection_goes_to_eol) sel.end.row else (sel.end.row + 1);
+    while (row < end_row) : (row += 1) {
+        const new_cursel = try ed.cursels.addOne(ed.allocator);
+        new_cursel.* = CurSel{
+            .selection = null,
+            .cursor = .{
+                .row = row,
+                .col = 0,
+            },
+        };
+        if (new_cursel.*) |*the_cursel| {
+            if (!is_eol_right(root, &new_cursel.*.?.cursor, ed.metrics)) {
+                if (first) {
+                    first = false;
+                    new_cursel.*.?.cursor.col = sel.begin.col;
+                    if (is_multiline) {
+                        new_cursel.*.?.cursor.col = try root.line_width(row, ed.metrics);
+                        new_cursel.*.?.selection = Selection.from_cursor(&new_cursel.*.?.cursor);
+                        new_cursel.*.?.selection.?.begin.col = sel.begin.col;
+                        new_cursel.*.?.selection.?.end.target = new_cursel.*.?.selection.?.end.col;
+                    } else if (original_cursel.selection) |the_sel| {
+                        new_cursel.*.?.cursor = original_cursel.cursor;
+                        new_cursel.*.?.selection = Selection.from_cursor(&new_cursel.*.?.cursor);
+                        new_cursel.*.?.selection = the_sel;
+                    }
+                } else {
+                    try ed.select_line_at_cursor(root, &new_cursel.*.?, .exclude_eol);
+                    new_cursel.*.?.selection.?.end.target = new_cursel.*.?.selection.?.end.col;
+                }
+                new_cursel.*.?.cursor.target = new_cursel.*.?.cursor.col;
+            }
+            last_cursel = the_cursel;
+        }
+    }
+    if (is_multiline and !selection_goes_to_eol) {
+        if (last_cursel.selection) |*sel_| {
+            last_cursel.cursor.col = sel.end.col;
+            sel_.*.end.col = sel.end.col;
+            sel_.*.end.target = sel.end.col;
+        }
+    }
+}
+
 fn insert_before(editor: *Editor, root: Buffer.Root, cursel: *CurSel, text: []const u8, allocator: Allocator) !Buffer.Root {
     var root_: Buffer.Root = root;
     const cursor: *Cursor = &cursel.cursor;
@@ -797,6 +863,13 @@ fn insert_after(editor: *Editor, root: Buffer.Root, cursel: *CurSel, text: []con
     cursel.selection = Selection{ .begin = begin, .end = cursor.* };
     editor.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, text.len);
     return root_;
+}
+
+fn is_eol_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    const line_width = root.line_width(cursor.row, metrics) catch return true;
+    if (cursor.col >= line_width)
+        return true;
+    return false;
 }
 
 fn is_not_whitespace_or_eol(c: []const u8) bool {

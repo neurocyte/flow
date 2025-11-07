@@ -4306,7 +4306,7 @@ pub const Editor = struct {
         return sel;
     }
 
-    fn select_line_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, mode: enum { include_eol, exclude_eol, hold_cursor }) !void {
+    pub fn select_line_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, mode: enum { include_eol, exclude_eol, hold_cursor }) !void {
         const sel = try cursel.enable_selection(root, self.metrics);
         sel.normalize();
         try move_cursor_begin(root, &sel.begin, self.metrics);
