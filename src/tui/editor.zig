@@ -328,6 +328,7 @@ pub const Editor = struct {
     last_find_query: ?[]const u8 = null,
     find_history: ?std.ArrayListUnmanaged([]const u8) = null,
     find_operation: ?enum { goto_next_match, goto_prev_match } = null,
+    highlight_references_state: enum { adding, done } = .done,
 
     prefix_buf: [8]u8 = undefined,
     prefix: []const u8 = &[_]u8{},
@@ -5796,6 +5797,34 @@ pub const Editor = struct {
             else => {},
         }
         self.need_render();
+    }
+
+    pub fn highlight_references(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        return project_manager.highlight_references(file_path, primary.cursor.row, primary.cursor.col);
+    }
+    pub const highlight_references_meta: Meta = .{ .description = "Language: Highlight references" };
+
+    pub fn add_highlight_reference(self: *Self, match_: Match) void {
+        if (self.highlight_references_state == .done) {
+            self.highlight_references_state = .adding;
+            self.cancel_all_matches();
+        }
+        const root = self.buf_root() catch return;
+        const begin_row = match_.begin.row - @min(match_.begin.row, 1);
+        const begin_col = root.pos_to_width(begin_row, match_.begin.col, self.metrics) catch return;
+        const end_row = match_.end.row - @min(match_.end.row, 1);
+        const end_col = root.pos_to_width(end_row, match_.end.col, self.metrics) catch return;
+        (self.matches.addOne(self.allocator) catch return).* = .{
+            .begin = .{ .row = begin_row, .col = begin_col },
+            .end = .{ .row = end_row, .col = end_col },
+        };
+        self.need_render();
+    }
+
+    pub fn done_highlight_reference(self: *Self) void {
+        self.highlight_references_state = .done;
     }
 
     pub fn add_diagnostic(
