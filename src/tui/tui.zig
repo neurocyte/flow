@@ -71,10 +71,13 @@ no_sleep: bool = false,
 final_exit: []const u8 = "normal",
 render_pending: bool = false,
 keepalive_timer: ?tp.Cancellable = null,
+input_idle_timer: ?tp.Cancellable = null,
 mouse_idle_timer: ?tp.Cancellable = null,
 default_cursor: keybind.CursorShape = .default,
 fontface_: []const u8 = "",
 fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
+input_is_idle: bool = false,
+enable_input_idle_timer: bool = true,
 enable_mouse_idle_timer: bool = false,
 query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
@@ -90,6 +93,7 @@ pub const ClipboardEntry = struct {
 
 const keepalive = std.time.us_per_day * 365; // one year
 const idle_frames = 0;
+const input_idle_time_milliseconds = 500;
 const mouse_idle_time_milliseconds = 3000;
 
 const init_delay = 1; // ms
@@ -248,6 +252,11 @@ fn init_delayed(self: *Self) command.Result {
 }
 
 fn deinit(self: *Self) void {
+    if (self.input_idle_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.input_idle_timer = null;
+    }
     if (self.mouse_idle_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -286,6 +295,31 @@ fn deinit(self: *Self) void {
 fn listen_sigwinch(self: *Self) error{ThespianSignalInitFailed}!void {
     if (self.sigwinch_signal) |old| old.deinit();
     self.sigwinch_signal = try tp.signal.init(std.posix.SIG.WINCH, tp.message.fmt(.{"sigwinch"}));
+}
+
+fn handle_input_idle(self: *Self) void {
+    self.input_is_idle = true;
+    var buf: [32]u8 = undefined;
+    const m = tp.message.fmtbuf(&buf, .{"input_idle"}) catch return;
+    _ = self.send_widgets(tp.self_pid(), m) catch return;
+}
+
+fn update_input_idle_timer(self: *Self) void {
+    if (!self.enable_input_idle_timer) return;
+    if (self.input_is_idle) blk: {
+        self.input_is_idle = false;
+        var buf: [32]u8 = undefined;
+        const m = tp.message.fmtbuf(&buf, .{"input_active"}) catch break :blk;
+        _ = self.send_widgets(tp.self_pid(), m) catch {};
+    }
+
+    const delay = std.time.us_per_ms * @as(u64, input_idle_time_milliseconds);
+    if (self.input_idle_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.input_idle_timer = null;
+    }
+    self.input_idle_timer = tp.self_pid().delay_send_cancellable(self.allocator, "tui.input_idle_timer", delay, .{"INPUT_IDLE"}) catch return;
 }
 
 fn update_mouse_idle_timer(self: *Self) void {
@@ -449,6 +483,13 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "PRJ", tp.more })) // drop late project manager query responses
         return;
 
+    if (try m.match(.{"INPUT_IDLE"})) {
+        if (self.input_idle_timer) |*t| t.deinit();
+        self.input_idle_timer = null;
+        self.handle_input_idle();
+        return;
+    }
+
     if (try m.match(.{"MOUSE_IDLE"})) {
         if (self.mouse_idle_timer) |*t| t.deinit();
         self.mouse_idle_timer = null;
@@ -567,6 +608,7 @@ fn dispatch_initialized(ctx: *anyopaque) void {
 
 fn dispatch_input(ctx: *anyopaque, cbor_msg: []const u8) void {
     const self: *Self = @ptrCast(@alignCast(ctx));
+    self.update_input_idle_timer();
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
     self.unrendered_input_events_count += 1;
