@@ -83,6 +83,7 @@
             ["ctrl+k ctrl+u", "delete_to_begin"],
             ["ctrl+k ctrl+k", "delete_to_end"],
             ["ctrl+k ctrl+d", "move_cursor_next_match"],
+            ["ctrl+k i", "highlight_references"],
             ["ctrl+k ctrl+i", "hover"],
             ["ctrl+f", "find"],
             ["ctrl+g", "goto"],
