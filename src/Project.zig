@@ -915,7 +915,7 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
                 if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, .{tp.extract_cbor(&link)} })) {
                     try navigate_to_location_link(self_.from.ref(), link);
                 } else if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&locations) })) {
-                    try self_.project.send_reference_list(self_.from.ref(), locations, self_.name);
+                    _ = try send_reference_list("REF", self_.from.ref(), locations, self_.name);
                 }
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
                 return;
@@ -1014,7 +1014,8 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
                 return;
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
-                try self_.project.send_reference_list(self_.from.ref(), locations, self_.name);
+                const count = try send_reference_list("REF", self_.from.ref(), locations, self_.name);
+                self_.project.logger_lsp.print("found {d} references", .{count});
             }
         }
     } = .{
@@ -1030,21 +1031,57 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     }, handler) catch return error.LspFailed;
 }
 
-fn send_reference_list(self: *Self, to: tp.pid_ref, locations: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
-    defer to.send(.{ "REF", "done" }) catch {};
+pub fn highlight_references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) SendGotoRequestError!void {
+    const lsp = try self.get_language_server(file_path);
+    const uri = try self.make_URI(file_path);
+    defer self.allocator.free(uri);
+
+    const handler: struct {
+        from: tp.pid,
+        name: []const u8,
+        project: *Self,
+
+        pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.name);
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) !void {
+            var locations: []const u8 = undefined;
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+                return;
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
+                _ = try send_reference_list("HREF", self_.from.ref(), locations, self_.name);
+            }
+        }
+    } = .{
+        .from = from.clone(),
+        .name = try std.heap.c_allocator.dupe(u8, self.name),
+        .project = self,
+    };
+
+    lsp.send_request(self.allocator, "textDocument/references", .{
+        .textDocument = .{ .uri = uri },
+        .position = .{ .line = row, .character = col },
+        .context = .{ .includeDeclaration = true },
+    }, handler) catch return error.LspFailed;
+}
+
+fn send_reference_list(tag: []const u8, to: tp.pid_ref, locations: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!usize {
+    defer to.send(.{ tag, "done" }) catch {};
     var iter = locations;
     var len = try cbor.decodeArrayHeader(&iter);
     const count = len;
     while (len > 0) : (len -= 1) {
         var location: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract_cbor(&location))) {
-            try send_reference(to, location, name);
+            try send_reference(tag, to, location, name);
         } else return error.InvalidMessageField;
     }
-    self.logger_lsp.print("found {d} references", .{count});
+    return count;
 }
 
-fn send_reference(to: tp.pid_ref, location: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
+fn send_reference(tag: []const u8, to: tp.pid_ref, location: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
     const allocator = std.heap.c_allocator;
     var iter = location;
     var targetUri: ?[]const u8 = null;
@@ -1087,7 +1124,7 @@ fn send_reference(to: tp.pid_ref, location: []const u8, name: []const u8) (Clien
     else
         file_path;
     to.send(.{
-        "REF",
+        tag,
         file_path_,
         targetRange.?.start.line + 1,
         targetRange.?.start.character,

@@ -234,6 +234,13 @@ pub fn references(file_path: []const u8, row: usize, col: usize) (ProjectManager
     return send(.{ "references", project, file_path, row, col });
 }
 
+pub fn highlight_references(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "highlight_references", project, file_path, row, col });
+}
+
 pub fn completion(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -432,6 +439,8 @@ const Process = struct {
             self.goto_type_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "references", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.references(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "highlight_references", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
+            self.highlight_references(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "completion", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
             self.completion(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "rename_symbol", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
@@ -659,6 +668,13 @@ const Process = struct {
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.references(from, file_path, row, col);
+    }
+
+    fn highlight_references(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.SendGotoRequestError)!void {
+        const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".highlight_references" });
+        defer frame.deinit();
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        return project.highlight_references(from, file_path, row, col);
     }
 
     fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || cbor.Error)!void {
