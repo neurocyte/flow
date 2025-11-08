@@ -49,6 +49,7 @@ state: struct {
 
 status: VcsStatus = .{},
 status_request: ?tp.pid = null,
+load_complete: bool = false,
 
 const Self = @This();
 
@@ -623,6 +624,9 @@ fn merge_pending_files(self: *Self) OutOfMemoryError!void {
 fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     inline for (@typeInfo(@TypeOf(self.state)).@"struct".fields) |f|
         if (@field(self.state, f.name) == .running) return;
+
+    if (self.load_complete) return;
+    self.load_complete = true;
 
     self.logger.print("project files: {d} restored, {d} {s}", .{
         self.files.items.len,
@@ -2232,7 +2236,7 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
     var path: []const u8 = undefined;
     var vcs_status: u8 = undefined;
     if (try m.match(.{ tp.any, tp.any, "status", tp.more })) {
-        return self.process_status(m);
+        return self.process_status(parent, m);
     } else if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.null_ })) {
         self.state.workspace_path = .done;
         self.start_walker();
@@ -2287,7 +2291,7 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
     }
 }
 
-fn process_status(self: *Self, m: tp.message) (OutOfMemoryError || error{Exit})!void {
+fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || error{Exit})!void {
     const any = cbor.any;
     const extract = cbor.extract;
     const null_ = cbor.null_;
@@ -2330,6 +2334,7 @@ fn process_status(self: *Self, m: tp.message) (OutOfMemoryError || error{Exit})!
         // ignored file: <path>
     } else if (try m.match(.{ any, any, "status", null_ })) {
         self.state.status = .done;
+        try self.loaded(parent);
         if (self.status_request) |from| {
             from.send(.{ "vcs_status", self.status }) catch {};
             from.deinit();
