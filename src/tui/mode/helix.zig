@@ -209,6 +209,15 @@ const cmds_ = struct {
     }
     pub const split_selection_on_newline_meta: Meta = .{ .description = "Add cursor to each line in selection helix" };
 
+    pub fn match_brackets(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+        try ed.with_cursels_const_once_arg(root, &match_bracket, ctx);
+        ed.clamp();
+    }
+    pub const match_brackets_meta: Meta = .{ .description = "Goto matching bracket" };
+
     pub fn extend_line_below(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -442,6 +451,42 @@ const cmds_ = struct {
     }
     pub const replace_with_character_helix_meta: Meta = .{ .description = "Replace with character" };
 };
+
+fn match_bracket(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
+    var symbol: []const u8 = undefined;
+    const mode: enum { helix_sel_mode, helix_nor_mode } = if ((ctx.args.match(.{tp.extract(&symbol)}) catch false) and
+        std.mem.eql(u8, @tagName(.helix_sel_mode), symbol)) .helix_sel_mode else .helix_nor_mode;
+
+    if (mode == .helix_sel_mode) {
+        const begin: Cursor = if (cursel.selection) |sel| sel.begin else cursel.*.cursor;
+        if (cursel.*.selection) |*sel| {
+            const row, const col = Editor.match_bracket(root, cursel.*.cursor, metrics) catch blk: {
+                // Selection in hx mode requires to move to the left to begin manipulation
+                try cursel.*.cursor.move_left(root, metrics);
+                break :blk try Editor.match_bracket(root, cursel.*.cursor, metrics);
+            };
+            cursel.*.cursor.row = row;
+            cursel.*.cursor.col = col;
+            sel.end = cursel.*.cursor;
+
+            //Then to include the whole selection, requires to extend to the right
+            if (sel.is_reversed()) {
+                try sel.begin.move_right(root, metrics);
+            } else {
+                try cursel.*.cursor.move_right(root, metrics);
+                try sel.end.move_right(root, metrics);
+            }
+        } else {
+            cursel.*.selection = Selection.from_cursor(&begin);
+            cursel.*.selection.?.end = cursel.*.cursor;
+        }
+    } else {
+        const row, const col = try Editor.match_bracket(root, cursel.*.cursor, metrics);
+        cursel.*.cursor.row = row;
+        cursel.*.cursor.col = col;
+        cursel.*.selection = null;
+    }
+}
 
 fn move_to_word(ctx: command.Context, move: Editor.cursor_operator_const) command.Result {
     const mv = tui.mainview() orelse return;

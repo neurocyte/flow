@@ -3449,7 +3449,7 @@ pub const Editor = struct {
     }
     pub const move_or_select_to_char_left_meta: Meta = .{ .arguments = &.{.integer} };
 
-    fn match_bracket(root: Buffer.Root, original_cursor: Cursor, metrics: Buffer.Metrics) error{Stop}!struct { usize, usize } {
+    pub fn match_bracket(root: Buffer.Root, original_cursor: Cursor, metrics: Buffer.Metrics) error{Stop}!struct { usize, usize } {
         // Find match bracket fallback when tree-sitter is not available
         // Operates exclusively when opening and closing brackets are distinct, when no match is found returns error.Stop
         // on success row, col.
@@ -3512,7 +3512,6 @@ pub const Editor = struct {
         try self.with_cursels_const(root, &move_to_match_bracket, self.metrics);
         self.clamp();
     }
-
     pub const goto_bracket_meta: Meta = .{ .description = "goto matching bracket" };
 
     pub fn move_or_select_to_char_right(self: *Self, ctx: Context) Result {
