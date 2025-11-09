@@ -40,6 +40,8 @@ const double_click_time_ms = 350;
 const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
 const syntax_full_reparse_error_threshold = 3; // number of tree-sitter errors that trigger a full reparse
 
+const bracket_search_radius = if (builtin.mode == std.builtin.OptimizeMode.Debug) 8_192 else 65_536;
+
 pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_000 else 100_000;
 pub const max_match_lines = 15;
 pub const max_match_batch = if (builtin.mode == std.builtin.OptimizeMode.Debug) 100 else 1000;
@@ -3446,6 +3448,72 @@ pub const Editor = struct {
         if (selected) try self.select_to_char_left(ctx) else try self.move_to_char_left(ctx);
     }
     pub const move_or_select_to_char_left_meta: Meta = .{ .arguments = &.{.integer} };
+
+    fn match_bracket(root: Buffer.Root, original_cursor: Cursor, metrics: Buffer.Metrics) error{Stop}!struct { usize, usize } {
+        // Find match bracket fallback when tree-sitter is not available
+        // Operates exclusively when opening and closing brackets are distinct, when no match is found returns error.Stop
+        // on success row, col.
+        var cursor = original_cursor;
+        const bracket_egc, _, _ = root.egc_at(cursor.row, cursor.col, metrics) catch {
+            return error.Stop;
+        };
+        var was_pair = false;
+        var is_right_pair = false;
+        var moving_cursor: *Cursor = &cursor;
+        var move: enum { left, right } = .right;
+        var current = bracket_egc;
+        var closing = bracket_egc;
+        for (Buffer.unicode.open_close_pairs) |pair| if (std.mem.eql(u8, bracket_egc, pair[0]) or std.mem.eql(u8, bracket_egc, pair[1])) {
+            was_pair = true;
+            is_right_pair = std.mem.eql(u8, bracket_egc, pair[1]);
+            if (is_right_pair) {
+                current = pair[1];
+                closing = pair[0];
+                move = .left;
+            } else {
+                current = pair[0];
+                closing = pair[1];
+            }
+            break;
+        };
+        if (!was_pair) {
+            return error.Stop;
+        }
+        var i: usize = 0;
+        var balanced: u8 = 0;
+        while (i < bracket_search_radius) : (i += 1) {
+            switch (move) {
+                .left => try moving_cursor.move_left(root, metrics),
+                .right => try moving_cursor.move_right(root, metrics),
+            }
+            const curr_egc, _, _ = root.egc_at(moving_cursor.row, moving_cursor.col, metrics) catch {
+                return error.Stop;
+            };
+            if (std.mem.eql(u8, current, curr_egc)) {
+                balanced += 1;
+            } else if (std.mem.eql(u8, closing, curr_egc)) {
+                if (balanced == 0) {
+                    return .{ moving_cursor.row, moving_cursor.col };
+                }
+                balanced = balanced - 1;
+            }
+        }
+        return error.Stop;
+    }
+
+    fn move_to_match_bracket(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
+        const row, const col = try match_bracket(root, cursel.*.cursor, metrics);
+        cursel.*.cursor.row = row;
+        cursel.*.cursor.col = col;
+    }
+
+    pub fn goto_bracket(self: *Self, _: Context) Result {
+        const root = try self.buf_root();
+        try self.with_cursels_const(root, &move_to_match_bracket, self.metrics);
+        self.clamp();
+    }
+
+    pub const goto_bracket_meta: Meta = .{ .description = "goto matching bracket" };
 
     pub fn move_or_select_to_char_right(self: *Self, ctx: Context) Result {
         const selected = if (self.get_primary().selection) |_| true else false;
