@@ -30,6 +30,8 @@
             ["alt+>", "move_buffer_end"],
             ["alt+v", "move_page_up"],
             ["ctrl+v", "move_page_down"],
+            ["ctrl+alt+n", "goto_bracket"],
+            ["ctrl+alt+p", "goto_bracket"],
 
             ["ctrl+s", "find"],
             ["ctrl+d", "delete_forward"],
