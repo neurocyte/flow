@@ -46,6 +46,7 @@
             ["N", "goto_prev_match"],
             ["^", "smart_move_begin"],
             ["$", "move_end"],
+            ["%", "goto_bracket"],
             [":", "open_command_palette"],
 
             ["p", "paste_internal_vim"],
