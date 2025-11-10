@@ -3553,7 +3553,8 @@ pub const Editor = struct {
         if (self.matches.items.len == 0) return;
         try self.send_editor_jump_source();
         while (self.get_next_match(self.get_primary().cursor)) |match| {
-            try self.push_cursor();
+            if (self.get_primary().selection) |_|
+                try self.push_cursor();
             const primary = self.get_primary();
             const root = self.buf_root() catch return;
             primary.selection = match.to_selection();
