@@ -5405,6 +5405,7 @@ pub const Editor = struct {
                 match_.has_selection = false;
             };
             primary.selection = match.to_selection();
+            match.has_selection = true;
             primary.cursor.move_to(root, match.end.row, match.end.col, self.metrics) catch return;
             self.clamp();
         }
