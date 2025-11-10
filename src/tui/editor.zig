@@ -64,6 +64,12 @@ pub const Match = struct {
     has_selection: bool = false,
     style: ?Widget.Theme.Style = null,
 
+    const Type = enum {
+        none,
+        auto_find,
+        find,
+        highlight_references,
+    };
     const List = std.ArrayListUnmanaged(?Self);
     const Self = @This();
 
@@ -325,7 +331,9 @@ pub const Editor = struct {
     matches: Match.List = .empty,
     match_token: usize = 0,
     match_done_token: usize = 0,
+    match_type: Match.Type = .none,
     last_find_query: ?[]const u8 = null,
+    last_find_query_match_type: Match.Type = .none,
     find_history: ?std.ArrayListUnmanaged([]const u8) = null,
     find_operation: ?enum { goto_next_match, goto_prev_match } = null,
     highlight_references_state: enum { adding, done } = .done,
@@ -1910,16 +1918,31 @@ pub const Editor = struct {
 
     fn cancel_all_matches(self: *Self) void {
         self.matches.clearAndFree(self.allocator);
+        self.match_type = .none;
     }
 
-    pub fn have_matches(self: *Self) bool {
-        return self.matches.items.len > 0;
+    pub fn init_matches_update(self: *Self) void {
+        self.matches.clearAndFree(self.allocator);
+        self.match_token += 1;
+    }
+
+    pub fn have_matches_not_of_type(self: *Self, match_type: Match.Type) bool {
+        if (self.matches.items.len == 0) return false;
+        return self.match_type != match_type;
     }
 
     pub fn clear_matches(self: *Self) void {
         self.cancel_all_matches();
         self.match_token += 1;
         self.match_done_token = self.match_token;
+    }
+
+    pub fn clear_matches_if_type(self: *Self, match_type: Match.Type) bool {
+        if (self.match_type == match_type) {
+            self.clear_matches();
+            return true;
+        }
+        return false;
     }
 
     pub fn sort_matches(self: *Self) void {
@@ -1934,11 +1957,6 @@ pub const Editor = struct {
             }
         }.less_fn;
         std.mem.sort(?Match, self.matches.items, {}, less_fn);
-    }
-
-    pub fn init_matches_update(self: *Self) void {
-        self.cancel_all_matches();
-        self.match_token += 1;
     }
 
     fn with_cursor_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
@@ -5139,8 +5157,13 @@ pub const Editor = struct {
 
     pub fn find_query(self: *Self, ctx: Context) Result {
         var query: []const u8 = undefined;
+        var match_type: Match.Type = undefined;
         if (ctx.args.match(.{tp.extract(&query)}) catch false) {
-            try self.find_in_buffer(query);
+            self.match_type = .find;
+            try self.find_in_buffer(query, .none);
+            self.clamp();
+        } else if (ctx.args.match(.{ tp.extract(&query), tp.extract(&match_type) }) catch false) {
+            try self.find_in_buffer(query, match_type);
             self.clamp();
         } else return error.InvalidFindQueryArgument;
     }
@@ -5150,7 +5173,7 @@ pub const Editor = struct {
         _ = ctx;
         const query: []const u8 = try self.copy_word_at_cursor(self.allocator);
         defer self.allocator.free(query);
-        try self.find_in_buffer(query);
+        try self.find_in_buffer(query, .find);
     }
     pub const find_word_at_cursor_meta: Meta = .{ .description = "Search for the word under the cursor" };
 
@@ -5181,7 +5204,8 @@ pub const Editor = struct {
         (history.addOne(self.allocator) catch return).* = new;
     }
 
-    fn set_last_find_query(self: *Self, query: []const u8) void {
+    fn set_last_find_query(self: *Self, query: []const u8, match_type: Match.Type) void {
+        self.last_find_query_match_type = match_type;
         if (self.last_find_query) |last| {
             if (query.ptr != last.ptr) {
                 self.allocator.free(last);
@@ -5190,8 +5214,9 @@ pub const Editor = struct {
         } else self.last_find_query = self.allocator.dupe(u8, query) catch return;
     }
 
-    pub fn find_in_buffer(self: *Self, query: []const u8) !void {
-        self.set_last_find_query(query);
+    pub fn find_in_buffer(self: *Self, query: []const u8, match_type: Match.Type) !void {
+        self.set_last_find_query(query, match_type);
+        self.match_type = match_type;
         return self.find_in_buffer_sync(query);
     }
 
@@ -5424,7 +5449,7 @@ pub const Editor = struct {
         if (self.matches.items.len == 0) {
             if (self.last_find_query) |last| {
                 self.find_operation = .goto_next_match;
-                try self.find_in_buffer(last);
+                try self.find_in_buffer(last, self.last_find_query_match_type);
             }
         }
         try self.move_cursor_next_match(ctx);
@@ -5453,7 +5478,7 @@ pub const Editor = struct {
         if (self.matches.items.len == 0) {
             if (self.last_find_query) |last| {
                 self.find_operation = .goto_prev_match;
-                try self.find_in_buffer(last);
+                try self.find_in_buffer(last, self.last_find_query_match_type);
             }
         }
         try self.move_cursor_prev_match(ctx);
@@ -5832,6 +5857,7 @@ pub const Editor = struct {
     pub const highlight_references_meta: Meta = .{ .description = "Language: Highlight references" };
 
     pub fn add_highlight_reference(self: *Self, match_: Match) void {
+        self.match_type = .highlight_references;
         if (self.highlight_references_state == .done) {
             self.highlight_references_state = .adding;
             self.cancel_all_matches();

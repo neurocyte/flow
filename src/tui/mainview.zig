@@ -1269,16 +1269,15 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         if (try m.match(.{ tp.any, tp.any, "none" }))
             return self.clear_auto_find(editor);
         if (try m.match(.{ tp.any, tp.any, tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) })) {
-            if (editor.have_matches()) return;
+            if (editor.have_matches_not_of_type(.auto_find)) return;
             sel.normalize();
             if (sel.end.row - sel.begin.row > ed.max_match_lines)
                 return self.clear_auto_find(editor);
             const text = editor.get_selection(sel, self.allocator) catch return self.clear_auto_find(editor);
             if (text.len == 0)
                 return self.clear_auto_find(editor);
-            if (!self.is_last_match_text(text)) {
-                tp.self_pid().send(.{ "cmd", "find_query", .{text} }) catch return;
-            }
+            if (!self.is_last_match_text(text))
+                tp.self_pid().send(.{ "cmd", "find_query", .{ text, "auto_find" } }) catch return;
         }
         return;
     }
@@ -1327,8 +1326,8 @@ fn location_jump(from: tp.pid_ref, file_path: []const u8, cursor: location_histo
 }
 
 fn clear_auto_find(self: *Self, editor: *ed.Editor) void {
-    editor.clear_matches();
-    self.store_last_match_text(null);
+    if (editor.clear_matches_if_type(.auto_find))
+        self.store_last_match_text(null);
 }
 
 fn is_last_match_text(self: *Self, text: []const u8) bool {

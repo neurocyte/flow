@@ -91,7 +91,7 @@ fn flush_input(self: *Self) !void {
         const primary = self.editor.get_primary();
         primary.selection = null;
         primary.cursor = self.start_cursor;
-        try self.editor.find_in_buffer(self.input_.items);
+        try self.editor.find_in_buffer(self.input_.items, .find);
     } else {
         self.editor.get_primary().selection = null;
         self.editor.init_matches_update();
