@@ -14,7 +14,7 @@
             ["ctrl+4", "focus_split", 3],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+q", "quit"],
-            ["ctrl+w", "quit"],
+            ["ctrl+w", "close_split"],
             ["ctrl+o", "open_file"],
             ["ctrl+e", "open_recent"],
             ["alt+o", "open_previous_file"],
