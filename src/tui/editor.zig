@@ -5388,8 +5388,9 @@ pub const Editor = struct {
         const count = self.matches.items.len;
         for (0..count) |i| {
             const match = if (self.matches.items[count - 1 - i]) |*m| m else continue;
-            if (!match.has_selection and (row > match.end.row or (row == match.end.row and col > match.end.col)))
-                return match;
+            if (match.has_selection) continue;
+            if (cursor.eql(match.end)) return match;
+            if (row > match.end.row or (row == match.end.row and col > match.end.col)) return match;
         }
         return null;
     }
