@@ -27,19 +27,28 @@ pub fn load_entries(palette: *Type) !usize {
     defer palette.allocator.free(rsp.buf);
     var iter: []const u8 = rsp.buf;
     var len = try cbor.decodeArrayHeader(&iter);
+    var longest: usize = 0;
     while (len > 0) : (len -= 1) {
         var task: []const u8 = undefined;
-        if (try cbor.matchValue(&iter, cbor.extract(&task))) {
-            (try palette.entries.addOne(palette.allocator)).* = .{ .label = try palette.allocator.dupe(u8, task) };
-        } else return error.InvalidTaskMessageField;
+        if (!try cbor.matchValue(&iter, cbor.extract(&task))) return error.InvalidTaskMessageField;
+        (try palette.entries.addOne(palette.allocator)).* = .{ .label = try palette.allocator.dupe(u8, task) };
+        longest = @max(longest, task.len);
     }
-    (try palette.entries.addOne(palette.allocator)).* = .{ .label = "", .command = "add_task" };
-    (try palette.entries.addOne(palette.allocator)).* = .{ .label = "", .command = "palette_menu_delete_item" };
-    return if (palette.entries.items.len == 0) label.len else blk: {
-        var longest: usize = 0;
-        for (palette.entries.items) |item| longest = @max(longest, item.label.len);
-        break :blk longest + 3;
-    };
+    const hints = if (tui.input_mode()) |m| m.keybind_hints else @panic("no keybind hints");
+    var longest_hint: usize = 0;
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "add_task", hints));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_delete_item", hints));
+    return longest_hint - @min(longest_hint, longest) + 3;
+}
+
+fn add_palette_command(palette: *Type, command_name: []const u8, hints: *const tui.KeybindHints) !usize {
+    const id = command.get_id(command_name) orelse return 0;
+    var width: usize = 0;
+    if (command.get_icon(id)) |icon| width += tui.egc_chunk_width(icon, 0, 1);
+    if (command.get_description(id)) |desc| width += tui.egc_chunk_width(desc, 0, 1);
+    if (hints.get(command_name)) |hint| width += tui.egc_chunk_width(hint, 0, 1);
+    (try palette.entries.addOne(palette.allocator)).* = .{ .label = "", .command = command_name };
+    return width;
 }
 
 pub fn clear_entries(palette: *Type) void {

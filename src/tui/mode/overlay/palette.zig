@@ -84,6 +84,7 @@ pub fn Create(options: type) type {
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = .empty,
             };
+            try self.commands.init(self);
             if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
             self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
                 try options.load_entries_with_args(self, ctx)
@@ -91,7 +92,6 @@ pub fn Create(options: type) type {
                 try options.load_entries(self);
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
-            try self.commands.init(self);
             if (@hasDecl(options, "initial_query")) blk: {
                 const initial_query = options.initial_query(self, self.allocator) catch break :blk;
                 defer self.allocator.free(initial_query);
