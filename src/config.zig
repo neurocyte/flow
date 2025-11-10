@@ -48,7 +48,7 @@ lsp_output: enum { quiet, verbose } = .quiet,
 
 include_files: []const u8 = "",
 
-const default_actions = [_]IdleAction{.highlight_references};
+const default_actions = [_]IdleAction{};
 pub const IdleAction = enum {
     hover,
     highlight_references,
