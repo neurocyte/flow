@@ -5366,9 +5366,12 @@ pub const Editor = struct {
         const row = cursor.row;
         const col = cursor.col;
         const multi_cursor = self.cursels.items.len > 1;
-        for (self.matches.items) |*match_| if (match_.*) |*match|
-            if ((!multi_cursor or !match.has_selection) and (row < match.begin.row or (row == match.begin.row and col < match.begin.col)))
-                return match;
+        for (self.matches.items) |*match_| if (match_.*) |*match| {
+            if (match.has_selection) continue;
+            if (cursor.within(match.to_selection())) return match;
+            if (multi_cursor) continue;
+            if (row < match.begin.row or (row == match.begin.row and col < match.begin.col)) return match;
+        };
         return null;
     }
 
