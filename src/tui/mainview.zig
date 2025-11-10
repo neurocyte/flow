@@ -1269,6 +1269,7 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         if (try m.match(.{ tp.any, tp.any, "none" }))
             return self.clear_auto_find(editor);
         if (try m.match(.{ tp.any, tp.any, tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) })) {
+            if (editor.have_matches()) return;
             sel.normalize();
             if (sel.end.row - sel.begin.row > ed.max_match_lines)
                 return self.clear_auto_find(editor);
