@@ -321,6 +321,11 @@ fn update_input_idle_timer(self: *Self) void {
     self.input_idle_timer = tp.self_pid().delay_send_cancellable(self.allocator, "tui.input_idle_timer", delay, .{"INPUT_IDLE"}) catch return;
 }
 
+pub fn reset_input_idle_timer() void {
+    const self = current();
+    self.update_input_idle_timer();
+}
+
 fn update_mouse_idle_timer(self: *Self) void {
     if (!self.enable_mouse_idle_timer) return;
     const delay = std.time.us_per_ms * @as(u64, mouse_idle_time_milliseconds);

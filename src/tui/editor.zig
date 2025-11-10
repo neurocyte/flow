@@ -2502,6 +2502,7 @@ pub const Editor = struct {
         self.clamp_mouse();
         try self.send_editor_jump_destination();
         if (self.jump_mode) try self.goto_definition(.{});
+        tui.reset_input_idle_timer();
     }
 
     pub fn primary_double_click(self: *Self, y: c_int, x: c_int) !void {
