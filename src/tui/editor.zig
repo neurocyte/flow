@@ -1912,6 +1912,10 @@ pub const Editor = struct {
         self.matches.clearAndFree(self.allocator);
     }
 
+    pub fn have_matches(self: *Self) bool {
+        return self.matches.items.len > 0;
+    }
+
     pub fn clear_matches(self: *Self) void {
         self.cancel_all_matches();
         self.match_token += 1;
