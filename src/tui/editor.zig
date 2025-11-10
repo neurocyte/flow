@@ -1922,6 +1922,20 @@ pub const Editor = struct {
         self.match_done_token = self.match_token;
     }
 
+    pub fn sort_matches(self: *Self) void {
+        const less_fn = struct {
+            fn less_fn(_: void, lhs_: ?Match, rhs_: ?Match) bool {
+                const lhs = lhs_ orelse return false;
+                const rhs = rhs_ orelse return false;
+                return if (lhs.begin.row == rhs.begin.row)
+                    lhs.begin.col < rhs.begin.col
+                else
+                    lhs.begin.row < rhs.begin.row;
+            }
+        }.less_fn;
+        std.mem.sort(?Match, self.matches.items, {}, less_fn);
+    }
+
     pub fn init_matches_update(self: *Self) void {
         self.cancel_all_matches();
         self.match_token += 1;
