@@ -3535,7 +3535,8 @@ pub const Editor = struct {
                 self.with_cursors_const_once(root, move_cursor_word_begin) catch {};
                 try self.with_selections_const_once(root, move_cursor_word_end);
             } else if (self.get_next_match(self.get_primary().cursor)) |match| {
-                try self.push_cursor();
+                if (self.get_primary().selection) |_|
+                    try self.push_cursor();
                 const primary = self.get_primary();
                 const root = self.buf_root() catch return;
                 primary.selection = match.to_selection();
