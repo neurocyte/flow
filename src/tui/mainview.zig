@@ -782,6 +782,20 @@ const cmds = struct {
     }
     pub const close_split_meta: Meta = .{ .description = "Close split view" };
 
+    pub fn focus_split(self: *Self, ctx: Ctx) Result {
+        var n: usize = undefined;
+        if (!try ctx.args.match(.{tp.extract(&n)})) return error.InvalidFocusSplitArgument;
+
+        if (n > self.views.widgets.items.len) return;
+        if (n == self.views.widgets.items.len)
+            return self.create_home_split();
+
+        if (self.views.get_at(self.active_view)) |view| view.unfocus();
+        self.active_view = n;
+        if (self.views.get_at(self.active_view)) |view| view.focus();
+    }
+    pub const focus_split_meta: Meta = .{ .description = "Focus split view", .arguments = &.{.integer} };
+
     pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
         const config = tui.config_mut();
         const mode: ?@import("config").LineNumberMode = if (config.gutter_line_numbers_mode) |mode| switch (mode) {
