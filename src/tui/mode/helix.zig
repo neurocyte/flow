@@ -415,9 +415,6 @@ const cmds_ = struct {
         var action: []const u8 = "";
 
         if (!try ctx.args.match(.{tp.extract(&action)})) return error.Stop;
-        const logger = log.logger("helix-mode");
-        defer logger.deinit();
-        logger.print("the selection {s}", .{action});
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const root = ed.buf_root() catch return;
@@ -432,6 +429,25 @@ const cmds_ = struct {
         ed.clamp();
     }
     pub const select_textobject_inner_meta: Meta = .{ .description = "select inside object helix" };
+
+    pub fn select_textobject_around(_: *void, ctx: Ctx) Result {
+        var action: []const u8 = "";
+
+        if (!try ctx.args.match(.{tp.extract(&action)})) return error.Stop;
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        if (std.mem.eql(u8, action, "w")) {
+            try ed.with_cursels_const(root, select_around_word, ed.metrics);
+        } else if (std.mem.eql(u8, action, "W")) {
+            try ed.with_cursels_const(root, select_inner_long_word, ed.metrics);
+        } else {
+            return;
+        }
+        ed.clamp();
+    }
+    pub const select_textobject_around_meta: Meta = .{ .description = "select around object helix" };
 
     pub fn copy_helix(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
@@ -564,6 +580,67 @@ fn select_inner_long_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Me
     Editor.move_cursor_left_until(root, &prev, is_long_word_boundary_left, metrics);
     Editor.move_cursor_right_until(root, &next, is_long_word_boundary_right, metrics);
     try next.move_right(root, metrics);
+    const sel = try cursel.enable_selection(root, metrics);
+    sel.begin = prev;
+    sel.end = next;
+    cursel.*.cursor = next;
+}
+
+fn is_tab_or_space(c: []const u8) bool {
+    return (c[0] == ' ') or (c[0] == '\t');
+}
+
+fn is_tab_or_espace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    return cursor.test_at(root, is_tab_or_space, metrics);
+}
+fn is_not_tab_or_espace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    return !cursor.test_at(root, is_tab_or_space, metrics);
+}
+
+fn select_around_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    if (!cursel.cursor.test_at(root, Editor.is_word_char, metrics)) return;
+    var expander = cursel.*;
+    try select_inner_word(root, &expander, metrics);
+    const sel_e = try expander.enable_selection(root, metrics);
+    var prev = sel_e.begin;
+    var next = sel_e.end;
+    if (next.test_at(root, is_tab_or_space, metrics)) {
+        Editor.move_cursor_right_until(root, &next, is_not_tab_or_espace_at_cursor, metrics);
+    } else {
+        next = sel_e.end;
+        prev.move_left(root, metrics) catch {};
+        if (prev.test_at(root, is_tab_or_space, metrics)) {
+            Editor.move_cursor_left_until(root, &prev, is_not_tab_or_espace_at_cursor, metrics);
+            prev.move_right(root, metrics) catch {};
+        } else {
+            prev = sel_e.begin;
+        }
+    }
+    const sel = try cursel.enable_selection(root, metrics);
+    sel.begin = prev;
+    sel.end = next;
+    cursel.*.cursor = next;
+}
+
+fn select_around_long_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    if (!cursel.cursor.test_at(root, Editor.is_word_char, metrics)) return;
+    var expander = cursel.*;
+    try select_inner_long_word(root, &expander, metrics);
+    const sel_e = try expander.enable_selection(root, metrics);
+    var prev = sel_e.begin;
+    var next = sel_e.end;
+    if (next.test_at(root, is_tab_or_space, metrics)) {
+        Editor.move_cursor_right_until(root, &next, is_not_tab_or_espace_at_cursor, metrics);
+    } else {
+        next = sel_e.end;
+        prev.move_left(root, metrics) catch {};
+        if (prev.test_at(root, is_tab_or_space, metrics)) {
+            Editor.move_cursor_left_until(root, &prev, is_not_tab_or_espace_at_cursor, metrics);
+            prev.move_right(root, metrics) catch {};
+        } else {
+            prev = sel_e.begin;
+        }
+    }
     const sel = try cursel.enable_selection(root, metrics);
     sel.begin = prev;
     sel.end = next;
