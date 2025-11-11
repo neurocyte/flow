@@ -2252,6 +2252,7 @@ pub const Editor = struct {
             '!' => true,
             '?' => true,
             '&' => true,
+            '@' => true,
             '-' => true,
             '<' => true,
             '>' => true,
