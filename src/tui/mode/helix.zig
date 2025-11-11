@@ -411,6 +411,28 @@ const cmds_ = struct {
     }
     pub const extend_to_char_right_helix_meta: Meta = .{ .description = "Extend Selection to char right" };
 
+    pub fn select_textobject_inner(_: *void, ctx: Ctx) Result {
+        var action: []const u8 = "";
+
+        if (!try ctx.args.match(.{tp.extract(&action)})) return error.Stop;
+        const logger = log.logger("helix-mode");
+        defer logger.deinit();
+        logger.print("the selection {s}", .{action});
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        if (std.mem.eql(u8, action, "w")) {
+            try ed.with_cursels_const(root, select_inner_word, ed.metrics);
+        } else if (std.mem.eql(u8, action, "W")) {
+            try ed.with_cursels_const(root, select_inner_long_word, ed.metrics);
+        } else {
+            return;
+        }
+        ed.clamp();
+    }
+    pub const select_textobject_inner_meta: Meta = .{ .description = "select inside object helix" };
+
     pub fn copy_helix(_: *void, _: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -520,6 +542,32 @@ fn to_char_helix(ctx: command.Context, move: Editor.cursel_operator_mut_once_arg
     const root = ed.buf_root() catch return;
     try ed.with_cursels_const_once_arg(root, move, ctx);
     ed.clamp();
+}
+
+fn select_inner_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    if (!cursel.cursor.test_at(root, Editor.is_word_char, metrics)) return;
+    var prev = cursel.cursor;
+    var next = cursel.cursor;
+    Editor.move_cursor_left_until(root, &prev, Editor.is_word_boundary_left, metrics);
+    Editor.move_cursor_right_until(root, &next, Editor.is_word_boundary_right, metrics);
+    try next.move_right(root, metrics);
+    const sel = try cursel.enable_selection(root, metrics);
+    sel.begin = prev;
+    sel.end = next;
+    cursel.*.cursor = next;
+}
+
+fn select_inner_long_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    if (cursel.cursor.test_at(root, Editor.is_whitespace, metrics)) return;
+    var prev = cursel.cursor;
+    var next = cursel.cursor;
+    Editor.move_cursor_left_until(root, &prev, is_long_word_boundary_left, metrics);
+    Editor.move_cursor_right_until(root, &next, is_long_word_boundary_right, metrics);
+    try next.move_right(root, metrics);
+    const sel = try cursel.enable_selection(root, metrics);
+    sel.begin = prev;
+    sel.end = next;
+    cursel.*.cursor = next;
 }
 
 fn select_cursel_to_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {

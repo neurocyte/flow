@@ -2259,7 +2259,7 @@ pub const Editor = struct {
         };
     }
 
-    fn is_word_char(c: []const u8) bool {
+    pub fn is_word_char(c: []const u8) bool {
         return !is_not_word_char(c);
     }
 
@@ -2271,7 +2271,7 @@ pub const Editor = struct {
         return cursor.test_at(root, is_not_word_char, metrics);
     }
 
-    fn is_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    pub fn is_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         if (cursor.col == 0)
             return true;
         if (is_non_word_char_at_cursor(root, cursor, metrics))
@@ -2324,7 +2324,7 @@ pub const Editor = struct {
         return false;
     }
 
-    fn is_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    pub fn is_word_boundary_right(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         const line_width = root.line_width(cursor.row, metrics) catch return true;
         if (cursor.col >= line_width)
             return true;
