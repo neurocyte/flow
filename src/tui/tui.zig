@@ -1279,6 +1279,11 @@ const cmds = struct {
     }
     pub const underline_meta: Meta = .{ .description = "Underline with character" };
 
+    pub fn match(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/match.zig"), ctx);
+    }
+    pub const match_meta: Meta = .{ .description = "Match mode" };
+
     pub fn open_file(self: *Self, ctx: Ctx) Result {
         if (get_active_selection(self.allocator)) |text| {
             defer self.allocator.free(text);

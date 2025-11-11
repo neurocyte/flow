@@ -169,12 +169,7 @@
             [";", "collapse_selections"],
             ["x", "extend_line_below"],
 
-            ["m m", "match_brackets"],
-            ["m s", "surround_add"],
-            ["m r", "surround_replace"],
-            ["m d", "surround_delete"],
-            ["m a", "select_textobject_around"],
-            ["m i", "select_textobject_inner"],
+            ["m", "match"],
 
             ["[ D", "goto_first_diag"],
             ["[ G", "goto_first_change"],
