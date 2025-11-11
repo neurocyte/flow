@@ -1502,6 +1502,7 @@ pub const Editor = struct {
             .root = root,
             .pos_cache = try PosToWidthCache.init(self.allocator),
         };
+
         defer ctx.pos_cache.deinit();
         const range: syntax.Range = .{
             .start_point = .{ .row = @intCast(self.view.row), .column = 0 },
@@ -1516,10 +1517,18 @@ pub const Editor = struct {
         const char = whitespace.char;
         const frame = tracy.initZone(@src(), .{ .name = "editor whitespace map" });
         defer frame.deinit();
+        var curr_indent: usize = 0;
+        var prev_indent: usize = 0;
         for (0..cell_map.rows) |y| {
             var leading = true;
             var leading_space = false;
             var tab_error = false;
+            prev_indent = curr_indent;
+            curr_indent = for (0..cell_map.cols) |x| switch (cell_map.get_yx(y, x).cell_type) {
+                .empty, .character, .eol => break x,
+                else => {},
+            } else 0;
+            const is_blank = cell_map.get_yx(y, 0).cell_type == .eol;
             for (0..cell_map.cols) |x| {
                 const cell_map_entry = cell_map.get_yx(y, x);
                 const cell_type = cell_map_entry.cell_type;
@@ -1549,7 +1558,10 @@ pub const Editor = struct {
                     .indent => {
                         if (leading and x % self.indent_size == 0)
                             cell.cell.char.grapheme = char.indent;
+                        if (is_blank and x < prev_indent and x % self.indent_size == 0)
+                            cell.cell.char.grapheme = char.indent;
                     },
+
                     .leading => {
                         if (leading) {
                             if (get_whitespace_char(cell_type, next_cell_type)) |c|
