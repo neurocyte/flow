@@ -5394,7 +5394,10 @@ pub const Editor = struct {
         const multi_cursor = self.cursels.items.len > 1;
         for (self.matches.items) |*match_| if (match_.*) |*match| {
             if (match.has_selection) continue;
-            if (cursor.within(match.to_selection())) return match;
+            switch (tui.get_selection_style()) {
+                .normal => if (cursor.within(match.to_selection())) return match,
+                .inclusive => {},
+            }
             if (multi_cursor) continue;
             if (row < match.begin.row or (row == match.begin.row and col < match.begin.col)) return match;
         };
