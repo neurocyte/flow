@@ -245,6 +245,22 @@ fn start_query(self: *Self) MessageFilter.Error!void {
     try project_manager.query_recent_files(max_recent_files, self.inputbox.text.items);
 }
 
+fn complete(self: *Self) !void {
+    const pos = self.inputbox.text.items.len;
+    const btn = self.menu.get_selected() orelse return;
+    var iter = btn.opts.label;
+    var file_path: []const u8 = undefined;
+    if (!(cbor.matchString(&iter, &file_path) catch false)) return;
+
+    if (std.mem.indexOfPos(u8, file_path, pos, &.{std.fs.path.sep})) |pos_| {
+        self.inputbox.text.shrinkRetainingCapacity(0);
+        try self.inputbox.text.appendSlice(self.allocator, file_path[0..@min(pos_ + 1, file_path.len)]);
+    }
+
+    self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
+    return self.start_query();
+}
+
 fn delete_word(self: *Self) !void {
     if (std.mem.lastIndexOfAny(u8, self.inputbox.text.items, "/\\. -_")) |pos| {
         self.inputbox.text.shrinkRetainingCapacity(pos);
@@ -325,6 +341,11 @@ const cmds = struct {
         self.menu.select_first();
     }
     pub const palette_menu_top_meta: Meta = .{};
+
+    pub fn palette_menu_complete(self: *Self, _: Ctx) Result {
+        try self.complete();
+    }
+    pub const palette_menu_complete_meta: Meta = .{};
 
     pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
         self.menu.activate_selected();
