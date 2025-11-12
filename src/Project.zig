@@ -940,46 +940,23 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
 }
 
 fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
-    var iter = location_link;
-    var targetUri: ?[]const u8 = null;
-    var targetRange: ?Range = null;
-    var targetSelectionRange: ?Range = null;
-    var len = try cbor.decodeMapHeader(&iter);
-    while (len > 0) : (len -= 1) {
-        var field_name: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
-        if (std.mem.eql(u8, field_name, "targetUri") or std.mem.eql(u8, field_name, "uri")) {
-            var value: []const u8 = undefined;
-            if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidMessageField;
-            targetUri = value;
-        } else if (std.mem.eql(u8, field_name, "targetRange") or std.mem.eql(u8, field_name, "range")) {
-            var range: []const u8 = undefined;
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
-            targetRange = try read_range(range);
-        } else if (std.mem.eql(u8, field_name, "targetSelectionRange")) {
-            var range: []const u8 = undefined;
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
-            targetSelectionRange = try read_range(range);
-        } else {
-            try cbor.skipValue(&iter);
-        }
-    }
-    if (targetUri == null or targetRange == null) return error.InvalidMessageField;
-    if (!std.mem.eql(u8, targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
+    const location: LocationLink = try read_locationlink(location_link);
+    if (location.targetUri == null or location.targetRange == null) return error.InvalidMessageField;
+    if (!std.mem.eql(u8, location.targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
     var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var file_path = std.Uri.percentDecodeBackwards(&file_path_buf, targetUri.?[7..]);
+    var file_path = std.Uri.percentDecodeBackwards(&file_path_buf, location.targetUri.?[7..]);
     if (builtin.os.tag == .windows) {
         if (file_path[0] == '/') file_path = file_path[1..];
         for (file_path, 0..) |c, i| if (c == '/') {
             file_path[i] = '\\';
         };
     }
-    if (targetSelectionRange) |sel| {
+    if (location.targetSelectionRange) |sel| {
         from.send(.{ "cmd", "navigate", .{
             .file = file_path,
             .goto = .{
-                targetSelectionRange.?.start.line + 1,
-                targetSelectionRange.?.start.character + 1,
+                location.targetSelectionRange.?.start.line + 1,
+                location.targetSelectionRange.?.start.character + 1,
                 sel.start.line,
                 sel.start.character,
                 sel.end.line,
@@ -990,8 +967,8 @@ fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (Clien
         from.send(.{ "cmd", "navigate", .{
             .file = file_path,
             .goto = .{
-                targetRange.?.start.line + 1,
-                targetRange.?.start.character + 1,
+                location.targetRange.?.start.line + 1,
+                location.targetRange.?.start.character + 1,
             },
         } }) catch return error.ClientFailed;
     }
@@ -1085,43 +1062,20 @@ fn send_reference_list(tag: []const u8, to: tp.pid_ref, locations: []const u8, n
     return count;
 }
 
-fn send_reference(tag: []const u8, to: tp.pid_ref, location: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
+fn send_reference(tag: []const u8, to: tp.pid_ref, location_: []const u8, name: []const u8) (ClientError || InvalidMessageError || GetLineOfFileError || cbor.Error)!void {
     const allocator = std.heap.c_allocator;
-    var iter = location;
-    var targetUri: ?[]const u8 = null;
-    var targetRange: ?Range = null;
-    var targetSelectionRange: ?Range = null;
-    var len = try cbor.decodeMapHeader(&iter);
-    while (len > 0) : (len -= 1) {
-        var field_name: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
-        if (std.mem.eql(u8, field_name, "targetUri") or std.mem.eql(u8, field_name, "uri")) {
-            var value: []const u8 = undefined;
-            if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidMessageField;
-            targetUri = value;
-        } else if (std.mem.eql(u8, field_name, "targetRange") or std.mem.eql(u8, field_name, "range")) {
-            var range: []const u8 = undefined;
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
-            targetRange = try read_range(range);
-        } else if (std.mem.eql(u8, field_name, "targetSelectionRange")) {
-            var range: []const u8 = undefined;
-            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range)))) return error.InvalidMessageField;
-            targetSelectionRange = try read_range(range);
-        } else {
-            try cbor.skipValue(&iter);
-        }
-    }
-    if (targetUri == null or targetRange == null) return error.InvalidMessageField;
-    if (!std.mem.eql(u8, targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
+    const location: LocationLink = try read_locationlink(location_);
+    if (location.targetUri == null or location.targetRange == null) return error.InvalidMessageField;
+    if (!std.mem.eql(u8, location.targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
     var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var file_path = std.Uri.percentDecodeBackwards(&file_path_buf, targetUri.?[7..]);
+    var file_path = std.Uri.percentDecodeBackwards(&file_path_buf, location.targetUri.?[7..]);
     if (builtin.os.tag == .windows) {
         if (file_path[0] == '/') file_path = file_path[1..];
         for (file_path, 0..) |c, i| if (c == '/') {
             file_path[i] = '\\';
         };
     }
-    const line = try get_line_of_file(allocator, file_path, targetRange.?.start.line);
+    const line = try get_line_of_file(allocator, file_path, location.targetRange.?.start.line);
     defer allocator.free(line);
     const file_path_ = if (file_path.len > name.len and std.mem.eql(u8, name, file_path[0..name.len]))
         file_path[name.len + 1 ..]
@@ -1130,10 +1084,10 @@ fn send_reference(tag: []const u8, to: tp.pid_ref, location: []const u8, name: [
     to.send(.{
         tag,
         file_path_,
-        targetRange.?.start.line + 1,
-        targetRange.?.start.character,
-        targetRange.?.end.line + 1,
-        targetRange.?.end.character,
+        location.targetRange.?.start.line + 1,
+        location.targetRange.?.start.character,
+        location.targetRange.?.end.line + 1,
+        location.targetRange.?.end.character,
         line,
     }) catch return error.ClientFailed;
 }
@@ -1720,6 +1674,39 @@ fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: 
 
 fn send_clear_diagnostics(_: *Self, to: tp.pid_ref, file_path: []const u8) ClientError!void {
     to.send(.{ "cmd", "clear_diagnostics", .{file_path} }) catch return error.ClientFailed;
+}
+
+const LocationLink = struct {
+    targetUri: ?[]const u8 = null,
+    targetRange: ?Range = null,
+    targetSelectionRange: ?Range = null,
+};
+fn read_locationlink(location_link: []const u8) !LocationLink {
+    var iter = location_link;
+    var targetUri: ?[]const u8 = null;
+    var targetRange: ?Range = null;
+    var targetSelectionRange: ?Range = null;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        if (std.mem.eql(u8, field_name, "targetUri") or std.mem.eql(u8, field_name, "uri")) {
+            var uri_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract(&uri_)))) return error.InvalidMessageField;
+            targetUri = uri_;
+        } else if (std.mem.eql(u8, field_name, "targetRange") or std.mem.eql(u8, field_name, "range")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidMessageField;
+            targetRange = try read_range(range_);
+        } else if (std.mem.eql(u8, field_name, "targetSelectionRange")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidMessageField;
+            targetSelectionRange = try read_range(range_);
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    return .{ .targetUri = targetUri, .targetRange = targetRange, .targetSelectionRange = targetSelectionRange };
 }
 
 const Range = struct { start: Position, end: Position };
