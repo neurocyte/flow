@@ -985,7 +985,7 @@ const cmds = struct {
         })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
-            logger.print("received symbol '{s}'", .{name});
+            logger.print("received symbol '{s}', '{s}'", .{ name, parent });
             self.symbols_complete = false;
             try self.symbols.appendSlice(self.allocator, ctx.args.buf);
         };
