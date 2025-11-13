@@ -5730,6 +5730,14 @@ pub const Editor = struct {
     }
     pub const completion_meta: Meta = .{ .description = "Language: Show completions at cursor" };
 
+    pub fn show_symbols(self: *Self, _: Context) Result {
+        const file_path = self.file_path orelse return;
+        const mv = tui.mainview() orelse return;
+        mv.clear_symbols(file_path);
+        return project_manager.symbols(file_path);
+    }
+    pub const show_symbols_meta: Meta = .{ .description = "Language: Show available symbols on current file" };
+
     pub fn rename_symbol(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const root = self.buf_root() catch return;

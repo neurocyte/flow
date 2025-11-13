@@ -228,7 +228,7 @@
             ["space g", "show_vcs_status"],
             ["space b", "switch_buffers"],
             ["space j", "jumplist_picker"],
-            ["space s", "symbol_picker"],
+            ["space s", "show_symbols"],
             ["space d", "show_diagnostics"],
             ["space a", "code_action"],
             ["space '", "last_picker"],
