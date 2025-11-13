@@ -1133,6 +1133,54 @@ pub fn completion(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     }, handler) catch return error.LspFailed;
 }
 
+pub fn symbols(self: *Self, from: tp.pid_ref, file_path: []const u8) (LspOrClientError || InvalidMessageError || cbor.Error)!void {
+    const lsp = try self.get_language_server(file_path);
+    const uri = try self.make_URI(file_path);
+    defer self.allocator.free(uri);
+
+    const handler: struct {
+        from: tp.pid,
+        file_path: []const u8,
+
+        pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.file_path);
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) !void {
+            var result: []const u8 = undefined;
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+                try send_content_msg_empty(self_.from.ref(), "hover", self_.file_path, 1, 1);
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.array })) {
+                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+                    try send_symbol_items(self_.from.ref(), self_.file_path, result);
+            }
+        }
+    } = .{
+        .from = from.clone(),
+        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
+    };
+
+    lsp.send_request(self.allocator, "textDocument/documentSymbol", .{
+        .textDocument = .{ .uri = uri },
+    }, handler) catch return error.LspFailed;
+}
+
+fn send_symbol_items(to: tp.pid_ref, file_path: []const u8, items: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
+    var iter = items;
+    var len = cbor.decodeArrayHeader(&iter) catch return;
+    var item: []const u8 = "";
+    var node_count: usize = 0;
+    while (len > 0) : (len -= 1) {
+        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidMessageField;
+        node_count += try send_symbol_information(to, file_path, item, "");
+    }
+    const logger = log.logger("lsp");
+    defer logger.deinit();
+    logger.print("LSP accounted {d} symbols", .{node_count});
+    return to.send(.{ "cmd", "add_document_symbol_done", .{file_path} }) catch error.ClientFailed;
+}
+
 fn send_completion_list(to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, result: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
     var iter = result;
     var len = cbor.decodeMapHeader(&iter) catch return;
@@ -1168,6 +1216,122 @@ fn invalid_field(field: []const u8) error{InvalidMessage} {
     defer logger.deinit();
     logger.print("invalid completion field '{s}'", .{field});
     return error.InvalidMessage;
+}
+
+fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const u8, parent_name: []const u8) (ClientError || InvalidMessageError || cbor.Error)!usize {
+    var name: []const u8 = "";
+    var detail: ?[]const u8 = "";
+    var kind: usize = 0;
+    var tags: [32]usize = undefined;
+    var deprecated: ?bool = false;
+    var range: Range = undefined;
+    var selectionRange: Range = undefined;
+    var location: ?Location = null;
+    var containerName: ?[]const u8 = "";
+    var len_tags_: usize = 0;
+    var children_count: usize = 0;
+    var symbolKind: SymbolType = undefined;
+    const logger_t = log.logger("lsp");
+    defer logger_t.deinit();
+    var iter = item;
+    var len = cbor.decodeMapHeader(&iter) catch return 0;
+    tags[0] = 0;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+        logger_t.print("{s}", .{field_name});
+        if (std.mem.eql(u8, field_name, "name")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&name)))) return invalid_field("name");
+            logger_t.print("->> {s}", .{name});
+        } else if (std.mem.eql(u8, field_name, "detail")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) return invalid_field("detail");
+        } else if (std.mem.eql(u8, field_name, "kind")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&kind)))) return invalid_field("kind");
+        } else if (std.mem.eql(u8, field_name, "tags")) {
+            var len_ = cbor.decodeArrayHeader(&iter) catch return 0;
+            var idx: usize = 0;
+            var this_tag: usize = undefined;
+            len_tags_ = len_;
+            while (len_ > 0) : (len_ -= 1) {
+                if (!(try cbor.matchValue(&iter, cbor.extract(&this_tag)))) return invalid_field("tags");
+                tags[idx] = this_tag;
+                idx += 1;
+            }
+            try cbor.skipValue(&iter);
+        } else if (std.mem.eql(u8, field_name, "deprecated")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&deprecated)))) return invalid_field("deprecated");
+        } else if (std.mem.eql(u8, field_name, "range")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return invalid_field("range");
+            range = try read_range(range_);
+            symbolKind = SymbolType.document_symbol;
+        } else if (std.mem.eql(u8, field_name, "selectionRange")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return invalid_field("selectionRange");
+            selectionRange = try read_range(range_);
+        } else if (std.mem.eql(u8, field_name, "children")) {
+            var len_ = cbor.decodeArrayHeader(&iter) catch return 0;
+            while (len_ > 0) : (len_ -= 1) {
+                children_count += try send_symbol_information(to, file_path, iter, name);
+            }
+            logger_t.print("children: {d}", .{len_});
+            try cbor.skipValue(&iter);
+            logger_t.print("Skipped thing: {d}", .{len_});
+        } else if (std.mem.eql(u8, field_name, "location")) {} else if (std.mem.eql(u8, field_name, "location")) {
+            var location_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&location_)))) return invalid_field("selectionRange");
+            location = try read_locationlink(iter);
+            symbolKind = SymbolType.document_symbol;
+        } else if (std.mem.eql(u8, field_name, "containerName")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&containerName)))) return invalid_field("containerName");
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    logger_t.print("Processed: {s}", .{name});
+
+    try switch (symbolKind) {
+        SymbolType.document_symbol => {
+            to.send(.{ "cmd", "add_document_symbol", .{
+                file_path,
+                name,
+                parent_name,
+                kind,
+                range.start.line,
+                range.start.character,
+                range.end.line,
+                range.end.character,
+                tags[0..len_tags_],
+                selectionRange.start.line,
+                selectionRange.start.character,
+                selectionRange.end.line,
+                selectionRange.end.character,
+                deprecated,
+                detail,
+            } }) catch return error.ClientFailed;
+            return children_count + 1;
+        },
+        SymbolType.symbol_information => {
+            var fp = file_path;
+            if (location) |location_| {
+                if (location_.targetUri == null or location_.targetRange == null) return error.InvalidMessageField;
+                if (!std.mem.eql(u8, location_.targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
+                var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+                var file_path_ = std.Uri.percentDecodeBackwards(&file_path_buf, location_.targetUri.?[7..]);
+                if (builtin.os.tag == .windows) {
+                    if (file_path_[0] == '/') file_path_ = file_path_[1..];
+                    for (file_path_, 0..) |c, i| if (c == '/') {
+                        file_path_[i] = '\\';
+                    };
+                }
+                fp = file_path_;
+                to.send(.{ "cmd", "add_symbol_information", .{ fp, name, parent_name, kind, location_.targetRange.?.start.line, location_.targetRange.?.start.character, location_.targetRange.?.end.line, location_.targetRange.?.end.character, tags[0..len_tags_], location_.targetSelectionRange.?.start.line, location_.targetSelectionRange.?.start.character, location_.targetSelectionRange.?.end.line, location_.targetSelectionRange.?.end.character, deprecated, location_.targetUri } }) catch return error.ClientFailed;
+                return 1;
+            } else {
+                return error.InvalidMessageField;
+            }
+        },
+    };
 }
 
 fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: usize, item: []const u8, is_incomplete: bool) (ClientError || InvalidMessageError || cbor.Error)!void {
@@ -1675,6 +1839,32 @@ fn send_diagnostic(_: *Self, to: tp.pid_ref, file_path: []const u8, diagnostic: 
 fn send_clear_diagnostics(_: *Self, to: tp.pid_ref, file_path: []const u8) ClientError!void {
     to.send(.{ "cmd", "clear_diagnostics", .{file_path} }) catch return error.ClientFailed;
 }
+
+const SymbolType = enum { document_symbol, symbol_information };
+
+const DocumentSymbol = struct {
+    name: []const u8 = &.{},
+    detail: ?[]const u8 = &.{},
+    kind: usize,
+    tags: ?[]const usize = &.{},
+    deprecated: ?bool = false,
+    range: Range,
+    selectionRange: Range,
+    children: ?[]const DocumentSymbol = &.{},
+    parent_name: []const u8 = &.{},
+};
+
+const SymbolInformation = struct {
+    name: []const u8,
+    kind: usize,
+    tags: ?[]const usize,
+    deprecated: ?bool,
+    location: Location,
+    containerName: ?[]const u8,
+};
+
+// Location is a subset of LocationLink
+const Location = LocationLink;
 
 const LocationLink = struct {
     targetUri: ?[]const u8 = null,
