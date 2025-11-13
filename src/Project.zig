@@ -1229,7 +1229,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
     var location: ?Location = null;
     var containerName: ?[]const u8 = "";
     var len_tags_: usize = 0;
-    var children_count: usize = 0;
+    var descendant_count: usize = 0;
     var symbolKind: SymbolType = undefined;
     const logger_t = log.logger("lsp");
     defer logger_t.deinit();
@@ -1239,10 +1239,8 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
-        logger_t.print("{s}", .{field_name});
         if (std.mem.eql(u8, field_name, "name")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&name)))) return invalid_field("name");
-            logger_t.print("->> {s}", .{name});
         } else if (std.mem.eql(u8, field_name, "detail")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&detail)))) return invalid_field("detail");
         } else if (std.mem.eql(u8, field_name, "kind")) {
@@ -1271,12 +1269,11 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
             selectionRange = try read_range(range_);
         } else if (std.mem.eql(u8, field_name, "children")) {
             var len_ = cbor.decodeArrayHeader(&iter) catch return 0;
+            var descendant: []const u8 = "";
             while (len_ > 0) : (len_ -= 1) {
-                children_count += try send_symbol_information(to, file_path, iter, name);
+                if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&descendant)))) return error.InvalidMessageField;
+                descendant_count += try send_symbol_information(to, file_path, descendant, name);
             }
-            logger_t.print("children: {d}", .{len_});
-            try cbor.skipValue(&iter);
-            logger_t.print("Skipped thing: {d}", .{len_});
         } else if (std.mem.eql(u8, field_name, "location")) {} else if (std.mem.eql(u8, field_name, "location")) {
             var location_: []const u8 = undefined;
             if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&location_)))) return invalid_field("selectionRange");
@@ -1288,7 +1285,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
             try cbor.skipValue(&iter);
         }
     }
-    logger_t.print("Processed: {s}", .{name});
+    logger_t.print("Processed: {s} with {d} descendants", .{ name, descendant_count });
 
     try switch (symbolKind) {
         SymbolType.document_symbol => {
@@ -1309,7 +1306,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
                 deprecated,
                 detail,
             } }) catch return error.ClientFailed;
-            return children_count + 1;
+            return descendant_count + 1;
         },
         SymbolType.symbol_information => {
             var fp = file_path;
