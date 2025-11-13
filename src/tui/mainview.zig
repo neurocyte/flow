@@ -54,6 +54,8 @@ buffer_manager: Buffer.Manager,
 find_in_files_state: enum { init, adding, done } = .done,
 file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
+symbols: std.ArrayListUnmanaged(u8) = .empty,
+symbols_complete: bool = true,
 
 const FileListType = enum {
     diagnostics,
@@ -107,9 +109,15 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.close_all_panel_views();
     self.commands.deinit();
     self.widgets.deinit(allocator);
+    self.symbols.deinit(allocator);
     self.floating_views.deinit();
     self.buffer_manager.deinit();
     allocator.destroy(self);
+}
+
+// Receives the file_path to identify symbols to clear
+pub fn clear_symbols(self: *Self, _: []const u8) void {
+    self.symbols.clearRetainingCapacity();
 }
 
 pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -938,6 +946,67 @@ const cmds = struct {
             .integer, // replace.begin.col
             .integer, // replace.end.row
             .integer, // replace.end.col
+        },
+    };
+
+    pub fn add_document_symbol_done(self: *Self, ctx: Ctx) Result {
+        const logger = log.logger("buffer");
+        defer logger.deinit();
+        var file_path: []const u8 = undefined;
+
+        if (!try ctx.args.match(.{
+            tp.extract(&file_path),
+        })) return error.InvalidAddDiagnosticArgument;
+        file_path = project_manager.normalize_file_path(file_path);
+        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
+            self.symbols_complete = true;
+            logger.print("Fetched {} symbols", .{self.symbols.items.len});
+        };
+    }
+    pub const add_document_symbol_done_meta: Meta = .{
+        .arguments = &.{
+            .string, // file_path
+        },
+    };
+
+    pub fn add_document_symbol(self: *Self, ctx: Ctx) Result {
+        const logger = log.logger("buffer");
+        defer logger.deinit();
+        var file_path: []const u8 = undefined;
+        var name: []const u8 = undefined;
+        var parent: []const u8 = undefined;
+        var kind: u8 = 0;
+        if (!try ctx.args.match(.{
+            tp.extract(&file_path),
+            tp.extract(&name),
+            tp.extract(&parent),
+            tp.extract(&kind),
+            tp.more,
+        })) return error.InvalidAddDiagnosticArgument;
+        file_path = project_manager.normalize_file_path(file_path);
+        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
+            logger.print("received symbol '{s}'", .{name});
+            self.symbols_complete = false;
+            try self.symbols.appendSlice(self.allocator, ctx.args.buf);
+        };
+    }
+    pub const add_document_symbol_meta: Meta = .{
+        .arguments = &.{
+            .string, // file_path
+            .string, // name
+            .string, // parent_name
+            .integer, // kind
+            .integer, // range.start.line
+            .integer, // range.start.column
+            .integer, // range.end.line
+            .integer, // range.end.column
+            .array, // tags
+            .integer, // selectionRange.start.line
+            .integer, // selectionRange.start.column
+            .integer, // selectionRange.end.line
+            .integer, // selectionRange.end.column
+            .boolean, // deprecated
+            .string, //detail
         },
     };
 
