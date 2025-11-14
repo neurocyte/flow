@@ -950,8 +950,6 @@ const cmds = struct {
     };
 
     pub fn add_document_symbol_done(self: *Self, ctx: Ctx) Result {
-        const logger = log.logger("buffer");
-        defer logger.deinit();
         var file_path: []const u8 = undefined;
 
         if (!try ctx.args.match(.{
@@ -960,7 +958,8 @@ const cmds = struct {
         file_path = project_manager.normalize_file_path(file_path);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
             self.symbols_complete = true;
-            logger.print("Fetched {} symbols", .{self.symbols.items.len});
+            try tui.open_overlay(@import("mode/overlay/symbol_palette.zig").Type);
+            tui.need_render();
         };
     }
     pub const add_document_symbol_done_meta: Meta = .{
@@ -970,8 +969,6 @@ const cmds = struct {
     };
 
     pub fn add_document_symbol(self: *Self, ctx: Ctx) Result {
-        const logger = log.logger("buffer");
-        defer logger.deinit();
         var file_path: []const u8 = undefined;
         var name: []const u8 = undefined;
         var parent: []const u8 = undefined;
@@ -985,7 +982,6 @@ const cmds = struct {
         })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
-            logger.print("received symbol '{s}', '{s}'", .{ name, parent });
             self.symbols_complete = false;
             try self.symbols.appendSlice(self.allocator, ctx.args.buf);
         };
@@ -996,15 +992,15 @@ const cmds = struct {
             .string, // name
             .string, // parent_name
             .integer, // kind
-            .integer, // range.start.line
-            .integer, // range.start.column
-            .integer, // range.end.line
-            .integer, // range.end.column
+            .integer, // range.begin.row
+            .integer, // range.begin.col
+            .integer, // range.end.row
+            .integer, // range.end.col
             .array, // tags
-            .integer, // selectionRange.start.line
-            .integer, // selectionRange.start.column
-            .integer, // selectionRange.end.line
-            .integer, // selectionRange.end.column
+            .integer, // selectionRange.begin.row
+            .integer, // selectionRange.begin.col
+            .integer, // selectionRange.end.row
+            .integer, // selectionRange.end.col
             .boolean, // deprecated
             .string, //detail
         },

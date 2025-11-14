@@ -1285,7 +1285,6 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
             try cbor.skipValue(&iter);
         }
     }
-    logger_t.print("Processed: {s} with {d} descendants", .{ name, descendant_count });
 
     try switch (symbolKind) {
         SymbolType.document_symbol => {
