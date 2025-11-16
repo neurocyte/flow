@@ -854,7 +854,10 @@ fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
     };
     const config_dir = if (local.config_dir) |dir|
         dir
-    else if (std.process.getEnvVarOwned(a, "XDG_CONFIG_HOME") catch null) |xdg| ret: {
+    else if (std.process.getEnvVarOwned(a, "FLOW_CONFIG_DIR") catch null) |dir| ret: {
+        defer a.free(dir);
+        break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}", .{dir});
+    } else if (std.process.getEnvVarOwned(a, "XDG_CONFIG_HOME") catch null) |xdg| ret: {
         defer a.free(xdg);
         break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
     } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
