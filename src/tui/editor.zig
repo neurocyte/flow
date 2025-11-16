@@ -4658,6 +4658,44 @@ pub const Editor = struct {
     }
     pub const toggle_comment_meta: Meta = .{ .description = "Toggle comment" };
 
+    fn indent_at_cursor(self: *Self, root: Buffer.Root, cursor: Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
+        const space = "                                ";
+        var cursel: CurSel = .{};
+        cursel.cursor = cursor;
+        switch (self.indent_mode) {
+            .spaces, .auto => {
+                const cols = self.indent_size - cursor.col % self.indent_size;
+                return self.insert(root, &cursel, space[0..cols], allocator) catch return error.Stop;
+            },
+            .tabs => {
+                return self.insert(root, &cursel, "\t", allocator) catch return error.Stop;
+            },
+        }
+    }
+
+    fn indent_at_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        if (cursel.selection) |*sel_| {
+            var root = root_;
+            var sel = sel_.*;
+            const sel_from_start = sel_.begin.col == 0;
+            sel.normalize();
+            while (sel.begin.row < sel.end.row) : (sel.begin.row += 1)
+                root = try self.indent_cursor(root, sel.begin, true, allocator);
+            if (sel.end.col > 0)
+                root = try self.indent_cursor(root, sel.end, true, allocator);
+            if (sel_from_start)
+                sel_.begin.col = 0;
+            return root;
+        } else return try self.indent_at_cursor(root_, cursel.cursor, allocator);
+    }
+
+    pub fn indent_at(self: *Self, ctx: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut_repeat(b.root, indent_at_cursel, b.allocator, ctx);
+        try self.update_buf(root, ctx.now);
+    }
+    pub const indent_at_meta: Meta = .{ .description = "Add indentation at cursor", .arguments = &.{.integer} };
+
     fn indent_cursor(self: *Self, root_: Buffer.Root, cursor: Cursor, no_blank_line: bool, allocator: Allocator) error{Stop}!Buffer.Root {
         const space = "                                ";
         var cursel: CurSel = .{};
