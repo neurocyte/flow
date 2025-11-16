@@ -693,8 +693,14 @@ pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) Cl
 
 pub fn request_vcs_status(self: *Self, from: tp.pid_ref) ClientError!void {
     switch (self.state.status) {
-        .none => return error.ClientFailed,
         .failed => return,
+        .none => switch (self.state.workspace_path) {
+            .running => {
+                if (self.status_request) |_| return;
+                self.status_request = from.clone();
+            },
+            else => return error.ClientFailed,
+        },
         .running => {
             if (self.status_request) |_| return;
             self.status_request = from.clone();
@@ -707,6 +713,17 @@ pub fn request_vcs_status(self: *Self, from: tp.pid_ref) ClientError!void {
                 self.state.status = .failed;
             };
         },
+    }
+    switch (self.state.vcs_new_or_modified_files) {
+        .done => {
+            for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
+            self.new_or_modified_files.clearRetainingCapacity();
+            self.state.vcs_new_or_modified_files = .running;
+            git.new_or_modified_files(@intFromPtr(self)) catch {
+                self.state.vcs_new_or_modified_files = .failed;
+            };
+        },
+        else => {},
     }
 }
 
@@ -2383,17 +2400,6 @@ pub fn query_git(self: *Self) void {
     git.current_branch(@intFromPtr(self)) catch {
         self.state.current_branch = .failed;
     };
-    self.state.status = .running;
-    git.status(@intFromPtr(self)) catch {
-        self.state.status = .failed;
-    };
-    // TODO: This needs to be invoked when there are identified changes in the fs
-    for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
-    self.new_or_modified_files.clearRetainingCapacity();
-    self.state.vcs_new_or_modified_files = .running;
-    git.new_or_modified_files(@intFromPtr(self)) catch {
-        self.state.vcs_new_or_modified_files = .failed;
-    };
 }
 
 fn start_walker(self: *Self) void {
@@ -2421,6 +2427,16 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
         self.state.workspace_files = .running;
         git.workspace_files(@intFromPtr(self)) catch {
             self.state.workspace_files = .failed;
+        };
+        self.state.status = .running;
+        git.status(@intFromPtr(self)) catch {
+            self.state.status = .failed;
+        };
+        for (self.new_or_modified_files.items) |file| self.allocator.free(file.path);
+        self.new_or_modified_files.clearRetainingCapacity();
+        self.state.vcs_new_or_modified_files = .running;
+        git.new_or_modified_files(@intFromPtr(self)) catch {
+            self.state.vcs_new_or_modified_files = .failed;
         };
     } else if (try m.match(.{ tp.any, tp.any, "current_branch", tp.null_ })) {
         self.state.current_branch = .done;
