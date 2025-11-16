@@ -6488,6 +6488,8 @@ pub const EditorWidget = struct {
             input.mouse.BUTTON3 => &mouse_click_button3,
             input.mouse.BUTTON4 => &mouse_click_button4,
             input.mouse.BUTTON5 => &mouse_click_button5,
+            input.mouse.BUTTON6 => &mouse_click_button6,
+            input.mouse.BUTTON7 => &mouse_click_button7,
             input.mouse.BUTTON8 => &mouse_click_button8, //back
             input.mouse.BUTTON9 => &mouse_click_button9, //forward
             else => return,
@@ -6566,6 +6568,14 @@ pub const EditorWidget = struct {
 
     fn mouse_click_button5(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
         try self.editor.scroll_down_pagedown(.{});
+    }
+
+    fn mouse_click_button6(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
+        try self.editor.move_scroll_left(.{});
+    }
+
+    fn mouse_click_button7(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
+        try self.editor.move_scroll_right(.{});
     }
 
     fn mouse_click_button8(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
