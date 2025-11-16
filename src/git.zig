@@ -184,7 +184,6 @@ pub fn new_or_modified_files(context_: usize) Error!void {
     }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it_ = std.mem.splitScalar(u8, output, 0);
-            var counter: u8 = 0;
 
             while (it_.next()) |line| {
                 var it = std.mem.splitScalar(u8, line, ' ');
@@ -226,7 +225,6 @@ pub fn new_or_modified_files(context_: usize) Error!void {
                         }
 
                         parent.send(.{ module_name, context, tag, vcs_status, path.items }) catch {};
-                        counter += 1;
                     },
                     .@"2" => {
                         const sub = it.next() orelse return;
@@ -245,7 +243,6 @@ pub fn new_or_modified_files(context_: usize) Error!void {
                             path.appendSlice(allocator, path_part) catch return;
                         }
                         parent.send(.{ module_name, context, tag, '+', path.items }) catch {};
-                        counter += 1;
                     },
                     .@"?" => { // untracked file: <path>
                         var path: std.ArrayListUnmanaged(u8) = .empty;
@@ -255,14 +252,12 @@ pub fn new_or_modified_files(context_: usize) Error!void {
                             path.appendSlice(allocator, path_part) catch return;
                         }
                         parent.send(.{ module_name, context, tag, '+', path.items }) catch {};
-                        counter += 1;
                     },
                     else => {
                         // Omit showing other statuses
                     },
                 }
             }
-            std.log.info("git: {} changed files", .{counter});
         }
     }.result, struct {
         fn result(_: usize, _: tp.pid_ref, output: []const u8) void {
