@@ -18,8 +18,8 @@ pub const mouse = struct {
     pub const BUTTON3: Mouse = vaxis.Mouse.Button.right;
     pub const BUTTON4: Mouse = vaxis.Mouse.Button.wheel_up;
     pub const BUTTON5: Mouse = vaxis.Mouse.Button.wheel_down;
-    // pub const BUTTON6: Mouse = vaxis.Mouse.Button.button_6;
-    // pub const BUTTON7: Mouse = vaxis.Mouse.Button.button_7;
+    pub const BUTTON6: Mouse = vaxis.Mouse.Button.wheel_right;
+    pub const BUTTON7: Mouse = vaxis.Mouse.Button.wheel_left;
     pub const BUTTON8: Mouse = vaxis.Mouse.Button.button_8;
     pub const BUTTON9: Mouse = vaxis.Mouse.Button.button_9;
     pub const BUTTON10: Mouse = vaxis.Mouse.Button.button_10;
@@ -323,13 +323,12 @@ pub const utils = struct {
             mouse.BUTTON3 => "button3",
             mouse.BUTTON4 => "button4",
             mouse.BUTTON5 => "button5",
-            // mouse.BUTTON6 => "button6",
-            // mouse.BUTTON7 => "button7",
+            mouse.BUTTON6 => "button6",
+            mouse.BUTTON7 => "button7",
             mouse.BUTTON8 => "button8",
             mouse.BUTTON9 => "button9",
             mouse.BUTTON10 => "button10",
             mouse.BUTTON11 => "button11",
-            else => "",
         };
     }
 };
