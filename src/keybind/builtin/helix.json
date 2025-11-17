@@ -169,7 +169,12 @@
             [";", "collapse_selections"],
             ["x", "extend_line_below"],
 
-            ["m", "match"],
+            ["m m", "match_brackets"],
+            ["m a", "match", "select_textobject_around"],
+            ["m i", "match", "select_textobject_inner"],
+            ["m d", "match", "surround_delete"],
+            ["m r", "match", "surround_replace"],
+            ["m s", "match", "surround_add"],
 
             ["[ D", "goto_first_diag"],
             ["[ G", "goto_first_change"],
@@ -459,11 +464,11 @@
             ["x", "extend_line_below"],
 
             ["m m", "match_brackets", "helix_sel_mode"],
-            ["m s", "surround_add"],
-            ["m r", "surround_replace"],
-            ["m d", "surround_delete"],
-            ["m a", "select_textobject_around"],
-            ["m i", "select_textobject_inner"],
+            ["m a", "match", "select_textobject_around"],
+            ["m i", "match", "select_textobject_inner"],
+            ["m d", "match", "surround_delete"],
+            ["m r", "match", "surround_replace"],
+            ["m s", "match", "surround_add"],
 
             ["[ D", "goto_first_diag"],
             ["[ G", "goto_first_change"],
