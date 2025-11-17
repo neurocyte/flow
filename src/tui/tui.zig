@@ -1983,6 +1983,8 @@ pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
         .palette => WidgetStyle.from_tag(config_.palette_style),
         .panel => WidgetStyle.from_tag(config_.panel_style),
         .home => WidgetStyle.from_tag(config_.home_style),
+        .pane_left => WidgetStyle.from_tag(config_.pane_left_style),
+        .pane_right => WidgetStyle.from_tag(config_.pane_right_style),
     };
 }
 
@@ -2006,6 +2008,8 @@ fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
         .palette => &config_.palette_style,
         .panel => &config_.panel_style,
         .home => &config_.home_style,
+        .pane_left => &config_.pane_left_style,
+        .pane_right => &config_.pane_right_style,
     };
 }
 

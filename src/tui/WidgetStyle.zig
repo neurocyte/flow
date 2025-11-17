@@ -151,5 +151,7 @@ pub fn theme_style_from_type(style_type: WidgetType, theme: *const Theme) Theme.
         .palette => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },
         .panel => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor.bg },
         .home => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor.bg },
+        .pane_left => .{ .fg = theme.editor_widget.bg, .bg = theme.panel.bg },
+        .pane_right => .{ .fg = theme.editor_widget.bg, .bg = theme.panel.bg },
     };
 }
