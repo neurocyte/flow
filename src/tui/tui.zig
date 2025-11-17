@@ -1020,6 +1020,14 @@ const cmds = struct {
     }
     pub const toggle_highlight_columns_meta: Meta = .{ .description = "Toggle highlight columns" };
 
+    pub fn toggle_centered_view(self: *Self, _: Ctx) Result {
+        defer self.logger.print("centered view {s}", .{if (self.config_.centered_view) "enabled" else "disabled"});
+        self.config_.centered_view = !self.config_.centered_view;
+        try save_config();
+        resize();
+    }
+    pub const toggle_centered_view_meta: Meta = .{ .description = "Toggle centered view" };
+
     pub fn force_color_scheme(self: *Self, ctx: Ctx) Result {
         self.force_color_scheme(if (try ctx.args.match(.{"dark"}))
             .dark
