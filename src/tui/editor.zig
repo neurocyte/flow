@@ -1951,12 +1951,9 @@ pub const Editor = struct {
         self.match_done_token = self.match_token;
     }
 
-    pub fn clear_matches_if_type(self: *Self, match_type: Match.Type) bool {
-        if (self.match_type == match_type) {
+    pub fn clear_matches_if_type(self: *Self, match_type: Match.Type) void {
+        if (self.match_type == match_type)
             self.clear_matches();
-            return true;
-        }
-        return false;
     }
 
     pub fn sort_matches(self: *Self) void {

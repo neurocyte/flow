@@ -1445,8 +1445,8 @@ fn location_jump(from: tp.pid_ref, file_path: []const u8, cursor: location_histo
 }
 
 fn clear_auto_find(self: *Self, editor: *ed.Editor) void {
-    if (editor.clear_matches_if_type(.auto_find))
-        self.store_last_match_text(null);
+    editor.clear_matches_if_type(.auto_find);
+    self.store_last_match_text(null);
 }
 
 fn is_last_match_text(self: *Self, text: []const u8) bool {
