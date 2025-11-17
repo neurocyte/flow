@@ -1867,15 +1867,6 @@ const DocumentSymbol = struct {
     parent_name: []const u8 = &.{},
 };
 
-const SymbolInformation = struct {
-    name: []const u8,
-    kind: usize,
-    tags: ?[]const usize,
-    deprecated: ?bool,
-    location: Location,
-    containerName: ?[]const u8,
-};
-
 // Location is a subset of LocationLink
 const Location = LocationLink;
 
