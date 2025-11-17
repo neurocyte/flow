@@ -3,6 +3,9 @@ const fmt = std.fmt;
 const cbor = @import("cbor");
 const tp = @import("thespian");
 const root = @import("soft_root").root;
+const text_manip = @import("text_manip");
+const write_string = text_manip.write_string;
+const write_padding = text_manip.write_padding;
 const command = @import("command");
 const Buffer = @import("Buffer");
 
@@ -42,21 +45,21 @@ pub fn load_entries(palette: *Type) !usize {
         (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = undefined, .row = undefined };
     }
 
-    var max_label_len: usize = 0;
-    var max_parent_len: usize = 0;
-    var max_kind_len: usize = 0;
+    var max_name_len: usize = 4;
+    var max_parent_len: usize = 4;
+    var max_kind_len: usize = 4;
     for (palette.entries.items) |*item| {
         const label_, const parent_, const kind, const row, _ = get_values(item.cbor);
         item.label = label_;
         item.row = row;
-        max_label_len = @max(max_label_len, item.label.len);
+        max_name_len = @max(max_name_len, item.label.len);
         max_parent_len = @max(max_parent_len, parent_.len);
         max_kind_len = @max(max_kind_len, kind_name(@enumFromInt(kind)).len);
     }
 
-    palette.value.min_col_name = @min(palette.value.min_col_name, max_label_len);
-    palette.value.min_col_parent = @min(palette.value.min_col_parent, max_parent_len);
-    palette.value.min_col_kind = @min(palette.value.min_col_kind, max_kind_len);
+    palette.value.min_col_name = @min(26, max_name_len);
+    palette.value.min_col_parent = @min(14, max_parent_len);
+    palette.value.min_col_kind = @min(12, max_kind_len);
     const less_fn = struct {
         fn less_fn(_: void, lhs: Entry, rhs: Entry) bool {
             return lhs.row < rhs.row;
@@ -64,7 +67,11 @@ pub fn load_entries(palette: *Type) !usize {
     }.less_fn;
     std.mem.sort(Entry, palette.entries.items, {}, less_fn);
 
-    return if (max_label_len > label.len + 3) 0 else label.len + 3 - max_label_len;
+    if (max_name_len > (palette.value.min_col_parent + palette.value.min_col_kind + palette.value.min_col_name)) {
+        return if (max_name_len > label.len + 3) 0 else label.len + 3 - max_name_len;
+    } else {
+        return 1 + palette.value.min_col_parent + palette.value.min_col_kind + if (palette.value.min_col_name > label.len + 3) 0 else palette.value.min_col_name + 3 - max_name_len;
+    }
 }
 
 pub fn clear_entries(palette: *Type) void {
@@ -92,13 +99,18 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     const label_, const container, const kind, _, _ = get_values(item_cbor);
     const icon_: []const u8 = kind_icon(@enumFromInt(kind));
     const color: u24 = 0x0;
-    var buffer: [200]u8 = undefined;
-    const format_buffer = buffer[0..];
     const this_kind_name = kind_name(@enumFromInt(kind));
-    const formatted = fmt.bufPrint(format_buffer, "{s:<26}   {s:<14}   {s:<12}", .{ label_[0..@min(palette.value.min_col_name, label_.len)], container[0..@min(palette.value.min_col_parent, container.len)], this_kind_name[0..@min(palette.value.min_col_kind, this_kind_name.len)] }) catch "";
+    var value: std.Io.Writer.Allocating = .init(palette.allocator);
+    defer value.deinit();
+    const writer = &value.writer;
+    write_string(writer, label_[0..@min(palette.value.min_col_name, label_.len)], palette.value.min_col_name) catch {};
+    write_padding(writer, 1, 2) catch {};
+    write_string(writer, container[0..@min(palette.value.min_col_parent, container.len)], palette.value.min_col_parent) catch {};
+    write_padding(writer, 1, 2) catch {};
+    write_string(writer, this_kind_name[0..@min(palette.value.min_col_kind, this_kind_name.len)], palette.value.min_col_kind) catch {};
     const indicator: []const u8 = &.{};
 
-    return tui.render_file_item(&button.plane, formatted, icon_, color, indicator, matches_cbor, button.active, selected, button.hover, theme);
+    return tui.render_file_item(&button.plane, value.written(), icon_, color, indicator, matches_cbor, button.active, selected, button.hover, theme);
 }
 
 fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, usize, usize } {
