@@ -29,6 +29,8 @@ pub const Margin = struct {
     const @"top/bottom/2": Margin = .{ .top = 2, .bottom = 2, .left = 0, .right = 0 };
     const @"left/right/1": Margin = .{ .top = 0, .bottom = 0, .left = 1, .right = 1 };
     const @"left/right/2": Margin = .{ .top = 0, .bottom = 0, .left = 2, .right = 2 };
+    const @"left/1": Margin = .{ .top = 0, .bottom = 0, .left = 1, .right = 0 };
+    const @"right/1": Margin = .{ .top = 0, .bottom = 0, .left = 0, .right = 1 };
 };
 
 pub const Border = struct {
@@ -112,6 +114,16 @@ const bars_left_right: @This() = .{
     .border = Border.@"thick box (octant)",
 };
 
+const bar_left: @This() = .{
+    .padding = Margin.@"left/1",
+    .border = Border.@"thick box (octant)",
+};
+
+const bar_right: @This() = .{
+    .padding = Margin.@"right/1",
+    .border = Border.@"thick box (octant)",
+};
+
 pub fn from_tag(tag: WidgetStyle) *const @This() {
     return switch (tag) {
         .compact => &compact,
@@ -126,6 +138,8 @@ pub fn from_tag(tag: WidgetStyle) *const @This() {
         .extra_thick_boxed => &extra_thick_boxed,
         .bars_top_bottom => &bars_top_bottom,
         .bars_left_right => &bars_left_right,
+        .bar_left => &bar_left,
+        .bar_right => &bar_right,
     };
 }
 

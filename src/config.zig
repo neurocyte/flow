@@ -43,6 +43,8 @@ widget_style: WidgetStyle = .compact,
 palette_style: WidgetStyle = .bars_top_bottom,
 panel_style: WidgetStyle = .compact,
 home_style: WidgetStyle = .bars_top_bottom,
+pane_left_style: WidgetStyle = .bar_right,
+pane_right_style: WidgetStyle = .bar_left,
 
 lsp_output: enum { quiet, verbose } = .quiet,
 
@@ -78,11 +80,15 @@ pub const WidgetType = enum {
     palette,
     panel,
     home,
+    pane_left,
+    pane_right,
 };
 
 pub const WidgetStyle = enum {
     bars_top_bottom,
     bars_left_right,
+    bar_left,
+    bar_right,
     thick_boxed,
     extra_thick_boxed,
     dotted_boxed,
