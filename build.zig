@@ -666,6 +666,7 @@ pub fn build_exe(
     exe.root_module.addImport("flags", flags_dep.module("flags"));
     exe.root_module.addImport("cbor", cbor_mod);
     exe.root_module.addImport("config", config_mod);
+    exe.root_module.addImport("text_manip", text_manip_mod);
     exe.root_module.addImport("Buffer", Buffer_mod);
     exe.root_module.addImport("tui", tui_mod);
     exe.root_module.addImport("thespian", thespian_mod);
@@ -715,6 +716,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("flags", flags_dep.module("flags"));
     check_exe.root_module.addImport("cbor", cbor_mod);
     check_exe.root_module.addImport("config", config_mod);
+    check_exe.root_module.addImport("text_manip", text_manip_mod);
     check_exe.root_module.addImport("Buffer", Buffer_mod);
     check_exe.root_module.addImport("tui", tui_mod);
     check_exe.root_module.addImport("thespian", thespian_mod);
