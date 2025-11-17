@@ -1,5 +1,8 @@
 const std = @import("std");
 const file_type_config = @import("file_type_config");
+const text_manip = @import("text_manip");
+const write_string = text_manip.write_string;
+const write_padding = text_manip.write_padding;
 const builtin = @import("builtin");
 const RGB = @import("color").RGB;
 
@@ -66,11 +69,6 @@ fn args_string_length(args_: ?[]const []const u8) usize {
     return len;
 }
 
-fn write_string(writer: anytype, string: []const u8, pad: ?usize) !void {
-    try writer.writeAll(string);
-    if (pad) |pad_| try write_padding(writer, string.len, pad_);
-}
-
 fn write_checkmark(writer: anytype, success: bool, tty_config: std.io.tty.Config) !void {
     try tty_config.setColor(writer, if (success) .green else .red);
     if (success) try writer.writeAll(success_mark) else try writer.writeAll(fail_mark);
@@ -96,10 +94,6 @@ fn write_segmented(
     }
     try tty_config.setColor(writer, .reset);
     if (pad) |pad_| try write_padding(writer, len, pad_);
-}
-
-fn write_padding(writer: anytype, len: usize, pad_len: usize) !void {
-    for (0..pad_len - len) |_| try writer.writeAll(" ");
 }
 
 fn can_execute(allocator: std.mem.Allocator, binary_name: []const u8) bool {
