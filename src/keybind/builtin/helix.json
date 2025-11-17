@@ -463,7 +463,7 @@
 
             ["x", "extend_line_below"],
 
-            ["m m", "match_brackets", "helix_sel_mode"],
+            ["m m", "match_brackets"],
             ["m a", "match", "select_textobject_around"],
             ["m i", "match", "select_textobject_inner"],
             ["m d", "match", "surround_delete"],
