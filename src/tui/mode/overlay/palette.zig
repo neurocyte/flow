@@ -27,6 +27,7 @@ pub fn Create(options: type) type {
         allocator: std.mem.Allocator,
         modal: *ModalBackground.State(*Self),
         menu: *Menu.State(*Self),
+        mode: keybind.Mode,
         inputbox: *InputBox.State(*Self),
         logger: log.Logger,
         longest: usize = 0,
@@ -83,13 +84,20 @@ pub fn Create(options: type) type {
                 }))).dynamic_cast(InputBox.State(*Self)) orelse unreachable,
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = .empty,
+                .mode = try keybind.mode("overlay/palette", allocator, .{
+                    .insert_command = "overlay_insert_bytes",
+                }),
             };
             try self.commands.init(self);
+            self.mode.event_handler = EventHandler.to_owned(self);
+            self.mode.name = options.name;
             if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
             self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
                 try options.load_entries_with_args(self, ctx)
             else
                 try options.load_entries(self);
+            if (self.entries.items.len > 0)
+                self.initial_selected = self.menu.selected;
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             if (@hasDecl(options, "initial_query")) blk: {
@@ -101,12 +109,7 @@ pub fn Create(options: type) type {
             try self.start_query(0);
             try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
-            var mode = try keybind.mode("overlay/palette", allocator, .{
-                .insert_command = "overlay_insert_bytes",
-            });
-            mode.event_handler = EventHandler.to_owned(self);
-            mode.name = options.name;
-            return mode;
+            return self.mode;
         }
 
         pub fn deinit(self: *Self) void {

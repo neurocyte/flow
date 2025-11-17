@@ -34,7 +34,7 @@ pub fn load_entries(palette: *Type) !usize {
         (try palette.entries.addOne(palette.allocator)).* = .{ .label = try palette.allocator.dupe(u8, task) };
         longest = @max(longest, task.len);
     }
-    const hints = if (tui.input_mode()) |m| m.keybind_hints else @panic("no keybind hints");
+    const hints = palette.mode.keybind_hints;
     var longest_hint: usize = 0;
     longest_hint = @max(longest_hint, try add_palette_command(palette, "add_task", hints));
     longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_delete_item", hints));
