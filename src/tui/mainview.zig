@@ -824,7 +824,7 @@ const cmds = struct {
     pub const add_split_meta: Meta = .{ .description = "Add split view" };
 
     pub fn close_split(self: *Self, _: Ctx) Result {
-        if (self.views.widgets.items.len == 1)
+        if (self.views.widgets.items.len == 1 and self.views.widgets.items[0].widget.dynamic_cast(home) != null)
             return command.executeName("quit", .{});
         return self.remove_active_view();
     }
