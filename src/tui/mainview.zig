@@ -47,6 +47,8 @@ active_editor: ?*ed.Editor = null,
 views: *WidgetList,
 views_widget: Widget,
 active_view: usize = 0,
+panes: *WidgetList,
+panes_widget: Widget,
 panels: ?*WidgetList = null,
 last_match_text: ?[]const u8 = null,
 location_history_: location_history,
@@ -77,6 +79,8 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         .location_history_ = try location_history.create(),
         .views = undefined,
         .views_widget = undefined,
+        .panes = undefined,
+        .panes_widget = undefined,
         .buffer_manager = Buffer.Manager.init(allocator),
     };
     try self.commands.init(self);
@@ -93,7 +97,12 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     self.views_widget = views.widget();
     try views.add(try Widget.empty(allocator, self.views_widget.plane.*, .dynamic));
 
-    try widgets.add(self.views_widget);
+    const panes = try WidgetList.createH(allocator, self.plane, @typeName(Self), .dynamic);
+    self.panes = panes;
+    self.panes_widget = panes.widget();
+    try self.update_panes_layout();
+
+    try widgets.add(self.panes_widget);
 
     if (tui.config().bottom_bar.len > 0) {
         self.bottom_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)))).*;
@@ -180,6 +189,34 @@ pub fn update(self: *Self) void {
     self.floating_views.update();
 }
 
+pub fn update_panes_layout(self: *Self) !void {
+    while (self.panes.pop()) |widget| if (widget.dynamic_cast(WidgetList) == null)
+        widget.deinit(self.allocator);
+    const centered_view_width = tui.config().centered_view_width;
+    const screen_width = tui.screen().w;
+    const need_padding = screen_width > centered_view_width;
+    if (need_padding and tui.config().centered_view and self.views.widgets.items.len == 1) {
+        const padding = (screen_width - centered_view_width) / 2;
+        try self.panes.add(try self.create_padding_pane(padding, .pane_left));
+        try self.panes.add(self.views_widget);
+        try self.panes.add(try self.create_padding_pane(padding, .pane_right));
+    } else {
+        try self.panes.add(self.views_widget);
+    }
+}
+
+fn create_padding_pane(self: *Self, padding: usize, widget_type: Widget.Type) !Widget {
+    const pane = try WidgetList.createHStyled(
+        self.allocator,
+        self.panes_widget.plane.*,
+        @typeName(Self),
+        .{ .static = padding },
+        widget_type,
+    );
+    try pane.add(try Widget.empty(self.allocator, self.views_widget.plane.*, .dynamic));
+    return pane.widget();
+}
+
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const widgets_more = self.widgets.render(theme);
     const views_more = self.floating_views.render(theme);
@@ -187,6 +224,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 }
 
 pub fn handle_resize(self: *Self, pos: Box) void {
+    self.update_panes_layout() catch {};
     self.plane = tui.plane();
     if (self.panel_height) |h| if (h >= self.box().h) {
         self.panel_height = null;
