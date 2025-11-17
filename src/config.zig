@@ -46,8 +46,8 @@ home_style: WidgetStyle = .bars_top_bottom,
 pane_left_style: WidgetStyle = .bar_right,
 pane_right_style: WidgetStyle = .bar_left,
 
-centered_view: bool = true,
-centered_view_width: usize = 124,
+centered_view: bool = false,
+centered_view_width: usize = 145,
 
 lsp_output: enum { quiet, verbose } = .quiet,
 
