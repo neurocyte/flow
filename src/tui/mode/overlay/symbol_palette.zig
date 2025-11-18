@@ -121,6 +121,9 @@ pub fn load_entries(palette: *Type) !usize {
     }.less_fn;
     std.mem.sort(Entry, palette.entries.items, {}, less_fn);
 
+    palette.initial_selected = find_closest(palette);
+    palette.quick_activate_enabled = false;
+
     const total_width = total_row_width();
     return 2 + if (max_cols_len > label.len + 3) total_width - max_label_len else label.len + 1 - max_cols_len;
 }
@@ -183,6 +186,17 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, ed.Sel
         cbor.any, // detail
     }) catch false;
     return .{ label_, container, kind, range };
+}
+
+fn find_closest(palette: *Type) ?usize {
+    const editor = tui.get_active_editor() orelse return null;
+    const cursor = editor.get_primary().cursor;
+    for (palette.entries.items, 0..) |entry, idx| {
+        _, _, _, const sel = get_values(entry.cbor);
+        if (cursor.within(sel))
+            return idx + 1;
+    }
+    return null;
 }
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
