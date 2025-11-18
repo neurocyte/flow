@@ -11,6 +11,7 @@ pub const label = "Search themes";
 pub const name = " theme";
 pub const description = "theme";
 pub const modal_dim = false;
+pub const placement = .top_right;
 
 pub const Entry = struct {
     label: []const u8,
