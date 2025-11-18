@@ -196,8 +196,6 @@ fn find_closest(palette: *Type) ?usize {
     var previous: usize = 0;
     for (palette.entries.items, 0..) |entry, idx| {
         _, _, _, const sel = get_values(entry.cbor);
-        if (cursor.within(sel))
-            return idx + 1;
         if (cursor.row < sel.begin.row) return previous + 1;
         previous = idx;
     }
