@@ -255,6 +255,7 @@
 
             ["\"", "smart_insert_pair", "\"", "\""],
             ["'", "smart_insert_pair", "'", "'"],
+            ["`", "smart_insert_pair", "`", "`"],
             ["(", "smart_insert_pair", "(", ")"],
             [")", "smart_insert_pair_close", "(", ")"],
             ["[", "smart_insert_pair", "[", "]"],
@@ -269,6 +270,8 @@
             ["‘", "smart_insert_pair_close", "‚", "‘"],
             ["«", "smart_insert_pair", "«", "»"],
             ["»", "smart_insert_pair_close", "«", "»"],
+            ["¿", "smart_insert_pair", "¿", "?"],
+            ["¡", "smart_insert_pair", "¡", "!"],
 
             ["alt+0", "add_integer_argument_digit", 0],
             ["alt+1", "add_integer_argument_digit", 1],

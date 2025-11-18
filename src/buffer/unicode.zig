@@ -41,13 +41,15 @@ pub fn control_code_to_unicode(code: u8) [:0]const u8 {
 pub const char_pairs = [_]struct { []const u8, []const u8 }{
     .{ "\"", "\"" },
     .{ "'", "'" },
+    .{ "`", "`" },
     .{ "(", ")" },
     .{ "[", "]" },
     .{ "{", "}" },
     .{ "‘", "’" },
     .{ "“", "”" },
-    .{ "‚", "‘" },
     .{ "«", "»" },
+    .{ "¿", "?" },
+    .{ "¡", "!" },
 };
 
 pub const open_close_pairs = [_]struct { []const u8, []const u8 }{
@@ -57,6 +59,8 @@ pub const open_close_pairs = [_]struct { []const u8, []const u8 }{
     .{ "‘", "’" },
     .{ "“", "”" },
     .{ "«", "»" },
+    .{ "¿", "?" },
+    .{ "¡", "!" },
 };
 
 fn raw_byte_to_utf8(cp: u8, buf: []u8) ![]const u8 {
