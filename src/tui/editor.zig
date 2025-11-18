@@ -25,6 +25,7 @@ const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const tui = @import("tui.zig");
 const IndentMode = @import("config").IndentMode;
+const WhitespaceMode = @import("config").WhitespaceMode;
 
 pub const Cursor = Buffer.Cursor;
 pub const View = Buffer.View;
@@ -408,7 +409,6 @@ pub const Editor = struct {
         } = null,
     } = null,
 
-    const WhitespaceMode = enum { indent, leading, eol, tabs, visible, full, none };
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
     const Context = command.Context;
@@ -539,7 +539,7 @@ pub const Editor = struct {
             .animation_last_time = time.microTimestamp(),
             .enable_format_on_save = tui.config().enable_format_on_save,
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
-            .render_whitespace = from_whitespace_mode(tui.config().whitespace_mode),
+            .render_whitespace = tui.config().whitespace_mode,
         };
     }
 
@@ -556,23 +556,6 @@ pub const Editor = struct {
         self.handlers.deinit();
         self.logger.deinit();
         if (self.buffer) |p| self.buffer_manager.retire(p, meta.written());
-    }
-
-    fn from_whitespace_mode(whitespace_mode: []const u8) WhitespaceMode {
-        return if (std.mem.eql(u8, whitespace_mode, "indent"))
-            .indent
-        else if (std.mem.eql(u8, whitespace_mode, "leading"))
-            .leading
-        else if (std.mem.eql(u8, whitespace_mode, "eol"))
-            .eol
-        else if (std.mem.eql(u8, whitespace_mode, "tabs"))
-            .tabs
-        else if (std.mem.eql(u8, whitespace_mode, "visible"))
-            .visible
-        else if (std.mem.eql(u8, whitespace_mode, "full"))
-            .full
-        else
-            .none;
     }
 
     pub fn need_render(_: *Self) void {
@@ -6478,6 +6461,7 @@ pub const EditorWidget = struct {
         var ypx: c_int = undefined;
         var pos: u32 = 0;
         var bytes: []const u8 = "";
+        var whitespace_mode: WhitespaceMode = .none;
 
         if (try m.match(.{ "M", tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
             const hover_y, const hover_x = self.editor.plane.abs_yx_to_rel(y, x);
@@ -6526,8 +6510,8 @@ pub const EditorWidget = struct {
                         try self.editor.highlight_references(.{});
                 },
             };
-        } else if (try m.match(.{ "whitespace_mode", tp.extract(&bytes) })) {
-            self.editor.render_whitespace = Editor.from_whitespace_mode(bytes);
+        } else if (try m.match(.{ "whitespace_mode", tp.extract(&whitespace_mode) })) {
+            self.editor.render_whitespace = whitespace_mode;
         } else {
             return false;
         }

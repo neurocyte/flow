@@ -14,7 +14,7 @@ highlight_current_line_gutter: bool = true,
 highlight_columns: []const u16 = &.{ 80, 100, 120 },
 highlight_columns_alpha: u8 = 240,
 highlight_columns_enabled: bool = false,
-whitespace_mode: []const u8 = "none",
+whitespace_mode: WhitespaceMode = .none,
 inline_diagnostics: bool = true,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 50, //milliseconds
@@ -102,4 +102,14 @@ pub const WidgetStyle = enum {
     boxed,
     spacious,
     compact,
+};
+
+pub const WhitespaceMode = enum {
+    indent,
+    leading,
+    eol,
+    tabs,
+    visible,
+    full,
+    none,
 };

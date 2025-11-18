@@ -990,25 +990,20 @@ const cmds = struct {
     pub const theme_prev_meta: Meta = .{ .description = "Previous color theme" };
 
     pub fn toggle_whitespace_mode(self: *Self, _: Ctx) Result {
-        self.config_.whitespace_mode = if (std.mem.eql(u8, self.config_.whitespace_mode, "none"))
-            "indent"
-        else if (std.mem.eql(u8, self.config_.whitespace_mode, "indent"))
-            "leading"
-        else if (std.mem.eql(u8, self.config_.whitespace_mode, "leading"))
-            "eol"
-        else if (std.mem.eql(u8, self.config_.whitespace_mode, "eol"))
-            "tabs"
-        else if (std.mem.eql(u8, self.config_.whitespace_mode, "tabs"))
-            "visible"
-        else if (std.mem.eql(u8, self.config_.whitespace_mode, "visible"))
-            "full"
-        else
-            "none";
+        self.config_.whitespace_mode = switch (self.config_.whitespace_mode) {
+            .none => .indent,
+            .indent => .leading,
+            .leading => .eol,
+            .eol => .tabs,
+            .tabs => .visible,
+            .visible => .full,
+            .full => .none,
+        };
         try save_config();
         var buf: [32]u8 = undefined;
         const m = try tp.message.fmtbuf(&buf, .{ "whitespace_mode", self.config_.whitespace_mode });
         _ = try self.send_widgets(tp.self_pid(), m);
-        self.logger.print("whitespace rendering {s}", .{self.config_.whitespace_mode});
+        self.logger.print("whitespace rendering {s}", .{@tagName(self.config_.whitespace_mode)});
     }
     pub const toggle_whitespace_mode_meta: Meta = .{ .description = "Next whitespace mode" };
 
