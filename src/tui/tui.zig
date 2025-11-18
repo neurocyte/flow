@@ -73,7 +73,6 @@ render_pending: bool = false,
 keepalive_timer: ?tp.Cancellable = null,
 input_idle_timer: ?tp.Cancellable = null,
 mouse_idle_timer: ?tp.Cancellable = null,
-default_cursor: keybind.CursorShape = .default,
 fontface_: []const u8 = "",
 fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
 input_is_idle: bool = false,
@@ -183,8 +182,6 @@ fn init(allocator: Allocator) InitError!*Self {
     instance_ = self;
     defer instance_ = null;
 
-    self.default_cursor = std.meta.stringToEnum(keybind.CursorShape, conf.default_cursor) orelse .default;
-    self.config_.default_cursor = @tagName(self.default_cursor);
     self.rdr_.handler_ctx = self;
     self.rdr_.dispatch_input = dispatch_input;
     self.rdr_.dispatch_mouse = dispatch_mouse;
@@ -1745,7 +1742,8 @@ fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
 
 pub fn get_cursor_shape() renderer.CursorShape {
     const self = current();
-    const shape_ = if (self.input_mode_) |mode| mode.cursor_shape orelse self.default_cursor else self.default_cursor;
+    const default_cursor = self.config_.default_cursor;
+    const shape_ = if (self.input_mode_) |mode| mode.cursor_shape orelse default_cursor else default_cursor;
     const shape = if (self.rdr_.vx.caps.multi_cursor and shape_ == .default) .beam_blink else shape_;
     return switch (shape) {
         .default => .default,

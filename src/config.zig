@@ -24,7 +24,7 @@ idle_actions: []const IdleAction = &default_actions,
 enable_format_on_save: bool = false,
 restore_last_cursor_position: bool = true,
 follow_cursor_on_buffer_switch: bool = false, //scroll cursor into view on buffer switch
-default_cursor: []const u8 = "default",
+default_cursor: CursorShape = .default,
 enable_auto_save: bool = false,
 limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
 
@@ -113,4 +113,14 @@ pub const WhitespaceMode = enum {
     visible,
     full,
     none,
+};
+
+pub const CursorShape = enum {
+    default,
+    block_blink,
+    block,
+    underline_blink,
+    underline,
+    beam_blink,
+    beam,
 };

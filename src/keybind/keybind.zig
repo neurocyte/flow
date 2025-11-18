@@ -14,6 +14,7 @@ const command = @import("command");
 const EventHandler = @import("EventHandler");
 const KeyEvent = input.KeyEvent;
 const SelectionStyle = @import("Buffer").Selection.Style;
+pub const CursorShape = @import("config").CursorShape;
 
 const parse_flow = @import("parse_flow.zig");
 const parse_vim = @import("parse_vim.zig");
@@ -741,16 +742,6 @@ pub const LineNumbers = enum {
     inherit,
     absolute,
     relative,
-};
-
-pub const CursorShape = enum {
-    default,
-    block_blink,
-    block,
-    underline_blink,
-    underline,
-    beam_blink,
-    beam,
 };
 
 pub fn get_or_create_namespace_config_file(allocator: std.mem.Allocator, namespace_name: []const u8) ![]const u8 {
