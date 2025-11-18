@@ -5724,7 +5724,7 @@ pub const Editor = struct {
         self.add_match_internal(sel.begin.row + 1, sel.begin.col, sel.end.row + 1, sel.end.col);
         const cursor = sel.begin;
         const range_height = sel.end.row - sel.begin.row + 1;
-        const view_height = self.view.rows / 2;
+        const view_height = self.view.rows;
         const offset = if (range_height > view_height - @min(view_height, scroll_cursor_min_border_distance * 2))
             scroll_cursor_min_border_distance
         else
