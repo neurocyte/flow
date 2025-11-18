@@ -835,6 +835,10 @@ fn enter_input_mode(self: *Self, new_mode: Mode) command.Result {
     if (self.input_mode_) |*m| m.run_init();
 }
 
+fn switch_input_mode(self: *Self, mode_name: []const u8) !void {
+    if (self.input_mode_) |*m| try m.replace(mode_name, self.allocator);
+}
+
 fn refresh_input_mode(self: *Self) command.Result {
     const mode = (self.input_mode_ orelse return).mode;
     var new_mode = self.get_input_mode(mode) catch ret: {
@@ -1089,6 +1093,17 @@ const cmds = struct {
         return self.enter_input_mode(new_mode);
     }
     pub const enter_mode_meta: Meta = .{ .arguments = &.{.string} };
+
+    pub fn switch_mode(self: *Self, ctx: Ctx) Result {
+        if (!self.delayed_init_done) return;
+
+        var mode: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&mode)}))
+            return tp.exit_error(error.InvalidSwitchModeArgument, null);
+
+        return self.switch_input_mode(mode);
+    }
+    pub const switch_mode_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn enter_mode_default(self: *Self, _: Ctx) Result {
         return enter_mode(self, Ctx.fmt(.{keybind.default_mode}));

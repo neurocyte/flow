@@ -68,15 +68,13 @@ const Handler = struct {
     fn create(mode_name: []const u8, allocator: std.mem.Allocator, opts: anytype) !Mode {
         const self = try allocator.create(@This());
         errdefer allocator.destroy(self);
+        const insert_command = if (@hasField(@TypeOf(opts), "insert_command"))
+            opts.insert_command
+        else
+            "insert_chars";
         self.* = .{
             .allocator = allocator,
-            .bindings = try get_mode_binding_set(
-                mode_name,
-                if (@hasField(@TypeOf(opts), "insert_command"))
-                    opts.insert_command
-                else
-                    "insert_chars",
-            ),
+            .bindings = try get_mode_binding_set(mode_name, insert_command),
         };
         return .{
             .allocator = allocator,
@@ -89,7 +87,32 @@ const Handler = struct {
             .selection_style = self.bindings.selection_style,
             .init_command = self.bindings.init_command,
             .deinit_command = self.bindings.deinit_command,
+            .insert_command = try allocator.dupe(u8, insert_command),
         };
+    }
+    fn replace(mode_: *Mode, mode_name: []const u8, allocator: std.mem.Allocator) !void {
+        const self = try allocator.create(@This());
+        errdefer allocator.destroy(self);
+        self.* = .{
+            .allocator = allocator,
+            .bindings = try get_mode_binding_set(mode_name, mode_.insert_command),
+        };
+
+        if (mode_.deinit_command) |deinit_command| deinit_command.execute_const();
+        if (mode_.input_handler) |ih| ih.deinit();
+        mode_.allocator.free(mode_.mode);
+        mode_.mode = try allocator.dupe(u8, mode_name);
+        mode_.allocator = allocator;
+
+        mode_.input_handler = EventHandler.to_owned(self);
+        mode_.keybind_hints = self.bindings.hints();
+        mode_.name = self.bindings.name;
+        mode_.line_numbers = self.bindings.line_numbers;
+        mode_.cursor_shape = self.bindings.cursor_shape;
+        mode_.selection_style = self.bindings.selection_style;
+        mode_.init_command = self.bindings.init_command;
+        mode_.deinit_command = self.bindings.deinit_command;
+        if (mode_.init_command) |init_command| init_command.execute_const();
     }
     pub fn deinit(self: *@This()) void {
         self.allocator.destroy(self);
@@ -113,6 +136,7 @@ pub const Mode = struct {
     init_command: ?Command = null,
     deinit_command: ?Command = null,
     initialized: bool = false,
+    insert_command: []const u8,
 
     pub fn run_init(self: *Mode) void {
         if (self.initialized) return;
@@ -121,10 +145,18 @@ pub const Mode = struct {
         if (self.init_command) |init_command| init_command.execute_const();
     }
 
+    pub fn replace(self: *Mode, mode_name: []const u8, allocator: std.mem.Allocator) !void {
+        Handler.replace(self, mode_name, allocator) catch |e| switch (e) {
+            error.NotFound => return error.Stop,
+            else => return e,
+        };
+    }
+
     pub fn deinit(self: *Mode) void {
         if (self.deinit_command) |deinit_command| deinit_command.execute_const();
         if (self.event_handler) |eh| eh.deinit();
         if (self.input_handler) |ih| ih.deinit();
+        self.allocator.free(self.insert_command);
         self.allocator.free(self.mode);
 
         self.deinit_command = null;
