@@ -64,6 +64,13 @@ pub fn Create(options: type) type {
                 .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{
                     .ctx = self,
                     .on_click = mouse_palette_menu_cancel,
+                    .on_render = if (@hasDecl(options, "modal_dim"))
+                        if (options.modal_dim)
+                            ModalBackground.Options(*Self).on_render_dim
+                        else
+                            ModalBackground.Options(*Self).on_render_default
+                    else
+                        ModalBackground.Options(*Self).on_render_default,
                 }),
                 .menu = try Menu.create(*Self, allocator, tui.plane(), .{
                     .ctx = self,
