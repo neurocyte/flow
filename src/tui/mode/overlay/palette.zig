@@ -22,6 +22,12 @@ pub const Menu = @import("../../Menu.zig");
 const max_menu_width = 80;
 const widget_type: Widget.Type = .palette;
 
+pub const Placement = enum {
+    top_center,
+    top_left,
+    top_right,
+};
+
 pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
@@ -35,6 +41,7 @@ pub fn Create(options: type) type {
         entries: std.ArrayList(Entry) = undefined,
         longest_hint: usize = 0,
         initial_selected: ?usize = null,
+        placement: Placement,
 
         items: usize = 0,
         view_rows: usize,
@@ -94,6 +101,7 @@ pub fn Create(options: type) type {
                 .mode = try keybind.mode("overlay/palette", allocator, .{
                     .insert_command = "overlay_insert_bytes",
                 }),
+                .placement = if (@hasDecl(options, "placement")) options.placement else .top_center,
             };
             try self.commands.init(self);
             self.mode.event_handler = EventHandler.to_owned(self);
@@ -183,11 +191,36 @@ pub fn Create(options: type) type {
 
         fn prepare_resize(self: *Self) Widget.Box {
             const screen = tui.screen();
-            const w = @max(@min(self.longest + 3, max_menu_width) + 2 + self.longest_hint, options.label.len + 2);
-            const x = if (screen.w > w) (screen.w - w) / 2 else 0;
+            const w = self.prepare_width();
+            return switch (self.placement) {
+                .top_center => self.prepare_resize_top_center(screen, w),
+                .top_left => self.prepare_resize_top_left(screen, w),
+                .top_right => self.prepare_resize_top_right(screen, w),
+            };
+        }
+
+        fn prepare_width(self: *Self) usize {
+            return @max(@min(self.longest + 3, max_menu_width) + 2 + self.longest_hint, options.label.len + 2);
+        }
+
+        fn prepare_resize_at_x(self: *Self, screen: Widget.Box, w: usize, x: usize) Widget.Box {
             self.view_rows = get_view_rows(screen);
             const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);
             return .{ .y = 0, .x = x, .w = w, .h = h };
+        }
+
+        fn prepare_resize_top_center(self: *Self, screen: Widget.Box, w: usize) Widget.Box {
+            const x = if (screen.w > w) (screen.w - w) / 2 else 0;
+            return self.prepare_resize_at_x(screen, w, x);
+        }
+
+        fn prepare_resize_top_left(self: *Self, screen: Widget.Box, w: usize) Widget.Box {
+            return self.prepare_resize_at_x(screen, w, 0);
+        }
+
+        fn prepare_resize_top_right(self: *Self, screen: Widget.Box, w: usize) Widget.Box {
+            const x = if (screen.w > w) (screen.w - w) else 0;
+            return self.prepare_resize_at_x(screen, w, x);
         }
 
         fn after_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
