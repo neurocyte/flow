@@ -2626,7 +2626,7 @@ pub const Editor = struct {
         self.view.row = row;
     }
 
-    fn update_scroll_dest_abs(self: *Self, dest: usize) void {
+    pub fn update_scroll_dest_abs(self: *Self, dest: usize) void {
         const root = self.buf_root() catch return;
         const max_view = if (root.lines() <= scroll_cursor_min_border_distance) 0 else root.lines() - scroll_cursor_min_border_distance;
         self.scroll_dest = @min(dest, max_view);
