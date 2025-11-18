@@ -220,6 +220,11 @@ pub fn Create(options: type) type {
 
         fn prepare_resize_top_right(self: *Self, screen: Widget.Box, w: usize) Widget.Box {
             const x = if (screen.w > w) (screen.w - w) else 0;
+            if (tui.mainview()) |mv| if (mv.is_view_centered()) {
+                const centered_view_width = tui.config().centered_view_width;
+                const right_edge = ((screen.w - centered_view_width) / 2) + centered_view_width;
+                return self.prepare_resize_at_x(screen, w, @min(x, right_edge));
+            };
             return self.prepare_resize_at_x(screen, w, x);
         }
 
