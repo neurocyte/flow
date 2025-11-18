@@ -189,16 +189,24 @@ pub fn update(self: *Self) void {
     self.floating_views.update();
 }
 
-pub fn update_panes_layout(self: *Self) !void {
-    while (self.panes.pop()) |widget| if (widget.dynamic_cast(WidgetList) == null)
-        widget.deinit(self.allocator);
-    const centered_view_width = tui.config().centered_view_width;
+pub fn is_view_centered(self: *const Self) bool {
+    const conf = tui.config();
+    const centered_view_width = conf.centered_view_width;
     const screen_width = tui.screen().w;
     const need_padding = screen_width > centered_view_width;
     const have_vsplits = self.views.widgets.items.len > 1;
-    const have_min_screen_width = screen_width > tui.config().centered_view_min_screen_width;
-    const centered_view = need_padding and tui.config().centered_view and !have_vsplits and have_min_screen_width;
-    if (centered_view) {
+    const have_min_screen_width = screen_width > conf.centered_view_min_screen_width;
+    const centered_view = need_padding and conf.centered_view and !have_vsplits and have_min_screen_width;
+    return centered_view;
+}
+
+pub fn update_panes_layout(self: *Self) !void {
+    while (self.panes.pop()) |widget| if (widget.dynamic_cast(WidgetList) == null)
+        widget.deinit(self.allocator);
+    if (self.is_view_centered()) {
+        const conf = tui.config();
+        const centered_view_width = conf.centered_view_width;
+        const screen_width = tui.screen().w;
         const padding = (screen_width - centered_view_width) / 2;
         try self.panes.add(try self.create_padding_pane(padding, .pane_left));
         try self.panes.add(self.views_widget);
