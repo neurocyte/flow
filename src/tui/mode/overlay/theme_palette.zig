@@ -39,6 +39,7 @@ pub fn load_entries(palette: *Type) !usize {
         };
         longest_hint = @max(longest_hint, theme.name.len);
     }
+    palette.quick_activate_enabled = false;
     return longest_hint;
 }
 
