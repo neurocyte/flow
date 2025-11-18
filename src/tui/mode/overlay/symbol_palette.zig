@@ -194,7 +194,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
     _, _, _, const sel = get_values(button.opts.label);
-    tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{ sel.begin.row + 1, sel.begin.col + 1 } }) catch {};
+    tp.self_pid().send(.{ "cmd", "focus_on_range", .{ sel.begin.row, sel.begin.col, sel.end.row, sel.end.col, ed.PosType.byte } }) catch {};
 }
 
 pub fn cancel(palette: *Type) !void {
