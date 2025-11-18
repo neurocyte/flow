@@ -209,12 +209,11 @@ const cmds_ = struct {
     }
     pub const split_selection_on_newline_meta: Meta = .{ .description = "Add cursor to each line in selection helix" };
 
-    pub fn match_brackets(_: *void, _: Ctx) Result {
+    pub fn match_brackets(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const root = ed.buf_root() catch return;
-        const m = tui.input_mode().?.*.name;
-        try ed.with_cursels_const_once_arg(root, &match_bracket, command.fmt(.{m}));
+        try ed.with_cursels_const_once_arg(root, &match_bracket, ctx);
         ed.clamp();
     }
     pub const match_brackets_meta: Meta = .{ .description = "Goto matching bracket" };
@@ -494,7 +493,7 @@ const cmds_ = struct {
 fn match_bracket(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
     var symbol: []const u8 = undefined;
     const mode: enum { helix_sel_mode, helix_nor_mode } = if ((ctx.args.match(.{tp.extract(&symbol)}) catch false) and
-        std.mem.eql(u8, "SEL", symbol)) .helix_sel_mode else .helix_nor_mode;
+        std.mem.eql(u8, @tagName(.helix_sel_mode), symbol)) .helix_sel_mode else .helix_nor_mode;
 
     if (mode == .helix_sel_mode) {
         const begin: Cursor = if (cursel.selection) |sel| sel.begin else cursel.*.cursor;
