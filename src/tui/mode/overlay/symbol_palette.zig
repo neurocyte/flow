@@ -40,7 +40,7 @@ const columns: [3]Column = .{
 
 pub const Entry = struct {
     label: []const u8,
-    row: usize,
+    range: ed.Selection,
     cbor: []const u8,
 };
 
@@ -104,8 +104,8 @@ pub fn load_entries(palette: *Type) !usize {
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
-        const label_, const parent_, const kind, const row, _ = get_values(cbor_item);
-        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = label_[0..@min(columns[0].max_width, label_.len)], .row = row };
+        const label_, const parent_, const kind, const sel = get_values(cbor_item);
+        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = label_[0..@min(columns[0].max_width, label_.len)], .range = sel };
 
         const current_lengths: [3]usize = .{ label_.len, parent_.len, kind_name(@enumFromInt(kind)).len };
         const label_len: u8 = @truncate(if (label_.len > columns[0].max_width) columns[0].max_width else label_.len);
@@ -116,7 +116,7 @@ pub fn load_entries(palette: *Type) !usize {
 
     const less_fn = struct {
         fn less_fn(_: void, lhs: Entry, rhs: Entry) bool {
-            return lhs.row < rhs.row;
+            return lhs.range.begin.row < rhs.range.begin.row;
         }
     }.less_fn;
     std.mem.sort(Entry, palette.entries.items, {}, less_fn);
@@ -147,7 +147,7 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&item_cbor)) catch false)) return false;
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) return false;
 
-    const label_, const container, const kind, _, _ = get_values(item_cbor);
+    const label_, const container, const kind, _ = get_values(item_cbor);
     const icon_: []const u8 = kind_icon(@enumFromInt(kind));
     const color: u24 = 0x0;
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
@@ -160,21 +160,20 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     return tui.render_file_item(&button.plane, value.written(), icon_, color, indicator, matches_cbor, button.active, selected, button.hover, theme);
 }
 
-fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, usize, usize } {
+fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, ed.Selection } {
     var label_: []const u8 = "";
     var container: []const u8 = "";
     var kind: u8 = 0;
-    var row: usize = 0;
-    var col: usize = 0;
+    var range: ed.Selection = .{};
     _ = cbor.match(item_cbor, .{
         cbor.any, // file_path
         cbor.extract(&label_), // name
         cbor.extract(&container), // parent_name
         cbor.extract(&kind), // kind
-        cbor.extract(&row), // range.begin.row
-        cbor.extract(&col), // range.begin.col
-        cbor.any, // range.end.row
-        cbor.any, // range.end.col
+        cbor.extract(&range.begin.row), // range.begin.row
+        cbor.extract(&range.begin.col), // range.begin.col
+        cbor.extract(&range.end.row), // range.end.row
+        cbor.extract(&range.end.col), // range.end.col
         cbor.any, // tags
         cbor.any, // selectionRange.begin.row
         cbor.any, // selectionRange.begin.col
@@ -183,19 +182,19 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, usize,
         cbor.any, // deprecated
         cbor.any, // detail
     }) catch false;
-    return .{ label_, container, kind, row, col };
+    return .{ label_, container, kind, range };
 }
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
-    _, _, _, const row, const col = get_values(button.opts.label);
+    _, _, _, const sel = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{ row + 1, col + 1 } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{ sel.begin.row + 1, sel.begin.col + 1 } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
-    _, _, _, const row, const col = get_values(button.opts.label);
-    tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{ row + 1, col + 1 } }) catch {};
+    _, _, _, const sel = get_values(button.opts.label);
+    tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{ sel.begin.row + 1, sel.begin.col + 1 } }) catch {};
 }
 
 pub fn cancel(palette: *Type) !void {
