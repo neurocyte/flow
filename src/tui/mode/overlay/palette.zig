@@ -111,8 +111,6 @@ pub fn Create(options: type) type {
                 try options.load_entries_with_args(self, ctx)
             else
                 try options.load_entries(self);
-            if (self.entries.items.len > 0)
-                self.initial_selected = self.menu.selected;
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             if (@hasDecl(options, "initial_query")) blk: {
