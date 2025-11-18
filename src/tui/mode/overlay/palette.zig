@@ -42,6 +42,7 @@ pub fn Create(options: type) type {
         longest_hint: usize = 0,
         initial_selected: ?usize = null,
         placement: Placement,
+        quick_activate_enabled: bool = true,
 
         items: usize = 0,
         view_rows: usize,
@@ -553,7 +554,9 @@ pub fn Create(options: type) type {
             pub const palette_menu_activate_meta: Meta = .{};
 
             pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
+                if (!self.quick_activate_enabled) return;
                 if (self.menu.selected orelse 0 > 0) self.menu.activate_selected();
+                self.quick_activate_enabled = false;
             }
             pub const palette_menu_activate_quick_meta: Meta = .{};
 
