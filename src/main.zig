@@ -732,6 +732,7 @@ fn write_config_value_description(T: type, field_type: type, writer: *std.Io.Wri
             u24 => try writer.print("24 bit hex color value in quotes", .{}),
             usize => try writer.print("positive integer", .{}),
             u8 => try writer.print("positive integer up to 255", .{}),
+            u16 => try writer.print("positive integer up to {d}", .{std.math.maxInt(u16)}),
             else => unsupported_error(T, field_type),
         },
         .bool => try writer.print("true or false", .{}),
