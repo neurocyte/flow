@@ -225,6 +225,7 @@
             ["shift+f11", "toggle_highlight_columns"],
             ["ctrl+f11", "toggle_inspector_view"],
             ["f12", "goto_definition"],
+            ["ctrl+shift+o", "show_symbols"],
             ["ctrl+space", "completion"],
             ["ctrl+.", "completion"],
             ["f34", "toggle_whitespace_mode"],
