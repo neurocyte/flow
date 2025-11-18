@@ -77,7 +77,7 @@ pub fn Create(options: type) type {
                         else
                             ModalBackground.Options(*Self).on_render_default
                     else
-                        ModalBackground.Options(*Self).on_render_default,
+                        ModalBackground.Options(*Self).on_render_dim,
                 }),
                 .menu = try Menu.create(*Self, allocator, tui.plane(), .{
                     .ctx = self,
