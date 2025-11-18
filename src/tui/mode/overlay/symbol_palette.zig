@@ -20,6 +20,22 @@ pub const name = "Go to";
 pub const description = "Symbols in scope";
 pub const icon = "󱎸  ";
 
+const Column = struct {
+    label: []const u8,
+    max_width: u8,
+    min_width: u8,
+};
+const ColumnName = enum(u8) {
+    Name = 0,
+    Container = 1,
+    Kind = 2,
+};
+const columns: [3]Column = .{
+    .{ .label = "Name", .max_width = 26, .min_width = 4 },
+    .{ .label = "Container", .max_width = 14, .min_width = 4 },
+    .{ .label = "Kind", .max_width = 12, .min_width = 4 },
+};
+
 pub const Entry = struct {
     label: []const u8,
     row: usize,
@@ -28,38 +44,74 @@ pub const Entry = struct {
 
 pub const ValueType = struct {
     start: ed.CurSel = .{},
-    min_col_name: u8 = 26,
-    min_col_parent: u8 = 14,
-    min_col_kind: u8 = 12,
+    column_size: [3]u8 = undefined,
 };
 pub const defaultValue: ValueType = .{};
+
+fn init_col_sizes(palette: *Type) void {
+    for (0..columns.len) |i| {
+        palette.value.column_size[i] = columns[i].min_width;
+    }
+}
+
+fn update_min_col_sizes(palette: *Type) void {
+    for (0..columns.len) |i| {
+        palette.value.column_size[i] = @min(columns[i].max_width, palette.value.column_size[i]);
+    }
+}
+
+fn update_max_col_sizes(palette: *Type, comp_sizes: []const usize) u8 {
+    var total_length: u8 = 0;
+    for (0..columns.len) |i| {
+        const truncated: u8 = @truncate(comp_sizes[i]);
+        palette.value.column_size[i] = @max(if (truncated > columns[i].max_width) columns[i].max_width else truncated, palette.value.column_size[i]);
+        total_length += palette.value.column_size[i];
+    }
+    return total_length;
+}
+
+fn write_columns(palette: *Type, writer: anytype, column_info: [][]const u8) void {
+    if (palette.value.column_size.len == 0)
+        return;
+    write_string(writer, column_info[0][0..@min(palette.value.column_size[0], column_info[0].len)], columns[0].max_width) catch {};
+
+    for (1..column_info.len) |i| {
+        write_padding(writer, 1, 2) catch {};
+        write_string(writer, column_info[i][0..@min(palette.value.column_size[i], column_info[i].len)], columns[i].max_width) catch {};
+    }
+}
+
+fn total_row_width() u8 {
+    var total_width: u8 = 0;
+
+    for (columns) |col| {
+        total_width += col.max_width;
+    }
+    return total_width;
+}
 
 pub fn load_entries(palette: *Type) !usize {
     const mv = tui.mainview() orelse return 0;
     const editor = tui.get_active_editor() orelse return error.NotFound;
+    var max_cols_len: u8 = 0;
+    var max_label_len: usize = 0;
+
     palette.value.start = editor.get_primary().*;
     var iter: []const u8 = mv.symbols.items;
+    init_col_sizes(palette);
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
-        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = undefined, .row = undefined };
-    }
+        const label_, const parent_, const kind, const row, _ = get_values(cbor_item);
+        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = label_[0..@min(columns[0].max_width, label_.len)], .row = row };
 
-    var max_name_len: usize = 4;
-    var max_parent_len: usize = 4;
-    var max_kind_len: usize = 4;
-    for (palette.entries.items) |*item| {
-        const label_, const parent_, const kind, const row, _ = get_values(item.cbor);
-        item.label = label_;
-        item.row = row;
-        max_name_len = @max(max_name_len, item.label.len);
-        max_parent_len = @max(max_parent_len, parent_.len);
-        max_kind_len = @max(max_kind_len, kind_name(@enumFromInt(kind)).len);
+        const current_lengths: [3]usize = .{ label_.len, parent_.len, kind_name(@enumFromInt(kind)).len };
+        const label_len: u8 = @truncate(if (label_.len > columns[0].max_width) columns[0].max_width else label_.len);
+        max_cols_len = @max(max_cols_len, label_len, update_max_col_sizes(palette, &current_lengths));
+        max_label_len = @max(max_label_len, label_len);
     }
+    update_min_col_sizes(palette);
 
-    palette.value.min_col_name = @min(26, max_name_len);
-    palette.value.min_col_parent = @min(14, max_parent_len);
-    palette.value.min_col_kind = @min(12, max_kind_len);
     const less_fn = struct {
         fn less_fn(_: void, lhs: Entry, rhs: Entry) bool {
             return lhs.row < rhs.row;
@@ -67,11 +119,8 @@ pub fn load_entries(palette: *Type) !usize {
     }.less_fn;
     std.mem.sort(Entry, palette.entries.items, {}, less_fn);
 
-    if (max_name_len > (palette.value.min_col_parent + palette.value.min_col_kind + palette.value.min_col_name)) {
-        return if (max_name_len > label.len + 3) 0 else label.len + 3 - max_name_len;
-    } else {
-        return 1 + palette.value.min_col_parent + palette.value.min_col_kind + if (palette.value.min_col_name > label.len + 3) 0 else palette.value.min_col_name + 3 - max_name_len;
-    }
+    const total_width = total_row_width();
+    return 2 + if (max_cols_len > label.len + 3) total_width - max_label_len else label.len + 1 - max_cols_len;
 }
 
 pub fn clear_entries(palette: *Type) void {
@@ -99,15 +148,11 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     const label_, const container, const kind, _, _ = get_values(item_cbor);
     const icon_: []const u8 = kind_icon(@enumFromInt(kind));
     const color: u24 = 0x0;
-    const this_kind_name = kind_name(@enumFromInt(kind));
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
-    write_string(writer, label_[0..@min(palette.value.min_col_name, label_.len)], palette.value.min_col_name) catch {};
-    write_padding(writer, 1, 2) catch {};
-    write_string(writer, container[0..@min(palette.value.min_col_parent, container.len)], palette.value.min_col_parent) catch {};
-    write_padding(writer, 1, 2) catch {};
-    write_string(writer, this_kind_name[0..@min(palette.value.min_col_kind, this_kind_name.len)], palette.value.min_col_kind) catch {};
+    var column_info = [_][]const u8{ label_, container, kind_name(@enumFromInt(kind)) };
+    write_columns(palette, writer, &column_info);
     const indicator: []const u8 = &.{};
 
     return tui.render_file_item(&button.plane, value.written(), icon_, color, indicator, matches_cbor, button.active, selected, button.hover, theme);
