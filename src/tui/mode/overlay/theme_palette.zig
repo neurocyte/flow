@@ -64,8 +64,8 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     if (!(cbor.matchString(&iter, &name_) catch false)) return;
     if (previous_theme) |prev| if (std.mem.eql(u8, prev, name_))
         return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("theme_palette", e);
     tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| menu.*.opts.ctx.logger.err("theme_palette", e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("theme_palette", e);
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
