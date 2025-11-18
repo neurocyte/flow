@@ -5713,32 +5713,27 @@ pub const Editor = struct {
 
     pub fn focus_on_range(self: *Self, ctx: Context) Result {
         var sel: Selection = .{};
-        var pos_type: PosType = .column;
         if (!try ctx.args.match(.{
             tp.extract(&sel.begin.row),
             tp.extract(&sel.begin.col),
             tp.extract(&sel.end.row),
             tp.extract(&sel.end.col),
-            tp.extract(&pos_type),
         })) return error.InvalidFocusOnRangeArgument;
 
-        self.cancel_all_selections();
-        const root = self.buf_root() catch return;
-        if (pos_type == .byte)
-            sel = sel.from_pos(root, self.metrics) catch return;
-        const primary = self.get_primary();
-        try primary.cursor.move_to(
-            root,
-            sel.begin.row,
-            sel.begin.col,
-            self.metrics,
-        );
-        primary.selection = sel;
-        if (self.view.is_visible(&primary.cursor))
-            self.clamp()
+        self.cancel_all_matches();
+        self.add_match_internal(sel.begin.row + 1, sel.begin.col, sel.end.row + 1, sel.end.col);
+        const cursor = sel.begin;
+        const range_height = sel.end.row - sel.begin.row + 1;
+        const view_height = self.view.rows / 2;
+        const offset = if (range_height > view_height - @min(view_height, scroll_cursor_min_border_distance * 2))
+            scroll_cursor_min_border_distance
         else
-            try self.scroll_view_center(.{});
-        self.need_render();
+            (view_height / 2) - (range_height / 2);
+        const row = if (cursor.row > offset)
+            cursor.row - offset
+        else
+            0;
+        self.update_scroll_dest_abs(row);
     }
     pub const focus_on_range_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
 
