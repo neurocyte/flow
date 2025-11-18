@@ -48,6 +48,7 @@ pane_right_style: WidgetStyle = .bar_left,
 
 centered_view: bool = false,
 centered_view_width: usize = 145,
+centered_view_min_screen_width: usize = 145,
 
 lsp_output: enum { quiet, verbose } = .quiet,
 

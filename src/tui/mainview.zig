@@ -195,7 +195,10 @@ pub fn update_panes_layout(self: *Self) !void {
     const centered_view_width = tui.config().centered_view_width;
     const screen_width = tui.screen().w;
     const need_padding = screen_width > centered_view_width;
-    if (need_padding and tui.config().centered_view and self.views.widgets.items.len == 1) {
+    const have_vsplits = self.views.widgets.items.len > 1;
+    const have_min_screen_width = screen_width > tui.config().centered_view_min_screen_width;
+    const centered_view = need_padding and tui.config().centered_view and !have_vsplits and have_min_screen_width;
+    if (centered_view) {
         const padding = (screen_width - centered_view_width) / 2;
         try self.panes.add(try self.create_padding_pane(padding, .pane_left));
         try self.panes.add(self.views_widget);
