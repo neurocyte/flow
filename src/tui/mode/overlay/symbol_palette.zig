@@ -19,6 +19,8 @@ pub const label = "Go to Symbol";
 pub const name = "Go to";
 pub const description = "Symbols in scope";
 pub const icon = "󱎸  ";
+pub const modal_dim = false;
+pub const placement = .top_right;
 
 const Column = struct {
     label: []const u8,
