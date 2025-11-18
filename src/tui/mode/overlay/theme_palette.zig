@@ -10,6 +10,7 @@ pub const Type = @import("palette.zig").Create(@This());
 pub const label = "Search themes";
 pub const name = " theme";
 pub const description = "theme";
+pub const modal_dim = false;
 
 pub const Entry = struct {
     label: []const u8,
