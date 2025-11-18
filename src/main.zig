@@ -698,6 +698,7 @@ pub fn write_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer)
     const default: T = .{};
     inline for (@typeInfo(T).@"struct".fields) |field_info| {
         if (config_eql(
+            T,
             field_info.type,
             @field(data, field_info.name),
             @field(default, field_info.name),
@@ -721,6 +722,10 @@ pub fn write_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer)
     }
 }
 
+fn unsupported_error(config_type: type, value_type: type) void {
+    @compileError("unsupported config type in " ++ @typeName(config_type) ++ ": " ++ @typeName(value_type));
+}
+
 fn write_color_value(value: u24, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     var hex: [7]u8 = undefined;
     try writer.writeByte('"');
@@ -728,12 +733,12 @@ fn write_color_value(value: u24, writer: *std.Io.Writer) std.Io.Writer.Error!voi
     try writer.writeByte('"');
 }
 
-fn config_eql(comptime T: type, a: T, b: T) bool {
+fn config_eql(config_type: type, T: type, a: T, b: T) bool {
     switch (T) {
         []const u8 => return std.mem.eql(u8, a, b),
         []const []const u8 => {
             if (a.len != b.len) return false;
-            for (a, 0..) |x, i| if (!config_eql([]const u8, x, b[i])) return false;
+            for (a, 0..) |x, i| if (!config_eql(config_type, []const u8, x, b[i])) return false;
             return true;
         },
         else => {},
@@ -745,19 +750,19 @@ fn config_eql(comptime T: type, a: T, b: T) bool {
                 return true;
             if (a == null or b == null)
                 return false;
-            return config_eql(info.child, a.?, b.?);
+            return config_eql(config_type, info.child, a.?, b.?);
         },
         .pointer => |info| switch (info.size) {
             .slice => {
                 if (a.len != b.len) return false;
-                for (a, 0..) |x, i| if (!config_eql(info.child, x, b[i])) return false;
+                for (a, 0..) |x, i| if (!config_eql(config_type, info.child, x, b[i])) return false;
                 return true;
             },
-            else => @compileError("unsupported config type " ++ @typeName(T)),
+            else => unsupported_error(config_type, T),
         },
         else => {},
     }
-    @compileError("unsupported config type " ++ @typeName(T));
+    unsupported_error(config_type, T);
 }
 
 fn write_json_file(comptime T: type, data: T, allocator: std.mem.Allocator, file_name: []const u8) !void {
