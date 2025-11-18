@@ -46,6 +46,7 @@ pub const Entry = struct {
 
 pub const ValueType = struct {
     start: ed.CurSel = .{},
+    view: ed.View = .{},
     column_size: [3]u8 = undefined,
 };
 pub const defaultValue: ValueType = .{};
@@ -99,6 +100,7 @@ pub fn load_entries(palette: *Type) !usize {
     var max_label_len: usize = 0;
 
     palette.value.start = editor.get_primary().*;
+    palette.value.view = editor.view;
     var iter: []const u8 = mv.symbols.items;
     init_col_sizes(palette);
     while (iter.len > 0) {
@@ -203,6 +205,8 @@ fn find_closest(palette: *Type) ?usize {
 }
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+    const editor = tui.get_active_editor() orelse return;
+    editor.clear_matches();
     _, _, _, const sel = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{ sel.begin.row + 1, sel.begin.col + 1 } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
@@ -211,13 +215,13 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
     _, _, _, const sel = get_values(button.opts.label);
-    tp.self_pid().send(.{ "cmd", "focus_on_range", .{ sel.begin.row, sel.begin.col, sel.end.row, sel.end.col, ed.PosType.byte } }) catch {};
+    tp.self_pid().send(.{ "cmd", "focus_on_range", .{ sel.begin.row, sel.begin.col, sel.end.row, sel.end.col } }) catch {};
 }
 
 pub fn cancel(palette: *Type) !void {
-    tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{ palette.value.start.cursor.row + 1, palette.value.start.cursor.col + 1 } }) catch return;
     const editor = tui.get_active_editor() orelse return;
-    editor.get_primary().selection = palette.value.start.selection;
+    editor.clear_matches();
+    editor.update_scroll_dest_abs(palette.value.view.row);
 }
 
 const SymbolKind = enum(u8) {
