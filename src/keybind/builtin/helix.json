@@ -27,10 +27,12 @@
 
             ["ctrl+^", "open_previous_file"],
             ["ctrl+w v", "add_split"],
+            ["ctrl+w c", "toggle_centered_view"],
             ["ctrl+w h", "goto_left_split"],
             ["ctrl+w l", "goto_right_split"],
             ["ctrl+w H", "swap_left_split"],
             ["ctrl+w L", "swap_right_split"],
+            ["ctrl+w F", "goto_file_split"],
             ["ctrl+w q", "close_split"],
             ["ctrl+w o", "close_other_splits"],
 
