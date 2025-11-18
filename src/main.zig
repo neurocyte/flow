@@ -719,6 +719,50 @@ pub fn write_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer)
             },
         }
         try writer.print("\n", .{});
+        try writer.print("# value type: ", .{});
+        try write_config_value_description(T, field_info.type, writer);
+        try writer.print("\n", .{});
+        try writer.print("\n", .{});
+    }
+}
+
+fn write_config_value_description(T: type, field_type: type, writer: *std.Io.Writer) !void {
+    switch (@typeInfo(field_type)) {
+        .int => switch (field_type) {
+            u24 => try writer.print("24 bit hex color value in quotes", .{}),
+            usize => try writer.print("positive integer", .{}),
+            u8 => try writer.print("positive integer up to 255", .{}),
+            else => unsupported_error(T, field_type),
+        },
+        .bool => try writer.print("true or false", .{}),
+        .@"enum" => {
+            var first = true;
+            try writer.print("one of ", .{});
+            for (std.meta.tags(field_type)) |tag| {
+                if (first) first = false else try writer.print(", ", .{});
+                try writer.print("\"{s}\"", .{@tagName(tag)});
+            }
+        },
+        .optional => |info| switch (@typeInfo(info.child)) {
+            else => {
+                try write_config_value_description(T, info.child, writer);
+                try writer.print(" or null", .{});
+            },
+        },
+        .pointer => |info| switch (info.size) {
+            .slice => if (info.child == u8)
+                try writer.print("quoted string", .{})
+            else if (info.child == u16)
+                try writer.print("quoted string (u16)", .{})
+            else if (info.child == []const u8)
+                try writer.print("list of quoted strings", .{})
+            else if (info.child == @import("config").IdleAction)
+                try writer.print("list of idle actions", .{})
+            else
+                unsupported_error(T, info.child),
+            else => unsupported_error(T, info.child),
+        },
+        else => unsupported_error(T, field_type),
     }
 }
 
