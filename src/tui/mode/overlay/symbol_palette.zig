@@ -191,10 +191,13 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, ed.Sel
 fn find_closest(palette: *Type) ?usize {
     const editor = tui.get_active_editor() orelse return null;
     const cursor = editor.get_primary().cursor;
+    var previous: usize = 0;
     for (palette.entries.items, 0..) |entry, idx| {
         _, _, _, const sel = get_values(entry.cbor);
         if (cursor.within(sel))
             return idx + 1;
+        if (cursor.row < sel.begin.row) return previous + 1;
+        previous = idx;
     }
     return null;
 }
