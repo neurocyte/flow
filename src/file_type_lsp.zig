@@ -164,7 +164,7 @@ pub const proto = .{};
 pub const purescript = .{};
 
 pub const python = .{
-    .language_server = .{ "ruff", "server" },
+    .language_server = .{ "uvx", "ty", "server" },
     .formatter = .{ "ruff", "format", "-" },
 };
 
