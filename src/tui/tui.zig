@@ -1424,6 +1424,24 @@ const cmds = struct {
         self.allocator.free(removed.text);
     }
     pub const clipboard_delete_meta: Meta = .{};
+
+    pub fn expand_centered_view(_: *Self, _: Ctx) Result {
+        const conf = config_mut();
+        conf.centered_view_width = conf.centered_view_width + 1;
+        conf.centered_view_min_screen_width = conf.centered_view_min_screen_width + 1;
+        try save_config();
+        resize();
+    }
+    pub const expand_centered_view_meta: Meta = .{ .description = "Expand centered view" };
+
+    pub fn shrink_centered_view(_: *Self, _: Ctx) Result {
+        const conf = config_mut();
+        conf.centered_view_width = conf.centered_view_width - @min(1, conf.centered_view_width);
+        conf.centered_view_min_screen_width = conf.centered_view_min_screen_width - @min(1, conf.centered_view_min_screen_width);
+        try save_config();
+        resize();
+    }
+    pub const shrink_centered_view_meta: Meta = .{ .description = "Shrink centered view" };
 };
 
 pub const MiniMode = struct {
