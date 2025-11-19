@@ -46,6 +46,7 @@ panel_style: WidgetStyle = .compact,
 home_style: WidgetStyle = .bars_top_bottom,
 pane_left_style: WidgetStyle = .bar_right,
 pane_right_style: WidgetStyle = .bar_left,
+pane_style: PaneStyle = .panel,
 
 centered_view: bool = false,
 centered_view_width: usize = 145,
@@ -124,4 +125,9 @@ pub const CursorShape = enum {
     underline,
     beam_blink,
     beam,
+};
+
+pub const PaneStyle = enum {
+    panel,
+    editor,
 };

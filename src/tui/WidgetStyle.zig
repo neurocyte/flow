@@ -3,6 +3,7 @@ border: Border = Border.blank,
 
 pub const WidgetType = @import("config").WidgetType;
 pub const WidgetStyle = @import("config").WidgetStyle;
+pub const tui = @import("tui.zig");
 
 pub const Padding = struct {
     pub const Unit = u16;
@@ -151,7 +152,13 @@ pub fn theme_style_from_type(style_type: WidgetType, theme: *const Theme) Theme.
         .palette => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },
         .panel => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor.bg },
         .home => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor.bg },
-        .pane_left => .{ .fg = theme.editor_widget.bg, .bg = theme.panel.bg },
-        .pane_right => .{ .fg = theme.editor_widget.bg, .bg = theme.panel.bg },
+        .pane_left => switch (tui.config().pane_style) {
+            .panel => .{ .fg = theme.editor_widget.bg, .bg = theme.panel.bg },
+            .editor => .{ .fg = theme.editor_widget.bg, .bg = theme.editor.bg },
+        },
+        .pane_right => switch (tui.config().pane_style) {
+            .panel => .{ .fg = theme.editor_widget.bg, .bg = theme.panel.bg },
+            .editor => .{ .fg = theme.editor_widget.bg, .bg = theme.editor.bg },
+        },
     };
 }
