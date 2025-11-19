@@ -4429,9 +4429,9 @@ pub const Editor = struct {
         }
     }
 
-    pub fn selections_reverse(self: *Self, _: Context, metrics: Buffer.Metrics) Result {
+    pub fn selections_reverse(self: *Self, _: Context) Result {
         const root = try self.buf_root();
-        try self.with_cursels_const(root, selection_reverse, metrics);
+        try self.with_cursels_const(root, selection_reverse, self.metrics);
         self.clamp();
     }
     pub const selections_reverse_meta: Meta = .{ .description = "Reverse selection" };
