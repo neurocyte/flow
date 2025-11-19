@@ -63,6 +63,8 @@
             ["ctrl+f6", "open_version_info"],
             ["alt+shift+t", "set_session_tab_width"],
             ["alt+d", ["shell_execute_insert", "date", "--iso-8601"]],
+            ["alt+=", "expand_centered_view"],
+            ["alt+-", "shrink_centered_view"],
             ["ctrl+alt+shift+d", ["shell_execute_insert", "date", "--iso-8601=seconds"]]
         ]
     },
