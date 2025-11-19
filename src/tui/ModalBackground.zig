@@ -87,6 +87,7 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn render(self: *Self, theme: *const Widget.Theme) bool {
+            if (!tui.config().enable_modal_dim) return false;
             return self.opts.on_render(self.opts.ctx, self, theme);
         }
 
