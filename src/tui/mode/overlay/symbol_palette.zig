@@ -108,10 +108,13 @@ pub fn load_entries(palette: *Type) !usize {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
         const label_, const parent_, const kind, const sel = get_values(cbor_item);
-        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = label_[0..@min(columns[0].max_width, label_.len)], .range = sel };
+        const label_len_ = tui.egc_chunk_width(label_, 0, 1);
+        const parent_len = tui.egc_chunk_width(parent_, 0, 1);
+        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = label_[0..@min(columns[0].max_width, label_len_)], .range = sel };
 
-        const current_lengths: [3]usize = .{ label_.len, parent_.len, @tagName(kind).len };
-        const label_len: u8 = @truncate(if (label_.len > columns[0].max_width) columns[0].max_width else label_.len);
+
+        const current_lengths: [3]usize = .{ label_len_, parent_len, @tagName(kind).len };
+        const label_len: u8 = @truncate(if (label_len_ > columns[0].max_width) columns[0].max_width else label_len_);
         max_cols_len = @max(max_cols_len, label_len, update_max_col_sizes(palette, &current_lengths));
         max_label_len = @max(max_label_len, label_len);
     }
@@ -128,7 +131,8 @@ pub fn load_entries(palette: *Type) !usize {
     palette.quick_activate_enabled = false;
 
     const total_width = total_row_width();
-    return 2 + if (max_cols_len > label.len + 3) total_width - max_label_len else label.len + 1 - max_cols_len;
+    const outer_label_len = tui.egc_chunk_width(label, 0, 1);
+    return 2 + if (max_cols_len > outer_label_len + 3) total_width - max_label_len else outer_label_len + 1 - max_cols_len;
 }
 
 pub fn clear_entries(palette: *Type) void {
