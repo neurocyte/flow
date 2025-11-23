@@ -291,7 +291,13 @@ pub fn Create(options: type) type {
             return false;
         }
 
+        fn update_count_hint(self: *Self) void {
+            self.inputbox.hint.clearRetainingCapacity();
+            self.inputbox.hint.print(self.inputbox.allocator, "{d}/{d}", .{ self.total_items, self.entries.items.len }) catch {};
+        }
+
         fn start_query(self: *Self, n: usize) !void {
+            defer self.update_count_hint();
             self.items = 0;
             self.menu.reset_items();
             self.menu.selected = null;
