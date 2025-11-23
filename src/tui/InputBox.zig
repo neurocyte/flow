@@ -10,6 +10,7 @@ const tui = @import("tui.zig");
 pub fn Options(context: type) type {
     return struct {
         label: []const u8 = "Enter text",
+        hint: ?[]const u8 = null,
         pos: Widget.Box = .{ .y = 0, .x = 0, .w = 12, .h = 1 },
         ctx: Context,
         padding: u8 = 1,
@@ -24,13 +25,21 @@ pub fn Options(context: type) type {
 
         pub fn on_render_default(_: context, self: *State(Context), theme: *const Widget.Theme) bool {
             const style_base = theme.editor_widget;
-            const style_label = if (self.text.items.len > 0) theme.input else theme.input_placeholder;
+            const style_input_placeholder = theme.input_placeholder;
+            const style_label = if (self.text.items.len > 0) theme.input else style_input_placeholder;
             self.plane.set_base_style(style_base);
             self.plane.erase();
             self.plane.home();
             self.plane.set_style(style_label);
             self.plane.fill(" ");
             self.plane.home();
+            if (self.hint.items.len > 0) {
+                const hint = self.hint.items;
+                self.plane.set_style(style_input_placeholder);
+                _ = self.plane.print_aligned_right(0, "{s} ", .{hint}) catch {};
+                self.plane.home();
+                self.plane.set_style(style_label);
+            }
             for (0..self.opts.padding) |_| _ = self.plane.putchar(" ");
             if (self.icon_width > 0) if (self.opts.icon) |icon| {
                 _ = self.plane.print("{s}", .{icon}) catch {};
@@ -74,11 +83,16 @@ pub fn create(ctx_type: type, allocator: std.mem.Allocator, parent: Plane, opts:
         .plane = n,
         .opts = opts,
         .label = .empty,
+        .hint = .empty,
         .text = .empty,
         .icon_width = @intCast(if (tui.config().show_fileicons) if (opts.icon) |icon| n.egc_chunk_width(icon, 0, 1) else 0 else 0),
     };
     try self.label.appendSlice(self.allocator, self.opts.label);
     self.opts.label = self.label.items;
+    if (self.opts.hint) |hint| {
+        try self.hint.appendSlice(self.allocator, hint);
+        self.opts.hint = self.hint.items;
+    }
     return Widget.to(self);
 }
 
@@ -90,6 +104,7 @@ pub fn State(ctx_type: type) type {
         active: bool = false,
         hover: bool = false,
         label: std.ArrayList(u8),
+        hint: std.ArrayList(u8),
         opts: Options(ctx_type),
         text: std.ArrayList(u8),
         icon_width: c_int,
@@ -100,6 +115,7 @@ pub fn State(ctx_type: type) type {
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.text.deinit(self.allocator);
+            self.hint.deinit(self.allocator);
             self.label.deinit(self.allocator);
             self.plane.deinit();
             allocator.destroy(self);
