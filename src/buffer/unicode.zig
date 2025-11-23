@@ -90,10 +90,30 @@ pub const LetterCasing = @import("LetterCasing");
 var letter_casing: ?LetterCasing = null;
 var letter_casing_arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
 
-pub fn get_letter_casing() *LetterCasing {
+fn get_letter_casing() *LetterCasing {
     if (letter_casing) |*cd| return cd;
     letter_casing = LetterCasing.init(letter_casing_arena.allocator()) catch @panic("LetterCasing.init");
     return &letter_casing.?;
+}
+
+pub fn to_upper(allocator: std.mem.Allocator, text: []const u8) error{ OutOfMemory, Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }![]u8 {
+    return get_letter_casing().toUpperStr(allocator, text);
+}
+
+pub fn to_lower(allocator: std.mem.Allocator, text: []const u8) error{ OutOfMemory, Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }![]u8 {
+    return get_letter_casing().toLowerStr(allocator, text);
+}
+
+pub fn case_fold(allocator: std.mem.Allocator, text: []const u8) error{ OutOfMemory, Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }![]u8 {
+    return get_letter_casing().toLowerStr(allocator, text);
+}
+
+pub fn switch_case(allocator: std.mem.Allocator, text: []const u8) error{ OutOfMemory, Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }![]u8 {
+    const letter_casing_ = get_letter_casing();
+    return if (letter_casing_.isLowerStr(text))
+        letter_casing_.toUpperStr(allocator, text)
+    else
+        letter_casing_.toLowerStr(allocator, text);
 }
 
 const spinner = [_][]const u8{

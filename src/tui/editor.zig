@@ -6182,7 +6182,7 @@ pub const Editor = struct {
         const sfa_allocator = sfa.get();
         const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(cut_text);
-        const ucased = Buffer.unicode.get_letter_casing().toUpperStr(sfa_allocator, cut_text) catch return error.Stop;
+        const ucased = Buffer.unicode.to_upper(sfa_allocator, cut_text) catch return error.Stop;
         defer sfa_allocator.free(ucased);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
@@ -6211,7 +6211,7 @@ pub const Editor = struct {
         const sfa_allocator = sfa.get();
         const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(cut_text);
-        const ucased = Buffer.unicode.get_letter_casing().toLowerStr(sfa_allocator, cut_text) catch return error.Stop;
+        const ucased = Buffer.unicode.to_lower(sfa_allocator, cut_text) catch return error.Stop;
         defer sfa_allocator.free(ucased);
         root = try self.delete_selection(root, cursel, buffer_allocator);
         root = self.insert(root, cursel, ucased, buffer_allocator) catch return error.Stop;
@@ -6241,11 +6241,7 @@ pub const Editor = struct {
         root.write_range(sel.*, &range.writer, null, self.metrics) catch return error.Stop;
 
         const bytes = range.written();
-        const letter_casing = Buffer.unicode.get_letter_casing();
-        const flipped = if (letter_casing.isLowerStr(bytes))
-            letter_casing.toUpperStr(self.allocator, bytes) catch return error.Stop
-        else
-            letter_casing.toLowerStr(self.allocator, bytes) catch return error.Stop;
+        const flipped = Buffer.unicode.switch_case(self.allocator, bytes) catch return error.Stop;
         defer self.allocator.free(flipped);
 
         root = try self.delete_selection(root, cursel, allocator);

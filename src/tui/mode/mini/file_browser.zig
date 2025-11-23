@@ -248,9 +248,9 @@ pub fn Create(options: type) type {
         }
 
         fn prefix_compare_icase(allocator: std.mem.Allocator, prefix: []const u8, str: []const u8) error{OutOfMemory}!bool {
-            const icase_prefix = Buffer.unicode.get_letter_casing().toLowerStr(allocator, prefix) catch try allocator.dupe(u8, prefix);
+            const icase_prefix = Buffer.unicode.case_fold(allocator, prefix) catch try allocator.dupe(u8, prefix);
             defer allocator.free(icase_prefix);
-            const icase_str = Buffer.unicode.get_letter_casing().toLowerStr(allocator, str) catch try allocator.dupe(u8, str);
+            const icase_str = Buffer.unicode.case_fold(allocator, str) catch try allocator.dupe(u8, str);
             defer allocator.free(icase_str);
             if (icase_str.len < icase_prefix.len) return false;
             return std.mem.eql(u8, icase_prefix, icase_str[0..icase_prefix.len]);
