@@ -381,7 +381,7 @@ pub fn request_n_most_recent_file(self: *Self, from: tp.pid_ref, n: usize) Clien
 }
 
 pub fn request_recent_files(self: *Self, from: tp.pid_ref, max: usize) ClientError!void {
-    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, "" }) catch {};
+    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, "", self.files.items.len }) catch {};
     for (self.files.items, 0..) |file, i| {
         from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color }) catch return error.ClientFailed;
         if (i >= max) return;
@@ -468,7 +468,7 @@ pub fn request_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize) 
 
 fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) ClientError!usize {
     var i: usize = 0;
-    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query }) catch {};
+    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query, self.files.items.len }) catch {};
     for (self.files.items) |file| {
         if (file.path.len < query.len) continue;
         if (std.mem.indexOf(u8, file.path, query)) |idx| {
@@ -487,7 +487,7 @@ fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: [
 pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) ClientError!usize {
     if (query.len < 3)
         return self.simple_query_recent_files(from, max, query);
-    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query }) catch {};
+    defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query, self.files.items.len }) catch {};
 
     var searcher = try fuzzig.Ascii.init(
         self.allocator,

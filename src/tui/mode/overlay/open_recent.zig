@@ -38,6 +38,8 @@ longest: usize,
 commands: Commands = undefined,
 buffer_manager: ?*BufferManager,
 split: enum { none, vertical } = .none,
+total_items: usize = 0,
+total_files_in_project: usize = 0,
 
 const inputbox_label = "Search files by name";
 const MenuType = Menu.Options(*Self).MenuType;
@@ -146,6 +148,7 @@ fn add_item(
     indicator: []const u8,
     matches: ?[]const u8,
 ) !void {
+    self.total_items += 1;
     var label: std.Io.Writer.Allocating = .init(self.allocator);
     defer label.deinit();
     const writer = &label.writer;
@@ -209,12 +212,14 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
             self.need_select_first = false;
         }
         tui.need_render();
-    } else if (try cbor.match(m.buf, .{ "PRJ", "recent_done", tp.extract(&self.longest), tp.extract(&query) })) {
+    } else if (try cbor.match(m.buf, .{ "PRJ", "recent_done", tp.extract(&self.longest), tp.extract(&query), tp.extract(&self.total_files_in_project) })) {
+        self.update_count_hint();
         self.query_pending = false;
         self.need_reset = true;
         if (!std.mem.eql(u8, self.inputbox.text.items, query))
             try self.start_query();
-    } else if (try cbor.match(m.buf, .{ "PRJ", "open_done", tp.string, tp.extract(&self.longest), tp.any })) {
+    } else if (try cbor.match(m.buf, .{ "PRJ", "open_done", tp.string, tp.extract(&self.longest), tp.extract(&self.total_files_in_project) })) {
+        self.update_count_hint();
         self.query_pending = false;
         self.need_reset = true;
         try self.start_query();
@@ -239,7 +244,13 @@ fn reset_results(self: *Self) void {
     self.need_select_first = true;
 }
 
+fn update_count_hint(self: *Self) void {
+    self.inputbox.hint.clearRetainingCapacity();
+    self.inputbox.hint.print(self.inputbox.allocator, "{d}/{d}", .{ self.total_items, self.total_files_in_project }) catch {};
+}
+
 fn start_query(self: *Self) MessageFilter.Error!void {
+    self.total_items = 0;
     if (self.query_pending) return;
     self.query_pending = true;
     try project_manager.query_recent_files(max_recent_files, self.inputbox.text.items);
