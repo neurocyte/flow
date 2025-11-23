@@ -324,7 +324,7 @@ pub fn build_exe(
         .root_source_file = b.path("src/tracy_noop.zig"),
     });
 
-    const zg_dep = vaxis_dep.builder.dependency("zg", .{
+    const zg_dep = b.dependency("zg", .{
         .target = target,
         .optimize = optimize,
     });

@@ -1606,11 +1606,7 @@ fn stdplane(self: *Self) renderer.Plane {
 pub fn top_layer(opts: renderer.Layer.Options) ?*renderer.Plane {
     const self = current();
     if (self.top_layer_) |_| return null;
-    self.top_layer_ = renderer.Layer.init(
-        self.allocator,
-        self.rdr_.stdplane().window.unicode,
-        opts,
-    ) catch @panic("OOM toplayer");
+    self.top_layer_ = renderer.Layer.init(self.allocator, opts) catch @panic("OOM toplayer");
     return self.top_layer_.?.plane();
 }
 
@@ -1626,7 +1622,7 @@ pub fn egc_chunk_width(chunk: []const u8, abs_col: usize, tab_width: usize) usiz
 }
 
 pub fn egc_last(egcs: []const u8) []const u8 {
-    return plane().egc_last(egcs);
+    return renderer.Plane.egc_last(egcs);
 }
 
 pub fn screen() Widget.Box {

@@ -50,8 +50,6 @@ pub fn main() anyerror!void {
     }
 
     const a = std.heap.c_allocator;
-    const letter_casing = @import("Buffer").unicode.get_letter_casing();
-    _ = letter_casing; // no need to free letter_casing as it is globally static
 
     const Flags = struct {
         pub const description =

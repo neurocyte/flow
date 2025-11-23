@@ -683,18 +683,14 @@ const Loop = struct {
     fn ttyRun(self: *Loop) !void {
         switch (builtin.os.tag) {
             .windows => {
-                var parser: vaxis.Parser = .{
-                    .grapheme_data = &self.vaxis.unicode.width_data.graphemes,
-                };
+                var parser: vaxis.Parser = .{};
                 const a = self.vaxis.opts.system_clipboard_allocator orelse @panic("no tty allocator");
                 while (!self.should_quit) {
                     self.postEvent(try self.tty.nextEvent(&parser, a));
                 }
             },
             else => {
-                var parser: vaxis.Parser = .{
-                    .grapheme_data = &self.vaxis.unicode.width_data.graphemes,
-                };
+                var parser: vaxis.Parser = .{};
 
                 const a = self.vaxis.opts.system_clipboard_allocator orelse @panic("no tty allocator");
 

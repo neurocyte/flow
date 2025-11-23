@@ -30,8 +30,8 @@
             .hash = "fuzzig-0.1.1-Ji0xivxIAQBD0g8O_NV_0foqoPf3elsg9Sc3pNfdVH4D",
         },
         .vaxis = .{
-            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#57a4662955bc70ee13248e8c209ff7db13aeeb55",
-            .hash = "vaxis-0.5.1-BWNV_IQjCQDoLX03Eb2iQTBYqReabnFPAq5cZROLqNdJ",
+            .url = "git+https://github.com/neurocyte/libvaxis?ref=main#e9c1111efd98aeb7c2db45d3e31987429fb5f26d",
+            .hash = "vaxis-0.5.1-BWNV_BkyCQAo2UBeY_gbzP09d4pHDaqtg44snF5k3mh2",
         },
         .zeit = .{
             .url = "git+https://github.com/rockorager/zeit?ref=zig-0.15#ed2ca60db118414bda2b12df2039e33bad3b0b88",
@@ -41,6 +41,10 @@
             .url = "git+https://github.com/marlersoft/zigwin32?ref=main#5587b16fa040573846a6bf531301f6206d31a6bf",
             .hash = "zigwin32-25.0.28-preview-AAAAAICM5AMResOGQnQ85mfe60TTOQeMtt7GRATUOKoP",
             .lazy = true,
+        },
+        .zg = .{
+            .url = "git+https://codeberg.org/neurocyte/zg?ref=master#cdcab8b9ea3458efd710008055d993c5dbdb1af7",
+            .hash = "zg-0.15.2-oGqU3AtAtAI7gs7zPvzg2_TlVIqi9wCNEw7DLvD5OvDN",
         },
     },
     .paths = .{

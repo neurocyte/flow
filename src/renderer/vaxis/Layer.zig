@@ -13,14 +13,13 @@ plane_: Plane,
 const View = struct {
     allocator: std.mem.Allocator,
     screen: vaxis.Screen,
-    unicode: *const vaxis.Unicode,
 
     pub const Config = struct {
         h: u16,
         w: u16,
     };
 
-    pub fn init(allocator: std.mem.Allocator, unicode: *const vaxis.Unicode, config: Config) std.mem.Allocator.Error!View {
+    pub fn init(allocator: std.mem.Allocator, config: Config) std.mem.Allocator.Error!View {
         return .{
             .allocator = allocator,
             .screen = try vaxis.Screen.init(allocator, .{
@@ -29,7 +28,6 @@ const View = struct {
                 .x_pixel = 0,
                 .y_pixel = 0,
             }),
-            .unicode = unicode,
         };
     }
 
@@ -45,10 +43,10 @@ pub const Options = struct {
     w: u16 = 0,
 };
 
-pub fn init(allocator: std.mem.Allocator, unicode: *const vaxis.Unicode, opts: Options) std.mem.Allocator.Error!*Layer {
+pub fn init(allocator: std.mem.Allocator, opts: Options) std.mem.Allocator.Error!*Layer {
     const self = try allocator.create(Layer);
     self.* = .{
-        .view = try View.init(allocator, unicode, .{
+        .view = try View.init(allocator, .{
             .h = opts.h,
             .w = opts.w,
         }),
@@ -81,7 +79,6 @@ fn window(self: *Layer) vaxis.Window {
         .width = self.view.screen.width,
         .height = self.view.screen.height,
         .screen = &self.view.screen,
-        .unicode = self.view.unicode,
     };
 }
 
