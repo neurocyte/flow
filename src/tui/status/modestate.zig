@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 const Plane = @import("renderer").Plane;
@@ -15,6 +16,8 @@ const CreateError = @import("widget.zig").CreateError;
 const Style = enum {
     plain,
     fancy,
+    plain_root,
+    fancy_root,
 };
 const default_style = .fancy;
 
@@ -23,7 +26,11 @@ const ButtonType = Button.Options(Style).ButtonType;
 pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) CreateError!Widget {
     const style_ = if (arg) |str_style| std.meta.stringToEnum(Style, str_style) orelse default_style else default_style;
     return Button.create_widget(Style, allocator, parent, .{
-        .ctx = style_,
+        .ctx = if (builtin.os.tag != .windows and std.posix.geteuid() == 0) switch (style_) {
+            .fancy => .fancy_root,
+            .plain => .plain_root,
+            else => style_,
+        } else style_,
         .label = tui.get_mode(),
         .on_click = on_click,
         .on_click2 = toggle_panel,
@@ -53,8 +60,8 @@ fn is_overlay_mode() bool {
 pub fn render(ctx: *Style, self: *ButtonType, theme: *const Widget.Theme) bool {
     const style_base = theme.statusbar;
     const style_label = switch (ctx.*) {
-        .fancy => if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover,
-        .plain => if (self.active) theme.editor_cursor else if (self.hover or is_mini_mode()) theme.statusbar_hover else style_base,
+        .fancy, .fancy_root => if (self.active) theme.editor_cursor else if (self.hover) theme.editor_selection else theme.statusbar_hover,
+        .plain, .plain_root => if (self.active) theme.editor_cursor else if (self.hover or is_mini_mode()) theme.statusbar_hover else style_base,
     };
     self.plane.set_base_style(theme.editor);
     self.plane.erase();
@@ -68,7 +75,7 @@ pub fn render(ctx: *Style, self: *ButtonType, theme: *const Widget.Theme) bool {
     self.plane.on_styles(styles.bold);
     var buf: [31:0]u8 = undefined;
     if (!is_mini_mode() and !is_overlay_mode()) {
-        render_logo(self, theme, style_label);
+        render_logo(ctx, self, theme, style_label);
     } else {
         _ = self.plane.putstr("  ") catch {};
     }
@@ -89,16 +96,26 @@ fn render_separator(self: *ButtonType, theme: *const Widget.Theme) void {
 
 const left = " ";
 const symbol = "󱞏";
+const symbol_root = "";
 const right = " ";
 
-fn render_logo(self: *ButtonType, theme: *const Widget.Theme, style_label: Widget.Theme.Style) void {
+fn render_logo(ctx: *Style, self: *ButtonType, theme: *const Widget.Theme, style_label: Widget.Theme.Style) void {
+    const style_root = theme.editor_error;
     const style_braces: Widget.Theme.Style = if (tui.find_scope_style(theme, "punctuation")) |sty| .{ .fg = sty.style.fg, .bg = style_label.bg, .fs = style_label.fs } else style_label;
     if (left.len > 0) {
         self.plane.set_style(style_braces);
         _ = self.plane.putstr(" " ++ left) catch {};
     }
-    self.plane.set_style(style_label);
-    _ = self.plane.putstr(symbol) catch {};
+    switch (ctx.*) {
+        .fancy_root, .plain_root => {
+            self.plane.set_style(style_root);
+            _ = self.plane.putstr(symbol_root) catch {};
+        },
+        else => {
+            self.plane.set_style(style_label);
+            _ = self.plane.putstr(symbol) catch {};
+        },
+    }
     if (right.len > 0) {
         self.plane.set_style(style_braces);
         _ = self.plane.putstr(right) catch {};
