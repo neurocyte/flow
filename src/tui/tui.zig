@@ -915,7 +915,7 @@ const cmds = struct {
     pub fn restart(_: *Self, _: Ctx) Result {
         try tp.self_pid().send("restart");
     }
-    pub const restart_meta: Meta = .{ .description = "Restart (without saving)" };
+    pub const restart_meta: Meta = .{ .description = "Restart session" };
 
     pub fn restart_with_sudo(_: *Self, _: Ctx) Result {
         root.set_restart_with_sudo();
