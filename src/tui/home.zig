@@ -17,9 +17,12 @@ const keybind = @import("keybind");
 
 const fonts = @import("fonts.zig");
 
+pub const subtext_root = "I am groot!";
+
 const style = struct {
     title: []const u8 = root.application_title,
     subtext: []const u8 = root.application_subtext,
+    subtext_root: []const u8 = subtext_root,
 
     centered: bool = false,
 
@@ -76,6 +79,7 @@ menu_count: usize = 0,
 menu_len: usize = 0,
 max_desc_len: usize = 0,
 input_namespace: []const u8,
+root_mode: bool = false,
 
 home_style: style,
 home_style_bufs: [][]const u8,
@@ -111,6 +115,9 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .home_style = home_style,
         .home_style_bufs = home_style_bufs,
     };
+    if (builtin.os.tag != .windows and std.posix.geteuid() == 0) {
+        self.root_mode = true;
+    }
     self.commands.init_unregistered(self);
     var it = std.mem.splitAny(u8, self.home_style.menu_commands, "\n ");
     while (it.next()) |command_name| {
@@ -296,34 +303,46 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(theme.editor);
 
     const style_title = if (tui.find_scope_style(theme, "function")) |sty| sty.style else theme.editor;
-    const style_subtext = if (tui.find_scope_style(theme, "comment")) |sty| sty.style else theme.editor;
+    const style_subtext = if (self.root_mode)
+        theme.editor_error
+    else if (tui.find_scope_style(theme, "comment")) |sty|
+        sty.style
+    else
+        theme.editor;
+
+    const title = self.home_style.title;
+
+    const subtext = if (self.root_mode)
+        self.home_style.subtext_root
+    else
+        self.home_style.subtext;
 
     if (self.plane.dim_x() > 120 and self.plane.dim_y() > 22) {
-        self.plane.cursor_move_yx(2, self.centerI(4, self.home_style.title.len * 8)) catch return false;
-        fonts.print_string_large(&self.plane, self.home_style.title, style_title) catch return false;
+        self.plane.cursor_move_yx(2, self.centerI(4, title.len * 8)) catch return false;
+        fonts.print_string_large(&self.plane, title, style_title) catch return false;
 
-        self.plane.cursor_move_yx(10, self.centerI(8, self.home_style.subtext.len * 4)) catch return false;
-        fonts.print_string_medium(&self.plane, self.home_style.subtext, style_subtext) catch return false;
+        self.plane.cursor_move_yx(10, self.centerI(8, subtext.len * 4)) catch return false;
+        fonts.print_string_medium(&self.plane, subtext, style_subtext) catch return false;
 
         self.position_menu(self.v_center(15, self.menu_len, 15), self.center(10, self.menu_w));
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
-        self.plane.cursor_move_yx(2, self.centerI(4, self.home_style.title.len * 4)) catch return false;
-        fonts.print_string_medium(&self.plane, self.home_style.title, style_title) catch return false;
+        self.plane.cursor_move_yx(2, self.centerI(4, title.len * 4)) catch return false;
+        fonts.print_string_medium(&self.plane, title, style_title) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
-        self.plane.cursor_move_yx(7, self.centerI(6, self.home_style.subtext.len)) catch return false;
-        _ = self.plane.print("{s}", .{self.home_style.subtext}) catch {};
+        self.plane.cursor_move_yx(7, self.centerI(6, subtext.len)) catch return false;
+        _ = self.plane.print("{s}", .{subtext}) catch {};
         self.plane.set_style(theme.editor);
 
         self.position_menu(self.v_center(9, self.menu_len, 9), self.center(8, self.menu_w));
     } else {
         self.plane.set_style_bg_transparent(style_title);
-        self.plane.cursor_move_yx(1, self.centerI(4, self.home_style.title.len)) catch return false;
-        _ = self.plane.print("{s}", .{self.home_style.title}) catch return false;
+        self.plane.cursor_move_yx(1, self.centerI(4, title.len)) catch return false;
+        _ = self.plane.print("{s}", .{title}) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
-        self.plane.cursor_move_yx(3, self.centerI(6, self.home_style.subtext.len)) catch return false;
-        _ = self.plane.print("{s}", .{self.home_style.subtext}) catch {};
+        self.plane.cursor_move_yx(3, self.centerI(6, subtext.len)) catch return false;
+        _ = self.plane.print("{s}", .{subtext}) catch {};
         self.plane.set_style(theme.editor);
 
         const x = @min(self.plane.dim_x() -| 32, 8);
