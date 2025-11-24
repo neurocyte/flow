@@ -33,6 +33,7 @@ pub const root = struct {
 
     pub const exit = if (@hasDecl(hard_root, "exit")) hard_root.exit else dummy.exit;
     pub const print_exit_status = if (@hasDecl(hard_root, "print_exit_status")) hard_root.print_exit_status else dummy.print_exit_status;
+    pub const set_restart_with_sudo = if (@hasDecl(hard_root, "set_restart_with_sudo")) hard_root.set_restart_with_sudo else dummy.set_restart_with_sudo;
 
     pub const is_directory = if (@hasDecl(hard_root, "is_directory")) hard_root.is_directory else dummy.is_directory;
     pub const is_file = if (@hasDecl(hard_root, "is_file")) hard_root.is_file else dummy.is_file;
@@ -117,6 +118,9 @@ const dummy = struct {
     }
     pub fn print_exit_status(_: void, _: []const u8) void {
         @panic("dummy print_exit_status call");
+    }
+    pub fn set_restart_with_sudo() void {
+        @panic("dummy set_restart_with_sudo call");
     }
 
     pub fn is_directory(_: []const u8) bool {

@@ -385,12 +385,13 @@ pub fn main() anyerror!void {
 
     ctx.run();
 
-    if (want_restart) restart();
+    if (want_restart) if (want_restart_with_sudo) restart_with_sudo() else restart();
     exit(final_exit_status);
 }
 
 var final_exit_status: u8 = 0;
 var want_restart: bool = false;
+var want_restart_with_sudo: bool = false;
 
 pub fn print_exit_status(_: void, msg: []const u8) void {
     if (std.mem.eql(u8, msg, "normal")) {
@@ -404,6 +405,10 @@ pub fn print_exit_status(_: void, msg: []const u8) void {
         stderr_writer.interface.flush() catch {};
         final_exit_status = 1;
     }
+}
+
+pub fn set_restart_with_sudo() void {
+    want_restart_with_sudo = true;
 }
 
 fn count_args() usize {
@@ -1107,25 +1112,41 @@ pub fn get_theme_file_name(theme_name: []const u8) ![]const u8 {
     return try std.fmt.bufPrint(&local.file_buffer, "{s}{c}{s}.json", .{ dir, sep, theme_name });
 }
 
+fn resolve_executable(executable: [:0]const u8) [:0]const u8 {
+    return for (executable) |char| {
+        if (std.fs.path.isSep(char)) break executable;
+    } else bin_path.find_binary_in_path(std.heap.c_allocator, executable) catch executable orelse executable;
+}
+
 fn restart() noreturn {
-    var executable: [:0]const u8 = std.mem.span(std.os.argv[0]);
-    var is_basename = true;
-    for (executable) |char| if (std.fs.path.isSep(char)) {
-        is_basename = false;
-    };
-    if (is_basename) {
-        const a = std.heap.c_allocator;
-        executable = bin_path.find_binary_in_path(a, executable) catch executable orelse executable;
-    }
+    const executable = resolve_executable(std.mem.span(std.os.argv[0]));
     const argv = [_]?[*:0]const u8{
         executable,
         "--restore-session",
         null,
     };
     const ret = std.c.execve(executable, @ptrCast(&argv), @ptrCast(std.os.environ));
+    restart_failed(ret);
+}
+
+fn restart_with_sudo() noreturn {
+    const sudo_executable = resolve_executable("sudo");
+    const flow_executable = resolve_executable(std.mem.span(std.os.argv[0]));
+    const argv = [_]?[*:0]const u8{
+        sudo_executable,
+        "--preserve-env",
+        flow_executable,
+        "--restore-session",
+        null,
+    };
+    const ret = std.c.execve(sudo_executable, @ptrCast(&argv), @ptrCast(std.os.environ));
+    restart_failed(ret);
+}
+
+fn restart_failed(ret: c_int) noreturn {
     var stderr_buffer: [1024]u8 = undefined;
     var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-    stderr_writer.interface.print("\nrestart failed: {d}", .{ret}) catch {};
+    stderr_writer.interface.print("\nrestart failed: {s}", .{@tagName(std.posix.errno(ret))}) catch {};
     stderr_writer.interface.flush() catch {};
     exit(234);
 }
