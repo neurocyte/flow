@@ -917,6 +917,12 @@ const cmds = struct {
     }
     pub const restart_meta: Meta = .{ .description = "Restart (without saving)" };
 
+    pub fn restart_with_sudo(_: *Self, _: Ctx) Result {
+        root.set_restart_with_sudo();
+        try tp.self_pid().send("restart");
+    }
+    pub const restart_with_sudo_meta: Meta = .{ .description = "Restart with sudo" };
+
     pub fn force_terminate(self: *Self, _: Ctx) Result {
         self.deinit();
         root.print_exit_status({}, "FORCE TERMINATE");
