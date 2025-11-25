@@ -135,7 +135,7 @@ fn utf8_transform(comptime field: uucode.FieldEnum, allocator: std.mem.Allocator
     return result.toOwnedSlice();
 }
 
-fn utf8_predicate(comptime field: uucode.FieldEnum, text: []const u8) TransformError!bool {
+fn utf8_predicate(comptime field: uucode.FieldEnum, text: []const u8) error{InvalidUtf8}!bool {
     const view: std.unicode.Utf8View = try .init(text);
     var it = view.iterator();
     while (it.nextCodepoint()) |cp| {
@@ -175,6 +175,10 @@ pub fn switch_case(allocator: std.mem.Allocator, text: []const u8) TransformErro
         to_upper(allocator, text)
     else
         to_lower(allocator, text);
+}
+
+pub fn is_lowercase(text: []const u8) error{InvalidUtf8}!bool {
+    return try utf8_predicate(.is_lowercase, text);
 }
 
 const std = @import("std");
