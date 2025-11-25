@@ -1442,14 +1442,13 @@ pub const Editor = struct {
             pos_cache: PosToWidthCache,
             last_begin: Cursor = Cursor.invalid(),
             fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, _: *const syntax.Node) error{Stop}!void {
-                const sel_ = ctx.pos_cache.range_to_selection(range, ctx.root, ctx.self.metrics);
+                var sel = ctx.pos_cache.from_pos(range, ctx.root, ctx.self.metrics);
 
                 if (idx > 0) return;
-                if (sel_.begin.eql(ctx.last_begin)) return;
-                ctx.last_begin = sel_.begin;
+                if (sel.begin.eql(ctx.last_begin)) return;
+                ctx.last_begin = sel.begin;
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
-                var sel = sel_;
 
                 if (sel.end.row < ctx.self.view.row) return;
                 if (sel.begin.row > ctx.self.view.row + ctx.self.view.rows) return;
@@ -6682,24 +6681,25 @@ pub const PosToWidthCache = struct {
         self.cache.deinit(self.allocator);
     }
 
-    pub fn range_to_selection(self: *Self, range: syntax.Range, root: Buffer.Root, metrics: Buffer.Metrics) Selection {
+    pub fn from_pos(self: *Self, range: syntax.Range, root: Buffer.Root, metrics: Buffer.Metrics) Selection {
         var sel = Selection.from_range_raw(range);
         if (root != self.cached_root or self.cached_line != sel.begin.row) {
             self.cache.clearRetainingCapacity();
             self.cached_line = sel.begin.row;
             self.cached_root = root;
-            root.get_line_width_map(self.cached_line, &self.cache, self.allocator, metrics) catch return sel;
+            root.get_line_width_map(self.cached_line, &self.cache, self.allocator, metrics) catch
+                return sel.from_pos(root, metrics);
         }
 
         sel.begin.col = if (sel.begin.col < self.cache.items.len)
             self.cache.items[sel.begin.col]
         else
-            sel.begin.col;
+            sel.begin.from_pos(root, metrics).col;
 
         sel.end.col = if (sel.end.row == sel.end.row and sel.end.col < self.cache.items.len)
             self.cache.items[sel.end.col]
         else
-            root.pos_to_width(sel.end.row, sel.end.col, metrics) catch sel.end.col;
+            sel.end.from_pos(root, metrics).col;
 
         return sel;
     }
