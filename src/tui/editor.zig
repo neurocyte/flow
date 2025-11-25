@@ -5296,7 +5296,7 @@ pub const Editor = struct {
         defer self.add_match_done();
         var ctx: Ctx = .{ .self = self };
         self.init_matches_update();
-        try root.find_all_ranges(query, &ctx, Ctx.cb, self.allocator);
+        try root.find_all_ranges(query, &ctx, Ctx.cb, .exact, self.allocator);
     }
 
     fn find_in_buffer_async(self: *Self, query: []const u8) !void {

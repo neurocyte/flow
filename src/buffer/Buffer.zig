@@ -943,8 +943,9 @@ const Node = union(enum) {
         }
     }
 
+    pub const FindMode = enum { exact, case_folded };
     pub const FindAllCallback = fn (data: *anyopaque, begin_row: usize, begin_col: usize, end_row: usize, end_col: usize) error{Stop}!void;
-    pub fn find_all_ranges(self: *const Node, pattern: []const u8, data: *anyopaque, callback: *const FindAllCallback, allocator: Allocator) error{ OutOfMemory, Stop }!void {
+    pub fn find_all_ranges(self: *const Node, pattern: []const u8, data: *anyopaque, callback: *const FindAllCallback, mode: FindMode, allocator: Allocator) error{ OutOfMemory, Stop }!void {
         const Ctx = struct {
             pattern: []const u8,
             data: *anyopaque,
@@ -954,6 +955,7 @@ const Node = union(enum) {
             buf: []u8,
             rest: []u8 = "",
             writer: std.Io.Writer,
+            mode: FindMode,
 
             const Ctx = @This();
             fn drain(w: *std.Io.Writer, data_: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
@@ -975,10 +977,17 @@ const Node = union(enum) {
             fn write(ctx: *Ctx, bytes: []const u8) std.Io.Writer.Error!usize {
                 var input = bytes;
                 while (true) {
-                    const input_consume_size = @min(ctx.buf.len - ctx.rest.len, input.len);
-                    @memcpy(ctx.buf[ctx.rest.len .. ctx.rest.len + input_consume_size], input[0..input_consume_size]);
-                    ctx.rest = ctx.buf[0 .. ctx.rest.len + input_consume_size];
-                    input = input[input_consume_size..];
+                    switch (ctx.mode) {
+                        .exact => {
+                            const input_consume_size = @min(ctx.buf.len - ctx.rest.len, input.len);
+                            @memcpy(ctx.buf[ctx.rest.len .. ctx.rest.len + input_consume_size], input[0..input_consume_size]);
+                            ctx.rest = ctx.buf[0 .. ctx.rest.len + input_consume_size];
+                            input = input[input_consume_size..];
+                        },
+                        .case_folded => {
+                            @panic("unimplemented");
+                        },
+                    }
 
                     if (ctx.rest.len < ctx.pattern.len)
                         return bytes.len - input.len;
@@ -1031,6 +1040,7 @@ const Node = union(enum) {
                 },
                 .buffer = &.{},
             },
+            .mode = mode,
         };
         defer allocator.free(ctx.buf);
         return self.store(&ctx.writer, .lf) catch |e| switch (e) {
