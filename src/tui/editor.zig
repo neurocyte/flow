@@ -1187,17 +1187,17 @@ pub const Editor = struct {
         if (tui.config().enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor)
             tui.rdr().clear_all_multi_cursors() catch {};
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel| {
-            const cursor = try self.get_rendered_cursor(style, cursel);
+            const cursor = self.get_rendered_cursor(style, cursel);
             try self.render_cursor_secondary(&cursor, theme, cell_map);
         };
-        const cursor = try self.get_rendered_cursor(style, self.get_primary());
+        const cursor = self.get_rendered_cursor(style, self.get_primary());
         try self.render_cursor_primary(&cursor, theme, cell_map);
     }
 
-    fn get_rendered_cursor(self: *Self, style: anytype, cursel: anytype) !Cursor {
+    fn get_rendered_cursor(self: *Self, style: anytype, cursel: anytype) Cursor {
         return switch (style) {
             .normal => cursel.cursor,
-            .inclusive => try cursel.to_cursor_inclusive(try self.buf_root(), self.metrics),
+            .inclusive => cursel.to_cursor_inclusive(self.buf_root() catch return cursel.cursor, self.metrics),
         };
     }
 
