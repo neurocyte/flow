@@ -1,9 +1,11 @@
 const tp = @import("thespian");
+const cbor = @import("cbor");
 
 const input = @import("input");
 const keybind = @import("keybind");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+const Buffer = @import("Buffer");
 
 const tui = @import("../../tui.zig");
 const ed = @import("../../editor.zig");
@@ -14,11 +16,17 @@ const ArrayList = @import("std").ArrayList;
 
 const Self = @This();
 const name = "󱎸 find";
+const name_auto = name;
+const name_exact = name ++ "  ";
+const name_case_folded = name ++ "  ";
 
 const Commands = command.Collection(cmds);
 
+const Mode = enum { auto, exact, case_folded };
+
 allocator: Allocator,
 input_: ArrayList(u8),
+find_mode: Mode = .auto,
 last_input: ArrayList(u8),
 start_view: ed.View,
 start_cursor: ed.Cursor,
@@ -26,7 +34,7 @@ editor: *ed.Editor,
 history_pos: ?usize = null,
 commands: Commands = undefined,
 
-pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.MiniMode } {
+pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tui.MiniMode } {
     const editor = tui.get_active_editor() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -39,7 +47,11 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
         .editor = editor,
     };
     try self.commands.init(self);
-    if (editor.get_primary().selection) |sel| ret: {
+    _ = ctx.args.match(.{cbor.extract(&self.find_mode)}) catch {};
+    var query: []const u8 = undefined;
+    if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&query) }) catch false) {
+        try self.input_.appendSlice(self.allocator, query);
+    } else if (editor.get_primary().selection) |sel| ret: {
         const text = editor.get_selection(sel, self.allocator) catch break :ret;
         defer self.allocator.free(text);
         try self.input_.appendSlice(self.allocator, text);
@@ -48,7 +60,11 @@ pub fn create(allocator: Allocator, _: command.Context) !struct { tui.Mode, tui.
         .insert_command = "mini_mode_insert_bytes",
     });
     mode.event_handler = EventHandler.to_owned(self);
-    return .{ mode, .{ .name = name } };
+    return .{ mode, .{ .name = switch (self.find_mode) {
+        .auto => name_auto,
+        .exact => name_exact,
+        .case_folded => name_case_folded,
+    } } };
 }
 
 pub fn deinit(self: *Self) void {
@@ -91,11 +107,19 @@ fn flush_input(self: *Self) !void {
         const primary = self.editor.get_primary();
         primary.selection = null;
         primary.cursor = self.start_cursor;
-        try self.editor.find_in_buffer(self.input_.items, .find);
+        try self.editor.find_in_buffer(self.input_.items, .find, switch (self.find_mode) {
+            .auto => self.auto_detect_mode(),
+            .exact => .exact,
+            .case_folded => .case_folded,
+        });
     } else {
         self.editor.get_primary().selection = null;
         self.editor.init_matches_update();
     }
+}
+
+fn auto_detect_mode(self: *Self) Buffer.FindMode {
+    return if (Buffer.unicode.is_lowercase(self.input_.items) catch return .exact) .case_folded else .exact;
 }
 
 fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
@@ -152,6 +176,19 @@ const cmds = struct {
     const Ctx = command.Context;
     const Meta = command.Metadata;
     const Result = command.Result;
+
+    pub fn toggle_find_mode(self: *Self, _: Ctx) Result {
+        const new_find_mode: Buffer.FindMode = switch (self.find_mode) {
+            .exact => .case_folded,
+            .auto, .case_folded => .exact,
+        };
+        const allocator = self.allocator;
+        const query = try allocator.dupe(u8, self.input_.items);
+        defer allocator.free(query);
+        self.cancel();
+        command.executeName("find", command.fmt(.{ new_find_mode, query })) catch {};
+    }
+    pub const toggle_find_mode_meta: Meta = .{ .description = "Toggle find mode" };
 
     pub fn mini_mode_reset(self: *Self, _: Ctx) Result {
         self.input_.clearRetainingCapacity();

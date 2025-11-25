@@ -558,6 +558,7 @@
             ["ctrl+space", "mini_mode_cancel"],
             ["ctrl+enter", "mini_mode_insert_bytes", "\n"],
             ["ctrl+backspace", "mini_mode_reset"],
+            ["alt+c", "toggle_find_mode"],
             ["alt+v", "system_paste"],
             ["alt+n", "goto_next_match"],
             ["alt+p", "goto_prev_match"],
