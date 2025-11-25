@@ -113,9 +113,7 @@ pub const TransformError = error{
     WriteFailed,
 };
 
-fn utf8_transform(comptime field: uucode.FieldEnum, allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
-    var result: std.Io.Writer.Allocating = .init(allocator);
-    defer result.deinit();
+fn utf8_write_transform(comptime field: uucode.FieldEnum, writer: *std.Io.Writer, text: []const u8) TransformError!void {
     const view: std.unicode.Utf8View = try .init(text);
     var it = view.iterator();
     while (it.nextCodepoint()) |cp| {
@@ -126,8 +124,14 @@ fn utf8_transform(comptime field: uucode.FieldEnum, allocator: std.mem.Allocator
         };
         var utf8_buf: [6]u8 = undefined;
         const size = try std.unicode.utf8Encode(cp_, &utf8_buf);
-        try result.writer.writeAll(utf8_buf[0..size]);
+        try writer.writeAll(utf8_buf[0..size]);
     }
+}
+
+fn utf8_transform(comptime field: uucode.FieldEnum, allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
+    var result: std.Io.Writer.Allocating = .init(allocator);
+    defer result.deinit();
+    try utf8_write_transform(field, &result.writer, text);
     return result.toOwnedSlice();
 }
 
@@ -160,6 +164,10 @@ pub fn to_lower(allocator: std.mem.Allocator, text: []const u8) TransformError![
 
 pub fn case_fold(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
     return utf8_transform(.case_folding_simple, allocator, text);
+}
+
+pub fn case_folded_write(writer: *std.Io.Writer, text: []const u8) TransformError!void {
+    return utf8_write_transform(.case_folding_simple, writer, text);
 }
 
 pub fn switch_case(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
