@@ -947,6 +947,7 @@ const Node = union(enum) {
     pub const FindAllCallback = fn (data: *anyopaque, begin_row: usize, begin_col: usize, end_row: usize, end_col: usize) error{Stop}!void;
     pub fn find_all_ranges(self: *const Node, pattern: []const u8, data: *anyopaque, callback: *const FindAllCallback, mode: FindMode, allocator: Allocator) error{ OutOfMemory, Stop }!void {
         const Ctx = struct {
+            allocator: std.mem.Allocator,
             pattern: []const u8,
             data: *anyopaque,
             callback: *const FindAllCallback,
@@ -985,7 +986,11 @@ const Node = union(enum) {
                             input = input[input_consume_size..];
                         },
                         .case_folded => {
-                            @panic("unimplemented");
+                            const input_consume_size = @min(ctx.buf.len - ctx.rest.len, input.len);
+                            var writer = std.Io.Writer.fixed(ctx.buf[ctx.rest.len..]);
+                            unicode.case_folded_write(&writer, input[0..input_consume_size]) catch return error.WriteFailed;
+                            ctx.rest = ctx.buf[0 .. ctx.rest.len + writer.end];
+                            input = input[input_consume_size..];
                         },
                     }
 
@@ -1030,6 +1035,7 @@ const Node = union(enum) {
             }
         };
         var ctx: Ctx = .{
+            .allocator = allocator,
             .pattern = pattern,
             .data = data,
             .callback = callback,
