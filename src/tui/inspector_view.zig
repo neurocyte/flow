@@ -97,7 +97,7 @@ fn ast_at_point(self: *Self, syn: anytype, row: usize, col_pos: usize, root: Buf
     }) catch return;
     if (node.isNull()) return;
 
-    const sel = ed.CurSel.selection_from_node(node, root, self.editor.metrics) catch return;
+    const sel = ed.CurSel.selection_from_node(node, root, self.editor.metrics);
 
     self.dump_ast_node(sel, &node);
 }
