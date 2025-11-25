@@ -959,9 +959,13 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
 fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (ClientError || InvalidMessageError || cbor.Error)!void {
     const location: LocationLink = try read_locationlink(location_link);
     if (location.targetUri == null or location.targetRange == null) return error.InvalidMessageField;
-    if (!std.mem.eql(u8, location.targetUri.?[0..7], "file://")) return error.InvalidTargetURI;
     var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var file_path = std.Uri.percentDecodeBackwards(&file_path_buf, location.targetUri.?[7..]);
+    var file_path = std.Uri.percentDecodeBackwards(&file_path_buf, if (std.mem.eql(u8, location.targetUri.?[0..7], "file://"))
+        location.targetUri.?[7..]
+    else if (std.mem.eql(u8, location.targetUri.?[0..5], "file:"))
+        location.targetUri.?[5..]
+    else
+        return error.InvalidTargetURI);
     if (builtin.os.tag == .windows) {
         if (file_path[0] == '/') file_path = file_path[1..];
         for (file_path, 0..) |c, i| if (c == '/') {
