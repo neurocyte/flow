@@ -32,6 +32,17 @@ pub fn from_pos(sel: Self, root: Buffer.Root, metrics: Buffer.Metrics) Self {
     };
 }
 
+pub fn from_range(range: anytype, root: Buffer.Root, metrics: Buffer.Metrics) Self {
+    return from_pos(from_range_raw(range), root, metrics);
+}
+
+pub fn from_range_raw(range: anytype) Self {
+    return .{
+        .begin = .{ .row = range.start_point.row, .col = range.start_point.column },
+        .end = .{ .row = range.end_point.row, .col = range.end_point.column },
+    };
+}
+
 pub fn line_from_cursor(cursor: Cursor, root: Buffer.Root, mtrx: Buffer.Metrics) Self {
     var begin = cursor;
     var end = cursor;

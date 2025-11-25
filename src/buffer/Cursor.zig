@@ -42,6 +42,13 @@ fn follow_target(self: *Self, root: Buffer.Root, metrics: Metrics) void {
     self.col = @min(self.target, root.line_width(self.row, metrics) catch 0);
 }
 
+pub fn from_pos(self: Self, root: Buffer.Root, metrics: Buffer.Metrics) Self {
+    return .{
+        .row = self.row,
+        .col = root.pos_to_width(self.row, self.col, metrics) catch root.line_width(self.row, metrics) catch 0,
+    };
+}
+
 fn move_right_no_target(self: *Self, root: Buffer.Root, metrics: Metrics) !void {
     const lines = root.lines();
     if (lines <= self.row) return error.Stop;

@@ -84,8 +84,8 @@ pub const Match = struct {
         return .{ .begin = self.begin, .end = self.end };
     }
 
-    pub fn from_pos(self: Self, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Self {
-        return from_selection(try self.to_selection().from_pos(root, metrics));
+    pub fn from_pos(self: Self, root: Buffer.Root, metrics: Buffer.Metrics) Self {
+        return from_selection(self.to_selection().from_pos(root, metrics));
     }
 
     fn nudge_insert(self: *Self, nudge: Selection) void {
@@ -1442,7 +1442,7 @@ pub const Editor = struct {
             pos_cache: PosToWidthCache,
             last_begin: Cursor = Cursor.invalid(),
             fn cb(ctx: *@This(), range: syntax.Range, scope: []const u8, id: u32, idx: usize, _: *const syntax.Node) error{Stop}!void {
-                const sel_ = ctx.pos_cache.range_to_selection(range, ctx.root, ctx.self.metrics) orelse return;
+                const sel_ = ctx.pos_cache.range_to_selection(range, ctx.root, ctx.self.metrics);
 
                 if (idx > 0) return;
                 if (sel_.begin.eql(ctx.last_begin)) return;
@@ -5420,13 +5420,14 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    fn add_match_internal(self: *Self, begin_line_: usize, begin_pos_: usize, end_line_: usize, end_pos_: usize) void {
+    fn add_match_internal(self: *Self, begin_line: usize, begin_pos: usize, end_line: usize, end_pos: usize) void {
         const root = self.buf_root() catch return;
-        const begin_line = begin_line_ - 1;
-        const end_line = end_line_ - 1;
-        const begin_pos = root.pos_to_width(begin_line, begin_pos_, self.metrics) catch return;
-        const end_pos = root.pos_to_width(end_line, end_pos_, self.metrics) catch return;
-        var match: Match = .{ .begin = .{ .row = begin_line, .col = begin_pos }, .end = .{ .row = end_line, .col = end_pos } };
+        const begin: Cursor = .{ .row = begin_line - 1, .col = begin_pos };
+        const end: Cursor = .{ .row = end_line - 1, .col = end_pos };
+        var match: Match = .{
+            .begin = begin.from_pos(root, self.metrics),
+            .end = end.from_pos(root, self.metrics),
+        };
         if (match.end.eql(self.get_primary().cursor))
             match.has_selection = true;
         (self.matches.addOne(self.allocator) catch return).* = match;
@@ -5631,72 +5632,73 @@ pub const Editor = struct {
     pub const goto_line_vim_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn goto_column(self: *Self, ctx: Context) Result {
-        var column: usize = 0;
-        if (!try ctx.args.match(.{tp.extract(&column)}))
-            return error.InvalidGotoColumnArgument;
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
-        column = if (column < 1) 0 else column - 1;
-        column = try root.pos_to_width(primary.cursor.row, column, self.metrics);
-        try primary.cursor.move_to(root, primary.cursor.row, column, self.metrics);
+        var dest = primary.cursor;
+        if (!try ctx.args.match(.{tp.extract(&dest.col)}))
+            return error.InvalidGotoColumnArgument;
+        dest.col -|= 1;
+        dest = dest.from_pos(root, self.metrics);
+        try primary.cursor.move_to(root, dest.row, dest.col, self.metrics);
         self.clamp();
     }
     pub const goto_column_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn goto_line_and_column(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
-        var line: usize = 0;
-        var column: usize = 0;
+        var dest: Cursor = .{};
         var have_sel: bool = false;
         var sel: Selection = .{};
         var pos_type: PosType = .column;
         if (try ctx.args.match(.{
-            tp.extract(&line),
-            tp.extract(&column),
+            tp.extract(&dest.row),
+            tp.extract(&dest.col),
         })) {
-            // self.logger.print("goto: l:{d} c:{d}", .{ line, column });
+            // self.logger.print("goto: l:{d} c:{d}", .{ dest.row, dest.col });
         } else if (try ctx.args.match(.{
-            tp.extract(&line),
-            tp.extract(&column),
+            tp.extract(&dest.row),
+            tp.extract(&dest.col),
             tp.extract(&pos_type),
         })) {
-            // self.logger.print("goto: l:{d} c:{d}", .{ line, column });
+            // self.logger.print("goto: l:{d} c:{d}", .{ dest.row, dest.col });
         } else if (try ctx.args.match(.{
-            tp.extract(&line),
-            tp.extract(&column),
+            tp.extract(&dest.row),
+            tp.extract(&dest.col),
             tp.extract(&sel.begin.row),
             tp.extract(&sel.begin.col),
             tp.extract(&sel.end.row),
             tp.extract(&sel.end.col),
         })) {
-            // self.logger.print("goto: l:{d} c:{d} {any}", .{ line, column, sel });
+            // self.logger.print("goto: l:{d} c:{d} {any}", .{ dest.row, dest.col, sel });
             have_sel = true;
         } else if (try ctx.args.match(.{
-            tp.extract(&line),
-            tp.extract(&column),
+            tp.extract(&dest.row),
+            tp.extract(&dest.col),
             tp.extract(&sel.begin.row),
             tp.extract(&sel.begin.col),
             tp.extract(&sel.end.row),
             tp.extract(&sel.end.col),
             tp.extract(&pos_type),
         })) {
-            // self.logger.print("goto: l:{d} c:{d} {any} {}", .{ line, column, sel, pos_type });
+            // self.logger.print("goto: l:{d} c:{d} {any} {}", .{ dest.row, dest.col, sel, pos_type });
             have_sel = true;
         } else return error.InvalidGotoLineAndColumnArgument;
         self.cancel_all_selections();
         const root = self.buf_root() catch return;
         if (pos_type == .byte) {
-            column = root.pos_to_width(line - 1, column - 1, self.metrics) catch return;
-            column += 1;
+            dest.row -|= 1;
+            dest.col -|= 1;
+            dest = dest.from_pos(root, self.metrics);
+            dest.col += 1;
             if (have_sel)
-                sel = sel.from_pos(root, self.metrics) catch return;
-            // self.logger.print("goto_byte_pos: l:{d} c:{d} {any} {}", .{ line, column, sel, pos_type });
+                sel = sel.from_pos(root, self.metrics);
+            // self.logger.print("goto_byte_pos: l:{d} c:{d} {any} {}", .{ dest.row, dest.col, sel, pos_type });
         }
         const primary = self.get_primary();
         try primary.cursor.move_to(
             root,
-            @intCast(if (line < 1) 0 else line - 1),
-            @intCast(if (column < 1) 0 else column - 1),
+            dest.row -| 1,
+            dest.col -| 1,
             self.metrics,
         );
         if (have_sel) primary.selection = sel;
@@ -5918,23 +5920,10 @@ pub const Editor = struct {
 
     pub fn add_hover_highlight(self: *Self, match_: Match) void {
         const root = self.buf_root() catch return;
-        const match: Match = .{
-            .begin = .{
-                .row = match_.begin.row,
-                .col = root.pos_to_width(match_.begin.row, match_.begin.col, self.metrics) catch return,
-            },
-            .end = .{
-                .row = match_.end.row,
-                .col = root.pos_to_width(match_.end.row, match_.end.col, self.metrics) catch return,
-            },
-        };
+        const match = match_.from_pos(root, self.metrics);
         switch (self.matches.items.len) {
-            0 => {
-                (self.matches.addOne(self.allocator) catch return).* = match;
-            },
-            1 => {
-                self.matches.items[0] = match;
-            },
+            0 => (self.matches.addOne(self.allocator) catch return).* = match,
+            1 => self.matches.items[0] = match,
             else => {},
         }
         self.need_render();
@@ -5954,14 +5943,11 @@ pub const Editor = struct {
             self.cancel_all_matches();
         }
         const root = self.buf_root() catch return;
-        const begin_row = match_.begin.row - @min(match_.begin.row, 1);
-        const begin_col = root.pos_to_width(begin_row, match_.begin.col, self.metrics) catch return;
-        const end_row = match_.end.row - @min(match_.end.row, 1);
-        const end_col = root.pos_to_width(end_row, match_.end.col, self.metrics) catch return;
-        (self.matches.addOne(self.allocator) catch return).* = .{
-            .begin = .{ .row = begin_row, .col = begin_col },
-            .end = .{ .row = end_row, .col = end_col },
-        };
+        var match = match_;
+        match.begin.row -|= 1;
+        match.end.row -|= 1;
+        match = match.from_pos(root, self.metrics);
+        (self.matches.addOne(self.allocator) catch return).* = match;
         self.need_render();
     }
 
@@ -6696,18 +6682,26 @@ pub const PosToWidthCache = struct {
         self.cache.deinit(self.allocator);
     }
 
-    pub fn range_to_selection(self: *Self, range: syntax.Range, root: Buffer.Root, metrics: Buffer.Metrics) ?Selection {
-        const start = range.start_point;
-        const end = range.end_point;
-        if (root != self.cached_root or self.cached_line != start.row) {
+    pub fn range_to_selection(self: *Self, range: syntax.Range, root: Buffer.Root, metrics: Buffer.Metrics) Selection {
+        var sel = Selection.from_range_raw(range);
+        if (root != self.cached_root or self.cached_line != sel.begin.row) {
             self.cache.clearRetainingCapacity();
-            self.cached_line = start.row;
+            self.cached_line = sel.begin.row;
             self.cached_root = root;
-            root.get_line_width_map(self.cached_line, &self.cache, self.allocator, metrics) catch return null;
+            root.get_line_width_map(self.cached_line, &self.cache, self.allocator, metrics) catch return sel;
         }
-        const start_col = if (start.column < self.cache.items.len) self.cache.items[start.column] else start.column;
-        const end_col = if (end.row == start.row and end.column < self.cache.items.len) self.cache.items[end.column] else root.pos_to_width(end.row, end.column, metrics) catch end.column;
-        return .{ .begin = .{ .row = start.row, .col = start_col }, .end = .{ .row = end.row, .col = end_col } };
+
+        sel.begin.col = if (sel.begin.col < self.cache.items.len)
+            self.cache.items[sel.begin.col]
+        else
+            sel.begin.col;
+
+        sel.end.col = if (sel.end.row == sel.end.row and sel.end.col < self.cache.items.len)
+            self.cache.items[sel.end.col]
+        else
+            root.pos_to_width(sel.end.row, sel.end.col, metrics) catch sel.end.col;
+
+        return sel;
     }
 };
 
