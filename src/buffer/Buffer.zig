@@ -17,6 +17,8 @@ pub const Cursor = @import("Cursor.zig");
 pub const View = @import("View.zig");
 pub const Selection = @import("Selection.zig");
 
+pub const FindMode = enum { exact, case_folded };
+
 pub const Metrics = struct {
     ctx: *const anyopaque,
     egc_length: egc_length_func,
@@ -943,7 +945,6 @@ const Node = union(enum) {
         }
     }
 
-    pub const FindMode = enum { exact, case_folded };
     pub const FindAllCallback = fn (data: *anyopaque, begin_row: usize, begin_col: usize, end_row: usize, end_col: usize) error{Stop}!void;
     pub fn find_all_ranges(self: *const Node, pattern: []const u8, data: *anyopaque, callback: *const FindAllCallback, mode: FindMode, allocator: Allocator) error{ OutOfMemory, Stop }!void {
         const Ctx = struct {
