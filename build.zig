@@ -324,11 +324,6 @@ pub fn build_exe(
         .root_source_file = b.path("src/tracy_noop.zig"),
     });
 
-    const zg_dep = b.dependency("zg", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     const zeit_dep = b.dependency("zeit", .{
         .target = target,
         .optimize = optimize,
@@ -424,7 +419,7 @@ pub fn build_exe(
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
-            .{ .name = "LetterCasing", .module = zg_dep.module("LetterCasing") },
+            .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "file_type_config", .module = file_type_config_mod },
         },
     });

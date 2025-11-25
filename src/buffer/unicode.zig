@@ -64,58 +64,6 @@ pub const open_close_pairs = [_]struct { []const u8, []const u8 }{
     .{ "¡", "!" },
 };
 
-fn raw_byte_to_utf8(cp: u8, buf: []u8) ![]const u8 {
-    var utf16le: [1]u16 = undefined;
-    const utf16le_as_bytes = std.mem.sliceAsBytes(utf16le[0..]);
-    std.mem.writeInt(u16, utf16le_as_bytes[0..2], cp, .little);
-    return buf[0..try std.unicode.utf16LeToUtf8(buf, &utf16le)];
-}
-
-const std = @import("std");
-
-pub fn utf8_sanitize(allocator: std.mem.Allocator, input: []const u8) error{
-    OutOfMemory,
-    DanglingSurrogateHalf,
-    ExpectedSecondSurrogateHalf,
-    UnexpectedSecondSurrogateHalf,
-}![]u8 {
-    var output: std.ArrayListUnmanaged(u8) = .{};
-    const writer = output.writer(allocator);
-    var buf: [4]u8 = undefined;
-    for (input) |byte| try writer.writeAll(try raw_byte_to_utf8(byte, &buf));
-    return output.toOwnedSlice(allocator);
-}
-
-pub const LetterCasing = @import("LetterCasing");
-var letter_casing: ?LetterCasing = null;
-var letter_casing_arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-
-fn get_letter_casing() *LetterCasing {
-    if (letter_casing) |*cd| return cd;
-    letter_casing = LetterCasing.init(letter_casing_arena.allocator()) catch @panic("LetterCasing.init");
-    return &letter_casing.?;
-}
-
-pub fn to_upper(allocator: std.mem.Allocator, text: []const u8) error{ OutOfMemory, Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }![]u8 {
-    return get_letter_casing().toUpperStr(allocator, text);
-}
-
-pub fn to_lower(allocator: std.mem.Allocator, text: []const u8) error{ OutOfMemory, Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }![]u8 {
-    return get_letter_casing().toLowerStr(allocator, text);
-}
-
-pub fn case_fold(allocator: std.mem.Allocator, text: []const u8) error{ OutOfMemory, Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }![]u8 {
-    return get_letter_casing().toLowerStr(allocator, text);
-}
-
-pub fn switch_case(allocator: std.mem.Allocator, text: []const u8) error{ OutOfMemory, Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }![]u8 {
-    const letter_casing_ = get_letter_casing();
-    return if (letter_casing_.isLowerStr(text))
-        letter_casing_.toUpperStr(allocator, text)
-    else
-        letter_casing_.toLowerStr(allocator, text);
-}
-
 const spinner = [_][]const u8{
     "⠋",
     "⠙",
@@ -136,3 +84,90 @@ const spinner_short = [_][]const u8{
     "⠦",
     "⠇",
 };
+
+fn raw_byte_to_utf8(cp: u8, buf: []u8) ![]const u8 {
+    var utf16le: [1]u16 = undefined;
+    const utf16le_as_bytes = std.mem.sliceAsBytes(utf16le[0..]);
+    std.mem.writeInt(u16, utf16le_as_bytes[0..2], cp, .little);
+    return buf[0..try std.unicode.utf16LeToUtf8(buf, &utf16le)];
+}
+
+pub fn utf8_sanitize(allocator: std.mem.Allocator, input: []const u8) error{
+    OutOfMemory,
+    DanglingSurrogateHalf,
+    ExpectedSecondSurrogateHalf,
+    UnexpectedSecondSurrogateHalf,
+}![]u8 {
+    var output: std.ArrayListUnmanaged(u8) = .{};
+    const writer = output.writer(allocator);
+    var buf: [4]u8 = undefined;
+    for (input) |byte| try writer.writeAll(try raw_byte_to_utf8(byte, &buf));
+    return output.toOwnedSlice(allocator);
+}
+
+pub const TransformError = error{
+    InvalidUtf8,
+    OutOfMemory,
+    Utf8CannotEncodeSurrogateHalf,
+    CodepointTooLarge,
+    WriteFailed,
+};
+
+fn utf8_transform(comptime field: uucode.FieldEnum, allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
+    var result: std.Io.Writer.Allocating = .init(allocator);
+    defer result.deinit();
+    const view: std.unicode.Utf8View = try .init(text);
+    var it = view.iterator();
+    while (it.nextCodepoint()) |cp| {
+        const cp_ = switch (field) {
+            .simple_uppercase_mapping, .simple_lowercase_mapping => uucode.get(field, cp) orelse cp,
+            .case_folding_simple => uucode.get(field, cp),
+            else => @compileError(@tagName(field) ++ " is not a unicode transformation"),
+        };
+        var utf8_buf: [6]u8 = undefined;
+        const size = try std.unicode.utf8Encode(cp_, &utf8_buf);
+        try result.writer.writeAll(utf8_buf[0..size]);
+    }
+    return result.toOwnedSlice();
+}
+
+fn utf8_predicate(comptime field: uucode.FieldEnum, text: []const u8) TransformError!bool {
+    const view: std.unicode.Utf8View = try .init(text);
+    var it = view.iterator();
+    while (it.nextCodepoint()) |cp| {
+        const result = switch (field) {
+            .is_lowercase => uucode.get(field, cp),
+            else => @compileError(@tagName(field) ++ " is not a unicode predicate"),
+        };
+        if (!result) return false;
+    }
+    return true;
+}
+
+pub fn to_upper(allocator: std.mem.Allocator, text: []const u8) error{
+    InvalidUtf8,
+    OutOfMemory,
+    Utf8CannotEncodeSurrogateHalf,
+    CodepointTooLarge,
+    WriteFailed,
+}![]u8 {
+    return utf8_transform(.simple_uppercase_mapping, allocator, text);
+}
+
+pub fn to_lower(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
+    return utf8_transform(.simple_lowercase_mapping, allocator, text);
+}
+
+pub fn case_fold(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
+    return utf8_transform(.case_folding_simple, allocator, text);
+}
+
+pub fn switch_case(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
+    return if (try utf8_predicate(.is_lowercase, text))
+        to_upper(allocator, text)
+    else
+        to_lower(allocator, text);
+}
+
+const std = @import("std");
+const uucode = @import("vaxis").uucode;
