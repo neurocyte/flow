@@ -19,7 +19,6 @@ pub const name = @typeName(Self);
 plane: Plane,
 editor: *ed.Editor,
 theme: ?*const Widget.Theme = null,
-pos_cache: ed.PosToWidthCache,
 last_node: usize = 0,
 
 const Self = @This();
@@ -31,7 +30,6 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
         .editor = editor,
-        .pos_cache = try ed.PosToWidthCache.init(allocator),
     };
     try editor.handlers.add(EventHandler.bind(self, ed_receive));
     return Widget.to(self);
@@ -103,7 +101,7 @@ fn ast_at_point(self: *Self, syn: anytype, row: usize, col_pos: usize, root: Buf
 }
 
 fn dump_highlight(self: *Self, range: syntax.Range, scope: []const u8, id: u32, _: usize, ast_node: *const syntax.Node) error{Stop}!void {
-    const sel = self.pos_cache.range_to_selection(range, self.editor.get_current_root() orelse return, self.editor.metrics) orelse return;
+    const sel = Buffer.Selection.from_range(range, self.editor.get_current_root() orelse return, self.editor.metrics);
 
     self.dump_ast_node(sel, ast_node);
 
@@ -162,7 +160,7 @@ fn dump_ast_node(self: *Self, sel: Buffer.Selection, ast_node: *const syntax.Nod
             const ast_parent = parent.asSExpressionString();
             _ = self.plane.print("parent: {s}\n", .{ast_parent}) catch {};
             syntax.Node.freeSExpressionString(ast_parent);
-            const sel_parent = self.pos_cache.range_to_selection(parent.getRange(), self.editor.get_current_root() orelse return, self.editor.metrics) orelse return;
+            const sel_parent = Buffer.Selection.from_range(parent.getRange(), self.editor.get_current_root() orelse return, self.editor.metrics);
             var match_parent = ed.Match.from_selection(sel_parent);
             if (self.theme) |theme| match_parent.style = .{ .bg = theme.editor_gutter_added.fg };
             switch (update_match) {
