@@ -321,7 +321,7 @@ const cmds_ = struct {
         _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
         while (repeat > 0) : (repeat -= 1) {
             for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-                const sel = try cursel.enable_selection(root, ed.metrics);
+                const sel = cursel.enable_selection(root, ed.metrics);
 
                 // handling left to right transition
                 const sel_begin: i32 = @intCast(sel.begin.col);
@@ -567,7 +567,7 @@ fn select_inner_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics
     Editor.move_cursor_left_until(root, &prev, Editor.is_word_boundary_left, metrics);
     Editor.move_cursor_right_until(root, &next, Editor.is_word_boundary_right, metrics);
     try next.move_right(root, metrics);
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     sel.begin = prev;
     sel.end = next;
     cursel.*.cursor = next;
@@ -580,7 +580,7 @@ fn select_inner_long_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Me
     Editor.move_cursor_left_until(root, &prev, is_long_word_boundary_left, metrics);
     Editor.move_cursor_right_until(root, &next, is_long_word_boundary_right, metrics);
     try next.move_right(root, metrics);
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     sel.begin = prev;
     sel.end = next;
     cursel.*.cursor = next;
@@ -601,7 +601,7 @@ fn select_around_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metric
     if (!cursel.cursor.test_at(root, Editor.is_word_char, metrics)) return;
     var expander = cursel.*;
     try select_inner_word(root, &expander, metrics);
-    const sel_e = try expander.enable_selection(root, metrics);
+    const sel_e = expander.enable_selection(root, metrics);
     var prev = sel_e.begin;
     var next = sel_e.end;
     if (next.test_at(root, is_tab_or_space, metrics)) {
@@ -616,7 +616,7 @@ fn select_around_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metric
             prev = sel_e.begin;
         }
     }
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     sel.begin = prev;
     sel.end = next;
     cursel.*.cursor = next;
@@ -657,7 +657,7 @@ fn select_cursel_to_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: com
         //At end of file, it's ok
     };
     moving_cursor.target = moving_cursor.col;
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     sel.begin = begin;
     sel.end = moving_cursor;
     cursel.cursor = moving_cursor;
@@ -670,7 +670,7 @@ fn extend_cursel_to_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: com
 
     //Character found, selecting
     moving_cursor.target = moving_cursor.col;
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     if (sel.empty())
         sel.begin = begin;
     sel.end = moving_cursor;
@@ -687,7 +687,7 @@ fn select_cursel_till_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: c
         //At end of file, it's ok
     };
     moving_cursor.target = moving_cursor.col;
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     sel.begin = begin;
     sel.end = moving_cursor;
     cursel.cursor = moving_cursor;
@@ -700,7 +700,7 @@ fn extend_cursel_till_char_left_helix(root: Buffer.Root, cursel: *CurSel, ctx: c
 
     //Character found, selecting
     moving_cursor.target = moving_cursor.col;
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     if (sel.empty())
         sel.begin = begin;
     sel.end = moving_cursor;
@@ -714,7 +714,7 @@ fn select_cursel_till_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: 
 
     //Character found, selecting
     moving_cursor.target = moving_cursor.col;
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     sel.begin = begin;
     sel.end = moving_cursor;
     cursel.cursor = moving_cursor;
@@ -727,7 +727,7 @@ fn extend_cursel_till_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: 
 
     //Character found, selecting
     moving_cursor.target = moving_cursor.col;
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     if (sel.empty())
         sel.begin = begin;
     sel.end = moving_cursor;
@@ -744,7 +744,7 @@ fn select_cursel_to_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: co
         // We might be at end of file
     };
     moving_cursor.target = moving_cursor.col;
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     sel.begin = begin;
     sel.end = moving_cursor;
     cursel.cursor = moving_cursor;
@@ -760,7 +760,7 @@ fn extend_cursel_to_char_right_helix(root: Buffer.Root, cursel: *CurSel, ctx: co
         // We might be at end of file
     };
     moving_cursor.target = moving_cursor.col;
-    const sel = try cursel.enable_selection(root, metrics);
+    const sel = cursel.enable_selection(root, metrics);
     if (sel.empty())
         sel.begin = begin;
     sel.end = moving_cursor;
@@ -912,7 +912,7 @@ fn move_cursor_till_char_right_beyond_eol(root: Buffer.Root, cursor: *Cursor, me
 
 fn add_cursors_to_cursel_line_ends_helix(ed: *Editor, root: Buffer.Root, cursel: *CurSel) !void {
     const original_cursel = cursel.*;
-    const sel = try cursel.enable_selection(root, ed.metrics);
+    const sel = cursel.enable_selection(root, ed.metrics);
     sel.normalize();
     var row = sel.begin.row;
     const is_multiline = sel.begin.row != sel.end.row;
@@ -1189,7 +1189,7 @@ fn select_char_if_no_selection(cursel: *CurSel, root: Buffer.Root, metrics: Buff
         }
         return false;
     } else {
-        const sel = try cursel.enable_selection(root, metrics);
+        const sel = cursel.enable_selection(root, metrics);
         sel.begin = .{ .row = cursel.cursor.row, .col = cursel.cursor.col + 1, .target = cursel.cursor.target + 1 };
         return true;
     }

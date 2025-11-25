@@ -115,8 +115,8 @@ pub const CurSel = struct {
         self.* = .{};
     }
 
-    pub fn enable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
-        self.selection = try self.to_selection(root, metrics);
+    pub fn enable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) *Selection {
+        self.selection = self.to_selection(root, metrics);
         return if (self.selection) |*sel| sel else unreachable;
     }
 
@@ -125,10 +125,10 @@ pub const CurSel = struct {
         return if (self.selection) |*sel| sel else unreachable;
     }
 
-    pub fn to_selection(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Selection {
+    pub fn to_selection(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) Selection {
         return switch (tui.get_selection_style()) {
             .normal => self.to_selection_normal(),
-            .inclusive => try self.to_selection_inclusive(root, metrics),
+            .inclusive => self.to_selection_inclusive(root, metrics),
         };
     }
 
@@ -136,12 +136,12 @@ pub const CurSel = struct {
         return if (self.selection) |sel| sel else Selection.from_cursor(&self.cursor);
     }
 
-    fn to_selection_inclusive(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) !Selection {
+    fn to_selection_inclusive(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) Selection {
         return if (self.selection) |sel|
             sel
         else cod: {
             var sel = Selection.from_cursor(&self.cursor);
-            try sel.end.move_right(root, metrics);
+            sel.end.move_right(root, metrics) catch {};
             break :cod sel;
         };
     }
@@ -177,8 +177,8 @@ pub const CurSel = struct {
         };
     }
 
-    fn expand_selection_to_line(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) !*Selection {
-        const sel = try self.enable_selection(root, metrics);
+    fn expand_selection_to_line(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) *Selection {
+        const sel = self.enable_selection(root, metrics);
         sel.normalize();
         sel.begin.move_begin();
         if (!(sel.end.row > sel.begin.row and sel.end.col == 0)) {
@@ -2008,7 +2008,7 @@ pub const Editor = struct {
     }
 
     pub fn with_selection_const(root: Buffer.Root, move: cursor_operator_const, cursel: *CurSel, metrics: Buffer.Metrics) error{Stop}!void {
-        const sel = try cursel.enable_selection(root, metrics);
+        const sel = cursel.enable_selection(root, metrics);
         try move(root, &sel.end, metrics);
         cursel.cursor = sel.end;
         cursel.check_selection(root, metrics);
@@ -2040,7 +2040,7 @@ pub const Editor = struct {
     }
 
     fn with_selection_const_arg(root: Buffer.Root, move: cursor_operator_const_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
-        const sel = try cursel.enable_selection(root, metrics);
+        const sel = cursel.enable_selection(root, metrics);
         try move(root, &sel.end, ctx, metrics);
         cursel.cursor = sel.end;
         cursel.check_selection(root, metrics);
@@ -2057,7 +2057,7 @@ pub const Editor = struct {
     }
 
     fn with_selection_and_view_const(root: Buffer.Root, move: cursor_view_operator_const, cursel: *CurSel, view: *const View, metrics: Buffer.Metrics) error{Stop}!void {
-        const sel = try cursel.enable_selection(root, metrics);
+        const sel = cursel.enable_selection(root, metrics);
         try move(root, &sel.end, view, metrics);
         cursel.cursor = sel.end;
     }
@@ -2529,7 +2529,7 @@ pub const Editor = struct {
         const x_ = if (x < 0) 0 else x;
         const primary = self.get_primary();
         const root = self.buf_root() catch return;
-        const sel = primary.enable_selection(root, self.metrics) catch return;
+        const sel = primary.enable_selection(root, self.metrics);
         sel.end.move_abs(root, &self.view, @intCast(y_), @intCast(x_), self.metrics) catch return;
         const initial = self.selection_drag_initial orelse sel.*;
         switch (self.selection_mode) {
@@ -2900,7 +2900,7 @@ pub const Editor = struct {
         const primary = self.get_primary();
         const root = self.buf_root() catch return;
         if (primary.selection) |_| {} else {
-            const sel = primary.enable_selection(root, self.metrics) catch return;
+            const sel = primary.enable_selection(root, self.metrics);
             try move_cursor_begin(root, &sel.begin, self.metrics);
             try move_cursor_end(root, &sel.end, self.metrics);
             try move_cursor_right(root, &sel.end, self.metrics);
@@ -3646,7 +3646,7 @@ pub const Editor = struct {
     pub const add_cursor_all_matches_meta: Meta = .{ .description = "Add cursors to all highlighted matches" };
 
     fn add_cursors_to_cursel_line_ends(self: *Self, root: Buffer.Root, cursel: *CurSel) !void {
-        const sel = try cursel.enable_selection(root, self.metrics);
+        const sel = cursel.enable_selection(root, self.metrics);
         sel.normalize();
         var row = sel.begin.row;
         while (row <= sel.end.row) : (row += 1) {
@@ -3676,7 +3676,7 @@ pub const Editor = struct {
     fn pull_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
-        const sel = cursel.expand_selection_to_line(root, self.metrics) catch return error.Stop;
+        const sel = cursel.expand_selection_to_line(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
         const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
@@ -3704,7 +3704,7 @@ pub const Editor = struct {
     fn pull_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
-        const sel = cursel.expand_selection_to_line(root, self.metrics) catch return error.Stop;
+        const sel = cursel.expand_selection_to_line(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
         const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
@@ -3852,7 +3852,7 @@ pub const Editor = struct {
     fn toggle_cursel_prefix(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
-        const sel = cursel.expand_selection_to_line(root, self.metrics) catch return error.Stop;
+        const sel = cursel.expand_selection_to_line(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
         const text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
@@ -3933,7 +3933,7 @@ pub const Editor = struct {
         if (first == 0) return root;
         const off = first % self.indent_size;
         const cols = if (off == 0) self.indent_size else off;
-        const sel = cursel.enable_selection(root, self.metrics) catch return error.Stop;
+        const sel = cursel.enable_selection(root, self.metrics);
         try sel.begin.move_to(root, sel.begin.row, first, self.metrics);
         try sel.end.move_to(root, sel.end.row, first - cols, self.metrics);
         var saved = false;
@@ -4159,7 +4159,7 @@ pub const Editor = struct {
 
     pub fn enable_selection(self: *Self, _: Context) Result {
         const root = try self.buf_root();
-        _ = try self.get_primary().enable_selection(root, self.metrics);
+        _ = self.get_primary().enable_selection(root, self.metrics);
     }
     pub const enable_selection_meta: Meta = .{ .description = "Enable selection" };
 
@@ -4388,7 +4388,7 @@ pub const Editor = struct {
         self.cancel_all_selections();
         const primary = self.get_primary();
         const root = try self.buf_root();
-        const sel = try primary.enable_selection(root, self.metrics);
+        const sel = primary.enable_selection(root, self.metrics);
         try expand_selection_to_all(root, sel, self.metrics);
         primary.cursor = sel.end;
         self.clamp();
@@ -4398,7 +4398,7 @@ pub const Editor = struct {
 
     fn select_word_at_cursor(self: *Self, cursel: *CurSel) !*Selection {
         const root = try self.buf_root();
-        const sel = try cursel.enable_selection(root, self.metrics);
+        const sel = cursel.enable_selection(root, self.metrics);
         defer cursel.check_selection(root, self.metrics);
         sel.normalize();
         try move_cursor_word_begin(root, &sel.begin, self.metrics);
@@ -4408,7 +4408,7 @@ pub const Editor = struct {
     }
 
     pub fn select_line_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, mode: enum { include_eol, exclude_eol, hold_cursor }) !void {
-        const sel = try cursel.enable_selection(root, self.metrics);
+        const sel = cursel.enable_selection(root, self.metrics);
         sel.normalize();
         try move_cursor_begin(root, &sel.begin, self.metrics);
         move_cursor_end(root, &sel.end, self.metrics) catch {};
@@ -4472,12 +4472,12 @@ pub const Editor = struct {
     }
 
     fn top_node_at_cursel(self: *const Self, cursel: *const CurSel, root: Buffer.Root, metrics: Buffer.Metrics) error{Stop}!syntax.Node {
-        const sel = try cursel.to_selection(root, metrics);
+        const sel = cursel.to_selection(root, metrics);
         return try self.top_node_at_selection(sel, root, metrics);
     }
 
     fn expand_selection_to_parent_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
+        const sel = cursel.enable_selection(root, metrics).*;
         var node = try self.top_node_at_selection(sel, root, metrics);
         if (node.isNull()) return error.Stop;
         var node_sel = try CurSel.selection_from_node(node, root, metrics);
@@ -4502,7 +4502,7 @@ pub const Editor = struct {
     pub const expand_selection_meta: Meta = .{ .description = "Expand selection to AST parent node" };
 
     fn shrink_selection_to_child_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
+        const sel = cursel.enable_selection(root, metrics).*;
         const node = try self.node_at_selection(sel, root, metrics);
         if (node.isNull() or node.getChildCount() == 0) return error.Stop;
         const child = node.getChild(0);
@@ -4511,7 +4511,7 @@ pub const Editor = struct {
     }
 
     fn shrink_selection_to_named_child_node(self: *Self, root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-        const sel = (try cursel.enable_selection(root, metrics)).*;
+        const sel = cursel.enable_selection(root, metrics).*;
         const node = try self.node_at_selection(sel, root, metrics);
         if (node.isNull() or node.getNamedChildCount() == 0) return error.Stop;
         const child = node.getNamedChild(0);
@@ -4669,7 +4669,7 @@ pub const Editor = struct {
             root_ = self.collapse_trailing_ws_line(root_, row, b_allocator);
         const leading_ws_ = find_first_non_ws(root_, cursel.cursor.row, self.metrics);
         if (leading_ws_ > leading_ws and leading_ws_ > cursel.cursor.col) {
-            const sel = try cursel.enable_selection(root_, self.metrics);
+            const sel = cursel.enable_selection(root_, self.metrics);
             sel.* = .{
                 .begin = .{ .row = cursel.cursor.row, .col = cursel.cursor.col },
                 .end = .{ .row = cursel.cursor.row, .col = leading_ws_ },
@@ -6164,7 +6164,7 @@ pub const Editor = struct {
             state.chunks = 1;
             primary.cursor = state.old_primary.cursor;
         } else {
-            const sel = try primary.enable_selection(root, self.metrics);
+            const sel = primary.enable_selection(root, self.metrics);
             sel.begin = state.begin;
             sel.end = state.pos.cursor;
             if (state.old_primary_reversed) sel.reverse();
@@ -6193,7 +6193,7 @@ pub const Editor = struct {
         var root = root_;
         const saved = cursel.*;
         const sel = if (cursel.selection) |*sel| sel else ret: {
-            var sel = cursel.enable_selection(root, self.metrics) catch return error.Stop;
+            var sel = cursel.enable_selection(root, self.metrics);
             move_cursor_word_begin(root, &sel.begin, self.metrics) catch return error.Stop;
             move_cursor_word_end(root, &sel.end, self.metrics) catch return error.Stop;
             break :ret sel;
@@ -6222,7 +6222,7 @@ pub const Editor = struct {
         var root = root_;
         const saved = cursel.*;
         const sel = if (cursel.selection) |*sel| sel else ret: {
-            var sel = cursel.enable_selection(root, self.metrics) catch return error.Stop;
+            var sel = cursel.enable_selection(root, self.metrics);
             move_cursor_word_begin(root, &sel.begin, self.metrics) catch return error.Stop;
             move_cursor_word_end(root, &sel.end, self.metrics) catch return error.Stop;
             break :ret sel;
@@ -6251,7 +6251,7 @@ pub const Editor = struct {
         var root = root_;
         var saved = cursel.*;
         const sel = if (cursel.selection) |*sel| sel else ret: {
-            var sel = cursel.enable_selection(root, self.metrics) catch return error.Stop;
+            var sel = cursel.enable_selection(root, self.metrics);
             move_cursor_right(root, &sel.end, self.metrics) catch return error.Stop;
             saved.cursor = sel.end;
             break :ret sel;
