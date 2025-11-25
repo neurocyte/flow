@@ -5825,7 +5825,7 @@ pub const Editor = struct {
             .push => try self.push_cursor(),
         }
         const root = self.buf_root() catch return;
-        const sel = try sel_.from_pos(root, self.metrics);
+        const sel = sel_.from_pos(root, self.metrics);
         const primary = self.get_primary();
         primary.selection = sel;
         primary.cursor = sel.end;
@@ -5872,7 +5872,7 @@ pub const Editor = struct {
                     last_end_row = end_row;
                     last_end_col_pos = end_col_pos;
 
-                    const sel = try Selection.from_pos(.{
+                    const sel = Selection.from_pos(.{
                         .begin = .{ .row = begin_row, .col = begin_col_pos },
                         .end = .{ .row = end_row, .col = end_col_pos },
                     }, root, self.metrics);
@@ -5987,7 +5987,7 @@ pub const Editor = struct {
             .code = try self.allocator.dupe(u8, code),
             .message = try self.allocator.dupe(u8, message),
             .severity = severity,
-            .sel = sel_.from_pos(root, self.metrics) catch return,
+            .sel = sel_.from_pos(root, self.metrics),
         };
 
         switch (Diagnostic.to_severity(severity)) {

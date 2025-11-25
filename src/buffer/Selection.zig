@@ -19,15 +19,15 @@ pub fn from_cursor(cursor: *const Cursor) Self {
     return .{ .begin = cursor.*, .end = cursor.* };
 }
 
-pub fn from_pos(sel: Self, root: Buffer.Root, metrics: Buffer.Metrics) error{NotFound}!Self {
+pub fn from_pos(sel: Self, root: Buffer.Root, metrics: Buffer.Metrics) Self {
     return .{
         .begin = .{
             .row = sel.begin.row,
-            .col = try root.pos_to_width(sel.begin.row, sel.begin.col, metrics),
+            .col = root.pos_to_width(sel.begin.row, sel.begin.col, metrics) catch root.line_width(sel.begin.row, metrics) catch 0,
         },
         .end = .{
             .row = sel.end.row,
-            .col = try root.pos_to_width(sel.end.row, sel.end.col, metrics),
+            .col = root.pos_to_width(sel.end.row, sel.end.col, metrics) catch root.line_width(sel.end.row, metrics) catch 0,
         },
     };
 }
