@@ -5886,11 +5886,6 @@ pub const Editor = struct {
         }
     }
 
-    pub fn selection_pos_to_width(self: *Self, sel_: Selection) ?Selection {
-        const root = self.buf_root() catch return null;
-        return sel_.from_pos(root, self.metrics) catch null;
-    }
-
     fn count_lines(content: []const u8) struct { usize, usize } {
         var pos = content;
         var offset = content.len;
