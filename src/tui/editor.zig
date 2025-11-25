@@ -5218,12 +5218,16 @@ pub const Editor = struct {
     pub fn find_query(self: *Self, ctx: Context) Result {
         var query: []const u8 = undefined;
         var match_type: Match.Type = undefined;
+        var find_mode: Buffer.FindMode = .exact;
         if (ctx.args.match(.{tp.extract(&query)}) catch false) {
             self.match_type = .find;
-            try self.find_in_buffer(query, .none);
+            try self.find_in_buffer(query, .none, find_mode);
             self.clamp();
         } else if (ctx.args.match(.{ tp.extract(&query), tp.extract(&match_type) }) catch false) {
-            try self.find_in_buffer(query, match_type);
+            try self.find_in_buffer(query, match_type, find_mode);
+            self.clamp();
+        } else if (ctx.args.match(.{ tp.extract(&query), tp.extract(&match_type), tp.extract(&find_mode) }) catch false) {
+            try self.find_in_buffer(query, match_type, find_mode);
             self.clamp();
         } else return error.InvalidFindQueryArgument;
     }
@@ -5233,7 +5237,7 @@ pub const Editor = struct {
         _ = ctx;
         const query: []const u8 = try self.copy_word_at_cursor(self.allocator);
         defer self.allocator.free(query);
-        try self.find_in_buffer(query, .find);
+        try self.find_in_buffer(query, .find, .exact);
     }
     pub const find_word_at_cursor_meta: Meta = .{ .description = "Search for the word under the cursor" };
 
@@ -5274,13 +5278,13 @@ pub const Editor = struct {
         } else self.last_find_query = self.allocator.dupe(u8, query) catch return;
     }
 
-    pub fn find_in_buffer(self: *Self, query: []const u8, match_type: Match.Type) !void {
+    pub fn find_in_buffer(self: *Self, query: []const u8, match_type: Match.Type, find_mode: Buffer.FindMode) !void {
         self.set_last_find_query(query, match_type);
         self.match_type = match_type;
-        return self.find_in_buffer_sync(query);
+        return self.find_in_buffer_sync(query, find_mode);
     }
 
-    fn find_in_buffer_sync(self: *Self, query: []const u8) !void {
+    fn find_in_buffer_sync(self: *Self, query: []const u8, mode: Buffer.FindMode) !void {
         const Ctx = struct {
             matches: usize = 0,
             self: *Self,
@@ -5296,7 +5300,7 @@ pub const Editor = struct {
         defer self.add_match_done();
         var ctx: Ctx = .{ .self = self };
         self.init_matches_update();
-        try root.find_all_ranges(query, &ctx, Ctx.cb, .exact, self.allocator);
+        try root.find_all_ranges(query, &ctx, Ctx.cb, mode, self.allocator);
     }
 
     fn find_in_buffer_async(self: *Self, query: []const u8) !void {
@@ -5511,7 +5515,7 @@ pub const Editor = struct {
         if (self.matches.items.len == 0) {
             if (self.last_find_query) |last| {
                 self.find_operation = .goto_next_match;
-                try self.find_in_buffer(last, self.last_find_query_match_type);
+                try self.find_in_buffer(last, self.last_find_query_match_type, .exact);
             }
         }
         try self.move_cursor_next_match(ctx);
@@ -5540,7 +5544,7 @@ pub const Editor = struct {
         if (self.matches.items.len == 0) {
             if (self.last_find_query) |last| {
                 self.find_operation = .goto_prev_match;
-                try self.find_in_buffer(last, self.last_find_query_match_type);
+                try self.find_in_buffer(last, self.last_find_query_match_type, .exact);
             }
         }
         try self.move_cursor_prev_match(ctx);
