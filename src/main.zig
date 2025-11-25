@@ -1119,6 +1119,7 @@ fn resolve_executable(executable: [:0]const u8) [:0]const u8 {
 }
 
 fn restart() noreturn {
+    if (builtin.os.tag == .windows) return restart_win32();
     const executable = resolve_executable(std.mem.span(std.os.argv[0]));
     const argv = [_]?[*:0]const u8{
         executable,
@@ -1141,6 +1142,40 @@ fn restart_with_sudo() noreturn {
     };
     const ret = std.c.execve(sudo_executable, @ptrCast(&argv), @ptrCast(std.os.environ));
     restart_failed(ret);
+}
+
+fn restart_win32() noreturn {
+    if (!build_options.gui) return restart_manual();
+    const executable = resolve_executable(std.mem.span(std.os.argv[0]));
+    const argv = [_][]const u8{
+        executable,
+        "--restore-session",
+    };
+    const a = std.heap.c_allocator;
+    var child = std.process.Child.init(&argv, a);
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+    child.spawn() catch {
+        std.os.windows.kernel32.ExitProcess(1);
+    };
+    std.os.windows.kernel32.ExitProcess(0);
+}
+
+fn restart_manual() noreturn {
+    const executable = resolve_executable(std.mem.span(std.os.argv[0]));
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    stderr_writer.interface.print(
+        \\
+        \\ Manual restart required. Run:
+        \\ > {s} --restore-session
+        \\ to restart now.
+        \\
+        \\
+    , .{executable}) catch {};
+    stderr_writer.interface.flush() catch {};
+    exit(234);
 }
 
 fn restart_failed(ret: c_int) noreturn {
