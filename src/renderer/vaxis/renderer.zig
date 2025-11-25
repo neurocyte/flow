@@ -1,4 +1,5 @@
 const std = @import("std");
+const root = @import("root");
 const cbor = @import("cbor");
 const log = @import("log");
 const Style = @import("theme").Style;
@@ -80,7 +81,13 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
     const tty_buffer = try allocator.alloc(u8, 4096);
     return .{
         .allocator = allocator,
-        .tty = vaxis.Tty.init(tty_buffer) catch return error.TtyInitError,
+        .tty = vaxis.Tty.init(tty_buffer) catch |e| {
+            var stderr_buffer: [1024]u8 = undefined;
+            var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+            stderr_writer.interface.print("\n" ++ root.application_name ++ " ERROR: {s}\n", .{@errorName(e)}) catch {};
+            stderr_writer.interface.flush() catch {};
+            return error.TtyInitError;
+        },
         .tty_buffer = tty_buffer,
         .vx = try vaxis.init(allocator, opts),
         .no_alternate = no_alternate,
