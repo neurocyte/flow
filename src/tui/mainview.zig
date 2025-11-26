@@ -58,6 +58,7 @@ file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
 symbols: std.ArrayListUnmanaged(u8) = .empty,
 symbols_complete: bool = true,
+closing_project: bool = false,
 
 const FileListType = enum {
     diagnostics,
@@ -413,13 +414,17 @@ const cmds = struct {
 
         const project_state = try project_manager.open(project_dir);
 
-        try self.close_all_editors();
-        self.delete_all_buffers();
-        self.clear_find_in_files_results(.diagnostics);
-        if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
-            try self.toggle_panel_view(filelist_view, false);
-        self.buffer_manager.deinit();
-        self.buffer_manager = Buffer.Manager.init(self.allocator);
+        {
+            self.closing_project = true;
+            defer self.closing_project = false;
+            try self.close_all_editors();
+            self.delete_all_buffers();
+            self.clear_find_in_files_results(.diagnostics);
+            if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
+                try self.toggle_panel_view(filelist_view, false);
+            self.buffer_manager.deinit();
+            self.buffer_manager = Buffer.Manager.init(self.allocator);
+        }
 
         const project = tp.env.get().str("project");
         tui.rdr().set_terminal_working_directory(project);
@@ -1416,10 +1421,12 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
         return self.location_update(m);
 
     if (try m.match(.{ "E", "close" })) {
-        if (self.get_next_mru_buffer(.non_hidden)) |file_path|
-            self.show_file_async(file_path)
-        else
-            self.show_home_async();
+        if (!self.closing_project) {
+            if (self.get_next_mru_buffer(.non_hidden)) |file_path|
+                self.show_file_async(file_path)
+            else
+                self.show_home_async();
+        } else self.show_home_async();
         self.active_editor = null;
         return;
     }
