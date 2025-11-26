@@ -114,6 +114,7 @@ pub const WhitespaceMode = enum {
     leading,
     eol,
     tabs,
+    external,
     visible,
     full,
     none,

@@ -1562,6 +1562,18 @@ pub const Editor = struct {
                                 cell.cell.char.grapheme = c;
                         }
                     },
+                    .external => {
+                        if (leading) {
+                            if (get_whitespace_char(cell_type, next_cell_type)) |c|
+                                cell.cell.char.grapheme = c;
+                        }
+                        if (cell_type == .eol)
+                            cell.cell.char.grapheme = char.eol;
+                        if (cell_type == .tab or cell_type == .extension) {
+                            if (get_whitespace_char(cell_type, next_cell_type)) |c|
+                                cell.cell.char.grapheme = c;
+                        }
+                    },
                     .visible => {
                         if (get_whitespace_char(cell_type, next_cell_type)) |c|
                             cell.cell.char.grapheme = c;

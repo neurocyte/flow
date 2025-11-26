@@ -1002,7 +1002,8 @@ const cmds = struct {
             .indent => .leading,
             .leading => .eol,
             .eol => .tabs,
-            .tabs => .visible,
+            .tabs => .external,
+            .external => .visible,
             .visible => .full,
             .full => .none,
         };
