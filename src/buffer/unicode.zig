@@ -212,7 +212,7 @@ const Utf8PartialIterator = struct {
             return null;
         }
 
-        const cp_len = utf8ByteSequenceLength(it.bytes[it.end]) catch unreachable;
+        const cp_len = utf8ByteSequenceLength(it.bytes[it.end]) catch return null;
         if (it.end + cp_len > it.bytes.len) {
             return null;
         }
