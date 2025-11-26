@@ -58,17 +58,35 @@ pub fn shutdown() void {
     pid.send(.{"shutdown"}) catch {};
 }
 
-pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSystemError || std.fs.File.OpenError || SetCwdError)!void {
+pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSystemError || std.fs.File.OpenError || SetCwdError)!?[]const u8 {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const project_directory = std.fs.cwd().realpath(rel_project_directory, &path_buf) catch "(none)";
     const current_project = tp.env.get().str("project");
-    if (std.mem.eql(u8, current_project, project_directory)) return;
+    if (std.mem.eql(u8, current_project, project_directory)) return get_project_state(project_directory);
     if (!root.is_directory(project_directory)) return error.InvalidProjectDirectory;
     var dir = try std.fs.openDirAbsolute(project_directory, .{});
     try dir.setAsCwd();
     dir.close();
     tp.env.get().str_set("project", project_directory);
-    return send(.{ "open", project_directory });
+    try send(.{ "open", project_directory });
+    return get_project_state(project_directory);
+}
+
+const project_state_allocator = std.heap.c_allocator;
+var project_state_mutex: std.Thread.Mutex = .{};
+var project_state: ProjectStateMap = .empty;
+const ProjectStateMap = std.StringHashMapUnmanaged([]const u8);
+
+fn get_project_state(project_directory: []const u8) ?[]const u8 {
+    project_state_mutex.lock();
+    defer project_state_mutex.unlock();
+    return project_state.get(project_directory);
+}
+
+pub fn store_state(project_directory: []const u8, state: []const u8) error{OutOfMemory}!void {
+    project_state_mutex.lock();
+    defer project_state_mutex.unlock();
+    try project_state.put(project_state_allocator, try project_state_allocator.dupe(u8, project_directory), state);
 }
 
 pub fn close(project_directory: []const u8) (ProjectManagerError || error{CloseCurrentProject})!void {

@@ -356,7 +356,8 @@ const cmds = struct {
     pub const quit_without_saving_meta: Meta = .{ .description = "Quit without saving" };
 
     pub fn open_project_cwd(self: *Self, _: Ctx) Result {
-        try project_manager.open(".");
+        if (try project_manager.open(".")) |state|
+            try self.restore_state(state);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
@@ -366,7 +367,8 @@ const cmds = struct {
         var project_dir: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
-        try project_manager.open(project_dir);
+        if (try project_manager.open(project_dir)) |state|
+            try self.restore_state(state);
         const project = tp.env.get().str("project");
         tui.rdr().set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
@@ -394,7 +396,18 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
         try self.check_all_not_dirty();
-        try project_manager.open(project_dir);
+
+        {
+            var state_writer: std.Io.Writer.Allocating = .init(self.allocator);
+            defer state_writer.deinit();
+            try self.write_state(&state_writer.writer);
+            try state_writer.writer.flush();
+            const old_project = tp.env.get().str("project");
+            try project_manager.store_state(old_project, try state_writer.toOwnedSlice());
+        }
+
+        const project_state = try project_manager.open(project_dir);
+
         try self.close_all_editors();
         self.delete_all_buffers();
         self.clear_find_in_files_results(.diagnostics);
@@ -402,11 +415,15 @@ const cmds = struct {
             try self.toggle_panel_view(filelist_view, false);
         self.buffer_manager.deinit();
         self.buffer_manager = Buffer.Manager.init(self.allocator);
+
         const project = tp.env.get().str("project");
         tui.rdr().set_terminal_working_directory(project);
+        if (project_state) |state| try self.restore_state(state);
+
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
-        tp.self_pid().send(.{ "cmd", "open_recent" }) catch return;
+        if (project_state == null)
+            tp.self_pid().send(.{ "cmd", "open_recent" }) catch return;
     }
     pub const change_project_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -1654,6 +1671,11 @@ fn read_restore_info(self: *Self) !void {
     const size = try file.readAll(buf);
     var iter: []const u8 = buf[0..size];
 
+    try self.extract_state(&iter);
+}
+
+fn restore_state(self: *Self, state: []const u8) !void {
+    var iter = state;
     try self.extract_state(&iter);
 }
 
