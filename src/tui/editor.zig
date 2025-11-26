@@ -5692,6 +5692,7 @@ pub const Editor = struct {
             dest.row -|= 1;
             dest.col -|= 1;
             dest = dest.from_pos(root, self.metrics);
+            dest.row += 1;
             dest.col += 1;
             if (have_sel)
                 sel = sel.from_pos(root, self.metrics);
