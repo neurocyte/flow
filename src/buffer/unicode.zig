@@ -106,7 +106,6 @@ pub fn utf8_sanitize(allocator: std.mem.Allocator, input: []const u8) error{
 }
 
 pub const TransformError = error{
-    InvalidUtf8,
     OutOfMemory,
     Utf8CannotEncodeSurrogateHalf,
     CodepointTooLarge,
@@ -114,7 +113,7 @@ pub const TransformError = error{
 };
 
 fn utf8_write_transform(comptime field: uucode.FieldEnum, writer: *std.Io.Writer, text: []const u8) TransformError!void {
-    const view: std.unicode.Utf8View = try .init(text);
+    const view: std.unicode.Utf8View = .initUnchecked(text);
     var it = view.iterator();
     while (it.nextCodepoint()) |cp| {
         const cp_ = switch (field) {
@@ -135,8 +134,8 @@ fn utf8_transform(comptime field: uucode.FieldEnum, allocator: std.mem.Allocator
     return result.toOwnedSlice();
 }
 
-fn utf8_predicate(comptime field: uucode.FieldEnum, text: []const u8) error{InvalidUtf8}!bool {
-    const view: std.unicode.Utf8View = try .init(text);
+fn utf8_predicate(comptime field: uucode.FieldEnum, text: []const u8) bool {
+    const view: std.unicode.Utf8View = .initUnchecked(text);
     var it = view.iterator();
     while (it.nextCodepoint()) |cp| {
         const result = switch (field) {
@@ -148,13 +147,7 @@ fn utf8_predicate(comptime field: uucode.FieldEnum, text: []const u8) error{Inva
     return true;
 }
 
-pub fn to_upper(allocator: std.mem.Allocator, text: []const u8) error{
-    InvalidUtf8,
-    OutOfMemory,
-    Utf8CannotEncodeSurrogateHalf,
-    CodepointTooLarge,
-    WriteFailed,
-}![]u8 {
+pub fn to_upper(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
     return utf8_transform(.simple_uppercase_mapping, allocator, text);
 }
 
@@ -171,14 +164,14 @@ pub fn case_folded_write(writer: *std.Io.Writer, text: []const u8) TransformErro
 }
 
 pub fn switch_case(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
-    return if (try utf8_predicate(.is_lowercase, text))
+    return if (utf8_predicate(.is_lowercase, text))
         to_upper(allocator, text)
     else
         to_lower(allocator, text);
 }
 
-pub fn is_lowercase(text: []const u8) error{InvalidUtf8}!bool {
-    return try utf8_predicate(.is_lowercase, text);
+pub fn is_lowercase(text: []const u8) bool {
+    return utf8_predicate(.is_lowercase, text);
 }
 
 const std = @import("std");

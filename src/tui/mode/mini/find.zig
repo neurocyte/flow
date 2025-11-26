@@ -119,7 +119,7 @@ fn flush_input(self: *Self) !void {
 }
 
 fn auto_detect_mode(self: *Self) Buffer.FindMode {
-    return if (Buffer.unicode.is_lowercase(self.input_.items) catch return .exact) .case_folded else .exact;
+    return if (Buffer.unicode.is_lowercase(self.input_.items)) .case_folded else .exact;
 }
 
 fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
