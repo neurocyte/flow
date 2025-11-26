@@ -146,13 +146,6 @@ pub const CurSel = struct {
         };
     }
 
-    fn to_cursor_inclusive(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) Cursor {
-        var cursor = self.cursor;
-        if (self.selection) |sel| if (!sel.is_reversed())
-            cursor.move_left(root, metrics) catch {};
-        return cursor;
-    }
-
     pub fn disable_selection(self: *Self, root: Buffer.Root, metrics: Buffer.Metrics) void {
         switch (tui.get_selection_style()) {
             .normal => self.disable_selection_normal(),
@@ -1181,24 +1174,16 @@ pub const Editor = struct {
     }
 
     fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
-        const style = tui.get_selection_style();
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
         if (tui.config().enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor)
             tui.rdr().clear_all_multi_cursors() catch {};
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel| {
-            const cursor = self.get_rendered_cursor(style, cursel);
+            const cursor = cursel.cursor;
             try self.render_cursor_secondary(&cursor, theme, cell_map);
         };
-        const cursor = self.get_rendered_cursor(style, self.get_primary());
+        const cursor = self.get_primary().cursor;
         try self.render_cursor_primary(&cursor, theme, cell_map);
-    }
-
-    fn get_rendered_cursor(self: *Self, style: anytype, cursel: anytype) Cursor {
-        return switch (style) {
-            .normal => cursel.cursor,
-            .inclusive => cursel.to_cursor_inclusive(self.buf_root() catch return cursel.cursor, self.metrics),
-        };
     }
 
     fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap) !void {
