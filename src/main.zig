@@ -533,7 +533,7 @@ pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const 
 
 // returns true if the file was found
 fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) bool {
-    std.log.info("loading {s}", .{file_name});
+    // std.log.info("loading {s}", .{file_name});
     const err: anyerror = blk: {
         if (std.mem.endsWith(u8, file_name, ".json")) if (read_json_config_file(T, allocator, conf, bufs, file_name)) return true else |e| break :blk e;
         if (read_text_config_file(T, allocator, conf, bufs, file_name)) return true else |e| break :blk e;
