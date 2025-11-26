@@ -26,6 +26,7 @@ enable_format_on_save: bool = false,
 restore_last_cursor_position: bool = true,
 follow_cursor_on_buffer_switch: bool = false, //scroll cursor into view on buffer switch
 default_cursor: CursorShape = .default,
+modes_can_change_cursor: bool = true,
 enable_auto_save: bool = false,
 limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
 

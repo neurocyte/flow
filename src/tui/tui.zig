@@ -1778,7 +1778,13 @@ fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
 pub fn get_cursor_shape() renderer.CursorShape {
     const self = current();
     const default_cursor = self.config_.default_cursor;
-    const shape_ = if (self.input_mode_) |mode| mode.cursor_shape orelse default_cursor else default_cursor;
+    const shape_ = if (self.config_.modes_can_change_cursor)
+        if (self.input_mode_) |mode|
+            mode.cursor_shape orelse default_cursor
+        else
+            default_cursor
+    else
+        default_cursor;
     const shape = if (self.rdr_.vx.caps.multi_cursor and shape_ == .default) .beam_blink else shape_;
     return switch (shape) {
         .default => .default,
