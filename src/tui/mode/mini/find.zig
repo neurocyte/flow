@@ -180,7 +180,11 @@ const cmds = struct {
     pub fn toggle_find_mode(self: *Self, _: Ctx) Result {
         const new_find_mode: Buffer.FindMode = switch (self.find_mode) {
             .exact => .case_folded,
-            .auto, .case_folded => .exact,
+            .case_folded => .exact,
+            .auto => if (Buffer.unicode.is_lowercase(self.input_.items))
+                .exact
+            else
+                .case_folded,
         };
         const allocator = self.allocator;
         const query = try allocator.dupe(u8, self.input_.items);
