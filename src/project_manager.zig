@@ -75,17 +75,18 @@ pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSyste
 const project_state_allocator = std.heap.c_allocator;
 var project_state_mutex: std.Thread.Mutex = .{};
 var project_state: ProjectStateMap = .empty;
-const ProjectStateMap = std.StringHashMapUnmanaged([]const u8);
+const ProjectStateMap = std.StringHashMapUnmanaged(std.array_list.Managed(u8));
 
 fn get_project_state(project_directory: []const u8) ?[]const u8 {
     project_state_mutex.lock();
     defer project_state_mutex.unlock();
-    return project_state.get(project_directory);
+    return if (project_state.get(project_directory)) |state| state.items else null;
 }
 
-pub fn store_state(project_directory: []const u8, state: []const u8) error{OutOfMemory}!void {
+pub fn store_state(project_directory: []const u8, state: std.array_list.Managed(u8)) error{OutOfMemory}!void {
     project_state_mutex.lock();
     defer project_state_mutex.unlock();
+    if (project_state.fetchRemove(project_directory)) |old_state| old_state.value.deinit();
     try project_state.put(project_state_allocator, try project_state_allocator.dupe(u8, project_directory), state);
 }
 

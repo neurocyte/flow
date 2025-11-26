@@ -403,7 +403,9 @@ const cmds = struct {
             try self.write_state(&state_writer.writer);
             try state_writer.writer.flush();
             const old_project = tp.env.get().str("project");
-            try project_manager.store_state(old_project, try state_writer.toOwnedSlice());
+            var state_al = state_writer.toArrayList();
+            const state = state_al.toManaged(self.allocator);
+            try project_manager.store_state(old_project, state);
         }
 
         const project_state = try project_manager.open(project_dir);
