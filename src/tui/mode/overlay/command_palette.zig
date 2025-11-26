@@ -63,8 +63,8 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
         cbor.skipValue(&iter) catch break;
     if (!(cbor.matchValue(&iter, cbor.extract(&command_id)) catch false)) return;
     update_used_time(menu.*.opts.ctx, command_id);
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
-    tp.self_pid().send(.{ "cmd", command_id, .{} }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("command_palette", e);
+    tp.self_pid().send(.{ "cmd", command_id, .{} }) catch |e| menu.*.opts.ctx.logger.err("command_palette", e);
 }
 
 fn sort_by_used_time(palette: *Type) void {

@@ -79,6 +79,6 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     while (len > 0) : (len -= 1)
         cbor.skipValue(&iter) catch break;
     if (!(cbor.matchValue(&iter, cbor.extract(&command_id)) catch false)) return;
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("navigate", e);
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err("command_palette", e);
     tp.self_pid().send(.{ "cmd", "paste", .{command.get_name(command_id) orelse return} }) catch {};
 }
