@@ -447,8 +447,6 @@ const cmds = struct {
     pub const navigate_split_vertical_meta: Meta = .{ .arguments = &.{.object} };
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {
-        const logger = log.logger("navigate");
-        defer logger.deinit();
         tui.reset_drag_context();
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });
         defer frame.deinit();
@@ -531,12 +529,10 @@ const cmds = struct {
                 .path = try self.allocator.dupe(u8, f),
                 .goto_args = try self.allocator.dupe(u8, goto_args),
             };
-            logger.print("navigating to: {s} with restore_last_cursor_position", .{f});
 
             try project_manager.get_mru_position(self.allocator, f, ctx_);
             return;
         }
-        logger.print("navigating to: {s}", .{f});
 
         return cmds.navigate_complete(self, same_file, f, goto_args, line, column, offset);
     }
