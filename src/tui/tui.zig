@@ -397,7 +397,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{"restart"})) {
-        if (mainview()) |mv| mv.write_restore_info();
+        if (mainview()) |mv| try mv.write_restore_info();
         project_manager.shutdown();
         self.final_exit = "restart";
         return;

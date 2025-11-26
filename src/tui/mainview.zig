@@ -1599,42 +1599,49 @@ fn create_home_split(self: *Self) !void {
     tui.resize();
 }
 
-pub fn write_restore_info(self: *Self) void {
-    var sfa = std.heap.stackFallback(512, self.allocator);
-    const a = sfa.get();
-    var meta: std.Io.Writer.Allocating = .init(a);
-    defer meta.deinit();
-    const writer = &meta.writer;
+pub const WriteStateError = error{
+    OutOfMemory,
+    Stop,
+    WriteFailed,
+};
 
-    if (self.get_active_editor()) |editor| {
-        cbor.writeValue(writer, editor.file_path) catch return;
-        editor.update_meta();
-    } else {
-        cbor.writeValue(writer, null) catch return;
-    }
-
-    if (tui.clipboard_get_history()) |clipboard| {
-        cbor.writeArrayHeader(writer, clipboard.len) catch return;
-        for (clipboard) |item| {
-            cbor.writeArrayHeader(writer, 2) catch return;
-            cbor.writeValue(writer, item.group) catch return;
-            cbor.writeValue(writer, item.text) catch return;
-        }
-    } else {
-        cbor.writeValue(writer, null) catch return;
-    }
-
-    const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-    buffer_manager.write_state(writer) catch return;
-
-    if (self.widgets.get("tabs")) |tabs_widget|
-        if (tabs_widget.dynamic_cast(@import("status/tabs.zig").TabBar)) |tabs|
-            tabs.write_state(writer) catch return;
-
+pub fn write_restore_info(self: *Self) WriteStateError!void {
     const file_name = root.get_restore_file_name() catch return;
     var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch return;
     defer file.close();
-    file.writeAll(meta.written()) catch return;
+    var buf: [32 + 1024]u8 = undefined;
+    var file_writer = file.writer(&buf);
+    const writer = &file_writer.interface;
+
+    try self.write_state(writer);
+    try writer.flush();
+}
+
+pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
+    if (self.get_active_editor()) |editor| {
+        try cbor.writeValue(writer, editor.file_path);
+        editor.update_meta();
+    } else {
+        try cbor.writeValue(writer, null);
+    }
+
+    if (tui.clipboard_get_history()) |clipboard| {
+        try cbor.writeArrayHeader(writer, clipboard.len);
+        for (clipboard) |item| {
+            try cbor.writeArrayHeader(writer, 2);
+            try cbor.writeValue(writer, item.group);
+            try cbor.writeValue(writer, item.text);
+        }
+    } else {
+        try cbor.writeValue(writer, null);
+    }
+
+    const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+    try buffer_manager.write_state(writer);
+
+    if (self.widgets.get("tabs")) |tabs_widget|
+        if (tabs_widget.dynamic_cast(@import("status/tabs.zig").TabBar)) |tabs|
+            try tabs.write_state(writer);
 }
 
 fn read_restore_info(self: *Self) !void {
@@ -1647,31 +1654,35 @@ fn read_restore_info(self: *Self) !void {
     const size = try file.readAll(buf);
     var iter: []const u8 = buf[0..size];
 
+    try self.extract_state(&iter);
+}
+
+fn extract_state(self: *Self, iter: *[]const u8) !void {
     tp.trace(tp.channel.debug, .{ "mainview", "extract" });
     var editor_file_path: ?[]const u8 = undefined;
-    if (!try cbor.matchValue(&iter, cbor.extract(&editor_file_path))) return error.Stop;
+    if (!try cbor.matchValue(iter, cbor.extract(&editor_file_path))) return error.MatchFilePathFailed;
 
     tui.clipboard_clear_all();
-    var len = try cbor.decodeArrayHeader(&iter);
+    var len = try cbor.decodeArrayHeader(iter);
     var prev_group: usize = 0;
     const clipboard_allocator = tui.clipboard_allocator();
     while (len > 0) : (len -= 1) {
-        const len_ = try cbor.decodeArrayHeader(&iter);
-        if (len_ != 2) return error.Stop;
+        const len_ = try cbor.decodeArrayHeader(iter);
+        if (len_ != 2) return error.MatchClipboardArrayFailed;
         var group: usize = 0;
         var text: []const u8 = undefined;
-        if (!try cbor.matchValue(&iter, cbor.extract(&group))) return error.Stop;
-        if (!try cbor.matchValue(&iter, cbor.extract(&text))) return error.Stop;
+        if (!try cbor.matchValue(iter, cbor.extract(&group))) return error.MatchClipboardGroupFailed;
+        if (!try cbor.matchValue(iter, cbor.extract(&text))) return error.MatchClipboardTextFailed;
         if (prev_group != group) tui.clipboard_start_group();
         prev_group = group;
         tui.clipboard_add_chunk(try clipboard_allocator.dupe(u8, text));
     }
 
-    try self.buffer_manager.extract_state(&iter);
+    try self.buffer_manager.extract_state(iter);
 
     if (self.widgets.get("tabs")) |tabs_widget|
         if (tabs_widget.dynamic_cast(@import("status/tabs.zig").TabBar)) |tabs|
-            tabs.extract_state(&iter) catch |e| {
+            tabs.extract_state(iter) catch |e| {
                 const logger = log.logger("mainview");
                 defer logger.deinit();
                 logger.print_err("mainview", "failed to restore tabs: {}", .{e});
