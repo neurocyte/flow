@@ -1740,11 +1740,9 @@ fn extract_state(self: *Self, iter: *[]const u8) !void {
     for (buffers) |buffer| if (!buffer.is_ephemeral())
         send_buffer_did_open(self.allocator, buffer) catch {};
 
-    if (editor_file_path) |file_path| {
+    if (editor_file_path) |file_path|
         if (self.buffer_manager.get_buffer_for_file(file_path)) |_|
-            return tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
-    }
-    try tp.self_pid().send(.{ "cmd", "close_file" });
+            try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
 }
 
 fn send_buffer_did_open(allocator: std.mem.Allocator, buffer: *Buffer) !void {
