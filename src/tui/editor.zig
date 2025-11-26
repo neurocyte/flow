@@ -1585,7 +1585,7 @@ pub const Editor = struct {
                             else => "#",
                         };
                     },
-                    else => {},
+                    .none => {},
                 }
                 if (tab_error) {
                     cell.set_style_fg(theme.editor_error);
