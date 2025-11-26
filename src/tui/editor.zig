@@ -125,7 +125,7 @@ pub const CurSel = struct {
         return if (self.selection) |*sel| sel else unreachable;
     }
 
-    pub fn to_selection(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) Selection {
+    fn to_selection(self: *const Self, root: Buffer.Root, metrics: Buffer.Metrics) Selection {
         return switch (tui.get_selection_style()) {
             .normal => self.to_selection_normal(),
             .inclusive => self.to_selection_inclusive(root, metrics),
