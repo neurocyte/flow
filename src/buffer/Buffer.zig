@@ -1039,9 +1039,19 @@ const Node = union(enum) {
                 }
             }
         };
+        const pattern_ = switch (mode) {
+            .exact => pattern,
+            .case_folded => unicode.case_fold(allocator, pattern) catch
+                allocator.dupe(u8, pattern) catch
+                @panic("OOM find_all_ranges"),
+        };
+        defer switch (mode) {
+            .exact => {},
+            .case_folded => allocator.free(pattern_),
+        };
         var ctx: Ctx = .{
             .allocator = allocator,
-            .pattern = pattern,
+            .pattern = pattern_,
             .data = data,
             .callback = callback,
             .buf = try allocator.alloc(u8, pattern.len * 2),
