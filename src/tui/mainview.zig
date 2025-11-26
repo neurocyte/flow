@@ -392,6 +392,8 @@ const cmds = struct {
     pub const close_project_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn change_project(self: *Self, ctx: Ctx) Result {
+        const logger = log.logger("change_project");
+        defer logger.deinit();
         var project_dir: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
@@ -406,6 +408,7 @@ const cmds = struct {
             var state_al = state_writer.toArrayList();
             const state = state_al.toManaged(self.allocator);
             try project_manager.store_state(old_project, state);
+            logger.print("stored project state for: {s} ({d} bytes)", .{ old_project, state.items.len });
         }
 
         const project_state = try project_manager.open(project_dir);
@@ -420,12 +423,15 @@ const cmds = struct {
 
         const project = tp.env.get().str("project");
         tui.rdr().set_terminal_working_directory(project);
-        if (project_state) |state| try self.restore_state(state);
+        if (project_state) |state| {
+            logger.print("restoring {d} bytes of project state for: {s}", .{ state.len, project });
+            try self.restore_state(state);
+        } else {
+            logger.print("no project state to restore for: {s}", .{project});
+        }
 
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
-        if (project_state == null)
-            tp.self_pid().send(.{ "cmd", "open_recent" }) catch return;
     }
     pub const change_project_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -436,6 +442,8 @@ const cmds = struct {
     pub const navigate_split_vertical_meta: Meta = .{ .arguments = &.{.object} };
 
     pub fn navigate(self: *Self, ctx: Ctx) Result {
+        const logger = log.logger("navigate");
+        defer logger.deinit();
         tui.reset_drag_context();
         const frame = tracy.initZone(@src(), .{ .name = "navigate" });
         defer frame.deinit();
@@ -518,10 +526,12 @@ const cmds = struct {
                 .path = try self.allocator.dupe(u8, f),
                 .goto_args = try self.allocator.dupe(u8, goto_args),
             };
+            logger.print("navigating to: {s} with restore_last_cursor_position", .{f});
 
             try project_manager.get_mru_position(self.allocator, f, ctx_);
             return;
         }
+        logger.print("navigating to: {s}", .{f});
 
         return cmds.navigate_complete(self, same_file, f, goto_args, line, column, offset);
     }
@@ -1682,11 +1692,19 @@ fn restore_state(self: *Self, state: []const u8) !void {
 }
 
 fn extract_state(self: *Self, iter: *[]const u8) !void {
+    const logger = log.logger("extract_state");
+    defer logger.deinit();
     tp.trace(tp.channel.debug, .{ "mainview", "extract" });
     var editor_file_path: ?[]const u8 = undefined;
-    if (!try cbor.matchValue(iter, cbor.extract(&editor_file_path))) return error.MatchFilePathFailed;
+    var prev_len = iter.len;
+    if (!try cbor.matchValue(iter, cbor.extract(&editor_file_path))) {
+        logger.print("restore editor_file_path failed", .{});
+        return error.MatchFilePathFailed;
+    }
+    logger.print("restored editor_file_path: {s} ({d} bytes)", .{ editor_file_path orelse "(null)", prev_len - iter.len });
 
     tui.clipboard_clear_all();
+    prev_len = iter.len;
     var len = try cbor.decodeArrayHeader(iter);
     var prev_group: usize = 0;
     const clipboard_allocator = tui.clipboard_allocator();
@@ -1701,16 +1719,18 @@ fn extract_state(self: *Self, iter: *[]const u8) !void {
         prev_group = group;
         tui.clipboard_add_chunk(try clipboard_allocator.dupe(u8, text));
     }
+    logger.print("restored clipboard ({d} bytes)", .{prev_len - iter.len});
 
+    prev_len = iter.len;
     try self.buffer_manager.extract_state(iter);
+    logger.print("restored buffer manager ({d} bytes)", .{prev_len - iter.len});
 
+    prev_len = iter.len;
     if (self.widgets.get("tabs")) |tabs_widget|
         if (tabs_widget.dynamic_cast(@import("status/tabs.zig").TabBar)) |tabs|
-            tabs.extract_state(iter) catch |e| {
-                const logger = log.logger("mainview");
-                defer logger.deinit();
+            tabs.extract_state(iter) catch |e|
                 logger.print_err("mainview", "failed to restore tabs: {}", .{e});
-            };
+    logger.print("restored tabs ({d} bytes)", .{prev_len - iter.len});
 
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
