@@ -989,9 +989,9 @@ const Node = union(enum) {
                         .case_folded => {
                             const input_consume_size = @min(ctx.buf.len - ctx.rest.len, input.len);
                             var writer = std.Io.Writer.fixed(ctx.buf[ctx.rest.len..]);
-                            unicode.case_folded_write(&writer, input[0..input_consume_size]) catch return error.WriteFailed;
-                            ctx.rest = ctx.buf[0 .. ctx.rest.len + writer.end];
-                            input = input[input_consume_size..];
+                            const folded = unicode.case_folded_write_partial(&writer, input[0..input_consume_size]) catch return error.WriteFailed;
+                            ctx.rest = ctx.buf[0 .. ctx.rest.len + folded.len];
+                            input = input[folded.len..];
                         },
                     }
 
