@@ -956,7 +956,7 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     }, handler) catch return error.LspFailed;
 }
 
-fn file_uri_to_path(uri: []const u8, file_path_buf: []u8) error{InvalidTargetURI}![]const u8 {
+fn file_uri_to_path(uri: []const u8, file_path_buf: []u8) error{InvalidTargetURI}![]u8 {
     return std.Uri.percentDecodeBackwards(file_path_buf, if (std.mem.eql(u8, uri[0..7], "file://"))
         uri[7..]
     else if (std.mem.eql(u8, uri[0..5], "file:"))
