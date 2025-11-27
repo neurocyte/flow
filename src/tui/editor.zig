@@ -2117,6 +2117,21 @@ pub const Editor = struct {
         return if (someone_stopped) error.Stop else {};
     }
 
+    pub fn with_cursels_const_repeat(self: *Self, root: Buffer.Root, move: cursel_operator_const, ctx: Context) error{Stop}!void {
+        var someone_stopped = false;
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
+                with_cursel_const(root, move, cursel, self.metrics) catch {
+                    someone_stopped = true;
+                };
+            self.collapse_cursors();
+            if (someone_stopped) break;
+        }
+        return if (someone_stopped) error.Stop else {};
+    }
+
     fn with_cursel_mut_arg(self: *Self, root: Buffer.Root, op: cursel_operator_mut_arg, cursel: *CurSel, allocator: Allocator, ctx: Context) error{Stop}!Buffer.Root {
         return op(self, root, cursel, allocator, ctx);
     }
