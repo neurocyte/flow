@@ -385,6 +385,8 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             self.queries_done = true;
             self.vx.enableDetectedFeatures(self.tty.writer()) catch |e| self.logger.err("enable features", e);
             self.vx.setMouseMode(self.tty.writer(), true) catch return error.TtyWriteError;
+            self.logger.print("capability queries complete", .{});
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"capability_detection_complete"}));
         },
         .cap_kitty_keyboard => {
             self.logger.print("kitty keyboard capability detected", .{});

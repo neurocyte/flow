@@ -207,7 +207,6 @@ fn init(allocator: Allocator) InitError!*Self {
     }
     self.mainview_ = try MainView.create(allocator);
     resize();
-    self.set_terminal_style(self.current_theme());
     try save_config();
     try self.init_input_namespace();
     if (tp.env.get().is("restore-session")) {
@@ -516,12 +515,20 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{ "color_scheme", "dark" })) {
+        self.logger.print("system color scheme event: dark", .{});
         self.set_color_scheme(.dark);
         return;
     }
 
     if (try m.match(.{ "color_scheme", "light" })) {
+        self.logger.print("system color scheme event: light", .{});
         self.set_color_scheme(.light);
+        return;
+    }
+
+    if (try m.match(.{"capability_detection_complete"})) {
+        if (!self.rdr_.vx.caps.color_scheme_updates)
+            self.set_terminal_style(self.current_theme());
         return;
     }
 
@@ -1769,6 +1776,7 @@ pub const fallbacks: []const FallBack = &[_]FallBack{
 };
 
 fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
+    self.logger.print("set terminal style {s}", .{theme_.name});
     self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
     if (self.rdr_.vx.caps.multi_cursor)
         self.rdr_.set_terminal_secondary_cursor_color(theme_.editor_cursor_secondary.bg orelse theme_.editor_cursor.bg.?);
