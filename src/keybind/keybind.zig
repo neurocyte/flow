@@ -72,13 +72,15 @@ const Handler = struct {
             opts.insert_command
         else
             "insert_chars";
+        const bindings = try get_mode_binding_set(mode_name, insert_command);
         self.* = .{
             .allocator = allocator,
-            .bindings = try get_mode_binding_set(mode_name, insert_command),
+            .bindings = bindings,
         };
         return .{
             .allocator = allocator,
             .input_handler = EventHandler.to_owned(self),
+            .bindings = bindings,
             .keybind_hints = self.bindings.hints(),
             .mode = try allocator.dupe(u8, mode_name),
             .name = self.bindings.name,
@@ -130,6 +132,7 @@ pub const Mode = struct {
     mode: []const u8,
     name: []const u8 = "",
     line_numbers: LineNumbers = .inherit,
+    bindings: *const BindingSet,
     keybind_hints: *const KeybindHints,
     cursor_shape: ?CursorShape = null,
     selection_style: SelectionStyle,
@@ -172,6 +175,11 @@ pub const Mode = struct {
         self.init_command = null;
         self.deinit_command = null;
         self.initialized = false;
+    }
+
+    pub fn current_key_event_sequence_bindings(self: *const Mode, allocator: std.mem.Allocator) error{OutOfMemory}![]const Binding {
+        if (globals.current_sequence.items.len == 0) return &.{};
+        return self.bindings.get_matches_for_key_event_sequence(allocator, globals.current_sequence.items);
     }
 };
 
@@ -767,6 +775,18 @@ const BindingSet = struct {
             globals.current_sequence_egc.clearRetainingCapacity();
             globals.current_sequence.clearRetainingCapacity();
         }
+    }
+
+    /// Retreive bindings that will match a key event sequence
+    pub fn get_matches_for_key_event_sequence(self: *const @This(), allocator: std.mem.Allocator, sequence: []const KeyEvent) error{OutOfMemory}![]const Binding {
+        var matches: std.ArrayListUnmanaged(Binding) = .{};
+        for (self.press.items) |*binding| switch (binding.match(sequence)) {
+            .matched, .match_possible => {
+                (try matches.addOne(allocator)).* = binding.*;
+            },
+            .match_impossible => {},
+        };
+        return matches.toOwnedSlice(allocator);
     }
 };
 
