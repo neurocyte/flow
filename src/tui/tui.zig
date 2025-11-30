@@ -559,7 +559,11 @@ fn render(self: *Self) void {
         const frame = tracy.initZone(@src(), .{ .name = "tui render" });
         defer frame.deinit();
         self.rdr_.stdplane().erase();
-        break :ret if (self.mainview_) |mv| mv.render(self.current_theme()) else false;
+        const continue_mainview = if (self.mainview_) |mv| mv.render(self.current_theme()) else false;
+
+        @import("keyhints.zig").render_current_key_event_sequence(self.allocator, self.current_theme());
+
+        break :ret continue_mainview;
     };
 
     if (self.top_layer_) |top_layer_| {
