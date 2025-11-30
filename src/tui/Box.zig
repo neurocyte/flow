@@ -1,5 +1,6 @@
 const Plane = @import("renderer").Plane;
 const Layer = @import("renderer").Layer;
+const WidgetStyle = @import("WidgetStyle.zig");
 
 const Self = @This();
 
@@ -34,6 +35,30 @@ pub fn from(n: Plane) Self {
         .h = @intCast(n.dim_y()),
         .w = @intCast(n.dim_x()),
     };
+}
+
+pub fn from_client_box(self: Self, padding: WidgetStyle.Margin) Self {
+    const total_y_padding = padding.top + padding.bottom;
+    const total_x_padding = padding.left + padding.right;
+    const y = if (self.y < padding.top) padding.top else self.y;
+    const x = if (self.x < padding.left) padding.left else self.x;
+    var box = self;
+    box.y = y - padding.top;
+    box.h += total_y_padding;
+    box.x = x - padding.left;
+    box.w += total_x_padding;
+    return box;
+}
+
+pub fn to_client_box(self: Self, padding: WidgetStyle.Margin) Self {
+    const total_y_padding = padding.top + padding.bottom;
+    const total_x_padding = padding.left + padding.right;
+    var box = self;
+    box.y += padding.top;
+    box.h -= if (box.h > total_y_padding) total_y_padding else box.h;
+    box.x += padding.left;
+    box.w -= if (box.w > total_x_padding) total_x_padding else box.w;
+    return box;
 }
 
 pub fn to_layer(self: Self) Layer.Options {

@@ -81,7 +81,7 @@ fn init(allocator: Allocator, parent: Plane, name: [:0]const u8, dir: Direction,
         .deco_box = undefined,
     };
     const padding = tui.get_widget_style(self.widget_type).padding;
-    self.deco_box = self.from_client_box(box_, padding);
+    self.deco_box = box_.from_client_box(padding);
     self.plane = try Plane.init(&self.deco_box.opts(name), parent);
     return self;
 }
@@ -186,7 +186,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.on_render(self.ctx, theme);
     if (self.render_decoration) |render_decoration| render_decoration(self, theme, widget_style);
 
-    const client_box = self.to_client_box(self.deco_box, padding);
+    const client_box = self.deco_box.to_client_box(padding);
 
     var more = false;
     for (self.widgets.items) |*w| {
@@ -306,39 +306,15 @@ fn get_loc_b(self: *Self, pos: *Widget.Box) *usize {
 }
 
 fn refresh_layout(self: *Self, padding: Widget.Style.Margin) void {
-    return self.handle_resize(self.to_client_box(self.deco_box, padding));
+    return self.handle_resize(self.deco_box.to_client_box(padding));
 }
 
 pub fn handle_resize(self: *Self, box: Widget.Box) void {
     const padding = tui.get_widget_style(self.widget_type).padding;
-    const client_box_ = self.prepare_resize(self.ctx, self, self.to_client_box(box, padding));
-    self.deco_box = self.from_client_box(client_box_, padding);
+    const client_box_ = self.prepare_resize(self.ctx, self, box.to_client_box(padding));
+    self.deco_box = client_box_.from_client_box(padding);
     self.do_resize(padding);
-    self.after_resize(self.ctx, self, self.to_client_box(self.deco_box, padding));
-}
-
-pub inline fn to_client_box(_: *const Self, box_: Widget.Box, padding: Widget.Style.Margin) Widget.Box {
-    const total_y_padding = padding.top + padding.bottom;
-    const total_x_padding = padding.left + padding.right;
-    var box = box_;
-    box.y += padding.top;
-    box.h -= if (box.h > total_y_padding) total_y_padding else box.h;
-    box.x += padding.left;
-    box.w -= if (box.w > total_x_padding) total_x_padding else box.w;
-    return box;
-}
-
-inline fn from_client_box(_: *const Self, box_: Widget.Box, padding: Widget.Style.Margin) Widget.Box {
-    const total_y_padding = padding.top + padding.bottom;
-    const total_x_padding = padding.left + padding.right;
-    const y = if (box_.y < padding.top) padding.top else box_.y;
-    const x = if (box_.x < padding.left) padding.left else box_.x;
-    var box = box_;
-    box.y = y - padding.top;
-    box.h += total_y_padding;
-    box.x = x - padding.left;
-    box.w += total_x_padding;
-    return box;
+    self.after_resize(self.ctx, self, self.deco_box.to_client_box(padding));
 }
 
 fn prepare_resize_default(_: ?*anyopaque, _: *Self, box: Widget.Box) Widget.Box {
@@ -356,7 +332,7 @@ pub fn resize(self: *Self, box: Widget.Box) void {
 }
 
 fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
-    const client_box = self.to_client_box(self.deco_box, padding);
+    const client_box = self.deco_box.to_client_box(padding);
     const deco_box = self.deco_box;
     self.plane.move_yx(@intCast(deco_box.y), @intCast(deco_box.x)) catch return;
     self.plane.resize_simple(@intCast(deco_box.h), @intCast(deco_box.w)) catch return;

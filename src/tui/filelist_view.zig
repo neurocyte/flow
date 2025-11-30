@@ -95,7 +95,7 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.box = pos;
     self.menu.container.resize(self.box);
-    const client_box = self.menu.container.to_client_box(pos, padding);
+    const client_box = pos.to_client_box(padding);
     self.view_rows = client_box.h;
     self.view_cols = client_box.w;
     self.update_scrollbar();

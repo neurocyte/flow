@@ -238,7 +238,7 @@ pub fn Create(options: type) type {
 
         fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
             const box = self.prepare_resize();
-            self.menu.resize(self.menu.container.to_client_box(box, padding));
+            self.menu.resize(box.to_client_box(padding));
             self.after_resize();
         }
 
