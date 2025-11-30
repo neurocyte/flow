@@ -205,33 +205,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 fn on_render_default(_: ?*anyopaque, _: *const Widget.Theme) void {}
 
 fn render_decoration_default(self: *Self, theme: *const Widget.Theme, widget_style: *const Widget.Style) void {
-    const style = Widget.Style.theme_style_from_type(self.widget_type, theme);
-    const padding = widget_style.padding;
-    const border = widget_style.border;
-    const plane = &self.plane;
-    const box = self.deco_box;
-
-    plane.set_style(style);
-    plane.fill(" ");
-
-    if (padding.top > 0 and padding.left > 0) put_at_pos(plane, 0, 0, border.nw);
-    if (padding.top > 0 and padding.right > 0) put_at_pos(plane, 0, box.w - 1, border.ne);
-    if (padding.bottom > 0 and padding.left > 0 and box.h > 0) put_at_pos(plane, box.h - 1, 0, border.sw);
-    if (padding.bottom > 0 and padding.right > 0 and box.h > 0) put_at_pos(plane, box.h - 1, box.w - 1, border.se);
-
-    {
-        const start: usize = if (padding.left > 0) 1 else 0;
-        const end: usize = if (padding.right > 0 and box.w > 0) box.w - 1 else box.w;
-        if (padding.top > 0) for (start..end) |x| put_at_pos(plane, 0, x, border.n);
-        if (padding.bottom > 0) for (start..end) |x| put_at_pos(plane, box.h - 1, x, border.s);
-    }
-
-    {
-        const start: usize = if (padding.top > 0) 1 else 0;
-        const end: usize = if (padding.bottom > 0 and box.h > 0) box.h - 1 else box.h;
-        if (padding.left > 0) for (start..end) |y| put_at_pos(plane, y, 0, border.w);
-        if (padding.right > 0) for (start..end) |y| put_at_pos(plane, y, box.w - 1, border.e);
-    }
+    widget_style.render_decoration(self.deco_box, self.widget_type, &self.plane, theme);
 }
 
 inline fn put_at_pos(plane: *Plane, y: usize, x: usize, egc: []const u8) void {
