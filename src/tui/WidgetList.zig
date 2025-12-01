@@ -208,11 +208,6 @@ fn render_decoration_default(self: *Self, theme: *const Widget.Theme, widget_sty
     widget_style.render_decoration(self.deco_box, self.widget_type, &self.plane, theme);
 }
 
-inline fn put_at_pos(plane: *Plane, y: usize, x: usize, egc: []const u8) void {
-    plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
-    plane.putchar(egc);
-}
-
 pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "H", tp.more }))
         return false;
