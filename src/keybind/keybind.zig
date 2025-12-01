@@ -179,7 +179,7 @@ pub const Mode = struct {
 
     pub fn current_key_event_sequence_bindings(self: *const Mode, allocator: std.mem.Allocator) error{OutOfMemory}![]const Binding {
         if (globals.current_sequence.items.len == 0) return &.{};
-        return self.bindings.get_matches_for_key_event_sequence(allocator, globals.current_sequence.items);
+        return self.bindings.get_matches_for_key_event_sequence(allocator, globals.current_sequence.items, .no_keypad);
     }
 };
 
@@ -778,17 +778,68 @@ const BindingSet = struct {
     }
 
     /// Retreive bindings that will match a key event sequence
-    pub fn get_matches_for_key_event_sequence(self: *const @This(), allocator: std.mem.Allocator, sequence: []const KeyEvent) error{OutOfMemory}![]const Binding {
+    pub fn get_matches_for_key_event_sequence(
+        self: *const @This(),
+        allocator: std.mem.Allocator,
+        sequence: []const KeyEvent,
+        select_mode: SelectMode,
+    ) error{OutOfMemory}![]const Binding {
         var matches: std.ArrayListUnmanaged(Binding) = .{};
         for (self.press.items) |*binding| switch (binding.match(sequence)) {
             .matched, .match_possible => {
-                (try matches.addOne(allocator)).* = binding.*;
+                if (select(select_mode, binding))
+                    (try matches.addOne(allocator)).* = binding.*;
             },
             .match_impossible => {},
         };
         return matches.toOwnedSlice(allocator);
     }
 };
+
+const SelectMode = enum { all, no_keypad };
+
+fn select(select_mode: SelectMode, binding: *const Binding) bool {
+    return switch (select_mode) {
+        .no_keypad => blk: {
+            for (binding.key_events) |key_event| switch (key_event.key) {
+                input.key.kp_0,
+                input.key.kp_1,
+                input.key.kp_2,
+                input.key.kp_3,
+                input.key.kp_4,
+                input.key.kp_5,
+                input.key.kp_6,
+                input.key.kp_7,
+                input.key.kp_8,
+                input.key.kp_9,
+                input.key.kp_decimal,
+                input.key.kp_divide,
+                input.key.kp_multiply,
+                input.key.kp_subtract,
+                input.key.kp_add,
+                input.key.kp_enter,
+                input.key.kp_equal,
+                input.key.kp_separator,
+                input.key.kp_left,
+                input.key.kp_right,
+                input.key.kp_up,
+                input.key.kp_down,
+                input.key.kp_page_up,
+                input.key.kp_page_down,
+                input.key.kp_home,
+                input.key.kp_end,
+                input.key.kp_insert,
+                input.key.kp_delete,
+                input.key.kp_begin,
+                => break :blk false,
+
+                else => {},
+            };
+            break :blk true;
+        },
+        .all => true,
+    };
+}
 
 pub const LineNumbers = enum {
     inherit,
