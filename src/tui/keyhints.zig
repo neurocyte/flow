@@ -55,7 +55,12 @@ fn render(bindings: []const keybind.Binding, theme: *const Widget.Theme, mode: R
     const scr = tui.screen();
     const max_screen_height = scr.h -| widget_style.padding.top -| widget_style.padding.bottom -| 1;
     const max_items = @min(bindings.len, max_screen_height);
-
+    const page_size = max_screen_height;
+    var top = show_page * page_size;
+    if (top >= bindings.len) {
+        top = 0;
+        show_page = 0;
+    }
     var box: Widget.Box = .{
         .h = max_items,
         .w = max_len,
@@ -66,6 +71,12 @@ fn render(bindings: []const keybind.Binding, theme: *const Widget.Theme, mode: R
 
     const top_layer_ = tui.top_layer(deco_box.to_layer()) orelse return;
     widget_style.render_decoration(deco_box, widget_type, top_layer_, theme);
+
+    if (bindings.len > max_items) {
+        top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4)) catch return;
+        _ = top_layer_.print("[{d}/{d}](C-A-? for more)", .{ top, bindings.len }) catch {};
+        top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(max_len - 5)) catch return;
+    }
 
     // workaround vaxis.Layer issue
     const top_layer_window = top_layer_.window;
@@ -93,7 +104,7 @@ fn render(bindings: []const keybind.Binding, theme: *const Widget.Theme, mode: R
     plane.home();
     plane.set_style(style_hint);
 
-    for (bindings, 0..) |binding, y| {
+    for (bindings[top..], 0..) |binding, y| {
         if (y >= max_items) break;
         var keybind_buf: [256]u8 = undefined;
         const keybind_txt = blk: {
@@ -107,7 +118,7 @@ fn render(bindings: []const keybind.Binding, theme: *const Widget.Theme, mode: R
 
     plane.set_style(style_label);
 
-    for (bindings, 0..) |binding, y| {
+    for (bindings[top..], 0..) |binding, y| {
         if (y >= max_items) break;
         const padding = max_prefix_len + 2;
 
