@@ -2046,6 +2046,7 @@ pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
         .home => WidgetStyle.from_tag(config_.home_style),
         .pane_left => WidgetStyle.from_tag(config_.pane_left_style),
         .pane_right => WidgetStyle.from_tag(config_.pane_right_style),
+        .hint_window => WidgetStyle.from_tag(config_.hint_window_style),
     };
 }
 
@@ -2071,6 +2072,7 @@ fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
         .home => &config_.home_style,
         .pane_left => &config_.pane_left_style,
         .pane_right => &config_.pane_right_style,
+        .hint_window => &config_.hint_window_style,
     };
 }
 
