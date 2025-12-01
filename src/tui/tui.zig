@@ -1624,6 +1624,11 @@ pub fn top_layer(opts: renderer.Layer.Options) ?*renderer.Plane {
     return self.top_layer_.?.plane();
 }
 
+pub fn have_top_layer() bool {
+    const self = current();
+    return self.top_layer_ != null;
+}
+
 fn top_layer_reset(self: *Self) void {
     if (self.top_layer_) |top_layer_| {
         top_layer_.deinit();
