@@ -2,6 +2,7 @@
     "project": {
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
+            ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+alt+shift+r", "restart"],
             ["ctrl+e", "find_file"],
             ["ctrl+shift+n", "create_new_file"],
@@ -382,6 +383,7 @@
     "overlay/palette": {
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
+            ["ctrl+alt+?", "scroll_keybind_hints"],
             ["alt+f9", "overlay_next_widget_style"],
             ["alt+!", "add_task"],
             ["ctrl+j", "toggle_panel"],
@@ -445,6 +447,7 @@
     "mini/numeric": {
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
+            ["ctrl+alt+?", "scroll_keybind_hints"],
             ["b", "toggle_goto_style"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
@@ -461,6 +464,7 @@
     "mini/get_char": {
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
+            ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+g", "mini_mode_cancel"],
             ["ctrl+c", "mini_mode_cancel"],
             ["ctrl+l", "scroll_view_center_cycle"],
@@ -473,6 +477,7 @@
     "mini/buffer": {
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
+            ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
             ["ctrl+u", "mini_mode_reset"],
@@ -492,6 +497,7 @@
     "mini/file_browser": {
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
+            ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
             ["ctrl+u", "mini_mode_reset"],
@@ -520,6 +526,7 @@
     "mini/find_in_files": {
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
+            ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
             ["ctrl+u", "mini_mode_reset"],
@@ -554,6 +561,7 @@
     "mini/find": {
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
+            ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
             ["ctrl+u", "mini_mode_reset"],

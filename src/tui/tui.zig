@@ -1057,6 +1057,11 @@ const cmds = struct {
     }
     pub const toggle_keybind_hints_meta: Meta = .{ .description = "Toggle keybind hints" };
 
+    pub fn scroll_keybind_hints(_: *Self, _: Ctx) Result {
+        @import("keyhints.zig").scroll();
+    }
+    pub const scroll_keybind_hints_meta: Meta = .{ .description = "Scroll keybind hints" };
+
     pub fn force_color_scheme(self: *Self, ctx: Ctx) Result {
         self.force_color_scheme(if (try ctx.args.match(.{"dark"}))
             .dark

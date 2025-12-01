@@ -8,6 +8,8 @@ const Widget = @import("Widget.zig");
 
 const widget_type: Widget.Type = .hint_window;
 
+var show_page: usize = 0;
+
 pub fn render_current_input_mode(allocator: std.mem.Allocator, select_mode: keybind.SelectMode, theme: *const Widget.Theme) void {
     const mode = tui.input_mode() orelse return;
     const bindings = blk: {
@@ -25,9 +27,13 @@ pub fn render_current_key_event_sequence(allocator: std.mem.Allocator, select_mo
     return render(bindings, theme, .no_key_event_prefix);
 }
 
+pub fn scroll() void {
+    show_page += 1;
+}
+
 const RenderMode = enum { full, no_key_event_prefix };
 
-pub fn render(bindings: []const keybind.Binding, theme: *const Widget.Theme, mode: RenderMode) void {
+fn render(bindings: []const keybind.Binding, theme: *const Widget.Theme, mode: RenderMode) void {
     // return if something is already rendering to the top layer
     if (tui.have_top_layer()) return;
     if (bindings.len == 0) return;
