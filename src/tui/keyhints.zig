@@ -10,9 +10,12 @@ const widget_type: Widget.Type = .hint_window;
 
 pub fn render_current_input_mode(allocator: std.mem.Allocator, select_mode: keybind.SelectMode, theme: *const Widget.Theme) void {
     const mode = tui.input_mode() orelse return;
-    const bindings = mode.current_bindings(allocator, select_mode) catch return;
+    const bindings = blk: {
+        const b = mode.current_key_event_sequence_bindings(allocator, select_mode) catch return;
+        break :blk if (b.len > 0) b else mode.current_bindings(allocator, select_mode) catch return;
+    };
     defer allocator.free(bindings);
-    return render(mode.bindings.press.items, theme, .full);
+    return render(bindings, theme, .full);
 }
 
 pub fn render_current_key_event_sequence(allocator: std.mem.Allocator, select_mode: keybind.SelectMode, theme: *const Widget.Theme) void {
