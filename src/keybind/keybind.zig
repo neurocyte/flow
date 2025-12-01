@@ -785,6 +785,13 @@ const BindingSet = struct {
     }
 
     fn log_keyhints_message() void {
+        for (globals.current_sequence.items) |item| switch (item.key) {
+            input.key.left_control, input.key.right_control => return,
+            input.key.left_alt, input.key.right_alt => return,
+            input.key.left_shift, input.key.right_shift => return,
+            else => {},
+        };
+
         const logger = log.logger("keybind");
         defer logger.deinit();
         logger.print("C-? for key hints", .{});
