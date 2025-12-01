@@ -816,6 +816,8 @@ const BindingSet = struct {
 pub const SelectMode = enum { all, no_keypad };
 
 fn select(select_mode: SelectMode, binding: *const Binding) bool {
+    if (binding.commands.len == 1 and std.mem.eql(u8, binding.commands[0].command, "home_sheeran"))
+        return false;
     return switch (select_mode) {
         .no_keypad => blk: {
             for (binding.key_events) |key_event| switch (key_event.key) {
