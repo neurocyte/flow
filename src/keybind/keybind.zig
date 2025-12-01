@@ -177,9 +177,13 @@ pub const Mode = struct {
         self.initialized = false;
     }
 
-    pub fn current_key_event_sequence_bindings(self: *const Mode, allocator: std.mem.Allocator) error{OutOfMemory}![]const Binding {
+    pub fn current_bindings(self: *const Mode, allocator: std.mem.Allocator, select_mode: SelectMode) error{OutOfMemory}![]const Binding {
+        return self.bindings.get_bindings(allocator, select_mode);
+    }
+
+    pub fn current_key_event_sequence_bindings(self: *const Mode, allocator: std.mem.Allocator, select_mode: SelectMode) error{OutOfMemory}![]const Binding {
         if (globals.current_sequence.items.len == 0) return &.{};
-        return self.bindings.get_matches_for_key_event_sequence(allocator, globals.current_sequence.items, .no_keypad);
+        return self.bindings.get_matches_for_key_event_sequence(allocator, globals.current_sequence.items, select_mode);
     }
 };
 
@@ -777,7 +781,7 @@ const BindingSet = struct {
         }
     }
 
-    /// Retreive bindings that will match a key event sequence
+    /// Retrieve bindings that will match a key event sequence
     pub fn get_matches_for_key_event_sequence(
         self: *const @This(),
         allocator: std.mem.Allocator,
@@ -794,9 +798,22 @@ const BindingSet = struct {
         };
         return matches.toOwnedSlice(allocator);
     }
+
+    /// Retrieve possibly filtered bindings
+    pub fn get_bindings(
+        self: *const @This(),
+        allocator: std.mem.Allocator,
+        select_mode: SelectMode,
+    ) error{OutOfMemory}![]const Binding {
+        var matches: std.ArrayListUnmanaged(Binding) = .{};
+        for (self.press.items) |*binding| if (select(select_mode, binding)) {
+            (try matches.addOne(allocator)).* = binding.*;
+        };
+        return matches.toOwnedSlice(allocator);
+    }
 };
 
-const SelectMode = enum { all, no_keypad };
+pub const SelectMode = enum { all, no_keypad };
 
 fn select(select_mode: SelectMode, binding: *const Binding) bool {
     return switch (select_mode) {
