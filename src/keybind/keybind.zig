@@ -769,8 +769,11 @@ const BindingSet = struct {
     fn terminate_sequence(self: *const @This(), abort_type: AbortType) anyerror!void {
         if (abort_type == .match_impossible) {
             switch (self.on_match_failure) {
-                .insert => try self.insert_bytes(globals.current_sequence_egc.items),
-                .ignore => {},
+                .insert => if (globals.current_sequence_egc.items.len > 0)
+                    try self.insert_bytes(globals.current_sequence_egc.items)
+                else
+                    log_keyhints_message(),
+                .ignore => log_keyhints_message(),
             }
             globals.current_sequence.clearRetainingCapacity();
             globals.current_sequence_egc.clearRetainingCapacity();
@@ -779,6 +782,12 @@ const BindingSet = struct {
             globals.current_sequence_egc.clearRetainingCapacity();
             globals.current_sequence.clearRetainingCapacity();
         }
+    }
+
+    fn log_keyhints_message() void {
+        const logger = log.logger("keybind");
+        defer logger.deinit();
+        logger.print("C-? for key hints", .{});
     }
 
     /// Retrieve bindings that will match a key event sequence
