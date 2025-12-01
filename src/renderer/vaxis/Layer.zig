@@ -105,7 +105,7 @@ pub fn draw(self: *const Layer, plane_: Plane) void {
         const src_row: i32 = @intCast(src_row_);
         const src_row_offset = src_row * src_w;
         const dst_row_offset = (dst_y + src_row) * plane_.window.screen.width;
-        if (dst_y + src_row > dst_dim_y) return;
+        if (dst_y + src_row >= dst_dim_y) return;
         @memcpy(
             plane_.window.screen.buf[@intCast(dst_row_offset + dst_x)..@intCast(dst_row_offset + dst_x + dst_w)],
             self.view.screen.buf[@intCast(src_row_offset + src_x)..@intCast(src_row_offset + dst_w)],
