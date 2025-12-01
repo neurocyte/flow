@@ -423,7 +423,7 @@ const Command = struct {
 };
 
 //An association of an command with a triggering key chord
-const Binding = struct {
+pub const Binding = struct {
     key_events: []KeyEvent,
     commands: []Command,
 
