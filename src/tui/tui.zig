@@ -84,6 +84,9 @@ clipboard: ?std.ArrayList(ClipboardEntry) = null,
 clipboard_current_group_number: usize = 0,
 color_scheme: enum { dark, light } = .dark,
 color_scheme_locked: bool = false,
+hint_mode: HintMode = .prefix,
+
+const HintMode = enum { none, prefix, all };
 
 pub const ClipboardEntry = struct {
     text: []const u8 = &.{},
@@ -561,7 +564,11 @@ fn render(self: *Self) void {
         self.rdr_.stdplane().erase();
         const continue_mainview = if (self.mainview_) |mv| mv.render(self.current_theme()) else false;
 
-        @import("keyhints.zig").render_current_key_event_sequence(self.allocator, self.current_theme());
+        switch (self.hint_mode) {
+            .prefix => @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .no_keypad, self.current_theme()),
+            .all => @import("keyhints.zig").render_current_input_mode(self.allocator, .no_keypad, self.current_theme()),
+            .none => {},
+        }
 
         break :ret continue_mainview;
     };
@@ -1041,6 +1048,14 @@ const cmds = struct {
         resize();
     }
     pub const toggle_centered_view_meta: Meta = .{ .description = "Toggle centered view" };
+
+    pub fn toggle_keybind_hints(self: *Self, _: Ctx) Result {
+        self.hint_mode = switch (self.hint_mode) {
+            .all => .prefix,
+            else => .all,
+        };
+    }
+    pub const toggle_keybind_hints_meta: Meta = .{ .description = "Toggle keybind hints" };
 
     pub fn force_color_scheme(self: *Self, ctx: Ctx) Result {
         self.force_color_scheme(if (try ctx.args.match(.{"dark"}))
