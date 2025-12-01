@@ -40,6 +40,7 @@
             ["f11", "toggle_panel"],
             ["alt+f11", "toggle_color_scheme"],
             ["f12", "toggle_inputview"],
+            ["shift+alt+f9", "hint_window_next_widget_style"],
             ["alt+!", "run_task"],
             ["ctrl+tab", "next_tab"],
             ["ctrl+shift+g", "show_vcs_status"],
