@@ -54,7 +54,7 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
     const max_len = max_prefix_len + max_description_len + 2 + 2;
     const widget_style = tui.get_widget_style(widget_type);
     const scr = tui.screen();
-    const max_screen_height = scr.h -| widget_style.padding.top -| widget_style.padding.bottom -| 1;
+    const max_screen_height = scr.h -| widget_style.padding.top -| widget_style.padding.bottom -| 3;
     const max_items = @min(bindings.len, max_screen_height);
     const page_size = max_screen_height;
     var top = show_page * page_size;
