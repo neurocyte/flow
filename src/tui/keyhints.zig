@@ -12,12 +12,13 @@ var show_page: usize = 0;
 
 pub fn render_current_input_mode(allocator: std.mem.Allocator, select_mode: keybind.SelectMode, theme: *const Widget.Theme) void {
     const mode = tui.input_mode() orelse return;
-    const bindings = blk: {
-        const b = mode.current_key_event_sequence_bindings(allocator, select_mode) catch return;
-        break :blk if (b.len > 0) b else mode.current_bindings(allocator, select_mode) catch return;
-    };
+    const key_events = mode.current_key_event_sequence_bindings(allocator, select_mode) catch return;
+    const bindings = if (key_events.len > 0)
+        key_events
+    else
+        mode.current_bindings(allocator, select_mode) catch return;
     defer allocator.free(bindings);
-    return render(mode, bindings, theme, .full);
+    return render(mode, bindings, theme, if (key_events.len > 0) .no_key_event_prefix else .full);
 }
 
 pub fn render_current_key_event_sequence(allocator: std.mem.Allocator, select_mode: keybind.SelectMode, theme: *const Widget.Theme) void {
