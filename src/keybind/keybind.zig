@@ -985,7 +985,7 @@ test "match" {
 }
 
 test "json" {
-    var bindings: BindingSet = .{ .name = "test", .selection_style = .normal };
+    var bindings: BindingSet = .{ .name = "test", .config_section = "test_section", .selection_style = .normal };
     _ = try bindings.process_key_event(input.KeyEvent.from_key('j'));
     _ = try bindings.process_key_event(input.KeyEvent.from_key('k'));
     _ = try bindings.process_key_event(input.KeyEvent.from_key('g'));
