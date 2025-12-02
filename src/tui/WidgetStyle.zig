@@ -46,18 +46,23 @@ pub const Border = struct {
     sw: []const u8,
     w: []const u8,
 
-    const blank: Border = .{ .nw = " ", .n = " ", .ne = " ", .e = " ", .se = " ", .s = " ", .sw = " ", .w = " " };
-    const box: Border = .{ .nw = "┌", .n = "─", .ne = "┐", .e = "│", .se = "┘", .s = "─", .sw = "└", .w = "│" };
-    const @"rounded box": Border = .{ .nw = "╭", .n = "─", .ne = "╮", .e = "│", .se = "╯", .s = "─", .sw = "╰", .w = "│" };
-    const @"double box": Border = .{ .nw = "╔", .n = "═", .ne = "╗", .e = "║", .se = "╝", .s = "═", .sw = "╚", .w = "║" };
-    const @"single/double box (top/bottom)": Border = .{ .nw = "╓", .n = "─", .ne = "╖", .e = "║", .se = "╜", .s = "─", .sw = "╙", .w = "║" };
-    const @"single/double box (left/right)": Border = .{ .nw = "╒", .n = "═", .ne = "╕", .e = "│", .se = "╛", .s = "═", .sw = "╘", .w = "│" };
-    const @"dotted box (braille)": Border = .{ .nw = "⡏", .n = "⠉", .ne = "⢹", .e = "⢸", .se = "⣸", .s = "⣀", .sw = "⣇", .w = "⡇" };
-    const @"thick box (half)": Border = .{ .nw = "▛", .n = "▀", .ne = "▜", .e = "▐", .se = "▟", .s = "▄", .sw = "▙", .w = "▌" };
-    const @"thick box (sextant)": Border = .{ .nw = "🬕", .n = "🬂", .ne = "🬨", .e = "▐", .se = "🬷", .s = "🬭", .sw = "🬲", .w = "▌" };
-    const @"thick box (octant)": Border = .{ .nw = "𜵊", .n = "🮂", .ne = "𜶘", .e = "▐", .se = "𜷕", .s = "▂", .sw = "𜷀", .w = "▌" };
-    const @"extra thick box": Border = .{ .nw = "█", .n = "▀", .ne = "█", .e = "█", .se = "█", .s = "▄", .sw = "█", .w = "█" };
-    const @"round thick box": Border = .{ .nw = "█", .n = "▀", .ne = "█", .e = "█", .se = "█", .s = "▄", .sw = "█", .w = "█" };
+    nib: []const u8, // north insert begin
+    nie: []const u8, // north insert end
+    sib: []const u8, // south insert begin
+    sie: []const u8, // south insert end
+
+    const blank: Border = .{ .nw = " ", .n = " ", .ne = " ", .e = " ", .se = " ", .s = " ", .sw = " ", .w = " ", .nib = " ", .nie = " ", .sib = " ", .sie = " " };
+    const box: Border = .{ .nw = "┌", .n = "─", .ne = "┐", .e = "│", .se = "┘", .s = "─", .sw = "└", .w = "│", .nib = "┤", .nie = "├", .sib = "┤", .sie = "├" };
+    const @"rounded box": Border = .{ .nw = "╭", .n = "─", .ne = "╮", .e = "│", .se = "╯", .s = "─", .sw = "╰", .w = "│", .nib = "┤", .nie = "├", .sib = "┤", .sie = "├" };
+    const @"double box": Border = .{ .nw = "╔", .n = "═", .ne = "╗", .e = "║", .se = "╝", .s = "═", .sw = "╚", .w = "║", .nib = "╡", .nie = "╞", .sib = "╡", .sie = "╞" };
+    const @"single/double box (top/bottom)": Border = .{ .nw = "╓", .n = "─", .ne = "╖", .e = "║", .se = "╜", .s = "─", .sw = "╙", .w = "║", .nib = "┤", .nie = "├", .sib = "┤", .sie = "├" };
+    const @"single/double box (left/right)": Border = .{ .nw = "╒", .n = "═", .ne = "╕", .e = "│", .se = "╛", .s = "═", .sw = "╘", .w = "│", .nib = "╡", .nie = "╞", .sib = "╡", .sie = "╞" };
+    const @"dotted box (braille)": Border = .{ .nw = "⡏", .n = "⠉", .ne = "⢹", .e = "⢸", .se = "⣸", .s = "⣀", .sw = "⣇", .w = "⡇", .nib = "⢹", .nie = "⡏", .sib = "⣸", .sie = "⣇" };
+    const @"thick box (half)": Border = .{ .nw = "▛", .n = "▀", .ne = "▜", .e = "▐", .se = "▟", .s = "▄", .sw = "▙", .w = "▌", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
+    const @"thick box (sextant)": Border = .{ .nw = "🬕", .n = "🬂", .ne = "🬨", .e = "▐", .se = "🬷", .s = "🬭", .sw = "🬲", .w = "▌", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
+    const @"thick box (octant)": Border = .{ .nw = "𜵊", .n = "🮂", .ne = "𜶘", .e = "▐", .se = "𜷕", .s = "▂", .sw = "𜷀", .w = "▌", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
+    const @"extra thick box": Border = .{ .nw = "█", .n = "▀", .ne = "█", .e = "█", .se = "█", .s = "▄", .sw = "█", .w = "█", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
+    const @"round thick box": Border = .{ .nw = "█", .n = "▀", .ne = "█", .e = "█", .se = "█", .s = "▄", .sw = "█", .w = "█", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
 };
 
 const compact: @This() = .{};
