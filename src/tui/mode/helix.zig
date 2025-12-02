@@ -34,7 +34,7 @@ const cmds_ = struct {
     pub fn w(_: *void, _: Ctx) Result {
         try cmd("save_file", .{});
     }
-    pub const w_meta: Meta = .{ .description = "w (write/save file)" };
+    pub const w_meta: Meta = .{ .description = "w (save)" };
 
     pub fn q(_: *void, _: Ctx) Result {
         try cmd("quit", .{});
