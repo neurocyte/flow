@@ -13,8 +13,6 @@ const Buffer = @import("Buffer");
 const Cursor = Buffer.Cursor;
 const Selection = Buffer.Selection;
 
-const Direction = enum { backwards, forwards };
-
 var commands: Commands = undefined;
 
 pub fn init() !void {
@@ -244,62 +242,62 @@ const cmds_ = struct {
     pub const extend_line_below_meta: Meta = .{ .arguments = &.{.integer}, .description = "Select current line, if already selected, extend to next line" };
 
     pub fn move_next_word_start(_: *void, ctx: Ctx) Result {
-        try move_to_word(ctx, Editor.move_cursor_word_right_vim, .forwards);
+        try move_to_word(ctx, Editor.move_cursor_word_right_vim);
     }
     pub const move_next_word_start_meta: Meta = .{ .description = "Move next word start", .arguments = &.{.integer} };
 
     pub fn extend_next_word_start(_: *void, ctx: Ctx) Result {
-        try extend_to_word(ctx, Editor.move_cursor_word_right_vim, .forwards);
+        try extend_to_word(ctx, Editor.move_cursor_word_right_vim);
     }
     pub const extend_next_word_start_meta: Meta = .{ .description = "Extend next word start", .arguments = &.{.integer} };
 
     pub fn move_next_long_word_start(_: *void, ctx: Ctx) Result {
-        try move_to_word(ctx, move_cursor_long_word_right, .forwards);
+        try move_to_word(ctx, move_cursor_long_word_right);
     }
     pub const move_next_long_word_start_meta: Meta = .{ .description = "Move next long word start", .arguments = &.{.integer} };
 
     pub fn extend_next_long_word_start(_: *void, ctx: Ctx) Result {
-        try extend_to_word(ctx, move_cursor_long_word_right, .forwards);
+        try extend_to_word(ctx, move_cursor_long_word_right);
     }
     pub const extend_next_long_word_start_meta: Meta = .{ .description = "Extend next long word start", .arguments = &.{.integer} };
 
     pub fn move_prev_word_start(_: *void, ctx: Ctx) Result {
-        try move_to_word(ctx, move_cursor_word_left_helix, .backwards);
+        try move_to_word(ctx, move_cursor_word_left_helix);
     }
     pub const move_prev_word_start_meta: Meta = .{ .description = "Move previous word start", .arguments = &.{.integer} };
 
     pub fn extend_prev_word_start(_: *void, ctx: Ctx) Result {
-        try extend_to_word(ctx, move_cursor_word_left_helix, .backwards);
+        try extend_to_word(ctx, move_cursor_word_left_helix);
     }
     pub const extend_prev_word_start_meta: Meta = .{ .description = "Extend previous word start", .arguments = &.{.integer} };
 
     pub fn move_prev_long_word_start(_: *void, ctx: Ctx) Result {
-        try move_to_word(ctx, move_cursor_long_word_left, .backwards);
+        try move_to_word(ctx, move_cursor_long_word_left);
     }
     pub const move_prev_long_word_start_meta: Meta = .{ .description = "Move previous long word start", .arguments = &.{.integer} };
 
     pub fn extend_prev_long_word_start(_: *void, ctx: Ctx) Result {
-        try extend_to_word(ctx, move_cursor_long_word_left, .backwards);
+        try extend_to_word(ctx, move_cursor_long_word_left);
     }
     pub const extend_prev_long_word_start_meta: Meta = .{ .description = "Extend previous word start", .arguments = &.{.integer} };
 
     pub fn move_next_word_end(_: *void, ctx: Ctx) Result {
-        try move_to_word(ctx, move_cursor_word_right_end_helix, .forwards);
+        try move_to_word(ctx, move_cursor_word_right_end_helix);
     }
     pub const move_next_word_end_meta: Meta = .{ .description = "Move next word end", .arguments = &.{.integer} };
 
     pub fn extend_next_word_end(_: *void, ctx: Ctx) Result {
-        try extend_to_word(ctx, move_cursor_word_right_end_helix, .forwards);
+        try extend_to_word(ctx, move_cursor_word_right_end_helix);
     }
     pub const extend_next_word_end_meta: Meta = .{ .description = "Extend next word end", .arguments = &.{.integer} };
 
     pub fn move_next_long_word_end(_: *void, ctx: Ctx) Result {
-        try move_to_word(ctx, move_cursor_long_word_right_end, .forwards);
+        try move_to_word(ctx, move_cursor_long_word_right_end);
     }
     pub const move_next_long_word_end_meta: Meta = .{ .description = "Move next long word end", .arguments = &.{.integer} };
 
     pub fn extend_next_long_word_end(_: *void, ctx: Ctx) Result {
-        try extend_to_word(ctx, move_cursor_long_word_right_end, .forwards);
+        try extend_to_word(ctx, move_cursor_long_word_right_end);
     }
     pub const extend_next_long_word_end_meta: Meta = .{ .description = "Extend next long word end", .arguments = &.{.integer} };
 
@@ -528,7 +526,7 @@ fn match_bracket(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metri
     }
 }
 
-fn move_to_word(ctx: command.Context, move: Editor.cursor_operator_const, direction: Direction) command.Result {
+fn move_to_word(ctx: command.Context, move: Editor.cursor_operator_const) command.Result {
     const mv = tui.mainview() orelse return;
     const ed = mv.get_active_editor() orelse return;
     const root = try ed.buf_root();
@@ -539,43 +537,16 @@ fn move_to_word(ctx: command.Context, move: Editor.cursor_operator_const, direct
     if (repeat > 1) ed.with_cursors_const_repeat(root, move, command.fmt(.{repeat - 1})) catch {};
 
     for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-        var sel = Selection.from_cursor(&cursel.cursor);
-        const cur = sel.begin.test_at(root, is_not_whitespace_or_eol, ed.metrics);
-        if (direction == .backwards) {
-            sel.begin.move_left(root, ed.metrics) catch continue;
-            const prev = sel.begin.test_at(root, Editor.is_not_word_char, ed.metrics);
-            sel.begin = sel.end;
-            if (!cur or cur != prev)
-                sel.begin.move_right(root, ed.metrics) catch continue;
-        } else {
-            sel.end.move_right(root, ed.metrics) catch continue;
-            const next = sel.end.test_at(root, Editor.is_not_word_char, ed.metrics);
-            if (!cur and cur != next)
-                sel.begin = sel.end;
-        }
-        cursel.cursor = sel.end;
-        cursel.selection = sel;
+        cursel.selection = null;
     };
     ed.with_selections_const_repeat(root, move, command.fmt(.{1})) catch {};
     ed.clamp();
 }
 
-fn extend_to_word(ctx: command.Context, move: Editor.cursor_operator_const, direction: Direction) command.Result {
+fn extend_to_word(ctx: command.Context, move: Editor.cursor_operator_const) command.Result {
     const mv = tui.mainview() orelse return;
     const ed = mv.get_active_editor() orelse return;
     const root = try ed.buf_root();
-
-    var repeat: usize = 1;
-    _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
-    for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-        if (cursel.selection == null) {
-            cursel.selection = Selection.from_cursor(cursel.cursor);
-        }
-        const sel = &cursel.selection.?;
-        const pivot = if (sel.is_reversed()) cursel.begin - 1 else cursel.begin;
-        var i: usize = repeat;
-        while (i > 0) : (i -= 1) {}
-    };
 
     ed.with_selections_const_repeat(root, move, ctx) catch {};
     ed.clamp();
@@ -859,6 +830,7 @@ fn move_noop(_: Buffer.Root, _: *Cursor, _: Buffer.Metrics) error{Stop}!void {}
 fn move_cursor_word_right_end_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
     try Editor.move_cursor_right(root, cursor, metrics);
     Editor.move_cursor_right_until(root, cursor, Editor.is_word_boundary_right_vim, metrics);
+    try cursor.move_right(root, metrics);
 }
 
 fn move_cursor_to_char_left_beyond_eol(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics, ctx: command.Context) error{Stop}!void {
