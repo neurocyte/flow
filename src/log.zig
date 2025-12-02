@@ -260,7 +260,11 @@ pub fn std_log_function(
     const log_pid = std_log_pid orelse return;
     const prefix = "[" ++ comptime level.asText() ++ "] ";
     var buf: [max_log_message]u8 = undefined;
-    const output = std.fmt.bufPrint(&buf, prefix ++ format, args) catch "MESSAGE TOO LARGE";
+    const fmt = switch (level) {
+        .warn, .debug => prefix ++ format,
+        .err, .info => format,
+    };
+    const output = std.fmt.bufPrint(&buf, fmt, args) catch "MESSAGE TOO LARGE";
     if (level == .err) {
         log_pid.send(.{ "log", "error", @tagName(scope), "std.log", "->", output }) catch {};
     } else {
