@@ -326,13 +326,14 @@ const Namespace = struct {
         if (parsed.value.deinit_command) |cmd| self.deinit_command = try Command.load(allocator, cmd);
     }
 
-    fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, mode_value: std.json.Value) !void {
+    fn load_mode(self: *@This(), allocator: std.mem.Allocator, mode_name_: []const u8, mode_value: std.json.Value) !void {
+        const mode_name = try allocator.dupe(u8, mode_name_);
         const fallback_mode = if (self.fallback) |fallback| fallback.get_mode(mode_name) orelse fallback.get_mode(default_mode) else null;
-        try self.modes.put(allocator, try allocator.dupe(u8, mode_name), try BindingSet.load(allocator, self.name, mode_value, fallback_mode, self));
+        try self.modes.put(allocator, mode_name, try BindingSet.load(allocator, self.name, mode_name, mode_value, fallback_mode, self));
     }
 
     fn copy_mode(self: *@This(), allocator: std.mem.Allocator, mode_name: []const u8, fallback_mode: *const BindingSet) !void {
-        try self.modes.put(allocator, mode_name, try BindingSet.copy(allocator, fallback_mode));
+        try self.modes.put(allocator, mode_name, try BindingSet.copy(allocator, mode_name, fallback_mode));
     }
 
     fn get_mode(self: *const @This(), mode_name: []const u8) ?*BindingSet {
@@ -472,6 +473,7 @@ const BindingSet = struct {
     syntax: KeySyntax = .flow,
     on_match_failure: OnMatchFailure = .ignore,
     name: []const u8,
+    config_section: []const u8,
     line_numbers: LineNumbers = .inherit,
     cursor_shape: ?CursorShape = null,
     selection_style: SelectionStyle,
@@ -483,8 +485,8 @@ const BindingSet = struct {
     const KeySyntax = enum { flow, vim };
     const OnMatchFailure = enum { insert, ignore };
 
-    fn load(allocator: std.mem.Allocator, namespace_name: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet, namespace: *Namespace) (error{ OutOfMemory, WriteFailed } || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
-        var self: @This() = .{ .name = undefined, .selection_style = undefined };
+    fn load(allocator: std.mem.Allocator, namespace_name: []const u8, config_section: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet, namespace: *Namespace) (error{ OutOfMemory, WriteFailed } || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
+        var self: @This() = .{ .name = undefined, .config_section = config_section, .selection_style = undefined };
 
         const JsonConfig = struct {
             press: []const []const std.json.Value = &[_][]std.json.Value{},
@@ -590,8 +592,8 @@ const BindingSet = struct {
         }
     }
 
-    fn copy(allocator: std.mem.Allocator, fallback: *const BindingSet) error{OutOfMemory}!@This() {
-        var self: @This() = .{ .name = fallback.name, .selection_style = fallback.selection_style };
+    fn copy(allocator: std.mem.Allocator, config_section: []const u8, fallback: *const BindingSet) error{OutOfMemory}!@This() {
+        var self: @This() = .{ .name = fallback.name, .config_section = config_section, .selection_style = fallback.selection_style };
         self.on_match_failure = fallback.on_match_failure;
         for (fallback.press.items) |binding| try self.press.append(allocator, binding);
         for (fallback.release.items) |binding| try self.release.append(allocator, binding);
