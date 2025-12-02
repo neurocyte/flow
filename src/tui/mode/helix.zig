@@ -568,7 +568,7 @@ fn extend_to_word(ctx: command.Context, move: Editor.cursor_operator_const, _: D
     var repeat: usize = 1;
     _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
     for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-        const sel = cursel.enable_selection(root, ed.metrics);
+        const sel = try cursel.enable_selection(root, ed.metrics);
         const pivot: usize = if (sel.is_reversed()) sel.begin.col -| 1 else sel.begin.col;
         var i: usize = repeat;
         while (i > 0) : (i -= 1) {
