@@ -560,7 +560,7 @@ fn move_to_word(ctx: command.Context, move: Editor.cursor_operator_const, direct
     ed.clamp();
 }
 
-fn extend_to_word(ctx: command.Context, move: Editor.cursor_operator_const, _: Direction) command.Result {
+fn extend_to_word(ctx: command.Context, move: Editor.cursor_operator_const, direction: Direction) command.Result {
     const mv = tui.mainview() orelse return;
     const ed = mv.get_active_editor() orelse return;
     const root = try ed.buf_root();
@@ -568,16 +568,16 @@ fn extend_to_word(ctx: command.Context, move: Editor.cursor_operator_const, _: D
     var repeat: usize = 1;
     _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
     for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
-        const sel = try cursel.enable_selection(root, ed.metrics);
-        const pivot: usize = if (sel.is_reversed()) sel.begin.col -| 1 else sel.begin.col;
-        var i: usize = repeat;
-        while (i > 0) : (i -= 1) {
-            try move(root, &sel.end, ed.metrics);
+        if (cursel.selection == null) {
+            cursel.selection = Selection.from_cursor(cursel.cursor);
         }
-        sel.begin.col = if (sel.is_reversed()) pivot +| 1 else pivot;
-        cursel.cursor = sel.end;
+        const sel = &cursel.selection.?;
+        const pivot = if (sel.is_reversed()) cursel.begin - 1 else cursel.begin;
+        var i: usize = repeat;
+        while (i > 0) : (i -= 1) {}
     };
 
+    ed.with_selections_const_repeat(root, move, ctx) catch {};
     ed.clamp();
 }
 
