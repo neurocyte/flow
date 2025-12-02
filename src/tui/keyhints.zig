@@ -17,14 +17,14 @@ pub fn render_current_input_mode(allocator: std.mem.Allocator, select_mode: keyb
         break :blk if (b.len > 0) b else mode.current_bindings(allocator, select_mode) catch return;
     };
     defer allocator.free(bindings);
-    return render(bindings, theme, .full);
+    return render(mode, bindings, theme, .full);
 }
 
 pub fn render_current_key_event_sequence(allocator: std.mem.Allocator, select_mode: keybind.SelectMode, theme: *const Widget.Theme) void {
     const mode = tui.input_mode() orelse return;
     const bindings = mode.current_key_event_sequence_bindings(allocator, select_mode) catch return;
     defer allocator.free(bindings);
-    return render(bindings, theme, .no_key_event_prefix);
+    return render(mode, bindings, theme, .no_key_event_prefix);
 }
 
 pub fn scroll() void {
@@ -33,13 +33,13 @@ pub fn scroll() void {
 
 const RenderMode = enum { full, no_key_event_prefix };
 
-fn render(bindings: []const keybind.Binding, theme: *const Widget.Theme, mode: RenderMode) void {
+fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const Widget.Theme, render_mode: RenderMode) void {
     // return if something is already rendering to the top layer
     if (tui.have_top_layer()) return;
     if (bindings.len == 0) return;
 
     var key_events_buf: [256]u8 = undefined;
-    const key_events = switch (mode) {
+    const key_events = switch (render_mode) {
         .no_key_event_prefix => blk: {
             var writer = std.Io.Writer.fixed(&key_events_buf);
             writer.print("{f}", .{keybind.current_key_event_sequence_fmt()}) catch {};
@@ -63,7 +63,7 @@ fn render(bindings: []const keybind.Binding, theme: *const Widget.Theme, mode: R
     }
     var box: Widget.Box = .{
         .h = max_items,
-        .w = max_len,
+        .w = max_len + widget_style.padding.left -| widget_style.padding.right,
         .x = scr.w -| max_len -| 2 -| widget_style.padding.left -| widget_style.padding.right,
         .y = scr.h -| max_items -| 1 -| widget_style.padding.top -| widget_style.padding.bottom,
     };
@@ -73,9 +73,29 @@ fn render(bindings: []const keybind.Binding, theme: *const Widget.Theme, mode: R
     widget_style.render_decoration(deco_box, widget_type, top_layer_, theme);
 
     if (bindings.len > max_items) {
-        top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4)) catch return;
-        _ = top_layer_.print("[{d}/{d}](C-A-? for more)", .{ top, bindings.len }) catch {};
-        top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(max_len - 5)) catch return;
+        if (widget_style.padding.bottom > 0) {
+            top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(max_len -| 13)) catch return;
+            _ = top_layer_.print("{s} {d}/{d} {s}", .{
+                widget_style.border.sib,
+                top,
+                bindings.len,
+                widget_style.border.sie,
+            }) catch {};
+            top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4)) catch return;
+            _ = top_layer_.print("{s} C-A-? for more {s}", .{
+                widget_style.border.sib,
+                widget_style.border.sie,
+            }) catch {};
+        }
+    }
+    if (widget_style.padding.top > 0) {
+        top_layer_.cursor_move_yx(@intCast(0), @intCast(3)) catch return;
+        _ = top_layer_.print("{s} {s}/{s} {s}", .{
+            widget_style.border.nib,
+            keybind.get_namespace(),
+            mode.bindings.config_section,
+            widget_style.border.nie,
+        }) catch {};
     }
 
     // workaround vaxis.Layer issue
