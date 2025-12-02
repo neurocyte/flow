@@ -30,8 +30,7 @@ pub const application_subtext = "a programmer's text editor";
 pub const application_description = application_title ++ ": " ++ application_subtext;
 
 pub const std_options: std.Options = .{
-    // .log_level = if (builtin.mode == .Debug) .debug else .warn,
-    .log_level = if (builtin.mode == .Debug) .info else .warn,
+    .log_level = if (builtin.mode == .Debug) .debug else .info,
     .logFn = log.std_log_function,
 };
 
