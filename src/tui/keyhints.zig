@@ -133,14 +133,17 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
             break :blk writer.buffered();
         };
         plane.cursor_move_yx(@intCast(y), 0) catch break;
-        _ = plane.print("{s}", .{keybind_txt[key_events.len..]}) catch {};
+        switch (render_mode) {
+            .no_key_event_prefix => _ = plane.print("{s}", .{keybind_txt[key_events.len..]}) catch {},
+            .full => _ = plane.print(" {s}", .{keybind_txt}) catch {},
+        }
     }
 
     plane.set_style(style_label);
 
     for (bindings[top..], 0..) |binding, y| {
         if (y >= max_items) break;
-        const padding = max_prefix_len + 2;
+        const padding = max_prefix_len + 3;
 
         const description = blk: {
             const id = binding.commands[0].command_id orelse
