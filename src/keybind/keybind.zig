@@ -6,7 +6,6 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const builtin = @import("builtin");
-const log = @import("log");
 const root = @import("soft_root").root;
 
 const input = @import("input");
@@ -245,11 +244,9 @@ pub fn set_namespace(namespace_name: []const u8) LoadError!void {
 fn get_mode_binding_set(mode_name: []const u8, insert_command: []const u8) LoadError!*const BindingSet {
     const namespace = current_namespace();
     var binding_set = namespace.get_mode(mode_name) orelse {
-        const logger = log.logger("keybind");
-        logger.print_err("get_namespace_mode", "ERROR: mode not found: {s}", .{mode_name});
+        std.log.err("ERROR: mode not found: {s}", .{mode_name});
         var iter = namespace.modes.iterator();
-        while (iter.next()) |entry| logger.print("available modes: {s}", .{entry.key_ptr.*});
-        logger.deinit();
+        while (iter.next()) |entry| std.log.info("available modes: {s}", .{entry.key_ptr.*});
         return error.NotFound;
     };
     binding_set.set_insert_command(insert_command);
@@ -367,11 +364,8 @@ const Command = struct {
     fn execute_const(self: *const @This()) void {
         var buf: [2048]u8 = undefined;
         @memcpy(buf[0..self.args.len], self.args);
-        command.executeName(self.command, .{ .args = .{ .buf = buf[0..self.args.len] } }) catch |e| {
-            const logger = log.logger("keybind");
-            logger.print_err("init/deinit_command", "ERROR: {s} {s}", .{ self.command, @errorName(e) });
-            logger.deinit();
-        };
+        command.executeName(self.command, .{ .args = .{ .buf = buf[0..self.args.len] } }) catch |e|
+            std.log.err("ERROR: {s} {s}", .{ self.command, @errorName(e) });
     }
 
     fn has_integer_argument(id: command.ID) bool {
@@ -390,9 +384,7 @@ const Command = struct {
             switch (state) {
                 .command => {
                     if (token != .string) {
-                        const logger = log.logger("keybind");
-                        logger.print_err("keybind.load", "ERROR: invalid command token {any}", .{token});
-                        logger.deinit();
+                        std.log.err("ERROR: invalid command token {any}", .{token});
                         return error.InvalidFormat;
                     }
                     command_ = try allocator.dupe(u8, token.string);
@@ -404,9 +396,7 @@ const Command = struct {
                         else => {
                             const json = try std.json.Stringify.valueAlloc(allocator, token, .{});
                             defer allocator.free(json);
-                            const logger = log.logger("keybind");
-                            logger.print_err("keybind.load", "ERROR: invalid command argument '{s}'", .{json});
-                            logger.deinit();
+                            std.log.err("ERROR: invalid command argument '{s}'", .{json});
                             return error.InvalidFormat;
                         },
                     }
@@ -538,30 +528,22 @@ const BindingSet = struct {
         _ = event;
         bindings: for (bindings) |entry| {
             if (entry.len < 2) {
-                const logger = log.logger("keybind");
-                logger.print_err("keybind.load", "ERROR: invalid binding definition {any}", .{entry});
-                logger.deinit();
+                std.log.err("ERROR: invalid binding definition {any}", .{entry});
                 continue :bindings;
             }
             const keys = entry[0];
             if (keys != .string) {
-                const logger = log.logger("keybind");
-                logger.print_err("keybind.load", "ERROR: invalid binding key definition {any}", .{keys});
-                logger.deinit();
+                std.log.err("ERROR: invalid binding key definition {any}", .{keys});
                 continue :bindings;
             }
 
             const key_events = switch (self.syntax) {
                 .flow => parse_flow.parse_key_events(allocator, keys.string) catch |e| {
-                    const logger = log.logger("keybind");
-                    logger.print_err("keybind.load", "ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
-                    logger.deinit();
+                    std.log.err("ERROR: {s} {s}", .{ @errorName(e), parse_flow.parse_error_message });
                     break;
                 },
                 .vim => parse_vim.parse_key_events(allocator, keys.string) catch |e| {
-                    const logger = log.logger("keybind");
-                    logger.print_err("keybind.load.vim", "ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
-                    logger.deinit();
+                    std.log.err("ERROR: {s} {s}", .{ @errorName(e), parse_vim.parse_error_message });
                     break;
                 },
             };
@@ -577,9 +559,7 @@ const BindingSet = struct {
                     if (cmd_entry != .array) {
                         const json = try std.json.Stringify.valueAlloc(allocator, cmd_entry, .{});
                         defer allocator.free(json);
-                        const logger = log.logger("keybind");
-                        logger.print_err("keybind.load", "ERROR: invalid command definition {s}", .{json});
-                        logger.deinit();
+                        std.log.err("ERROR: invalid command definition {s}", .{json});
                         continue :bindings;
                     }
                     try cmds.append(allocator, try Command.load(allocator, cmd_entry.array.items));
@@ -793,10 +773,7 @@ const BindingSet = struct {
             input.key.left_shift, input.key.right_shift => return,
             else => {},
         };
-
-        const logger = log.logger("keybind");
-        defer logger.deinit();
-        logger.print("C-? for key hints", .{});
+        std.log.info("C-? for key hints", .{});
     }
 
     /// Retrieve bindings that will match a key event sequence

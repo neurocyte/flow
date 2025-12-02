@@ -502,7 +502,6 @@ pub fn build_exe(
             .{ .name = "EventHandler", .module = EventHandler_mod },
             .{ .name = "input", .module = input_mod },
             .{ .name = "thespian", .module = thespian_mod },
-            .{ .name = "log", .module = log_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "config", .module = config_mod },
         },
