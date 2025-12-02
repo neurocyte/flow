@@ -91,12 +91,22 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
     }
     if (widget_style.padding.top > 0) {
         top_layer_.cursor_move_yx(@intCast(0), @intCast(3)) catch return;
-        _ = top_layer_.print("{s} {s}/{s} {s}", .{
-            widget_style.border.nib,
-            keybind.get_namespace(),
-            mode.bindings.config_section,
-            widget_style.border.nie,
-        }) catch {};
+        if (key_events.len > 0) {
+            _ = top_layer_.print("{s} {s}/{s} prefix: {s} {s}", .{
+                widget_style.border.nib,
+                keybind.get_namespace(),
+                mode.bindings.config_section,
+                key_events,
+                widget_style.border.nie,
+            }) catch {};
+        } else {
+            _ = top_layer_.print("{s} {s}/{s} {s}", .{
+                widget_style.border.nib,
+                keybind.get_namespace(),
+                mode.bindings.config_section,
+                widget_style.border.nie,
+            }) catch {};
+        }
     }
 
     // workaround vaxis.Layer issue
