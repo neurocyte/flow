@@ -206,7 +206,7 @@ const Process = struct {
         var buf: [1024]u8 = undefined;
         const json = self.argv.to_json(&buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
         if (self.handlers.log_execute)
-            self.logger.print("shell: execute {s}", .{json});
+            self.logger.print("execute {s}", .{json});
         self.sp = tp.subprocess.init(self.allocator, self.argv, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
     }
