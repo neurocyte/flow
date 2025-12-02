@@ -879,8 +879,15 @@ const KeyEventSequenceFmt = struct {
     key_events: []const KeyEvent,
 
     pub fn format(self: @This(), writer: anytype) !void {
-        for (self.key_events) |key_event|
-            try writer.print(" {f}", .{input.key_event_short_fmt(key_event)});
+        var first = true;
+        for (self.key_events) |key_event| {
+            if (first) {
+                first = false;
+            } else {
+                try writer.print(" ", .{});
+            }
+            try writer.print("{f}", .{input.key_event_short_fmt(key_event)});
+        }
     }
 };
 
