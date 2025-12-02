@@ -775,7 +775,7 @@ const BindingSet = struct {
             input.key.left_shift, input.key.right_shift => return,
             else => {},
         };
-        std.log.info("C-? for key hints", .{});
+        log.info("{f} is unbound, press C-? for key hints", .{current_key_event_sequence_fmt()});
     }
 
     /// Retrieve bindings that will match a key event sequence
