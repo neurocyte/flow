@@ -565,7 +565,8 @@ fn render(self: *Self) void {
         const continue_mainview = if (self.mainview_) |mv| mv.render(self.current_theme()) else false;
 
         switch (self.hint_mode) {
-            .prefix => @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .no_keypad, self.current_theme()),
+            .prefix => if (self.config_.enable_prefix_keyhints)
+                @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .no_keypad, self.current_theme()),
             .all => @import("keyhints.zig").render_current_input_mode(self.allocator, .no_keypad, self.current_theme()),
             .none => {},
         }
