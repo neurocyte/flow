@@ -664,7 +664,8 @@ fn dispatch_mouse_drag(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8
     self.unrendered_input_events_count += 1;
     var btn: input.MouseType = undefined;
     if (m.match(.{ tp.string, tp.any, tp.extract(&btn), tp.more }) catch false)
-        if (self.drag_source == null) self.set_drag_source(self.find_coord_widget(@intCast(y), @intCast(x)), btn);
+        if (self.drag_source == null and y >= 0 and x >= 0)
+            self.set_drag_source(self.find_coord_widget(@intCast(y), @intCast(x)), btn);
     self.send_mouse_drag(y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
 }
 
