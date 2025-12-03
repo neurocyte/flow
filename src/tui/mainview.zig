@@ -874,14 +874,7 @@ const cmds = struct {
     pub fn focus_split(self: *Self, ctx: Ctx) Result {
         var n: usize = undefined;
         if (!try ctx.args.match(.{tp.extract(&n)})) return error.InvalidFocusSplitArgument;
-
-        if (n > self.views.widgets.items.len) return;
-        if (n == self.views.widgets.items.len)
-            return self.create_home_split();
-
-        if (self.views.get_at(self.active_view)) |view| view.unfocus();
-        self.active_view = n;
-        if (self.views.get_at(self.active_view)) |view| view.focus();
+        try self.focus_view(n);
     }
     pub const focus_split_meta: Meta = .{ .description = "Focus split view", .arguments = &.{.integer} };
 
@@ -1572,6 +1565,17 @@ pub fn focus_view_by_widget(self: *Self, w: *Widget) tui.FocusAction {
     self.active_view = n;
     if (self.views.get_at(self.active_view)) |view| view.focus();
     return .changed;
+}
+
+pub fn focus_view(self: *Self, n: usize) !void {
+    if (n == self.active_view) return;
+    if (n > self.views.widgets.items.len) return;
+    if (n == self.views.widgets.items.len)
+        return self.create_home_split();
+
+    if (self.views.get_at(self.active_view)) |view| view.unfocus();
+    self.active_view = n;
+    if (self.views.get_at(self.active_view)) |view| view.focus();
 }
 
 fn remove_active_view(self: *Self) !void {
