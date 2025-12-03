@@ -1064,6 +1064,13 @@ const cmds = struct {
     }
     pub const scroll_keybind_hints_meta: Meta = .{ .description = "Scroll keybind hints" };
 
+    pub fn toggle_auto_find(self: *Self, _: Ctx) Result {
+        defer self.logger.print("auto find {s}", .{if (self.config_.enable_auto_find) "enabled" else "disabled"});
+        self.config_.enable_auto_find = !self.config_.enable_auto_find;
+        try save_config();
+    }
+    pub const toggle_auto_find_meta: Meta = .{ .description = "Toggle auto find mode" };
+
     pub fn force_color_scheme(self: *Self, ctx: Ctx) Result {
         self.force_color_scheme(if (try ctx.args.match(.{"dark"}))
             .dark
