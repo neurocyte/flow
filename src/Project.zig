@@ -1718,37 +1718,26 @@ fn send_contents(
     if (try cbor.matchValue(&iter, cbor.extract(&value)))
         return send_content_msg(to, tag, file_path, row, col, kind, value, range);
 
-    var is_list = true;
-    var len = cbor.decodeArrayHeader(&iter) catch blk: {
-        is_list = false;
+    var list_size = cbor.decodeArrayHeader(&iter) catch blk: {
         iter = result;
-        break :blk cbor.decodeMapHeader(&iter) catch return;
+        break :blk 1;
     };
 
-    if (is_list) {
-        var content: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
-        defer content.deinit();
+    while (list_size > 0) : (list_size -= 1) {
+        var len = cbor.decodeMapHeader(&iter) catch return;
         while (len > 0) : (len -= 1) {
-            if (try cbor.matchValue(&iter, cbor.extract(&value))) {
-                try content.writer.writeAll(value);
-                if (len > 1) try content.writer.writeAll("\n");
+            var field_name: []const u8 = undefined;
+            if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
+            if (std.mem.eql(u8, field_name, "kind")) {
+                if (!(try cbor.matchValue(&iter, cbor.extract(&kind)))) return error.InvalidMessageField;
+            } else if (std.mem.eql(u8, field_name, "value")) {
+                if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidMessageField;
+            } else {
+                try cbor.skipValue(&iter);
             }
         }
-        return send_content_msg(to, tag, file_path, row, col, kind, content.written(), range);
+        try send_content_msg(to, tag, file_path, row, col, kind, value, range);
     }
-
-    while (len > 0) : (len -= 1) {
-        var field_name: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidMessage;
-        if (std.mem.eql(u8, field_name, "kind")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&kind)))) return error.InvalidMessageField;
-        } else if (std.mem.eql(u8, field_name, "value")) {
-            if (!(try cbor.matchValue(&iter, cbor.extract(&value)))) return error.InvalidMessageField;
-        } else {
-            try cbor.skipValue(&iter);
-        }
-    }
-    return send_content_msg(to, tag, file_path, row, col, kind, value, range);
 }
 
 fn send_content_msg(
