@@ -30,6 +30,7 @@ modes_can_change_cursor: bool = true,
 enable_auto_save: bool = false,
 limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
 enable_prefix_keyhints: bool = true,
+enable_auto_find: bool = true,
 
 indent_size: usize = 4,
 tab_width: usize = 8,
