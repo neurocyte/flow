@@ -968,19 +968,21 @@ const cmds = struct {
             tp.extract(&sel.end.col),
         })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
-        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
-            try editor.add_diagnostic(file_path, source, code, message, severity, sel)
-        else
-            try self.add_find_in_files_result(
-                .diagnostics,
-                file_path,
-                sel.begin.row + 1,
-                sel.begin.col,
-                sel.end.row + 1,
-                sel.end.col,
-                message,
-                ed.Diagnostic.to_severity(severity),
-            );
+        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
+            try editor.add_diagnostic(file_path, source, code, message, severity, sel);
+            if (!tui.config().show_local_diagnostics_in_panel)
+                return;
+        };
+        try self.add_find_in_files_result(
+            .diagnostics,
+            file_path,
+            sel.begin.row + 1,
+            sel.begin.col,
+            sel.end.row + 1,
+            sel.end.col,
+            message,
+            ed.Diagnostic.to_severity(severity),
+        );
     }
     pub const add_diagnostic_meta: Meta = .{ .arguments = &.{ .string, .string, .string, .string, .integer, .integer, .integer, .integer, .integer } };
 
