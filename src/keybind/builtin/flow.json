@@ -34,6 +34,7 @@
             ["alt+l", "toggle_panel"],
             ["alt+i", "toggle_inputview"],
             ["alt+x", "open_command_palette"],
+            ["alt+f3", "toggle_auto_find"],
             ["f4", "toggle_input_mode"],
             ["ctrl+f2", "insert_command_name"],
             ["ctrl+k ctrl+s", "insert_command_name"],
