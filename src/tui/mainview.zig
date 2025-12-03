@@ -1511,6 +1511,16 @@ pub fn get_active_editor(self: *Self) ?*ed.Editor {
     return null;
 }
 
+pub fn get_view_for_file(self: *Self, file_path: []const u8) ?usize {
+    for (self.views.widgets.items, 0..) |*view, n| {
+        const editor = view.widget.get("editor") orelse continue;
+        if (editor.dynamic_cast(ed.EditorWidget)) |p|
+            if (std.mem.eql(u8, p.editor.file_path orelse continue, file_path))
+                return n;
+    }
+    return null;
+}
+
 pub fn get_active_file_path(self: *Self) ?[]const u8 {
     return if (self.get_active_editor()) |editor| editor.file_path orelse null else null;
 }
