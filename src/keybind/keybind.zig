@@ -773,6 +773,8 @@ const BindingSet = struct {
             input.key.left_control, input.key.right_control => return,
             input.key.left_alt, input.key.right_alt => return,
             input.key.left_shift, input.key.right_shift => return,
+            input.key.left_super, input.key.right_super => return,
+            input.key.iso_level_3_shift, input.key.iso_level_5_shift => return,
             else => {},
         };
         log.info("{f} is unbound, press C-? for key hints", .{current_key_event_sequence_fmt()});
