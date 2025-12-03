@@ -137,7 +137,6 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var end_line: usize = undefined;
     var end_pos: usize = undefined;
     var lines: []const u8 = undefined;
-    var same_file: bool = undefined;
     var goto_args: []const u8 = undefined;
     var line: i64 = undefined;
     var column: i64 = undefined;
@@ -175,11 +174,11 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 .end = .{ .row = end_line, .col = end_pos },
             });
         return true;
-    } else if (try m.match(.{ "navigate_complete", tp.extract(&same_file), tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column) })) {
-        cmds.navigate_complete(self, same_file, path, goto_args, line, column, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column) })) {
+        cmds.navigate_complete(self, null, path, goto_args, line, column, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
-    } else if (try m.match(.{ "navigate_complete", tp.extract(&same_file), tp.extract(&path), tp.extract(&goto_args), tp.null_, tp.null_ })) {
-        cmds.navigate_complete(self, same_file, path, goto_args, null, null, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.null_, tp.null_ })) {
+        cmds.navigate_complete(self, null, path, goto_args, null, null, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     }
     return if (try self.floating_views.send(from_, m)) true else self.widgets.send(from_, m);
@@ -495,11 +494,11 @@ const cmds = struct {
         var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(self.allocator);
         const f = project_manager.expand_home(self.allocator, &buf, f_);
-        const same_file = if (self.get_active_file_path()) |fp| std.mem.eql(u8, fp, f) else false;
+        const view = self.get_view_for_file(f);
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
         if (tui.config().restore_last_cursor_position and
-            !same_file and
+            view == null and
             !have_editor_metadata and
             line == null and
             offset == null)
@@ -507,7 +506,6 @@ const cmds = struct {
             const ctx_: struct {
                 allocator: std.mem.Allocator,
                 from: tp.pid,
-                same_file: bool,
                 path: []const u8,
                 goto_args: []const u8,
 
@@ -520,12 +518,11 @@ const cmds = struct {
                     var line_: ?i64 = null;
                     var column_: ?i64 = null;
                     _ = try cbor.match(rsp.buf, .{ tp.extract(&line_), tp.extract(&column_) });
-                    try ctx_.from.send(.{ "navigate_complete", ctx_.same_file, ctx_.path, ctx_.goto_args, line_, column_ });
+                    try ctx_.from.send(.{ "navigate_complete", ctx_.path, ctx_.goto_args, line_, column_ });
                 }
             } = .{
                 .allocator = self.allocator,
                 .from = tp.self_pid().clone(),
-                .same_file = same_file,
                 .path = try self.allocator.dupe(u8, f),
                 .goto_args = try self.allocator.dupe(u8, goto_args),
             };
@@ -534,12 +531,14 @@ const cmds = struct {
             return;
         }
 
-        return cmds.navigate_complete(self, same_file, f, goto_args, line, column, offset);
+        return cmds.navigate_complete(self, view, f, goto_args, line, column, offset);
     }
     pub const navigate_meta: Meta = .{ .arguments = &.{.object} };
 
-    fn navigate_complete(self: *Self, same_file: bool, f: []const u8, goto_args: []const u8, line: ?i64, column: ?i64, offset: ?i64) Result {
-        if (!same_file) {
+    fn navigate_complete(self: *Self, view: ?usize, f: []const u8, goto_args: []const u8, line: ?i64, column: ?i64, offset: ?i64) Result {
+        if (view) |n| try self.focus_view(n);
+
+        if (view == null) {
             if (self.get_active_editor()) |editor| {
                 editor.send_editor_jump_source() catch {};
             }
@@ -550,13 +549,13 @@ const cmds = struct {
             try command.executeName("goto_line_and_column", .{ .args = .{ .buf = goto_args } });
         } else if (line) |l| {
             try command.executeName("goto_line", command.fmt(.{l}));
-            if (!same_file)
+            if (view == null)
                 try command.executeName("scroll_view_center", .{});
             if (column) |col|
                 try command.executeName("goto_column", command.fmt(.{col}));
         } else if (offset) |o| {
             try command.executeName("goto_byte_offset", command.fmt(.{o}));
-            if (!same_file)
+            if (view == null)
                 try command.executeName("scroll_view_center", .{});
         }
         tui.need_render();
