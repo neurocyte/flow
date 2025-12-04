@@ -459,7 +459,6 @@ pub fn build_exe(
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "thespian", .module = thespian_mod },
                         .{ .name = "input", .module = input_mod },
-                        // TODO: we should be able to work without these modules
                         .{ .name = "vaxis", .module = vaxis_mod },
                         .{ .name = "color", .module = color_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
@@ -478,7 +477,6 @@ pub fn build_exe(
                         .{ .name = "thespian", .module = thespian_mod },
                         .{ .name = "input", .module = input_mod },
                         .{ .name = "gui", .module = gui_mod },
-                        // TODO: we should be able to work without these modules
                         .{ .name = "tuirenderer", .module = tui_renderer_mod },
                         .{ .name = "vaxis", .module = vaxis_mod },
                     },

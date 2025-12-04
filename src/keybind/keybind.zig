@@ -1,7 +1,3 @@
-//TODO figure out how keybindings should be configured
-
-//TODO figure out how to handle bindings that can take a numerical prefix
-
 const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
