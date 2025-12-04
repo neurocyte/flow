@@ -1901,7 +1901,7 @@ pub const Editor = struct {
         };
     }
 
-    fn cancel_all_selections(self: *Self) void {
+    pub fn cancel_all_selections(self: *Self) void {
         var primary = self.get_primary().*;
         primary.disable_selection(self.buf_root() catch return, self.metrics);
         self.cursels.clearRetainingCapacity();
@@ -1911,7 +1911,7 @@ pub const Editor = struct {
         };
     }
 
-    fn cancel_all_matches(self: *Self) void {
+    pub fn cancel_all_matches(self: *Self) void {
         self.matches.clearAndFree(self.allocator);
         self.match_type = .none;
     }

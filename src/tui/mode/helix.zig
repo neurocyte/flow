@@ -488,6 +488,16 @@ const cmds_ = struct {
         ed.need_render();
     }
     pub const replace_with_character_helix_meta: Meta = .{ .description = "Replace with character" };
+
+    pub fn keep_primary_selection(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const primary = ed.get_primary().*;
+        ed.cancel_all_selections();
+        ed.cancel_all_matches();
+        ed.get_primary().* = primary;
+    }
+    pub const keep_primary_selection_meta: Meta = .{};
 };
 
 fn match_bracket(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
