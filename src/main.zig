@@ -743,7 +743,7 @@ fn write_config_value_description(T: type, field_type: type, writer: *std.Io.Wri
             try writer.print("one of ", .{});
             for (std.meta.tags(field_type)) |tag| {
                 if (first) first = false else try writer.print(", ", .{});
-                try writer.print("\"{s}\"", .{@tagName(tag)});
+                try writer.print("\"{t}\"", .{tag});
             }
         },
         .optional => |info| switch (@typeInfo(info.child)) {
@@ -1180,7 +1180,7 @@ fn restart_manual() noreturn {
 fn restart_failed(ret: c_int) noreturn {
     var stderr_buffer: [1024]u8 = undefined;
     var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-    stderr_writer.interface.print("\nrestart failed: {s}", .{@tagName(std.posix.errno(ret))}) catch {};
+    stderr_writer.interface.print("\nrestart failed: {t}", .{std.posix.errno(ret)}) catch {};
     stderr_writer.interface.flush() catch {};
     exit(234);
 }

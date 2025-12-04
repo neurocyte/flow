@@ -909,14 +909,14 @@ fn force_color_scheme(self: *Self, color_scheme: @TypeOf(self.color_scheme)) voi
     self.color_scheme = color_scheme;
     self.color_scheme_locked = true;
     self.set_terminal_style(self.current_theme());
-    self.logger.print("color scheme: {s} ({s})", .{ @tagName(self.color_scheme), self.current_theme().name });
+    self.logger.print("color scheme: {t} ({s})", .{ self.color_scheme, self.current_theme().name });
 }
 
 fn set_color_scheme(self: *Self, color_scheme: @TypeOf(self.color_scheme)) void {
     if (self.color_scheme_locked) return;
     self.color_scheme = color_scheme;
     self.set_terminal_style(self.current_theme());
-    self.logger.print("color scheme: {s} ({s})", .{ @tagName(self.color_scheme), self.current_theme().name });
+    self.logger.print("color scheme: {t} ({s})", .{ self.color_scheme, self.current_theme().name });
 }
 
 fn current_theme(self: *const Self) *const Widget.Theme {
@@ -1031,7 +1031,7 @@ const cmds = struct {
         var buf: [32]u8 = undefined;
         const m = try tp.message.fmtbuf(&buf, .{ "whitespace_mode", self.config_.whitespace_mode });
         _ = try self.send_widgets(tp.self_pid(), m);
-        self.logger.print("whitespace rendering {s}", .{@tagName(self.config_.whitespace_mode)});
+        self.logger.print("whitespace rendering {t}", .{self.config_.whitespace_mode});
     }
     pub const toggle_whitespace_mode_meta: Meta = .{ .description = "Next whitespace mode" };
 
@@ -2094,7 +2094,7 @@ pub fn set_next_style(widget_type: WidgetType) void {
     const ref = widget_type_config_variable(widget_type);
     ref.* = next_widget_style(ref.*);
     const self = current();
-    self.logger.print("{s} style {s}", .{ @tagName(widget_type), @tagName(ref.*) });
+    self.logger.print("{t} style {t}", .{ widget_type, ref.* });
 }
 
 fn next_widget_style(tag: ConfigWidgetStyle) ConfigWidgetStyle {

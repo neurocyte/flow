@@ -1971,7 +1971,7 @@ fn show_or_log_message(self: *Self, operation: enum { show, log }, params_cb: []
     if (type_ <= 2)
         self.logger_lsp.err_msg("lsp", msg)
     else
-        self.logger_lsp.print("{s}: {s}", .{ @tagName(operation), msg });
+        self.logger_lsp.print("{t}: {s}", .{ operation, msg });
 }
 
 pub fn show_notification(self: *Self, method: []const u8, params_cb: []const u8) !void {

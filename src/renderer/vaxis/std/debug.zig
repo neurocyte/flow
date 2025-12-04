@@ -50,9 +50,7 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
         }
         pub fn inactiveUnionField(active: anytype, accessed: @TypeOf(active)) noreturn {
             @branchHint(.cold);
-            std.debug.panicExtra(@returnAddress(), "access of union field '{s}' while field '{s}' is active", .{
-                @tagName(accessed), @tagName(active),
-            });
+            std.debug.panicExtra(@returnAddress(), "access of union field '{t}' while field '{t}' is active", .{ accessed, active });
         }
         pub fn sliceCastLenRemainder(src_len: usize) noreturn {
             @branchHint(.cold);

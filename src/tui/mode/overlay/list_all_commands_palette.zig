@@ -37,9 +37,9 @@ pub fn load_entries(palette: *Type) !usize {
             for (p.meta.arguments) |arg| {
                 if (first) {
                     first = false;
-                    try writer.print("{s}", .{@tagName(arg)});
+                    try writer.print("{t}", .{arg});
                 } else {
-                    try writer.print(", {s}", .{@tagName(arg)});
+                    try writer.print(", {t}", .{arg});
                 }
             }
             try writer.writeAll("}");

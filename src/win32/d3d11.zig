@@ -416,7 +416,7 @@ const D3d = struct {
                 &context,
             );
             if (last_hr >= 0) {
-                std.log.info("d3d11: {s} debug={}", .{ @tagName(config.driver), config.debug });
+                std.log.info("d3d11: {t} debug={}", .{ config.driver, config.debug });
                 return .{
                     .{
                         .device = device,
@@ -427,8 +427,8 @@ const D3d = struct {
                 };
             }
             std.log.info(
-                "D3D11 {s} Driver (with{s} debug) error, hresult=0x{x}",
-                .{ @tagName(config.driver), if (config.debug) "" else "out", @as(u32, @bitCast(last_hr)) },
+                "D3D11 {t} Driver (with{s} debug) error, hresult=0x{x}",
+                .{ config.driver, if (config.debug) "" else "out", @as(u32, @bitCast(last_hr)) },
             );
         }
         std.debug.panic("failed to initialize Direct3D11, hresult=0x{x}", .{@as(u32, @bitCast(last_hr))});
@@ -624,8 +624,8 @@ fn reportShaderError(kind: enum { vertex, pixel }, maybe_error_blob: ?*win32.ID3
     defer _ = err.IUnknown.Release();
     const ptr: [*]const u8 = @ptrCast(err.GetBufferPointer() orelse return);
     const str = ptr[0..err.GetBufferSize()];
-    log.err("{s} shader error:\n{s}\n", .{ @tagName(kind), str });
-    std.debug.panic("{s} shader error:\n{s}\n", .{ @tagName(kind), str });
+    log.err("{t} shader error:\n{s}\n", .{ kind, str });
+    std.debug.panic("{t} shader error:\n{s}\n", .{ kind, str });
 }
 
 const ShaderCells = struct {

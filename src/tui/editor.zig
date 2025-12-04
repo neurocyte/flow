@@ -5010,7 +5010,7 @@ pub const Editor = struct {
             const update_time = end_time - start_time;
             self.syntax_incremental_reparse = end_time - start_time > syntax_full_reparse_time_limit;
             if (self.syntax_report_timing)
-                self.logger.print("syntax update {s} time: {d}ms ({d} edits)", .{ @tagName(kind), update_time, edit_count });
+                self.logger.print("syntax update {t} time: {d}ms ({d} edits)", .{ kind, update_time, edit_count });
         }
     }
 
