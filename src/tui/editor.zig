@@ -1483,6 +1483,7 @@ pub const Editor = struct {
     }
 
     fn render_whitespace_map(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
+        const col_offset = self.view.col;
         const char = whitespace.char;
         const frame = tracy.initZone(@src(), .{ .name = "editor whitespace map" });
         defer frame.deinit();
@@ -1525,12 +1526,13 @@ pub const Editor = struct {
                 _ = self.plane.at_cursor_cell(&cell) catch return;
                 switch (self.render_whitespace) {
                     .indent => {
-                        if (leading and x % self.indent_size == 0)
+                        const col = x + col_offset;
+                        const is_indent_col = col % self.indent_size == 0;
+                        if (leading and is_indent_col)
                             cell.cell.char.grapheme = char.indent;
-                        if (is_blank and x < prev_indent and x % self.indent_size == 0)
+                        if (is_blank and col < prev_indent and is_indent_col)
                             cell.cell.char.grapheme = char.indent;
                     },
-
                     .leading => {
                         if (leading) {
                             if (get_whitespace_char(cell_type, next_cell_type)) |c|
