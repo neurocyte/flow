@@ -384,7 +384,7 @@
             ["?", "rfind"],
 
             ["N", "extend_search_next"],
-            ["*", "extend_search_prev"],
+            ["*", "search_selection"],
 
             ["r", "replace"],
             ["P", "paste_clipboard_before"],
@@ -500,7 +500,7 @@
             ["] space", "add_newline_below"],
 
             ["/", "find"],
-            ["n", "goto_next_match"],
+            ["n", "add_next_match_helix"],
 
             ["u", "undo"],
             ["U", "redo"],

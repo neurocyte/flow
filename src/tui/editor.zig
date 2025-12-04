@@ -5282,7 +5282,7 @@ pub const Editor = struct {
         (history.addOne(self.allocator) catch return).* = new;
     }
 
-    fn set_last_find_query(self: *Self, query: []const u8, match_type: Match.Type) void {
+    pub fn set_last_find_query(self: *Self, query: []const u8, match_type: Match.Type) void {
         self.last_find_query_match_type = match_type;
         if (self.last_find_query) |last| {
             if (query.ptr != last.ptr) {
@@ -5523,14 +5523,18 @@ pub const Editor = struct {
     }
     pub const move_cursor_next_match_meta: Meta = .{ .description = "Move cursor to next hightlighted match" };
 
+    pub fn repeat_last_find(self: *Self) Result {
+        if (self.last_find_query) |last| {
+            self.find_operation = .goto_next_match;
+            try self.find_in_buffer(last, self.last_find_query_match_type, .exact);
+        }
+    }
+
     pub fn goto_next_match(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         self.cancel_all_selections();
         if (self.matches.items.len == 0) {
-            if (self.last_find_query) |last| {
-                self.find_operation = .goto_next_match;
-                try self.find_in_buffer(last, self.last_find_query_match_type, .exact);
-            }
+            try self.repeat_last_find();
         }
         try self.move_cursor_next_match(ctx);
         try self.send_editor_jump_destination();

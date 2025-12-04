@@ -498,6 +498,30 @@ const cmds_ = struct {
         ed.get_primary().* = primary;
     }
     pub const keep_primary_selection_meta: Meta = .{};
+
+    pub fn search_selection(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const sel = ed.get_primary().selection orelse {
+            ed.logger.print("no selection", .{});
+            return;
+        };
+        const query = try ed.get_selection(sel, ed.allocator);
+        defer ed.allocator.free(query);
+        ed.match_type = .find;
+        ed.set_last_find_query(query, .find);
+        ed.logger.print("set find register to '{s}'", .{query});
+    }
+    pub const search_selection_meta: Meta = .{};
+
+    pub fn add_next_match_helix(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        if (ed.matches.items.len == 0)
+            try ed.repeat_last_find();
+        try ed.add_cursor_next_match(.{});
+    }
+    pub const add_next_match_helix_meta: Meta = .{};
 };
 
 fn match_bracket(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
