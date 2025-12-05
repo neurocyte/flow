@@ -5910,6 +5910,25 @@ pub const Editor = struct {
         }
     }
 
+    pub fn set_primary_selection_from_cursor(self: *Self, cursor: Cursor) error{OutOfMemory}!void {
+        const idx = for (self.cursels.items, 0..) |*cursel_, idx| {
+            if (cursel_.*) |*cursel| {
+                if (cursel.selection) |sel| if (cursor.within(sel)) break idx;
+            }
+        } else return;
+
+        const cursels = try self.cursels.toOwnedSlice(self.allocator);
+        defer self.allocator.free(cursels);
+
+        for (cursels[idx + 1 ..]) |*cursel_| if (cursel_.*) |*cursel| {
+            (try self.cursels.addOne(self.allocator)).* = cursel.*;
+        };
+
+        for (cursels[0 .. idx + 1]) |*cursel_| if (cursel_.*) |*cursel| {
+            (try self.cursels.addOne(self.allocator)).* = cursel.*;
+        };
+    }
+
     fn count_lines(content: []const u8) struct { usize, usize } {
         var pos = content;
         var offset = content.len;
