@@ -1105,9 +1105,7 @@ const cmds = struct {
 
     pub fn rename_symbol_item(self: *Self, ctx: Ctx) Result {
         const editor = self.get_active_editor() orelse return;
-        // because the incoming message is an array of Renames, we manuallly
-        // parse instead of using ctx.args.match() which doesn't seem to return
-        // the parsed length needed to correctly advance iter.
+        const primary_cursor = editor.get_primary().cursor;
         var iter = ctx.args.buf;
         var len = try cbor.decodeArrayHeader(&iter);
         var first = true;
@@ -1144,6 +1142,7 @@ const cmds = struct {
                 );
             }
         }
+        try editor.set_primary_selection_from_cursor(primary_cursor);
     }
     pub const rename_symbol_item_meta: Meta = .{ .arguments = &.{.array} };
     pub const rename_symbol_item_elem_meta: Meta = .{ .arguments = &.{ .string, .integer, .integer, .integer, .integer, .string } };
