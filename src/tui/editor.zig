@@ -3644,6 +3644,7 @@ pub const Editor = struct {
     pub fn add_cursor_all_matches(self: *Self, _: Context) Result {
         if (self.matches.items.len == 0) return;
         try self.send_editor_jump_source();
+        const primary_cursor = self.get_primary().cursor;
         while (self.get_next_match(self.get_primary().cursor)) |match| {
             if (self.get_primary().selection) |_|
                 try self.push_cursor();
@@ -3653,6 +3654,7 @@ pub const Editor = struct {
             match.has_selection = true;
             primary.cursor.move_to(root, match.end.row, match.end.col, self.metrics) catch return;
         }
+        self.set_primary_selection_from_cursor(primary_cursor) catch @panic("OOM add_cursor_all_matches");
         self.clamp();
         try self.send_editor_jump_destination();
     }
