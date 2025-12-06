@@ -1187,6 +1187,17 @@ const cmds = struct {
     }
     pub const open_recent_meta: Meta = .{ .description = "Open recent" };
 
+    pub fn last_palette(self: *Self, _: Ctx) Result {
+        const palette = self.last_palette orelse {
+            self.logger.print("no previously used palette", .{});
+            return;
+        };
+        switch (palette.type_) {
+            .open_recent => return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent.zig"), palette.ctx),
+        }
+    }
+    pub const last_palette_meta: Meta = .{ .description = "Open last used palette" };
+
     pub fn show_vcs_status(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/vcs_status.zig"));
     }
