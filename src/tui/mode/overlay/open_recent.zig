@@ -40,12 +40,18 @@ buffer_manager: ?*BufferManager,
 split: enum { none, vertical } = .none,
 total_items: usize = 0,
 total_files_in_project: usize = 0,
+quick_activate_enabled: bool = true,
+restore_info: std.ArrayList([]const u8) = .empty,
 
 const inputbox_label = "Search files by name";
 const MenuType = Menu.Options(*Self).MenuType;
 const ButtonType = MenuType.ButtonType;
 
 pub fn create(allocator: std.mem.Allocator) !tui.Mode {
+    return create_with_args(allocator, .{});
+}
+
+pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui.Mode {
     const mv = tui.mainview() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -70,8 +76,15 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
     };
     try self.commands.init(self);
     try tui.message_filters().add(MessageFilter.bind(self, receive_project_manager));
-    self.query_pending = true;
-    try project_manager.request_recent_files(max_recent_files);
+
+    if (ctx.args.buf.len != 0) {
+        try self.restore(ctx);
+        self.quick_activate_enabled = false;
+    } else {
+        self.query_pending = true;
+        try project_manager.request_recent_files(max_recent_files);
+    }
+
     self.do_resize();
     try mv.floating_views.add(self.modal.widget());
     try mv.floating_views.add(self.menu.container_widget);
@@ -84,6 +97,8 @@ pub fn create(allocator: std.mem.Allocator) !tui.Mode {
 }
 
 pub fn deinit(self: *Self) void {
+    self.save();
+    self.clear_restore_info();
     self.commands.deinit();
     tui.message_filters().remove_ptr(self);
     if (tui.mainview()) |mv| {
@@ -92,6 +107,57 @@ pub fn deinit(self: *Self) void {
     }
     self.logger.deinit();
     self.allocator.destroy(self);
+}
+
+fn clear_restore_info(self: *Self) void {
+    for (self.restore_info.items) |item| self.allocator.free(item);
+    self.restore_info.clearRetainingCapacity();
+}
+
+fn save(self: *Self) void {
+    var data: std.Io.Writer.Allocating = .init(self.allocator);
+    defer data.deinit();
+    const writer = &data.writer;
+
+    cbor.writeArrayHeader(writer, 4) catch return;
+    cbor.writeValue(writer, self.inputbox.text.items) catch return;
+    cbor.writeValue(writer, self.longest) catch return;
+    cbor.writeValue(writer, self.menu.selected) catch return;
+    cbor.writeArrayHeader(writer, self.restore_info.items.len) catch return;
+    for (self.restore_info.items) |item| cbor.writeValue(writer, item) catch return;
+
+    tui.set_last_palette(.open_recent, .{ .args = .{ .buf = data.written() } });
+}
+
+fn restore(self: *Self, ctx: command.Context) !void {
+    var iter = ctx.args.buf;
+
+    if ((cbor.decodeArrayHeader(&iter) catch 0) != 4) return;
+
+    var input_: []const u8 = undefined;
+    if (!(cbor.matchString(&iter, &input_) catch return)) return;
+
+    self.inputbox.text.shrinkRetainingCapacity(0);
+    try self.inputbox.text.appendSlice(self.inputbox.allocator, input_);
+    self.inputbox.cursor = tui.egc_chunk_width(self.inputbox.text.items, 0, 8);
+
+    if (!(cbor.matchValue(&iter, cbor.extract(&self.longest)) catch return)) return;
+
+    var selected: ?usize = null;
+    if (!(cbor.matchValue(&iter, cbor.extract(&selected)) catch return)) return;
+
+    var len = cbor.decodeArrayHeader(&iter) catch 0;
+    while (len > 0) : (len -= 0) {
+        var item: []const u8 = undefined;
+        if (!(cbor.matchString(&iter, &item) catch break)) break;
+        const data = try self.allocator.dupe(u8, item);
+        errdefer self.allocator.free(data);
+        try self.restore_item(data);
+    }
+
+    self.do_resize();
+
+    if (selected) |*idx| while (idx.* > 0) : (idx.* -= 1) self.menu.select_down();
 }
 
 inline fn menu_width(self: *Self) usize {
@@ -129,6 +195,7 @@ fn do_resize(self: *Self) void {
 }
 
 fn menu_action_open_file(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void {
+    menu.*.opts.ctx.save();
     var file_path: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
@@ -148,7 +215,6 @@ fn add_item(
     indicator: []const u8,
     matches: ?[]const u8,
 ) !void {
-    self.total_items += 1;
     var label: std.Io.Writer.Allocating = .init(self.allocator);
     defer label.deinit();
     const writer = &label.writer;
@@ -157,7 +223,18 @@ fn add_item(
     try cbor.writeValue(writer, file_color);
     try cbor.writeValue(writer, indicator);
     if (matches) |cb| _ = try writer.write(cb) else try cbor.writeValue(writer, &[_]usize{});
-    try self.menu.add_item_with_handler(label.written(), menu_action_open_file);
+    const data = try label.toOwnedSlice();
+    errdefer self.allocator.free(data);
+    try self.restore_item(data);
+}
+
+fn restore_item(
+    self: *Self,
+    label: []const u8,
+) error{OutOfMemory}!void {
+    self.total_items += 1;
+    try self.menu.add_item_with_handler(label, menu_action_open_file);
+    (try self.restore_info.addOne(self.allocator)).* = label;
 }
 
 fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
@@ -253,6 +330,7 @@ fn start_query(self: *Self) MessageFilter.Error!void {
     self.total_items = 0;
     if (self.query_pending) return;
     self.query_pending = true;
+    self.clear_restore_info();
     try project_manager.query_recent_files(max_recent_files, self.inputbox.text.items);
 }
 
@@ -370,11 +448,14 @@ const cmds = struct {
     pub const palette_menu_activate_alternate_meta: Meta = .{};
 
     pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
+        if (!self.quick_activate_enabled) return;
         if (self.menu.selected orelse 0 > 0) self.menu.activate_selected();
+        self.quick_activate_enabled = false;
     }
     pub const palette_menu_activate_quick_meta: Meta = .{};
 
     pub fn palette_menu_cancel(self: *Self, _: Ctx) Result {
+        self.save();
         try self.cmd("exit_overlay_mode", .{});
     }
     pub const palette_menu_cancel_meta: Meta = .{};
