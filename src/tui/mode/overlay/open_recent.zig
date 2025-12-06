@@ -157,7 +157,10 @@ fn restore(self: *Self, ctx: command.Context) !void {
 
     self.do_resize();
 
-    if (selected) |*idx| while (idx.* > 0) : (idx.* -= 1) self.menu.select_down();
+    if (selected) |idx| {
+        var i = idx + 1;
+        while (i > 0) : (i -= 1) self.menu.select_down();
+    }
 }
 
 inline fn menu_width(self: *Self) usize {
