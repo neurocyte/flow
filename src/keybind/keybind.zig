@@ -10,6 +10,7 @@ const EventHandler = @import("EventHandler");
 const KeyEvent = input.KeyEvent;
 const SelectionStyle = @import("Buffer").Selection.Style;
 pub const CursorShape = @import("config").CursorShape;
+pub const KeybindMode = @import("config").KeybindMode;
 
 const log = std.log.scoped(.keybind);
 
@@ -24,6 +25,7 @@ const builtin_keybinds = std.StaticStringMap([]const u8).initComptime(.{
 });
 
 var integer_argument: ?usize = null;
+var mode_flag: KeybindMode = .normal;
 
 var commands: Commands = undefined;
 const Commands = command.Collection(struct {
@@ -43,7 +45,8 @@ const Commands = command.Collection(struct {
     pub const add_integer_argument_digit_meta: Meta = .{ .arguments = &.{.integer} };
 });
 
-pub fn init() !void {
+pub fn init(mode_flag_: KeybindMode) !void {
+    mode_flag = mode_flag_;
     var v: void = {};
     try commands.init(&v);
 }
@@ -681,14 +684,22 @@ const BindingSet = struct {
     //register a key press and try to match it with a binding
     fn process_key_event(self: *const @This(), key_event: KeyEvent) !?*Binding {
         const event = key_event.event;
+        const text = key_event.text;
+        var codepoint_buf: [6]u8 = undefined;
+        const codepoint = codepoint: {
+            const bytes = input.ucs32_to_utf8(&[_]u32{key_event.key}, &codepoint_buf) catch break :codepoint &.{};
+            break :codepoint codepoint_buf[0..bytes];
+        };
 
         //ignore modifiers for modifier key events
         const mods = switch (key_event.key) {
             input.key.left_control, input.key.right_control => 0,
             input.key.left_alt, input.key.right_alt => 0,
-            else => key_event.modifiers,
+            else => switch (mode_flag) {
+                .ignore_alt_text_modifiers => if (std.mem.eql(u8, text, codepoint)) key_event.modifiers else 0,
+                .normal => key_event.modifiers,
+            },
         };
-        const text = key_event.text;
 
         if (event == input.event.release)
             return self.process_key_release_event(key_event);
@@ -705,11 +716,7 @@ const BindingSet = struct {
 
         try globals.current_sequence.append(globals_allocator, key_event);
         if ((mods & ~(input.mod.shift | input.mod.caps_lock) == 0) and !input.is_non_input_key(key_event.key)) {
-            var buf: [6]u8 = undefined;
-            const bytes = if (text.len > 0) text else text: {
-                const bytes = try input.ucs32_to_utf8(&[_]u32{key_event.key}, &buf);
-                break :text buf[0..bytes];
-            };
+            const bytes = if (text.len > 0) text else codepoint;
             try globals.current_sequence_egc.appendSlice(globals_allocator, bytes);
         }
 

@@ -60,6 +60,8 @@ centered_view_min_screen_width: usize = 145,
 
 lsp_output: enum { quiet, verbose } = .quiet,
 
+keybind_mode: KeybindMode = .normal,
+
 include_files: []const u8 = "",
 
 const default_actions = [_]IdleAction{};
@@ -138,4 +140,9 @@ pub const CursorShape = enum {
 pub const PaneStyle = enum {
     panel,
     editor,
+};
+
+pub const KeybindMode = enum {
+    normal,
+    ignore_alt_text_modifiers,
 };

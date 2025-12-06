@@ -198,7 +198,7 @@ fn init(allocator: Allocator) InitError!*Self {
 
     try frame_clock.start();
     try self.commands.init(self);
-    try keybind.init();
+    try keybind.init(self.config_.keybind_mode);
     errdefer self.deinit();
     switch (builtin.os.tag) {
         .windows => {
