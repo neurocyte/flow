@@ -318,6 +318,9 @@ fn handle_input_idle(self: *Self) void {
     var buf: [32]u8 = undefined;
     const m = tp.message.fmtbuf(&buf, .{"input_idle"}) catch return;
     _ = self.send_widgets(tp.self_pid(), m) catch return;
+    const idle_cmds = self.config_.idle_commands orelse return;
+    for (idle_cmds) |cmd|
+        command.executeName(cmd, .{}) catch |e| self.logger.print_err("idlerun", "idle run command '{s}' failed: {t}", .{ cmd, e });
 }
 
 fn update_input_idle_timer(self: *Self) void {
