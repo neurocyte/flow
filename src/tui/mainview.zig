@@ -795,9 +795,6 @@ const cmds = struct {
     pub const close_buffer_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn restore_session(self: *Self, _: Ctx) Result {
-        if (tp.env.get().str("project").len == 0) {
-            try open_project_cwd(self, .{});
-        }
         try self.create_editor();
         try self.read_restore_info();
         tui.need_render();
@@ -1671,6 +1668,8 @@ pub fn write_restore_info(self: *Self) WriteStateError!void {
 }
 
 pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
+    const current_project = tp.env.get().str("project");
+    try cbor.writeValue(writer, current_project);
     if (self.get_active_editor()) |editor| {
         try cbor.writeValue(writer, editor.file_path);
         editor.update_meta();
@@ -1707,20 +1706,36 @@ fn read_restore_info(self: *Self) !void {
     const size = try file.readAll(buf);
     var iter: []const u8 = buf[0..size];
 
-    try self.extract_state(&iter);
+    try self.extract_state(&iter, .with_project);
 }
 
 fn restore_state(self: *Self, state: []const u8) !void {
     var iter = state;
-    try self.extract_state(&iter);
+    try self.extract_state(&iter, .no_project);
 }
 
-fn extract_state(self: *Self, iter: *[]const u8) !void {
+fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_project }) !void {
     const logger = log.logger("extract_state");
     defer logger.deinit();
     tp.trace(tp.channel.debug, .{ "mainview", "extract" });
+    var project_dir: []const u8 = undefined;
     var editor_file_path: ?[]const u8 = undefined;
     var prev_len = iter.len;
+    if (!try cbor.matchValue(iter, cbor.extract(&project_dir))) {
+        logger.print("restore project_dir failed", .{});
+        return error.MatchStoredProjectFailed;
+    }
+
+    switch (mode) {
+        .with_project => {
+            _ = try project_manager.open(project_dir);
+            tui.rdr().set_terminal_working_directory(project_dir);
+            if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
+            if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
+        },
+        .no_project => {},
+    }
+
     if (!try cbor.matchValue(iter, cbor.extract(&editor_file_path))) {
         logger.print("restore editor_file_path failed", .{});
         return error.MatchFilePathFailed;
