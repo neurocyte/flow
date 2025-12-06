@@ -355,6 +355,11 @@ const cmds = struct {
     }
     pub const quit_without_saving_meta: Meta = .{ .description = "Quit without saving" };
 
+    pub fn save_session(self: *Self, _: Ctx) Result {
+        try self.write_restore_info();
+    }
+    pub const save_session_meta: Meta = .{ .description = "Save session" };
+
     pub fn store_session_and_quit(self: *Self, _: Ctx) Result {
         try self.write_restore_info();
         try tp.self_pid().send("quit");
