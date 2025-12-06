@@ -85,8 +85,18 @@ clipboard_current_group_number: usize = 0,
 color_scheme: enum { dark, light } = .dark,
 color_scheme_locked: bool = false,
 hint_mode: HintMode = .prefix,
+last_palette: ?LastPalette = null,
 
 const HintMode = enum { none, prefix, all };
+
+const LastPalette = struct {
+    type_: PaletteType,
+    ctx: command.Context,
+};
+
+pub const PaletteType = enum {
+    open_recent,
+};
 
 pub const ClipboardEntry = struct {
     text: []const u8 = &.{},
@@ -2233,4 +2243,16 @@ fn clipboard_send_to_system_internal(self: *Self, text: []const u8) void {
     } else {
         self.rdr_.copy_to_system_clipboard(text);
     }
+}
+
+pub fn set_last_palette(type_: PaletteType, ctx: command.Context) void {
+    const self = current();
+    if (self.last_palette) |old| {
+        self.allocator.free(old.ctx.args.buf);
+        self.last_palette = null;
+    }
+    self.last_palette = .{
+        .type_ = type_,
+        .ctx = .{ .args = ctx.args.clone(self.allocator) catch return },
+    };
 }
