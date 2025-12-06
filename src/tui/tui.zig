@@ -87,6 +87,8 @@ color_scheme_locked: bool = false,
 hint_mode: HintMode = .prefix,
 last_palette: ?LastPalette = null,
 
+auto_run_timer: ?tp.Cancellable = null,
+
 const HintMode = enum { none, prefix, all };
 
 const LastPalette = struct {
@@ -257,9 +259,15 @@ fn init_delayed(self: *Self) command.Result {
             try cmds.enter_mode(self, command.Context.fmt(.{keybind.default_mode}));
         }
     }
+    self.start_auto_run_timer();
 }
 
 fn deinit(self: *Self) void {
+    if (self.auto_run_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.auto_run_timer = null;
+    }
     if (self.input_idle_timer) |*t| {
         t.cancel() catch {};
         t.deinit();
@@ -344,6 +352,23 @@ fn update_mouse_idle_timer(self: *Self) void {
         self.mouse_idle_timer = null;
     }
     self.mouse_idle_timer = tp.self_pid().delay_send_cancellable(self.allocator, "tui.mouse_idle_timer", delay, .{"MOUSE_IDLE"}) catch return;
+}
+
+fn auto_run(self: *Self) void {
+    const auto_run_cmds = self.config_.auto_run_commands orelse return;
+    for (auto_run_cmds) |cmd|
+        command.executeName(cmd, .{}) catch |e| self.logger.print_err("autorun", "auto run command '{s}' failed: {t}", .{ cmd, e });
+    self.start_auto_run_timer();
+}
+
+fn start_auto_run_timer(self: *Self) void {
+    const delay = std.time.us_per_s * @as(u64, self.config_.auto_run_time_seconds);
+    if (self.auto_run_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.auto_run_timer = null;
+    }
+    self.auto_run_timer = tp.self_pid().delay_send_cancellable(self.allocator, "tui.auto_run_timer", delay, .{"AUTO_RUN"}) catch return;
 }
 
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
@@ -507,6 +532,13 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         if (self.mouse_idle_timer) |*t| t.deinit();
         self.mouse_idle_timer = null;
         try self.clear_hover_focus();
+        return;
+    }
+
+    if (try m.match(.{"AUTO_RUN"})) {
+        if (self.auto_run_timer) |*t| t.deinit();
+        self.auto_run_timer = null;
+        self.auto_run();
         return;
     }
 
