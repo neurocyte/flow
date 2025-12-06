@@ -356,9 +356,18 @@ const cmds = struct {
     pub const quit_without_saving_meta: Meta = .{ .description = "Quit without saving" };
 
     pub fn save_session(self: *Self, _: Ctx) Result {
+        const logger = log.logger("session");
+        defer logger.deinit();
+        logger.print("saving session...", .{});
         try self.write_restore_info();
+        logger.print("session saved", .{});
     }
     pub const save_session_meta: Meta = .{ .description = "Save session" };
+
+    pub fn save_session_quiet(self: *Self, _: Ctx) Result {
+        try self.write_restore_info();
+    }
+    pub const save_session_quiet_meta: Meta = .{};
 
     pub fn save_session_and_quit(self: *Self, _: Ctx) Result {
         try self.write_restore_info();
