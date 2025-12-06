@@ -360,11 +360,11 @@ const cmds = struct {
     }
     pub const save_session_meta: Meta = .{ .description = "Save session" };
 
-    pub fn store_session_and_quit(self: *Self, _: Ctx) Result {
+    pub fn save_session_and_quit(self: *Self, _: Ctx) Result {
         try self.write_restore_info();
         try tp.self_pid().send("quit");
     }
-    pub const store_session_and_quit_meta: Meta = .{ .description = "Save session and quit" };
+    pub const save_session_and_quit_meta: Meta = .{ .description = "Save session and quit" };
 
     pub fn open_project_cwd(self: *Self, _: Ctx) Result {
         if (try project_manager.open(".")) |state|
