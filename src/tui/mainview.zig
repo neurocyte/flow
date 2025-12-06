@@ -355,6 +355,12 @@ const cmds = struct {
     }
     pub const quit_without_saving_meta: Meta = .{ .description = "Quit without saving" };
 
+    pub fn store_session_and_quit(self: *Self, _: Ctx) Result {
+        try self.write_restore_info();
+        try tp.self_pid().send("quit");
+    }
+    pub const store_session_and_quit_meta: Meta = .{ .description = "Save session and quit" };
+
     pub fn open_project_cwd(self: *Self, _: Ctx) Result {
         if (try project_manager.open(".")) |state|
             try self.restore_state(state);
