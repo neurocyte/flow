@@ -33,8 +33,8 @@ limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
 enable_prefix_keyhints: bool = true,
 enable_auto_find: bool = true,
 
-auto_run_time_seconds: usize = 360, //seconds
-auto_run_commands: ?[]const []const u8 = null, // a list of simple commands
+auto_run_time_seconds: usize = 120, //seconds
+auto_run_commands: ?[]const []const u8 = &.{"save_session_quiet"}, // a list of simple commands
 
 indent_size: usize = 4,
 tab_width: usize = 8,
