@@ -162,7 +162,7 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     write_columns(palette, writer, &column_info);
     const indicator: []const u8 = &.{};
 
-    return tui.render_file_item(&button.plane, value.written(), icon_, color, indicator, matches_cbor, button.active, selected, button.hover, theme);
+    return tui.render_file_item(&button.plane, value.written(), icon_, color, indicator, &.{}, matches_cbor, button.active, selected, button.hover, theme);
 }
 
 fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, ed.Selection } {

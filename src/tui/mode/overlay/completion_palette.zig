@@ -19,6 +19,7 @@ pub const icon = "󱎸  ";
 pub const Entry = struct {
     label: []const u8,
     sort_text: []const u8,
+    detail: []const u8,
     cbor: []const u8,
 };
 
@@ -28,6 +29,8 @@ pub const ValueType = struct {
 };
 pub const defaultValue: ValueType = .{};
 
+var max_detail: usize = 0;
+
 pub fn load_entries(palette: *Type) !usize {
     const editor = tui.get_active_editor() orelse return error.NotFound;
     palette.value.start = editor.get_primary().*;
@@ -35,18 +38,21 @@ pub fn load_entries(palette: *Type) !usize {
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
-        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = undefined, .sort_text = undefined };
+        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = undefined, .sort_text = undefined, .detail = undefined };
     }
 
+    max_detail = 0;
     var max_label_len: usize = 0;
     for (palette.entries.items) |*item| {
-        const label_, const sort_text, _, const maybe_replace, _ = get_values(item.cbor);
+        const label_, const sort_text, _, const maybe_replace, _, const detail = get_values(item.cbor);
         if (get_replace_selection(maybe_replace)) |replace| {
             if (palette.value.replace == null) palette.value.replace = replace;
         }
         item.label = label_;
         item.sort_text = sort_text;
+        item.detail = detail;
         max_label_len = @max(max_label_len, item.label.len);
+        max_detail = @max(max_detail, item.detail.len);
     }
 
     const less_fn = struct {
@@ -58,7 +64,8 @@ pub fn load_entries(palette: *Type) !usize {
     }.less_fn;
     std.mem.sort(Entry, palette.entries.items, {}, less_fn);
 
-    return if (max_label_len > label.len + 3) 0 else label.len + 3 - max_label_len;
+    max_detail = @min(max_detail, tui.screen().w -| max_label_len -| 10);
+    return @max(max_detail, if (max_label_len > label.len + 3) 0 else label.len + 3 - max_label_len);
 }
 
 pub fn initial_query(palette: *Type, allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
@@ -91,18 +98,35 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&item_cbor)) catch false)) return false;
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) return false;
 
-    const label_, _, const kind, _, _ = get_values(item_cbor);
+    const label_, _, const kind, _, _, const detail = get_values(item_cbor);
     const icon_: []const u8 = kind_icon(@enumFromInt(kind));
     const color: u24 = 0x0;
-    const indicator: []const u8 = &.{};
+    const indicator: []const u8 = detail;
 
-    return tui.render_file_item(&button.plane, label_, icon_, color, indicator, matches_cbor, button.active, selected, button.hover, theme);
+    return tui.render_file_item(
+        &button.plane,
+        label_,
+        icon_,
+        color,
+        indicator[0..@min(max_detail - 3, indicator.len)],
+        if (max_detail < indicator.len) "…" else "",
+        matches_cbor,
+        button.active,
+        selected,
+        button.hover,
+        theme,
+    );
 }
 
-fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer.Selection, []const u8 } {
+fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer.Selection, []const u8, []const u8 } {
     var label_: []const u8 = "";
+    var label_detail: []const u8 = "";
+    var label_description: []const u8 = "";
+    var detail: []const u8 = "";
     var sort_text: []const u8 = "";
     var kind: u8 = 0;
+    var insertTextFormat: usize = 0;
+    var textEdit_newText: []const u8 = "";
     var replace: Buffer.Selection = .{};
     var additionalTextEdits: []const u8 = &.{};
     _ = cbor.match(item_cbor, .{
@@ -111,15 +135,15 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer
         cbor.any, // col
         cbor.any, // is_incomplete
         cbor.extract(&label_), // label
-        cbor.any, // label_detail
-        cbor.any, // label_description
+        cbor.extract(&label_detail), // label_detail
+        cbor.extract(&label_description), // label_description
         cbor.extract(&kind), // kind
-        cbor.any, // detail
+        cbor.extract(&detail), // detail
         cbor.any, // documentation
         cbor.any, // documentation_kind
         cbor.extract(&sort_text), // sortText
-        cbor.any, // insertTextFormat
-        cbor.any, // textEdit_newText
+        cbor.extract(&insertTextFormat), // insertTextFormat
+        cbor.extract(&textEdit_newText), // textEdit_newText
         cbor.any, // insert.begin.row
         cbor.any, // insert.begin.col
         cbor.any, // insert.end.row
@@ -130,7 +154,7 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer
         cbor.extract(&replace.end.col), // replace.end.col
         cbor.extract_cbor(&additionalTextEdits),
     }) catch false;
-    return .{ label_, sort_text, kind, replace, additionalTextEdits };
+    return .{ label_, sort_text, kind, replace, additionalTextEdits, if (detail.len > 0) detail else label_detail };
 }
 
 const TextEdit = struct { newText: []const u8 = &.{}, insert: ?Range = null, replace: ?Range = null };
@@ -147,14 +171,14 @@ fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
 }
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
-    const label_, _, _, _, _ = get_values(button.opts.label);
+    const label_, _, _, _, _, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "insert_chars", .{label_} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
-    _, _, _, const replace, _ = get_values(button.opts.label);
+    _, _, _, const replace, _, _ = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
     editor.get_primary().selection = get_replace_selection(replace);
 }
