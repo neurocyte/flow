@@ -501,7 +501,7 @@ pub fn metrics(self: *const Plane, tab_width: usize) Buffer.Metrics {
 }
 
 const GraphemeCache = struct {
-    buf: [1024 * 16]u8 = undefined,
+    buf: [1024 * 32]u8 = undefined,
     idx: usize = 0,
 
     pub fn put(self: *GraphemeCache, bytes: []const u8) []u8 {
