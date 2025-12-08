@@ -169,6 +169,17 @@ pub fn print_aligned_right(self: *Plane, y: c_int, comptime fmt: anytype, args: 
     return self.putstr(text);
 }
 
+pub fn print_right(self: *Plane, comptime fmt: anytype, args: anytype) !usize {
+    var buf: [fmt.len + 4096]u8 = undefined;
+    const text = try std.fmt.bufPrint(&buf, fmt, args);
+    const width = self.window.width;
+    const text_width: usize = self.egc_chunk_width(text, 0, 1);
+    const col: usize = @intCast(self.col);
+    const space = width -| col;
+    self.col += @intCast(space -| text_width);
+    return self.putstr(text);
+}
+
 pub fn print_aligned_center(self: *Plane, y: c_int, comptime fmt: anytype, args: anytype) !usize {
     var buf: [fmt.len + 4096]u8 = undefined;
     const width = self.window.width;
