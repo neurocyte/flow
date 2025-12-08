@@ -15,6 +15,8 @@ pub const label = "Select completion";
 pub const name = "completion";
 pub const description = "completions";
 pub const icon = "󱎸  ";
+pub const modal_dim = false;
+pub const placement = .top_right;
 
 pub const Entry = struct {
     label: []const u8,
