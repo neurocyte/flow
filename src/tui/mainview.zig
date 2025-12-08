@@ -268,10 +268,10 @@ fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
     }
 }
 
-fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !void {
+fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, disable }) !void {
     if (self.panels) |panels| {
         if (panels.get(@typeName(view))) |w| {
-            if (!enable_only) {
+            if (mode != .enable) {
                 panels.remove(w.*);
                 if (panels.empty()) {
                     self.widgets.remove(panels.widget());
@@ -279,9 +279,10 @@ fn toggle_panel_view(self: *Self, view: anytype, enable_only: bool) !void {
                 }
             }
         } else {
-            try panels.add(try view.create(self.allocator, self.widgets.plane));
+            if (mode != .disable)
+                try panels.add(try view.create(self.allocator, self.widgets.plane));
         }
-    } else {
+    } else if (mode != .disable) {
         const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.panel_height orelse self.box().h / 5 });
         try self.widgets.add(panels.widget());
         try panels.add(try view.create(self.allocator, self.widgets.plane));
@@ -439,8 +440,8 @@ const cmds = struct {
             try self.close_all_editors();
             self.delete_all_buffers();
             self.clear_find_in_files_results(.diagnostics);
-            if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
-                try self.toggle_panel_view(filelist_view, false);
+            if (self.file_list_type == .diagnostics)
+                try self.toggle_panel_view(filelist_view, .disable);
             self.buffer_manager.deinit();
             self.buffer_manager = Buffer.Manager.init(self.allocator);
         }
@@ -817,46 +818,46 @@ const cmds = struct {
 
     pub fn toggle_panel(self: *Self, _: Ctx) Result {
         if (self.is_panel_view_showing(logview))
-            try self.toggle_panel_view(logview, false)
+            try self.toggle_panel_view(logview, .toggle)
         else if (self.is_panel_view_showing(info_view))
-            try self.toggle_panel_view(info_view, false)
+            try self.toggle_panel_view(info_view, .toggle)
         else if (self.is_panel_view_showing(filelist_view))
-            try self.toggle_panel_view(filelist_view, false)
+            try self.toggle_panel_view(filelist_view, .toggle)
         else if (self.is_panel_view_showing(input_view))
-            try self.toggle_panel_view(input_view, false)
+            try self.toggle_panel_view(input_view, .toggle)
         else
-            try self.toggle_panel_view(logview, false);
+            try self.toggle_panel_view(logview, .toggle);
     }
     pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(logview, false);
+        try self.toggle_panel_view(logview, .toggle);
     }
     pub const toggle_logview_meta: Meta = .{};
 
     pub fn show_logview(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(logview, true);
+        try self.toggle_panel_view(logview, .enable);
     }
     pub const show_logview_meta: Meta = .{ .description = "View log" };
 
     pub fn toggle_inputview(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(input_view, false);
+        try self.toggle_panel_view(input_view, .toggle);
     }
     pub const toggle_inputview_meta: Meta = .{ .description = "Toggle raw input log" };
 
     pub fn toggle_inspector_view(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(@import("inspector_view.zig"), false);
+        try self.toggle_panel_view(@import("inspector_view.zig"), .toggle);
     }
     pub const toggle_inspector_view_meta: Meta = .{ .description = "Toggle inspector view" };
 
     pub fn show_inspector_view(self: *Self, _: Ctx) Result {
-        try self.toggle_panel_view(@import("inspector_view.zig"), true);
+        try self.toggle_panel_view(@import("inspector_view.zig"), .enable);
     }
     pub const show_inspector_view_meta: Meta = .{};
 
     pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
-        if (self.file_list_type == .find_in_files and self.is_panel_view_showing(filelist_view))
-            try self.toggle_panel_view(filelist_view, false);
+        if (self.file_list_type == .find_in_files)
+            try self.toggle_panel_view(filelist_view, .disable);
     }
     pub const close_find_in_files_results_meta: Meta = .{ .description = "Close find in files results view" };
 
@@ -1172,8 +1173,8 @@ const cmds = struct {
             editor.clear_diagnostics();
 
         self.clear_find_in_files_results(.diagnostics);
-        if (self.file_list_type == .diagnostics and self.is_panel_view_showing(filelist_view))
-            try self.toggle_panel_view(filelist_view, false);
+        if (self.file_list_type == .diagnostics)
+            try self.toggle_panel_view(filelist_view, .disable);
     }
     pub const clear_diagnostics_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -1842,8 +1843,7 @@ fn add_find_in_files_result(
     lines: []const u8,
     severity: ed.Diagnostic.Severity,
 ) tp.result {
-    if (!self.is_panel_view_showing(filelist_view))
-        _ = self.toggle_panel_view(filelist_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    _ = self.toggle_panel_view(filelist_view, .enable) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const fl = self.get_panel_view(filelist_view) orelse @panic("filelist_view missing");
     if (self.file_list_type != file_list_type) {
         self.clear_find_in_files_results(self.file_list_type);
@@ -1879,8 +1879,7 @@ fn clear_find_in_files_results(self: *Self, file_list_type: FileListType) void {
 
 fn add_info_content(self: *Self, content: []const u8) tp.result {
     if (content.len == 0) return;
-    if (!self.is_panel_view_showing(info_view))
-        _ = self.toggle_panel_view(info_view, false) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    _ = self.toggle_panel_view(info_view, .enable) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const info = self.get_panel_view(info_view) orelse @panic("info_view missing");
     info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace());
     tui.need_render();
