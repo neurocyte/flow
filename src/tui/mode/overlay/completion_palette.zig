@@ -45,18 +45,18 @@ pub fn load_entries(palette: *Type) !usize {
     max_description = 0;
     var max_label_len: usize = 0;
     for (palette.entries.items) |*item| {
-        const label_, const sort_text, _, const maybe_replace, _, const label_detail, const label_description, _, _ = get_values(item.cbor);
-        if (get_replace_selection(maybe_replace)) |replace| {
+        const values = get_values(item.cbor);
+        if (get_replace_selection(values.replace)) |replace| {
             if (palette.value.replace == null) palette.value.replace = replace;
         }
-        item.label = label_;
-        item.sort_text = sort_text;
+        item.label = values.label;
+        item.sort_text = values.sort_text;
 
-        var lines = std.mem.splitScalar(u8, label_description, '\n');
-        const label_description_len = if (lines.next()) |desc| desc.len else label_description.len;
+        var lines = std.mem.splitScalar(u8, values.label_description, '\n');
+        const label_description_len = if (lines.next()) |desc| desc.len else values.label_description.len;
 
         max_label_len = @max(max_label_len, item.label.len);
-        max_description = @max(max_description, label_description_len + label_detail.len);
+        max_description = @max(max_description, label_description_len + values.label_detail.len);
     }
 
     const less_fn = struct {
@@ -102,17 +102,17 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&item_cbor)) catch false)) return false;
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) return false;
 
-    const label_, _, const kind, _, _, const label_detail, const label_description, _, _ = get_values(item_cbor);
-    const icon_: []const u8 = kind_icon(@enumFromInt(kind));
+    const values = get_values(item_cbor);
+    const icon_: []const u8 = kind_icon(@enumFromInt(values.kind));
     const color: u24 = 0x0;
 
     return tui.render_symbol(
         &button.plane,
-        label_,
+        values.label,
         icon_,
         color,
-        label_detail,
-        label_description,
+        values.label_detail,
+        values.label_description,
         matches_cbor,
         button.active,
         selected,
@@ -121,7 +121,21 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     );
 }
 
-fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer.Selection, []const u8, []const u8, []const u8, []const u8, []const u8 } {
+const Values = struct {
+    label: []const u8,
+    sort_text: []const u8,
+    kind: u8,
+    replace: Buffer.Selection,
+    additionalTextEdits: []const u8,
+    label_detail: []const u8,
+    label_description: []const u8,
+    detail: []const u8,
+    documentation: []const u8,
+    insertTextFormat: usize,
+    textEdit_newText: []const u8,
+};
+
+fn get_values(item_cbor: []const u8) Values {
     var label_: []const u8 = "";
     var label_detail: []const u8 = "";
     var label_description: []const u8 = "";
@@ -158,7 +172,19 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer
         cbor.extract(&replace.end.col), // replace.end.col
         cbor.extract_cbor(&additionalTextEdits),
     }) catch false;
-    return .{ label_, sort_text, kind, replace, additionalTextEdits, label_detail, label_description, detail, documentation };
+    return .{
+        .label = label_,
+        .sort_text = sort_text,
+        .kind = kind,
+        .replace = replace,
+        .additionalTextEdits = additionalTextEdits,
+        .label_detail = label_detail,
+        .label_description = label_description,
+        .detail = detail,
+        .documentation = documentation,
+        .insertTextFormat = insertTextFormat,
+        .textEdit_newText = textEdit_newText,
+    };
 }
 
 const TextEdit = struct { newText: []const u8 = &.{}, insert: ?Range = null, replace: ?Range = null };
@@ -184,16 +210,17 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
-    const label_, _, _, const replace, _, _, _, const detail, const documentation = get_values(button.opts.label);
+    const values = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
-    editor.get_primary().selection = get_replace_selection(replace);
+    editor.get_primary().selection = get_replace_selection(values.replace);
 
     const mv = tui.mainview() orelse return;
-    try mv.set_info_content(label_, .replace);
+    try mv.set_info_content(values.label, .replace);
     try mv.set_info_content(" ", .append); // blank line
-    try mv.set_info_content(detail, .append);
+    try mv.set_info_content(values.detail, .append);
+    try mv.set_info_content(values.textEdit_newText, .append);
     try mv.set_info_content(" ", .append); // blank line
-    try mv.set_info_content(documentation, .append);
+    try mv.set_info_content(values.documentation, .append);
 }
 
 pub fn cancel(palette: *Type) !void {
