@@ -32,6 +32,7 @@ enable_auto_save: bool = false,
 limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
 enable_prefix_keyhints: bool = true,
 enable_auto_find: bool = true,
+ignore_filter_stderr: bool = false,
 
 auto_run_time_seconds: usize = 120, //seconds
 auto_run_commands: ?[]const []const u8 = &.{"save_session_quiet"}, // a list of simple commands

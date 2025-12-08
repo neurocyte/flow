@@ -6154,8 +6154,9 @@ pub const Editor = struct {
     }
 
     fn filter_error(self: *Self, bytes: []const u8) !void {
-        defer self.filter_deinit();
         self.logger.print("filter: ERR: {s}", .{bytes});
+        if (tui.config().ignore_filter_stderr) return;
+        defer self.filter_deinit();
         if (self.need_save_after_filter) |info| {
             try self.save();
             if (info.then) |then|
