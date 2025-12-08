@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 
 pub const Plane = @import("Plane.zig");
+const GraphemeCache = @import("GraphemeCache.zig");
 
 const Layer = @This();
 
@@ -9,6 +10,7 @@ view: View,
 y_off: i32 = 0,
 x_off: i32 = 0,
 plane_: Plane,
+cache_storage: GraphemeCache.Storage = .{},
 
 const View = struct {
     allocator: std.mem.Allocator,
@@ -57,6 +59,7 @@ pub fn init(allocator: std.mem.Allocator, opts: Options) std.mem.Allocator.Error
     const name = "layer";
     self.plane_ = .{
         .window = self.window(),
+        .cache = self.cache_storage.cache(),
         .name_buf = undefined,
         .name_len = name.len,
     };

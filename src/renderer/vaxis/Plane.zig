@@ -8,6 +8,7 @@ const vaxis = @import("vaxis");
 const Buffer = @import("Buffer");
 const color = @import("color");
 const RGB = @import("color").RGB;
+const GraphemeCache = @import("GraphemeCache.zig");
 
 const Plane = @This();
 
@@ -18,7 +19,7 @@ row: i32 = 0,
 col: i32 = 0,
 name_buf: [name_buf_len]u8,
 name_len: usize,
-cache: GraphemeCache = .{},
+cache: GraphemeCache,
 style: vaxis.Cell.Style = .{},
 style_base: vaxis.Cell.Style = .{},
 scrolling: bool = false,
@@ -49,6 +50,7 @@ pub fn init(nopts: *const Options, parent_: Plane) !Plane {
     const len = @min(nopts.name.len, name_buf_len);
     var plane: Plane = .{
         .window = parent_.window.child(opts),
+        .cache = parent_.cache,
         .name_buf = undefined,
         .name_len = len,
         .scrolling = nopts.flags == .VSCROLL,
@@ -499,18 +501,6 @@ pub fn metrics(self: *const Plane, tab_width: usize) Buffer.Metrics {
         }.f,
     };
 }
-
-const GraphemeCache = struct {
-    buf: [1024 * 32]u8 = undefined,
-    idx: usize = 0,
-
-    pub fn put(self: *GraphemeCache, bytes: []const u8) []u8 {
-        if (self.idx + bytes.len > self.buf.len) self.idx = 0;
-        defer self.idx += bytes.len;
-        @memcpy(self.buf[self.idx .. self.idx + bytes.len], bytes);
-        return self.buf[self.idx .. self.idx + bytes.len];
-    }
-};
 
 fn to_cell_color(col: ThemeColor) vaxis.Cell.Color {
     return .{ .rgb = RGB.to_u8s(RGB.from_u24(col.color)) };

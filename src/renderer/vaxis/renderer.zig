@@ -16,6 +16,7 @@ pub const CursorShape = vaxis.Cell.CursorShape;
 
 pub const style = @import("style.zig").StyleBits;
 pub const styles = @import("style.zig");
+const GraphemeCache = @import("GraphemeCache.zig");
 
 const Self = @This();
 pub const log_name = "vaxis";
@@ -25,6 +26,7 @@ allocator: std.mem.Allocator,
 tty: vaxis.Tty,
 vx: vaxis.Vaxis,
 tty_buffer: []u8,
+cache_storage: GraphemeCache.Storage = .{},
 
 no_alternate: bool,
 event_buffer: std.Io.Writer.Allocating,
@@ -240,6 +242,7 @@ pub fn stdplane(self: *Self) Plane {
     const name = "root";
     var plane: Plane = .{
         .window = self.vx.window(),
+        .cache = self.cache_storage.cache(),
         .name_buf = undefined,
         .name_len = name.len,
     };
