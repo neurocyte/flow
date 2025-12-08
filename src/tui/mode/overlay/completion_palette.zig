@@ -186,12 +186,14 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
-    _, _, _, const replace, _, _, _, const detail, const documentation = get_values(button.opts.label);
+    const label_, _, _, const replace, _, _, _, const detail, const documentation = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
     editor.get_primary().selection = get_replace_selection(replace);
 
     const mv = tui.mainview() orelse return;
-    try mv.set_info_content(detail, .replace);
+    try mv.set_info_content(label_, .replace);
+    try mv.set_info_content(" ", .append); // blank line
+    try mv.set_info_content(detail, .append);
     try mv.set_info_content(" ", .append); // blank line
     try mv.set_info_content(documentation, .append);
 }
