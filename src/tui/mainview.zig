@@ -1877,10 +1877,15 @@ fn clear_find_in_files_results(self: *Self, file_list_type: FileListType) void {
     fl.reset();
 }
 
-fn add_info_content(self: *Self, content: []const u8) tp.result {
+pub fn add_info_content(self: *Self, content: []const u8) tp.result {
     if (content.len == 0) return;
     _ = self.toggle_panel_view(info_view, .enable) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const info = self.get_panel_view(info_view) orelse @panic("info_view missing");
     info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    tui.need_render();
+}
+
+pub fn cancel_info_content(self: *Self) tp.result {
+    _ = self.toggle_panel_view(info_view, .disable) catch |e| return tp.exit_error(e, @errorReturnTrace());
     tui.need_render();
 }
