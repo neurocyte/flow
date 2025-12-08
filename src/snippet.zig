@@ -44,7 +44,6 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                 },
                 '$' => {
                     state = .tabstop;
-                    try text.writer.writeByte(c);
                 },
                 else => try text.writer.writeByte(c),
             },
