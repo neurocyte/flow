@@ -2140,7 +2140,7 @@ pub fn render_symbol(
     var lines = std.mem.splitScalar(u8, description, '\n');
     if (lines.next()) |desc| {
         self.set_style(style_description);
-        _ = self.print_aligned_right(0, "{s} ", .{desc}) catch {};
+        _ = self.print_right(" {s} ", .{desc}) catch {};
     }
 
     var iter = matches_cbor;
