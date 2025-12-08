@@ -10,11 +10,11 @@ view: View,
 y_off: i32 = 0,
 x_off: i32 = 0,
 plane_: Plane,
-cache_storage: GraphemeCache.Storage = .{},
 
 const View = struct {
     allocator: std.mem.Allocator,
     screen: vaxis.Screen,
+    cache_storage: GraphemeCache.Storage = .{},
 
     pub const Config = struct {
         h: u16,
@@ -59,7 +59,7 @@ pub fn init(allocator: std.mem.Allocator, opts: Options) std.mem.Allocator.Error
     const name = "layer";
     self.plane_ = .{
         .window = self.window(),
-        .cache = self.cache_storage.cache(),
+        .cache = self.view.cache_storage.cache(),
         .name_buf = undefined,
         .name_len = name.len,
     };
