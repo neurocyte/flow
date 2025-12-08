@@ -190,7 +190,7 @@ pub fn Create(options: type) type {
 
         fn prepare_resize(self: *Self) Widget.Box {
             const screen = tui.screen();
-            const w = self.prepare_width();
+            const w = self.prepare_width(screen);
             return switch (self.placement) {
                 .top_center => self.prepare_resize_top_center(screen, w),
                 .top_left => self.prepare_resize_top_left(screen, w),
@@ -198,8 +198,8 @@ pub fn Create(options: type) type {
             };
         }
 
-        fn prepare_width(self: *Self) usize {
-            return @max(@min(self.longest + 3, max_menu_width) + 2 + self.longest_hint, options.label.len + 2);
+        fn prepare_width(self: *Self, screen: Widget.Box) usize {
+            return @min(screen.w - 2, @max(@min(self.longest + 3, max_menu_width) + 2 + self.longest_hint, options.label.len + 2));
         }
 
         fn prepare_resize_at_x(self: *Self, screen: Widget.Box, w: usize, x: usize) Widget.Box {
