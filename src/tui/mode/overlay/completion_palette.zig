@@ -94,8 +94,6 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
     palette.items += 1;
 }
 
-//pub fn render_symbol( self: *renderer.Plane, symbol: []const u8, icon: []const u8, color: u24, detail: []const u8, description: []const u8, matches_cbor: []const u8, active: bool, selected: bool, hover: bool, theme_: *const Widget.Theme, ) bool
-
 pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var item_cbor: []const u8 = undefined;
     var matches_cbor: []const u8 = undefined;
