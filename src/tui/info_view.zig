@@ -43,11 +43,15 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.view_rows = pos.h;
 }
 
-pub fn set_content(self: *Self, content: []const u8) !void {
-    self.clear();
+pub fn append_content(self: *Self, content: []const u8) !void {
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line|
         (try self.lines.addOne(self.allocator)).* = try self.allocator.dupe(u8, line);
+}
+
+pub fn set_content(self: *Self, content: []const u8) !void {
+    self.clear();
+    return self.append_content(content);
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {

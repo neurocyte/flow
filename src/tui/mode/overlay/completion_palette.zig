@@ -44,7 +44,7 @@ pub fn load_entries(palette: *Type) !usize {
     max_detail = 0;
     var max_label_len: usize = 0;
     for (palette.entries.items) |*item| {
-        const label_, const sort_text, _, const maybe_replace, _, const detail = get_values(item.cbor);
+        const label_, const sort_text, _, const maybe_replace, _, const detail, _ = get_values(item.cbor);
         if (get_replace_selection(maybe_replace)) |replace| {
             if (palette.value.replace == null) palette.value.replace = replace;
         }
@@ -98,7 +98,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&item_cbor)) catch false)) return false;
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) return false;
 
-    const label_, _, const kind, _, _, const detail = get_values(item_cbor);
+    const label_, _, const kind, _, _, const detail, _ = get_values(item_cbor);
     const icon_: []const u8 = kind_icon(@enumFromInt(kind));
     const color: u24 = 0x0;
     const indicator: []const u8 = detail;
@@ -118,11 +118,12 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     );
 }
 
-fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer.Selection, []const u8, []const u8 } {
+fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer.Selection, []const u8, []const u8, []const u8 } {
     var label_: []const u8 = "";
     var label_detail: []const u8 = "";
     var label_description: []const u8 = "";
     var detail: []const u8 = "";
+    var documentation: []const u8 = "";
     var sort_text: []const u8 = "";
     var kind: u8 = 0;
     var insertTextFormat: usize = 0;
@@ -139,7 +140,7 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer
         cbor.extract(&label_description), // label_description
         cbor.extract(&kind), // kind
         cbor.extract(&detail), // detail
-        cbor.any, // documentation
+        cbor.extract(&documentation), // documentation
         cbor.any, // documentation_kind
         cbor.extract(&sort_text), // sortText
         cbor.extract(&insertTextFormat), // insertTextFormat
@@ -154,7 +155,7 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, Buffer
         cbor.extract(&replace.end.col), // replace.end.col
         cbor.extract_cbor(&additionalTextEdits),
     }) catch false;
-    return .{ label_, sort_text, kind, replace, additionalTextEdits, if (detail.len > 0) detail else label_detail };
+    return .{ label_, sort_text, kind, replace, additionalTextEdits, if (detail.len > 0) detail else label_detail, documentation };
 }
 
 const TextEdit = struct { newText: []const u8 = &.{}, insert: ?Range = null, replace: ?Range = null };
@@ -171,21 +172,30 @@ fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
 }
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
-    const label_, _, _, _, _, _ = get_values(button.opts.label);
+    const label_, _, _, _, _, _, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     tp.self_pid().send(.{ "cmd", "insert_chars", .{label_} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    const mv = tui.mainview() orelse return;
+    mv.cancel_info_content() catch {};
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
-    _, _, _, const replace, _, _ = get_values(button.opts.label);
+    _, _, _, const replace, _, const detail, const documentation = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
     editor.get_primary().selection = get_replace_selection(replace);
+
+    const mv = tui.mainview() orelse return;
+    try mv.set_info_content(detail, .replace);
+    try mv.set_info_content(" ", .append); // blank line
+    try mv.set_info_content(documentation, .append);
 }
 
 pub fn cancel(palette: *Type) !void {
     const editor = tui.get_active_editor() orelse return;
     editor.get_primary().selection = palette.value.start.selection;
+    const mv = tui.mainview() orelse return;
+    mv.cancel_info_content() catch {};
 }
 
 const CompletionItemKind = enum(u8) {

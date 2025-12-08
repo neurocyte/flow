@@ -167,7 +167,7 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         if (self.get_active_editor()) |editor| editor.done_highlight_reference();
         return true;
     } else if (try m.match(.{ "hover", tp.extract(&path), tp.string, tp.extract(&lines), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
-        try self.add_info_content(lines);
+        try self.set_info_content(lines, .replace);
         if (self.get_active_editor()) |editor|
             editor.add_hover_highlight(.{
                 .begin = .{ .row = begin_line, .col = begin_pos },
@@ -1877,11 +1877,14 @@ fn clear_find_in_files_results(self: *Self, file_list_type: FileListType) void {
     fl.reset();
 }
 
-pub fn add_info_content(self: *Self, content: []const u8) tp.result {
+pub fn set_info_content(self: *Self, content: []const u8, mode: enum { replace, append }) tp.result {
     if (content.len == 0) return;
     _ = self.toggle_panel_view(info_view, .enable) catch |e| return tp.exit_error(e, @errorReturnTrace());
     const info = self.get_panel_view(info_view) orelse @panic("info_view missing");
-    info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    switch (mode) {
+        .replace => info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
+        .append => info.append_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
+    }
     tui.need_render();
 }
 
