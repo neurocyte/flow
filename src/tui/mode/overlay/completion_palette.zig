@@ -201,11 +201,20 @@ fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
 }
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
-    const label_, _, _, _, _, _, _, _, _ = get_values(button.opts.label);
-    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    tp.self_pid().send(.{ "cmd", "insert_chars", .{label_} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    const values = get_values(button.opts.label);
+    switch (values.insertTextFormat) {
+        2 => {
+            const snippet = @import("snippet").parse(menu.*.opts.ctx.allocator, values.textEdit_newText) catch return;
+            defer snippet.deinit(menu.*.opts.ctx.allocator);
+            tp.self_pid().send(.{ "cmd", "insert_chars", .{snippet.text} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        },
+        else => {
+            tp.self_pid().send(.{ "cmd", "insert_chars", .{values.label} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        },
+    }
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
+    tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
