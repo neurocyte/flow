@@ -414,6 +414,10 @@ pub fn build_exe(
         .root_source_file = b.path("src/bin_path.zig"),
     });
 
+    const snippet_mod = b.createModule(.{
+        .root_source_file = b.path("src/snippet.zig"),
+    });
+
     const Buffer_mod = b.createModule(.{
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
@@ -630,6 +634,7 @@ pub fn build_exe(
             .{ .name = "zeit", .module = zeit_mod },
             .{ .name = "VcsStatus", .module = VcsStatus_mod },
             .{ .name = "bin_path", .module = bin_path_mod },
+            .{ .name = "snippet", .module = snippet_mod },
         },
     });
 
