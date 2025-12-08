@@ -2100,6 +2100,60 @@ pub fn render_file_vcs_item_cbor(self: *renderer.Plane, file_item_cbor: []const 
     return render_file_vcs_item(self, file_path_, icon, color, indicator, vcs_status, matches_cbor, active, selected, hover, theme_);
 }
 
+pub fn render_symbol(
+    self: *renderer.Plane,
+    symbol: []const u8,
+    icon: []const u8,
+    color: u24,
+    detail: []const u8,
+    description: []const u8,
+    matches_cbor: []const u8,
+    active: bool,
+    selected: bool,
+    hover: bool,
+    theme_: *const Widget.Theme,
+) bool {
+    const style_base = theme_.editor_widget;
+    const style_symbol = if (active) theme_.editor_cursor else if (hover or selected) theme_.editor_selection else theme_.editor_widget;
+    const style_detail: Widget.Theme.Style = .{ .bg = style_symbol.bg, .fg = theme_.input_placeholder.fg, .fs = theme_.input_placeholder.fs };
+    const style_description = if (find_scope_style(theme_, "entity.name")) |sty| sty.style else style_detail;
+    self.set_base_style(style_base);
+    self.erase();
+    self.home();
+    self.set_style(style_symbol);
+    if (active or hover or selected) {
+        self.fill(" ");
+        self.home();
+    }
+
+    self.set_style(style_description);
+    render_pointer(self, selected);
+
+    const icon_width = render_file_icon(self, icon, color);
+
+    self.set_style(style_symbol);
+    _ = self.print("{s}", .{symbol}) catch {};
+
+    self.set_style(style_detail);
+    _ = self.print("{s}", .{detail}) catch {};
+
+    var lines = std.mem.splitScalar(u8, description, '\n');
+    if (lines.next()) |desc| {
+        self.set_style(style_description);
+        _ = self.print_aligned_right(0, "{s} ", .{desc}) catch {};
+    }
+
+    var iter = matches_cbor;
+    var index: usize = 0;
+    var len = cbor.decodeArrayHeader(&iter) catch return false;
+    while (len > 0) : (len -= 1) {
+        if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
+            render_match_cell(self, 0, index + 2 + icon_width, theme_) catch break;
+        } else break;
+    }
+    return false;
+}
+
 fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const u8 {
     const theme_name = self.current_theme().name;
     if (root.read_theme(allocator, theme_name)) |content| {
