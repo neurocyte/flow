@@ -227,7 +227,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     try mv.set_info_content(values.label, .replace);
     try mv.set_info_content(" ", .append); // blank line
     try mv.set_info_content(values.detail, .append);
-    try mv.set_info_content(values.textEdit_newText, .append);
+    // try mv.set_info_content(values.textEdit_newText, .append);
     try mv.set_info_content(" ", .append); // blank line
     try mv.set_info_content(values.documentation, .append);
 }
