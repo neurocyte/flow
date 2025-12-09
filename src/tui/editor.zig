@@ -18,6 +18,7 @@ const Cell = @import("renderer").Cell;
 const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
+const snippet = @import("snippet");
 
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor_gutter = @import("editor_gutter.zig");
@@ -4625,6 +4626,51 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
     pub const select_prev_sibling_meta: Meta = .{ .description = "Move selection to previous AST sibling node" };
+
+    pub fn insert_snippet(self: *Self, snippet_text: []const u8) Result {
+        self.logger.print("snippet: {s}", .{snippet_text});
+        const value = try snippet.parse(self.allocator, snippet_text);
+        defer value.deinit(self.allocator);
+
+        const root_ = try self.buf_root();
+        const primary = self.get_primary();
+        const eol_mode = try self.buf_eol_mode();
+        var cursor_pos: usize = 0;
+        _ = try root_.get_range(.{
+            .begin = .{ .row = 0, .col = 0 },
+            .end = primary.cursor,
+        }, null, &cursor_pos, null, self.metrics);
+
+        try self.insert_cursels(value.text);
+        const root = try self.buf_root();
+
+        if (self.count_cursels() > 1)
+            return;
+
+        self.cancel_all_tabstops();
+        for (value.tabstops) |ts| {
+            var cursels: std.ArrayList(CurSel) = .empty;
+            for (ts) |placeholder| {
+                const ts_begin_pos = cursor_pos + placeholder.begin.@"0";
+                const ts_begin = root.byte_offset_to_line_and_col(ts_begin_pos, self.metrics, eol_mode);
+                const ts_end = if (placeholder.end) |end| blk: {
+                    const ts_end_pos = cursor_pos + end.@"0";
+                    break :blk root.byte_offset_to_line_and_col(ts_end_pos, self.metrics, eol_mode);
+                } else null;
+                const p = (try cursels.addOne(self.allocator));
+                p.* = if (ts_end) |ts_end_| .{
+                    .cursor = ts_end_,
+                    .selection = .{ .begin = ts_begin, .end = ts_end_ },
+                } else .{
+                    .cursor = ts_begin,
+                };
+                self.logger.print("placeholder: {}, cursor_pos:{d}", .{ placeholder, cursor_pos });
+                self.logger.print("tabstop: {}", .{p.*});
+                if (p.selection) |sel| self.add_match_from_selection(sel);
+            }
+            (try self.cursels_tabstops.addOne(self.allocator)).* = try cursels.toOwnedSlice(self.allocator);
+        }
+    }
 
     pub fn insert_cursels(self: *Self, chars: []const u8) Result {
         const b = try self.buf_for_update();
