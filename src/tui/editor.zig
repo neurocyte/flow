@@ -4626,10 +4626,7 @@ pub const Editor = struct {
     }
     pub const select_prev_sibling_meta: Meta = .{ .description = "Move selection to previous AST sibling node" };
 
-    pub fn insert_chars(self: *Self, ctx: Context) Result {
-        var chars: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&chars)}))
-            return error.InvalidInsertCharsArgument;
+    pub fn insert_cursels(self: *Self, chars: []const u8) Result {
         const b = try self.buf_for_update();
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
@@ -4637,6 +4634,13 @@ pub const Editor = struct {
         };
         try self.update_buf(root);
         self.clamp();
+    }
+
+    pub fn insert_chars(self: *Self, ctx: Context) Result {
+        var chars: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&chars)}))
+            return error.InvalidInsertCharsArgument;
+        return self.insert_cursels(chars);
     }
     pub const insert_chars_meta: Meta = .{ .arguments = &.{.string} };
 
