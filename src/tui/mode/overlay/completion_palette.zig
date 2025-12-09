@@ -192,10 +192,10 @@ const Range = struct { start: Position, end: Position };
 const Position = struct { line: usize, character: usize };
 
 fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
-    return if (tui.get_active_editor()) |edt|
-        replace.from_pos(edt.buf_root() catch return null, edt.metrics)
-    else if (replace.empty())
+    return if (replace.empty())
         null
+    else if (tui.get_active_editor()) |edt|
+        replace.from_pos(edt.buf_root() catch return null, edt.metrics)
     else
         replace;
 }
