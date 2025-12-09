@@ -131,6 +131,7 @@ const Values = struct {
     label_description: []const u8,
     detail: []const u8,
     documentation: []const u8,
+    insertText: []const u8,
     insertTextFormat: usize,
     textEdit_newText: []const u8,
 };
@@ -143,6 +144,7 @@ fn get_values(item_cbor: []const u8) Values {
     var documentation: []const u8 = "";
     var sort_text: []const u8 = "";
     var kind: u8 = 0;
+    var insertText: []const u8 = "";
     var insertTextFormat: usize = 0;
     var textEdit_newText: []const u8 = "";
     var replace: Buffer.Selection = .{};
@@ -160,6 +162,7 @@ fn get_values(item_cbor: []const u8) Values {
         cbor.extract(&documentation), // documentation
         cbor.any, // documentation_kind
         cbor.extract(&sort_text), // sortText
+        cbor.extract(&insertText), // insertText
         cbor.extract(&insertTextFormat), // insertTextFormat
         cbor.extract(&textEdit_newText), // textEdit_newText
         cbor.any, // insert.begin.row
@@ -183,6 +186,7 @@ fn get_values(item_cbor: []const u8) Values {
         .detail = detail,
         .documentation = documentation,
         .insertTextFormat = insertTextFormat,
+        .insertText = insertText,
         .textEdit_newText = textEdit_newText,
     };
 }
