@@ -2198,6 +2198,8 @@ pub const Editor = struct {
                 cursel.nudge_insert(nudge);
         for (self.matches.items) |*match_| if (match_.*) |*match|
             match.nudge_insert(nudge);
+        for (self.cursels_tabstops.items) |tabstop| for (tabstop) |*cursel|
+            cursel.nudge_insert(nudge);
     }
 
     fn nudge_delete(self: *Self, nudge: Selection, exclude: *const CurSel, _: usize) void {
@@ -2209,6 +2211,11 @@ pub const Editor = struct {
         for (self.matches.items, 0..) |*match_, i| if (match_.*) |*match|
             if (!match.nudge_delete(nudge)) {
                 self.matches.items[i] = null;
+            };
+        for (self.cursels_tabstops.items) |tabstop| for (tabstop) |*cursel|
+            if (!cursel.nudge_delete(nudge)) {
+                self.cancel_all_tabstops();
+                break;
             };
     }
 
