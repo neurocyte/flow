@@ -1362,6 +1362,7 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
     var documentation: []const u8 = "";
     var documentation_kind: []const u8 = "";
     var sortText: []const u8 = "";
+    var insertText: []const u8 = "";
     var insertTextFormat: usize = 0;
     var textEdit: TextEdit = .{};
     var additionalTextEdits: [32]TextEdit = undefined;
@@ -1402,6 +1403,8 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
                     try cbor.skipValue(&iter);
                 }
             }
+        } else if (std.mem.eql(u8, field_name, "insertText")) {
+            if (!(try cbor.matchValue(&iter, cbor.extract(&insertText)))) return invalid_field("insertText");
         } else if (std.mem.eql(u8, field_name, "sortText")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&sortText)))) return invalid_field("sortText");
         } else if (std.mem.eql(u8, field_name, "insertTextFormat")) {
@@ -1437,6 +1440,7 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
             documentation,
             documentation_kind,
             sortText,
+            insertText,
             insertTextFormat,
             textEdit.newText,
             insert.start.line,
