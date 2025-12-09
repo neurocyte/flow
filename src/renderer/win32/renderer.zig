@@ -7,6 +7,7 @@ const vaxis = @import("vaxis");
 const Style = @import("theme").Style;
 const Color = @import("theme").Color;
 pub const CursorShape = vaxis.Cell.CursorShape;
+const GraphemeCache = @import("tuirenderer").GraphemeCache;
 
 pub const Plane = @import("tuirenderer").Plane;
 pub const Layer = @import("tuirenderer").Layer;
@@ -75,6 +76,7 @@ fn messageBoxThenPanic(
 
 allocator: std.mem.Allocator,
 vx: vaxis.Vaxis,
+cache_storage: GraphemeCache.Storage = .{},
 
 event_buffer: std.Io.Writer.Allocating,
 
@@ -181,6 +183,7 @@ pub fn stdplane(self: *Self) Plane {
     const name = "root";
     var plane: Plane = .{
         .window = self.vx.window(),
+        .cache = self.cache_storage.cache(),
         .name_buf = undefined,
         .name_len = name.len,
     };

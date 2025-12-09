@@ -16,7 +16,7 @@ pub const CursorShape = vaxis.Cell.CursorShape;
 
 pub const style = @import("style.zig").StyleBits;
 pub const styles = @import("style.zig");
-const GraphemeCache = @import("GraphemeCache.zig");
+pub const GraphemeCache = @import("GraphemeCache.zig");
 
 const Self = @This();
 pub const log_name = "vaxis";
