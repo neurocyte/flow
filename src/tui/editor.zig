@@ -5460,6 +5460,13 @@ pub const Editor = struct {
         (self.matches.addOne(self.allocator) catch return).* = match;
     }
 
+    fn add_match_from_selection(self: *Self, sel: Selection) void {
+        var match: Match = Match.from_selection(sel);
+        if (match.end.eql(self.get_primary().cursor))
+            match.has_selection = true;
+        (self.matches.addOne(self.allocator) catch return).* = match;
+    }
+
     fn find_selection_match(self: *const Self, sel: Selection) ?*Match {
         for (self.matches.items) |*match_| if (match_.*) |*match| {
             if (match.to_selection().eql(sel))
