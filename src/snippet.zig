@@ -136,8 +136,16 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
         for (tabstops.items) |item| if (item.id == n) {
             (try tabstop.addOne(allocator)).* = item.range;
         };
-        (try result.addOne(allocator)).* = try tabstop.toOwnedSlice(allocator);
+        if (tabstop.items.len > 0)
+            (try result.addOne(allocator)).* = try tabstop.toOwnedSlice(allocator);
     }
+    var tabstop: std.ArrayList(Range) = .empty;
+    errdefer tabstop.deinit(allocator);
+    for (tabstops.items) |item| if (item.id == 0) {
+        (try tabstop.addOne(allocator)).* = item.range;
+    };
+    if (tabstop.items.len > 0)
+        (try result.addOne(allocator)).* = try tabstop.toOwnedSlice(allocator);
     return .{
         .text = try text.toOwnedSlice(),
         .tabstops = try result.toOwnedSlice(allocator),
