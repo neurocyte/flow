@@ -70,7 +70,7 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     max_id = @max(id orelse unreachable, max_id);
                     id = null;
                     state = .initial;
-                    break :fsm;
+                    continue :fsm .initial;
                 },
             },
             .placeholder => switch (c) {
