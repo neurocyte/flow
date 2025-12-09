@@ -308,6 +308,7 @@ pub const Editor = struct {
 
     cursels: CurSel.List = .empty,
     cursels_saved: CurSel.List = .empty,
+    cursels_tabstops: std.ArrayList([]CurSel) = .empty,
     selection_mode: SelectMode = .char,
     selection_drag_initial: ?Selection = null,
     target_column: ?Cursor = null,
@@ -432,6 +433,11 @@ pub const Editor = struct {
         return count;
     }
 
+    fn cancel_all_tabstops(self: *Self) void {
+        for (self.cursels_tabstops.items) |ts_list| self.allocator.free(ts_list);
+        self.cursels_tabstops.clearRetainingCapacity();
+    }
+
     pub fn write_state(self: *const Self, writer: *std.Io.Writer) !void {
         try cbor.writeArrayHeader(writer, 10);
         try cbor.writeValue(writer, self.file_path orelse "");
@@ -544,6 +550,7 @@ pub const Editor = struct {
         self.diagnostics.deinit(self.allocator);
         self.completions.deinit(self.allocator);
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
+        self.cancel_all_tabstops();
         self.cursels.deinit(self.allocator);
         self.matches.deinit(self.allocator);
         self.handlers.deinit();
@@ -4166,6 +4173,7 @@ pub const Editor = struct {
     pub const move_buffer_end_meta: Meta = .{ .description = "Move cursor to end of file" };
 
     pub fn cancel(self: *Self, _: Context) Result {
+        self.cancel_all_tabstops();
         self.cancel_all_selections();
         self.cancel_all_matches();
         @import("keybind").clear_integer_argument();
