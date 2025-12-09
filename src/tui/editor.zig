@@ -1107,6 +1107,7 @@ pub const Editor = struct {
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, c_);
                         self_.render_matches(&ctx.match_idx, ctx.theme, c_);
+                        self_.render_tabstops(ctx.theme, c_);
                         self_.render_selections(ctx.theme, c_);
                         _ = n.putc(c_) catch {};
                         ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = cell_map_val });
@@ -1124,6 +1125,7 @@ pub const Editor = struct {
                         if (ctx.hl_row) |hl_row| if (hl_row == ctx.buf_row)
                             self_.render_line_highlight_cell(ctx.theme, &c);
                         self_.render_matches(&ctx.match_idx, ctx.theme, &c);
+                        self_.render_tabstops(ctx.theme, &c);
                         self_.render_selections(ctx.theme, &c);
                         _ = n.putc(&c) catch {};
                         var term_cell = render_terminator(n, ctx.theme);
@@ -1317,6 +1319,24 @@ pub const Editor = struct {
             };
     }
 
+    fn render_tabstops(self: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
+        var y: c_uint = undefined;
+        var x: c_uint = undefined;
+        self.plane.cursor_yx(&y, &x);
+
+        for (self.cursels_tabstops.items) |tabstop| for (tabstop) |cursel| {
+            const sel: Selection = cursel.selection orelse .{
+                .begin = cursel.cursor,
+                .end = .{
+                    .row = cursel.cursor.row,
+                    .col = cursel.cursor.col + 1,
+                },
+            };
+            if (self.is_point_in_selection(sel, y, x))
+                return self.render_tabstop_cell(theme, cell);
+        };
+    }
+
     fn render_diagnostics(self: *Self, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) !void {
         for (self.diagnostics.items) |*diag| self.render_diagnostic(diag, theme, hl_row, cell_map);
     }
@@ -1372,6 +1392,10 @@ pub const Editor = struct {
 
     inline fn render_match_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell, match: Match) void {
         cell.set_style_bg(if (match.style) |style| style else theme.editor_match);
+    }
+
+    inline fn render_tabstop_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
+        cell.set_style_bg(theme.editor_match);
     }
 
     inline fn render_line_highlight_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
