@@ -47,9 +47,9 @@ pub fn load_entries(palette: *Type) !usize {
     var max_label_len: usize = 0;
     for (palette.entries.items) |*item| {
         const values = get_values(item.cbor);
-        if (get_replace_selection(values.replace)) |replace| {
-            if (palette.value.replace == null) palette.value.replace = replace;
-        }
+        if (palette.value.replace == null) if (get_replace_selection(values.replace)) |replace| {
+            palette.value.replace = replace;
+        };
         item.label = values.label;
         item.sort_text = values.sort_text;
 
@@ -207,15 +207,16 @@ fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     const values = get_values(button.opts.label);
+    const editor = tui.get_active_editor() orelse return;
+    const text = if (values.insertText.len > 0)
+        values.insertText
+    else if (values.textEdit_newText.len > 0)
+        values.textEdit_newText
+    else
+        values.label;
     switch (values.insertTextFormat) {
-        2 => {
-            const snippet = @import("snippet").parse(menu.*.opts.ctx.allocator, values.textEdit_newText) catch return;
-            defer snippet.deinit(menu.*.opts.ctx.allocator);
-            tp.self_pid().send(.{ "cmd", "insert_chars", .{snippet.text} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-        },
-        else => {
-            tp.self_pid().send(.{ "cmd", "insert_chars", .{values.label} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-        },
+        2 => editor.insert_snippet(text) catch |e| menu.*.opts.ctx.logger.err(module_name, e),
+        else => editor.insert_cursels(text) catch |e| menu.*.opts.ctx.logger.err(module_name, e),
     }
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
