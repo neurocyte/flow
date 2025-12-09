@@ -20,7 +20,8 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
     var tabstops: std.ArrayList(struct { id: usize, range: Range }) = .empty;
     defer tabstops.deinit(allocator);
     var id: ?usize = null;
-    var content_begin: ?Position = null;
+    var content_begin: std.ArrayList(Position) = .empty;
+    defer content_begin.deinit(allocator);
     var max_id: usize = 0;
     var text: std.Io.Writer.Allocating = .init(allocator);
     defer text.deinit();
@@ -31,8 +32,10 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
         tabstop,
         placeholder,
         content,
-        content_escape,
     } = .initial;
+
+    var state_stack: std.ArrayList(@TypeOf(state)) = .empty;
+    defer state_stack.deinit(allocator);
 
     var iter = snippet;
     while (iter.len > 0) : (iter = iter[1..]) {
@@ -40,16 +43,18 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
         fsm: switch (state) {
             .initial => switch (c) {
                 '\\' => {
+                    (try state_stack.addOne(allocator)).* = state;
                     state = .escape;
                 },
                 '$' => {
+                    (try state_stack.addOne(allocator)).* = state;
                     state = .tabstop;
                 },
                 else => try text.writer.writeByte(c),
             },
             .escape => {
                 try text.writer.writeByte(c);
-                state = .initial;
+                state = state_stack.pop() orelse return error.InvalidState;
             },
             .tabstop => switch (c) {
                 '{' => {
@@ -69,7 +74,7 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     };
                     max_id = @max(id orelse unreachable, max_id);
                     id = null;
-                    state = .initial;
+                    state = state_stack.pop() orelse return error.InvalidState;
                     continue :fsm .initial;
                 },
             },
@@ -82,7 +87,7 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
                     const pos = snippet.len - iter.len;
                     if (id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    content_begin = .{text.written().len};
+                    (try content_begin.addOne(allocator)).* = .{text.written().len};
                     state = .content;
                 },
                 else => {
@@ -92,31 +97,28 @@ pub fn parse(allocator: std.mem.Allocator, snippet: []const u8) Error!Snippet {
             },
             .content => switch (c) {
                 '\\' => {
-                    state = .content_escape;
+                    (try state_stack.addOne(allocator)).* = state;
+                    state = .escape;
                 },
                 '}' => {
                     const pos = snippet.len - iter.len;
                     if (id == null)
                         return invalid(snippet, pos, error.InvalidIdValue);
-                    if (content_begin == null)
+                    if (content_begin.items.len == 0)
                         return invalid(snippet, pos, error.InvalidPlaceholderValue);
+                    const begin_pos = content_begin.pop() orelse return invalid(snippet, pos, error.InvalidPlaceholderValue);
                     (try tabstops.addOne(allocator)).* = .{
                         .id = id orelse unreachable,
                         .range = .{
-                            .begin = content_begin orelse unreachable,
+                            .begin = begin_pos,
                             .end = .{text.written().len},
                         },
                     };
                     max_id = @max(id orelse unreachable, max_id);
                     id = null;
-                    content_begin = null;
-                    state = .initial;
+                    state = state_stack.pop() orelse return error.InvalidState;
                 },
                 else => try text.writer.writeByte(c),
-            },
-            .content_escape => {
-                try text.writer.writeByte(c);
-                state = .content;
             },
         }
     }
@@ -164,6 +166,7 @@ pub const Error = error{
     InvalidIdValue,
     InvalidPlaceholderValue,
     UnexpectedEndOfDocument,
+    InvalidState,
 };
 
 const log = std.log.scoped(.snippet);
