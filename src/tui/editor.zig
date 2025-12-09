@@ -439,6 +439,29 @@ pub const Editor = struct {
         self.cursels_tabstops.clearRetainingCapacity();
     }
 
+    fn pop_tabstop(self: *Self) bool {
+        if (self.cursels_tabstops.items.len == 0) return false;
+
+        const tabstops = self.cursels_tabstops.toOwnedSlice(self.allocator) catch return false;
+        defer {
+            self.allocator.free(tabstops[0]);
+            self.allocator.free(tabstops);
+        }
+
+        self.cancel_all_matches();
+        self.cancel_all_selections();
+        self.cursels.clearRetainingCapacity();
+
+        for (tabstops[0]) |cursel| {
+            (self.cursels.addOne(self.allocator) catch return false).* = cursel;
+            if (builtin.mode == .Debug)
+                self.logger.print("pop tabstop 1 of {}", .{tabstops.len});
+        }
+        for (tabstops[1..]) |tabstop| (self.cursels_tabstops.addOne(self.allocator) catch return false).* = tabstop;
+
+        return true;
+    }
+
     pub fn write_state(self: *const Self, writer: *std.Io.Writer) !void {
         try cbor.writeArrayHeader(writer, 10);
         try cbor.writeValue(writer, self.file_path orelse "");
@@ -3966,11 +3989,12 @@ pub const Editor = struct {
     }
 
     pub fn indent(self: *Self, ctx: Context) Result {
+        if (self.pop_tabstop()) return;
         const b = try self.buf_for_update();
         const root = try self.with_cursels_mut_repeat(b.root, indent_cursel, b.allocator, ctx);
         try self.update_buf(root);
     }
-    pub const indent_meta: Meta = .{ .description = "Indent current line", .arguments = &.{.integer} };
+    pub const indent_meta: Meta = .{ .description = "Indent current line (or pop tabstop)", .arguments = &.{.integer} };
 
     fn unindent_cursor(self: *Self, root: Buffer.Root, cursor: *Cursor, cursor_protect: ?*Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
         var newroot = root;
@@ -4658,11 +4682,12 @@ pub const Editor = struct {
 
         const root_ = try self.buf_root();
         const primary = self.get_primary();
+        const cursor = if (primary.selection) |sel| sel.begin else primary.cursor;
         const eol_mode = try self.buf_eol_mode();
         var cursor_pos: usize = 0;
         _ = try root_.get_range(.{
             .begin = .{ .row = 0, .col = 0 },
-            .end = primary.cursor,
+            .end = cursor,
         }, null, &cursor_pos, null, self.metrics);
 
         try self.insert_cursels(value.text);
@@ -4688,12 +4713,11 @@ pub const Editor = struct {
                 } else .{
                     .cursor = ts_begin,
                 };
-                self.logger.print("placeholder: {}, cursor_pos:{d}", .{ placeholder, cursor_pos });
-                self.logger.print("tabstop: {}", .{p.*});
                 if (p.selection) |sel| self.add_match_from_selection(sel);
             }
             (try self.cursels_tabstops.addOne(self.allocator)).* = try cursels.toOwnedSlice(self.allocator);
         }
+        _ = self.pop_tabstop();
     }
 
     pub fn insert_cursels(self: *Self, chars: []const u8) Result {
