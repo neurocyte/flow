@@ -4,6 +4,7 @@ const tp = @import("thespian");
 const root = @import("soft_root").root;
 const command = @import("command");
 const Buffer = @import("Buffer");
+const builtin = @import("builtin");
 
 const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
@@ -231,7 +232,12 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     try mv.set_info_content(values.label, .replace);
     try mv.set_info_content(" ", .append); // blank line
     try mv.set_info_content(values.detail, .append);
-    // try mv.set_info_content(values.textEdit_newText, .append);
+    if (builtin.mode == .Debug) {
+        try mv.set_info_content("newText:", .append); // blank line
+        try mv.set_info_content(values.textEdit_newText, .append);
+        try mv.set_info_content("insertText:", .append); // blank line
+        try mv.set_info_content(values.insertText, .append);
+    }
     try mv.set_info_content(" ", .append); // blank line
     try mv.set_info_content(values.documentation, .append);
 }
