@@ -24,6 +24,7 @@ const builtin_keybinds = std.StaticStringMap([]const u8).initComptime(.{
     .{ "emacs", @embedFile("builtin/emacs.json") },
 });
 
+pub var enable_match_events: bool = false;
 var integer_argument: ?usize = null;
 var mode_flag: KeybindMode = .normal;
 
@@ -673,6 +674,8 @@ const BindingSet = struct {
         })) {
             const key_event = input.KeyEvent.from_message(event, keypress, keypress_shifted, text, modifiers);
             if (self.process_key_event(key_event) catch |e| return tp.exit_error(e, @errorReturnTrace())) |binding| {
+                if (enable_match_events)
+                    self.send_match_event(binding);
                 for (binding.commands) |*cmd| try cmd.execute();
             }
         } else if (try m.match(.{"F"})) {
@@ -769,6 +772,20 @@ const BindingSet = struct {
             globals.current_sequence_egc.clearRetainingCapacity();
             globals.current_sequence.clearRetainingCapacity();
         }
+    }
+
+    fn send_match_event(_: *const @This(), binding: *const Binding) void {
+        var buf: [tp.max_message_size]u8 = undefined;
+        var stream: std.Io.Writer = .fixed(&buf);
+        cbor.writeArrayHeader(&stream, 2) catch return;
+        cbor.writeValue(&stream, "keybind_match") catch return;
+        cbor.writeArrayHeader(&stream, binding.commands.len) catch return;
+        for (binding.commands) |cmd| {
+            cbor.writeArrayHeader(&stream, 2) catch return;
+            cbor.writeValue(&stream, cmd.command) catch return;
+            stream.writeAll(cmd.args) catch return;
+        }
+        _ = tp.self_pid().send_raw(.{ .buf = stream.buffered() }) catch {};
     }
 
     fn log_keyhints_message() void {
