@@ -109,8 +109,10 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     if (tui.config().bottom_bar.len > 0) {
         self.bottom_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)))).*;
     }
-    if (tp.env.get().is("show-input"))
+    if (tp.env.get().is("show-input")) {
         self.toggle_inputview_async();
+        self.toggle_keybindview_async();
+    }
     if (tp.env.get().is("show-log"))
         self.toggle_logview_async();
     return w;
@@ -1648,6 +1650,10 @@ fn toggle_logview_async(_: *Self) void {
 
 fn toggle_inputview_async(_: *Self) void {
     tp.self_pid().send(.{ "cmd", "toggle_inputview" }) catch return;
+}
+
+fn toggle_keybindview_async(_: *Self) void {
+    tp.self_pid().send(.{ "cmd", "toggle_keybindview" }) catch return;
 }
 
 fn show_file_async(_: *Self, file_path: []const u8) void {
