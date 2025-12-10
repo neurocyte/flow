@@ -500,6 +500,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{"focus_out"}))
         return;
 
+    if (try m.match(.{ "keybind_match", tp.more }))
+        return;
+
     if (try self.send_widgets(from, m))
         return;
 
