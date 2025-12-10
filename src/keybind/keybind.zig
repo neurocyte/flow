@@ -25,6 +25,7 @@ const builtin_keybinds = std.StaticStringMap([]const u8).initComptime(.{
 });
 
 pub var enable_match_events: bool = false;
+pub var enable_insert_events: bool = false;
 var integer_argument: ?usize = null;
 var mode_flag: KeybindMode = .normal;
 
@@ -647,6 +648,8 @@ const BindingSet = struct {
                 globals.insert_command = self.insert_command;
                 globals.insert_command_id = null;
             }
+            if (enable_insert_events)
+                self.send_insert_event(globals.insert_command, globals.input_buffer.items);
             const id = globals.insert_command_id orelse
                 command.get_id_cache(globals.insert_command, &globals.insert_command_id) orelse {
                 return tp.exit_error(error.InputTargetNotFound, null);
@@ -799,6 +802,10 @@ const BindingSet = struct {
             stream.writeAll(cmd.args) catch return;
         }
         _ = tp.self_pid().send_raw(.{ .buf = stream.buffered() }) catch {};
+    }
+
+    fn send_insert_event(self: *const @This(), insert_cmd: []const u8, bytes: []const u8) void {
+        _ = tp.self_pid().send(.{ "N", get_namespace(), self.config_section, insert_cmd, bytes }) catch {};
     }
 
     fn log_keyhints_message() void {

@@ -503,6 +503,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "K", tp.more }))
         return;
 
+    if (try m.match(.{ "N", tp.more }))
+        return;
+
     if (try self.send_widgets(from, m))
         return;
 
@@ -2363,8 +2366,10 @@ pub fn set_last_palette(type_: PaletteType, ctx: command.Context) void {
 
 pub fn enable_match_events() void {
     keybind.enable_match_events = true;
+    keybind.enable_insert_events = true;
 }
 
 pub fn disable_match_events() void {
     keybind.enable_match_events = false;
+    keybind.enable_insert_events = false;
 }

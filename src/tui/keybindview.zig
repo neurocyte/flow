@@ -3,6 +3,7 @@ const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
 const ArrayList = @import("std").ArrayList;
 const Writer = @import("std").Io.Writer;
+const hexEscape = @import("std").ascii.hexEscape;
 
 const tp = @import("thespian");
 const cbor = @import("cbor");
@@ -89,23 +90,37 @@ fn keybind_match(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!
     var section: []const u8 = undefined;
     var key_event: []const u8 = undefined;
     var cmds: []const u8 = undefined;
-    if (!(m.match(.{ "K", tp.extract(&namespace), tp.extract(&section), tp.extract(&key_event), tp.extract_cbor(&cmds) }) catch false)) return false;
+    var insert_cmd: []const u8 = undefined;
+    var bytes: []const u8 = undefined;
 
-    var result: Writer.Allocating = .init(self.allocator);
-    defer result.deinit();
-    const writer = &result.writer;
+    if (m.match(.{ "K", tp.extract(&namespace), tp.extract(&section), tp.extract(&key_event), tp.extract_cbor(&cmds) }) catch false) {
+        var result: Writer.Allocating = .init(self.allocator);
+        defer result.deinit();
+        const writer = &result.writer;
 
-    writer.print("{s}:{s} {s} => ", .{ namespace, section, key_event }) catch return true;
-    cbor.toJsonWriter(cmds, writer, .{}) catch return true;
+        writer.print("{s}:{s} {s} => ", .{ namespace, section, key_event }) catch return true;
+        cbor.toJsonWriter(cmds, writer, .{}) catch return true;
 
+        self.append(result.toOwnedSlice() catch return true);
+        return true;
+    } else if (m.match(.{ "N", tp.extract(&namespace), tp.extract(&section), tp.extract(&insert_cmd), tp.extract(&bytes) }) catch false) {
+        var result: Writer.Allocating = .init(self.allocator);
+        defer result.deinit();
+        result.writer.print("{s}:{s} insert => [\"{s}\", \"{f}\"] ", .{ namespace, section, insert_cmd, hexEscape(bytes, .lower) }) catch return true;
+        self.append(result.toOwnedSlice() catch return true);
+        return true;
+    }
+    return false;
+}
+
+pub fn append(self: *Self, msg: []const u8) void {
     const ts = time.microTimestamp();
     const tdiff = if (self.buffer.items.len > 0) ts -| self.buffer.items[self.buffer.items.len - 1].time else 0;
-    (try self.buffer.addOne(self.allocator)).* = .{
+    (self.buffer.addOne(self.allocator) catch return).* = .{
         .time = ts,
         .tdiff = tdiff,
-        .msg = result.toOwnedSlice() catch return true,
+        .msg = msg,
     };
-    return true;
 }
 
 pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
