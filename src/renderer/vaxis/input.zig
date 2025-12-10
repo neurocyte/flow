@@ -349,7 +349,7 @@ pub fn event_fmt(evt: Event) struct {
             event.press => writer.writeAll("press"),
             event.repeat => writer.writeAll("repeat"),
             event.release => writer.writeAll("release"),
-            else => {},
+            else => writer.print("unknown({d})", .{self.event}),
         };
     }
 } {
@@ -363,7 +363,7 @@ pub fn event_short_fmt(evt: Event) struct {
             event.press => writer.writeAll("P"),
             event.repeat => writer.writeAll("RP"),
             event.release => writer.writeAll("R"),
-            else => {},
+            else => writer.print("U({d})", .{self.event}),
         };
     }
 } {
