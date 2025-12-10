@@ -826,6 +826,8 @@ const cmds = struct {
             try self.toggle_panel_view(info_view, .toggle)
         else if (self.is_panel_view_showing(filelist_view))
             try self.toggle_panel_view(filelist_view, .toggle)
+        else if (self.is_panel_view_showing(keybind_view))
+            try self.toggle_panel_view(keybind_view, .toggle)
         else if (self.is_panel_view_showing(input_view))
             try self.toggle_panel_view(input_view, .toggle)
         else
