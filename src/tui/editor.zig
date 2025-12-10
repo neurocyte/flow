@@ -722,7 +722,7 @@ pub const Editor = struct {
             buffer.file_type_icon = fti;
             buffer.file_type_color = ftc;
         }
-        const auto_save = if (self.buffer) |b| b.is_auto_save() else false;
+        const auto_save = if (self.buffer) |b| b.is_auto_save() and !b.is_ephemeral() else false;
 
         if (buffer_meta) |meta| {
             const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
@@ -804,7 +804,7 @@ pub const Editor = struct {
         if (self.file_path) |file_path| {
             if (self.buffer) |b_mut| try b_mut.store_to_file_and_clean(file_path);
         } else return error.SaveNoFileName;
-        try self.send_editor_save(self.file_path.?, b.is_auto_save());
+        try self.send_editor_save(self.file_path.?, b.is_auto_save() and !b.is_ephemeral());
         self.last.dirty = false;
         self.update_event() catch {};
     }
@@ -1850,7 +1850,7 @@ pub const Editor = struct {
         _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root), @intFromEnum(eol_mode) });
         if (self.buffer) |buffer| if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
             project_manager.did_change(file_path, buffer.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
-        if (self.buffer) |b| if (b.is_auto_save())
+        if (self.buffer) |b| if (b.is_auto_save() and !b.is_ephemeral())
             tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
     }
 
@@ -6509,7 +6509,7 @@ pub const Editor = struct {
             buffer.file_type_color = ftc;
         }
         const file_exists = if (self.buffer) |b| b.file_exists else false;
-        const auto_save = if (self.buffer) |b| b.is_auto_save() else false;
+        const auto_save = if (self.buffer) |b| b.is_auto_save() and !b.is_ephemeral() else false;
         try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc, auto_save);
         self.logger.print("file type {s}", .{file_type});
     }
@@ -6520,7 +6520,7 @@ pub const Editor = struct {
         const fti = if (self.file_type) |ft| ft.icon orelse file_type_config.default.icon else file_type_config.default.icon;
         const ftc = if (self.file_type) |ft| ft.color orelse file_type_config.default.color else file_type_config.default.color;
         const file_exists = if (self.buffer) |b| b.file_exists else false;
-        const auto_save = if (self.buffer) |b| b.is_auto_save() else false;
+        const auto_save = if (self.buffer) |b| b.is_auto_save() and !b.is_ephemeral() else false;
         try self.send_editor_open(self.file_path orelse "", file_exists, ftn, fti, ftc, auto_save);
         self.last = .{};
     }
