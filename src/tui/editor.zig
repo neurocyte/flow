@@ -6278,8 +6278,6 @@ pub const Editor = struct {
         if (state.before_root != root) return error.Stop;
         defer self.filter_deinit();
         const primary = self.get_primary();
-        self.cancel_all_selections();
-        self.cancel_all_matches();
         if (state.whole_file) |buf| {
             if (buf.items.len == 0) {
                 self.logger.print_err("filter", "empty filter result", .{});
@@ -6295,12 +6293,16 @@ pub const Editor = struct {
             if (old_hash == new_hash) {
                 state.no_changes = true;
             } else {
+                self.cancel_all_selections();
+                self.cancel_all_matches();
                 state.work_root = try b.load_from_string(buf.items, &state.eol_mode, &state.utf8_sanitized);
                 state.bytes = buf.items.len;
                 state.chunks = 1;
                 primary.cursor = state.old_primary.cursor;
             }
         } else {
+            self.cancel_all_selections();
+            self.cancel_all_matches();
             const sel = primary.enable_selection(root, self.metrics);
             sel.begin = state.begin;
             sel.end = state.pos.cursor;
