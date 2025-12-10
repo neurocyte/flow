@@ -366,16 +366,6 @@ const cmds = struct {
     }
     pub const overlay_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
-    pub fn overlay_toggle_panel(self: *Self, _: Ctx) Result {
-        return self.cmd_async("toggle_panel");
-    }
-    pub const overlay_toggle_panel_meta: Meta = .{};
-
-    pub fn overlay_toggle_inputview(self: *Self, _: Ctx) Result {
-        return self.cmd_async("toggle_inputview");
-    }
-    pub const overlay_toggle_inputview_meta: Meta = .{};
-
     pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
         tui.set_next_style(widget_type);
         self.do_resize();
