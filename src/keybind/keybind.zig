@@ -774,11 +774,13 @@ const BindingSet = struct {
         }
     }
 
-    fn send_match_event(_: *const @This(), binding: *const Binding) void {
+    fn send_match_event(self: *const @This(), binding: *const Binding) void {
         var buf: [tp.max_message_size]u8 = undefined;
         var stream: std.Io.Writer = .fixed(&buf);
-        cbor.writeArrayHeader(&stream, 2) catch return;
-        cbor.writeValue(&stream, "keybind_match") catch return;
+        cbor.writeArrayHeader(&stream, 4) catch return;
+        cbor.writeValue(&stream, "K") catch return;
+        cbor.writeValue(&stream, self.name) catch return;
+        cbor.writeValue(&stream, self.config_section) catch return;
         cbor.writeArrayHeader(&stream, binding.commands.len) catch return;
         for (binding.commands) |cmd| {
             cbor.writeArrayHeader(&stream, 2) catch return;

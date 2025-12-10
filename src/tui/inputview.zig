@@ -136,14 +136,15 @@ fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 }
 
 fn keybind_match(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    var namespace: []const u8 = undefined;
+    var section: []const u8 = undefined;
     var cmds: []const u8 = undefined;
-    if (!(m.match(.{ "keybind_match", tp.extract_cbor(&cmds) }) catch false)) return false;
+    if (!(m.match(.{ "K", tp.extract(&namespace), tp.extract(&section), tp.extract_cbor(&cmds) }) catch false)) return false;
 
     var result: Writer.Allocating = .init(self.allocator);
     defer result.deinit();
     const writer = &result.writer;
-    writer.writeAll("keybind -> ") catch return true;
-    cbor.toJsonWriter(cmds, writer, .{}) catch return true;
+    cbor.toJsonWriter(m.buf, writer, .{}) catch return true;
 
     self.append(result.written()) catch return true;
     return true;
