@@ -95,7 +95,7 @@ fn keybind_match(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!
     defer result.deinit();
     const writer = &result.writer;
 
-    writer.print("{s}:{s} {s} -> ", .{ namespace, section, key_event }) catch return true;
+    writer.print("{s}:{s} {s} => ", .{ namespace, section, key_event }) catch return true;
     cbor.toJsonWriter(cmds, writer, .{}) catch return true;
 
     const ts = time.microTimestamp();

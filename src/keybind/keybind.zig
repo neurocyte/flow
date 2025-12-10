@@ -675,7 +675,16 @@ const BindingSet = struct {
             const key_event = input.KeyEvent.from_message(event, keypress, keypress_shifted, text, modifiers);
             if (self.process_key_event(key_event) catch |e| return tp.exit_error(e, @errorReturnTrace())) |binding| {
                 if (enable_match_events)
-                    self.send_match_event(key_event, binding);
+                    self.send_match_event(if (key_event.event != input.event.release)
+                        globals.current_sequence.items
+                    else
+                        &[_]KeyEvent{key_event}, binding.commands);
+
+                if (key_event.event != input.event.release) {
+                    globals.current_sequence.clearRetainingCapacity();
+                    globals.current_sequence_egc.clearRetainingCapacity();
+                }
+
                 for (binding.commands) |*cmd| try cmd.execute();
             }
         } else if (try m.match(.{"F"})) {
@@ -727,11 +736,7 @@ const BindingSet = struct {
 
         for (self.press.items) |*binding| {
             switch (binding.match(globals.current_sequence.items)) {
-                .matched => {
-                    globals.current_sequence.clearRetainingCapacity();
-                    globals.current_sequence_egc.clearRetainingCapacity();
-                    return binding;
-                },
+                .matched => return binding,
                 .match_possible => {
                     all_matches_impossible = false;
                 },
@@ -774,21 +779,21 @@ const BindingSet = struct {
         }
     }
 
-    fn send_match_event(self: *const @This(), key_event: KeyEvent, binding: *const Binding) void {
+    fn send_match_event(self: *const @This(), key_events: []const KeyEvent, cmds: []Command) void {
         var buf: [tp.max_message_size]u8 = undefined;
         var stream: std.Io.Writer = .fixed(&buf);
 
         var key_event_buf: [256]u8 = undefined;
         var key_event_str: std.Io.Writer = .fixed(&key_event_buf);
-        key_event_str.print("{f}", .{key_event}) catch return;
+        key_event_str.print("{f}", .{key_event_sequence_long_fmt(key_events)}) catch return;
 
         cbor.writeArrayHeader(&stream, 5) catch return;
         cbor.writeValue(&stream, "K") catch return;
         cbor.writeValue(&stream, get_namespace()) catch return;
         cbor.writeValue(&stream, self.config_section) catch return;
         cbor.writeValue(&stream, key_event_str.buffered()) catch return;
-        cbor.writeArrayHeader(&stream, binding.commands.len) catch return;
-        for (binding.commands) |cmd| {
+        cbor.writeArrayHeader(&stream, cmds.len) catch return;
+        for (cmds) |cmd| {
             cbor.writeArrayHeader(&stream, 2) catch return;
             cbor.writeValue(&stream, cmd.command) catch return;
             stream.writeAll(cmd.args) catch return;
@@ -921,11 +926,39 @@ const KeyEventSequenceFmt = struct {
     }
 };
 
+const KeyEventSequenceLongFmt = struct {
+    key_events: []const KeyEvent,
+
+    pub fn format(self: @This(), writer: anytype) !void {
+        var first = true;
+        for (self.key_events) |key_event| {
+            if (first) {
+                first = false;
+            } else {
+                try writer.print(" ", .{});
+            }
+            if (key_event.event == input.event.press) {
+                try writer.print("{f}", .{input.key_event_short_fmt(key_event)});
+            } else {
+                try writer.print("{f}:{f}", .{ input.event_fmt(key_event.event), input.key_event_short_fmt(key_event) });
+            }
+        }
+    }
+};
+
 pub fn key_event_sequence_fmt(key_events: []const KeyEvent) KeyEventSequenceFmt {
     return .{ .key_events = key_events };
 }
 
+pub fn key_event_sequence_long_fmt(key_events: []const KeyEvent) KeyEventSequenceLongFmt {
+    return .{ .key_events = key_events };
+}
+
 pub fn current_key_event_sequence_fmt() KeyEventSequenceFmt {
+    return .{ .key_events = globals.current_sequence.items };
+}
+
+pub fn current_key_event_sequence_long_fmt() KeyEventSequenceLongFmt {
     return .{ .key_events = globals.current_sequence.items };
 }
 
