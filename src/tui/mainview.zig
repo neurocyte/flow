@@ -31,6 +31,7 @@ const logview = @import("logview.zig");
 const filelist_view = @import("filelist_view.zig");
 const info_view = @import("info_view.zig");
 const input_view = @import("inputview.zig");
+const keybind_view = @import("keybindview.zig");
 
 const Self = @This();
 const Commands = command.Collection(cmds);
@@ -844,6 +845,11 @@ const cmds = struct {
         try self.toggle_panel_view(input_view, .toggle);
     }
     pub const toggle_inputview_meta: Meta = .{ .description = "Toggle raw input log" };
+
+    pub fn toggle_keybindview(self: *Self, _: Ctx) Result {
+        try self.toggle_panel_view(keybind_view, .toggle);
+    }
+    pub const toggle_keybindview_meta: Meta = .{ .description = "Toggle keybind log" };
 
     pub fn toggle_inspector_view(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(@import("inspector_view.zig"), .toggle);
