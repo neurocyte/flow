@@ -325,6 +325,7 @@ pub const Editor = struct {
         chunks: usize = 0,
         eol_mode: Buffer.EolMode = .lf,
         utf8_sanitized: bool = false,
+        no_changes: bool = false,
     } = null,
     matches: Match.List = .empty,
     match_token: usize = 0,
@@ -6280,10 +6281,21 @@ pub const Editor = struct {
         self.cancel_all_selections();
         self.cancel_all_matches();
         if (state.whole_file) |buf| {
-            state.work_root = try b.load_from_string(buf.items, &state.eol_mode, &state.utf8_sanitized);
-            state.bytes = buf.items.len;
-            state.chunks = 1;
-            primary.cursor = state.old_primary.cursor;
+            const old_hash = blk: {
+                var content: std.Io.Writer.Allocating = .init(self.allocator);
+                defer content.deinit();
+                try root.store(&content.writer, try self.buf_eol_mode());
+                break :blk std.hash.XxHash3.hash(0, content.written());
+            };
+            const new_hash = std.hash.XxHash3.hash(0, buf.items);
+            if (old_hash == new_hash) {
+                state.no_changes = true;
+            } else {
+                state.work_root = try b.load_from_string(buf.items, &state.eol_mode, &state.utf8_sanitized);
+                state.bytes = buf.items.len;
+                state.chunks = 1;
+                primary.cursor = state.old_primary.cursor;
+            }
         } else {
             const sel = primary.enable_selection(root, self.metrics);
             sel.begin = state.begin;
@@ -6291,10 +6303,14 @@ pub const Editor = struct {
             if (state.old_primary_reversed) sel.reverse();
             primary.cursor = sel.end;
         }
-        try self.update_buf_and_eol_mode(state.work_root, state.eol_mode, state.utf8_sanitized);
-        primary.cursor.clamp_to_buffer(state.work_root, self.metrics);
         self.logger.print("filter: done (bytes:{d} chunks:{d})", .{ state.bytes, state.chunks });
-        self.reset_syntax();
+        if (state.no_changes) {
+            self.logger.print("filter: no changes", .{});
+        } else {
+            try self.update_buf_and_eol_mode(state.work_root, state.eol_mode, state.utf8_sanitized);
+            primary.cursor.clamp_to_buffer(state.work_root, self.metrics);
+            self.reset_syntax();
+        }
         self.clamp();
         self.need_render();
         if (self.need_save_after_filter) |info| {
