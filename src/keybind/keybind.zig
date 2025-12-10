@@ -675,7 +675,7 @@ const BindingSet = struct {
             const key_event = input.KeyEvent.from_message(event, keypress, keypress_shifted, text, modifiers);
             if (self.process_key_event(key_event) catch |e| return tp.exit_error(e, @errorReturnTrace())) |binding| {
                 if (enable_match_events)
-                    self.send_match_event(binding);
+                    self.send_match_event(key_event, binding);
                 for (binding.commands) |*cmd| try cmd.execute();
             }
         } else if (try m.match(.{"F"})) {
@@ -774,13 +774,19 @@ const BindingSet = struct {
         }
     }
 
-    fn send_match_event(self: *const @This(), binding: *const Binding) void {
+    fn send_match_event(self: *const @This(), key_event: KeyEvent, binding: *const Binding) void {
         var buf: [tp.max_message_size]u8 = undefined;
         var stream: std.Io.Writer = .fixed(&buf);
-        cbor.writeArrayHeader(&stream, 4) catch return;
+
+        var key_event_buf: [256]u8 = undefined;
+        var key_event_str: std.Io.Writer = .fixed(&key_event_buf);
+        key_event_str.print("{f}", .{key_event}) catch return;
+
+        cbor.writeArrayHeader(&stream, 5) catch return;
         cbor.writeValue(&stream, "K") catch return;
-        cbor.writeValue(&stream, self.name) catch return;
+        cbor.writeValue(&stream, get_namespace()) catch return;
         cbor.writeValue(&stream, self.config_section) catch return;
+        cbor.writeValue(&stream, key_event_str.buffered()) catch return;
         cbor.writeArrayHeader(&stream, binding.commands.len) catch return;
         for (binding.commands) |cmd| {
             cbor.writeArrayHeader(&stream, 2) catch return;

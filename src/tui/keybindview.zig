@@ -26,7 +26,7 @@ const Self = @This();
 const Entry = struct {
     time: i64,
     tdiff: i64,
-    msg: []u8,
+    msg: []const u8,
 };
 const Buffer = ArrayList(Entry);
 
@@ -84,28 +84,27 @@ fn output_tdiff(self: *Self, tdiff: i64) !void {
     }
 }
 
-fn append(self: *Self, msg: []const u8) !void {
+fn keybind_match(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    var namespace: []const u8 = undefined;
+    var section: []const u8 = undefined;
+    var key_event: []const u8 = undefined;
+    var cmds: []const u8 = undefined;
+    if (!(m.match(.{ "K", tp.extract(&namespace), tp.extract(&section), tp.extract(&key_event), tp.extract_cbor(&cmds) }) catch false)) return false;
+
+    var result: Writer.Allocating = .init(self.allocator);
+    defer result.deinit();
+    const writer = &result.writer;
+
+    writer.print("{s}:{s} {s} -> ", .{ namespace, section, key_event }) catch return true;
+    cbor.toJsonWriter(cmds, writer, .{}) catch return true;
+
     const ts = time.microTimestamp();
     const tdiff = if (self.buffer.items.len > 0) ts -| self.buffer.items[self.buffer.items.len - 1].time else 0;
     (try self.buffer.addOne(self.allocator)).* = .{
         .time = ts,
         .tdiff = tdiff,
-        .msg = try self.allocator.dupeZ(u8, msg),
+        .msg = result.toOwnedSlice() catch return true,
     };
-}
-
-fn keybind_match(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
-    var namespace: []const u8 = undefined;
-    var section: []const u8 = undefined;
-    var cmds: []const u8 = undefined;
-    if (!(m.match(.{ "K", tp.extract(&namespace), tp.extract(&section), tp.extract_cbor(&cmds) }) catch false)) return false;
-
-    var result: Writer.Allocating = .init(self.allocator);
-    defer result.deinit();
-    const writer = &result.writer;
-    cbor.toJsonWriter(m.buf, writer, .{}) catch return true;
-
-    self.append(result.written()) catch return true;
     return true;
 }
 
