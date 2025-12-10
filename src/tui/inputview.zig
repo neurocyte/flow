@@ -5,6 +5,7 @@ const ArrayList = @import("std").ArrayList;
 const Writer = @import("std").Io.Writer;
 
 const tp = @import("thespian");
+const cbor = @import("cbor");
 
 const Plane = @import("renderer").Plane;
 const EventHandler = @import("EventHandler");
@@ -12,6 +13,7 @@ const input = @import("input");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
+const MessageFilter = @import("MessageFilter.zig");
 
 pub const name = "inputview";
 
@@ -42,10 +44,14 @@ pub fn create(allocator: Allocator, parent: Plane) !Widget {
         .buffer = .empty,
     };
     try tui.input_listeners().add(EventHandler.bind(self, listen));
+    try tui.message_filters().add(MessageFilter.bind(self, keybind_match));
+    tui.enable_match_events();
     return Widget.to(self);
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    tui.disable_match_events();
+    tui.message_filters().remove_ptr(self);
     tui.input_listeners().remove_ptr(self);
     for (self.buffer.items) |item|
         self.allocator.free(item.json);
@@ -101,7 +107,7 @@ fn append(self: *Self, json: []const u8) !void {
     };
 }
 
-pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     if (try m.match(.{ "M", tp.more })) return;
     var buf: [4096]u8 = undefined;
     const json = m.to_json(&buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -127,6 +133,20 @@ pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
         writer.print(" -> {f}", .{key_event}) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     self.append(result.written()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+}
+
+fn keybind_match(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    var cmds: []const u8 = undefined;
+    if (!(m.match(.{ "keybind_match", tp.extract_cbor(&cmds) }) catch false)) return false;
+
+    var result: Writer.Allocating = .init(self.allocator);
+    defer result.deinit();
+    const writer = &result.writer;
+    writer.writeAll("keybind -> ") catch return true;
+    cbor.toJsonWriter(cmds, writer, .{}) catch return true;
+
+    self.append(result.written()) catch return true;
+    return true;
 }
 
 pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
