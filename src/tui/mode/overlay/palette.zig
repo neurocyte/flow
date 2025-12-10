@@ -554,6 +554,12 @@ pub fn Create(options: type) type {
                 .icon = "󰗨",
             };
 
+            pub fn palette_menu_complete(self: *Self, _: Ctx) Result {
+                if (@hasDecl(options, "complete"))
+                    options.complete(self, self.menu.get_selected()) catch {};
+            }
+            pub const palette_menu_complete_meta: Meta = .{};
+
             pub fn palette_menu_activate(self: *Self, _: Ctx) Result {
                 self.menu.activate_selected();
             }
