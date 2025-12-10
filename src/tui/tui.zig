@@ -2357,3 +2357,11 @@ pub fn set_last_palette(type_: PaletteType, ctx: command.Context) void {
         .ctx = .{ .args = ctx.args.clone(self.allocator) catch return },
     };
 }
+
+pub fn enable_match_events() void {
+    keybind.enable_match_events = true;
+}
+
+pub fn disable_match_events() void {
+    keybind.enable_match_events = false;
+}
