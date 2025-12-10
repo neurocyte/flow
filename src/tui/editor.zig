@@ -6281,6 +6281,10 @@ pub const Editor = struct {
         self.cancel_all_selections();
         self.cancel_all_matches();
         if (state.whole_file) |buf| {
+            if (buf.items.len == 0) {
+                self.logger.print_err("filter", "empty filter result", .{});
+                return;
+            }
             const old_hash = blk: {
                 var content: std.Io.Writer.Allocating = .init(self.allocator);
                 defer content.deinit();
