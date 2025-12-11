@@ -44,6 +44,7 @@
             ["f10", "theme_next"],
             ["f11", "toggle_panel"],
             ["alt+f11", "toggle_color_scheme"],
+            ["alt+f9", "panel_next_widget_style"],
             ["shift+alt+f9", "hint_window_next_widget_style"],
             ["alt+!", "run_task"],
             ["ctrl+tab", "next_tab"],
@@ -527,6 +528,7 @@
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
+            ["alt+f9", "panel_next_widget_style"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
             ["ctrl+u", "mini_mode_reset"],

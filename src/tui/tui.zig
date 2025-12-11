@@ -1552,6 +1552,13 @@ const cmds = struct {
     }
     pub const shrink_centered_view_meta: Meta = .{ .description = "Shrink centered view" };
 
+    pub fn panel_next_widget_style(_: *Self, _: Ctx) Result {
+        set_next_style(.panel);
+        need_render();
+        try save_config();
+    }
+    pub const panel_next_widget_style_meta: Meta = .{};
+
     pub fn hint_window_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.hint_window);
         need_render();
