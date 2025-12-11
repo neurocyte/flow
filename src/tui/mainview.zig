@@ -273,7 +273,7 @@ fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
 
 fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, disable }) !void {
     if (self.panels) |panels| {
-        if (panels.get(@typeName(view))) |w| {
+        if (self.get_panel(@typeName(view))) |w| {
             if (mode != .enable) {
                 panels.remove(w.*);
                 if (panels.empty()) {
@@ -292,6 +292,14 @@ fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, di
         self.panels = panels;
     }
     tui.resize();
+}
+
+fn get_panel(self: *Self, name_: []const u8) ?*Widget {
+    if (self.panels) |panels|
+        for (panels.widgets.items) |*w|
+            if (w.widget.get(name_)) |_|
+                return &w.widget;
+    return null;
 }
 
 fn get_panel_view(self: *Self, comptime view: type) ?*view {
