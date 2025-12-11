@@ -2219,6 +2219,7 @@ pub fn set_next_style(widget_type: WidgetType) void {
     ref.* = next_widget_style(ref.*);
     const self = current();
     self.logger.print("{t} style {t}", .{ widget_type, ref.* });
+    resize();
 }
 
 fn next_widget_style(tag: ConfigWidgetStyle) ConfigWidgetStyle {
