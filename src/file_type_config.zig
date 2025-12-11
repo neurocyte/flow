@@ -7,6 +7,7 @@ comment: ?[]const u8 = null,
 parser: ?[]const u8 = null,
 formatter: ?[]const []const u8 = null,
 language_server: ?[]const []const u8 = null,
+language_server_options: ?[]const u8 = null,
 first_line_matches_prefix: ?[]const u8 = null,
 first_line_matches_content: ?[]const u8 = null,
 first_line_matches: ?[]const u8 = null,
@@ -36,6 +37,7 @@ fn from_file_type(file_type: syntax.FileType) @This() {
         .comment = file_type.comment,
         .formatter = lsp_defaults.formatter,
         .language_server = lsp_defaults.language_server,
+        .language_server_options = "",
     };
 }
 

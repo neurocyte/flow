@@ -314,7 +314,7 @@ fn get_existing_language_server(self: *Self, language_server: []const u8) ?*cons
     return null;
 }
 
-fn get_language_server_instance(self: *Self, language_server: []const u8) StartLspError!*const LSP {
+fn get_language_server_instance(self: *Self, language_server: []const u8, language_server_options: []const u8) StartLspError!*const LSP {
     if (self.get_existing_language_server(language_server)) |lsp| return lsp;
     const lsp = try LSP.open(self.allocator, self.name, .{ .buf = language_server });
     errdefer lsp.deinit();
@@ -324,15 +324,15 @@ fn get_language_server_instance(self: *Self, language_server: []const u8) StartL
     const basename = if (basename_begin) |begin| self.name[begin + 1 ..] else self.name;
 
     errdefer lsp.deinit();
-    try self.send_lsp_init_request(lsp, self.name, basename, uri, language_server);
+    try self.send_lsp_init_request(lsp, self.name, basename, uri, language_server, language_server_options);
     try self.language_servers.put(try self.allocator.dupe(u8, language_server), lsp);
     return lsp;
 }
 
-fn get_or_start_language_server(self: *Self, file_path: []const u8, language_server: []const u8) StartLspError!*const LSP {
+fn get_or_start_language_server(self: *Self, file_path: []const u8, language_server: []const u8, language_server_options: []const u8) StartLspError!*const LSP {
     if (self.file_language_server_name.get(file_path)) |lsp_name|
         return self.get_existing_language_server(lsp_name) orelse error.LspFailed;
-    const lsp = try self.get_language_server_instance(language_server);
+    const lsp = try self.get_language_server_instance(language_server, language_server_options);
     const key = try self.allocator.dupe(u8, file_path);
     const value = try self.allocator.dupe(u8, language_server);
     try self.file_language_server_name.put(key, value);
@@ -762,10 +762,10 @@ pub fn delete_task(self: *Self, command: []const u8) error{}!void {
         };
 }
 
-pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) StartLspError!void {
+pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, version: usize, text: []const u8) StartLspError!void {
     defer std.heap.c_allocator.free(text);
     self.update_mru(file_path, 0, 0) catch {};
-    const lsp = try self.get_or_start_language_server(file_path, language_server);
+    const lsp = try self.get_or_start_language_server(file_path, language_server, language_server_options);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
     lsp.send_notification("textDocument/didOpen", .{
@@ -1999,7 +1999,7 @@ pub fn unsupported_lsp_request(self: *Self, from: tp.pid_ref, cbor_id: []const u
     return LSP.send_error_response(self.allocator, from, cbor_id, LSP.ErrorCode.MethodNotFound, method) catch error.ClientFailed;
 }
 
-fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8) !void {
+fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8, language_server_options: []const u8) !void {
     const handler: struct {
         language_server: []const u8,
         lsp: LSP,
@@ -2025,8 +2025,28 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
     };
 
     const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
+    const Options = struct {
+        pub fn cborEncode(options: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+            const msg = std.mem.replaceOwned(u8, options.alloc, options.option, "\\\"", "\"") catch {
+                try cbor.writeValue(writer, "");
+                return;
+            };
+            defer options.alloc.free(msg);
 
+            const toCbor = cbor.fromJsonAlloc(options.alloc, msg[1..]) catch {
+                try cbor.writeValue(writer, "");
+                return;
+            };
+            defer options.alloc.free(toCbor);
+
+            writer.writeAll(toCbor) catch return error.WriteFailed;
+        }
+        option: []const u8,
+        alloc: std.mem.Allocator,
+    };
+    const initOptions: Options = .{ .option = language_server_options, .alloc = self.allocator };
     try lsp.send_request(self.allocator, "initialize", .{
+        .initializationOptions = initOptions,
         .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
         .rootPath = project_path,
         .rootUri = project_uri,
