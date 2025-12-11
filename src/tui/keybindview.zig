@@ -83,10 +83,10 @@ fn output_tdiff(self: *Self, tdiff: i64) !void {
     if (msi == 0) {
         const d: f64 = @floatFromInt(tdiff);
         const ms = d / time.us_per_ms;
-        _ = try self.plane.print("{d:6.2}▎", .{ms});
+        _ = try self.plane.print("{d:6.2} ▏", .{ms});
     } else {
         const ms: u64 = @intCast(msi);
-        _ = try self.plane.print("{d:6}▎", .{ms});
+        _ = try self.plane.print("{d:6} ▏", .{ms});
     }
 }
 
