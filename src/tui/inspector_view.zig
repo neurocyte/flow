@@ -12,6 +12,7 @@ const EventHandler = @import("EventHandler");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
+const WidgetList = @import("WidgetList.zig");
 const ed = @import("editor.zig");
 
 pub const name = @typeName(Self);
@@ -22,17 +23,21 @@ theme: ?*const Widget.Theme = null,
 last_node: usize = 0,
 
 const Self = @This();
+const widget_type: Widget.Type = .panel;
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
     const editor = tui.get_active_editor() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
+    const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);
     self.* = .{
         .plane = try Plane.init(&(Widget.Box{}).opts_vscroll(name), parent),
         .editor = editor,
     };
     try editor.handlers.add(EventHandler.bind(self, ed_receive));
-    return Widget.to(self);
+    container.ctx = self;
+    try container.add(Widget.to(self));
+    return container.widget();
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
