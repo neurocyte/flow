@@ -192,7 +192,8 @@ pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usi
         return error.NoProject;
     const text_ptr: usize = if (text.len > 0) @intFromPtr(text.ptr) else 0;
     const language_server = file_type.language_server orelse return;
-    return send(.{ "did_open", project, file_path, file_type.name, language_server, version, text_ptr, text.len });
+    const language_server_options = file_type.language_server_options orelse return;
+    return send(.{ "did_open", project, file_path, file_type.name, language_server, language_server_options, version, text_ptr, text.len });
 }
 
 pub fn did_change(file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectManagerError || ProjectError)!void {
@@ -376,6 +377,7 @@ const Process = struct {
         var query: []const u8 = undefined;
         var file_type: []const u8 = undefined;
         var language_server: []const u8 = undefined;
+        var language_server_options: []const u8 = undefined;
         var method: []const u8 = undefined;
         var cbor_id: []const u8 = undefined;
         var params_cb: []const u8 = undefined;
@@ -444,9 +446,9 @@ const Process = struct {
             self.add_task(project_directory, task) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "delete_task", tp.extract(&project_directory), tp.extract(&task) })) {
             self.delete_task(project_directory, task) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
+        } else if (try cbor.match(m.buf, .{ "did_open", tp.extract(&project_directory), tp.extract(&path), tp.extract(&file_type), tp.extract_cbor(&language_server), tp.extract_cbor(&language_server_options), tp.extract(&version), tp.extract(&text_ptr), tp.extract(&text_len) })) {
             const text = if (text_len > 0) @as([*]const u8, @ptrFromInt(text_ptr))[0..text_len] else "";
-            self.did_open(project_directory, path, file_type, language_server, version, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+            self.did_open(project_directory, path, file_type, language_server, language_server_options, version, text) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_change", tp.extract(&project_directory), tp.extract(&path), tp.extract(&version), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len), tp.extract(&eol_mode) })) {
             const text_dst = if (text_dst_len > 0) @as([*]const u8, @ptrFromInt(text_dst_ptr))[0..text_dst_len] else "";
             const text_src = if (text_src_len > 0) @as([*]const u8, @ptrFromInt(text_src_ptr))[0..text_src_len] else "";
@@ -635,11 +637,11 @@ const Process = struct {
         try project.request_vcs_status(from);
     }
 
-    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, version: usize, text: []const u8) (ProjectError || Project.StartLspError || CallError || cbor.Error)!void {
+    fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, version: usize, text: []const u8) (ProjectError || Project.StartLspError || CallError || cbor.Error)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_open" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.did_open(file_path, file_type, language_server, version, text);
+        return project.did_open(file_path, file_type, language_server, language_server_options, version, text);
     }
 
     fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectError || Project.LspError)!void {
