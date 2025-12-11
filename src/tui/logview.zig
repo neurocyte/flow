@@ -10,6 +10,7 @@ const cbor = @import("cbor");
 const Plane = @import("renderer").Plane;
 
 const Widget = @import("Widget.zig");
+const WidgetList = @import("WidgetList.zig");
 const MessageFilter = @import("MessageFilter.zig");
 
 const escape = @import("std").ascii.hexEscape;
@@ -22,6 +23,7 @@ var persistent_buffer: ?Buffer = null;
 var last_count: u64 = 0;
 
 const Self = @This();
+const widget_type: Widget.Type = .panel;
 
 const Entry = struct {
     src: []u8,
@@ -40,8 +42,11 @@ const Level = enum {
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
+    const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);
     self.* = .{ .plane = try Plane.init(&(Widget.Box{}).opts(name), parent) };
-    return Widget.to(self);
+    container.ctx = self;
+    try container.add(Widget.to(self));
+    return container.widget();
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
