@@ -8,6 +8,7 @@ const write_string = text_manip.write_string;
 const write_padding = text_manip.write_padding;
 const command = @import("command");
 const Buffer = @import("Buffer");
+const SymbolKind = @import("lsp_types").SymbolKind;
 
 const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
@@ -109,7 +110,7 @@ pub fn load_entries(palette: *Type) !usize {
         const label_, const parent_, const kind, const sel = get_values(cbor_item);
         (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = label_[0..@min(columns[0].max_width, label_.len)], .range = sel };
 
-        const current_lengths: [3]usize = .{ label_.len, parent_.len, kind_name(@enumFromInt(kind)).len };
+        const current_lengths: [3]usize = .{ label_.len, parent_.len, @tagName(kind).len };
         const label_len: u8 = @truncate(if (label_.len > columns[0].max_width) columns[0].max_width else label_.len);
         max_cols_len = @max(max_cols_len, label_len, update_max_col_sizes(palette, &current_lengths));
         max_label_len = @max(max_label_len, label_len);
@@ -153,19 +154,19 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) return false;
 
     const label_, const container, const kind, _ = get_values(item_cbor);
-    const icon_: []const u8 = kind_icon(@enumFromInt(kind));
+    const icon_: []const u8 = kind.icon();
     const color: u24 = 0x0;
     var value: std.Io.Writer.Allocating = .init(palette.allocator);
     defer value.deinit();
     const writer = &value.writer;
-    var column_info = [_][]const u8{ label_, container, kind_name(@enumFromInt(kind)) };
+    var column_info = [_][]const u8{ label_, container, @tagName(kind) };
     write_columns(palette, writer, &column_info);
     const indicator: []const u8 = &.{};
 
     return tui.render_file_item(&button.plane, value.written(), icon_, color, indicator, &.{}, matches_cbor, button.active, selected, button.hover, theme);
 }
 
-fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, ed.Selection } {
+fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, SymbolKind, ed.Selection } {
     var label_: []const u8 = "";
     var container: []const u8 = "";
     var kind: u8 = 0;
@@ -187,7 +188,7 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, u8, ed.Sel
         cbor.any, // deprecated
         cbor.any, // detail
     }) catch false;
-    return .{ label_, container, kind, range };
+    return .{ label_, container, @enumFromInt(kind), range };
 }
 
 fn find_closest(palette: *Type) ?usize {
@@ -220,70 +221,4 @@ pub fn cancel(palette: *Type) !void {
     const editor = tui.get_active_editor() orelse return;
     editor.clear_matches();
     editor.update_scroll_dest_abs(palette.value.view.row);
-}
-
-const SymbolKind = enum(u8) {
-    None = 0,
-    File = 1,
-    Module = 2,
-    Namespace = 3,
-    Package = 4,
-    Class = 5,
-    Method = 6,
-    Property = 7,
-    Field = 8,
-    Constructor = 9,
-    Enum = 10,
-    Interface = 11,
-    Function = 12,
-    Variable = 13,
-    Constant = 14,
-    String = 15,
-    Number = 16,
-    Boolean = 17,
-    Array = 18,
-    Object = 19,
-    Key = 20,
-    Null = 21,
-    EnumMember = 22,
-    Struct = 23,
-    Event = 24,
-    Operator = 25,
-    TypeParameter = 26,
-};
-
-fn kind_icon(kind: SymbolKind) []const u8 {
-    return switch (kind) {
-        .None => " ",
-        .File => "",
-        .Module => "",
-        .Namespace => "",
-        .Package => "",
-        .Class => "",
-        .Method => "",
-        .Property => "",
-        .Field => "",
-        .Constructor => "",
-        .Enum => "",
-        .Interface => "",
-        .Function => "󰊕",
-        .Variable => "",
-        .Constant => "",
-        .String => "",
-        .Number => "",
-        .Boolean => "",
-        .Array => "",
-        .Object => "",
-        .Key => "",
-        .Null => "󰟢",
-        .EnumMember => "",
-        .Struct => "",
-        .Event => "",
-        .Operator => "",
-        .TypeParameter => "",
-    };
-}
-
-fn kind_name(kind: SymbolKind) []const u8 {
-    return @tagName(kind);
 }

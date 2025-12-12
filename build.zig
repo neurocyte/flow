@@ -418,6 +418,10 @@ pub fn build_exe(
         .root_source_file = b.path("src/snippet.zig"),
     });
 
+    const lsp_types_mod = b.createModule(.{
+        .root_source_file = b.path("src/lsp_types.zig"),
+    });
+
     const Buffer_mod = b.createModule(.{
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
@@ -635,6 +639,7 @@ pub fn build_exe(
             .{ .name = "VcsStatus", .module = VcsStatus_mod },
             .{ .name = "bin_path", .module = bin_path_mod },
             .{ .name = "snippet", .module = snippet_mod },
+            .{ .name = "lsp_types", .module = lsp_types_mod },
         },
     });
 

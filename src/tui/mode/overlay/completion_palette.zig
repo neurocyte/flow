@@ -5,6 +5,7 @@ const root = @import("soft_root").root;
 const command = @import("command");
 const Buffer = @import("Buffer");
 const builtin = @import("builtin");
+const CompletionItemKind = @import("lsp_types").CompletionItemKind;
 
 const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
@@ -104,7 +105,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) return false;
 
     const values = get_values(item_cbor);
-    const icon_: []const u8 = kind_icon(@enumFromInt(values.kind));
+    const icon_: []const u8 = values.kind.icon();
     const color: u24 = 0x0;
 
     return tui.render_symbol(
@@ -125,7 +126,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
 const Values = struct {
     label: []const u8,
     sort_text: []const u8,
-    kind: u8,
+    kind: CompletionItemKind,
     replace: Buffer.Selection,
     additionalTextEdits: []const u8,
     label_detail: []const u8,
@@ -179,7 +180,7 @@ fn get_values(item_cbor: []const u8) Values {
     return .{
         .label = label_,
         .sort_text = sort_text,
-        .kind = kind,
+        .kind = @enumFromInt(kind),
         .replace = replace,
         .additionalTextEdits = additionalTextEdits,
         .label_detail = label_detail,
@@ -252,64 +253,4 @@ pub fn cancel(palette: *Type) !void {
     editor.get_primary().selection = palette.value.start.selection;
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
-}
-
-const CompletionItemKind = enum(u8) {
-    None = 0,
-    Text = 1,
-    Method = 2,
-    Function = 3,
-    Constructor = 4,
-    Field = 5,
-    Variable = 6,
-    Class = 7,
-    Interface = 8,
-    Module = 9,
-    Property = 10,
-    Unit = 11,
-    Value = 12,
-    Enum = 13,
-    Keyword = 14,
-    Snippet = 15,
-    Color = 16,
-    File = 17,
-    Reference = 18,
-    Folder = 19,
-    EnumMember = 20,
-    Constant = 21,
-    Struct = 22,
-    Event = 23,
-    Operator = 24,
-    TypeParameter = 25,
-};
-
-fn kind_icon(kind: CompletionItemKind) []const u8 {
-    return switch (kind) {
-        .None => " ",
-        .Text => "󰊄",
-        .Method => "",
-        .Function => "󰊕",
-        .Constructor => "",
-        .Field => "",
-        .Variable => "",
-        .Class => "",
-        .Interface => "",
-        .Module => "",
-        .Property => "",
-        .Unit => "󱔁",
-        .Value => "󱔁",
-        .Enum => "",
-        .Keyword => "",
-        .Snippet => "",
-        .Color => "",
-        .File => "",
-        .Reference => "※",
-        .Folder => "🗀",
-        .EnumMember => "",
-        .Constant => "",
-        .Struct => "",
-        .Event => "",
-        .Operator => "",
-        .TypeParameter => "",
-    };
 }
