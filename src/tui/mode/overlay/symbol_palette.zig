@@ -74,7 +74,7 @@ fn update_max_col_sizes(palette: *Type, comp_sizes: []const usize) u8 {
     return total_length;
 }
 
-fn write_columns(palette: *Type, writer: anytype, column_info: [][]const u8) void {
+fn write_columns(palette: *Type, writer: *std.Io.Writer, column_info: [][]const u8) void {
     if (palette.value.column_size.len == 0)
         return;
     write_string(writer, column_info[0][0..@min(palette.value.column_size[0], column_info[0].len)], columns[0].max_width) catch {};

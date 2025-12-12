@@ -90,11 +90,11 @@ pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, allocator: st
     return result.toOwnedSlice(allocator);
 }
 
-pub fn write_string(writer: anytype, string: []const u8, pad: ?usize) !void {
+pub fn write_string(writer: *std.Io.Writer, string: []const u8, pad: ?usize) !void {
     try writer.writeAll(string);
     if (pad) |pad_| try write_padding(writer, string.len, pad_);
 }
 
-pub fn write_padding(writer: anytype, len: usize, pad_len: usize) !void {
+pub fn write_padding(writer: *std.Io.Writer, len: usize, pad_len: usize) !void {
     for (0..pad_len - len) |_| try writer.writeAll(" ");
 }
