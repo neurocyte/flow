@@ -482,6 +482,21 @@ pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize, 
     return colcount;
 }
 
+pub fn egc_chunk_col_pos(self: *const Plane, chunk_: []const u8, abs_col_: usize, tab_width: usize, col: usize) usize {
+    var abs_col = abs_col_;
+    var chunk = chunk_;
+    var colcount: usize = 0;
+    var cols: c_int = 0;
+    while (chunk.len > 0 and colcount < col) {
+        const bytes = self.egc_length(chunk, &cols, abs_col, tab_width);
+        colcount += @intCast(cols);
+        abs_col += @intCast(cols);
+        if (chunk.len < bytes) break;
+        chunk = chunk[bytes..];
+    }
+    return chunk_.len - chunk.len;
+}
+
 pub fn egc_last(egcs: []const u8) []const u8 {
     var iter = vaxis.unicode.graphemeIterator(egcs);
     var last: []const u8 = egcs[0..0];

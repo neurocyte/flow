@@ -1749,6 +1749,10 @@ pub fn egc_chunk_width(chunk: []const u8, abs_col: usize, tab_width: usize) usiz
     return plane().egc_chunk_width(chunk, abs_col, tab_width);
 }
 
+pub fn egc_chunk_col_pos(chunk: []const u8, abs_col: usize, tab_width: usize, col: usize) usize {
+    return plane().egc_chunk_col_pos(chunk, abs_col, tab_width, col);
+}
+
 pub fn egc_last(egcs: []const u8) []const u8 {
     return renderer.Plane.egc_last(egcs);
 }
