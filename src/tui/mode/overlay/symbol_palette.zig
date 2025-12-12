@@ -110,8 +110,7 @@ pub fn load_entries(palette: *Type) !usize {
         const label_, const parent_, const kind, const sel = get_values(cbor_item);
         const label_len_ = tui.egc_chunk_width(label_, 0, 1);
         const parent_len = tui.egc_chunk_width(parent_, 0, 1);
-        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = label_[0..@min(columns[0].max_width, label_len_)], .range = sel };
-
+        (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = label_[0..@min(columns[0].max_width, label_.len)], .range = sel };
 
         const current_lengths: [3]usize = .{ label_len_, parent_len, @tagName(kind).len };
         const label_len: u8 = @truncate(if (label_len_ > columns[0].max_width) columns[0].max_width else label_len_);
