@@ -184,17 +184,18 @@ pub fn Create(options: type) type {
             return false;
         }
 
-        fn prepare_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) Widget.Box {
-            return self.prepare_resize();
+        fn prepare_resize_menu(self: *Self, menu: *Menu.State(*Self), _: Widget.Box) Widget.Box {
+            const padding = tui.get_widget_style(menu.opts.style).padding;
+            return self.prepare_resize(padding);
         }
 
-        fn prepare_resize(self: *Self) Widget.Box {
+        fn prepare_resize(self: *Self, padding: Widget.Style.Margin) Widget.Box {
             const screen = tui.screen();
             const w = self.prepare_width(screen);
             return switch (self.placement) {
                 .top_center => self.prepare_resize_top_center(screen, w),
                 .top_left => self.prepare_resize_top_left(screen, w),
-                .top_right => self.prepare_resize_top_right(screen, w),
+                .top_right => self.prepare_resize_top_right(screen, w, padding),
             };
         }
 
@@ -217,8 +218,8 @@ pub fn Create(options: type) type {
             return self.prepare_resize_at_x(screen, w, 0);
         }
 
-        fn prepare_resize_top_right(self: *Self, screen: Widget.Box, w: usize) Widget.Box {
-            const x = if (screen.w > w) (screen.w - w) else 0;
+        fn prepare_resize_top_right(self: *Self, screen: Widget.Box, w: usize, padding: Widget.Style.Margin) Widget.Box {
+            const x = if (screen.w > (w - padding.right)) (screen.w - w - padding.right) else 0;
             if (tui.mainview()) |mv| if (mv.is_view_centered()) {
                 const centered_view_width = tui.config().centered_view_width;
                 const right_edge = ((screen.w - centered_view_width) / 2) + centered_view_width;
@@ -237,7 +238,7 @@ pub fn Create(options: type) type {
         }
 
         fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
-            const box = self.prepare_resize();
+            const box = self.prepare_resize(padding);
             self.menu.resize(box.to_client_box(padding));
             self.after_resize();
         }
