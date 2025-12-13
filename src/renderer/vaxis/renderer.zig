@@ -284,7 +284,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             const cbor_msg = try self.fmtmsg(.{
                 "I",
                 input.event.press,
-                key_.base_layout_codepoint orelse key_.codepoint,
+                key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
                 text orelse "",
                 @as(u8, @bitCast(key_.mods)),
@@ -298,7 +298,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
             const cbor_msg = try self.fmtmsg(.{
                 "I",
                 input.event.release,
-                key_.base_layout_codepoint orelse key_.codepoint,
+                key_.codepoint,
                 key_.shifted_codepoint orelse key_.codepoint,
                 text orelse "",
                 @as(u8, @bitCast(key_.mods)),
