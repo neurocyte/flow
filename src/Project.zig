@@ -2025,28 +2025,22 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
     };
 
     const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
-    const Options = struct {
-        pub fn cborEncode(options: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
-            const msg = std.mem.replaceOwned(u8, options.alloc, options.option, "\\\"", "\"") catch {
-                try cbor.writeValue(writer, "");
+    const initializationOptions: struct {
+        pub fn cborEncode(self_: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+            const toCbor = cbor.fromJsonAlloc(self_.alloc, self_.options) catch {
+                try cbor.writeValue(writer, cbor.null_);
                 return;
             };
-            defer options.alloc.free(msg);
-
-            const toCbor = cbor.fromJsonAlloc(options.alloc, msg[1..]) catch {
-                try cbor.writeValue(writer, "");
-                return;
-            };
-            defer options.alloc.free(toCbor);
+            defer self_.alloc.free(toCbor);
 
             writer.writeAll(toCbor) catch return error.WriteFailed;
         }
-        option: []const u8,
+        options: []const u8,
         alloc: std.mem.Allocator,
-    };
-    const initOptions: Options = .{ .option = language_server_options, .alloc = self.allocator };
+    } = .{ .options = language_server_options, .alloc = self.allocator };
+
     try lsp.send_request(self.allocator, "initialize", .{
-        .initializationOptions = initOptions,
+        .initializationOptions = initializationOptions,
         .processId = if (builtin.os.tag == .linux) std.os.linux.getpid() else null,
         .rootPath = project_path,
         .rootUri = project_uri,
