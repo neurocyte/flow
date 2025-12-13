@@ -119,7 +119,7 @@ pub const KeyEvent = struct {
     pub fn from_message(
         event_: Event,
         keypress_: Key,
-        keypress_shifted_: Key,
+        keypress_shifted: Key,
         text: []const u8,
         modifiers: Mods,
     ) @This() {
@@ -131,10 +131,6 @@ pub const KeyEvent = struct {
             else => modifiers,
         };
 
-        var keypress_shifted: Key = keypress_shifted_;
-        if (text.len > 0) blk: {
-            keypress_shifted = tryUtf8Decode(text) catch break :blk;
-        }
         const keypress, const mods = if (keypress_shifted == keypress_)
             map_key_to_unshifed_legacy(keypress_shifted, mods_)
         else
