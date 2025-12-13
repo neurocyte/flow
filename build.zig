@@ -378,6 +378,13 @@ pub fn build_exe(
         },
     });
 
+    const lsp_config_mod = b.createModule(.{
+        .root_source_file = b.path("src/lsp_config.zig"),
+        .imports = &.{
+            .{ .name = "soft_root", .module = soft_root_mod },
+        },
+    });
+
     const log_mod = b.createModule(.{
         .root_source_file = b.path("src/log.zig"),
         .imports = &.{
@@ -579,6 +586,7 @@ pub fn build_exe(
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "file_type_config", .module = file_type_config_mod },
+            .{ .name = "lsp_config", .module = lsp_config_mod },
             .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
             .{ .name = "fuzzig", .module = fuzzig_dep.module("fuzzig") },
             .{ .name = "git", .module = git_mod },
