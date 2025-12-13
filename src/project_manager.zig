@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const log = @import("log");
 const tracy = @import("tracy");
 const file_type_config = @import("file_type_config");
+const lsp_config = @import("lsp_config");
 const root = @import("soft_root").root;
 const Buffer = @import("Buffer");
 const builtin = @import("builtin");
@@ -192,7 +193,8 @@ pub fn did_open(file_path: []const u8, file_type: file_type_config, version: usi
         return error.NoProject;
     const text_ptr: usize = if (text.len > 0) @intFromPtr(text.ptr) else 0;
     const language_server = file_type.language_server orelse return;
-    const language_server_options = file_type.language_server_options orelse return;
+    const language_server_options = if (file_type.language_server) |lsp| lsp_config.get(project, lsp[0]) orelse &.{} else &.{};
+    defer lsp_config.allocator.free(language_server_options);
     return send(.{ "did_open", project, file_path, file_type.name, language_server, language_server_options, version, text_ptr, text.len });
 }
 
