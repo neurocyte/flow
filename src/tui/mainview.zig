@@ -10,6 +10,7 @@ const log = @import("log");
 const shell = @import("shell");
 const syntax = @import("syntax");
 const file_type_config = @import("file_type_config");
+const lsp_config = @import("lsp_config");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 
@@ -683,6 +684,27 @@ const cmds = struct {
         .arguments = &.{.string},
         .description = "Edit file type configuration",
     };
+
+    pub fn open_lsp_config_global(self: *Self, _: Ctx) Result {
+        const editor = self.get_active_editor() orelse return no_lsp_error();
+        const file_type = editor.file_type orelse return no_lsp_error();
+        const language_server = file_type.language_server orelse return no_lsp_error();
+        const lsp_name = language_server[0];
+        const file_name = try lsp_config.get_config_file_path(null, lsp_name, .global, .mk_parents);
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+    }
+    pub const open_lsp_config_global_meta: Meta = .{ .description = "Edit LSP configuration (global)" };
+
+    pub fn open_lsp_config_project(self: *Self, _: Ctx) Result {
+        const editor = self.get_active_editor() orelse return no_lsp_error();
+        const file_type = editor.file_type orelse return no_lsp_error();
+        const language_server = file_type.language_server orelse return no_lsp_error();
+        const lsp_name = language_server[0];
+        const project = tp.env.get().str("project");
+        const file_name = try lsp_config.get_config_file_path(project, lsp_name, .project, .mk_parents);
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
+    }
+    pub const open_lsp_config_project_meta: Meta = .{ .description = "Edit LSP configuration (project)" };
 
     pub fn create_scratch_buffer(self: *Self, ctx: Ctx) Result {
         const args = try ctx.args.clone(self.allocator);
@@ -1437,6 +1459,12 @@ const cmds = struct {
     }
     pub const place_next_tab_meta: Meta = .{ .arguments = &.{ .string, .integer } };
 };
+
+fn no_lsp_error() void {
+    const logger = log.logger("editor");
+    defer logger.deinit();
+    logger.print("no LSP currently in use", .{});
+}
 
 pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
     const editor = self.get_active_editor() orelse return;
