@@ -623,6 +623,7 @@ pub fn build_exe(
             .{ .name = "config", .module = config_mod },
             .{ .name = "gui_config", .module = gui_config_mod },
             .{ .name = "file_type_config", .module = file_type_config_mod },
+            .{ .name = "lsp_config", .module = lsp_config_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "command", .module = command_mod },
             .{ .name = "EventHandler", .module = EventHandler_mod },
