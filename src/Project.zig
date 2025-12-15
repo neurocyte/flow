@@ -2026,18 +2026,19 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
 
     const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
     const initializationOptions: struct {
-        pub fn cborEncode(self_: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
-            const toCbor = cbor.fromJsonAlloc(self_.alloc, self_.options) catch {
+        pub fn cborEncode(ctx: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+            const toCbor = cbor.fromJsonAlloc(ctx.self.allocator, ctx.language_server_options) catch {
                 try cbor.writeValue(writer, null);
+                ctx.self.logger_lsp.print_err("init", "ignored invalid JSON in LSP initialization options", .{});
                 return;
             };
-            defer self_.alloc.free(toCbor);
+            defer ctx.self.allocator.free(toCbor);
 
             writer.writeAll(toCbor) catch return error.WriteFailed;
         }
-        options: []const u8,
-        alloc: std.mem.Allocator,
-    } = .{ .options = language_server_options, .alloc = self.allocator };
+        self: *Self,
+        language_server_options: []const u8,
+    } = .{ .self = self, .language_server_options = language_server_options };
 
     try lsp.send_request(self.allocator, "initialize", .{
         .initializationOptions = initializationOptions,
