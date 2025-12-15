@@ -2027,6 +2027,10 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
     const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
     const initializationOptions: struct {
         pub fn cborEncode(ctx: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+            if (ctx.language_server_options.len == 0) {
+                try cbor.writeValue(writer, null);
+                return;
+            }
             const toCbor = cbor.fromJsonAlloc(ctx.self.allocator, ctx.language_server_options) catch {
                 try cbor.writeValue(writer, null);
                 ctx.self.logger_lsp.print_err("init", "ignored invalid JSON in LSP initialization options", .{});
