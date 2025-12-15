@@ -97,6 +97,7 @@
             ["?", "rfind"],
             ["N", "goto_prev_match"],
             ["*", "search_selection"],
+            ["kp_multiply", "search_selection"],
 
             ["~", "switch_case"],
             ["`", "to_lower"],
@@ -205,6 +206,7 @@
             ["] space", "add_newline_below"],
 
             ["/", "find"],
+            ["kp_divide", "find"],
             ["n", "goto_next_match"],
 
             ["u", "undo"],
@@ -385,6 +387,7 @@
 
             ["N", "extend_search_next"],
             ["*", "search_selection"],
+            ["kp_multiply", "search_selection"],
 
             ["r", "replace"],
             ["P", "paste_clipboard_before"],
@@ -500,6 +503,7 @@
             ["] space", "add_newline_below"],
 
             ["/", "find"],
+            ["kp_divide", "find"],
             ["n", "add_next_match_helix"],
 
             ["u", "undo"],
