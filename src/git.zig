@@ -268,6 +268,32 @@ pub fn new_or_modified_files(context_: usize) Error!void {
     }.result, exit_null(tag));
 }
 
+pub fn rev_parse(context_: usize, rev: []const u8, file_path: []const u8) Error!void {
+    const tag = @src().fn_name;
+    var arg: std.Io.Writer.Allocating = .init(allocator);
+    defer arg.deinit();
+    if (file_path.len == 0)
+        arg.writer.print("{s}", .{rev})
+    else
+        arg.writer.print("{s}:{s}", .{ rev, file_path });
+    try git(context_, .{ "rev-parse", arg.written() }, struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            var it = std.mem.splitScalar(u8, output, '\n');
+            while (it.next()) |value| if (value.len > 0)
+                parent.send(.{ module_name, context, tag, output }) catch {};
+        }
+    }.result, exit_null_on_error(tag));
+}
+
+pub fn cat_file(context_: usize, object: []const u8) Error!void {
+    const tag = @src().fn_name;
+    try git(context_, .{ "cat-file", "-p", object }, struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            parent.send(.{ module_name, context, tag, output }) catch {};
+        }
+    }.result, exit_null_on_error(tag));
+}
+
 fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
     try git_err(context_, cmd, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
