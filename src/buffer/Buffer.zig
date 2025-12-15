@@ -47,6 +47,8 @@ ephemeral: bool = false,
 auto_save: bool = false,
 meta: ?[]const u8 = null,
 lsp_version: usize = 1,
+vcs_id: ?[]const u8 = null,
+vcs_content: ?[]const u8 = null,
 
 undo_head: ?*UndoNode = null,
 redo_head: ?*UndoNode = null,
@@ -1191,6 +1193,8 @@ pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.vcs_content) |buf| self.external_allocator.free(buf);
+    if (self.vcs_id) |buf| self.external_allocator.free(buf);
     if (self.meta) |buf| self.external_allocator.free(buf);
     if (self.file_buf) |buf| self.external_allocator.free(buf);
     if (self.leaves_buf) |buf| self.external_allocator.free(buf);
