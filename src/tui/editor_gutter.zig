@@ -79,7 +79,7 @@ fn diff_symbols_clear(self: *Self) void {
 }
 
 pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    if (try m.match(.{ "E", "update", tp.more }))
+    if (try m.match(.{ "E", "update" }))
         return self.diff_update() catch |e| return tp.exit_error(e, @errorReturnTrace());
     if (try m.match(.{ "E", "view", tp.extract(&self.lines), tp.extract(&self.view_rows), tp.extract(&self.view_top) }))
         return self.update_width();

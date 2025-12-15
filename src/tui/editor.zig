@@ -1847,7 +1847,7 @@ pub const Editor = struct {
     }
 
     fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
-        _ = try self.handlers.msg(.{ "E", "update", token_from(new_root), token_from(old_root), @intFromEnum(eol_mode) });
+        _ = try self.handlers.msg(.{ "E", "update" });
         if (self.buffer) |buffer| if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
             project_manager.did_change(file_path, buffer.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
         if (self.buffer) |b| if (b.is_auto_save() and !b.is_ephemeral())
