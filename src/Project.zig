@@ -2028,7 +2028,7 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
     const initializationOptions: struct {
         pub fn cborEncode(self_: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
             const toCbor = cbor.fromJsonAlloc(self_.alloc, self_.options) catch {
-                try cbor.writeValue(writer, cbor.null_);
+                try cbor.writeValue(writer, null);
                 return;
             };
             defer self_.alloc.free(toCbor);
