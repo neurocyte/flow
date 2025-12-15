@@ -273,9 +273,9 @@ pub fn rev_parse(context_: usize, rev: []const u8, file_path: []const u8) Error!
     var arg: std.Io.Writer.Allocating = .init(allocator);
     defer arg.deinit();
     if (file_path.len == 0)
-        arg.writer.print("{s}", .{rev})
+        try arg.writer.print("{s}", .{rev})
     else
-        arg.writer.print("{s}:{s}", .{ rev, file_path });
+        try arg.writer.print("{s}:{s}", .{ rev, file_path });
     try git(context_, .{ "rev-parse", arg.written() }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
