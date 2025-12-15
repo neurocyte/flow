@@ -634,7 +634,6 @@ pub fn build_exe(
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "keybind", .module = keybind_mod },
             .{ .name = "shell", .module = shell_mod },
-            .{ .name = "git", .module = git_mod },
             .{ .name = "ripgrep", .module = ripgrep_mod },
             .{ .name = "theme", .module = themes_dep.module("theme") },
             .{ .name = "themes", .module = themes_dep.module("themes") },
