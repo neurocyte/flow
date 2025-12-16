@@ -446,7 +446,7 @@ fn print_digits(self: *Self, n_: anytype, style_: DigitStyle) !void {
         if (n == 0) break;
     }
     std.mem.reverse([]const u8, digits.items);
-    try self.plane.cursor_move_yx(@intCast(self.plane.cursor_y()), @intCast(self.width - digits.items.len - 1));
+    try self.plane.cursor_move_yx(@intCast(self.plane.cursor_y()), @intCast(self.width -| digits.items.len -| 1));
     for (digits.items) |digit| _ = try self.plane.putstr(digit);
 }
 
