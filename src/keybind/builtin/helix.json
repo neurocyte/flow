@@ -47,16 +47,12 @@
             ["alt+;", "flip_selections"],
             ["alt+o", "expand_selection"],
             ["alt+up", "expand_selection"],
-            ["alt+kp_up", "expand_selection"],
             ["alt+i", "shrink_selection"],
             ["alt+down", "shrink_selection"],
-            ["alt+kp_down", "shrink_selection"],
             ["alt+p", "select_prev_sibling"],
             ["alt+left", "select_prev_sibling"],
-            ["alt+kp_left", "select_prev_sibling"],
             ["alt+n", "select_next_sibling"],
             ["alt+right", "select_next_sibling"],
-            ["alt+kp_right", "select_next_sibling"],
 
             ["alt+e", "move_parent_node_end"],
             ["alt+b", "move_parent_node_start"],
@@ -97,7 +93,6 @@
             ["?", "rfind"],
             ["N", "goto_prev_match"],
             ["*", "search_selection"],
-            ["kp_multiply", "search_selection"],
 
             ["~", "switch_case"],
             ["`", "to_lower"],
@@ -133,8 +128,6 @@
 
             ["home", "move_begin"],
             ["end", "move_end"],
-            ["kp_home", "move_begin"],
-            ["kp_end", "move_end"],
 
             ["v", "enter_mode", "select"],
 
@@ -206,7 +199,6 @@
             ["] space", "add_newline_below"],
 
             ["/", "find"],
-            ["kp_divide", "find"],
             ["n", "goto_next_match"],
 
             ["u", "undo"],
@@ -226,8 +218,6 @@
 
             ["page_up", "move_scroll_page_up"],
             ["page_down", "move_scroll_page_down"],
-            ["kp_page_up", "move_scroll_page_up"],
-            ["kp_page_down", "move_scroll_page_down"],
 
             ["space F", "find_file"],
             ["space S", "workspace_symbol_picker"],
@@ -327,10 +317,6 @@
             ["alt+down", "shrink_selection"],
             ["alt+left", "select_prev_sibling"],
             ["alt+right", "select_next_sibling"],
-            ["alt+kp_up", "expand_selection"],
-            ["alt+kp_down", "shrink_selection"],
-            ["alt+kp_left", "select_prev_sibling"],
-            ["alt+kp_right", "select_next_sibling"],
 
             ["alt+e", "extend_parent_node_end"],
             ["alt+b", "extend_parent_node_start"],
@@ -387,7 +373,6 @@
 
             ["N", "extend_search_next"],
             ["*", "search_selection"],
-            ["kp_multiply", "search_selection"],
 
             ["r", "replace"],
             ["P", "paste_clipboard_before"],
@@ -420,18 +405,12 @@
             ["down", "select_down"],
             ["up", "select_up"],
             ["right", "select_right_helix"],
-            ["kp_left", "select_left_helix"],
-            ["kp_down", "select_down"],
-            ["kp_up", "select_up"],
-            ["kp_right", "select_right_helix"],
             ["%", "select_all"],
 
             ["`", "switch_to_lowercase"],
 
             ["home", "extend_to_line_start"],
             ["end", "extend_to_line_end"],
-            ["kp_home", "extend_to_line_start"],
-            ["kp_end", "extend_to_line_end"],
             ["v", "enter_mode", "normal"],
 
             ["g g", "goto_line_vim"],
@@ -503,7 +482,6 @@
             ["] space", "add_newline_below"],
 
             ["/", "find"],
-            ["kp_divide", "find"],
             ["n", "add_next_match_helix"],
 
             ["u", "undo"],
