@@ -1496,6 +1496,8 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
             const text = editor.get_selection(sel, self.allocator) catch return self.clear_auto_find(editor);
             if (text.len == 0)
                 return self.clear_auto_find(editor);
+            if (text.len == 1 and (text[0] == ' '))
+                return self.clear_auto_find(editor);
             if (!self.is_last_match_text(text))
                 tp.self_pid().send(.{ "cmd", "find_query", .{ text, "auto_find" } }) catch return;
         }
