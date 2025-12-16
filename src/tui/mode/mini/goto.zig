@@ -1,4 +1,5 @@
 const fmt = @import("std").fmt;
+const cbor = @import("cbor");
 const command = @import("command");
 
 const tui = @import("../../tui.zig");
@@ -83,10 +84,20 @@ pub const preview = goto;
 pub const apply = goto;
 pub const cancel = goto;
 
-fn goto(self: *Type, _: command.Context) void {
-    send_goto(if (self.input) |input| input.cursor else self.start.cursor);
+const Mode = enum {
+    goto,
+    select,
+};
+
+fn goto(self: *Type, ctx: command.Context) void {
+    var mode: Mode = .goto;
+    _ = ctx.args.match(.{cbor.extract(&mode)}) catch {};
+    send_goto(mode, if (self.input) |input| input.cursor else self.start.cursor);
 }
 
-fn send_goto(cursor: Cursor) void {
-    command.executeName("goto_line_and_column", command.fmt(.{ cursor.row, cursor.col })) catch {};
+fn send_goto(mode: Mode, cursor: Cursor) void {
+    switch (mode) {
+        .goto => command.executeName("goto_line_and_column", command.fmt(.{ cursor.row, cursor.col })) catch {},
+        .select => command.executeName("select_to_line", command.fmt(.{cursor.row})) catch {},
+    }
 }

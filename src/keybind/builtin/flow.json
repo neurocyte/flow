@@ -263,6 +263,7 @@
         "inherit": "normal",
         "cursor": "block",
         "press": [
+            ["ctrl+g", "goto", "select"],
             ["left", "select_left"],
             ["right", "select_right"],
             ["ctrl+left", "select_word_left"],
