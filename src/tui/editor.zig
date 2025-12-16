@@ -3439,6 +3439,12 @@ pub const Editor = struct {
         try cursor.move_to(root, line -| 1, cursor.col, metrics);
     }
 
+    fn move_cursor_to_line_vim(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
+        var line: usize = 0;
+        _ = ctx.args.match(.{tp.extract(&line)}) catch false;
+        try cursor.move_to(root, line -| 1, cursor.col, metrics);
+    }
+
     fn move_cursor_to_char_left(root: Buffer.Root, cursor: *Cursor, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         var egc: []const u8 = undefined;
         if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
@@ -5767,6 +5773,15 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
     pub const goto_line_vim_meta: Meta = .{ .arguments = &.{.integer} };
+
+    pub fn select_to_line_vim(self: *Self, ctx: Context) Result {
+        try self.send_editor_jump_source();
+        const root = self.buf_root() catch return;
+        self.with_selections_const_arg(root, move_cursor_to_line_vim, ctx) catch {};
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const select_to_line_vim_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn goto_column(self: *Self, ctx: Context) Result {
         const root = self.buf_root() catch return;
