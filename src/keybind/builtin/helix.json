@@ -356,7 +356,7 @@
             ["t", "move_to_char", "extend_till_char_right_helix"],
             ["f", "move_to_char", "extend_to_char_right_helix"],
 
-            ["G", "goto_line"],
+            ["G", "select_to_line"],
 
             ["I", ["enter_mode", "insert"], ["smart_move_begin"]],
             ["A", ["enter_mode", "insert"], ["move_end"]],
@@ -413,8 +413,8 @@
             ["end", "extend_to_line_end"],
             ["v", "enter_mode", "normal"],
 
-            ["g g", "goto_line_vim"],
-            ["g e", "move_buffer_end"],
+            ["g g", "select_to_line_vim"],
+            ["g e", "select_buffer_end"],
             ["g f", "goto_file"],
             ["g h", "move_begin"],
             ["g l", "select_end"],
