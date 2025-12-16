@@ -617,8 +617,8 @@ fn render(self: *Self) void {
 
         switch (self.hint_mode) {
             .prefix => if (self.config_.enable_prefix_keyhints)
-                @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .no_keypad, self.current_theme()),
-            .all => @import("keyhints.zig").render_current_input_mode(self.allocator, .no_keypad, self.current_theme()),
+                @import("keyhints.zig").render_current_key_event_sequence(self.allocator, .all, self.current_theme()),
+            .all => @import("keyhints.zig").render_current_input_mode(self.allocator, .all, self.current_theme()),
             .none => {},
         }
 
