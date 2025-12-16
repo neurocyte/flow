@@ -461,3 +461,20 @@ fn map_key_to_unshifed_legacy(keypress_shifted: Key, mods: Mods) struct { Key, M
         else => .{ keypress_shifted, mods },
     };
 }
+
+pub fn map_non_input_kp_key_to_regular_key(key_: Key) ?Key {
+    return switch (key_) {
+        vaxis.Key.kp_enter => vaxis.Key.enter,
+        vaxis.Key.kp_left => vaxis.Key.left,
+        vaxis.Key.kp_right => vaxis.Key.right,
+        vaxis.Key.kp_up => vaxis.Key.up,
+        vaxis.Key.kp_down => vaxis.Key.down,
+        vaxis.Key.kp_page_up => vaxis.Key.page_up,
+        vaxis.Key.kp_page_down => vaxis.Key.page_down,
+        vaxis.Key.kp_home => vaxis.Key.home,
+        vaxis.Key.kp_end => vaxis.Key.end,
+        vaxis.Key.kp_insert => vaxis.Key.insert,
+        vaxis.Key.kp_delete => vaxis.Key.delete,
+        else => null,
+    };
+}
