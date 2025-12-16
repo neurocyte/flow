@@ -6226,7 +6226,7 @@ pub const Editor = struct {
         const state = &self.filter_.?;
         var buf: [1024]u8 = undefined;
         const json = try cmd.to_json(&buf);
-        self.logger.print("filter: start {s}", .{json});
+        std.log.debug("filter: start {s}", .{json});
         var sp = try tp.subprocess.init(self.allocator, cmd, "filter", .Pipe);
         defer {
             sp.close() catch {};
@@ -6236,7 +6236,7 @@ pub const Editor = struct {
         var writer = sp.writer(&sp_buf);
         try state.before_root.write_range(sel, &writer.interface, null, self.metrics);
         try writer.interface.flush();
-        self.logger.print("filter: sent", .{});
+        std.log.debug("filter: sent", .{});
         state.work_root = try state.work_root.delete_range(sel, buf_a_, null, self.metrics);
     }
 
@@ -6255,7 +6255,7 @@ pub const Editor = struct {
     }
 
     fn filter_error(self: *Self, bytes: []const u8) !void {
-        self.logger.print("filter: ERR: {s}", .{bytes});
+        std.log.err("filter: ERR: {s}", .{bytes});
         if (tui.config().ignore_filter_stderr) return;
         defer self.filter_deinit();
         if (self.need_save_after_filter) |info| {
@@ -6285,7 +6285,7 @@ pub const Editor = struct {
         const primary = self.get_primary();
         if (state.whole_file) |buf| {
             if (buf.items.len == 0) {
-                self.logger.print_err("filter", "empty filter result", .{});
+                std.log.err("filter: no output from filter", .{});
                 return;
             }
             const old_hash = blk: {
@@ -6314,9 +6314,9 @@ pub const Editor = struct {
             if (state.old_primary_reversed) sel.reverse();
             primary.cursor = sel.end;
         }
-        self.logger.print("filter: done (bytes:{d} chunks:{d})", .{ state.bytes, state.chunks });
+        std.log.debug("filter: done (bytes:{d} chunks:{d})", .{ state.bytes, state.chunks });
         if (state.no_changes) {
-            self.logger.print("filter: no changes", .{});
+            std.log.warn("filter: no changes", .{});
         } else {
             try self.update_buf_and_eol_mode(state.work_root, state.eol_mode, state.utf8_sanitized);
             primary.cursor.clamp_to_buffer(state.work_root, self.metrics);
