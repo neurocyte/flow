@@ -1279,18 +1279,18 @@ pub const Editor = struct {
         const hl_cols: []const u16 = tui.highlight_columns();
         const alpha: u8 = tui.config().highlight_columns_alpha;
         const offset = self.view.col;
-        for (hl_cols) |hl_col_| {
-            if (hl_col_ < offset) continue;
-            const hl_col = hl_col_ - offset;
-            if (hl_col > self.view.cols) continue;
-            for (0..self.view.rows) |row| for (0..self.view.cols) |col|
-                if (hl_col > 0 and hl_col <= col) {
+        for (hl_cols) |hl_col| {
+            if (hl_col > (self.view.cols + offset)) continue;
+            for (0..self.view.rows) |row| for (0..self.view.cols) |col| {
+                const view_col = col + offset;
+                if (hl_col <= view_col) {
                     self.plane.cursor_move_yx(@intCast(row), @intCast(col)) catch return;
                     var cell = self.plane.cell_init();
                     _ = self.plane.at_cursor_cell(&cell) catch return;
                     cell.dim_bg(alpha);
                     _ = self.plane.putc(&cell) catch {};
-                };
+                }
+            };
         }
     }
 
