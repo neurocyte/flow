@@ -6229,7 +6229,14 @@ pub const Editor = struct {
     }
     pub const filter_meta: Meta = .{ .arguments = &.{.string} };
 
-    fn filter_cmd(self: *Self, cmd: tp.message) !void {
+    fn filter_cmd(self: *Self, cmd_: tp.message) !void {
+        const expansion = @import("expansion.zig");
+        const args = expansion.expand_cbor(self.allocator, cmd_.buf) catch |e| switch (e) {
+            error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        const cmd: tp.message = .{ .buf = args };
+        defer self.allocator.free(args);
         if (self.filter_) |_| return error.Stop;
         const root = self.buf_root() catch return;
         const buf_a_ = try self.buf_a();
