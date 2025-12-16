@@ -314,6 +314,7 @@ pub const Editor = struct {
     selection_drag_initial: ?Selection = null,
     target_column: ?Cursor = null,
     filter_: ?struct {
+        arg0: ?[]const u8,
         before_root: Buffer.Root,
         work_root: Buffer.Root,
         begin: Cursor,
@@ -6209,7 +6210,10 @@ pub const Editor = struct {
         };
         const reversed = sel.is_reversed();
         sel.normalize();
+        var arg0: []const u8 = &.{};
+        _ = cmd.match(.{ tp.extract(&arg0), tp.more }) catch {};
         self.filter_ = .{
+            .arg0 = try self.allocator.dupe(u8, arg0),
             .before_root = root,
             .work_root = root,
             .begin = sel.begin,
@@ -6263,7 +6267,8 @@ pub const Editor = struct {
 
     fn filter_not_found(self: *Self) !void {
         defer self.filter_deinit();
-        self.logger.print_err("filter", "executable not found", .{});
+        if (self.filter_) |*state|
+            std.log.err("executable '{?s}' not found", .{state.arg0});
         if (self.need_save_after_filter) |info| {
             try self.save();
             if (info.then) |then|
@@ -6328,6 +6333,7 @@ pub const Editor = struct {
 
     fn filter_deinit(self: *Self) void {
         const state = if (self.filter_) |*s| s else return;
+        if (state.arg0) |arg0| self.allocator.free(arg0);
         if (state.whole_file) |*buf| buf.deinit(self.allocator);
         self.filter_ = null;
     }
