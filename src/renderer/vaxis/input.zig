@@ -29,7 +29,9 @@ pub const mouse = struct {
 /// Does this key represent input?
 pub fn is_non_input_key(w: Key) bool {
     return switch (w) {
-        vaxis.Key.insert...vaxis.Key.iso_level_5_shift => true,
+        vaxis.Key.insert...vaxis.Key.f34 => true,
+        // skip kp_0 to kp_separator (which are between f34 and kp_left)
+        vaxis.Key.kp_left...vaxis.Key.iso_level_5_shift => true,
         vaxis.Key.enter => true,
         vaxis.Key.tab => true,
         vaxis.Key.escape => true,
