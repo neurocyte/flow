@@ -435,10 +435,21 @@ pub const Binding = struct {
         if (self.key_events.len == 0) return .match_impossible;
         for (self.key_events, 0..) |key_event, i| {
             if (match_key_events.len <= i) return .match_possible;
-            if (!(key_event.eql(match_key_events[i]) or key_event.eql_unshifted(match_key_events[i])))
+            if (!keyevents_eql(key_event, match_key_events[i]))
                 return .match_impossible;
         }
         return if (self.key_events.len == match_key_events.len) .matched else .match_possible;
+    }
+
+    fn keyevents_eql(lhs: KeyEvent, rhs: KeyEvent) bool {
+        if (lhs.eql(rhs) or lhs.eql_unshifted(rhs)) return true;
+        if (input.map_non_input_kp_key_to_regular_key(rhs.key)) |key| {
+            var mapped = rhs;
+            mapped.key = key;
+            mapped.key_unshifted = key;
+            if (lhs.eql(mapped) or lhs.eql_unshifted(mapped)) return true;
+        }
+        return false;
     }
 };
 
