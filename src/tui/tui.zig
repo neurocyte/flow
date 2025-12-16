@@ -1286,14 +1286,23 @@ const cmds = struct {
     }
 
     pub fn run_task(self: *Self, ctx: Ctx) Result {
+        const expansion = @import("expansion.zig");
         var task: []const u8 = undefined;
         if (try ctx.args.match(.{tp.extract(&task)})) {
+            const args = expansion.expand_cbor(self.allocator, ctx.args.buf) catch |e| switch (e) {
+                error.NotFound => return error.Stop,
+                else => |e_| return e_,
+            };
+            defer self.allocator.free(args);
+            var cmd: []const u8 = undefined;
+            if (!try cbor.match(args, .{tp.extract(&cmd)}))
+                cmd = task;
             var buffer_name: std.Io.Writer.Allocating = .init(self.allocator);
             defer buffer_name.deinit();
-            buffer_name.writer.print("*{s}*", .{task}) catch {};
+            buffer_name.writer.print("*{s}*", .{cmd}) catch {};
             call_add_task(task);
             tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{ buffer_name.written(), "", "conf" } }) catch |e| self.logger.err("task", e);
-            tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{task} }) catch |e| self.logger.err("task", e);
+            tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{cmd} }) catch |e| self.logger.err("task", e);
         } else {
             return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
         }
