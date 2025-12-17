@@ -196,14 +196,14 @@ const eighths_c: u32 = eighths_b.len;
 fn smooth_bar_at(plane: *Plane, pos_: u32, size_: u32) !void {
     const height: u32 = plane.dim_y();
     var size = @max(size_, 8);
-    const pos = @min(height * eighths_c - size, pos_);
+    const pos = @min(height * eighths_c -| size, pos_);
     var pos_y: c_int = @intCast(@divFloor(pos, eighths_c));
     const blk = @mod(pos, eighths_c);
     const b = eighths_b[blk];
     plane.erase();
     plane.cursor_move_yx(pos_y, 0) catch return;
     _ = try plane.putstr(@ptrCast(b));
-    size -= eighths_c - blk;
+    size -= eighths_c -| blk;
     while (size >= 8) {
         pos_y += 1;
         size -= 8;
