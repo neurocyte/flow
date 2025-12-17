@@ -1347,7 +1347,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{ tp.extract(&buffer_ref), tp.extract(&output) }))
             return error.InvalidShellOutputArgument;
         const buffer = self.buffer_manager.buffer_from_ref(buffer_ref) orelse return;
-        if (self.get_active_editor()) |editor| if (editor.buffer) |eb| if (eb == buffer) {
+        if (self.get_editor_for_buffer(buffer)) |editor| if (editor.buffer) |eb| if (eb == buffer) {
             editor.smart_buffer_append(command.fmt(.{output})) catch {};
             tui.need_render();
             return;
@@ -1570,6 +1570,16 @@ pub fn get_active_editor(self: *Self) ?*ed.Editor {
     if (editor.dynamic_cast(ed.EditorWidget)) |p| {
         self.active_editor = &p.editor;
         return &p.editor;
+    }
+    return null;
+}
+
+pub fn get_editor_for_buffer(self: *Self, buffer: *Buffer) ?*ed.Editor {
+    for (self.views.widgets.items) |*view| {
+        const editor = view.widget.get("editor") orelse continue;
+        if (editor.dynamic_cast(ed.EditorWidget)) |p|
+            if (p.editor.buffer == buffer)
+                return &p.editor;
     }
     return null;
 }
