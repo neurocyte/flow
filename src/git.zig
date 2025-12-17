@@ -264,13 +264,13 @@ pub fn rev_parse(context_: usize, rev: []const u8, file_path: []const u8) Error!
         try arg.writer.print("{s}", .{rev})
     else
         try arg.writer.print("{s}:{s}", .{ rev, file_path });
-    try git_err(context_, .{ "rev-parse", arg.written() }, struct {
+    try git(context_, .{ "rev-parse", arg.written() }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
                 parent.send(.{ module_name, context, tag, value }) catch {};
         }
-    }.result, log_err, exit_null(tag));
+    }.result, exit_null(tag));
 }
 
 pub fn cat_file(context_: usize, object: []const u8) Error!void {
@@ -310,8 +310,10 @@ fn git_err(
 ) Error!void {
     const cbor = @import("cbor");
     const git_binary = get_git() orelse return error.GitNotFound;
+
     var buf: std.Io.Writer.Allocating = .init(allocator);
     defer buf.deinit();
+
     const writer = &buf.writer;
     switch (@typeInfo(@TypeOf(cmd))) {
         .@"struct" => |info| if (info.is_tuple) {
