@@ -527,6 +527,12 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "PRJ", "recent_projects", tp.more })) // async recent projects request
         return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent_project.zig").Type, .{ .args = m });
 
+    if (try m.match(.{ "PRJ", "vcs_id", tp.more }))
+        return if (mainview()) |mv| mv.vcs_id_update(m);
+
+    if (try m.match(.{ "PRJ", "vcs_content", tp.more }))
+        return if (mainview()) |mv| mv.vcs_content_update(m);
+
     if (try m.match(.{ "PRJ", tp.more })) // drop late project manager query responses
         return;
 

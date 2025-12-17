@@ -1943,3 +1943,27 @@ pub fn cancel_info_content(self: *Self) tp.result {
     _ = self.toggle_panel_view(info_view, .disable) catch |e| return tp.exit_error(e, @errorReturnTrace());
     tui.need_render();
 }
+
+pub fn vcs_id_update(self: *Self, m: tp.message) void {
+    var file_path: []const u8 = undefined;
+    var vcs_id: []const u8 = undefined;
+
+    if (m.match(.{ "PRJ", "vcs_id", tp.extract(&file_path), tp.extract(&vcs_id) }) catch return) {
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        const need_vcs_content = buffer.set_vcs_id(vcs_id) catch false;
+        if (need_vcs_content)
+            project_manager.request_vcs_content(file_path, vcs_id) catch {};
+    }
+}
+
+pub fn vcs_content_update(self: *Self, m: tp.message) void {
+    var file_path: []const u8 = undefined;
+    var vcs_id: []const u8 = undefined;
+    var content: []const u8 = undefined;
+
+    if (m.match(.{ "PRJ", "vcs_content", tp.extract(&file_path), tp.extract(&vcs_id), tp.extract(&content) }) catch return) {
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        buffer.set_vcs_content(vcs_id, content) catch {};
+        std.log.debug("vcs_content: {d} bytes of {d} id:{s}", .{ content.len, (buffer.get_vcs_content() orelse &.{}).len, vcs_id });
+    }
+}

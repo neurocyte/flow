@@ -2570,7 +2570,6 @@ pub fn request_vcs_content(self: *Self, file_path: []const u8, vcs_id: []const u
         .file_path = try self.allocator.dupe(u8, file_path),
         .vcs_id = try self.allocator.dupe(u8, vcs_id),
     };
-    self.logger_git.print("cat-file request {}:{s}:{s}", .{ request, vcs_id, file_path });
     git.cat_file(@intFromPtr(request), vcs_id) catch |e|
         self.logger_git.print_err("cat-file", "failed: {t}", .{e});
 }

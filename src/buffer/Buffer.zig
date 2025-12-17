@@ -48,7 +48,7 @@ auto_save: bool = false,
 meta: ?[]const u8 = null,
 lsp_version: usize = 1,
 vcs_id: ?[]const u8 = null,
-vcs_content: ?[]const u8 = null,
+vcs_content: ?ArrayList(u8) = null,
 
 undo_head: ?*UndoNode = null,
 redo_head: ?*UndoNode = null,
@@ -1193,7 +1193,7 @@ pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
 }
 
 pub fn deinit(self: *Self) void {
-    if (self.vcs_content) |buf| self.external_allocator.free(buf);
+    self.clear_vcs_content();
     if (self.vcs_id) |buf| self.external_allocator.free(buf);
     if (self.meta) |buf| self.external_allocator.free(buf);
     if (self.file_buf) |buf| self.external_allocator.free(buf);
@@ -1223,6 +1223,42 @@ pub fn set_file_path(self: *Self, file_path: []const u8) void {
 
 pub inline fn get_file_path(self: *const Self) []const u8 {
     return self.file_path_buf.items;
+}
+
+pub fn set_vcs_id(self: *Self, vcs_id: []const u8) error{OutOfMemory}!bool {
+    if (self.vcs_id) |old_id| {
+        if (std.mem.eql(u8, old_id, vcs_id)) return false;
+        self.external_allocator.free(old_id);
+    }
+    self.clear_vcs_content();
+    self.vcs_id = try self.external_allocator.dupe(u8, vcs_id);
+    return true;
+}
+
+pub fn get_vcs_id(self: *Self) ?[]const u8 {
+    return self.vcs_id;
+}
+
+pub fn set_vcs_content(self: *Self, vcs_id: []const u8, vcs_content: []const u8) error{OutOfMemory}!void {
+    _ = try self.set_vcs_id(vcs_id);
+    if (self.vcs_content) |*al| {
+        try al.appendSlice(self.external_allocator, vcs_content);
+    } else {
+        var al: ArrayList(u8) = .empty;
+        try al.appendSlice(self.external_allocator, vcs_content);
+        self.vcs_content = al;
+    }
+}
+
+pub fn clear_vcs_content(self: *Self) void {
+    if (self.vcs_content) |*buf| {
+        buf.deinit(self.external_allocator);
+        self.vcs_content = null;
+    }
+}
+
+pub fn get_vcs_content(self: *Self) ?[]const u8 {
+    return if (self.vcs_content) |*buf| buf.items else null;
 }
 
 pub fn update_last_used_time(self: *Self) void {
@@ -1638,6 +1674,7 @@ pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOf
         dirty,
         self.meta,
         self.file_type_name,
+        self.vcs_id,
         content.written(),
     });
 }
@@ -1649,6 +1686,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
     var file_type_name: []const u8 = undefined;
     var dirty: bool = undefined;
     var meta: ?[]const u8 = null;
+    var vcs_id: ?[]const u8 = null;
     var content: []const u8 = undefined;
 
     if (!try cbor.matchValue(iter, .{
@@ -1661,6 +1699,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
         cbor.extract(&dirty),
         cbor.extract(&meta),
         cbor.extract(&file_type_name),
+        cbor.extract(&vcs_id),
         cbor.extract(&content),
     }))
         return error.Stop;
