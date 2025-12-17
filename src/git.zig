@@ -165,13 +165,7 @@ pub fn status(context_: usize) Error!void {
                 // parent.send(.{ module_name, context, tag, value }) catch {};
             }
         }
-    }.result, struct {
-        fn result(_: usize, _: tp.pid_ref, output: []const u8) void {
-            var it = std.mem.splitScalar(u8, output, '\n');
-            while (it.next()) |line| if (line.len > 0)
-                std.log.err("{s}: {s}", .{ module_name, line });
-        }
-    }.result, exit_null(tag));
+    }.result, log_err, exit_null(tag));
 }
 
 pub fn new_or_modified_files(context_: usize) Error!void {
@@ -259,13 +253,7 @@ pub fn new_or_modified_files(context_: usize) Error!void {
                 }
             }
         }
-    }.result, struct {
-        fn result(_: usize, _: tp.pid_ref, output: []const u8) void {
-            var it = std.mem.splitScalar(u8, output, '\n');
-            while (it.next()) |line| if (line.len > 0)
-                std.log.err("{s}: {s}", .{ module_name, line });
-        }
-    }.result, exit_null(tag));
+    }.result, log_err, exit_null(tag));
 }
 
 pub fn rev_parse(context_: usize, rev: []const u8, file_path: []const u8) Error!void {
@@ -276,22 +264,22 @@ pub fn rev_parse(context_: usize, rev: []const u8, file_path: []const u8) Error!
         try arg.writer.print("{s}", .{rev})
     else
         try arg.writer.print("{s}:{s}", .{ rev, file_path });
-    try git(context_, .{ "rev-parse", arg.written() }, struct {
+    try git_err(context_, .{ "rev-parse", arg.written() }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             var it = std.mem.splitScalar(u8, output, '\n');
             while (it.next()) |value| if (value.len > 0)
-                parent.send(.{ module_name, context, tag, output }) catch {};
+                parent.send(.{ module_name, context, tag, value }) catch {};
         }
-    }.result, exit_null_on_error(tag));
+    }.result, log_err, exit_null(tag));
 }
 
 pub fn cat_file(context_: usize, object: []const u8) Error!void {
     const tag = @src().fn_name;
-    try git(context_, .{ "cat-file", "-p", object }, struct {
+    try git_err(context_, .{ "cat-file", "-p", object }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             parent.send(.{ module_name, context, tag, output }) catch {};
         }
-    }.result, exit_null_on_error(tag));
+    }.result, log_err, exit_null(tag));
 }
 
 fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
@@ -301,13 +289,7 @@ fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Erro
             while (it.next()) |value| if (value.len > 0)
                 parent.send(.{ module_name, context, tag, value }) catch {};
         }
-    }.result, struct {
-        fn result(_: usize, _: tp.pid_ref, output: []const u8) void {
-            var it = std.mem.splitScalar(u8, output, '\n');
-            while (it.next()) |line| if (line.len > 0)
-                std.log.err("{s}: {s}", .{ module_name, line });
-        }
-    }.result, exit_null(tag));
+    }.result, log_err, exit_null(tag));
 }
 
 fn git(
@@ -376,6 +358,12 @@ fn to_shell_output_handler(handler: anytype) shell.OutputHandler {
             handler(context, parent, output);
         }
     }.out;
+}
+
+fn log_err(_: usize, _: tp.pid_ref, output: []const u8) void {
+    var it = std.mem.splitScalar(u8, output, '\n');
+    while (it.next()) |line| if (line.len > 0)
+        std.log.err("{s}: {s}", .{ module_name, line });
 }
 
 fn noop(_: usize, _: tp.pid_ref, _: []const u8) void {}
