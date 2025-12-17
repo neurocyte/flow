@@ -60,6 +60,7 @@ pub const StartLspError = (error{ ThespianSpawnFailed, Timeout, InvalidLspComman
 pub const LspError = (error{ NoLsp, LspFailed } || OutOfMemoryError || std.Io.Writer.Error);
 pub const ClientError = (error{ClientFailed} || OutOfMemoryError || std.Io.Writer.Error);
 pub const LspOrClientError = (LspError || ClientError);
+pub const GitError = error{InvalidGitResponse};
 
 const File = struct {
     path: []const u8,
@@ -2536,5 +2537,74 @@ fn process_status(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryEr
             from.deinit();
             self.status_request = null;
         }
+    }
+}
+
+pub fn request_vcs_id(self: *Self, file_path: []const u8) error{OutOfMemory}!void {
+    const request = try self.allocator.create(VcsIdRequest);
+    request.* = .{
+        .allocator = self.allocator,
+        .project = self,
+        .file_path = try self.allocator.dupe(u8, file_path),
+    };
+    git.rev_parse(@intFromPtr(request), "HEAD", file_path) catch |e|
+        self.logger_git.print_err("rev-parse", "failed: {t}", .{e});
+}
+
+pub const VcsIdRequest = struct {
+    allocator: std.mem.Allocator,
+    project: *Self,
+    file_path: []const u8,
+
+    pub fn deinit(self: *@This()) void {
+        self.allocator.free(self.file_path);
+        self.allocator.destroy(self);
+    }
+};
+
+pub fn request_vcs_content(self: *Self, file_path: []const u8, vcs_id: []const u8) error{OutOfMemory}!void {
+    const request = try self.allocator.create(VcsContentRequest);
+    request.* = .{
+        .allocator = self.allocator,
+        .project = self,
+        .file_path = try self.allocator.dupe(u8, file_path),
+        .vcs_id = try self.allocator.dupe(u8, vcs_id),
+    };
+    self.logger_git.print("cat-file request {}:{s}:{s}", .{ request, vcs_id, file_path });
+    git.cat_file(@intFromPtr(request), vcs_id) catch |e|
+        self.logger_git.print_err("cat-file", "failed: {t}", .{e});
+}
+
+pub const VcsContentRequest = struct {
+    allocator: std.mem.Allocator,
+    project: *Self,
+    file_path: []const u8,
+    vcs_id: []const u8,
+
+    pub fn deinit(self: *@This()) void {
+        self.allocator.free(self.vcs_id);
+        self.allocator.free(self.file_path);
+        self.allocator.destroy(self);
+    }
+};
+
+pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryError || GitError || error{Exit})!void {
+    var context: usize = undefined;
+    var vcs_id: []const u8 = undefined;
+    var vcs_content: []const u8 = undefined;
+    _ = self;
+
+    if (try m.match(.{ tp.any, tp.extract(&context), "rev_parse", tp.extract(&vcs_id) })) {
+        const request: *VcsIdRequest = @ptrFromInt(context);
+        parent.send(.{ "PRJ", "vcs_id", request.file_path, vcs_id }) catch {};
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "rev_parse", tp.null_ })) {
+        const request: *VcsIdRequest = @ptrFromInt(context);
+        defer request.deinit();
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "cat_file", tp.extract(&vcs_content) })) {
+        const request: *VcsContentRequest = @ptrFromInt(context);
+        parent.send(.{ "PRJ", "vcs_content", request.file_path, request.vcs_id, vcs_content }) catch {};
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "cat_file", tp.null_ })) {
+        const request: *VcsContentRequest = @ptrFromInt(context);
+        defer request.deinit();
     }
 }

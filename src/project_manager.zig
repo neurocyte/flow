@@ -172,6 +172,20 @@ pub fn request_vcs_status() (ProjectManagerError || ProjectError)!void {
     return send(.{ "request_vcs_status", project });
 }
 
+pub fn request_vcs_id(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "request_vcs_id", project, file_path });
+}
+
+pub fn request_vcs_content(file_path: []const u8, vcs_id: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "request_vcs_content", project, file_path, vcs_id });
+}
+
 pub fn add_task(task: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -398,6 +412,7 @@ const Process = struct {
         var context: usize = undefined;
         var tag: []const u8 = undefined;
         var message: []const u8 = undefined;
+        var vcs_id: []const u8 = undefined;
 
         var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
 
@@ -407,6 +422,12 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "walk_tree_done", tp.extract(&project_directory) })) {
             if (self.projects.get(project_directory)) |project|
                 project.walk_tree_done(self.parent.ref()) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "rev_parse", tp.more })) {
+            const request: *Project.VcsIdRequest = @ptrFromInt(context);
+            request.project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-rev-parse", e);
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "cat_file", tp.more })) {
+            const request: *Project.VcsContentRequest = @ptrFromInt(context);
+            request.project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-cat-file", e);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), tp.more })) {
             const project: *Project = @ptrFromInt(context);
             project.process_git(self.parent.ref(), m) catch {};
@@ -444,6 +465,10 @@ const Process = struct {
             self.request_tasks(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "request_vcs_status", tp.extract(&project_directory) })) {
             self.request_vcs_status(from, project_directory) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_id", tp.extract(&project_directory), tp.extract(&path) })) {
+            self.request_vcs_id(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_content", tp.extract(&project_directory), tp.extract(&path), tp.extract(&vcs_id) })) {
+            self.request_vcs_content(from, project_directory, path, vcs_id) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "add_task", tp.extract(&project_directory), tp.extract(&task) })) {
             self.add_task(project_directory, task) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "delete_task", tp.extract(&project_directory), tp.extract(&task) })) {
@@ -637,6 +662,16 @@ const Process = struct {
     fn request_vcs_status(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.request_vcs_status(from);
+    }
+
+    fn request_vcs_id(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.ClientError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        try project.request_vcs_id(file_path);
+    }
+
+    fn request_vcs_content(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, vcs_id: []const u8) (ProjectError || Project.ClientError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        try project.request_vcs_content(file_path, vcs_id);
     }
 
     fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, version: usize, text: []const u8) (ProjectError || Project.StartLspError || CallError || cbor.Error)!void {
