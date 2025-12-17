@@ -1976,6 +1976,8 @@ pub fn vcs_content_update(self: *Self, m: tp.message) void {
     if (m.match(.{ "PRJ", "vcs_content", tp.extract(&file_path), tp.extract(&vcs_id), tp.extract(&content) }) catch return) {
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
         buffer.set_vcs_content(vcs_id, content) catch {};
+    } else if (m.match(.{ "PRJ", "vcs_content", tp.extract(&file_path), tp.extract(&vcs_id), tp.null_ }) catch return) {
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
         if (self.get_editor_for_buffer(buffer)) |editor|
             editor.vcs_content_update() catch {};
     }

@@ -2605,5 +2605,6 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
     } else if (try m.match(.{ tp.any, tp.extract(&context), "cat_file", tp.null_ })) {
         const request: *VcsContentRequest = @ptrFromInt(context);
         defer request.deinit();
+        parent.send(.{ "PRJ", "vcs_content", request.file_path, request.vcs_id, null }) catch {};
     }
 }
