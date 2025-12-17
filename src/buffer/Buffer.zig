@@ -1235,7 +1235,7 @@ pub fn set_vcs_id(self: *Self, vcs_id: []const u8) error{OutOfMemory}!bool {
     return true;
 }
 
-pub fn get_vcs_id(self: *Self) ?[]const u8 {
+pub fn get_vcs_id(self: *const Self) ?[]const u8 {
     return self.vcs_id;
 }
 
@@ -1257,7 +1257,7 @@ pub fn clear_vcs_content(self: *Self) void {
     }
 }
 
-pub fn get_vcs_content(self: *Self) ?[]const u8 {
+pub fn get_vcs_content(self: *const Self) ?[]const u8 {
     return if (self.vcs_content) |*buf| buf.items else null;
 }
 
