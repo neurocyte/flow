@@ -125,9 +125,7 @@ fn flush_input(self: *Self) !void {
             .case_folded => .case_folded,
         });
     } else {
-        self.editor.get_primary().cursor = self.start_cursor;
-        self.editor.scroll_to(self.start_view.row);
-        self.editor.init_matches_update();
+        self.reset();
     }
 }
 
@@ -140,9 +138,15 @@ fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
     return command.executeName(name_, ctx);
 }
 
-fn cancel(self: *Self) void {
+fn reset(self: *Self) void {
+    self.editor.get_primary().selection = null;
     self.editor.get_primary().cursor = self.start_cursor;
     self.editor.scroll_to(self.start_view.row);
+    self.editor.clear_matches();
+}
+
+fn cancel(self: *Self) void {
+    self.reset();
     command.executeName("exit_mini_mode", .{}) catch {};
 }
 
