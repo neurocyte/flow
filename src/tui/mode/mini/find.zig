@@ -113,7 +113,8 @@ fn flush_input(self: *Self) !void {
             .case_folded => .case_folded,
         });
     } else {
-        self.editor.get_primary().selection = null;
+        self.editor.get_primary().cursor = self.start_cursor;
+        self.editor.scroll_to(self.start_view.row);
         self.editor.init_matches_update();
     }
 }
