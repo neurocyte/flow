@@ -121,18 +121,21 @@ fn pos_scrn_to_virt(self: *const Self, pos_scrn_: u32) u32 {
     return @intFromFloat(pos_scrn * ratio);
 }
 
-fn is_pos_scrn_in_bar(self: *const Self, pos_scrn: u32) bool {
-    return pos_scrn > self.pos_scrn and pos_scrn <= self.pos_scrn + self.view_scrn;
+fn is_pos_scrn_in_bar(self: *const Self, pos_scrn: u32) ?u32 {
+    const max_pos_scrn = self.size_scrn -| self.view_scrn;
+    const curr_pos_scrn = @min(self.pos_scrn, max_pos_scrn);
+    return if (pos_scrn > curr_pos_scrn and pos_scrn <= curr_pos_scrn + self.view_scrn)
+        curr_pos_scrn
+    else
+        null;
 }
 
 fn click_at(self: *Self, y: i32, ypx: i32) void {
     const pos_scrn = self.y_coord_to_pos_scrn(y, ypx);
-    if (self.is_pos_scrn_in_bar(pos_scrn)) {
-        self.mouse_pos_scrn_offset = pos_scrn -| self.pos_scrn;
-        @import("std").log.debug("click: {d}:{d}", .{ pos_scrn, self.mouse_pos_scrn_offset });
+    if (self.is_pos_scrn_in_bar(pos_scrn)) |curr_pos_scrn| {
+        self.mouse_pos_scrn_offset = pos_scrn -| curr_pos_scrn;
     } else {
         self.mouse_pos_scrn_offset = self.view_scrn / 2;
-        @import("std").log.debug("click off: {d}:{d}", .{ pos_scrn, self.mouse_pos_scrn_offset });
         self.move_to(self.pos_scrn_to_virt(pos_scrn -| self.mouse_pos_scrn_offset));
     }
 }
@@ -140,7 +143,6 @@ fn click_at(self: *Self, y: i32, ypx: i32) void {
 fn drag_to(self: *Self, y: i32, ypx: i32) void {
     const pos_scrn = self.y_coord_to_pos_scrn(y, ypx) -| self.mouse_pos_scrn_offset;
     const pos_virt = self.pos_scrn_to_virt(pos_scrn);
-    @import("std").log.debug("drag_to: {d:}:{d}:{d}", .{ pos_scrn, pos_virt, self.mouse_pos_scrn_offset });
     self.move_to(pos_virt);
 }
 
