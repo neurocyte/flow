@@ -1857,6 +1857,10 @@ pub const Editor = struct {
             tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
     }
 
+    pub fn vcs_content_update(self: *const Self) !void {
+        _ = try self.handlers.msg(.{ "E", "update" });
+    }
+
     fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool, indent_mode: IndentMode) !void {
         _ = try self.handlers.msg(.{ "E", "eol_mode", eol_mode, utf8_sanitized, indent_mode });
     }
