@@ -47,10 +47,14 @@ pub const AsyncDiffer = struct {
 
     pub const CallBack = fn (from: tp.pid_ref, edits: []Diff) void;
 
-    pub fn diff(self: @This(), cb: *const CallBack, root_dst: Buffer.Root, root_src: Buffer.Root, eol_mode: Buffer.EolMode) tp.result {
-        const text_dst = text_from_root(root_dst, eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    pub fn diff_buffer(self: @This(), cb: *const CallBack, buffer: *const Buffer) tp.result {
+        const eol_mode = buffer.file_eol_mode;
+        const text_dst = text_from_root(buffer.root, eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace());
         errdefer std.heap.c_allocator.free(text_dst);
-        const text_src = text_from_root(root_src, eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        const text_src = if (buffer.get_vcs_content()) |vcs_content|
+            std.heap.c_allocator.dupe(u8, vcs_content) catch |e| return tp.exit_error(e, @errorReturnTrace())
+        else
+            text_from_root(buffer.last_save orelse return, eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace());
         errdefer std.heap.c_allocator.free(text_src);
         const text_dst_ptr: usize = if (text_dst.len > 0) @intFromPtr(text_dst.ptr) else 0;
         const text_src_ptr: usize = if (text_src.len > 0) @intFromPtr(text_src.ptr) else 0;

@@ -338,11 +338,7 @@ fn diff_update(self: *Self) !void {
         self.diff_symbols_clear();
         return;
     }
-    const editor = self.editor;
-    const new = editor.get_current_root() orelse return;
-    const old = if (editor.buffer) |buffer| buffer.last_save orelse return else return;
-    const eol_mode = if (editor.buffer) |buffer| buffer.file_eol_mode else return;
-    return self.diff_.diff(diff_result, new, old, eol_mode);
+    return self.diff_.diff_buffer(diff_result, self.editor.buffer orelse return);
 }
 
 fn diff_result(from: tp.pid_ref, edits: []diff.Diff) void {
@@ -350,22 +346,22 @@ fn diff_result(from: tp.pid_ref, edits: []diff.Diff) void {
 }
 
 fn diff_result_send(from: tp.pid_ref, edits: []diff.Diff) !void {
-    var buf: [tp.max_message_size]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    try cbor.writeArrayHeader(&writer, 2);
-    try cbor.writeValue(&writer, "DIFF");
-    try cbor.writeArrayHeader(&writer, edits.len);
+    var buf: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+    defer buf.deinit();
+    try cbor.writeArrayHeader(&buf.writer, 2);
+    try cbor.writeValue(&buf.writer, "DIFF");
+    try cbor.writeArrayHeader(&buf.writer, edits.len);
     for (edits) |edit| {
-        try cbor.writeArrayHeader(&writer, 4);
-        try cbor.writeValue(&writer, switch (edit.kind) {
+        try cbor.writeArrayHeader(&buf.writer, 4);
+        try cbor.writeValue(&buf.writer, switch (edit.kind) {
             .insert => "I",
             .delete => "D",
         });
-        try cbor.writeValue(&writer, edit.line);
-        try cbor.writeValue(&writer, edit.offset);
-        try cbor.writeValue(&writer, edit.bytes);
+        try cbor.writeValue(&buf.writer, edit.line);
+        try cbor.writeValue(&buf.writer, edit.offset);
+        try cbor.writeValue(&buf.writer, edit.bytes);
     }
-    from.send_raw(tp.message{ .buf = writer.buffered() }) catch return;
+    from.send_raw(tp.message{ .buf = buf.written() }) catch return;
 }
 
 pub fn process_diff(self: *Self, cb: []const u8) MessageFilter.Error!void {
