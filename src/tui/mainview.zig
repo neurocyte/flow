@@ -1860,6 +1860,8 @@ fn send_buffer_did_open(allocator: std.mem.Allocator, buffer: *Buffer) !void {
         try content.toOwnedSlice(),
         buffer.is_ephemeral(),
     );
+    if (!buffer.is_ephemeral())
+        project_manager.request_vcs_id(buffer.get_file_path()) catch {};
 }
 
 fn get_next_mru_buffer(self: *Self, mode: enum { all, hidden, non_hidden }) ?[]const u8 {
@@ -1964,6 +1966,5 @@ pub fn vcs_content_update(self: *Self, m: tp.message) void {
     if (m.match(.{ "PRJ", "vcs_content", tp.extract(&file_path), tp.extract(&vcs_id), tp.extract(&content) }) catch return) {
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
         buffer.set_vcs_content(vcs_id, content) catch {};
-        std.log.debug("vcs_content: {d} bytes of {d} id:{s}", .{ content.len, (buffer.get_vcs_content() orelse &.{}).len, vcs_id });
     }
 }
