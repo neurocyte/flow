@@ -51,10 +51,14 @@ pub fn create(allocator: Allocator, ctx: command.Context) !struct { tui.Mode, tu
     var query: []const u8 = undefined;
     if (ctx.args.match(.{ cbor.extract(&self.find_mode), cbor.extract(&query) }) catch false) {
         try self.input_.appendSlice(self.allocator, query);
-    } else if (editor.get_primary().selection) |sel| ret: {
-        const text = editor.get_selection(sel, self.allocator) catch break :ret;
-        defer self.allocator.free(text);
-        try self.input_.appendSlice(self.allocator, text);
+    } else switch (tui.config().initial_find_query) {
+        .empty => {},
+        .selection => try self.set_from_current_selection(editor),
+        .last_query => self.find_history_prev(),
+        .selection_or_last_query => {
+            try self.set_from_current_selection(editor);
+            if (self.input_.items.len == 0) self.find_history_prev();
+        },
     }
     var mode = try keybind.mode("mini/find", allocator, .{
         .insert_command = "mini_mode_insert_bytes",
@@ -72,6 +76,14 @@ pub fn deinit(self: *Self) void {
     self.input_.deinit(self.allocator);
     self.last_input.deinit(self.allocator);
     self.allocator.destroy(self);
+}
+
+fn set_from_current_selection(self: *Self, editor: *ed.Editor) !void {
+    if (editor.get_primary().selection) |sel| ret: {
+        const text = editor.get_selection(sel, self.allocator) catch break :ret;
+        defer self.allocator.free(text);
+        try self.input_.appendSlice(self.allocator, text);
+    }
 }
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
