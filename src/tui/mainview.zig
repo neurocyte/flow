@@ -843,7 +843,6 @@ const cmds = struct {
     pub const close_buffer_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn restore_session(self: *Self, _: Ctx) Result {
-        try self.create_editor();
         try self.read_restore_info();
         tui.need_render();
     }
