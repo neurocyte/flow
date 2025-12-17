@@ -13,6 +13,7 @@ plane: Plane,
 pos_scrn: u32 = 0,
 view_scrn: u32 = 8,
 size_scrn: u32 = 8,
+mouse_pos_scrn_offset: u32 = 0,
 
 pos_virt: u32 = 0,
 view_virt: u32 = 1,
@@ -67,14 +68,16 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
     if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
         self.active = true;
-        self.move_to(y, ypx);
+        self.update_max_ypx(ypx);
+        self.click_at(y, ypx);
         return true;
     } else if (try m.match(.{ "B", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
         self.active = false;
         return true;
     } else if (try m.match(.{ "D", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
         self.active = true;
-        self.move_to(y, ypx);
+        self.update_max_ypx(ypx);
+        self.drag_to(y, ypx);
         return true;
     } else if (try m.match(.{ "B", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.more })) {
         self.active = false;
@@ -89,31 +92,61 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return false;
 }
 
-fn move_to(self: *Self, y_: i32, ypx_: i32) void {
+fn update_max_ypx(self: *Self, ypx_: i32) void {
     self.max_ypx = @max(self.max_ypx, ypx_);
+}
+
+fn y_coord_to_pos_scrn(self: *const Self, y_: i32, ypx_: i32) u32 {
     const max_ypx: f64 = @floatFromInt(self.max_ypx);
     const y: f64 = @floatFromInt(y_);
     const ypx: f64 = @floatFromInt(ypx_);
     const plane_y: f64 = @floatFromInt(self.plane.abs_y());
-    const size_scrn: f64 = @floatFromInt(self.size_scrn);
-    const view_scrn: f64 = @floatFromInt(self.view_scrn);
 
     const ratio = max_ypx / eighths_c;
-    const pos_scrn: f64 = ((y - plane_y) * eighths_c) + (ypx / ratio) - (view_scrn / 2);
-    const max_pos_scrn = size_scrn - view_scrn;
-    const pos_scrn_clamped = @min(@max(0, pos_scrn), max_pos_scrn);
-    const pos_virt = self.pos_scrn_to_virt(@intFromFloat(pos_scrn_clamped));
-
-    self.set(self.size_virt, self.view_virt, pos_virt);
-    _ = self.event_sink.msg(.{ "scroll_to", pos_virt }) catch {};
+    const pos_scrn_ = ((y - plane_y) * eighths_c) + (ypx / ratio);
+    const pos_scrn: i32 = @intFromFloat(pos_scrn_);
+    return @max(0, pos_scrn);
 }
 
-fn pos_scrn_to_virt(self: Self, pos_scrn_: u32) u32 {
+fn clamp_pos_scrn(self: *const Self, pos_scrn: u32) u32 {
+    const max_pos_scrn = self.size_scrn -| self.view_scrn;
+    return @min(pos_scrn, max_pos_scrn);
+}
+
+fn pos_scrn_to_virt(self: *const Self, pos_scrn_: u32) u32 {
+    const pos_scrn: f64 = @floatFromInt(self.clamp_pos_scrn(pos_scrn_));
     const size_virt: f64 = @floatFromInt(self.size_virt);
     const size_scrn: f64 = @floatFromInt(self.plane.dim_y() * eighths_c);
-    const pos_scrn: f64 = @floatFromInt(pos_scrn_);
     const ratio = size_virt / size_scrn;
     return @intFromFloat(pos_scrn * ratio);
+}
+
+fn is_pos_scrn_in_bar(self: *const Self, pos_scrn: u32) bool {
+    return pos_scrn > self.pos_scrn and pos_scrn <= self.pos_scrn + self.view_scrn;
+}
+
+fn click_at(self: *Self, y: i32, ypx: i32) void {
+    const pos_scrn = self.y_coord_to_pos_scrn(y, ypx);
+    if (self.is_pos_scrn_in_bar(pos_scrn)) {
+        self.mouse_pos_scrn_offset = pos_scrn -| self.pos_scrn;
+        @import("std").log.debug("click: {d}:{d}", .{ pos_scrn, self.mouse_pos_scrn_offset });
+    } else {
+        self.mouse_pos_scrn_offset = self.view_scrn / 2;
+        @import("std").log.debug("click off: {d}:{d}", .{ pos_scrn, self.mouse_pos_scrn_offset });
+        self.move_to(self.pos_scrn_to_virt(pos_scrn -| self.mouse_pos_scrn_offset));
+    }
+}
+
+fn drag_to(self: *Self, y: i32, ypx: i32) void {
+    const pos_scrn = self.y_coord_to_pos_scrn(y, ypx) -| self.mouse_pos_scrn_offset;
+    const pos_virt = self.pos_scrn_to_virt(pos_scrn);
+    @import("std").log.debug("drag_to: {d:}:{d}:{d}", .{ pos_scrn, pos_virt, self.mouse_pos_scrn_offset });
+    self.move_to(pos_virt);
+}
+
+fn move_to(self: *Self, pos_virt: u32) void {
+    self.set(self.size_virt, self.view_virt, pos_virt);
+    _ = self.event_sink.msg(.{ "scroll_to", pos_virt }) catch {};
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -130,7 +163,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.set_base_style(style);
     self.plane.erase();
     if (!(tui.config().scrollbar_auto_hide and self.size_scrn == self.view_scrn))
-        smooth_bar_at(&self.plane, @intCast(self.pos_scrn), @intCast(self.view_scrn)) catch {};
+        smooth_bar_at(&self.plane, self.pos_scrn, self.view_scrn) catch {};
     return false;
 }
 
@@ -156,19 +189,19 @@ pub fn set(self: *Self, size_virt_: u32, view_virt_: u32, pos_virt_: u32) void {
 
 const eighths_b = [_][]const u8{ "█", "▇", "▆", "▅", "▄", "▃", "▂", "▁" };
 const eighths_t = [_][]const u8{ " ", "▔", "🮂", "🮃", "▀", "🮄", "🮅", "🮆" };
-const eighths_c: i32 = @intCast(eighths_b.len);
+const eighths_c: u32 = eighths_b.len;
 
-fn smooth_bar_at(plane: *Plane, pos_: i32, size_: i32) !void {
-    const height: i32 = @intCast(plane.dim_y());
+fn smooth_bar_at(plane: *Plane, pos_: u32, size_: u32) !void {
+    const height: u32 = plane.dim_y();
     var size = @max(size_, 8);
-    const pos: i32 = @min(height * eighths_c - size, pos_);
-    var pos_y = @as(c_int, @intCast(@divFloor(pos, eighths_c)));
+    const pos = @min(height * eighths_c - size, pos_);
+    var pos_y: c_int = @intCast(@divFloor(pos, eighths_c));
     const blk = @mod(pos, eighths_c);
-    const b = eighths_b[@intCast(blk)];
+    const b = eighths_b[blk];
     plane.erase();
     plane.cursor_move_yx(pos_y, 0) catch return;
     _ = try plane.putstr(@ptrCast(b));
-    size -= @as(u16, @intCast(eighths_c)) - @as(u16, @intCast(blk));
+    size -= eighths_c - blk;
     while (size >= 8) {
         pos_y += 1;
         size -= 8;
