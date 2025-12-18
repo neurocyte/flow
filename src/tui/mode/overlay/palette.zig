@@ -26,6 +26,7 @@ pub const Placement = enum {
     top_center,
     top_left,
     top_right,
+    primary_cursor,
 };
 
 pub fn Create(options: type) type {
@@ -197,6 +198,7 @@ pub fn Create(options: type) type {
                 .top_center => self.prepare_resize_top_center(screen, w),
                 .top_left => self.prepare_resize_top_left(screen, w),
                 .top_right => self.prepare_resize_top_right(screen, w, padding),
+                .primary_cursor => self.prepare_resize_primary_cursor(screen, w, padding),
             };
         }
 
@@ -205,9 +207,13 @@ pub fn Create(options: type) type {
         }
 
         fn prepare_resize_at_x(self: *Self, screen: Widget.Box, w: usize, x: usize) Widget.Box {
-            self.view_rows = get_view_rows(screen);
+            return self.prepare_resize_at_y_x(screen, w, 0, x);
+        }
+
+        fn prepare_resize_at_y_x(self: *Self, screen: Widget.Box, w: usize, y: usize, x: usize) Widget.Box {
+            self.view_rows = get_view_rows(screen) -| y;
             const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);
-            return .{ .y = 0, .x = x, .w = w, .h = h };
+            return .{ .y = y, .x = x, .w = w, .h = h };
         }
 
         fn prepare_resize_top_center(self: *Self, screen: Widget.Box, w: usize) Widget.Box {
@@ -227,6 +233,13 @@ pub fn Create(options: type) type {
                 return self.prepare_resize_at_x(screen, w, @min(x, right_edge));
             };
             return self.prepare_resize_at_x(screen, w, x);
+        }
+
+        fn prepare_resize_primary_cursor(self: *Self, screen: Widget.Box, w: usize, padding: Widget.Style.Margin) Widget.Box {
+            const mv = tui.mainview() orelse return self.prepare_resize_top_right(screen, w, padding);
+            const ed = mv.get_active_editor() orelse return self.prepare_resize_top_right(screen, w, padding);
+            const cursor = ed.get_primary_abs() orelse return self.prepare_resize_top_right(screen, w, padding);
+            return self.prepare_resize_at_y_x(screen, w, cursor.row + 1 + padding.top, cursor.col);
         }
 
         fn after_resize_menu(self: *Self, _: *Menu.State(*Self), _: Widget.Box) void {
