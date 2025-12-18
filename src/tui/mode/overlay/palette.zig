@@ -20,7 +20,7 @@ const ModalBackground = @import("../../ModalBackground.zig");
 pub const Menu = @import("../../Menu.zig");
 
 const max_menu_width = 80;
-const widget_type: Widget.Type = .palette;
+const default_widget_type: Widget.Type = .palette;
 
 pub const Placement = enum {
     top_center,
@@ -54,6 +54,7 @@ pub fn Create(options: type) type {
         const Entry = options.Entry;
         const Self = @This();
         const ValueType = if (@hasDecl(options, "ValueType")) options.ValueType else void;
+        const widget_type: Widget.Type = if (@hasDecl(options, "widget_type")) options.widget_type else default_widget_type;
 
         pub const MenuType = Menu.Options(*Self).MenuType;
         pub const ButtonType = MenuType.ButtonType;
