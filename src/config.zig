@@ -172,5 +172,5 @@ pub const CompletionTrigger = enum {
 
 pub const CompletionStyle = enum {
     palette,
-    inplace,
+    dropdown,
 };
