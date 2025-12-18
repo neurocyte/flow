@@ -375,6 +375,18 @@
             ["right_control", "palette_menu_activate_quick"]
         ]
     },
+    "overlay/dropdown": {
+        "inherit": "normal",
+        "press": [
+            ["ctrl+p", "palette_menu_up"],
+            ["ctrl+n", "palette_menu_down"],
+            ["escape", "palette_menu_cancel"],
+            ["ctrl+up", "palette_menu_up"],
+            ["ctrl+down", "palette_menu_down"],
+            ["ctrl+enter", "palette_menu_activate"],
+            ["tab", "palette_menu_complete"]
+        ]
+    },
     "mini/numeric": {
         "press": [
             ["ctrl+?", "toggle_keybind_hints"],
