@@ -1148,7 +1148,10 @@ const cmds = struct {
         })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
-            try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type);
+            switch (tui.config().completion_style) {
+                .palette => try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type),
+                .dropdown => try tui.open_overlay(@import("mode/overlay/completion_dropdown.zig").Type),
+            }
             tui.need_render();
         };
     }
