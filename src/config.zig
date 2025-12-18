@@ -53,6 +53,7 @@ start_debugger_on_crash: bool = false,
 
 widget_style: WidgetStyle = .compact,
 palette_style: WidgetStyle = .bars_top_bottom,
+dropdown_style: WidgetStyle = .compact,
 panel_style: WidgetStyle = .compact,
 home_style: WidgetStyle = .bars_top_bottom,
 pane_left_style: WidgetStyle = .bar_right,
@@ -103,6 +104,7 @@ pub const WidgetType = enum {
     pane_left,
     pane_right,
     hint_window,
+    dropdown,
 };
 
 pub const WidgetStyle = enum {

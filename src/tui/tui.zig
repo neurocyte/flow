@@ -2225,6 +2225,7 @@ pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
     return switch (widget_type) {
         .none => WidgetStyle.from_tag(config_.widget_style),
         .palette => WidgetStyle.from_tag(config_.palette_style),
+        .dropdown => WidgetStyle.from_tag(config_.dropdown_style),
         .panel => WidgetStyle.from_tag(config_.panel_style),
         .home => WidgetStyle.from_tag(config_.home_style),
         .pane_left => WidgetStyle.from_tag(config_.pane_left_style),
@@ -2252,6 +2253,7 @@ fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
     return switch (widget_type) {
         .none => &config_.widget_style,
         .palette => &config_.palette_style,
+        .dropdown => &config_.dropdown_style,
         .panel => &config_.panel_style,
         .home => &config_.home_style,
         .pane_left => &config_.pane_left_style,

@@ -158,6 +158,7 @@ pub fn theme_style_from_type(style_type: WidgetType, theme: *const Theme) Theme.
         .none => theme.editor,
         .palette => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },
         .panel => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor.bg },
+        .dropdown => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor.bg },
         .home => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor.bg },
         .pane_left => switch (tui.config().pane_style) {
             .panel => .{ .fg = theme.editor_widget.bg, .bg = theme.panel.bg },
