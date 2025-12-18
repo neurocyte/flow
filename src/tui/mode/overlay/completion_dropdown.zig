@@ -108,8 +108,9 @@ pub fn update_query(self: *Type, query: []const u8) void {
     primary.selection = get_insert_selection(self, editor.get_primary().cursor);
     const b = editor.buf_for_update() catch return;
     const root_ = editor.insert(b.root, primary, query, b.allocator) catch return;
-    primary.selection = null;
     self.value.cursor = editor.get_primary().cursor;
+    if (self.value.replace) |*sel| sel.* = .{ .begin = sel.begin, .end = self.value.cursor };
+    primary.selection = null;
     editor.update_buf(root_) catch {};
     editor.clamp();
     editor.need_render();
@@ -117,13 +118,12 @@ pub fn update_query(self: *Type, query: []const u8) void {
 }
 
 fn get_insert_selection(self: *Type, cursor: ed.Cursor) ed.Selection {
-    const begin = if (self.value.replace) |sel|
-        sel.begin
+    return if (self.value.replace) |sel|
+        sel
     else if (self.value.start.selection) |sel|
-        sel.begin
+        sel
     else
-        self.value.start.cursor;
-    return .{ .begin = begin, .end = cursor };
+        .{ .begin = self.value.start.cursor, .end = cursor };
 }
 
 pub fn clear_entries(self: *Type) void {
