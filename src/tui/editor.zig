@@ -842,6 +842,16 @@ pub const Editor = struct {
         return self.get_primary();
     }
 
+    pub fn get_cursor_abs(self: *const Self, cursor: Cursor) ?Cursor {
+        const pos = self.screen_cursor(&cursor) orelse return null;
+        const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
+        return .{ .row = @intCast(y), .col = @intCast(x) };
+    }
+
+    pub fn get_primary_abs(self: *const Self) ?Cursor {
+        return self.get_cursor_abs(self.get_primary().cursor);
+    }
+
     fn store_undo_meta(self: *Self, allocator: Allocator) ![]u8 {
         var meta: std.Io.Writer.Allocating = .init(allocator);
         defer meta.deinit();
