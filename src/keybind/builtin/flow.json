@@ -378,6 +378,7 @@
     "overlay/dropdown": {
         "inherit": "normal",
         "press": [
+            ["alt+f9", "dropdown_next_widget_style"],
             ["ctrl+p", "palette_menu_up"],
             ["ctrl+n", "palette_menu_down"],
             ["escape", "palette_menu_cancel"],

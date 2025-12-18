@@ -1580,6 +1580,13 @@ const cmds = struct {
         try save_config();
     }
     pub const hint_window_next_widget_style_meta: Meta = .{};
+
+    pub fn dropdown_next_widget_style(_: *Self, _: Ctx) Result {
+        set_next_style(.dropdown);
+        need_render();
+        try save_config();
+    }
+    pub const dropdown_next_widget_style_meta: Meta = .{};
 };
 
 pub const MiniMode = struct {
