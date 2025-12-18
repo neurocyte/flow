@@ -51,6 +51,9 @@ scrollbar_auto_hide: bool = false,
 
 start_debugger_on_crash: bool = false,
 
+completion_trigger: CompletionTrigger = .manual,
+completion_style: CompletionStyle = .palette,
+
 widget_style: WidgetStyle = .compact,
 palette_style: WidgetStyle = .bars_top_bottom,
 dropdown_style: WidgetStyle = .compact,
@@ -160,4 +163,14 @@ pub const InitialFindQuery = enum {
     selection,
     last_query,
     selection_or_last_query,
+};
+
+pub const CompletionTrigger = enum {
+    manual,
+    automatic,
+};
+
+pub const CompletionStyle = enum {
+    palette,
+    inplace,
 };
