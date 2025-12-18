@@ -1108,6 +1108,17 @@ const cmds = struct {
     }
     pub const toggle_centered_view_meta: Meta = .{ .description = "Toggle centered view" };
 
+    pub fn toggle_completion_style(self: *Self, _: Ctx) Result {
+        self.config_.completion_style = switch (self.config_.completion_style) {
+            .palette => .dropdown,
+            .dropdown => .palette,
+        };
+        defer self.logger.print("completion style {t}", .{self.config_.completion_style});
+        try save_config();
+        resize();
+    }
+    pub const toggle_completion_style_meta: Meta = .{ .description = "Toggle completion style" };
+
     pub fn toggle_keybind_hints(self: *Self, _: Ctx) Result {
         self.hint_mode = switch (self.hint_mode) {
             .all => .prefix,
