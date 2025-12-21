@@ -669,6 +669,22 @@ const Node = union(enum) {
         return self.delete_bytes(sel.begin.row, pos, size, allocator, metrics) catch return error.Stop;
     }
 
+    pub fn delete_range_char(self: *const Node, sel: Selection, allocator: Allocator, size_: ?*usize, metrics: Metrics) error{Stop}!struct { Root, ?u8 } {
+        var size: usize = 0;
+        defer if (size_) |p| {
+            p.* = size;
+        };
+        _ = self.get_range(sel, null, &size, null, metrics) catch return error.Stop;
+        const char = if (size == 1) blk: {
+            var result_buf: [6]u8 = undefined;
+            const result = self.get_range(sel, &result_buf, null, null, metrics) catch break :blk null;
+            break :blk (result orelse break :blk null)[0];
+        } else null;
+        const pos = try self.get_line_width_to_pos(sel.begin.row, sel.begin.col, metrics);
+        const root = self.delete_bytes(sel.begin.row, pos, size, allocator, metrics) catch return error.Stop;
+        return .{ root, char };
+    }
+
     pub fn delete_bytes(self: *const Node, line: usize, pos_: usize, bytes: usize, allocator: Allocator, metrics_: Metrics) !Root {
         const Ctx = struct {
             allocator: Allocator,
