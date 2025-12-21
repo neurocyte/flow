@@ -258,6 +258,21 @@ pub const CurSel = struct {
     }
 };
 
+pub const InsertTrigger = struct {
+    char: u8,
+    command: command.ID,
+
+    pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+        try cbor.writeArrayHeader(writer, 2);
+        try cbor.writeValue(writer, self.char);
+        try cbor.writeValue(writer, self.command);
+    }
+
+    pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
+        return try cbor.matchValue(iter, .{ cbor.extract(&self.char), cbor.extract(&self.command) });
+    }
+};
+
 pub const Diagnostic = struct {
     source: []const u8,
     code: []const u8,
@@ -379,6 +394,8 @@ pub const Editor = struct {
     syntax_last_rendered_root: ?Buffer.Root = null,
     syntax_incremental_reparse: bool = false,
 
+    insert_triggers: std.ArrayList(InsertTrigger) = .empty,
+
     style_cache: ?StyleCache = null,
     style_cache_theme: []const u8 = "",
 
@@ -465,7 +482,7 @@ pub const Editor = struct {
     }
 
     pub fn write_state(self: *const Self, writer: *std.Io.Writer) !void {
-        try cbor.writeArrayHeader(writer, 10);
+        try cbor.writeArrayHeader(writer, 11);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
         try cbor.writeValue(writer, self.enable_format_on_save);
@@ -473,6 +490,7 @@ pub const Editor = struct {
         try cbor.writeValue(writer, self.tab_width);
         try cbor.writeValue(writer, self.indent_mode);
         try cbor.writeValue(writer, self.syntax_no_render);
+        try cbor.writeValue(writer, self.insert_triggers);
         if (self.find_history) |history| {
             try cbor.writeArrayHeader(writer, history.items.len);
             for (history.items) |item|
@@ -503,6 +521,7 @@ pub const Editor = struct {
             tp.extract(&self.tab_width),
             tp.extract(&self.indent_mode),
             tp.extract(&self.syntax_no_render),
+            cbor.extractAlloc(&self.insert_triggers, self.allocator),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
             tp.extract_cbor(&cursels_cbor),
@@ -575,6 +594,7 @@ pub const Editor = struct {
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.completions.deinit(self.allocator);
+        self.insert_triggers.deinit(self.allocator);
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
         self.cancel_all_tabstops();
         self.cursels.deinit(self.allocator);
@@ -6182,6 +6202,18 @@ pub const Editor = struct {
         self.diag_hints = 0;
         self.send_editor_diagnostics() catch {};
         self.need_render();
+    }
+
+    pub fn add_insert_trigger(self: *Self, char: u8, command_: command.ID) error{OutOfMemory}!void {
+        (try self.insert_triggers.addOne()).* = .{ char, command_ };
+    }
+
+    pub fn remove_insert_trigger(self: *Self, char: u8, command_: command.ID) bool {
+        for (self.insert_triggers.items, 0..) |item, i| if (item.char == char and item.command == command_) {
+            _ = self.insert_triggers.orderedRemove(i);
+            return true;
+        };
+        return false;
     }
 
     pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
