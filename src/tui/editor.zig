@@ -2843,6 +2843,7 @@ pub const Editor = struct {
         cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.metrics);
         cursor.target = cursor.col;
         self.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
+        if (s.len == 1) self.run_insert_triggers(s[0]);
         return root_;
     }
 
@@ -6214,6 +6215,15 @@ pub const Editor = struct {
             return true;
         };
         return false;
+    }
+
+    pub fn run_insert_triggers(self: *Self, char: u8) void {
+        switch (char) {
+            '\n', '\t', ' ' => return,
+            else => {},
+        }
+        for (self.insert_triggers.items) |item| if (item.char == char)
+            tp.self_pid().send(.{ "cmd", item.command, .{[_]u8{char}} }) catch {};
     }
 
     pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
