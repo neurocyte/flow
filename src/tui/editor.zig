@@ -593,6 +593,7 @@ pub const Editor = struct {
             .enable_terminal_cursor = tui.config().enable_terminal_cursor,
             .render_whitespace = tui.config().whitespace_mode,
         };
+        self.add_default_symbol_triggers();
     }
 
     fn deinit(self: *Self) void {
@@ -6222,8 +6223,13 @@ pub const Editor = struct {
         };
     }
 
+    fn add_default_symbol_triggers(self: *Self) void {
+        const id = command.get_id("completion") orelse return;
+        self.add_symbol_trigger('.', id, .insert) catch {};
+    }
+
     pub fn add_symbol_trigger(self: *Self, char: u8, command_: command.ID, event: TriggerEvent) error{OutOfMemory}!void {
-        (try self.get_event_triggers(event).addOne()).* = .{ char, command_ };
+        (try self.get_event_triggers(event).addOne(self.allocator)).* = .{ .char = char, .command = command_ };
     }
 
     pub fn remove_symbol_trigger(self: *Self, char: u8, command_: command.ID, event: TriggerEvent) bool {
