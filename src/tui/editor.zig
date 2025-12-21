@@ -258,7 +258,12 @@ pub const CurSel = struct {
     }
 };
 
-pub const InsertTrigger = struct {
+pub const TriggerEvent = enum {
+    insert,
+    delete,
+};
+
+pub const TriggerSymbol = struct {
     char: u8,
     command: command.ID,
 
@@ -394,7 +399,8 @@ pub const Editor = struct {
     syntax_last_rendered_root: ?Buffer.Root = null,
     syntax_incremental_reparse: bool = false,
 
-    insert_triggers: std.ArrayList(InsertTrigger) = .empty,
+    insert_triggers: std.ArrayList(TriggerSymbol) = .empty,
+    delete_triggers: std.ArrayList(TriggerSymbol) = .empty,
 
     style_cache: ?StyleCache = null,
     style_cache_theme: []const u8 = "",
@@ -482,7 +488,7 @@ pub const Editor = struct {
     }
 
     pub fn write_state(self: *const Self, writer: *std.Io.Writer) !void {
-        try cbor.writeArrayHeader(writer, 11);
+        try cbor.writeArrayHeader(writer, 12);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
         try cbor.writeValue(writer, self.enable_format_on_save);
@@ -491,6 +497,7 @@ pub const Editor = struct {
         try cbor.writeValue(writer, self.indent_mode);
         try cbor.writeValue(writer, self.syntax_no_render);
         try cbor.writeValue(writer, self.insert_triggers);
+        try cbor.writeValue(writer, self.delete_triggers);
         if (self.find_history) |history| {
             try cbor.writeArrayHeader(writer, history.items.len);
             for (history.items) |item|
@@ -522,6 +529,7 @@ pub const Editor = struct {
             tp.extract(&self.indent_mode),
             tp.extract(&self.syntax_no_render),
             cbor.extractAlloc(&self.insert_triggers, self.allocator),
+            cbor.extractAlloc(&self.delete_triggers, self.allocator),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
             tp.extract_cbor(&cursels_cbor),
@@ -595,6 +603,7 @@ pub const Editor = struct {
         self.diagnostics.deinit(self.allocator);
         self.completions.deinit(self.allocator);
         self.insert_triggers.deinit(self.allocator);
+        self.delete_triggers.deinit(self.allocator);
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
         self.cancel_all_tabstops();
         self.cursels.deinit(self.allocator);
@@ -6205,13 +6214,21 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    pub fn add_insert_trigger(self: *Self, char: u8, command_: command.ID) error{OutOfMemory}!void {
-        (try self.insert_triggers.addOne()).* = .{ char, command_ };
+    pub fn add_symbol_trigger(self: *Self, char: u8, command_: command.ID, event: TriggerEvent) error{OutOfMemory}!void {
+        const triggers = switch (event) {
+            .insert => &self.insert_triggers,
+            .delete => &self.delete_triggers,
+        };
+        (try triggers.addOne()).* = .{ char, command_ };
     }
 
-    pub fn remove_insert_trigger(self: *Self, char: u8, command_: command.ID) bool {
-        for (self.insert_triggers.items, 0..) |item, i| if (item.char == char and item.command == command_) {
-            _ = self.insert_triggers.orderedRemove(i);
+    pub fn remove_symbol_trigger(self: *Self, char: u8, command_: command.ID, event: TriggerEvent) bool {
+        const triggers = switch (event) {
+            .insert => &self.insert_triggers,
+            .delete => &self.delete_triggers,
+        };
+        for (triggers.items, 0..) |item, i| if (item.char == char and item.command == command_) {
+            _ = triggers.orderedRemove(i);
             return true;
         };
         return false;
