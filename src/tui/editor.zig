@@ -2272,8 +2272,9 @@ pub const Editor = struct {
         cursel.cursor = sel.begin;
         cursel.disable_selection_normal();
         var size: usize = 0;
-        const root_ = try root.delete_range(sel, allocator, &size, self.metrics);
+        const root_, const trigger_char = try root.delete_range_char(sel, allocator, &size, self.metrics);
         self.nudge_delete(sel, cursel, size);
+        if (trigger_char) |char| self.run_triggers(char, .delete);
         return root_;
     }
 
@@ -2852,7 +2853,7 @@ pub const Editor = struct {
         cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.metrics);
         cursor.target = cursor.col;
         self.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
-        if (s.len == 1) self.run_insert_triggers(s[0]);
+        if (s.len == 1) self.run_triggers(s[0], .insert);
         return root_;
     }
 
@@ -6214,19 +6215,19 @@ pub const Editor = struct {
         self.need_render();
     }
 
-    pub fn add_symbol_trigger(self: *Self, char: u8, command_: command.ID, event: TriggerEvent) error{OutOfMemory}!void {
-        const triggers = switch (event) {
+    fn get_event_triggers(self: *Self, event: TriggerEvent) *std.ArrayList(TriggerSymbol) {
+        return switch (event) {
             .insert => &self.insert_triggers,
             .delete => &self.delete_triggers,
         };
-        (try triggers.addOne()).* = .{ char, command_ };
+    }
+
+    pub fn add_symbol_trigger(self: *Self, char: u8, command_: command.ID, event: TriggerEvent) error{OutOfMemory}!void {
+        (try self.get_event_triggers(event).addOne()).* = .{ char, command_ };
     }
 
     pub fn remove_symbol_trigger(self: *Self, char: u8, command_: command.ID, event: TriggerEvent) bool {
-        const triggers = switch (event) {
-            .insert => &self.insert_triggers,
-            .delete => &self.delete_triggers,
-        };
+        const triggers = self.get_event_triggers(event);
         for (triggers.items, 0..) |item, i| if (item.char == char and item.command == command_) {
             _ = triggers.orderedRemove(i);
             return true;
@@ -6234,12 +6235,12 @@ pub const Editor = struct {
         return false;
     }
 
-    pub fn run_insert_triggers(self: *Self, char: u8) void {
+    pub fn run_triggers(self: *Self, char: u8, event: TriggerEvent) void {
         switch (char) {
             '\n', '\t', ' ' => return,
             else => {},
         }
-        for (self.insert_triggers.items) |item| if (item.char == char)
+        for (self.get_event_triggers(event).items) |item| if (item.char == char)
             tp.self_pid().send(.{ "cmd", item.command, .{[_]u8{char}} }) catch {};
     }
 
