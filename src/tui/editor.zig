@@ -6240,6 +6240,7 @@ pub const Editor = struct {
     }
 
     pub fn add_symbol_trigger(self: *Self, char: u8, command_: command.ID, event: TriggerEvent) error{OutOfMemory}!void {
+        for (self.get_event_triggers(event).items) |item| if (item.char == char and item.command == command_) return;
         (try self.get_event_triggers(event).addOne(self.allocator)).* = .{ .char = char, .command = command_ };
     }
 
