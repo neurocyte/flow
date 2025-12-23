@@ -117,6 +117,10 @@ pub fn update_query(self: *Type, query: []const u8) void {
     editor.update_buf(root_) catch {};
     editor.clamp();
     editor.need_render();
+    if (query.len > 0) {
+        const last_char = query[query.len - 1];
+        editor.run_triggers(last_char, .insert);
+    }
     return;
 }
 
