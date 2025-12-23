@@ -428,7 +428,7 @@ pub fn Create(options: type) type {
 
             pub fn palette_menu_down(self: *Self, _: Ctx) Result {
                 if (self.menu.selected) |selected| {
-                    if (selected == self.view_rows - 1 and
+                    if (selected == self.view_rows -| 1 and
                         self.view_pos + self.view_rows < self.total_items)
                     {
                         self.view_pos += 1;
