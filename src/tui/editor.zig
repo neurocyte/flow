@@ -270,11 +270,16 @@ pub const TriggerSymbol = struct {
     pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
         try cbor.writeArrayHeader(writer, 2);
         try cbor.writeValue(writer, self.char);
-        try cbor.writeValue(writer, self.command);
+        try cbor.writeValue(writer, command.get_name(self.command));
     }
 
     pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
-        return try cbor.matchValue(iter, .{ cbor.extract(&self.char), cbor.extract(&self.command) });
+        var command_name: []const u8 = undefined;
+        if (try cbor.matchValue(iter, .{ cbor.extract(&self.char), cbor.extract(&command_name) })) {
+            self.command = command.get_id(command_name) orelse command.ID_unknown;
+            return true;
+        }
+        return false;
     }
 };
 
@@ -496,8 +501,8 @@ pub const Editor = struct {
         try cbor.writeValue(writer, self.tab_width);
         try cbor.writeValue(writer, self.indent_mode);
         try cbor.writeValue(writer, self.syntax_no_render);
-        try cbor.writeValue(writer, self.insert_triggers);
-        try cbor.writeValue(writer, self.delete_triggers);
+        try cbor.writeValue(writer, self.insert_triggers.items);
+        try cbor.writeValue(writer, self.delete_triggers.items);
         if (self.find_history) |history| {
             try cbor.writeArrayHeader(writer, history.items.len);
             for (history.items) |item|
@@ -519,6 +524,8 @@ pub const Editor = struct {
         var view_cbor: []const u8 = undefined;
         var cursels_cbor: []const u8 = undefined;
         var last_find_query: []const u8 = undefined;
+        var insert_triggers: []TriggerSymbol = undefined;
+        var delete_triggers: []TriggerSymbol = undefined;
         var find_history: []const u8 = undefined;
         if (!try cbor.matchValue(iter, .{
             tp.extract(&file_path),
@@ -528,13 +535,17 @@ pub const Editor = struct {
             tp.extract(&self.tab_width),
             tp.extract(&self.indent_mode),
             tp.extract(&self.syntax_no_render),
-            cbor.extractAlloc(&self.insert_triggers, self.allocator),
-            cbor.extractAlloc(&self.delete_triggers, self.allocator),
+            cbor.extractAlloc(&insert_triggers, self.allocator),
+            cbor.extractAlloc(&delete_triggers, self.allocator),
             tp.extract_cbor(&find_history),
             tp.extract_cbor(&view_cbor),
             tp.extract_cbor(&cursels_cbor),
         }))
             return error.RestoreStateMatch;
+        self.insert_triggers.deinit(self.allocator);
+        self.insert_triggers = .fromOwnedSlice(insert_triggers);
+        self.delete_triggers.deinit(self.allocator);
+        self.delete_triggers = .fromOwnedSlice(delete_triggers);
         self.refresh_tab_width();
         if (op == .open_file)
             try self.open(file_path);
