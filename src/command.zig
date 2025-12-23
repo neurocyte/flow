@@ -208,6 +208,7 @@ const suppressed_errors = std.StaticStringMap(void).initComptime(.{
     .{ "enable_fast_scroll", void },
     .{ "disable_fast_scroll", void },
     .{ "clear_diagnostics", void },
+    .{ "palette_menu_cancel", void },
 });
 
 pub fn executeName(name: []const u8, ctx: Context) tp.result {
