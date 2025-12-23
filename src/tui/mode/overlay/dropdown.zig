@@ -29,7 +29,6 @@ pub const Placement = enum {
 pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
-        modal: *ModalBackground.State(*Self),
         menu: *Menu.State(*Self),
         mode: keybind.Mode,
         query: std.ArrayList(u8),
@@ -68,17 +67,6 @@ pub fn Create(options: type) type {
             errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
-                .modal = try ModalBackground.create(*Self, allocator, tui.mainview_widget(), .{
-                    .ctx = self,
-                    .on_click = mouse_palette_menu_cancel,
-                    .on_render = if (@hasDecl(options, "modal_dim"))
-                        if (options.modal_dim)
-                            ModalBackground.Options(*Self).on_render_dim
-                        else
-                            ModalBackground.Options(*Self).on_render_default
-                    else
-                        ModalBackground.Options(*Self).on_render_dim,
-                }),
                 .menu = try Menu.create(*Self, allocator, tui.plane(), .{
                     .ctx = self,
                     .style = widget_type,
@@ -117,7 +105,6 @@ pub fn Create(options: type) type {
                 try self.query.appendSlice(self.allocator, initial_query);
             }
             try self.start_query(0);
-            try mv.floating_views.add(self.modal.widget());
             try mv.floating_views.add(self.menu.container_widget);
 
             if (@hasDecl(options, "handle_event")) blk: {
@@ -136,10 +123,8 @@ pub fn Create(options: type) type {
             if (@hasDecl(options, "deinit"))
                 options.deinit(self);
             self.entries.deinit(self.allocator);
-            if (tui.mainview()) |mv| {
+            if (tui.mainview()) |mv|
                 mv.floating_views.remove(self.menu.container_widget);
-                mv.floating_views.remove(self.modal.widget());
-            }
             self.logger.deinit();
             self.allocator.destroy(self);
         }
@@ -374,7 +359,7 @@ pub fn Create(options: type) type {
             try self.query.appendSlice(self.allocator, buf[0..bytes]);
             if (@hasDecl(options, "update_query"))
                 options.update_query(self, self.query.items);
-            std.log.debug("insert_code_point: '{s}'", .{self.query.items});
+            // std.log.debug("insert_code_point: '{s}'", .{self.query.items});
             return self.start_query(0);
         }
 
@@ -382,7 +367,7 @@ pub fn Create(options: type) type {
             try self.query.appendSlice(self.allocator, bytes);
             if (@hasDecl(options, "update_query"))
                 options.update_query(self, self.query.items);
-            std.log.debug("insert_bytes: '{s}'", .{self.query.items});
+            // std.log.debug("insert_bytes: '{s}'", .{self.query.items});
             return self.start_query(0);
         }
 
