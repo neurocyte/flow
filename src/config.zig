@@ -71,6 +71,7 @@ centered_view_min_screen_width: usize = 145,
 lsp_output: enum { quiet, verbose } = .quiet,
 
 keybind_mode: KeybindMode = .normal,
+dropdown_keybinds: DropdownKeybindMode = .standard,
 
 include_files: []const u8 = "",
 
@@ -156,6 +157,11 @@ pub const PaneStyle = enum {
 pub const KeybindMode = enum {
     normal,
     ignore_alt_text_modifiers,
+};
+
+pub const DropdownKeybindMode = enum {
+    standard,
+    noninvasive,
 };
 
 pub const InitialFindQuery = enum {

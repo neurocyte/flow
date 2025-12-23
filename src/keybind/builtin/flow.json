@@ -375,7 +375,7 @@
             ["right_control", "palette_menu_activate_quick"]
         ]
     },
-    "overlay/dropdown": {
+    "overlay/dropdown-noninvasive": {
         "inherit": "normal",
         "press": [
             ["alt+f9", "dropdown_next_widget_style"],
@@ -385,6 +385,19 @@
             ["ctrl+up", "palette_menu_up"],
             ["ctrl+down", "palette_menu_down"],
             ["ctrl+enter", "palette_menu_activate"],
+            ["tab", "palette_menu_complete"]
+        ]
+    },
+    "overlay/dropdown": {
+        "inherit": "normal",
+        "press": [
+            ["alt+f9", "dropdown_next_widget_style"],
+            ["ctrl+p", "palette_menu_up"],
+            ["ctrl+n", "palette_menu_down"],
+            ["escape", "palette_menu_cancel"],
+            ["up", "palette_menu_up"],
+            ["down", "palette_menu_down"],
+            ["enter", "palette_menu_activate"],
             ["tab", "palette_menu_complete"]
         ]
     },

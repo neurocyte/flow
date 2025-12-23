@@ -93,7 +93,10 @@ pub fn Create(options: type) type {
                 .query = .empty,
                 .view_rows = get_view_rows(tui.screen()),
                 .entries = .empty,
-                .mode = try keybind.mode("overlay/dropdown", allocator, .{
+                .mode = try keybind.mode(switch (tui.config().dropdown_keybinds) {
+                    .standard => "overlay/dropdown",
+                    .noninvasive => "overlay/dropdown-noninvasive",
+                }, allocator, .{
                     .insert_command = "overlay_insert_bytes",
                 }),
                 .placement = if (@hasDecl(options, "placement")) options.placement else .top_center,
