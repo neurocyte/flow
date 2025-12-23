@@ -353,6 +353,17 @@ pub fn Create(options: type) type {
             return matches.items.len;
         }
 
+        fn delete_word(self: *Self) !void {
+            if (std.mem.lastIndexOfAny(u8, self.query.items, "/\\. -_")) |pos| {
+                self.query.shrinkRetainingCapacity(pos);
+            } else {
+                self.query.shrinkRetainingCapacity(0);
+            }
+            if (@hasDecl(options, "update_query"))
+                options.update_query(self, self.query.items);
+            return self.start_query(0);
+        }
+
         fn delete_code_point(self: *Self) !void {
             if (self.query.items.len > 0) {
                 self.query.shrinkRetainingCapacity(self.query.items.len - tui.egc_last(self.query.items).len);
@@ -531,6 +542,11 @@ pub fn Create(options: type) type {
                 try self.cmd("exit_overlay_mode", .{});
             }
             pub const palette_menu_cancel_meta: Meta = .{};
+
+            pub fn overlay_delete_word_left(self: *Self, _: Ctx) Result {
+                self.delete_word() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            }
+            pub const overlay_delete_word_left_meta: Meta = .{ .description = "Delete word to the left" };
 
             pub fn overlay_delete_backwards(self: *Self, _: Ctx) Result {
                 self.delete_code_point() catch |e| return tp.exit_error(e, @errorReturnTrace());
