@@ -385,7 +385,8 @@
             ["ctrl+up", "palette_menu_up"],
             ["ctrl+down", "palette_menu_down"],
             ["ctrl+enter", "palette_menu_activate"],
-            ["tab", "palette_menu_complete"]
+            ["tab", "palette_menu_complete"],
+            ["backspace", "overlay_delete_backwards"]
         ]
     },
     "overlay/dropdown": {
@@ -398,7 +399,8 @@
             ["up", "palette_menu_up"],
             ["down", "palette_menu_down"],
             ["enter", "palette_menu_activate"],
-            ["tab", "palette_menu_complete"]
+            ["tab", "palette_menu_complete"],
+            ["backspace", "overlay_delete_backwards"]
         ]
     },
     "mini/numeric": {

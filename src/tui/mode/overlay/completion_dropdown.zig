@@ -110,7 +110,10 @@ pub fn update_query(self: *Type, query: []const u8) void {
     const primary = editor.get_primary();
     primary.selection = get_insert_selection(self, editor.get_primary().cursor);
     const b = editor.buf_for_update() catch return;
-    const root_ = editor.insert(b.root, primary, query, b.allocator) catch return;
+    const root_ = if (query.len > 0)
+        editor.insert(b.root, primary, query, b.allocator) catch return
+    else
+        editor.delete_selection(b.root, primary, b.allocator) catch return;
     self.value.cursor = editor.get_primary().cursor;
     if (self.value.replace) |*sel| sel.* = .{ .begin = sel.begin, .end = self.value.cursor };
     primary.selection = null;

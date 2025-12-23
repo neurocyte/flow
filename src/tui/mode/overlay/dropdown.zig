@@ -353,6 +353,15 @@ pub fn Create(options: type) type {
             return matches.items.len;
         }
 
+        fn delete_code_point(self: *Self) !void {
+            if (self.query.items.len > 0) {
+                self.query.shrinkRetainingCapacity(self.query.items.len - tui.egc_last(self.query.items).len);
+                if (@hasDecl(options, "update_query"))
+                    options.update_query(self, self.query.items);
+            }
+            try self.start_query(0);
+        }
+
         fn insert_code_point(self: *Self, c: u32) !void {
             var buf: [6]u8 = undefined;
             const bytes = try input.ucs32_to_utf8(&[_]u32{c}, &buf);
@@ -522,6 +531,11 @@ pub fn Create(options: type) type {
                 try self.cmd("exit_overlay_mode", .{});
             }
             pub const palette_menu_cancel_meta: Meta = .{};
+
+            pub fn overlay_delete_backwards(self: *Self, _: Ctx) Result {
+                self.delete_code_point() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            }
+            pub const overlay_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
 
             pub fn overlay_insert_code_point(self: *Self, ctx: Ctx) Result {
                 var egc: u32 = 0;
