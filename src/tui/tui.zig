@@ -1119,6 +1119,17 @@ const cmds = struct {
     }
     pub const toggle_completion_style_meta: Meta = .{ .description = "Toggle completion style" };
 
+    pub fn toggle_completion_trigger(self: *Self, _: Ctx) Result {
+        self.config_.completion_trigger = switch (self.config_.completion_trigger) {
+            .manual => .automatic,
+            .automatic => .manual,
+        };
+        defer self.logger.print("{t} completion", .{self.config_.completion_trigger});
+        try save_config();
+        resize();
+    }
+    pub const toggle_completion_trigger_meta: Meta = .{ .description = "Toggle auto completion" };
+
     pub fn toggle_keybind_hints(self: *Self, _: Ctx) Result {
         self.hint_mode = switch (self.hint_mode) {
             .all => .prefix,

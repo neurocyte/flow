@@ -6254,6 +6254,7 @@ pub const Editor = struct {
     }
 
     pub fn run_triggers(self: *Self, cursel: *const CurSel, char: u8, event: TriggerEvent) void {
+        if (tui.config().completion_trigger == .manual) return;
         switch (char) {
             '\n', '\t', ' ' => return,
             else => {},
