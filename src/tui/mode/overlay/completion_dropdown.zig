@@ -30,6 +30,7 @@ pub const Entry = struct {
 pub const ValueType = struct {
     start: ed.CurSel = .{},
     cursor: ed.Cursor = .{},
+    view: ed.View = .{},
     replace: ?Buffer.Selection = null,
 };
 pub const defaultValue: ValueType = .{};
@@ -88,14 +89,16 @@ pub fn handle_event(self: *Type, _: tp.pid_ref, m: tp.message) tp.result {
         try m.match(.{ "E", "close" }))
     {
         const editor = tui.get_active_editor() orelse return;
-        if (!self.value.cursor.eql(editor.get_primary().cursor))
-            tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| self.logger.err(module_name, e);
+        if (!self.value.cursor.eql(editor.get_primary().cursor) or !self.value.view.eql(editor.view)) {
+            tp.self_pid().send(.{ "cmd", "palette_menu_cancel" }) catch |e| self.logger.err(module_name, e);
+        }
     }
 }
 
 pub fn initial_query(self: *Type, allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
     const editor = tui.get_active_editor() orelse return allocator.dupe(u8, "");
     self.value.cursor = editor.get_primary().cursor;
+    self.value.view = editor.view;
     return if (self.value.replace) |replace| blk: {
         const sel: Buffer.Selection = .{ .begin = replace.begin, .end = self.value.start.cursor };
         break :blk editor.get_selection(sel, allocator) catch break :blk allocator.dupe(u8, "");
@@ -295,6 +298,8 @@ pub fn updated(self: *Type, button_: ?*Type.ButtonType) !void {
     }
     try mv.set_info_content(" ", .append); // blank line
     try mv.set_info_content(values.documentation, .append);
+    if (mv.get_active_editor()) |editor|
+        self.value.view = editor.view;
 }
 
 pub fn cancel(_: *Type) !void {
