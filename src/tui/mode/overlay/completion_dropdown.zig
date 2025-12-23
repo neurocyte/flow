@@ -20,6 +20,8 @@ pub const icon = "󱎸  ";
 pub const modal_dim = false;
 pub const placement = .primary_cursor;
 pub const widget_type: Widget.Type = .dropdown;
+pub var detail_limit: usize = 40;
+pub var description_limit: usize = 25;
 
 pub const Entry = struct {
     label: []const u8,
@@ -58,10 +60,10 @@ pub fn load_entries(self: *Type) !usize {
         item.sort_text = values.sort_text;
 
         var lines = std.mem.splitScalar(u8, values.label_description, '\n');
-        const label_description_len = if (lines.next()) |desc| desc.len else values.label_description.len;
+        const label_description_len: usize = if (lines.next()) |desc| desc.len else values.label_description.len;
 
         max_label_len = @max(max_label_len, item.label.len);
-        max_description = @max(max_description, label_description_len + values.label_detail.len);
+        max_description = @max(max_description, @min(label_description_len, description_limit) + @min(values.label_detail.len, detail_limit) + 2);
     }
 
     const less_fn = struct {
@@ -172,13 +174,15 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
         values.label,
         icon_,
         color,
-        values.label_detail,
-        values.label_description,
+        values.label_detail[0..@min(values.label_detail.len, detail_limit)],
+        values.label_description[0..@min(values.label_description.len, description_limit)],
         matches_cbor,
         button.active,
         selected,
         button.hover,
         theme,
+        if (values.label_detail.len > detail_limit) "…" else "",
+        if (values.label_description.len > description_limit) "…" else "",
     );
 }
 

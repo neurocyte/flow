@@ -2167,6 +2167,8 @@ pub fn render_symbol(
     selected: bool,
     hover: bool,
     theme_: *const Widget.Theme,
+    detail_suffix: []const u8,
+    description_suffix: []const u8,
 ) bool {
     const style_base = theme_.editor_widget;
     const style_symbol = if (active) theme_.editor_cursor else if (hover or selected) theme_.editor_selection else theme_.editor_widget;
@@ -2190,12 +2192,12 @@ pub fn render_symbol(
     _ = self.print("{s}", .{symbol}) catch {};
 
     self.set_style(style_detail);
-    _ = self.print("{s}", .{detail}) catch {};
+    _ = self.print("{s}{s}", .{ detail, detail_suffix }) catch {};
 
     var lines = std.mem.splitScalar(u8, description, '\n');
     if (lines.next()) |desc| {
         self.set_style(style_description);
-        _ = self.print_right(" {s} ", .{desc}) catch {};
+        _ = self.print_right(" {s}{s} ", .{ desc, description_suffix }) catch {};
     }
 
     var iter = matches_cbor;
