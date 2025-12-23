@@ -278,6 +278,8 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
         2 => editor.insert_snippet(text) catch |e| self.logger.err(module_name, e),
         else => editor.insert_cursels(text) catch |e| self.logger.err(module_name, e),
     }
+    self.value.cursor = editor.get_primary().cursor;
+    self.value.view = editor.view;
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| self.logger.err(module_name, e);
