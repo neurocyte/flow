@@ -6249,9 +6249,18 @@ pub const Editor = struct {
         for (self.get_event_triggers(event).items) |item| if (item.char == char) {
             if (command.log_execute)
                 self.logger.print("trigger: {t} '{c}' {?s}({d})", .{ event, char, command.get_name(item.command), item.command });
-            tp.self_pid().send(.{ "cmd", item.command, .{[_]u8{char}} }) catch {};
+            tp.self_pid().send(.{ "cmd", "run_trigger", .{ item.command, [_]u8{char} } }) catch {};
         };
     }
+
+    pub fn run_trigger(_: *Self, ctx: Context) Result {
+        var cmd: command.ID = undefined;
+        var trigger_char: []const u8 = undefined;
+        if (!try ctx.args.match(.{ tp.extract(&cmd), tp.extract(&trigger_char) }))
+            return error.InvalidRunTriggerArgument;
+        tp.self_pid().send(.{ "cmd", cmd, .{trigger_char} }) catch {};
+    }
+    pub const run_trigger_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
     pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
         if (!(row == self.completion_row and col == self.completion_col)) {
