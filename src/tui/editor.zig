@@ -2286,7 +2286,7 @@ pub const Editor = struct {
         var size: usize = 0;
         const root_, const trigger_char = try root.delete_range_char(sel, allocator, &size, self.metrics);
         self.nudge_delete(sel, cursel, size);
-        if (trigger_char) |char| self.run_triggers(char, .delete);
+        if (trigger_char) |char| self.run_triggers(cursel, char, .delete);
         return root_;
     }
 
@@ -2865,7 +2865,7 @@ pub const Editor = struct {
         cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.metrics);
         cursor.target = cursor.col;
         self.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
-        if (s.len == 1) self.run_triggers(s[0], .insert);
+        if (s.len == 1) self.run_triggers(cursel, s[0], .insert);
         return root_;
     }
 
@@ -6253,11 +6253,12 @@ pub const Editor = struct {
         return false;
     }
 
-    pub fn run_triggers(self: *Self, char: u8, event: TriggerEvent) void {
+    pub fn run_triggers(self: *Self, cursel: *const CurSel, char: u8, event: TriggerEvent) void {
         switch (char) {
             '\n', '\t', ' ' => return,
             else => {},
         }
+        if (!cursel.cursor.eql(self.get_primary().cursor)) return;
         for (self.get_event_triggers(event).items) |item| if (item.char == char) {
             if (command.log_execute)
                 self.logger.print("trigger: {t} '{c}' {?s}({d})", .{ event, char, command.get_name(item.command), item.command });
