@@ -6246,8 +6246,11 @@ pub const Editor = struct {
             '\n', '\t', ' ' => return,
             else => {},
         }
-        for (self.get_event_triggers(event).items) |item| if (item.char == char)
+        for (self.get_event_triggers(event).items) |item| if (item.char == char) {
+            if (command.log_execute)
+                self.logger.print("trigger: {t} '{c}' {?s}({d})", .{ event, char, command.get_name(item.command), item.command });
             tp.self_pid().send(.{ "cmd", item.command, .{[_]u8{char}} }) catch {};
+        };
     }
 
     pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
