@@ -1127,6 +1127,11 @@ const cmds = struct {
     }
     pub const toggle_keybind_hints_meta: Meta = .{ .description = "Toggle keybind hints" };
 
+    pub fn toggle_command_logging(_: *Self, _: Ctx) Result {
+        command.log_execute = !command.log_execute;
+    }
+    pub const toggle_command_logging_meta: Meta = .{ .description = "Toggle logging of executed commands" };
+
     pub fn scroll_keybind_hints(_: *Self, _: Ctx) Result {
         @import("keyhints.zig").scroll();
     }
