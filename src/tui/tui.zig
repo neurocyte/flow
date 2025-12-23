@@ -416,7 +416,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "cmd", tp.extract(&cmd) }))
         return command.executeName(cmd, ctx) catch |e| self.logger.err(cmd, e);
     if (try m.match(.{ "cmd", tp.extract(&cmd_id) }))
-        return command.execute(cmd_id, ctx) catch |e| self.logger.err("command", e);
+        return command.execute(cmd_id, command.get_name(cmd_id) orelse "(unknown)", ctx) catch |e| self.logger.err("command", e);
 
     var arg: []const u8 = undefined;
 
@@ -426,7 +426,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
     if (try m.match(.{ "cmd", tp.extract(&cmd_id), tp.extract_cbor(&arg) })) {
         ctx.args = .{ .buf = arg };
-        return command.execute(cmd_id, ctx) catch |e| self.logger.err("command", e);
+        return command.execute(cmd_id, command.get_name(cmd_id) orelse "(unknown)", ctx) catch |e| self.logger.err("command", e);
     }
     if (try m.match(.{"quit"})) {
         project_manager.shutdown();
@@ -736,7 +736,7 @@ fn dispatch_event(ctx: *anyopaque, cbor_msg: []const u8) void {
 
 fn handle_system_clipboard(self: *Self, text: []const u8) !void {
     if (command.get_id("mini_mode_paste")) |id|
-        return command.execute(id, command.fmt(.{text}));
+        return command.execute(id, "mini_mode_paste", command.fmt(.{text}));
 
     {
         const text_ = try clipboard_system_clipboard_text(self.allocator);

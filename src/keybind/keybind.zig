@@ -349,19 +349,17 @@ const Command = struct {
 
     fn execute(self: *@This()) !void {
         const id = self.command_id orelse
-            command.get_id_cache(self.command, &self.command_id) orelse {
-            return command.notFoundError(self.command);
-        };
+            command.get_id_cache(self.command, &self.command_id);
         var buf: [2048]u8 = undefined;
         @memcpy(buf[0..self.args.len], self.args);
         if (integer_argument) |int_arg| {
             if (cbor.match(self.args, .{}) catch false and has_integer_argument(id)) {
                 integer_argument = null;
-                try command.execute(id, command.fmt(.{int_arg}));
+                try command.execute(id, self.command, command.fmt(.{int_arg}));
                 return;
             }
         }
-        try command.execute(id, .{ .args = .{ .buf = buf[0..self.args.len] } });
+        try command.execute(id, self.command, .{ .args = .{ .buf = buf[0..self.args.len] } });
     }
 
     fn execute_const(self: *const @This()) void {
@@ -662,11 +660,9 @@ const BindingSet = struct {
             if (enable_insert_events)
                 self.send_insert_event(globals.insert_command, globals.input_buffer.items);
             const id = globals.insert_command_id orelse
-                command.get_id_cache(globals.insert_command, &globals.insert_command_id) orelse {
-                return tp.exit_error(error.InputTargetNotFound, null);
-            };
+                command.get_id_cache(globals.insert_command, &globals.insert_command_id);
             if (!builtin.is_test) {
-                try command.execute(id, command.fmt(.{globals.input_buffer.items}));
+                try command.execute(id, globals.insert_command, command.fmt(.{globals.input_buffer.items}));
             }
         }
     }

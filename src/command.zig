@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
 
+pub var log_execute: bool = false;
 pub var context_check: ?*const fn () void = null;
 
 pub const ID = usize;
@@ -69,15 +70,10 @@ pub fn Closure(comptime T: type) type {
         }
 
         pub fn register(self: *Self) !void {
-            if (command_names.get(self.vtbl.name)) |id| {
-                self.vtbl.id = id;
-                reAddCommand(&self.vtbl) catch |e| return log.err("cmd", "reAddCommand", e);
-                // log.print("cmd", "reAddCommand({s}) => {d}", .{ self.vtbl.name, self.vtbl.id });
-            } else {
-                self.vtbl.id = try addCommand(&self.vtbl);
-                command_names.put(self.vtbl.name, self.vtbl.id) catch |e| return log.err("cmd", "addCommand", e);
-                // log.print("cmd", "addCommand({s}) => {d}", .{ self.vtbl.name, self.vtbl.id });
-            }
+            if (command_names.get(self.vtbl.name)) |id|
+                reAddCommand(id, &self.vtbl) catch |e| return log.err("cmd", "reAddCommand", e)
+            else
+                addCommand(&self.vtbl);
         }
 
         pub fn unregister(self: *Self) void {
@@ -100,21 +96,31 @@ pub var commands: CommandTable = .empty;
 var command_names: std.StringHashMap(ID) = std.StringHashMap(ID).init(command_table_allocator);
 const command_table_allocator = std.heap.c_allocator;
 
-fn addCommand(cmd: *Vtable) !ID {
-    try commands.append(command_table_allocator, cmd);
-    return commands.items.len - 1;
+fn assignCommandId(name: []const u8) ID {
+    commands.append(command_table_allocator, null) catch |e| std.debug.panic("assignCommandId: {t}", .{e});
+    const id = commands.items.len - 1;
+    command_names.put(name, id) catch |e| std.debug.panic("assignCommandId: {t}", .{e});
+    return id;
 }
 
-fn reAddCommand(cmd: *Vtable) !void {
-    if (commands.items[cmd.id] != null) return error.DuplicateCommand;
-    commands.items[cmd.id] = cmd;
+fn addCommand(cmd: *Vtable) void {
+    commands.append(command_table_allocator, cmd) catch |e| std.debug.panic("addCommand: {t}", .{e});
+    const id = commands.items.len - 1;
+    cmd.id = id;
+    command_names.put(cmd.name, id) catch |e| std.debug.panic("assignCommandId: {t}", .{e});
+}
+
+fn reAddCommand(id: ID, cmd: *Vtable) !void {
+    cmd.id = id;
+    if (commands.items[id] != null) return error.DuplicateCommand;
+    commands.items[id] = cmd;
 }
 
 pub fn removeCommand(id: ID) void {
     commands.items[id] = null;
 }
 
-pub fn execute(id: ID, ctx: Context) tp.result {
+pub fn execute(id: ID, name: []const u8, ctx: Context) tp.result {
     if (tp.env.get().enabled(tp.channel.debug)) trace: {
         var iter = ctx.args.buf;
         var len = cbor.decodeArrayHeader(&iter) catch break :trace;
@@ -140,20 +146,26 @@ pub fn execute(id: ID, ctx: Context) tp.result {
     }
     if (context_check) |check| check();
     if (id >= commands.items.len)
-        return tp.exit_fmt("CommandNotFound: {d}", .{id});
+        return notFoundError(id, name);
     const cmd = commands.items[id];
     if (cmd) |p| {
-        // var buf: [tp.max_message_size]u8 = undefined;
-        // log.print("cmd", "execute({s}) {s}", .{ p.name, ctx.args.to_json(&buf) catch "" }) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        if (log_execute) {
+            var buf: [tp.max_message_size]u8 = undefined;
+            log.print("cmd", "execute({d}) {s} {s}", .{ id, p.name, if (ctx.args.buf.len > 0) ctx.args.to_json(&buf) catch "(error)" else "" });
+        }
         return p.run(p, ctx);
     } else {
-        return tp.exit_fmt("CommandNotAvailable: {d}", .{id});
+        return notFoundError(id, name);
     }
 }
 
 pub fn get_id(name: []const u8) ?ID {
-    var id: ?ID = null;
-    return get_id_cache(name, &id);
+    const id = get_name_id(name);
+    return if (commands.items[id]) |_| id else null;
+}
+
+pub fn get_name_id(name: []const u8) ID {
+    return command_names.get(name) orelse assignCommandId(name);
 }
 
 pub fn get_name(id: ID) ?[]const u8 {
@@ -164,19 +176,17 @@ pub fn get_name(id: ID) ?[]const u8 {
             tp.trace(tp.channel.debug, .{ "command", "get_name", "null", id });
     }
     if (id >= commands.items.len) return null;
-    return (commands.items[id] orelse return null).name;
+    if (commands.items[id]) |cmd| return cmd.name;
+    var iter = command_names.iterator();
+    while (iter.next()) |kv| if (kv.value_ptr.* == id)
+        return kv.key_ptr.*;
+    return null;
 }
 
-pub fn get_id_cache(name: []const u8, id: *?ID) ?ID {
-    for (commands.items) |cmd| {
-        if (cmd) |p|
-            if (std.mem.eql(u8, p.name, name)) {
-                id.* = p.id;
-                return p.id;
-            };
-    }
-    tp.trace(tp.channel.debug, .{ "command", "get_id_cache", "failed", name });
-    return null;
+pub fn get_id_cache(name: []const u8, cached_id: *?ID) ID {
+    const id = get_name_id(name);
+    cached_id.* = id;
+    return id;
 }
 
 pub fn get_description(id: ID) ?[]const u8 {
@@ -201,14 +211,12 @@ const suppressed_errors = std.StaticStringMap(void).initComptime(.{
 });
 
 pub fn executeName(name: []const u8, ctx: Context) tp.result {
-    const id = get_id(name);
-    if (id) |id_| return execute(id_, ctx);
-    return notFoundError(name);
+    return execute(get_name_id(name), name, ctx);
 }
 
-pub fn notFoundError(name: []const u8) !void {
+fn notFoundError(id: ID, name: []const u8) !void {
     if (!suppressed_errors.has(name))
-        return tp.exit_fmt("CommandNotFound: {s}", .{name});
+        return tp.exit_fmt("CommandNotFound: {s}({d})", .{ name, id });
 }
 
 fn CmdDef(comptime T: type) type {

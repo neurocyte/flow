@@ -5734,7 +5734,7 @@ pub const Editor = struct {
     pub fn goto_next_diagnostic(self: *Self, _: Context) Result {
         if (self.diagnostics.items.len == 0) {
             if (command.get_id("goto_next_file")) |id|
-                return command.execute(id, .{});
+                return command.execute(id, "goto_next_file", .{});
             return;
         }
         self.sort_diagnostics();
@@ -5750,7 +5750,7 @@ pub const Editor = struct {
     pub fn goto_prev_diagnostic(self: *Self, _: Context) Result {
         if (self.diagnostics.items.len == 0) {
             if (command.get_id("goto_prev_file")) |id|
-                return command.execute(id, .{});
+                return command.execute(id, "goto_prev_file", .{});
             return;
         }
         self.sort_diagnostics();
@@ -6224,7 +6224,7 @@ pub const Editor = struct {
     }
 
     fn add_default_symbol_triggers(self: *Self) void {
-        const id = command.get_id("completion") orelse return;
+        const id = command.get_name_id("completion");
         self.add_symbol_trigger('.', id, .insert) catch {};
     }
 
