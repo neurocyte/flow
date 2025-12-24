@@ -61,6 +61,7 @@ pub const LspError = (error{ NoLsp, LspFailed } || OutOfMemoryError || std.Io.Wr
 pub const ClientError = (error{ClientFailed} || OutOfMemoryError || std.Io.Writer.Error);
 pub const LspOrClientError = (LspError || ClientError);
 pub const GitError = error{InvalidGitResponse};
+pub const LspInfoError = error{ InvalidInfoMessage, InvalidTriggerCharacters };
 
 const File = struct {
     path: []const u8,
@@ -315,7 +316,7 @@ fn get_existing_language_server(self: *Self, language_server: []const u8) ?*cons
     return null;
 }
 
-fn get_language_server_instance(self: *Self, language_server: []const u8, language_server_options: []const u8) StartLspError!*const LSP {
+fn get_language_server_instance(self: *Self, from: tp.pid_ref, language_server: []const u8, language_server_options: []const u8) StartLspError!*const LSP {
     if (self.get_existing_language_server(language_server)) |lsp| return lsp;
     const lsp = try LSP.open(self.allocator, self.name, .{ .buf = language_server });
     errdefer lsp.deinit();
@@ -325,15 +326,15 @@ fn get_language_server_instance(self: *Self, language_server: []const u8, langua
     const basename = if (basename_begin) |begin| self.name[begin + 1 ..] else self.name;
 
     errdefer lsp.deinit();
-    try self.send_lsp_init_request(lsp, self.name, basename, uri, language_server, language_server_options);
+    try self.send_lsp_init_request(from, lsp, self.name, basename, uri, language_server, language_server_options);
     try self.language_servers.put(try self.allocator.dupe(u8, language_server), lsp);
     return lsp;
 }
 
-fn get_or_start_language_server(self: *Self, file_path: []const u8, language_server: []const u8, language_server_options: []const u8) StartLspError!*const LSP {
+fn get_or_start_language_server(self: *Self, from: tp.pid_ref, file_path: []const u8, language_server: []const u8, language_server_options: []const u8) StartLspError!*const LSP {
     if (self.file_language_server_name.get(file_path)) |lsp_name|
         return self.get_existing_language_server(lsp_name) orelse error.LspFailed;
-    const lsp = try self.get_language_server_instance(language_server, language_server_options);
+    const lsp = try self.get_language_server_instance(from, language_server, language_server_options);
     const key = try self.allocator.dupe(u8, file_path);
     const value = try self.allocator.dupe(u8, language_server);
     try self.file_language_server_name.put(key, value);
@@ -763,10 +764,10 @@ pub fn delete_task(self: *Self, command: []const u8) error{}!void {
         };
 }
 
-pub fn did_open(self: *Self, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, version: usize, text: []const u8) StartLspError!void {
+pub fn did_open(self: *Self, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, version: usize, text: []const u8) StartLspError!void {
     defer std.heap.c_allocator.free(text);
     self.update_mru(file_path, 0, 0) catch {};
-    const lsp = try self.get_or_start_language_server(file_path, language_server, language_server_options);
+    const lsp = try self.get_or_start_language_server(from, file_path, language_server, language_server_options);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
     lsp.send_notification("textDocument/didOpen", .{
@@ -2000,29 +2001,43 @@ pub fn unsupported_lsp_request(self: *Self, from: tp.pid_ref, cbor_id: []const u
     return LSP.send_error_response(self.allocator, from, cbor_id, LSP.ErrorCode.MethodNotFound, method) catch error.ClientFailed;
 }
 
-fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8, language_server_options: []const u8) !void {
+fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8, language_server_options: []const u8) !void {
     const handler: struct {
+        from: tp.pid,
         language_server: []const u8,
         lsp: LSP,
         project: *Self,
+        project_path: []const u8,
 
         pub fn deinit(self_: *@This()) void {
+            self_.from.deinit();
             self_.lsp.pid.deinit();
             std.heap.c_allocator.free(self_.language_server);
+            std.heap.c_allocator.free(self_.project_path);
         }
 
-        pub fn receive(self_: @This(), _: tp.message) !void {
+        pub fn receive(self_: @This(), response: tp.message) !void {
             self_.lsp.send_notification("initialized", .{}) catch return error.LspFailed;
             if (self_.lsp.pid.expired()) return error.LspFailed;
             self_.project.logger_lsp.print("initialized LSP: {f}", .{fmt_lsp_name_func(self_.language_server)});
+
+            var result: []const u8 = undefined;
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+                return;
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.map })) {
+                if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
+                    try send_lsp_init_response(self_.from.ref(), self_.project_path, self_.language_server, result);
+            }
         }
     } = .{
+        .from = from.clone(),
         .language_server = try std.heap.c_allocator.dupe(u8, language_server),
         .lsp = .{
             .allocator = lsp.allocator,
             .pid = lsp.pid.clone(),
         },
         .project = self,
+        .project_path = try std.heap.c_allocator.dupe(u8, project_path),
     };
 
     const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
@@ -2345,6 +2360,61 @@ fn send_lsp_init_request(self: *Self, lsp: *const LSP, project_path: []const u8,
             },
         },
     }, handler);
+}
+
+fn send_lsp_init_response(to: tp.pid_ref, project_path: []const u8, language_server: []const u8, result: []const u8) (ClientError || LspInfoError || cbor.Error)!void {
+    var iter = result;
+    var len = cbor.decodeMapHeader(&iter) catch return;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidInfoMessage;
+        if (std.mem.eql(u8, field_name, "capabilities")) {
+            try send_lsp_capabilities(to, project_path, language_server, &iter);
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+}
+
+fn send_lsp_capabilities(to: tp.pid_ref, project_path: []const u8, language_server: []const u8, iter: *[]const u8) (ClientError || LspInfoError || cbor.Error)!void {
+    var len = cbor.decodeMapHeader(iter) catch return;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(iter, &field_name))) return error.InvalidInfoMessage;
+        if (std.mem.eql(u8, field_name, "completionProvider")) {
+            try send_lsp_completionProvider(to, project_path, language_server, iter);
+        } else {
+            try cbor.skipValue(iter);
+        }
+    }
+}
+
+fn send_lsp_completionProvider(to: tp.pid_ref, project_path: []const u8, language_server: []const u8, iter: *[]const u8) (ClientError || LspInfoError || cbor.Error)!void {
+    var len = cbor.decodeMapHeader(iter) catch return;
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(iter, &field_name))) return error.InvalidInfoMessage;
+        if (std.mem.eql(u8, field_name, "triggerCharacters")) {
+            var items: []const u8 = undefined;
+            if (!(try cbor.matchValue(iter, cbor.extract_cbor(&items)))) return error.InvalidTriggerCharacters;
+            try send_lsp_triggerCharacters(to, project_path, language_server, items);
+        } else {
+            try cbor.skipValue(iter);
+        }
+    }
+}
+
+fn send_lsp_triggerCharacters(to: tp.pid_ref, project_path: []const u8, language_server: []const u8, items: []const u8) (ClientError || LspInfoError || cbor.Error)!void {
+    var buf: [4096]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    const w = &writer;
+    try cbor.writeArrayHeader(w, 5);
+    try cbor.writeValue(w, "PRJ");
+    try cbor.writeValue(w, "triggerCharacters");
+    try cbor.writeValue(w, project_path);
+    try w.writeAll(language_server);
+    try w.writeAll(items);
+    to.send_raw(.{ .buf = w.buffered() }) catch return error.ClientFailed;
 }
 
 fn fmt_lsp_name_func(bytes: []const u8) std.fmt.Formatter([]const u8, format_lsp_name_func) {

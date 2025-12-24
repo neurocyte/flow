@@ -678,7 +678,7 @@ const Process = struct {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".did_open" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.did_open(file_path, file_type, language_server, language_server_options, version, text);
+        return project.did_open(self.parent.ref(), file_path, file_type, language_server, language_server_options, version, text);
     }
 
     fn did_change(self: *Process, project_directory: []const u8, file_path: []const u8, version: usize, text_dst: []const u8, text_src: []const u8, eol_mode: Buffer.EolMode) (ProjectError || Project.LspError)!void {
