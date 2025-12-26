@@ -92,22 +92,23 @@ inline fn to_cursor_bottom(self: *const Self, root: Buffer.Root) Cursor {
     return .{ .row = bottom, .col = 0 };
 }
 
-fn clamp_row(self: *Self, cursor: *const Cursor, abs: bool) void {
-    const min_border_distance: usize = if (abs) scroll_cursor_min_border_distance_mouse else scroll_cursor_min_border_distance;
-    if (cursor.row < min_border_distance) {
+fn clamp_row(self: *Self, cursor: *const Cursor, abs: bool, bottom_offset: usize) void {
+    const top_min_border_distance: usize = if (abs) scroll_cursor_min_border_distance_mouse else scroll_cursor_min_border_distance;
+    const bottom_min_border_distance: usize = top_min_border_distance + bottom_offset;
+    if (cursor.row < top_min_border_distance) {
         self.row = 0;
         return;
     }
-    if (self.row > 0 and cursor.row >= min_border_distance) {
-        if (cursor.row < self.row + min_border_distance) {
-            self.row = cursor.row - min_border_distance;
+    if (self.row > 0 and cursor.row >= top_min_border_distance) {
+        if (cursor.row < self.row + top_min_border_distance) {
+            self.row = cursor.row - top_min_border_distance;
             return;
         }
     }
     if (cursor.row < self.row) {
         self.row = 0;
-    } else if (cursor.row > self.row + self.rows - min_border_distance) {
-        self.row = cursor.row + min_border_distance - self.rows;
+    } else if (cursor.row > self.row + self.rows - bottom_min_border_distance) {
+        self.row = cursor.row + bottom_min_border_distance - self.rows;
     }
 }
 
@@ -120,7 +121,12 @@ fn clamp_col(self: *Self, cursor: *const Cursor, _: bool) void {
 }
 
 pub fn clamp(self: *Self, cursor: *const Cursor, abs: bool) void {
-    self.clamp_row(cursor, abs);
+    self.clamp_row(cursor, abs, 0);
+    self.clamp_col(cursor, abs);
+}
+
+pub fn clamp_offset(self: *Self, cursor: *const Cursor, abs: bool, offset: usize) void {
+    self.clamp_row(cursor, abs, offset);
     self.clamp_col(cursor, abs);
 }
 

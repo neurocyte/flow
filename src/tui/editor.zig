@@ -1914,15 +1914,23 @@ pub const Editor = struct {
         _ = try self.handlers.msg(.{ "E", "eol_mode", eol_mode, utf8_sanitized, indent_mode });
     }
 
-    fn clamp_abs(self: *Self, abs: bool) void {
+    fn clamp_abs_offset(self: *Self, abs: bool, offset: usize) void {
         var dest: View = self.view;
-        dest.clamp(&self.get_primary().cursor, abs);
+        dest.clamp_offset(&self.get_primary().cursor, abs, offset);
         self.update_scroll_dest_abs(dest.row);
         self.view.col = dest.col;
     }
 
+    fn clamp_abs(self: *Self, abs: bool) void {
+        self.clamp_abs_offset(abs, 0);
+    }
+
     pub inline fn clamp(self: *Self) void {
         self.clamp_abs(false);
+    }
+
+    inline fn clamp_offset(self: *Self, offset: usize) void {
+        self.clamp_abs_offset(false, offset);
     }
 
     fn clamp_mouse(self: *Self) void {
