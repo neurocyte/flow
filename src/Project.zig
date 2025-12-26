@@ -1443,7 +1443,12 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
     var len = cbor.decodeMapHeader(&iter) catch return;
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidCompletionItemFieldName;
+        if (!(try cbor.matchString(&iter, &field_name))) {
+            const json = cbor.toJsonAlloc(std.heap.c_allocator, iter) catch "(error)";
+            defer std.heap.c_allocator.free(json);
+            std.log.err("unexpected value in completion item field name: {s}", .{json});
+            return error.InvalidCompletionItemFieldName;
+        }
         if (std.mem.eql(u8, field_name, "label")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&label)))) return invalid_completion_item_field("label");
         } else if (std.mem.eql(u8, field_name, "labelDetails")) {
