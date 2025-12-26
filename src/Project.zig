@@ -1266,7 +1266,12 @@ fn send_completion_list(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
             try cbor.skipValue(&iter);
         }
     }
-    return send_completion_items(to, file_path, row, col, items, is_incomplete);
+    return if (items.len > 0)
+        send_completion_items(to, file_path, row, col, items, is_incomplete)
+    else
+        to.send(.{ "cmd", "add_completion_done", .{ file_path, row, col } }) catch |e| {
+            std.log.err("send add_completion_done failed: {t}", .{e});
+        };
 }
 
 pub const CompletionItemError = error{
