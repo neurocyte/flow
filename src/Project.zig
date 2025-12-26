@@ -1254,7 +1254,7 @@ fn send_completion_list(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
     var iter = result;
     var len = cbor.decodeMapHeader(&iter) catch return;
     var items: []const u8 = "";
-    var is_incomplete: bool = false;
+    var is_incomplete: bool = true;
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
         if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidCompletionListFieldName;
