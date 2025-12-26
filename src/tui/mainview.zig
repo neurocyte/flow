@@ -276,6 +276,10 @@ fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
     }
 }
 
+pub fn get_panel_height(self: *Self) usize {
+    return self.panel_height orelse self.box().h / 5;
+}
+
 fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, disable }) !void {
     if (self.panels) |panels| {
         if (self.get_panel(@typeName(view))) |w| {
@@ -291,7 +295,7 @@ fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, di
                 try panels.add(try view.create(self.allocator, self.widgets.plane));
         }
     } else if (mode != .disable) {
-        const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.panel_height orelse self.box().h / 5 });
+        const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
         try self.widgets.add(panels.widget());
         try panels.add(try view.create(self.allocator, self.widgets.plane));
         self.panels = panels;
@@ -313,6 +317,10 @@ fn get_panel_view(self: *Self, comptime view: type) ?*view {
 
 fn is_panel_view_showing(self: *Self, comptime view: type) bool {
     return self.get_panel_view(view) != null;
+}
+
+pub fn is_any_panel_view_showing(self: *Self) bool {
+    return self.panels != null;
 }
 
 fn close_all_panel_views(self: *Self) void {
