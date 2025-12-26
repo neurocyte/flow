@@ -3,6 +3,10 @@ table: Table,
 
 const Table = std.StringHashMapUnmanaged(Info);
 
+pub const Info = struct {
+    trigger_characters: std.ArrayList([]const u8) = .empty,
+};
+
 pub fn init(allocator: std.mem.Allocator) @This() {
     return .{
         .allocator = allocator,
@@ -59,10 +63,6 @@ pub fn add(self: *@This(), lsp_arg0: []const u8, iter: *[]const u8) error{ Inval
     }
     return value;
 }
-
-pub const Info = struct {
-    trigger_characters: std.ArrayList([]const u8) = .empty,
-};
 
 pub fn write_state(self: *@This(), writer: *std.Io.Writer) error{WriteFailed}!void {
     try cbor.writeArrayHeader(writer, self.table.count());

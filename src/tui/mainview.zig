@@ -1994,3 +1994,9 @@ pub fn vcs_content_update(self: *Self, m: tp.message) void {
             editor.vcs_content_update() catch {};
     }
 }
+
+pub fn trigger_characters_update(self: *Self, m: tp.message) void {
+    self.lsp_info.add_from_event(m.buf) catch return;
+    const editor = self.get_active_editor() orelse return;
+    editor.update_completion_triggers();
+}

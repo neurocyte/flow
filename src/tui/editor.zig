@@ -542,9 +542,8 @@ pub const Editor = struct {
             tp.extract_cbor(&cursels_cbor),
         }))
             return error.RestoreStateMatch;
-        self.insert_triggers.deinit(self.allocator);
+        self.clear_event_triggers();
         self.insert_triggers = .fromOwnedSlice(insert_triggers);
-        self.delete_triggers.deinit(self.allocator);
         self.delete_triggers = .fromOwnedSlice(delete_triggers);
         self.refresh_tab_width();
         if (op == .open_file)
@@ -614,8 +613,7 @@ pub const Editor = struct {
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.completions.deinit(self.allocator);
-        self.insert_triggers.deinit(self.allocator);
-        self.delete_triggers.deinit(self.allocator);
+        self.clear_event_triggers();
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
         self.cancel_all_tabstops();
         self.cursels.deinit(self.allocator);
@@ -6234,9 +6232,31 @@ pub const Editor = struct {
         };
     }
 
+    fn clear_event_triggers(self: *Self) void {
+        self.insert_triggers.deinit(self.allocator);
+        self.delete_triggers.deinit(self.allocator);
+        self.insert_triggers = .empty;
+        self.delete_triggers = .empty;
+    }
+
+    pub fn update_completion_triggers(self: *Self) void {
+        self.clear_event_triggers();
+        if (self.file_type) |ft| if (ft.language_server) |ls| if (ls.len > 0) {
+            const lsp_arg0 = ls[0];
+            const info = (tui.mainview() orelse return).lsp_info.table.get(lsp_arg0) orelse return;
+            self.add_completion_triggers(info.trigger_characters.items);
+        };
+    }
+
     fn add_default_symbol_triggers(self: *Self) void {
+        const chars: []const []const u8 = &.{"."};
+        self.add_completion_triggers(chars);
+    }
+
+    fn add_completion_triggers(self: *Self, triggers: []const []const u8) void {
         const id = command.get_name_id("completion");
-        self.add_symbol_trigger('.', id, .insert) catch {};
+        for (triggers) |char| if (char.len > 0)
+            self.add_symbol_trigger(char[0], id, .insert) catch {};
     }
 
     pub fn add_symbol_trigger(self: *Self, char: u8, command_: command.ID, event: TriggerEvent) error{OutOfMemory}!void {
