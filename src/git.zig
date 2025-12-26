@@ -275,11 +275,11 @@ pub fn rev_parse(context_: usize, rev: []const u8, file_path: []const u8) Error!
 
 pub fn cat_file(context_: usize, object: []const u8) Error!void {
     const tag = @src().fn_name;
-    try git_err(context_, .{ "cat-file", "-p", object }, struct {
+    try git(context_, .{ "cat-file", "-p", object }, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
             parent.send(.{ module_name, context, tag, output }) catch {};
         }
-    }.result, log_err, exit_null(tag));
+    }.result, exit_null(tag));
 }
 
 fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
