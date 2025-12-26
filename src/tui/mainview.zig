@@ -27,6 +27,7 @@ const WidgetList = @import("WidgetList.zig");
 const WidgetStack = @import("WidgetStack.zig");
 const ed = @import("editor.zig");
 const home = @import("home.zig");
+const LspInfo = @import("lsp_info.zig");
 
 const logview = @import("logview.zig");
 const filelist_view = @import("filelist_view.zig");
@@ -61,6 +62,7 @@ panel_height: ?usize = null,
 symbols: std.ArrayListUnmanaged(u8) = .empty,
 symbols_complete: bool = true,
 closing_project: bool = false,
+lsp_info: LspInfo,
 
 const FileListType = enum {
     diagnostics,
@@ -85,6 +87,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
         .panes = undefined,
         .panes_widget = undefined,
         .buffer_manager = Buffer.Manager.init(allocator),
+        .lsp_info = .init(allocator),
     };
     try self.commands.init(self);
     const w = Widget.to(self);
@@ -126,6 +129,7 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.symbols.deinit(allocator);
     self.floating_views.deinit();
     self.buffer_manager.deinit();
+    self.lsp_info.deinit();
     allocator.destroy(self);
 }
 
@@ -1773,6 +1777,8 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
     if (self.widgets.get("tabs")) |tabs_widget|
         if (tabs_widget.dynamic_cast(@import("status/tabs.zig").TabBar)) |tabs|
             try tabs.write_state(writer);
+
+    self.lsp_info.write_state(writer) catch return error.WriteFailed;
 }
 
 fn read_restore_info(self: *Self) !void {
@@ -1849,6 +1855,9 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
             tabs.extract_state(iter) catch |e|
                 logger.print_err("mainview", "failed to restore tabs: {}", .{e});
     logger.print("restored tabs ({d} bytes)", .{prev_len - iter.len});
+
+    self.lsp_info.extract_state(iter) catch |e|
+        logger.print_err("mainview", "failed to restore LSP info: {}", .{e});
 
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
