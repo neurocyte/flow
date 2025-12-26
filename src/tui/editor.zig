@@ -6013,11 +6013,14 @@ pub const Editor = struct {
     pub const references_meta: Meta = .{ .description = "Language: Find all references" };
 
     pub fn completion(self: *Self, _: Context) Result {
+        const mv = tui.mainview() orelse return;
         const file_path = self.file_path orelse return;
         const root = self.buf_root() catch return;
         const primary = self.get_primary();
         const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
         self.completions.clearRetainingCapacity();
+        if (!mv.is_any_panel_view_showing())
+            self.clamp_offset(mv.get_panel_height());
         return project_manager.completion(file_path, primary.cursor.row, col);
     }
     pub const completion_meta: Meta = .{ .description = "Language: Show completions at cursor" };
