@@ -1237,9 +1237,6 @@ fn send_symbol_items(to: tp.pid_ref, file_path: []const u8, items: []const u8) (
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidSymbolInformation;
         node_count += try send_symbol_information(to, file_path, item, "");
     }
-    const logger = log.logger("lsp");
-    defer logger.deinit();
-    logger.print("LSP accounted {d} symbols", .{node_count});
     return to.send(.{ "cmd", "add_document_symbol_done", .{file_path} }) catch |e| {
         std.log.err("send add_document_symbol_done failed: {t}", .{e});
         return;
