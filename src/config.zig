@@ -52,7 +52,7 @@ scrollbar_auto_hide: bool = false,
 start_debugger_on_crash: bool = false,
 
 completion_trigger: CompletionTrigger = .automatic,
-completion_style: CompletionStyle = .palette,
+completion_style: CompletionStyle = .dropdown,
 
 widget_style: WidgetStyle = .compact,
 palette_style: WidgetStyle = .bars_top_bottom,
