@@ -51,7 +51,7 @@ scrollbar_auto_hide: bool = false,
 
 start_debugger_on_crash: bool = false,
 
-completion_trigger: CompletionTrigger = .manual,
+completion_trigger: CompletionTrigger = .automatic,
 completion_style: CompletionStyle = .palette,
 
 widget_style: WidgetStyle = .compact,
