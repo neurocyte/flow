@@ -1495,7 +1495,6 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
                 additionalTextEdits[idx] = try read_textEdit(&iter);
                 idx += 1;
             }
-            try cbor.skipValue(&iter);
         } else {
             try cbor.skipValue(&iter);
         }
