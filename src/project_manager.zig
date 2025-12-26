@@ -552,27 +552,27 @@ const Process = struct {
         }
     }
 
-    fn request_n_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8, n: usize) (ProjectError || Project.ClientError)!void {
+    fn request_n_most_recent_file(self: *Process, from: tp.pid_ref, project_directory: []const u8, n: usize) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.request_n_most_recent_file(from, n);
     }
 
-    fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.ClientError)!void {
+    fn request_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.request_recent_files(from, max);
     }
 
-    fn request_sync_with_vcs(self: *Process, _: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
+    fn request_sync_with_vcs(self: *Process, _: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.query_git();
     }
 
-    fn request_new_or_modified_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.ClientError)!void {
+    fn request_new_or_modified_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.request_new_or_modified_files(from, max);
     }
 
-    fn request_recent_projects(self: *Process, from: tp.pid_ref, active_project: []const u8) (ProjectError || Project.ClientError)!void {
+    fn request_recent_projects(self: *Process, from: tp.pid_ref, active_project: []const u8) (ProjectError || Project.RequestError || OutOfMemoryError || cbor.Error)!void {
         var recent_projects: std.ArrayList(RecentProject) = .empty;
         defer recent_projects.deinit(self.allocator);
         self.load_recent_projects(&recent_projects) catch {};
@@ -615,11 +615,14 @@ const Process = struct {
             try cbor.writeValue(writer, if (self.projects.get(project.name)) |_| true else false);
             self.allocator.free(project.name);
         }
-        from.send_raw(.{ .buf = message.written() }) catch return error.ClientFailed;
+        from.send_raw(.{ .buf = message.written() }) catch |e| {
+            std.log.err("send recent_projects failed: {t}", .{e});
+            return;
+        };
         self.logger.print("{d} projects found", .{recent_projects.items.len});
     }
 
-    fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.ClientError)!void {
+    fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         const start_time = std.time.milliTimestamp();
         const matched = try project.query_recent_files(from, max, query);
@@ -628,7 +631,7 @@ const Process = struct {
             self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
     }
 
-    fn query_new_or_modified_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.ClientError)!void {
+    fn query_new_or_modified_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         const start_time = std.time.milliTimestamp();
         const matched = try project.query_new_or_modified_files(from, max, query);
@@ -644,32 +647,32 @@ const Process = struct {
         try request_path_files_async(self.allocator, from, project, max, expand_home(self.allocator, &buf, path));
     }
 
-    fn request_tasks(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
+    fn request_tasks(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.request_tasks(from);
     }
 
-    fn add_task(self: *Process, project_directory: []const u8, task: []const u8) (ProjectError || Project.ClientError)!void {
+    fn add_task(self: *Process, project_directory: []const u8, task: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.add_task(task);
     }
 
-    fn delete_task(self: *Process, project_directory: []const u8, task: []const u8) (ProjectError || Project.ClientError)!void {
+    fn delete_task(self: *Process, project_directory: []const u8, task: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.delete_task(task);
     }
 
-    fn request_vcs_status(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.ClientError)!void {
+    fn request_vcs_status(self: *Process, from: tp.pid_ref, project_directory: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.request_vcs_status(from);
     }
 
-    fn request_vcs_id(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.ClientError)!void {
+    fn request_vcs_id(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.request_vcs_id(file_path);
     }
 
-    fn request_vcs_content(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, vcs_id: []const u8) (ProjectError || Project.ClientError)!void {
+    fn request_vcs_content(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, vcs_id: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.request_vcs_content(file_path, vcs_id);
     }
@@ -744,35 +747,35 @@ const Process = struct {
         return project.highlight_references(from, file_path, row, col);
     }
 
-    fn symbols(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || cbor.Error)!void {
+    fn symbols(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.SymbolInformationError || Project.LspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".symbols" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.symbols(from, file_path);
     }
 
-    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || cbor.Error)!void {
+    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.CompletionError || Project.LspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".completion" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.completion(from, file_path, row, col);
     }
 
-    fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || Project.GetLineOfFileError || cbor.Error)!void {
+    fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.GetLineOfFileError || Project.LspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".rename_symbol" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.rename_symbol(from, file_path, row, col);
     }
 
-    fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.InvalidMessageError || Project.LspOrClientError || cbor.Error)!void {
+    fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.LspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".hover" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return project.hover(from, file_path, row, col);
     }
 
-    fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.ClientError)!void {
+    fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.RequestError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".get_mru_position" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
@@ -784,7 +787,7 @@ const Process = struct {
         return project.update_mru(file_path, row, col);
     }
 
-    fn dispatch_notify(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, params_cb: []const u8) (ProjectError || Project.ClientError || Project.InvalidMessageError || cbor.Error || cbor.JsonEncodeError)!void {
+    fn dispatch_notify(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, params_cb: []const u8) (ProjectError || Project.DiagnosticError || Project.LogMessageError || cbor.JsonEncodeError)!void {
         _ = language_server;
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         return if (std.mem.eql(u8, method, "textDocument/publishDiagnostics"))
@@ -797,7 +800,7 @@ const Process = struct {
             project.show_notification(method, params_cb);
     }
 
-    fn dispatch_request(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8, method: []const u8, cbor_id: []const u8, params_cb: []const u8) (ProjectError || Project.ClientError || cbor.Error || cbor.JsonEncodeError || UnsupportedError)!void {
+    fn dispatch_request(self: *Process, from: tp.pid_ref, project_directory: []const u8, language_server: []const u8, method: []const u8, cbor_id: []const u8, params_cb: []const u8) (ProjectError || Project.LspError || cbor.Error || cbor.JsonEncodeError || UnsupportedError)!void {
         _ = language_server;
         const project = if (self.projects.get(project_directory)) |p| p else return error.NoProject;
         return if (std.mem.eql(u8, method, "client/registerCapability"))
