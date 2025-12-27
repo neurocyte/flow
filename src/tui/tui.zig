@@ -2219,7 +2219,7 @@ pub fn render_symbol(
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            const col = egc_chunk_width(detail[0..@min(detail.len, index)], 0, 1);
+            const col = egc_chunk_width(symbol[0..@min(symbol.len, index)], 0, 1);
             render_match_cell(self, 0, col + 2 + icon_width, theme_) catch break;
         } else break;
     }
