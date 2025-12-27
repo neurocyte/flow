@@ -183,6 +183,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
         theme,
         if (values.label_detail.len > detail_limit) "…" else "",
         if (values.label_description.len > description_limit) "…" else "",
+        &.{},
     );
 }
 

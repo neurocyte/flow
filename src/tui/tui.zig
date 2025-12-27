@@ -2183,6 +2183,7 @@ pub fn render_symbol(
     theme_: *const Widget.Theme,
     detail_suffix: []const u8,
     description_suffix: []const u8,
+    detail_prefix: []const u8,
 ) bool {
     const style_base = theme_.editor_widget;
     const style_symbol = if (active) theme_.editor_cursor else if (hover or selected) theme_.editor_selection else theme_.editor_widget;
@@ -2206,7 +2207,7 @@ pub fn render_symbol(
     _ = self.print("{s}", .{symbol}) catch {};
 
     self.set_style(style_detail);
-    _ = self.print("{s}{s}", .{ detail, detail_suffix }) catch {};
+    _ = self.print("{s}{s}{s}", .{ detail_prefix, detail, detail_suffix }) catch {};
 
     var lines = std.mem.splitScalar(u8, description, '\n');
     if (lines.next()) |desc| {
