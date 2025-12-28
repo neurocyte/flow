@@ -2623,8 +2623,9 @@ pub const Editor = struct {
         primary.disable_selection(root, self.metrics);
         self.selection_mode = .word;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
-        _ = try self.select_word_at_cursor(primary);
-        self.selection_drag_initial = primary.selection;
+        self.selection_drag_initial = self.select_word_at_cursor(primary) catch |e| switch (e) {
+            error.Stop => primary.to_selection_normal(),
+        };
         self.collapse_cursors();
         self.clamp_mouse();
     }
