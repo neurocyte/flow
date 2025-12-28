@@ -627,7 +627,7 @@ pub const Editor = struct {
         Widget.need_render();
     }
 
-    pub fn buf_for_update(self: *Self) !*const Buffer {
+    pub fn buf_for_update(self: *Self) error{ Stop, OutOfMemory }!*const Buffer {
         if (!self.pause_undo) {
             self.cursels_saved.clearAndFree(self.allocator);
             self.cursels_saved = try self.cursels.clone(self.allocator);
@@ -635,19 +635,19 @@ pub const Editor = struct {
         return self.buffer orelse error.Stop;
     }
 
-    pub fn buf_root(self: *const Self) !Buffer.Root {
+    pub fn buf_root(self: *const Self) error{Stop}!Buffer.Root {
         return if (self.buffer) |p| p.root else error.Stop;
     }
 
-    fn buf_eol_mode(self: *const Self) !Buffer.EolMode {
+    fn buf_eol_mode(self: *const Self) error{Stop}!Buffer.EolMode {
         return if (self.buffer) |p| p.file_eol_mode else error.Stop;
     }
 
-    fn buf_utf8_sanitized(self: *const Self) !bool {
+    fn buf_utf8_sanitized(self: *const Self) error{Stop}!bool {
         return if (self.buffer) |p| p.file_utf8_sanitized else error.Stop;
     }
 
-    fn buf_a(self: *const Self) !Allocator {
+    fn buf_a(self: *const Self) error{Stop}!Allocator {
         return if (self.buffer) |p| p.allocator else error.Stop;
     }
 
