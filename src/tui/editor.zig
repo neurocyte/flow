@@ -2636,8 +2636,15 @@ pub const Editor = struct {
         primary.disable_selection(root, self.metrics);
         self.selection_mode = .line;
         primary.cursor.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
-        try self.select_line_at_cursor(root, primary, .exclude_eol);
-        self.selection_drag_initial = primary.selection;
+        blk: {
+            self.select_line_at_cursor(root, primary, .exclude_eol) catch |e| switch (e) {
+                error.Stop => {
+                    self.selection_drag_initial = primary.to_selection_normal();
+                    break :blk;
+                },
+            };
+            self.selection_drag_initial = primary.selection;
+        }
         self.collapse_cursors();
         self.clamp_mouse();
     }
