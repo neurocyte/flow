@@ -2840,8 +2840,8 @@ pub const Editor = struct {
     fn copy_word_at_cursor(self: *Self, text_allocator: Allocator) ![]const u8 {
         const root = try self.buf_root();
         const primary = self.get_primary();
-        const sel = if (primary.selection) |*sel| sel else try self.select_word_at_cursor(primary);
-        return try copy_selection(root, sel.*, text_allocator, self.metrics);
+        const sel = if (primary.selection) |sel| sel else try self.select_word_at_cursor(primary);
+        return try copy_selection(root, sel, text_allocator, self.metrics);
     }
 
     pub fn cut_selection(self: *Self, root: Buffer.Root, cursel: *CurSel, text_allocator: Allocator) !struct { []const u8, Buffer.Root } {
@@ -4531,7 +4531,7 @@ pub const Editor = struct {
     }
     pub const select_all_meta: Meta = .{ .description = "Select all" };
 
-    fn select_word_at_cursor(self: *Self, cursel: *CurSel) !*Selection {
+    fn select_word_at_cursor(self: *Self, cursel: *CurSel) error{Stop}!Selection {
         const root = try self.buf_root();
         const sel = cursel.enable_selection(root, self.metrics);
         defer cursel.check_selection(root, self.metrics);
@@ -4539,7 +4539,7 @@ pub const Editor = struct {
         try move_cursor_word_begin(root, &sel.begin, self.metrics);
         move_cursor_word_end(root, &sel.end, self.metrics) catch {};
         cursel.cursor = sel.end;
-        return sel;
+        return sel.*;
     }
 
     pub fn select_line_at_cursor(self: *Self, root: Buffer.Root, cursel: *CurSel, mode: enum { include_eol, exclude_eol, hold_cursor }) !void {
