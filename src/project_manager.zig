@@ -810,7 +810,8 @@ const Process = struct {
         else {
             const params = try cbor.toJsonAlloc(self.allocator, params_cb);
             defer self.allocator.free(params);
-            self.logger.print("unsupported LSP request: {s} -> {s}", .{ method, params });
+            if (tp.env.get().is("lsp_verbose"))
+                self.logger.print("unsupported LSP request: {s} -> {s}", .{ method, params });
             project.unsupported_lsp_request(from, cbor_id, method) catch {};
         };
     }
