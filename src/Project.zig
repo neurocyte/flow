@@ -996,6 +996,10 @@ fn file_uri_to_path(uri: []const u8, file_path_buf: []u8) error{InvalidTargetURI
         uri[5..]
     else
         return error.InvalidTargetURI);
+    return convert_path(file_path);
+}
+
+fn convert_path(file_path: []u8) []u8 {
     if (builtin.os.tag == .windows) {
         if (file_path[0] == '/') file_path = file_path[1..];
         for (file_path, 0..) |c, i| if (c == '/') {
@@ -2628,7 +2632,7 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
         try self.loaded(parent);
     } else if (try m.match(.{ tp.any, tp.any, "workspace_path", tp.extract(&value) })) {
         if (self.workspace) |p| self.allocator.free(p);
-        self.workspace = try self.allocator.dupe(u8, value);
+        self.workspace = convert_path(try self.allocator.dupe(u8, value));
         self.state.workspace_path = .done;
         self.state.workspace_files = .running;
         git.workspace_files(@intFromPtr(self)) catch {
@@ -2659,7 +2663,7 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
         };
         const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(path);
         (try self.pending.addOne(self.allocator)).* = .{
-            .path = try self.allocator.dupe(u8, path),
+            .path = convert_path(try self.allocator.dupe(u8, path)),
             .type = file_type,
             .icon = file_icon,
             .color = file_color,
@@ -2675,7 +2679,7 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
         self.longest_new_or_modified_file_path = @max(self.longest_new_or_modified_file_path, path.len);
         const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(path);
         (try self.new_or_modified_files.addOne(self.allocator)).* = .{
-            .path = try self.allocator.dupe(u8, path),
+            .path = convert_path(try self.allocator.dupe(u8, path)),
             .type = file_type,
             .icon = file_icon,
             .color = file_color,
