@@ -2662,21 +2662,21 @@ pub const Editor = struct {
             .word => {
                 if (sel.is_reversed()) {
                     sel.begin = initial.end;
-                    with_selection_const(root, move_cursor_word_begin, primary, self.metrics) catch {};
+                    move_cursor_word_begin(root, &sel.end, self.metrics) catch {};
                 } else {
                     sel.begin = initial.begin;
-                    with_selection_const(root, move_cursor_word_end, primary, self.metrics) catch {};
+                    move_cursor_word_end(root, &sel.end, self.metrics) catch {};
                 }
             },
             .line => {
                 if (sel.is_reversed()) {
                     sel.begin = initial.end;
-                    with_selection_const(root, move_cursor_begin, primary, self.metrics) catch {};
+                    move_cursor_begin(root, &sel.end, self.metrics) catch {};
                 } else {
                     sel.begin = initial.begin;
                     blk: {
-                        with_selection_const(root, move_cursor_end, primary, self.metrics) catch break :blk;
-                        with_selection_const(root, move_cursor_right, primary, self.metrics) catch {};
+                        move_cursor_end(root, &sel.end, self.metrics) catch break :blk;
+                        move_cursor_right(root, &sel.end, self.metrics) catch {};
                     }
                 }
             },
