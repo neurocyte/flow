@@ -90,6 +90,7 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
 }
 
 const filtered_dirs = [_][]const u8{
+    "AppData",
     ".cache",
     ".cargo",
     ".git",
