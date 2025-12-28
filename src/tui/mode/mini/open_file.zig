@@ -11,15 +11,24 @@ pub const Type = @import("file_browser.zig").Create(@This());
 pub const create = Type.create;
 
 pub fn load_entries(self: *Type) error{ Exit, OutOfMemory }!void {
-    var project_name_buf: [512]u8 = undefined;
+    var path_buf: [512]u8 = undefined;
     const project_path = tp.env.get().str("project");
-    const project_name = project_manager.abbreviate_home(&project_name_buf, project_path);
+    const project_name = project_manager.abbreviate_home(&path_buf, project_path);
     try self.file_path.appendSlice(self.allocator, project_name);
     try self.file_path.append(self.allocator, std.fs.path.sep);
     const editor = tui.get_active_editor() orelse return;
-    if (editor.file_path) |old_path|
-        if (std.mem.lastIndexOf(u8, old_path, "/")) |pos|
-            try self.file_path.appendSlice(self.allocator, old_path[0 .. pos + 1]);
+    if (editor.file_path) |old_path| {
+        if (std.fs.path.dirname(old_path)) |dirname| {
+            if (std.fs.path.isAbsolute(dirname)) {
+                const abbreviated_dirname = project_manager.abbreviate_home(&path_buf, dirname);
+                self.file_path.clearRetainingCapacity();
+                try self.file_path.appendSlice(self.allocator, abbreviated_dirname);
+            } else {
+                try self.file_path.appendSlice(self.allocator, dirname);
+            }
+            try self.file_path.append(self.allocator, std.fs.path.sep);
+        }
+    }
     if (editor.get_primary().selection) |sel| ret: {
         const text = editor.get_selection(sel, self.allocator) catch break :ret;
         defer self.allocator.free(text);
