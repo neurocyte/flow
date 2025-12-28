@@ -785,10 +785,10 @@ const cmds = struct {
 
             var existing = false;
             if (self.buffer_manager.get_buffer_for_file(file_path)) |new_buffer| {
-                if (new_buffer.is_dirty())
-                    return tp.exit("save as would overwrite unsaved changes");
                 if (buffer == new_buffer)
                     return tp.exit("same file");
+                if (new_buffer.is_dirty())
+                    return tp.exit("save as would overwrite unsaved changes");
                 existing = true;
             }
             try self.create_editor();
