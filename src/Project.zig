@@ -348,14 +348,25 @@ fn make_URI(self: *Self, file_path: ?[]const u8) LspError![]const u8 {
     var buf: std.Io.Writer.Allocating = .init(self.allocator);
     defer buf.deinit();
     const writer = &buf.writer;
+    try writer.writeAll("file://");
     if (file_path) |path| {
         if (std.fs.path.isAbsolute(path)) {
-            try writer.print("file://{s}", .{path});
+            try write_URI_path(writer, path);
         } else {
-            try writer.print("file://{s}{c}{s}", .{ self.name, std.fs.path.sep, path });
+            try write_URI_path(writer, self.name);
+            try writer.writeByte('/');
+            try write_URI_path(writer, path);
         }
-    } else try writer.print("file://{s}", .{self.name});
+    } else try write_URI_path(writer, self.name);
     return buf.toOwnedSlice();
+}
+
+fn write_URI_path(writer: *std.Io.Writer, path: []const u8) std.Io.Writer.Error!void {
+    for (path) |c| try switch (c) {
+        std.fs.path.sep => writer.writeByte('/'),
+        ':' => writer.writeAll("%3A"),
+        else => writer.writeByte(c),
+    };
 }
 
 fn sort_files_by_mtime(self: *Self) void {
