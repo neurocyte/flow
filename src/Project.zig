@@ -990,25 +990,26 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
 }
 
 fn file_uri_to_path(uri: []const u8, file_path_buf: []u8) error{InvalidTargetURI}![]u8 {
-    return std.Uri.percentDecodeBackwards(file_path_buf, if (std.mem.eql(u8, uri[0..7], "file://"))
+    const file_path = std.Uri.percentDecodeBackwards(file_path_buf, if (std.mem.eql(u8, uri[0..7], "file://"))
         uri[7..]
     else if (std.mem.eql(u8, uri[0..5], "file:"))
         uri[5..]
     else
         return error.InvalidTargetURI);
-}
-
-fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (error{InvalidTargetURI} || LocationLinkError)!void {
-    const location: LocationLink = try read_locationlink(location_link);
-    if (location.targetUri == null or location.targetRange == null) return error.InvalidLocationLink;
-    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var file_path = try file_uri_to_path(location.targetUri.?, &file_path_buf);
     if (builtin.os.tag == .windows) {
         if (file_path[0] == '/') file_path = file_path[1..];
         for (file_path, 0..) |c, i| if (c == '/') {
             file_path[i] = '\\';
         };
     }
+    return file_path;
+}
+
+fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (error{InvalidTargetURI} || LocationLinkError)!void {
+    const location: LocationLink = try read_locationlink(location_link);
+    if (location.targetUri == null or location.targetRange == null) return error.InvalidLocationLink;
+    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const file_path = try file_uri_to_path(location.targetUri.?, &file_path_buf);
     if (location.targetSelectionRange) |sel| {
         from.send(.{ "cmd", "navigate", .{
             .file = file_path,
@@ -1134,13 +1135,7 @@ fn send_reference(tag: []const u8, to: tp.pid_ref, location_: []const u8, name: 
     const location: LocationLink = try read_locationlink(location_);
     if (location.targetUri == null or location.targetRange == null) return error.InvalidLocationLink;
     var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    var file_path = try file_uri_to_path(location.targetUri.?, &file_path_buf);
-    if (builtin.os.tag == .windows) {
-        if (file_path[0] == '/') file_path = file_path[1..];
-        for (file_path, 0..) |c, i| if (c == '/') {
-            file_path[i] = '\\';
-        };
-    }
+    const file_path = try file_uri_to_path(location.targetUri.?, &file_path_buf);
     const line = try get_line_of_file(allocator, file_path, location.targetRange.?.start.line);
     defer allocator.free(line);
     const file_path_ = if (file_path.len > name.len and std.mem.eql(u8, name, file_path[0..name.len]))
@@ -1407,13 +1402,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
             if (location) |location_| {
                 if (location_.targetUri == null or location_.targetRange == null) return error.InvalidSymbolInformationField;
                 var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-                var file_path_ = try file_uri_to_path(location_.targetUri.?, &file_path_buf);
-                if (builtin.os.tag == .windows) {
-                    if (file_path_[0] == '/') file_path_ = file_path_[1..];
-                    for (file_path_, 0..) |c, i| if (c == '/') {
-                        file_path_[i] = '\\';
-                    };
-                }
+                const file_path_ = try file_uri_to_path(location_.targetUri.?, &file_path_buf);
                 fp = file_path_;
                 to.send(.{ "cmd", "add_symbol_information", .{ fp, name, parent_name, kind, location_.targetRange.?.start.line, location_.targetRange.?.start.character, location_.targetRange.?.end.line, location_.targetRange.?.end.character, tags[0..len_tags_], location_.targetSelectionRange.?.start.line, location_.targetSelectionRange.?.start.character, location_.targetSelectionRange.?.end.line, location_.targetSelectionRange.?.end.character, deprecated, location_.targetUri } }) catch |e| {
                     std.log.err("send add_symbol_information failed: {t}", .{e});
@@ -1622,13 +1611,7 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
                     try cbor.writeArrayHeader(w, renames.items.len);
                     for (renames.items) |rename| {
                         var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-                        var file_path_ = try file_uri_to_path(rename.uri, &file_path_buf);
-                        if (builtin.os.tag == .windows) {
-                            if (file_path_[0] == '/') file_path_ = file_path_[1..];
-                            for (file_path_, 0..) |c, i| if (c == '/') {
-                                file_path_[i] = '\\';
-                            };
-                        }
+                        const file_path_ = try file_uri_to_path(rename.uri, &file_path_buf);
                         const line = try get_line_of_file(allocator, self_.file_path, rename.range.start.line);
                         try cbor.writeValue(w, .{
                             file_path_,
