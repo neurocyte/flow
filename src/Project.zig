@@ -364,7 +364,7 @@ fn make_URI(self: *Self, file_path: ?[]const u8) LspError![]const u8 {
 fn write_URI_path(writer: *std.Io.Writer, path: []const u8) std.Io.Writer.Error!void {
     for (path) |c| try switch (c) {
         std.fs.path.sep => writer.writeByte('/'),
-        ':' => writer.writeAll("%3A"),
+        // ':' => writer.writeAll("%3A"),
         else => writer.writeByte(c),
     };
 }
