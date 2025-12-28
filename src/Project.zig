@@ -999,7 +999,8 @@ fn file_uri_to_path(uri: []const u8, file_path_buf: []u8) error{InvalidTargetURI
     return convert_path(file_path);
 }
 
-fn convert_path(file_path: []u8) []u8 {
+fn convert_path(file_path_: []u8) []u8 {
+    var file_path = file_path_;
     if (builtin.os.tag == .windows) {
         if (file_path[0] == '/') file_path = file_path[1..];
         for (file_path, 0..) |c, i| if (c == '/') {
