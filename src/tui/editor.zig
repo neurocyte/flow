@@ -2652,7 +2652,7 @@ pub const Editor = struct {
         switch (self.selection_mode) {
             .char => {},
             .word => {
-                if (sel.begin.right_of(sel.end)) {
+                if (sel.is_reversed()) {
                     sel.begin = initial.end;
                     with_selection_const(root, move_cursor_word_begin, primary, self.metrics) catch {};
                 } else {
@@ -2661,7 +2661,7 @@ pub const Editor = struct {
                 }
             },
             .line => {
-                if (sel.begin.right_of(sel.end)) {
+                if (sel.is_reversed()) {
                     sel.begin = initial.end;
                     with_selection_const(root, move_cursor_begin, primary, self.metrics) catch {};
                 } else {
