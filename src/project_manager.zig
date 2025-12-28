@@ -1040,6 +1040,8 @@ pub fn abbreviate_home(buf: []u8, path: []const u8) []const u8 {
         return "~";
     } else if (homerelpath.len > 3 and std.mem.eql(u8, homerelpath[0..3], "../")) {
         return path;
+    } else if (homerelpath.len + 2 > buf.len) {
+        return path;
     } else {
         buf[0] = '~';
         buf[1] = '/';
