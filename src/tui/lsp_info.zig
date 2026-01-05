@@ -37,11 +37,10 @@ pub fn add_from_event(self: *@This(), cbor_buf: []const u8) error{ InvalidTrigge
         .{ cbor.extract(&lsp_arg0), cbor.more },
         cbor.extract_cbor(&trigger_characters),
     }) catch return)) return;
-    const value = try self.add(lsp_arg0, &trigger_characters);
-    std.log.debug("{s} triggers: {any}", .{ lsp_arg0, value.trigger_characters.items });
+    try self.add(lsp_arg0, &trigger_characters);
 }
 
-pub fn add(self: *@This(), lsp_arg0: []const u8, iter: *[]const u8) error{ InvalidTriggersArray, OutOfMemory }!*Info {
+fn add(self: *@This(), lsp_arg0: []const u8, iter: *[]const u8) error{ InvalidTriggersArray, OutOfMemory }!void {
     const key = try self.allocator.dupe(u8, lsp_arg0);
     errdefer self.allocator.free(key);
 
@@ -61,7 +60,6 @@ pub fn add(self: *@This(), lsp_arg0: []const u8, iter: *[]const u8) error{ Inval
         if (!(cbor.matchValue(iter, cbor.extract(&char)) catch return error.InvalidTriggersArray)) return error.InvalidTriggersArray;
         (try value.trigger_characters.addOne(self.allocator)).* = try self.allocator.dupe(u8, char);
     }
-    return value;
 }
 
 pub fn write_state(self: *@This(), writer: *std.Io.Writer) error{WriteFailed}!void {
@@ -81,8 +79,7 @@ pub fn extract_state(self: *@This(), iter: *[]const u8) error{ InvalidTriggersAr
     var len = cbor.decodeArrayHeader(iter) catch return;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(iter, .{ cbor.extract(&lsp_arg0), cbor.extract_cbor(&trigger_characters) }) catch false) {
-            const value = try self.add(lsp_arg0, &trigger_characters);
-            std.log.debug("restored {s} triggers: {any}", .{ lsp_arg0, value.trigger_characters.items });
+            try self.add(lsp_arg0, &trigger_characters);
         } else {
             cbor.skipValue(iter) catch return error.InvalidTriggersArray;
         }
