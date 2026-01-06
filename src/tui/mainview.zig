@@ -1634,9 +1634,9 @@ fn add_and_activate_view(self: *Self, widget: Widget) !void {
     if (self.views.get_at(self.active_view)) |view| view.focus();
 }
 
-pub fn find_view_for_widget(self: *Self, w_: *Widget) ?usize {
+pub fn find_view_for_widget(self: *Self, w_: *const Widget) ?usize {
     const Ctx = struct {
-        w: *Widget,
+        w: *const Widget,
         fn find(ctx_: *anyopaque, w: *Widget) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
             return ctx.w == w;
@@ -1648,7 +1648,7 @@ pub fn find_view_for_widget(self: *Self, w_: *Widget) ?usize {
     return null;
 }
 
-pub fn focus_view_by_widget(self: *Self, w: *Widget) tui.FocusAction {
+pub fn focus_view_by_widget(self: *Self, w: *const Widget) tui.FocusAction {
     const n = self.find_view_for_widget(w) orelse return .notfound;
     if (n >= self.views.widgets.items.len) return .notfound;
     if (n == self.active_view) return .same;

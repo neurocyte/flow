@@ -115,7 +115,7 @@ pub fn addP(self: *Self, w_: Widget) !*Widget {
     return &w.widget;
 }
 
-pub fn get(self: *Self, name_: []const u8) ?*Widget {
+pub fn get(self: *const Self, name_: []const u8) ?*const Widget {
     for (self.widgets.items) |*w|
         if (w.widget.get(name_)) |p|
             return p;

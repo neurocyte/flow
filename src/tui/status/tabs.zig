@@ -217,7 +217,7 @@ pub const TabBar = struct {
         self.plane = self.widget_list.plane;
     }
 
-    pub fn get(self: *Self, name: []const u8) ?*Widget {
+    pub fn get(self: *const Self, name: []const u8) ?*const Widget {
         return self.widget_list_widget.get(name);
     }
 

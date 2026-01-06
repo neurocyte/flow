@@ -788,9 +788,8 @@ fn is_live_widget_ptr(self: *Self, w_: *Widget) bool {
 
 pub const FocusAction = enum { same, changed, notfound };
 
-pub fn set_focus_by_widget(w: *Widget) FocusAction {
-    const self = current();
-    const mv = self.mainview_ orelse return .notfound;
+pub fn set_focus_by_widget(w: *const Widget) FocusAction {
+    const mv = mainview() orelse return .notfound;
     return mv.focus_view_by_widget(w);
 }
 

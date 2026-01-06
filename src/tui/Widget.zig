@@ -51,7 +51,7 @@ pub const VTable = struct {
     layout: *const fn (ctx: *anyopaque) Layout,
     subscribe: *const fn (ctx: *anyopaque, h: EventHandler) error{NotSupported}!void,
     unsubscribe: *const fn (ctx: *anyopaque, h: EventHandler) error{NotSupported}!void,
-    get: *const fn (ctx: *anyopaque, name_: []const u8) ?*Self,
+    get: *const fn (ctx: *const anyopaque, name_: []const u8) ?*const Self,
     walk: *const fn (ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn, self_widget: *Self) bool,
     focus: *const fn (ctx: *anyopaque) void,
     unfocus: *const fn (ctx: *anyopaque) void,
@@ -134,8 +134,8 @@ pub fn to(pimpl: anytype) Self {
                 }
             }.unsubscribe,
             .get = struct {
-                pub fn get(ctx: *anyopaque, name_: []const u8) ?*Self {
-                    return if (comptime @hasDecl(child, "get")) child.get(@as(*child, @ptrCast(@alignCast(ctx))), name_) else null;
+                pub fn get(ctx: *const anyopaque, name_: []const u8) ?*const Self {
+                    return if (comptime @hasDecl(child, "get")) child.get(@as(*const child, @ptrCast(@alignCast(ctx))), name_) else null;
                 }
             }.get,
             .walk = struct {
@@ -222,7 +222,7 @@ pub fn unsubscribe(self: Self, h: EventHandler) !void {
     return self.vtable.unsubscribe(self.ptr, h);
 }
 
-pub fn get(self: *Self, name_: []const u8) ?*Self {
+pub fn get(self: *const Self, name_: []const u8) ?*const Self {
     var buf: [256]u8 = undefined;
     return if (std.mem.eql(u8, self.plane.name(&buf), name_))
         self
@@ -297,7 +297,7 @@ pub fn empty(allocator: Allocator, parent: Plane, layout_: Layout) !Self {
                 }
             }.unsubscribe,
             .get = struct {
-                pub fn get(_: *anyopaque, _: []const u8) ?*Self {
+                pub fn get(_: *const anyopaque, _: []const u8) ?*const Self {
                     return null;
                 }
             }.get,
