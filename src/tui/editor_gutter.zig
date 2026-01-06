@@ -28,8 +28,8 @@ lines: u32 = 0,
 view_rows: u32 = 1,
 view_top: u32 = 1,
 line: usize = 0,
-mode: ?LineNumberMode = null,
-render_style: DigitStyle,
+line_number_mode: ?LineNumberMode = null,
+line_number_style: DigitStyle,
 highlight: bool,
 symbols: bool,
 width: usize = 4,
@@ -49,8 +49,8 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent.plane.*),
         .parent = parent,
-        .mode = tui.config().gutter_line_numbers_mode,
-        .render_style = tui.config().gutter_line_numbers_style,
+        .line_number_mode = tui.config().gutter_line_numbers_mode,
+        .line_number_style = tui.config().gutter_line_numbers_style,
         .highlight = tui.config().highlight_current_line_gutter,
         .symbols = tui.config().gutter_symbols,
         .editor = editor,
@@ -94,6 +94,8 @@ pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var y: i32 = undefined;
     var ypx: i32 = undefined;
+    var line_number_mode: ?LineNumberMode = null;
+    var line_number_style: DigitStyle = undefined;
 
     if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) }))
         return self.primary_click(y);
@@ -107,14 +109,22 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return self.mouse_click_button4();
     if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON5), tp.more }))
         return self.mouse_click_button5();
+    if (try m.match(.{ "line_number_mode", tp.extract(&line_number_mode) })) {
+        self.line_number_mode = line_number_mode;
+        return false;
+    }
+    if (try m.match(.{ "line_number_style", tp.extract(&line_number_style) })) {
+        self.line_number_style = line_number_style;
+        return false;
+    }
 
     return false;
 }
 
 fn update_width(self: *Self) void {
-    if (self.mode == .none) return;
+    if (self.line_number_mode == .none) return;
     const width = int_width(self.lines);
-    self.width = if (self.mode == .relative and width > 4) 4 else @max(width, 2);
+    self.width = if (self.line_number_mode == .relative and width > 4) 4 else @max(width, 2);
     self.width += if (self.symbols) 3 else 1;
 }
 
@@ -123,11 +133,11 @@ pub fn layout(self: *Self) Widget.Layout {
 }
 
 inline fn get_width(self: *Self) usize {
-    return if (self.mode != .none) self.width else if (self.symbols) 3 else 1;
+    return if (self.line_number_mode != .none) self.width else if (self.symbols) 3 else 1;
 }
 
 fn get_numbering_mode(self: *const Self) LineNumberMode {
-    return self.mode orelse switch (if (tui.input_mode()) |mode| mode.line_numbers else .absolute) {
+    return self.line_number_mode orelse switch (if (tui.input_mode()) |mode| mode.line_numbers else .absolute) {
         .relative => .relative,
         .inherit => if (tui.input_mode_outer()) |mode| from_mode_enum(mode.line_numbers) else .absolute,
         .absolute => .absolute,
@@ -190,7 +200,7 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
             self.plane.off_styles(styles.bold);
         }
         try self.plane.cursor_move_yx(@intCast(pos), 0);
-        try self.print_digits(linenum, self.render_style);
+        try self.print_digits(linenum, self.line_number_style);
         if (self.highlight and linenum == self.line + 1)
             self.render_line_highlight(pos, theme);
         self.render_diff_symbols(&diff_symbols, pos, linenum, theme);
@@ -216,7 +226,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
         if (val > 999999)
             _ = self.plane.print_aligned_right(@intCast(pos), "==> ", .{}) catch {}
         else
-            self.print_digits(val, self.render_style) catch {};
+            self.print_digits(val, self.line_number_style) catch {};
 
         if (self.highlight and linenum == 0)
             self.render_line_highlight(pos, theme);

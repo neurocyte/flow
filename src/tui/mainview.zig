@@ -946,7 +946,7 @@ const cmds = struct {
     }
     pub const focus_split_meta: Meta = .{ .description = "Focus split view", .arguments = &.{.integer} };
 
-    pub fn gutter_mode_next(self: *Self, _: Ctx) Result {
+    pub fn gutter_mode_next(_: *Self, _: Ctx) Result {
         const config = tui.config_mut();
         const mode: ?@import("config").LineNumberMode = if (config.gutter_line_numbers_mode) |mode| switch (mode) {
             .absolute => .relative,
@@ -956,14 +956,11 @@ const cmds = struct {
 
         config.gutter_line_numbers_mode = mode;
         try tui.save_config();
-        if (self.widgets.get("editor_gutter")) |gutter_widget| {
-            const gutter = gutter_widget.dynamic_cast(@import("editor_gutter.zig")) orelse return;
-            gutter.mode = mode;
-        }
+        try tp.self_pid().send(.{ "line_number_mode", mode });
     }
     pub const gutter_mode_next_meta: Meta = .{ .description = "Next gutter mode" };
 
-    pub fn gutter_style_next(self: *Self, _: Ctx) Result {
+    pub fn gutter_style_next(_: *Self, _: Ctx) Result {
         const config = tui.config_mut();
         config.gutter_line_numbers_style = switch (config.gutter_line_numbers_style) {
             .ascii => .digital,
@@ -972,10 +969,7 @@ const cmds = struct {
             .superscript => .ascii,
         };
         try tui.save_config();
-        if (self.widgets.get("editor_gutter")) |gutter_widget| {
-            const gutter = gutter_widget.dynamic_cast(@import("editor_gutter.zig")) orelse return;
-            gutter.render_style = config.gutter_line_numbers_style;
-        }
+        try tp.self_pid().send(.{ "line_number_style", config.gutter_line_numbers_style });
     }
     pub const gutter_style_next_meta: Meta = .{ .description = "Next line number style" };
 
