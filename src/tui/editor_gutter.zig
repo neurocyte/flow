@@ -333,13 +333,13 @@ fn middle_click(_: *Self) error{Exit}!bool {
     return true;
 }
 
-fn mouse_click_button4(_: *Self) error{Exit}!bool {
-    try command.executeName("scroll_up_pageup", .{});
+fn mouse_click_button4(self: *Self) error{Exit}!bool {
+    self.editor.scroll_up_pageup(.{}) catch {};
     return true;
 }
 
-fn mouse_click_button5(_: *Self) error{Exit}!bool {
-    try command.executeName("scroll_down_pagedown", .{});
+fn mouse_click_button5(self: *Self) error{Exit}!bool {
+    self.editor.scroll_down_pagedown(.{}) catch {};
     return true;
 }
 
