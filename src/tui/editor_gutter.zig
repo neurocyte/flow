@@ -34,6 +34,7 @@ highlight: bool,
 symbols: bool,
 width: usize = 4,
 editor: *ed.Editor,
+editor_widget: ?*const Widget = null,
 diff_: diff.AsyncDiffer,
 diff_symbols: std.ArrayList(Symbol),
 
@@ -305,7 +306,17 @@ fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widg
     _ = self.plane.putc(&cell) catch {};
 }
 
-fn primary_click(self: *const Self, y_: i32) error{Exit}!bool {
+fn focus_editor(self: *Self) void {
+    const editor_widget = self.editor_widget orelse blk: {
+        const editor_widget = self.parent.get("editor") orelse return;
+        self.editor_widget = editor_widget;
+        break :blk editor_widget;
+    };
+    _ = tui.set_focus_by_widget(editor_widget);
+}
+
+fn primary_click(self: *Self, y_: i32) error{Exit}!bool {
+    self.focus_editor();
     const y = self.editor.plane.abs_y_to_rel(y_);
     var line = self.view_top + 1;
     line += @intCast(y);
@@ -317,7 +328,8 @@ fn primary_click(self: *const Self, y_: i32) error{Exit}!bool {
     return true;
 }
 
-fn primary_drag(self: *const Self, y_: i32) error{Exit}!bool {
+fn primary_drag(self: *Self, y_: i32) error{Exit}!bool {
+    self.focus_editor();
     const y = self.editor.plane.abs_y_to_rel(y_);
     try command.executeName("drag_to", command.fmt(.{ y + 1, 0 }));
     return true;
