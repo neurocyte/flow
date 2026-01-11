@@ -6200,6 +6200,7 @@ pub const Editor = struct {
     }
 
     pub fn done_highlight_reference(self: *Self) void {
+        self.sort_matches();
         self.highlight_references_state = .done;
     }
 

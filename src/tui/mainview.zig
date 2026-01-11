@@ -165,7 +165,7 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         }
         self.find_in_files_state = .done;
         return true;
-    } else if (try m.match(.{ "HREF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos), tp.extract(&lines) })) {
+    } else if (try m.match(.{ "HREF", tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
         if (self.get_active_editor()) |editor| editor.add_highlight_reference(.{
             .begin = .{ .row = begin_line, .col = begin_pos },
             .end = .{ .row = end_line, .col = end_pos },

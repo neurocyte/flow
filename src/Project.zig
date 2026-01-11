@@ -1082,42 +1082,6 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     }, handler) catch return error.LspFailed;
 }
 
-pub fn highlight_references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) SendGotoRequestError!void {
-    const lsp = try self.get_language_server(file_path);
-    const uri = try self.make_URI(file_path);
-    defer self.allocator.free(uri);
-
-    const handler: struct {
-        from: tp.pid,
-        name: []const u8,
-        project: *Self,
-
-        pub fn deinit(self_: *@This()) void {
-            std.heap.c_allocator.free(self_.name);
-            self_.from.deinit();
-        }
-
-        pub fn receive(self_: @This(), response: tp.message) !void {
-            var locations: []const u8 = undefined;
-            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
-                return;
-            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
-                _ = try send_reference_list("HREF", self_.from.ref(), locations, self_.name);
-            }
-        }
-    } = .{
-        .from = from.clone(),
-        .name = try std.heap.c_allocator.dupe(u8, self.name),
-        .project = self,
-    };
-
-    lsp.send_request(self.allocator, "textDocument/references", .{
-        .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
-        .context = .{ .includeDeclaration = true },
-    }, handler) catch return error.LspFailed;
-}
-
 fn send_reference_list(tag: []const u8, to: tp.pid_ref, locations: []const u8, name: []const u8) (error{
     InvalidTargetURI,
     InvalidReferenceList,
@@ -1159,6 +1123,105 @@ fn send_reference(tag: []const u8, to: tp.pid_ref, location_: []const u8, name: 
         std.log.err("send {s} (in send_reference) failed: {t}", .{ tag, e });
         return;
     };
+}
+
+pub fn highlight_references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) SendGotoRequestError!void {
+    const lsp = try self.get_language_server(file_path);
+    const uri = try self.make_URI(file_path);
+    defer self.allocator.free(uri);
+
+    const handler: struct {
+        from: tp.pid,
+
+        pub fn deinit(self_: *@This()) void {
+            self_.from.deinit();
+        }
+
+        pub fn receive(self_: @This(), response: tp.message) !void {
+            var highlights: []const u8 = undefined;
+            if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+                return;
+            } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&highlights) })) {
+                _ = try send_highlight_list(self_.from.ref(), highlights);
+            }
+        }
+    } = .{
+        .from = from.clone(),
+    };
+
+    lsp.send_request(self.allocator, "textDocument/documentHighlight", .{
+        .textDocument = .{ .uri = uri },
+        .position = .{ .line = row, .character = col },
+        .context = .{ .includeDeclaration = true },
+    }, handler) catch return error.LspFailed;
+}
+
+fn send_highlight_list(to: tp.pid_ref, highlights: []const u8) (error{InvalidDocumentHighlightList} || DocumentHighlightError)!usize {
+    defer to.send(.{ "HREF", "done" }) catch {};
+    var iter = highlights;
+    var len = try cbor.decodeArrayHeader(&iter);
+    const count = len;
+    while (len > 0) : (len -= 1) {
+        var highlight: []const u8 = undefined;
+        if (try cbor.matchValue(&iter, cbor.extract_cbor(&highlight))) {
+            try send_highlight(to, highlight);
+        } else return error.InvalidDocumentHighlightList;
+    }
+    return count;
+}
+
+fn send_highlight(to: tp.pid_ref, highlight_: []const u8) DocumentHighlightError!void {
+    const highlight = try read_document_highlight(highlight_);
+    to.send(.{
+        "HREF",
+        highlight.range.start.line + 1,
+        highlight.range.start.character,
+        highlight.range.end.line + 1,
+        highlight.range.end.character,
+    }) catch |e| {
+        std.log.err("send HREF (in send_highlight) failed: {t}", .{e});
+        return;
+    };
+}
+
+const DocumentHighlight = struct {
+    range: Range,
+    kind: ?Kind,
+
+    const Kind = enum(u8) {
+        Text = 1,
+        Read = 2,
+        Write = 3,
+    };
+};
+
+const DocumentHighlightError = error{
+    InvalidDocumentHighlight,
+    InvalidDocumentHighlightField,
+    InvalidDocumentHighlightFieldName,
+} || RangeError || cbor.Error;
+fn read_document_highlight(document_highlight: []const u8) DocumentHighlightError!DocumentHighlight {
+    var iter = document_highlight;
+    var range: ?Range = null;
+    var kind: ?DocumentHighlight.Kind = null;
+    var len = try cbor.decodeMapHeader(&iter);
+    while (len > 0) : (len -= 1) {
+        var field_name: []const u8 = undefined;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidDocumentHighlightFieldName;
+        if (std.mem.eql(u8, field_name, "range")) {
+            var range_: []const u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&range_)))) return error.InvalidDocumentHighlightField;
+            range = try read_range(range_);
+        } else if (std.mem.eql(u8, field_name, "kind")) {
+            var kind_: u8 = undefined;
+            if (!(try cbor.matchValue(&iter, cbor.extract(&kind_)))) return error.InvalidDocumentHighlightField;
+            kind = std.enums.fromInt(DocumentHighlight.Kind, kind_) orelse return error.InvalidDocumentHighlightField;
+        } else {
+            try cbor.skipValue(&iter);
+        }
+    }
+    if (range == null) return error.InvalidDocumentHighlight;
+    return .{ .range = range.?, .kind = kind };
 }
 
 pub const CompletionError = error{
