@@ -6180,7 +6180,9 @@ pub const Editor = struct {
     pub fn highlight_references(self: *Self, _: Context) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
-        return project_manager.highlight_references(file_path, primary.cursor.row, primary.cursor.col);
+        const root = self.buf_root() catch return;
+        const pos = root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics) catch return;
+        return project_manager.highlight_references(file_path, primary.cursor.row, pos);
     }
     pub const highlight_references_meta: Meta = .{ .description = "Language: Highlight references" };
 
