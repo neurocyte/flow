@@ -354,6 +354,10 @@ pub fn Create(options: type) type {
         }
 
         fn delete_word(self: *Self) !void {
+            if (self.query.items.len == 0 and @hasDecl(options, "delete_word_empty")) {
+                options.delete_word_empty(self);
+                return;
+            }
             if (std.mem.lastIndexOfAny(u8, self.query.items, "/\\. -_")) |pos| {
                 self.query.shrinkRetainingCapacity(pos);
             } else {
@@ -369,6 +373,9 @@ pub fn Create(options: type) type {
                 self.query.shrinkRetainingCapacity(self.query.items.len - tui.egc_last(self.query.items).len);
                 if (@hasDecl(options, "update_query"))
                     options.update_query(self, self.query.items);
+            } else {
+                if (@hasDecl(options, "delete_empty"))
+                    options.delete_empty(self);
             }
             try self.start_query(0);
         }

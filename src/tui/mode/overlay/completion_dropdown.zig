@@ -130,6 +130,16 @@ pub fn update_query(self: *Type, query: []const u8) void {
     return;
 }
 
+pub fn delete_word_empty(self: *Type) void {
+    cancel(self) catch return;
+    tp.self_pid().send(.{ "cmd", "delete_word_left" }) catch |e| self.logger.err(module_name, e);
+}
+
+pub fn delete_empty(self: *Type) void {
+    cancel(self) catch return;
+    tp.self_pid().send(.{ "cmd", "smart_delete_backward" }) catch |e| self.logger.err(module_name, e);
+}
+
 fn get_insert_selection(self: *Type, cursor: ed.Cursor) ed.Selection {
     return if (self.value.replace) |sel|
         sel
