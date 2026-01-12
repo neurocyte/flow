@@ -1312,7 +1312,7 @@ fn send_symbol_items(to: tp.pid_ref, file_path: []const u8, items: []const u8) (
     var item: []const u8 = "";
     var node_count: usize = 0;
     while (len > 0) : (len -= 1) {
-        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidSymbolInformation;
+        if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidSymbolInformationArray;
         node_count += try send_symbol_information(to, file_path, item, "");
     }
     return to.send(.{ "cmd", "add_document_symbol_done", .{file_path} }) catch |e| {
@@ -1373,7 +1373,8 @@ fn invalid_symbol_information_field(field: []const u8) error{InvalidSymbolInform
 }
 
 pub const SymbolInformationError = error{
-    InvalidSymbolInformation,
+    InvalidSymbolInformationFieldName,
+    InvalidSymbolInformationArray,
     InvalidSymbolInformationField,
     InvalidTargetURI,
 } || LocationLinkError || cbor.Error;
@@ -1397,7 +1398,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
     tags[0] = 0;
     while (len > 0) : (len -= 1) {
         var field_name: []const u8 = undefined;
-        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidSymbolInformation;
+        if (!(try cbor.matchString(&iter, &field_name))) return error.InvalidSymbolInformationFieldName;
         if (std.mem.eql(u8, field_name, "name")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&name)))) return invalid_symbol_information_field("name");
         } else if (std.mem.eql(u8, field_name, "detail")) {
