@@ -1132,8 +1132,10 @@ pub fn highlight_references(self: *Self, from: tp.pid_ref, file_path: []const u8
 
     const handler: struct {
         from: tp.pid,
+        file_path: []const u8,
 
         pub fn deinit(self_: *@This()) void {
+            std.heap.c_allocator.free(self_.file_path);
             self_.from.deinit();
         }
 
@@ -1142,11 +1144,12 @@ pub fn highlight_references(self: *Self, from: tp.pid_ref, file_path: []const u8
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
                 return;
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&highlights) })) {
-                _ = try send_highlight_list(self_.from.ref(), highlights);
+                _ = try send_highlight_list(self_.from.ref(), highlights, self_.file_path);
             }
         }
     } = .{
         .from = from.clone(),
+        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
     };
 
     lsp.send_request(self.allocator, "textDocument/documentHighlight", .{
@@ -1156,24 +1159,25 @@ pub fn highlight_references(self: *Self, from: tp.pid_ref, file_path: []const u8
     }, handler) catch return error.LspFailed;
 }
 
-fn send_highlight_list(to: tp.pid_ref, highlights: []const u8) (error{InvalidDocumentHighlightList} || DocumentHighlightError)!usize {
-    defer to.send(.{ "HREF", "done" }) catch {};
+fn send_highlight_list(to: tp.pid_ref, highlights: []const u8, file_path: []const u8) (error{InvalidDocumentHighlightList} || DocumentHighlightError)!usize {
+    defer to.send(.{ "HREF", file_path, "done" }) catch {};
     var iter = highlights;
     var len = try cbor.decodeArrayHeader(&iter);
     const count = len;
     while (len > 0) : (len -= 1) {
         var highlight: []const u8 = undefined;
         if (try cbor.matchValue(&iter, cbor.extract_cbor(&highlight))) {
-            try send_highlight(to, highlight);
+            try send_highlight(to, highlight, file_path);
         } else return error.InvalidDocumentHighlightList;
     }
     return count;
 }
 
-fn send_highlight(to: tp.pid_ref, highlight_: []const u8) DocumentHighlightError!void {
+fn send_highlight(to: tp.pid_ref, highlight_: []const u8, file_path: []const u8) DocumentHighlightError!void {
     const highlight = try read_document_highlight(highlight_);
     to.send(.{
         "HREF",
+        file_path,
         highlight.range.start.line + 1,
         highlight.range.start.character,
         highlight.range.end.line + 1,
