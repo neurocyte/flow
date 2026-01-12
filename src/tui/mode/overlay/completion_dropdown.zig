@@ -40,24 +40,25 @@ pub const defaultValue: ValueType = .{};
 var max_description: usize = 0;
 
 pub fn load_entries(self: *Type) !usize {
+    max_description = 0;
+    var max_label_len: usize = 0;
+
     const editor = tui.get_active_editor() orelse return error.NotFound;
     self.value.start = editor.get_primary().*;
     var iter: []const u8 = editor.completions.items;
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
-        (try self.entries.addOne(self.allocator)).* = .{ .cbor = cbor_item, .label = undefined, .sort_text = undefined };
-    }
-
-    max_description = 0;
-    var max_label_len: usize = 0;
-    for (self.entries.items) |*item| {
-        const values = get_values(item.cbor);
+        const values = get_values(cbor_item);
         if (self.value.replace == null) if (get_replace_selection(values.replace)) |replace| {
             self.value.replace = replace;
         };
-        item.label = values.label;
-        item.sort_text = values.sort_text;
+        const item = try self.entries.addOne(self.allocator);
+        item.* = .{
+            .cbor = cbor_item,
+            .label = values.label,
+            .sort_text = values.sort_text,
+        };
 
         var lines = std.mem.splitScalar(u8, values.label_description, '\n');
         const label_description_len: usize = if (lines.next()) |desc| desc.len else values.label_description.len;
