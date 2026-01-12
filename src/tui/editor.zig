@@ -3427,6 +3427,10 @@ pub const Editor = struct {
     }
 
     fn move_cursor_word_left_space(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        if (is_eol_left(root, cursor, metrics)) {
+            try move_cursor_left(root, cursor, metrics);
+            return;
+        }
         try move_cursor_left(root, cursor, metrics);
         var next = cursor.*;
         next.move_left(root, metrics) catch
