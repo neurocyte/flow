@@ -1415,7 +1415,6 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
                 tags[idx] = this_tag;
                 idx += 1;
             }
-            try cbor.skipValue(&iter);
         } else if (std.mem.eql(u8, field_name, "deprecated")) {
             if (!(try cbor.matchValue(&iter, cbor.extract(&deprecated)))) return invalid_symbol_information_field("deprecated");
         } else if (std.mem.eql(u8, field_name, "range")) {
