@@ -595,6 +595,9 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    if (try m.match(.{ "line_number_mode", tp.more })) // drop broadcast messages
+        return;
+
     return tp.unexpected(m);
 }
 
