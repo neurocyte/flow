@@ -166,13 +166,13 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.find_in_files_state = .done;
         return true;
     } else if (try m.match(.{ "HREF", tp.extract(&path), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
-        if (self.get_active_editor()) |editor| editor.add_highlight_reference(.{
+        if (self.get_editor_for_file(path)) |editor| editor.add_highlight_reference(.{
             .begin = .{ .row = begin_line, .col = begin_pos },
             .end = .{ .row = end_line, .col = end_pos },
         });
         return true;
     } else if (try m.match(.{ "HREF", tp.extract(&path), "done" })) {
-        if (self.get_active_editor()) |editor| editor.done_highlight_reference();
+        if (self.get_editor_for_file(path)) |editor| editor.done_highlight_reference();
         return true;
     } else if (try m.match(.{ "hover", tp.extract(&path), tp.string, tp.extract(&lines), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
         try self.set_info_content(lines, .replace);
@@ -1588,6 +1588,16 @@ pub fn get_editor_for_buffer(self: *Self, buffer: *Buffer) ?*ed.Editor {
         const editor = view.widget.get("editor") orelse continue;
         if (editor.dynamic_cast(ed.EditorWidget)) |p|
             if (p.editor.buffer == buffer)
+                return &p.editor;
+    }
+    return null;
+}
+
+pub fn get_editor_for_file(self: *Self, file_path: []const u8) ?*ed.Editor {
+    for (self.views.widgets.items) |*view| {
+        const editor = view.widget.get("editor") orelse continue;
+        if (editor.dynamic_cast(ed.EditorWidget)) |p|
+            if (std.mem.eql(u8, p.editor.file_path orelse continue, file_path))
                 return &p.editor;
     }
     return null;
