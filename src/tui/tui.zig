@@ -885,8 +885,9 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     command.executeName("disable_jump_mode", .{}) catch {};
     if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, .{});
     if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, .{});
+    const new_mode = try mode.create(self.allocator);
     self.input_mode_outer_ = self.input_mode_;
-    self.input_mode_ = try mode.create(self.allocator);
+    self.input_mode_ = new_mode;
     if (self.input_mode_) |*m| m.run_init();
     refresh_hover();
 }
