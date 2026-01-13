@@ -138,6 +138,7 @@ pub fn fill(self: *Plane, egc: []const u8) void {
     for (0..self.dim_y()) |y|
         for (0..self.dim_x()) |x|
             self.write_cell(x, y, egc);
+    if (self.col > 100000) std.log.debug("column: {}", .{self.col});
 }
 
 pub fn fill_width(self: *Plane, comptime fmt: anytype, args: anytype) !usize {
@@ -261,6 +262,8 @@ fn write_cell(self: *Plane, col: usize, row: usize, egc: []const u8) void {
         cell.style = self.style;
     }
     self.window.writeCell(@intCast(col), @intCast(row), cell);
+    self.row = @intCast(row);
+    self.col = @intCast(col);
     self.col += @intCast(w);
 }
 
