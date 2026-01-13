@@ -40,7 +40,7 @@ diff_symbols: std.ArrayList(Symbol),
 
 const Self = @This();
 
-const Kind = enum { insert, delete };
+const Kind = enum { insert, modified, delete };
 const Symbol = struct { kind: Kind, line: usize };
 
 pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor: *ed.Editor) !Widget {
@@ -259,18 +259,23 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Symbol, pos: usize, 
     if ((diff_symbols.*)[0].line > linenum) return;
 
     const sym = (diff_symbols.*)[0];
-    const char = switch (sym.kind) {
+    const kind: Kind = switch (sym.kind) {
+        .insert => .insert,
+        .modified => .insert, //TODO: we map .modified to .insert here because the diff algo is unstable
+        .delete => .delete,
+    };
+    const char = switch (kind) {
         .insert => "┃",
-        // .modified => "┋",
+        .modified => "┋",
         .delete => "▔",
     };
 
-    self.plane.cursor_move_yx(@intCast(pos), @intCast(self.get_width() - 1));
+    self.plane.cursor_move_yx(@intCast(pos), @intCast(self.get_width() - 1)) catch return;
     var cell = self.plane.cell_init();
     _ = self.plane.at_cursor_cell(&cell) catch return;
-    cell.set_style_fg(switch (sym.kind) {
+    cell.set_style_fg(switch (kind) {
         .insert => theme.editor_gutter_added,
-        // .modified => theme.editor_gutter_modified,
+        .modified => theme.editor_gutter_modified,
         .delete => theme.editor_gutter_deleted,
     });
     _ = self.plane.cell_load(&cell, char) catch {};
@@ -415,25 +420,24 @@ pub fn process_diff(self: *Self, cb: []const u8) MessageFilter.Error!void {
 }
 
 fn process_edit(self: *Self, kind: Kind, line: usize, offset: usize, bytes: []const u8) !void {
-    std.log.debug("edit: k:{} l:{d} off:{} bytes:\"{s}\"", .{ kind, line, offset, bytes });
-
-    if (self.diff_symbols.items.len > 0 and
-        self.diff_symbols.items[self.diff_symbols.items.len - 1].line == line)
-    {
-        self.diff_symbols.items[self.diff_symbols.items.len - 1].kind = .insert;
+    const change = if (self.diff_symbols.items.len > 0) self.diff_symbols.items[self.diff_symbols.items.len - 1].line == line else false;
+    if (change) {
+        self.diff_symbols.items[self.diff_symbols.items.len - 1].kind = .modified;
         return;
     }
-    const value: Symbol = switch (kind) {
+    (try self.diff_symbols.addOne(self.allocator)).* = switch (kind) {
         .insert => ret: {
             if (offset > 0)
-                break :ret .{ .kind = .insert, .line = line };
+                break :ret .{ .kind = .modified, .line = line };
             if (bytes.len == 0)
                 return;
-            break :ret .{ .kind = .insert, .line = line };
+            if (bytes[bytes.len - 1] == '\n')
+                break :ret .{ .kind = .insert, .line = line };
+            break :ret .{ .kind = .modified, .line = line };
         },
         .delete => .{ .kind = .delete, .line = line },
+        else => unreachable,
     };
-    (try self.diff_symbols.addOne(self.allocator)).* = value;
 }
 
 pub fn filter_receive(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
