@@ -280,14 +280,14 @@ pub fn cursor_x(self: Plane) i32 {
     return self.col;
 }
 
-pub fn cursor_move_yx(self: *Plane, y: i32, x: i32) !void {
+pub fn cursor_move_yx(self: *Plane, y: i32, x: i32) error{}!void {
     if (self.window.height == 0 or self.window.width == 0) return;
     if (self.window.height <= y or self.window.width <= x) return;
-    self.row = y;
-    self.col = x;
+    if (y >= 0) self.row = y;
+    if (x >= 0) self.col = x;
 }
 
-pub fn cursor_move_rel(self: *Plane, y: i32, x: i32) !void {
+pub fn cursor_move_rel(self: *Plane, y: i32, x: i32) error{OutOfBounds}!void {
     if (self.window.height == 0 or self.window.width == 0) return error.OutOfBounds;
     const new_y = self.row + y;
     const new_x = self.col + x;
