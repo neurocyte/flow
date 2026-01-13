@@ -259,7 +259,12 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Symbol, pos: usize, 
     if ((diff_symbols.*)[0].line > linenum) return;
 
     const sym = (diff_symbols.*)[0];
-    const char = switch (sym.kind) {
+    const kind: Kind = switch (sym.kind) {
+        .insert => .insert,
+        .modified => .insert, //TODO: we map .modified to .insert here because the diff algo is unstable
+        .delete => .delete,
+    };
+    const char = switch (kind) {
         .insert => "┃",
         .modified => "┋",
         .delete => "▔",
@@ -268,7 +273,7 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Symbol, pos: usize, 
     self.plane.cursor_move_yx(@intCast(pos), @intCast(self.get_width() - 1)) catch return;
     var cell = self.plane.cell_init();
     _ = self.plane.at_cursor_cell(&cell) catch return;
-    cell.set_style_fg(switch (sym.kind) {
+    cell.set_style_fg(switch (kind) {
         .insert => theme.editor_gutter_added,
         .modified => theme.editor_gutter_modified,
         .delete => theme.editor_gutter_deleted,
