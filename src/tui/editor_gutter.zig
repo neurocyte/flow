@@ -35,7 +35,7 @@ symbols: bool,
 width: usize = 4,
 editor: *ed.Editor,
 editor_widget: ?*const Widget = null,
-diff_: diff.AsyncDiffer,
+diff_: diff.diffz.AsyncDiffer,
 diff_symbols: std.ArrayList(Symbol),
 
 const Self = @This();
@@ -55,7 +55,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .highlight = tui.config().highlight_current_line_gutter,
         .symbols = tui.config().gutter_symbols,
         .editor = editor,
-        .diff_ = try diff.create(),
+        .diff_ = try diff.diffz.create(),
         .diff_symbols = .empty,
     };
     try tui.message_filters().add(MessageFilter.bind(self, filter_receive));

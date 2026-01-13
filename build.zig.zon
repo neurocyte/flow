@@ -42,6 +42,10 @@
             .hash = "zigwin32-25.0.28-preview-AAAAAICM5AMResOGQnQ85mfe60TTOQeMtt7GRATUOKoP",
             .lazy = true,
         },
+        .diffz = .{
+            .url = "git+https://github.com/ziglibs/diffz.git#fbdf690b87db6b1142bbce6d4906f90b09ce60bb",
+            .hash = "diffz-0.0.1-G2tlIezMAQBwGNGDs7Hn_N25dWSjEzgR_FAx9GFAvCuZ",
+        },
     },
     .paths = .{
         "include",

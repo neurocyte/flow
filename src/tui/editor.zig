@@ -5156,7 +5156,7 @@ pub const Editor = struct {
                         const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
                         defer frame.deinit();
                         const diff = @import("diff");
-                        const edits = try diff.diff(self.allocator, content, old_content.written());
+                        const edits = try diff.dizzy.diff(self.allocator, content, old_content.written());
                         defer self.allocator.free(edits);
                         for (edits) |edit|
                             syntax_process_edit(syn, edit);
@@ -6087,7 +6087,7 @@ pub const Editor = struct {
         var last_end_row: usize = 0;
         var last_end_col_pos: usize = 0;
 
-        const diffs = try @import("diff").diff(self.allocator, new_content, content);
+        const diffs = try @import("diff").dizzy.diff(self.allocator, new_content, content);
         defer self.allocator.free(diffs);
         var first = true;
         for (diffs) |diff| {

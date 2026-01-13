@@ -297,6 +297,11 @@ pub fn build_exe(
         .optimize = optimize,
     });
 
+    const diffz_dep = b.dependency("diffz", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const fuzzig_dep = b.dependency("fuzzig", .{
         .target = target,
         .optimize = optimize,
@@ -601,6 +606,7 @@ pub fn build_exe(
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "dizzy", .module = dizzy_dep.module("dizzy") },
+            .{ .name = "diffz", .module = diffz_dep.module("diffz") },
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
         },
