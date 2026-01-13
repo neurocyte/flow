@@ -267,7 +267,7 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Diff, pos: usize, li
 inline fn render_diff(self: *Self, sym: Diff, pos: usize, theme: *const Widget.Theme) void {
     const char = switch (sym.kind) {
         .insert => "┃",
-        .modify => "┋",
+        .modify => "┃",
         .delete => "▔",
     };
 
