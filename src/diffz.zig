@@ -32,9 +32,9 @@ pub const AsyncDiffer = struct {
         return text.toOwnedSlice();
     }
 
-    pub const CallBack = fn (from: tp.pid_ref, edits: []Diff) void;
+    pub const CallBack = fn (from: tp.pid_ref, data: usize, edits: []Diff) void;
 
-    pub fn diff_buffer(self: @This(), cb: *const CallBack, buffer: *const Buffer) tp.result {
+    pub fn diff_buffer(self: @This(), cb: *const CallBack, cb_data: usize, buffer: *const Buffer) tp.result {
         const eol_mode = buffer.file_eol_mode;
         const text_dst = text_from_root(buffer.root, eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace());
         errdefer std.heap.c_allocator.free(text_dst);
@@ -45,7 +45,7 @@ pub const AsyncDiffer = struct {
         errdefer std.heap.c_allocator.free(text_src);
         const text_dst_ptr: usize = if (text_dst.len > 0) @intFromPtr(text_dst.ptr) else 0;
         const text_src_ptr: usize = if (text_src.len > 0) @intFromPtr(text_src.ptr) else 0;
-        if (self.pid) |pid| try pid.send(.{ "D", @intFromPtr(cb), text_dst_ptr, text_dst.len, text_src_ptr, text_src.len });
+        if (self.pid) |pid| try pid.send(.{ "D", @intFromPtr(cb), cb_data, text_dst_ptr, text_dst.len, text_src_ptr, text_src.len });
     }
 };
 
@@ -77,30 +77,34 @@ const Process = struct {
         errdefer self.deinit();
 
         var cb: usize = 0;
+        var cb_data: usize = 0;
         var text_dst_ptr: usize = 0;
         var text_dst_len: usize = 0;
         var text_src_ptr: usize = 0;
         var text_src_len: usize = 0;
 
-        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len) })) blk: {
+        return if (try m.match(.{ "D", tp.extract(&cb), tp.extract(&cb_data), tp.extract(&text_dst_ptr), tp.extract(&text_dst_len), tp.extract(&text_src_ptr), tp.extract(&text_src_len) })) blk: {
             const text_dst = if (text_dst_len > 0) @as([*]const u8, @ptrFromInt(text_dst_ptr))[0..text_dst_len] else "";
             const text_src = if (text_src_len > 0) @as([*]const u8, @ptrFromInt(text_src_ptr))[0..text_src_len] else "";
-            break :blk do_diff_async(from, cb, text_dst, text_src) catch |e| tp.exit_error(e, @errorReturnTrace());
+            const cb_: *AsyncDiffer.CallBack = if (cb == 0) return else @ptrFromInt(cb);
+            break :blk do_diff_async(from, cb_, cb_data, text_dst, text_src) catch |e| {
+                cb_(from, cb_data, &.{});
+                break :blk tp.exit_error(e, @errorReturnTrace());
+            };
         } else if (try m.match(.{"shutdown"}))
             tp.exit_normal();
     }
 
-    fn do_diff_async(from_: tp.pid_ref, cb_addr: usize, text_dst: []const u8, text_src: []const u8) !void {
+    fn do_diff_async(from: tp.pid_ref, cb: *AsyncDiffer.CallBack, cb_data: usize, text_dst: []const u8, text_src: []const u8) !void {
         defer std.heap.c_allocator.free(text_dst);
         defer std.heap.c_allocator.free(text_src);
-        const cb_: *AsyncDiffer.CallBack = if (cb_addr == 0) return else @ptrFromInt(cb_addr);
 
         var arena_ = std.heap.ArenaAllocator.init(allocator);
         defer arena_.deinit();
         const arena = arena_.allocator();
 
         const edits = try diff(arena, text_dst, text_src);
-        cb_(from_, edits);
+        cb(from, cb_data, edits);
     }
 };
 

@@ -368,18 +368,36 @@ fn diff_update(self: *Self, clear: bool) !void {
         self.diff_symbols_clear();
         return;
     }
-    return self.differ.diff_buffer(diff_result, self.editor.buffer orelse return);
+    const ctx = try self.allocator.create(DiffContext);
+    ctx.* = .{
+        .allocator = self.allocator,
+        .file_path = try self.allocator.dupe(u8, self.editor.file_path orelse ""),
+    };
+    return self.differ.diff_buffer(diff_result, @intFromPtr(ctx), self.editor.buffer orelse return);
 }
 
-fn diff_result(from: tp.pid_ref, edits: []Diff) void {
-    diff_result_send(from, edits) catch |e| @import("log").err(@typeName(Self), "diff", e);
+const DiffContext = struct {
+    allocator: std.mem.Allocator,
+    file_path: []u8,
+
+    fn deinit(self: *@This()) void {
+        self.allocator.free(self.file_path);
+        self.allocator.destroy(self);
+    }
+};
+
+fn diff_result(from: tp.pid_ref, data: usize, edits: []Diff) void {
+    const ctx: *DiffContext = @ptrFromInt(data);
+    defer ctx.deinit();
+    diff_result_send(from, ctx, edits) catch |e| @import("log").err(@typeName(Self), "diff", e);
 }
 
-fn diff_result_send(from: tp.pid_ref, edits: []Diff) !void {
+fn diff_result_send(from: tp.pid_ref, ctx: *DiffContext, edits: []Diff) !void {
     var buf: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
     defer buf.deinit();
-    try cbor.writeArrayHeader(&buf.writer, 2);
+    try cbor.writeArrayHeader(&buf.writer, 3);
     try cbor.writeValue(&buf.writer, "DIFF");
+    try cbor.writeValue(&buf.writer, ctx.file_path);
     try cbor.writeArrayHeader(&buf.writer, edits.len);
     for (edits) |edit| {
         try cbor.writeArrayHeader(&buf.writer, 3);
@@ -421,10 +439,13 @@ fn process_edit(self: *Self, kind: Kind, line: usize, lines: usize) !void {
 }
 
 pub fn filter_receive(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    var file_path: []const u8 = undefined;
     var cb: []const u8 = undefined;
-    if (cbor.match(m.buf, .{ "DIFF", tp.extract_cbor(&cb) }) catch false) {
-        try self.process_diff(cb);
-        return true;
+    if (cbor.match(m.buf, .{ "DIFF", tp.extract(&file_path), tp.extract_cbor(&cb) }) catch false) {
+        if (std.mem.eql(u8, file_path, self.editor.file_path orelse return false)) {
+            try self.process_diff(cb);
+            return true;
+        }
     }
     return false;
 }
