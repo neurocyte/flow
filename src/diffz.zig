@@ -116,7 +116,8 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) erro
     errdefer diffs.deinit(allocator);
 
     const dmp = diffz.default;
-    const diff_list = try diffz.diff(&dmp, arena, src, dst, true);
+    var diff_list = try diffz.diff(&dmp, arena, src, dst, true);
+    try diffz.diffCleanupSemantic(arena, &diff_list);
 
     if (diff_list.items.len > 2)
         try diffs.ensureTotalCapacity(allocator, (diff_list.items.len - 1) / 2);
