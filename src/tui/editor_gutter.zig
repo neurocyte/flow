@@ -38,7 +38,6 @@ width: usize = 4,
 editor: *ed.Editor,
 editor_widget: ?*const Widget = null,
 differ: diffz.AsyncDiffer,
-diff_symbols: std.ArrayList(Diff),
 
 const Self = @This();
 
@@ -55,7 +54,6 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .symbols = tui.config().gutter_symbols,
         .editor = editor,
         .differ = try diffz.create(),
-        .diff_symbols = .empty,
     };
     try tui.message_filters().add(MessageFilter.bind(self, filter_receive));
     try event_source.subscribe(EventHandler.bind(self, handle_event));
@@ -68,14 +66,13 @@ pub fn widget(self: *Self) Widget {
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     self.diff_symbols_clear();
-    self.diff_symbols.deinit(self.allocator);
     tui.message_filters().remove_ptr(self);
     self.plane.deinit();
     allocator.destroy(self);
 }
 
 fn diff_symbols_clear(self: *Self) void {
-    self.diff_symbols.clearRetainingCapacity();
+    self.editor.changes.clearRetainingCapacity();
 }
 
 pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
@@ -174,7 +171,7 @@ pub fn render_none(self: *Self, theme: *const Widget.Theme) void {
     var pos: usize = 0;
     var linenum = self.view_top + 1;
     var rows = self.view_rows;
-    var diff_symbols = self.diff_symbols.items;
+    var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
         if (self.highlight and linenum == self.line + 1)
@@ -189,7 +186,7 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
     var pos: usize = 0;
     var linenum = self.view_top + 1;
     var rows = self.view_rows;
-    var diff_symbols = self.diff_symbols.items;
+    var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (linenum > self.lines) return;
         if (linenum == self.line + 1) {
@@ -216,7 +213,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
     var linenum: isize = row - line;
     var abs_linenum = self.view_top + 1;
     var rows = self.view_rows;
-    var diff_symbols = self.diff_symbols.items;
+    var diff_symbols = self.editor.changes.items;
     while (rows > 0) : (rows -= 1) {
         if (self.lines > @as(u32, @intCast(row)) and pos > self.lines - @as(u32, @intCast(row))) return;
         self.plane.set_style(if (linenum == 0) theme.editor_gutter_active else theme.editor_gutter);
@@ -419,7 +416,7 @@ pub fn process_diff(self: *Self, cb: []const u8) MessageFilter.Error!void {
 
 fn process_edit(self: *Self, kind: Kind, line: usize, lines: usize) !void {
     std.log.debug("edit: {} l:{d} n:{}", .{ kind, line, lines });
-    (try self.diff_symbols.addOne(self.allocator)).* = .{ .kind = kind, .line = line, .lines = lines };
+    (try self.editor.changes.addOne(self.allocator)).* = .{ .kind = kind, .line = line, .lines = lines };
 }
 
 pub fn filter_receive(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {

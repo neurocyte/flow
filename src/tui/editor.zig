@@ -19,6 +19,7 @@ const input = @import("input");
 const command = @import("command");
 const EventHandler = @import("EventHandler");
 const snippet = @import("snippet");
+const Diff = @import("diff").LineDiff;
 
 const scrollbar_v = @import("scrollbar_v.zig");
 const editor_gutter = @import("editor_gutter.zig");
@@ -421,6 +422,8 @@ pub const Editor = struct {
     completion_col: usize = 0,
     completion_is_complete: bool = true,
 
+    changes: std.ArrayList(Diff) = .empty,
+
     checked_formatter: bool = false,
     formatter: ?[]const []const u8 = null,
     enable_format_on_save: bool,
@@ -613,6 +616,7 @@ pub const Editor = struct {
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.completions.deinit(self.allocator);
+        self.changes.deinit(self.allocator);
         self.clear_event_triggers();
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
         self.cancel_all_tabstops();
