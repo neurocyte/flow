@@ -76,8 +76,10 @@ fn diff_symbols_clear(self: *Self) void {
 }
 
 pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
+    if (try m.match(.{ "E", "open", tp.string, true, tp.more }))
+        return self.diff_update(false) catch |e| return tp.exit_error(e, @errorReturnTrace());
     if (try m.match(.{ "E", "update" }))
-        return self.diff_update() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        return self.diff_update(self.lines == 0) catch |e| return tp.exit_error(e, @errorReturnTrace());
     if (try m.match(.{ "E", "view", tp.extract(&self.lines), tp.extract(&self.view_rows), tp.extract(&self.view_top) }))
         return self.update_width();
     if (try m.match(.{ "E", "pos", tp.extract(&self.lines), tp.extract(&self.line), tp.more }))
@@ -361,8 +363,8 @@ fn mouse_click_button5(self: *Self) error{Exit}!bool {
     return true;
 }
 
-fn diff_update(self: *Self) !void {
-    if (self.lines == 0 or self.lines > root.max_diff_lines) {
+fn diff_update(self: *Self, clear: bool) !void {
+    if (clear or self.lines > root.max_diff_lines) {
         self.diff_symbols_clear();
         return;
     }
@@ -415,7 +417,6 @@ pub fn process_diff(self: *Self, cb: []const u8) MessageFilter.Error!void {
 }
 
 fn process_edit(self: *Self, kind: Kind, line: usize, lines: usize) !void {
-    std.log.debug("edit: {} l:{d} n:{}", .{ kind, line, lines });
     (try self.editor.changes.addOne(self.allocator)).* = .{ .kind = kind, .line = line, .lines = lines };
 }
 
