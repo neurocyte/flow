@@ -49,7 +49,7 @@ fn metrics() Buffer.Metrics {
     return .{
         .ctx = undefined,
         .egc_length = struct {
-            fn f(_: Buffer.Metrics, _: []const u8, colcount: *c_int, _: usize) usize {
+            fn f(_: Buffer.Metrics, _: []const u8, colcount: *usize, _: usize) usize {
                 colcount.* = 1;
                 return 1;
             }

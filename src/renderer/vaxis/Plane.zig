@@ -78,23 +78,23 @@ pub fn erase(self: Plane) void {
     self.window.fill(.{ .style = self.style_base });
 }
 
-pub inline fn abs_y(self: Plane) c_int {
-    return @intCast(self.window.y_off);
+pub inline fn abs_y(self: Plane) i32 {
+    return self.window.y_off;
 }
 
-pub inline fn abs_x(self: Plane) c_int {
-    return @intCast(self.window.x_off);
+pub inline fn abs_x(self: Plane) i32 {
+    return self.window.x_off;
 }
 
-pub inline fn dim_y(self: Plane) c_uint {
-    return @intCast(self.window.height);
+pub inline fn dim_y(self: Plane) u31 {
+    return self.window.height;
 }
 
-pub inline fn dim_x(self: Plane) c_uint {
-    return @intCast(self.window.width);
+pub inline fn dim_x(self: Plane) u31 {
+    return self.window.width;
 }
 
-pub fn abs_yx_to_rel_nearest_x(self: Plane, y: c_int, x: c_int, xoffset: c_int) struct { c_int, c_int } {
+pub fn abs_yx_to_rel_nearest_x(self: Plane, y: i32, x: i32, xoffset: i32) struct { i32, i32 } {
     if (self.window.screen.width == 0 or self.window.screen.height == 0) return self.abs_yx_to_rel(y, x);
     const xextra = self.window.screen.width_pix % self.window.screen.width;
     const xcell = (self.window.screen.width_pix - xextra) / self.window.screen.width;
@@ -105,26 +105,26 @@ pub fn abs_yx_to_rel_nearest_x(self: Plane, y: c_int, x: c_int, xoffset: c_int) 
     return self.abs_yx_to_rel(y, x);
 }
 
-pub fn abs_yx_to_rel(self: Plane, y: c_int, x: c_int) struct { c_int, c_int } {
+pub fn abs_yx_to_rel(self: Plane, y: i32, x: i32) struct { i32, i32 } {
     return .{ y - self.abs_y(), x - self.abs_x() };
 }
 
-pub fn abs_y_to_rel(self: Plane, y: c_int) c_int {
+pub fn abs_y_to_rel(self: Plane, y: i32) i32 {
     return y - self.abs_y();
 }
 
-pub fn rel_yx_to_abs(self: Plane, y: c_int, x: c_int) struct { c_int, c_int } {
+pub fn rel_yx_to_abs(self: Plane, y: i32, x: i32) struct { i32, i32 } {
     return .{ self.abs_y() + y, self.abs_x() + x };
 }
 
 pub fn hide(_: Plane) void {}
 
-pub fn move_yx(self: *Plane, y: c_int, x: c_int) !void {
+pub fn move_yx(self: *Plane, y: i32, x: i32) !void {
     self.window.y_off = @intCast(y);
     self.window.x_off = @intCast(x);
 }
 
-pub fn resize_simple(self: *Plane, ylen: c_uint, xlen: c_uint) !void {
+pub fn resize_simple(self: *Plane, ylen: u32, xlen: u32) !void {
     self.window.height = @intCast(ylen);
     self.window.width = @intCast(xlen);
 }
@@ -137,7 +137,7 @@ pub fn home(self: *Plane) void {
 pub fn fill(self: *Plane, egc: []const u8) void {
     for (0..self.dim_y()) |y|
         for (0..self.dim_x()) |x|
-            self.write_cell(x, y, egc);
+            self.write_cell(@intCast(x), @intCast(y), egc);
     if (self.col > 100000) std.log.debug("column: {}", .{self.col});
 }
 
@@ -160,12 +160,12 @@ pub fn print(self: *Plane, comptime fmt: anytype, args: anytype) !usize {
     return self.putstr(text);
 }
 
-pub fn print_aligned_right(self: *Plane, y: c_int, comptime fmt: anytype, args: anytype) !usize {
+pub fn print_aligned_right(self: *Plane, y: i32, comptime fmt: anytype, args: anytype) !usize {
     var buf: [fmt.len + 4096]u8 = undefined;
     const width = self.window.width;
     const text = try std.fmt.bufPrint(&buf, fmt, args);
     const text_width = self.egc_chunk_width(text, 0, 8);
-    self.row = @intCast(y);
+    self.row = y;
     self.col = @intCast(if (text_width >= width) 0 else width - text_width);
     return self.putstr(text);
 }
@@ -181,12 +181,12 @@ pub fn print_right(self: *Plane, comptime fmt: anytype, args: anytype) !usize {
     return self.putstr(text);
 }
 
-pub fn print_aligned_center(self: *Plane, y: c_int, comptime fmt: anytype, args: anytype) !usize {
+pub fn print_aligned_center(self: *Plane, y: i32, comptime fmt: anytype, args: anytype) !usize {
     var buf: [fmt.len + 4096]u8 = undefined;
     const width = self.window.width;
     const text = try std.fmt.bufPrint(&buf, fmt, args);
     const text_width = self.egc_chunk_width(text, 0, 8);
-    self.row = @intCast(y);
+    self.row = y;
     self.col = @intCast(if (text_width >= width) 0 else (width - text_width) / 2);
     return self.putstr(text);
 }
@@ -213,7 +213,7 @@ pub fn putstr(self: *Plane, text: []const u8) !usize {
                 self.col = 0;
             } else return result;
         }
-        self.write_cell(@intCast(self.col), @intCast(self.row), s);
+        self.write_cell(self.col, self.row, s);
         result += 1;
     }
     return result;
@@ -228,30 +228,30 @@ pub fn putstr_unicode(self: *Plane, text: []const u8) !usize {
             0...31 => |code| Buffer.unicode.control_code_to_unicode(code),
             else => s_,
         };
-        self.write_cell(@intCast(self.col), @intCast(self.row), s);
+        self.write_cell(self.col, self.row, s);
         result += 1;
     }
     return result;
 }
 
 pub fn putchar(self: *Plane, ecg: []const u8) void {
-    self.write_cell(@intCast(self.col), @intCast(self.row), ecg);
+    self.write_cell(self.col, self.row, ecg);
 }
 
 pub fn putc(self: *Plane, cell: *const Cell) !usize {
-    return self.putc_yx(@intCast(self.row), @intCast(self.col), cell);
+    return self.putc_yx(self.row, self.col, cell);
 }
 
-pub fn putc_yx(self: *Plane, y: c_int, x: c_int, cell: *const Cell) !usize {
+pub fn putc_yx(self: *Plane, y: i32, x: i32, cell: *const Cell) !usize {
     try self.cursor_move_yx(y, x);
     const w = if (cell.cell.char.width == 0) self.window.gwidth(cell.cell.char.grapheme) else cell.cell.char.width;
     if (w == 0) return w;
     self.window.writeCell(@intCast(self.col), @intCast(self.row), cell.cell);
-    self.col += @intCast(w);
+    self.col += w;
     return w;
 }
 
-fn write_cell(self: *Plane, col: usize, row: usize, egc: []const u8) void {
+fn write_cell(self: *Plane, col: i32, row: i32, egc: []const u8) void {
     var cell: vaxis.Cell = self.window.readCell(@intCast(col), @intCast(row)) orelse .{ .style = self.style };
     const w = self.window.gwidth(egc);
     cell.char.grapheme = self.cache.put(egc);
@@ -262,41 +262,39 @@ fn write_cell(self: *Plane, col: usize, row: usize, egc: []const u8) void {
         cell.style = self.style;
     }
     self.window.writeCell(@intCast(col), @intCast(row), cell);
-    self.row = @intCast(row);
-    self.col = @intCast(col);
-    self.col += @intCast(w);
+    self.row = row;
+    self.col = col;
+    self.col += w;
 }
 
-pub fn cursor_yx(self: Plane, y: *c_uint, x: *c_uint) void {
-    y.* = @intCast(self.row);
-    x.* = @intCast(self.col);
+pub fn cursor_yx(self: Plane, y: *i32, x: *i32) void {
+    y.* = self.row;
+    x.* = self.col;
 }
 
-pub fn cursor_y(self: Plane) c_uint {
-    return @intCast(self.row);
+pub fn cursor_y(self: Plane) i32 {
+    return self.row;
 }
 
-pub fn cursor_x(self: Plane) c_uint {
-    return @intCast(self.col);
+pub fn cursor_x(self: Plane) i32 {
+    return self.col;
 }
 
-pub fn cursor_move_yx(self: *Plane, y: c_int, x: c_int) !void {
+pub fn cursor_move_yx(self: *Plane, y: i32, x: i32) !void {
     if (self.window.height == 0 or self.window.width == 0) return;
     if (self.window.height <= y or self.window.width <= x) return;
-    if (y >= 0)
-        self.row = @intCast(y);
-    if (x >= 0)
-        self.col = @intCast(x);
+    self.row = y;
+    self.col = x;
 }
 
-pub fn cursor_move_rel(self: *Plane, y: c_int, x: c_int) !void {
+pub fn cursor_move_rel(self: *Plane, y: i32, x: i32) !void {
     if (self.window.height == 0 or self.window.width == 0) return error.OutOfBounds;
-    const new_y: isize = @as(c_int, @intCast(self.row)) + y;
-    const new_x: isize = @as(c_int, @intCast(self.col)) + x;
+    const new_y = self.row + y;
+    const new_x = self.col + x;
     if (new_y < 0 or new_x < 0) return error.OutOfBounds;
     if (self.window.height <= new_y or self.window.width <= new_x) return error.OutOfBounds;
-    self.row = @intCast(new_y);
-    self.col = @intCast(new_x);
+    self.row = new_y;
+    self.col = new_x;
 }
 
 pub fn cell_init(self: Plane) Cell {
@@ -304,7 +302,7 @@ pub fn cell_init(self: Plane) Cell {
 }
 
 pub fn cell_load(self: *Plane, cell: *Cell, gcluster: []const u8) !usize {
-    var cols: c_int = 0;
+    var cols: usize = 0;
     const bytes = self.egc_length(gcluster, &cols, 0, 1);
     cell.cell.char.grapheme = self.cache.put(gcluster[0..bytes]);
     cell.cell.char.width = @intCast(cols);
@@ -357,12 +355,12 @@ pub fn set_bg_rgb_alpha(self: *Plane, alpha_bg: ThemeColor, col: ThemeColor) !vo
     self.style.bg = apply_alpha_theme(alpha_bg, col);
 }
 
-pub fn set_fg_palindex(self: *Plane, idx: c_uint) !void {
-    self.style.fg = .{ .index = @intCast(idx) };
+pub fn set_fg_palindex(self: *Plane, idx: u8) !void {
+    self.style.fg = .{ .index = idx };
 }
 
-pub fn set_bg_palindex(self: *Plane, idx: c_uint) !void {
-    self.style.bg = .{ .index = @intCast(idx) };
+pub fn set_bg_palindex(self: *Plane, idx: u8) !void {
+    self.style.bg = .{ .index = idx };
 }
 
 pub inline fn set_base_style(self: *Plane, style_: Style) void {
@@ -446,7 +444,7 @@ inline fn is_control_code(c: u8) bool {
     };
 }
 
-pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *c_int, abs_col: usize, tab_width: usize) usize {
+pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *usize, abs_col: usize, tab_width: usize) usize {
     if (egcs.len == 0) {
         colcount.* = 0;
         return 0;
@@ -456,7 +454,7 @@ pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *c_int, abs_co
         return 1;
     }
     if (egcs[0] == '\t') {
-        colcount.* = @intCast(tab_width - (abs_col % tab_width));
+        colcount.* = tab_width - (abs_col % tab_width);
         return 1;
     }
     var iter = vaxis.unicode.graphemeIterator(egcs);
@@ -466,7 +464,7 @@ pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *c_int, abs_co
     };
     const s = grapheme.bytes(egcs);
     const w = self.window.gwidth(s);
-    colcount.* = @intCast(w);
+    colcount.* = w;
     return s.len;
 }
 
@@ -474,11 +472,11 @@ pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize, 
     var abs_col = abs_col_;
     var chunk = chunk_;
     var colcount: usize = 0;
-    var cols: c_int = 0;
+    var cols: usize = 0;
     while (chunk.len > 0) {
         const bytes = self.egc_length(chunk, &cols, abs_col, tab_width);
-        colcount += @intCast(cols);
-        abs_col += @intCast(cols);
+        colcount += cols;
+        abs_col += cols;
         if (chunk.len < bytes) break;
         chunk = chunk[bytes..];
     }
@@ -489,11 +487,11 @@ pub fn egc_chunk_col_pos(self: *const Plane, chunk_: []const u8, abs_col_: usize
     var abs_col = abs_col_;
     var chunk = chunk_;
     var colcount: usize = 0;
-    var cols: c_int = 0;
+    var cols: usize = 0;
     while (chunk.len > 0 and colcount < col) {
         const bytes = self.egc_length(chunk, &cols, abs_col, tab_width);
-        colcount += @intCast(cols);
-        abs_col += @intCast(cols);
+        colcount += cols;
+        abs_col += cols;
         if (chunk.len < bytes) break;
         chunk = chunk[bytes..];
     }
@@ -511,7 +509,7 @@ pub fn metrics(self: *const Plane, tab_width: usize) Buffer.Metrics {
     return .{
         .ctx = self,
         .egc_length = struct {
-            fn f(self_: Buffer.Metrics, egcs: []const u8, colcount: *c_int, abs_col: usize) usize {
+            fn f(self_: Buffer.Metrics, egcs: []const u8, colcount: *usize, abs_col: usize) usize {
                 const plane: *const Plane = @ptrCast(@alignCast(self_.ctx));
                 return plane.egc_length(egcs, colcount, abs_col, self_.tab_width);
             }

@@ -83,8 +83,8 @@ event_buffer: std.Io.Writer.Allocating,
 handler_ctx: *anyopaque,
 dispatch_initialized: *const fn (ctx: *anyopaque) void,
 dispatch_input: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
-dispatch_mouse: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void = null,
-dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void = null,
+dispatch_mouse: ?*const fn (ctx: *anyopaque, y: i32, x: i32, cbor_msg: []const u8) void = null,
+dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: i32, x: i32, cbor_msg: []const u8) void = null,
 dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
 thread: ?std.Thread = null,
@@ -473,7 +473,7 @@ pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
     _ = push_or_pop;
     //@panic("todo");
 }
-pub fn cursor_enable(self: *Self, y: c_int, x: c_int, shape: CursorShape) !void {
+pub fn cursor_enable(self: *Self, y: i32, x: i32, shape: CursorShape) !void {
     _ = self;
     _ = y;
     _ = x;
@@ -488,7 +488,7 @@ pub fn clear_all_multi_cursors(self: *Self) !void {
     _ = self;
     //@panic("todo");
 }
-pub fn show_multi_cursor_yx(self: *Self, y: c_int, x: c_int) !void {
+pub fn show_multi_cursor_yx(self: *Self, y: i32, x: i32) !void {
     _ = self;
     _ = y;
     _ = x;

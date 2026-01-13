@@ -439,8 +439,8 @@ const Tab = struct {
     tabbar: *TabBar,
     buffer_ref: usize,
     tab_style: *const Style,
-    close_pos: ?c_uint = null,
-    save_pos: ?c_uint = null,
+    close_pos: ?i32 = null,
+    save_pos: ?i32 = null,
     on_event: ?EventHandler = null,
 
     const Mode = enum { active, inactive, selected };

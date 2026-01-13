@@ -25,7 +25,7 @@ pub const Metrics = struct {
     egc_chunk_width: egc_chunk_width_func,
     egc_last: egc_last_func,
     tab_width: usize,
-    pub const egc_length_func = *const fn (self: Metrics, egcs: []const u8, colcount: *c_int, abs_col: usize) usize;
+    pub const egc_length_func = *const fn (self: Metrics, egcs: []const u8, colcount: *usize, abs_col: usize) usize;
     pub const egc_chunk_width_func = *const fn (self: Metrics, chunk_: []const u8, abs_col_: usize) usize;
     pub const egc_last_func = *const fn (self: Metrics, egcs: []const u8) []const u8;
 };
@@ -185,7 +185,7 @@ pub const Leaf = struct {
     fn pos_to_width(self: *const Leaf, pos: *usize, abs_col_: usize, metrics: Metrics) usize {
         var col: usize = 0;
         var abs_col = abs_col_;
-        var cols: c_int = 0;
+        var cols: usize = 0;
         var buf = self.buf;
         while (buf.len > 0 and pos.* > 0) {
             if (buf[0] == '\t') {
@@ -214,7 +214,7 @@ pub const Leaf = struct {
     inline fn width_to_pos(self: *const Leaf, col_: usize, abs_col_: usize, metrics: Metrics) !usize {
         var abs_col = abs_col_;
         var col = col_;
-        var cols: c_int = 0;
+        var cols: usize = 0;
         var buf = self.buf;
         return while (buf.len > 0) {
             if (col == 0)
@@ -242,7 +242,7 @@ pub const Leaf = struct {
     }
 
     fn debug_render_chunk(chunk: []const u8, l: *std.Io.Writer, metrics: Metrics) !void {
-        var cols: c_int = 0;
+        var cols: usize = 0;
         var buf = chunk;
         while (buf.len > 0) {
             switch (buf[0]) {
@@ -511,7 +511,7 @@ const Node = union(enum) {
                 const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
                 var buf: []const u8 = leaf.buf;
                 while (buf.len > 0) {
-                    var cols: c_int = undefined;
+                    var cols: usize = undefined;
                     const bytes = metrics.egc_length(metrics, buf, &cols, ctx.abs_col);
                     const ret = ctx.walker_f(ctx.walker_ctx, buf[0..bytes], @intCast(cols), metrics);
                     if (ret.err) |e| return .{ .err = e };

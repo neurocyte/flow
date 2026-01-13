@@ -1361,8 +1361,8 @@ pub const Editor = struct {
     }
 
     fn render_matches(self: *const Self, last_idx: *usize, theme: *const Widget.Theme, cell: *Cell) void {
-        var y: c_uint = undefined;
-        var x: c_uint = undefined;
+        var y: i32 = undefined;
+        var x: i32 = undefined;
         self.plane.cursor_yx(&y, &x);
         while (true) {
             if (last_idx.* >= self.matches.items.len)
@@ -1380,8 +1380,8 @@ pub const Editor = struct {
     }
 
     fn render_selections(self: *const Self, theme: *const Widget.Theme, cell: *Cell) void {
-        var y: c_uint = undefined;
-        var x: c_uint = undefined;
+        var y: i32 = undefined;
+        var x: i32 = undefined;
         self.plane.cursor_yx(&y, &x);
 
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
@@ -1728,7 +1728,9 @@ pub const Editor = struct {
         return style_cache_lookup(theme, cache, scope, id);
     }
 
-    inline fn is_point_in_selection(self: *const Self, sel_: anytype, y: c_uint, x: c_uint) bool {
+    inline fn is_point_in_selection(self: *const Self, sel_: anytype, y_: i32, x_: i32) bool {
+        const y: u32 = if (y_ < 0) return false else @intCast(y_);
+        const x: u32 = if (x_ < 0) return false else @intCast(x_);
         const sel = sel_;
         const row = self.view.row + y;
         const col = self.view.col + x;
@@ -1737,11 +1739,14 @@ pub const Editor = struct {
         return sel.begin.row <= row and row <= sel.end.row and b_col <= col and col < e_col;
     }
 
-    inline fn is_point_before_selection(self: *const Self, sel_: anytype, y: c_uint, x: c_uint) bool {
+    inline fn is_point_before_selection(self: *const Self, sel_: anytype, y_: i32, x_: i32) bool {
+        const y: u32 = if (y_ < 0) return true else @intCast(y_);
         const sel = sel_;
         const row = self.view.row + y;
+        if (row < sel.begin.row) return true;
+        const x: u32 = if (x_ < 0) return true else @intCast(x_);
         const col = self.view.col + x;
-        return row < sel.begin.row or (row == sel.begin.row and col < sel.begin.col);
+        return row == sel.begin.row and col < sel.begin.col;
     }
 
     inline fn screen_cursor(self: *const Self, cursor: *const Cursor) ?Cursor {
@@ -3958,7 +3963,7 @@ pub const Editor = struct {
 
         var text_egcs = text;
         while (text_egcs.len > 0) {
-            var colcount: c_int = 1;
+            var colcount: usize = 1;
             const egc_len = self.metrics.egc_length(self.metrics, text_egcs, &colcount, 0);
             switch (text_egcs[0]) {
                 '\t' => underlined.writer.writeAll("\t") catch {},

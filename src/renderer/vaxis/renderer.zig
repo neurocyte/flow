@@ -39,8 +39,8 @@ bracketed_paste_buffer: std.Io.Writer.Allocating,
 
 handler_ctx: *anyopaque,
 dispatch_input: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
-dispatch_mouse: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void = null,
-dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) void = null,
+dispatch_mouse: ?*const fn (ctx: *anyopaque, y: i32, x: i32, cbor_msg: []const u8) void = null,
+dispatch_mouse_drag: ?*const fn (ctx: *anyopaque, y: i32, x: i32, cbor_msg: []const u8) void = null,
 dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 
 logger: log.Logger,
