@@ -7,9 +7,8 @@ const tracy = @import("tracy");
 const module_name = @typeName(@This());
 
 const diff_ = @import("diff.zig");
-const Kind = diff_.Kind;
-const Diff = diff_.Diff;
-const Edit = diff_.Edit;
+const Diff = diff_.LineDiff;
+const Kind = diff_.LineDiffKind;
 
 pub fn create() !AsyncDiffer {
     return .{ .pid = try Process.create() };
@@ -116,14 +115,13 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) erro
     errdefer diffs.deinit(allocator);
 
     const dmp = diffz.default;
-    var diff_list = try diffz.diff(&dmp, arena, src, dst, true);
+    var diff_list = try diffz.diff(&dmp, arena, src, dst, false);
     try diffz.diffCleanupSemantic(arena, &diff_list);
 
     if (diff_list.items.len > 2)
         try diffs.ensureTotalCapacity(allocator, (diff_list.items.len - 1) / 2);
 
     var lines_dst: usize = 0;
-    var pos_src: usize = 0;
     var pos_dst: usize = 0;
     var last_offset: usize = 0;
 
@@ -131,48 +129,60 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) erro
         switch (diffz_diff.operation) {
             .equal => {
                 const dist = diffz_diff.text.len;
-                pos_src += dist;
                 pos_dst += dist;
-                scan_char(diffz_diff.text, &lines_dst, '\n', &last_offset);
+                scan_eol(diffz_diff.text, &lines_dst, &last_offset);
             },
             .insert => {
                 const dist = diffz_diff.text.len;
-                pos_src += 0;
                 pos_dst += dist;
                 const line_start_dst: usize = lines_dst;
-                scan_char(diffz_diff.text, &lines_dst, '\n', null);
+                scan_eol(diffz_diff.text, &lines_dst, &last_offset);
                 (try diffs.addOne(allocator)).* = .{
                     .kind = .insert,
                     .line = line_start_dst,
-                    .offset = last_offset,
-                    .start = line_start_dst + last_offset,
-                    .end = line_start_dst + last_offset + dist,
-                    .bytes = diffz_diff.text,
+                    .lines = lines_dst - line_start_dst,
                 };
+                if (last_offset > 0)
+                    (try diffs.addOne(allocator)).* = .{
+                        .kind = .modify,
+                        .line = line_start_dst,
+                        .lines = 1,
+                    };
             },
             .delete => {
-                const dist = diffz_diff.text.len;
-                pos_src += dist;
                 pos_dst += 0;
+                var lines: usize = 0;
+                var diff_offset: usize = 0;
+                scan_eol(diffz_diff.text, &lines, &diff_offset);
                 (try diffs.addOne(allocator)).* = .{
-                    .kind = .delete,
+                    .kind = .modify,
                     .line = lines_dst,
-                    .offset = last_offset,
-                    .start = lines_dst + last_offset,
-                    .end = lines_dst + last_offset + dist,
-                    .bytes = diffz_diff.text,
+                    .lines = 1,
                 };
+                if (lines > 0)
+                    (try diffs.addOne(allocator)).* = .{
+                        .kind = .delete,
+                        .line = lines_dst,
+                        .lines = lines,
+                    };
+                if (lines > 0 and diff_offset > 0)
+                    (try diffs.addOne(allocator)).* = .{
+                        .kind = .modify,
+                        .line = lines_dst,
+                        .lines = 1,
+                    };
             },
         }
     }
     return diffs.toOwnedSlice(allocator);
 }
 
-fn scan_char(chars: []const u8, lines: *usize, char: u8, last_offset: ?*usize) void {
+fn scan_eol(chars: []const u8, lines: *usize, remain: *usize) void {
     var pos = chars;
+    remain.* += pos.len;
     while (pos.len > 0) {
-        if (pos[0] == char) {
-            if (last_offset) |off| off.* = pos.len - 1;
+        if (pos[0] == '\n') {
+            remain.* = pos.len - 1;
             lines.* += 1;
         }
         pos = pos[1..];

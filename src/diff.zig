@@ -17,3 +17,10 @@ pub const Edit = struct {
     end: usize,
     bytes: []const u8,
 };
+
+pub const LineDiffKind = enum { insert, modify, delete };
+pub const LineDiff = struct {
+    kind: LineDiffKind,
+    line: usize,
+    lines: usize,
+};

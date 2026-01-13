@@ -2,7 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
 const tracy = @import("tracy");
-const diff = @import("diff");
+const Diff = @import("diff").LineDiff;
+const Kind = @import("diff").LineDiffKind;
+const diffz = @import("diff").diffz;
 const cbor = @import("cbor");
 const root = @import("soft_root").root;
 
@@ -35,13 +37,10 @@ symbols: bool,
 width: usize = 4,
 editor: *ed.Editor,
 editor_widget: ?*const Widget = null,
-diff_: diff.diffz.AsyncDiffer,
-diff_symbols: std.ArrayList(Symbol),
+differ: diffz.AsyncDiffer,
+diff_symbols: std.ArrayList(Diff),
 
 const Self = @This();
-
-const Kind = enum { insert, modified, delete };
-const Symbol = struct { kind: Kind, line: usize };
 
 pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor: *ed.Editor) !Widget {
     const self = try allocator.create(Self);
@@ -55,7 +54,7 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .highlight = tui.config().highlight_current_line_gutter,
         .symbols = tui.config().gutter_symbols,
         .editor = editor,
-        .diff_ = try diff.diffz.create(),
+        .differ = try diffz.create(),
         .diff_symbols = .empty,
     };
     try tui.message_filters().add(MessageFilter.bind(self, filter_receive));
@@ -248,7 +247,7 @@ inline fn render_line_highlight(self: *Self, pos: usize, theme: *const Widget.Th
     }
 }
 
-inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Symbol, pos: usize, linenum_: usize, theme: *const Widget.Theme) void {
+inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Diff, pos: usize, linenum_: usize, theme: *const Widget.Theme) void {
     const linenum = linenum_ - 1;
     if (diff_symbols.len == 0) return;
     while ((diff_symbols.*)[0].line < linenum) {
@@ -258,28 +257,33 @@ inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Symbol, pos: usize, 
 
     if ((diff_symbols.*)[0].line > linenum) return;
 
-    const sym = (diff_symbols.*)[0];
-    const kind: Kind = switch (sym.kind) {
-        .insert => .insert,
-        .modified => .insert, //TODO: we map .modified to .insert here because the diff algo is unstable
-        .delete => .delete,
-    };
-    const char = switch (kind) {
+    while ((diff_symbols.*)[0].line == linenum) {
+        self.render_diff((diff_symbols.*)[0], pos, theme);
+        diff_symbols.* = (diff_symbols.*)[1..];
+        if (diff_symbols.len == 0) return;
+    }
+}
+
+inline fn render_diff(self: *Self, sym: Diff, pos: usize, theme: *const Widget.Theme) void {
+    const char = switch (sym.kind) {
         .insert => "┃",
-        .modified => "┋",
+        .modify => "┋",
         .delete => "▔",
     };
 
-    self.plane.cursor_move_yx(@intCast(pos), @intCast(self.get_width() - 1)) catch return;
-    var cell = self.plane.cell_init();
-    _ = self.plane.at_cursor_cell(&cell) catch return;
-    cell.set_style_fg(switch (kind) {
-        .insert => theme.editor_gutter_added,
-        .modified => theme.editor_gutter_modified,
-        .delete => theme.editor_gutter_deleted,
-    });
-    _ = self.plane.cell_load(&cell, char) catch {};
-    _ = self.plane.putc(&cell) catch {};
+    var lines = if (sym.kind == .delete) 1 else sym.lines;
+    while (lines > 0) : (lines -= 1) {
+        self.plane.cursor_move_yx(@intCast(pos + lines - 1), @intCast(self.get_width() - 1));
+        var cell = self.plane.cell_init();
+        _ = self.plane.at_cursor_cell(&cell) catch return;
+        cell.set_style_fg(switch (sym.kind) {
+            .insert => theme.editor_gutter_added,
+            .modify => theme.editor_gutter_modified,
+            .delete => theme.editor_gutter_deleted,
+        });
+        _ = self.plane.cell_load(&cell, char) catch {};
+        _ = self.plane.putc(&cell) catch {};
+    }
 }
 
 fn render_diagnostics(self: *Self, theme: *const Widget.Theme) void {
@@ -365,28 +369,28 @@ fn diff_update(self: *Self) !void {
         self.diff_symbols_clear();
         return;
     }
-    return self.diff_.diff_buffer(diff_result, self.editor.buffer orelse return);
+    return self.differ.diff_buffer(diff_result, self.editor.buffer orelse return);
 }
 
-fn diff_result(from: tp.pid_ref, edits: []diff.Diff) void {
+fn diff_result(from: tp.pid_ref, edits: []Diff) void {
     diff_result_send(from, edits) catch |e| @import("log").err(@typeName(Self), "diff", e);
 }
 
-fn diff_result_send(from: tp.pid_ref, edits: []diff.Diff) !void {
+fn diff_result_send(from: tp.pid_ref, edits: []Diff) !void {
     var buf: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
     defer buf.deinit();
     try cbor.writeArrayHeader(&buf.writer, 2);
     try cbor.writeValue(&buf.writer, "DIFF");
     try cbor.writeArrayHeader(&buf.writer, edits.len);
     for (edits) |edit| {
-        try cbor.writeArrayHeader(&buf.writer, 4);
+        try cbor.writeArrayHeader(&buf.writer, 3);
         try cbor.writeValue(&buf.writer, switch (edit.kind) {
             .insert => "I",
+            .modify => "M",
             .delete => "D",
         });
         try cbor.writeValue(&buf.writer, edit.line);
-        try cbor.writeValue(&buf.writer, edit.offset);
-        try cbor.writeValue(&buf.writer, edit.bytes);
+        try cbor.writeValue(&buf.writer, edit.lines);
     }
     from.send_raw(tp.message{ .buf = buf.written() }) catch return;
 }
@@ -397,47 +401,25 @@ pub fn process_diff(self: *Self, cb: []const u8) MessageFilter.Error!void {
     var count = try cbor.decodeArrayHeader(&iter);
     while (count > 0) : (count -= 1) {
         var line: usize = undefined;
-        var offset: usize = undefined;
-        var bytes: []const u8 = undefined;
-        if (try cbor.matchValue(&iter, .{ "I", cbor.extract(&line), cbor.extract(&offset), cbor.extract(&bytes) })) {
-            var pos: usize = 0;
-            var ln: usize = line;
-            while (std.mem.indexOfScalarPos(u8, bytes, pos, '\n')) |next| {
-                const end = if (next < bytes.len) next + 1 else next;
-                try self.process_edit(.insert, ln, offset, bytes[pos..end]);
-                pos = next + 1;
-                ln += 1;
-                offset = 0;
-            }
-            try self.process_edit(.insert, ln, offset, bytes[pos..]);
+        var lines: usize = undefined;
+        if (try cbor.matchValue(&iter, .{ "I", cbor.extract(&line), cbor.extract(&lines) })) {
+            try self.process_edit(.insert, line, lines);
             continue;
         }
-        if (try cbor.matchValue(&iter, .{ "D", cbor.extract(&line), cbor.extract(&offset), cbor.extract(&bytes) })) {
-            try self.process_edit(.delete, line, offset, bytes);
+        if (try cbor.matchValue(&iter, .{ "M", cbor.extract(&line), cbor.extract(&lines) })) {
+            try self.process_edit(.modify, line, lines);
+            continue;
+        }
+        if (try cbor.matchValue(&iter, .{ "D", cbor.extract(&line), cbor.extract(&lines) })) {
+            try self.process_edit(.delete, line, lines);
             continue;
         }
     }
 }
 
-fn process_edit(self: *Self, kind: Kind, line: usize, offset: usize, bytes: []const u8) !void {
-    const change = if (self.diff_symbols.items.len > 0) self.diff_symbols.items[self.diff_symbols.items.len - 1].line == line else false;
-    if (change) {
-        self.diff_symbols.items[self.diff_symbols.items.len - 1].kind = .modified;
-        return;
-    }
-    (try self.diff_symbols.addOne(self.allocator)).* = switch (kind) {
-        .insert => ret: {
-            if (offset > 0)
-                break :ret .{ .kind = .modified, .line = line };
-            if (bytes.len == 0)
-                return;
-            if (bytes[bytes.len - 1] == '\n')
-                break :ret .{ .kind = .insert, .line = line };
-            break :ret .{ .kind = .modified, .line = line };
-        },
-        .delete => .{ .kind = .delete, .line = line },
-        else => unreachable,
-    };
+fn process_edit(self: *Self, kind: Kind, line: usize, lines: usize) !void {
+    std.log.debug("edit: {} l:{d} n:{}", .{ kind, line, lines });
+    (try self.diff_symbols.addOne(self.allocator)).* = .{ .kind = kind, .line = line, .lines = lines };
 }
 
 pub fn filter_receive(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
