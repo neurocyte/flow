@@ -201,6 +201,6 @@ pub fn render_decoration(widget_style: *const @This(), box: Box, widget_type: Wi
 }
 
 inline fn put_at_pos(plane: *Plane, y: usize, x: usize, egc: []const u8) void {
-    plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+    plane.cursor_move_yx(@intCast(y), @intCast(x));
     plane.putchar(egc);
 }

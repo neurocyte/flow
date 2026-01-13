@@ -201,7 +201,7 @@ fn smooth_block_at(plane: *Plane, pos: u64) void {
     const l = eighths_l[eighths_c - blk];
     const r = eighths_r[eighths_c - blk];
     plane.erase();
-    plane.cursor_move_yx(0, @as(c_int, @intCast(@divFloor(pos, eighths_c)))) catch return;
+    plane.cursor_move_yx(0, @as(c_int, @intCast(@divFloor(pos, eighths_c))));
     _ = plane.putstr(@ptrCast(r)) catch return;
     _ = plane.putstr(@ptrCast(l)) catch return;
 }

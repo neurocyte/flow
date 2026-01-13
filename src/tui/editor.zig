@@ -1174,7 +1174,7 @@ pub const Editor = struct {
                         if (cell_map_val == .tab) cell_map_val = .extension;
                         advance -= 1;
                         ctx.x += 1;
-                        n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x)) catch {};
+                        n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x));
                     }
                     while (advance > 0) : (advance -= 1) {
                         if (ctx.x >= view.cols) break;
@@ -1188,7 +1188,7 @@ pub const Editor = struct {
                         ctx.cell_map.set_yx(ctx.y, ctx.x, .{ .cell_type = cell_map_val });
                         if (cell_map_val == .tab) cell_map_val = .extension;
                         ctx.x += 1;
-                        n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x)) catch {};
+                        n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x));
                     }
                     ctx.buf_col += colcount;
                     chunk = chunk[bytes..];
@@ -1214,7 +1214,7 @@ pub const Editor = struct {
                     ctx.x = 0;
                     ctx.leading = true;
                     if (ctx.y >= view.rows) return Buffer.Walker.stop;
-                    n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x)) catch return Buffer.Walker.stop;
+                    n.cursor_move_yx(@intCast(ctx.y), @intCast(ctx.x));
                 }
                 return Buffer.Walker.keep_walking;
             }
@@ -1274,7 +1274,7 @@ pub const Editor = struct {
         if (!tui.is_mainview_focused() or !self.enable_terminal_cursor) {
             if (self.screen_cursor(cursor)) |pos| {
                 set_cell_map_cursor(cell_map, pos.row, pos.col);
-                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
+                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
                 const style = if (tui.is_mainview_focused()) theme.editor_cursor else theme.editor_cursor_secondary;
                 self.render_cursor_cell(style);
             }
@@ -1306,7 +1306,7 @@ pub const Editor = struct {
                 const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
                 tui.rdr().show_multi_cursor_yx(y, x) catch return;
             } else {
-                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
+                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
                 self.render_cursor_cell(theme.editor_cursor_secondary);
             }
         }
@@ -1335,7 +1335,7 @@ pub const Editor = struct {
             for (0..self.view.rows) |row| for (0..self.view.cols) |col| {
                 const view_col = col + offset;
                 if (hl_col <= view_col) {
-                    self.plane.cursor_move_yx(@intCast(row), @intCast(col)) catch return;
+                    self.plane.cursor_move_yx(@intCast(row), @intCast(col));
                     var cell = self.plane.cell_init();
                     _ = self.plane.at_cursor_cell(&cell) catch return;
                     cell.dim_bg(alpha);
@@ -1352,7 +1352,7 @@ pub const Editor = struct {
             return;
         const row = cursor.row - self.view.row;
         for (0..self.view.cols) |i| {
-            self.plane.cursor_move_yx(@intCast(row), @intCast(i)) catch return;
+            self.plane.cursor_move_yx(@intCast(row), @intCast(i));
             var cell = self.plane.cell_init();
             _ = self.plane.at_cursor_cell(&cell) catch return;
             self.render_line_highlight_cell(theme, &cell);
@@ -1410,12 +1410,12 @@ pub const Editor = struct {
             style = .{ .fg = style.fg, .bg = theme.editor_line_highlight.bg };
         };
 
-        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col)) catch return;
+        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
         self.render_diagnostic_cell(style);
         if (diag.sel.begin.row == diag.sel.end.row) {
             var col = pos.col;
             while (col < diag.sel.end.col) : (col += 1) {
-                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(col)) catch return;
+                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(col));
                 self.render_diagnostic_cell(style);
             }
         }
@@ -1541,7 +1541,7 @@ pub const Editor = struct {
                 }
             }
             fn render_cell(ctx: *@This(), y: usize, x: usize, style: Widget.Theme.Style) !void {
-                ctx.self.plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+                ctx.self.plane.cursor_move_yx(@intCast(y), @intCast(x));
                 var cell = ctx.self.plane.cell_init();
                 _ = ctx.self.plane.at_cursor_cell(&cell) catch return;
                 cell.set_style(style);
@@ -1605,7 +1605,7 @@ pub const Editor = struct {
                 }
                 if (cell_type == .character)
                     continue;
-                self.plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+                self.plane.cursor_move_yx(@intCast(y), @intCast(x));
                 var cell = self.plane.cell_init();
                 _ = self.plane.at_cursor_cell(&cell) catch return;
                 switch (self.render_whitespace) {
@@ -1691,7 +1691,7 @@ pub const Editor = struct {
                 for (trailing..eol) |x| {
                     const cell_type = cell_map.get_yx(y, x).cell_type;
                     const next_cell_type = cell_map.get_yx(y, x + 1).cell_type;
-                    self.plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+                    self.plane.cursor_move_yx(@intCast(y), @intCast(x));
                     var cell = self.plane.cell_init();
                     _ = self.plane.at_cursor_cell(&cell) catch return;
                     cell.cell.char.grapheme = get_whitespace_char(cell_type, next_cell_type) orelse continue;

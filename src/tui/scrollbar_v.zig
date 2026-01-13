@@ -201,18 +201,18 @@ fn smooth_bar_at(plane: *Plane, pos_: u32, size_: u32) !void {
     const blk = @mod(pos, eighths_c);
     const b = eighths_b[blk];
     plane.erase();
-    plane.cursor_move_yx(pos_y, 0) catch return;
+    plane.cursor_move_yx(pos_y, 0);
     _ = try plane.putstr(@ptrCast(b));
     size -= eighths_c -| blk;
     while (size >= 8) {
         pos_y += 1;
         size -= 8;
-        plane.cursor_move_yx(pos_y, 0) catch return;
+        plane.cursor_move_yx(pos_y, 0);
         _ = try plane.putstr(@ptrCast(eighths_b[0]));
     }
     if (size > 0) {
         pos_y += 1;
-        plane.cursor_move_yx(pos_y, 0) catch return;
+        plane.cursor_move_yx(pos_y, 0);
         const t = eighths_t[size];
         _ = try plane.putstr(@ptrCast(t));
     }

@@ -117,7 +117,7 @@ fn render_mini_mode(plane: *Plane, theme: *const Widget.Theme) void {
             const y, const x = plane.rel_yx_to_abs(0, pos + 1);
             tui.rdr().cursor_enable(y, x, tui.get_cursor_shape()) catch {};
         } else {
-            plane.cursor_move_yx(0, pos + 1) catch return;
+            plane.cursor_move_yx(0, pos + 1);
             var cell = plane.cell_init();
             _ = plane.at_cursor_cell(&cell) catch return;
             cell.set_style(theme.editor_cursor);

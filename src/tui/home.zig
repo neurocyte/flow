@@ -318,30 +318,30 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.home_style.subtext;
 
     if (self.plane.dim_x() > 120 and self.plane.dim_y() > 22) {
-        self.plane.cursor_move_yx(2, self.centerI(4, title.len * 8)) catch return false;
+        self.plane.cursor_move_yx(2, self.centerI(4, title.len * 8));
         fonts.print_string_large(&self.plane, title, style_title) catch return false;
 
-        self.plane.cursor_move_yx(10, self.centerI(8, subtext.len * 4)) catch return false;
+        self.plane.cursor_move_yx(10, self.centerI(8, subtext.len * 4));
         fonts.print_string_medium(&self.plane, subtext, style_subtext) catch return false;
 
         self.position_menu(self.v_center(15, self.menu_len, 15), self.center(10, self.menu_w));
     } else if (self.plane.dim_x() > 55 and self.plane.dim_y() > 16) {
-        self.plane.cursor_move_yx(2, self.centerI(4, title.len * 4)) catch return false;
+        self.plane.cursor_move_yx(2, self.centerI(4, title.len * 4));
         fonts.print_string_medium(&self.plane, title, style_title) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
-        self.plane.cursor_move_yx(7, self.centerI(6, subtext.len)) catch return false;
+        self.plane.cursor_move_yx(7, self.centerI(6, subtext.len));
         _ = self.plane.print("{s}", .{subtext}) catch {};
         self.plane.set_style(theme.editor);
 
         self.position_menu(self.v_center(9, self.menu_len, 9), self.center(8, self.menu_w));
     } else {
         self.plane.set_style_bg_transparent(style_title);
-        self.plane.cursor_move_yx(1, self.centerI(4, title.len)) catch return false;
+        self.plane.cursor_move_yx(1, self.centerI(4, title.len));
         _ = self.plane.print("{s}", .{title}) catch return false;
 
         self.plane.set_style_bg_transparent(style_subtext);
-        self.plane.cursor_move_yx(3, self.centerI(6, subtext.len)) catch return false;
+        self.plane.cursor_move_yx(3, self.centerI(6, subtext.len));
         _ = self.plane.print("{s}", .{subtext}) catch {};
         self.plane.set_style(theme.editor);
 
@@ -356,7 +356,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.cursor_move_yx(
         @intCast(self.plane.dim_y() - 2),
         @intCast(@max(self.plane.dim_x(), version.len + 3) - version.len - 3),
-    ) catch {};
+    );
     self.plane.set_style_bg_transparent(style_subtext);
     _ = self.plane.print("{s}", .{version}) catch return false;
     if (builtin.mode == .Debug) {
@@ -365,7 +365,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         self.plane.cursor_move_yx(
             @intCast(self.plane.dim_y() - 3),
             @intCast(@max(self.plane.dim_x(), debug_warning_text.len + 3) - debug_warning_text.len - 3),
-        ) catch {};
+        );
         self.plane.set_style_bg_transparent(theme.editor_error);
         _ = self.plane.print("{s}", .{debug_warning_text}) catch return false;
     }

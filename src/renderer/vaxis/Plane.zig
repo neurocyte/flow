@@ -242,8 +242,8 @@ pub fn putc(self: *Plane, cell: *const Cell) !usize {
     return self.putc_yx(self.row, self.col, cell);
 }
 
-pub fn putc_yx(self: *Plane, y: i32, x: i32, cell: *const Cell) !usize {
-    try self.cursor_move_yx(y, x);
+pub fn putc_yx(self: *Plane, y: i32, x: i32, cell: *const Cell) usize {
+    self.cursor_move_yx(y, x);
     const w = if (cell.cell.char.width == 0) self.window.gwidth(cell.cell.char.grapheme) else cell.cell.char.width;
     if (w == 0) return w;
     self.window.writeCell(@intCast(self.col), @intCast(self.row), cell.cell);
@@ -280,7 +280,7 @@ pub fn cursor_x(self: Plane) i32 {
     return self.col;
 }
 
-pub fn cursor_move_yx(self: *Plane, y: i32, x: i32) error{}!void {
+pub fn cursor_move_yx(self: *Plane, y: i32, x: i32) void {
     if (self.window.height == 0 or self.window.width == 0) return;
     if (self.window.height <= y or self.window.width <= x) return;
     if (y >= 0) self.row = y;

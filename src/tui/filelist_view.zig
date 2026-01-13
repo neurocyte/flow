@@ -174,7 +174,7 @@ fn handle_render_menu(self: *Self, button: *ButtonType, theme: *const Widget.The
     var removed_prefix: usize = 0;
     const max_len = self.view_cols / path_column_ratio;
     _ = button.plane.print("{s}:{d}", .{ root.shorten_path(&buf, entry.path, &removed_prefix, max_len - 7), entry.begin_line + 1 }) catch {};
-    button.plane.cursor_move_yx(0, @intCast(max_len)) catch return false;
+    button.plane.cursor_move_yx(0, @intCast(max_len));
     button.plane.set_style(style_separator);
     _ = button.plane.print(" ▏", .{}) catch {};
     switch (entry.severity) {

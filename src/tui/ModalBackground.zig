@@ -129,7 +129,7 @@ pub fn State(ctx_type: type) type {
 }
 
 fn dim_cell(plane: *Plane, y: usize, x: usize, dim_target: u8) !void {
-    plane.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+    plane.cursor_move_yx(@intCast(y), @intCast(x));
     var cell = plane.cell_init();
     _ = plane.at_cursor_cell(&cell) catch return;
     cell.dim(dim_target);

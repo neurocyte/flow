@@ -124,7 +124,7 @@ pub fn render(self: *Fire) void {
             self.plane.set_bg_palindex(fire_palette[px_lo]) catch {};
             _ = self.plane.putchar(px);
         }
-        self.plane.cursor_move_yx(-1, 0) catch {};
+        self.plane.cursor_move_yx(-1, 0);
         self.plane.cursor_move_rel(1, 0) catch {};
     }
 }

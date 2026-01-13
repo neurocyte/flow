@@ -55,7 +55,7 @@ pub fn Options(context: type) type {
                     const y, const x = self.plane.rel_yx_to_abs(0, pos + self.opts.padding + self.icon_width);
                     tui.rdr().cursor_enable(y, x, tui.get_cursor_shape()) catch {};
                 } else {
-                    self.plane.cursor_move_yx(0, pos + self.opts.padding + self.icon_width) catch return false;
+                    self.plane.cursor_move_yx(0, pos + self.opts.padding + self.icon_width);
                     var cell = self.plane.cell_init();
                     _ = self.plane.at_cursor_cell(&cell) catch return false;
                     cell.set_style(theme.editor_cursor);

@@ -200,7 +200,7 @@ pub fn render_linear(self: *Self, theme: *const Widget.Theme) void {
             self.plane.set_style(.{ .fg = theme.editor_gutter.fg });
             self.plane.off_styles(styles.bold);
         }
-        try self.plane.cursor_move_yx(@intCast(pos), 0);
+        self.plane.cursor_move_yx(@intCast(pos), 0);
         try self.print_digits(linenum, self.line_number_style);
         if (self.highlight and linenum == self.line + 1)
             self.render_line_highlight(pos, theme);
@@ -223,7 +223,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
         self.plane.set_style(if (linenum == 0) theme.editor_gutter_active else theme.editor_gutter);
         const val = @abs(if (linenum == 0) line else linenum);
 
-        try self.plane.cursor_move_yx(@intCast(pos), 0);
+        self.plane.cursor_move_yx(@intCast(pos), 0);
         if (val > 999999)
             _ = self.plane.print_aligned_right(@intCast(pos), "==> ", .{}) catch {}
         else
@@ -240,7 +240,7 @@ pub fn render_relative(self: *Self, theme: *const Widget.Theme) void {
 
 inline fn render_line_highlight(self: *Self, pos: usize, theme: *const Widget.Theme) void {
     for (0..self.get_width()) |i| {
-        self.plane.cursor_move_yx(@intCast(pos), @intCast(i)) catch return;
+        self.plane.cursor_move_yx(@intCast(pos), @intCast(i));
         var cell = self.plane.cell_init();
         _ = self.plane.at_cursor_cell(&cell) catch return;
         cell.set_style_bg(theme.editor_line_highlight);
@@ -303,7 +303,7 @@ fn render_diagnostic(self: *Self, diag: *const ed.Diagnostic, theme: *const Widg
         .Hint => "",
     };
     const y = row - self.view_top;
-    self.plane.cursor_move_yx(@intCast(y), 0) catch return;
+    self.plane.cursor_move_yx(@intCast(y), 0);
     var cell = self.plane.cell_init();
     _ = self.plane.at_cursor_cell(&cell) catch return;
     cell.set_style_fg(style_);
@@ -469,7 +469,7 @@ fn print_digits(self: *Self, n_: anytype, style_: DigitStyle) !void {
         if (n == 0) break;
     }
     std.mem.reverse([]const u8, digits.items);
-    try self.plane.cursor_move_yx(@intCast(self.plane.cursor_y()), @intCast(self.width -| digits.items.len -| 1));
+    self.plane.cursor_move_yx(@intCast(self.plane.cursor_y()), @intCast(self.width -| digits.items.len -| 1));
     for (digits.items) |digit| _ = try self.plane.putstr(digit);
 }
 

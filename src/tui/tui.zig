@@ -2021,7 +2021,7 @@ pub fn render_file_icon(self: *renderer.Plane, icon: []const u8, color: u24) usi
 }
 
 pub fn render_match_cell(self: *renderer.Plane, y: usize, x: usize, theme_: *const Widget.Theme) !void {
-    self.cursor_move_yx(@intCast(y), @intCast(x)) catch return;
+    self.cursor_move_yx(@intCast(y), @intCast(x));
     var cell = self.cell_init();
     _ = self.at_cursor_cell(&cell) catch return;
     cell.set_style(theme_.editor_match);

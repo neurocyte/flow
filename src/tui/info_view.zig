@@ -68,7 +68,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         _ = self.plane.putstr(line) catch {};
         if (self.plane.cursor_y() >= self.view_rows - 1)
             return false;
-        self.plane.cursor_move_yx(-1, 0) catch {};
+        self.plane.cursor_move_yx(-1, 0);
         self.plane.cursor_move_rel(1, 0) catch {};
     }
     return false;

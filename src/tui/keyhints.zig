@@ -75,14 +75,14 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
 
     if (bindings.len > max_items) {
         if (widget_style.padding.bottom > 0) {
-            top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(max_len -| 13)) catch return;
+            top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(max_len -| 13));
             _ = top_layer_.print("{s} {d}/{d} {s}", .{
                 widget_style.border.sib,
                 top,
                 bindings.len,
                 widget_style.border.sie,
             }) catch {};
-            top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4)) catch return;
+            top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4));
             _ = top_layer_.print("{s} C-A-? for more {s}", .{
                 widget_style.border.sib,
                 widget_style.border.sie,
@@ -90,7 +90,7 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
         }
     }
     if (widget_style.padding.top > 0) {
-        top_layer_.cursor_move_yx(@intCast(0), @intCast(3)) catch return;
+        top_layer_.cursor_move_yx(@intCast(0), @intCast(3));
         if (key_events.len > 0) {
             _ = top_layer_.print("{s} {s}/{s} prefix: {s} {s}", .{
                 widget_style.border.nib,
@@ -143,7 +143,7 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
             writer.print("{f}", .{keybind.key_event_sequence_fmt(binding.key_events)}) catch break :blk "";
             break :blk writer.buffered();
         };
-        plane.cursor_move_yx(@intCast(y), 0) catch break;
+        plane.cursor_move_yx(@intCast(y), 0);
         switch (render_mode) {
             .no_key_event_prefix => _ = plane.print("{s}", .{keybind_txt[key_events.len..]}) catch {},
             .full => _ = plane.print(" {s}", .{keybind_txt}) catch {},
@@ -163,7 +163,7 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
             break :blk command.get_description(id) orelse break :blk "[n/a]";
         };
 
-        plane.cursor_move_yx(@intCast(y), @intCast(padding)) catch break;
+        plane.cursor_move_yx(@intCast(y), @intCast(padding));
         _ = plane.print("{s}", .{if (description.len > 0) description else binding.commands[0].command}) catch {};
     }
 }
