@@ -5825,6 +5825,52 @@ pub const Editor = struct {
         std.mem.sort(Diagnostic, self.diagnostics.items, {}, less_fn);
     }
 
+    const Direction = enum { left, right };
+    fn get_change(self: *Self, direction: Direction, cursor: Cursor) error{Stop}!Diff {
+        var found: ?Diff = null;
+        switch (direction) {
+            .left => for (self.changes.items) |change| {
+                if (change.line >= cursor.row)
+                    break;
+                found = change;
+            },
+            .right => for (self.changes.items) |change| {
+                if (change.line > cursor.row) {
+                    found = change;
+                    break;
+                }
+            },
+        }
+        return found orelse error.Stop;
+    }
+
+    pub fn goto_change(self: *Self, direction: Direction) Result {
+        const root = self.buf_root() catch return;
+        const primary = self.get_primary();
+
+        const dest = self.get_change(direction, primary.cursor) catch {
+            std.log.info("no more changes", .{});
+            return;
+        };
+        std.log.info("{t} on line {d}", .{ dest.kind, dest.line + 1 });
+
+        try self.send_editor_jump_source();
+        self.cancel_all_selections();
+        try primary.cursor.move_to(root, dest.line, 0, self.metrics);
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+
+    pub fn goto_next_change(self: *Self, _: Context) Result {
+        return self.goto_change(.right);
+    }
+    pub const goto_next_change_meta: Meta = .{ .description = "Goto to next change" };
+
+    pub fn goto_prev_change(self: *Self, _: Context) Result {
+        return self.goto_change(.left);
+    }
+    pub const goto_prev_change_meta: Meta = .{ .description = "Goto to previous change" };
+
     pub fn goto_line(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
         var line: usize = 0;
