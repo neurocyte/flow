@@ -6264,11 +6264,11 @@ pub const Editor = struct {
     pub const highlight_references_meta: Meta = .{ .description = "Language: Highlight references" };
 
     pub fn add_highlight_reference(self: *Self, match_: Match) void {
-        self.match_type = .highlight_references;
         if (self.highlight_references_state == .done) {
             self.highlight_references_state = .adding;
             self.cancel_all_matches();
         }
+        self.match_type = .highlight_references;
         const root = self.buf_root() catch return;
         var match = match_;
         match.begin.row -|= 1;
