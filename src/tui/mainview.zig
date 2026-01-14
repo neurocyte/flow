@@ -1478,7 +1478,7 @@ pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.re
     var sel: ed.Selection = undefined;
 
     if (try m.match(.{ "E", "location", tp.more }))
-        return self.location_update(m);
+        return self.location_update(editor, m);
 
     if (try m.match(.{ "E", "close" })) {
         if (!self.closing_project) {
@@ -1511,11 +1511,11 @@ pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.re
     }
 }
 
-pub fn location_update(self: *Self, m: tp.message) tp.result {
+pub fn location_update(self: *Self, editor: *ed.Editor, m: tp.message) tp.result {
     var row: usize = 0;
     var col: usize = 0;
-    const file_path = self.get_active_file_path() orelse return;
-    const ephemeral = if (self.get_active_buffer()) |buffer| buffer.is_ephemeral() else false;
+    const file_path = editor.file_path orelse return;
+    const ephemeral = if (editor.buffer) |buffer| buffer.is_ephemeral() else false;
 
     if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col) })) {
         if (row == 0 and col == 0) return;
