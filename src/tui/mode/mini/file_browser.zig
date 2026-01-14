@@ -17,6 +17,11 @@ const MessageFilter = @import("../../MessageFilter.zig");
 
 const max_complete_paths = 1024;
 
+pub const SelectMode = enum {
+    normal,
+    alternate,
+};
+
 pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
@@ -28,6 +33,7 @@ pub fn Create(options: type) type {
         complete_trigger_count: usize = 0,
         total_matches: usize = 0,
         matched_entry: usize = 0,
+        select: SelectMode = .normal,
         commands: Commands = undefined,
 
         const Commands = command.Collection(cmds);
@@ -371,6 +377,13 @@ pub fn Create(options: type) type {
                 self.update_mini_mode_text();
             }
             pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
+
+            pub fn mini_mode_select_alternate(self: *Self, _: Ctx) Result {
+                self.select = .alternate;
+                options.select(self);
+                self.update_mini_mode_text();
+            }
+            pub const mini_mode_select_alternate_meta: Meta = .{ .description = "Select alternate" };
 
             pub fn mini_mode_paste(self: *Self, ctx: Ctx) Result {
                 return mini_mode_insert_bytes(self, ctx);

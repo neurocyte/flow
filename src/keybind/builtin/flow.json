@@ -487,6 +487,7 @@
             ["tab", "mini_mode_try_complete_file"],
             ["escape", "mini_mode_cancel"],
             ["enter", "mini_mode_select"],
+            ["shift+enter", "mini_mode_select_alternate"],
             ["backspace", "mini_mode_delete_backwards"]
         ]
     },
