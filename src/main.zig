@@ -759,10 +759,15 @@ fn write_config_value_description(T: type, field_type: type, writer: *std.Io.Wri
                 try writer.print("quoted string (u16)", .{})
             else if (info.child == []const u8)
                 try writer.print("list of quoted strings", .{})
-            else if (info.child == @import("config").IdleAction)
-                try writer.print("list of idle actions", .{})
-            else
-                unsupported_error(T, info.child),
+            else if (info.child == @import("config").IdleAction) {
+                try writer.print("list of idle actions (available actions: ", .{});
+                var first = true;
+                for (std.meta.tags(@import("config").IdleAction)) |tag| {
+                    if (first) first = false else try writer.print(", ", .{});
+                    try writer.print("\"{t}\"", .{tag});
+                }
+                try writer.print(")", .{});
+            } else unsupported_error(T, info.child),
             else => unsupported_error(T, info.child),
         },
         else => unsupported_error(T, field_type),
