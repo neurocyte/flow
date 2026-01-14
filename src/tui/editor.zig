@@ -5106,7 +5106,7 @@ pub const Editor = struct {
     pub fn enable_alt_scroll(self: *Self, _: Context) Result {
         self.alt_scroll = true;
     }
-    pub const enable_alt_scroll_meta: Meta = .{ .description = "Enable horizontal scroll mode" };
+    pub const enable_alt_scroll_meta: Meta = .{ .description = "Enable alternate scroll mode" };
 
     pub fn disable_alt_scroll(self: *Self, _: Context) Result {
         self.alt_scroll = false;
