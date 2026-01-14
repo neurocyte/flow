@@ -6835,12 +6835,14 @@ pub const EditorWidget = struct {
         if (self.focused) return;
         self.commands.register() catch @panic("editor.commands.register");
         self.focused = true;
+        command.executeName("enter_mode_default", .{}) catch {};
         self.editor.send_focus_events() catch {};
     }
 
     pub fn unfocus(self: *Self) void {
         if (self.focused) self.commands.unregister();
         self.focused = false;
+        command.executeName("enter_mode_default", .{}) catch {};
     }
 
     pub fn update(self: *Self) void {

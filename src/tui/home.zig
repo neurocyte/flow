@@ -151,14 +151,16 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
 }
 
 pub fn focus(self: *Self) void {
-    self.unfocus();
+    if (self.focused) return;
     self.commands.register() catch @panic("home.commands.register");
     self.focused = true;
+    command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
 }
 
 pub fn unfocus(self: *Self) void {
     if (self.focused) self.commands.unregister();
     self.focused = false;
+    command.executeName("enter_mode_default", .{}) catch {};
 }
 
 fn add_menu_command(self: *Self, command_name: []const u8, description: []const u8, hint: []const u8, menu: anytype) !void {
