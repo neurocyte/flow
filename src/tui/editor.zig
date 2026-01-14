@@ -373,6 +373,7 @@ pub const Editor = struct {
     handlers: EventHandler.List,
     scroll_dest: usize = 0,
     fast_scroll: bool = false,
+    alt_scroll: bool = false,
     jump_mode: bool = false,
 
     animation_step: usize = 0,
@@ -5097,6 +5098,16 @@ pub const Editor = struct {
         self.fast_scroll = false;
     }
     pub const disable_fast_scroll_meta: Meta = .{};
+
+    pub fn enable_alt_scroll(self: *Self, _: Context) Result {
+        self.alt_scroll = true;
+    }
+    pub const enable_alt_scroll_meta: Meta = .{ .description = "Enable horizontal scroll mode" };
+
+    pub fn disable_alt_scroll(self: *Self, _: Context) Result {
+        self.alt_scroll = false;
+    }
+    pub const disable_alt_scroll_meta: Meta = .{};
 
     pub fn enable_jump_mode(self: *Self, _: Context) Result {
         self.jump_mode = true;
