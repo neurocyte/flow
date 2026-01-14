@@ -1631,7 +1631,7 @@ pub fn get_view_for_file(self: *Self, file_path: []const u8) ?usize {
 
 pub fn get_file_for_view(self: *Self, view_: usize) ?[]const u8 {
     const view = self.views.get_at(view_) orelse return null;
-    const editor = view.widget.get("editor") orelse return null;
+    const editor = view.get("editor") orelse return null;
     return if (editor.dynamic_cast(ed.EditorWidget)) |p| p.editor.file_path else null;
 }
 
@@ -1911,7 +1911,15 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
     for (buffers) |buffer| if (!buffer.is_ephemeral())
         send_buffer_did_open(self.allocator, buffer) catch {};
 
-    if (editor_file_path) |file_path|
+    var max_last_view: usize = 0;
+    for (buffers) |buffer| if (buffer.get_last_view()) |view| {
+        max_last_view = @max(max_last_view, view);
+    };
+
+    for (0..max_last_view + 1) |view| {
+        if (self.get_next_mru_buffer_for_view(view, .non_hidden)) |file_path|
+            self.show_file_async(file_path);
+    } else if (editor_file_path) |file_path|
         if (self.buffer_manager.get_buffer_for_file(file_path)) |_|
             try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
 }
