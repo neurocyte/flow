@@ -6470,6 +6470,10 @@ pub const Editor = struct {
         state.work_root = try state.work_root.delete_range(sel, buf_a_, null, self.metrics);
     }
 
+    fn is_filter_running(self: *const Self) bool {
+        return self.filter_ != null;
+    }
+
     fn filter_stdout(self: *Self, bytes: []const u8) !void {
         const state = if (self.filter_) |*s| s else return error.Stop;
         errdefer self.filter_deinit();
@@ -6877,13 +6881,13 @@ pub const EditorWidget = struct {
             try self.mouse_drag_event(event, @enumFromInt(btn), y, x, ypx, xpx);
         } else if (try m.match(.{ "scroll_to", tp.extract(&pos) })) {
             self.editor.scroll_to(pos);
-        } else if (try m.match(.{ "filter", "stdout", tp.extract(&bytes) })) {
+        } else if (self.editor.is_filter_running() and try m.match(.{ "filter", "stdout", tp.extract(&bytes) })) {
             self.editor.filter_stdout(bytes) catch {};
-        } else if (try m.match(.{ "filter", "stderr", tp.extract(&bytes) })) {
+        } else if (self.editor.is_filter_running() and try m.match(.{ "filter", "stderr", tp.extract(&bytes) })) {
             try self.editor.filter_error(bytes);
-        } else if (try m.match(.{ "filter", "term", "error.FileNotFound", 1 })) {
+        } else if (self.editor.is_filter_running() and try m.match(.{ "filter", "term", "error.FileNotFound", 1 })) {
             try self.editor.filter_not_found();
-        } else if (try m.match(.{ "filter", "term", tp.more })) {
+        } else if (self.editor.is_filter_running() and try m.match(.{ "filter", "term", tp.more })) {
             try self.editor.filter_done();
         } else if (try m.match(.{ "A", tp.more })) {
             self.editor.add_match(m) catch {};
