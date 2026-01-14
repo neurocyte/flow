@@ -882,6 +882,7 @@ pub fn is_mainview_focused() bool {
 
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     command.executeName("disable_fast_scroll", .{}) catch {};
+    command.executeName("disable_alt_scroll", .{}) catch {};
     command.executeName("disable_jump_mode", .{}) catch {};
     if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, .{});
     if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, .{});
@@ -894,6 +895,7 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
 
 fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) command.Result {
     command.executeName("disable_fast_scroll", .{}) catch {};
+    command.executeName("disable_alt_scroll", .{}) catch {};
     command.executeName("disable_jump_mode", .{}) catch {};
     if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, .{});
     if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, .{});
@@ -1469,6 +1471,7 @@ const cmds = struct {
 
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
         command.executeName("disable_fast_scroll", .{}) catch {};
+        command.executeName("disable_alt_scroll", .{}) catch {};
         command.executeName("disable_jump_mode", .{}) catch {};
         if (self.mini_mode_) |_| try exit_mini_mode(self, .{});
         if (self.input_mode_outer_) |_| try exit_overlay_mode(self, .{});
