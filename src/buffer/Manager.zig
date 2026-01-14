@@ -112,6 +112,7 @@ pub fn retire(_: *Self, buffer: *Buffer, meta: ?[]const u8) void {
 
 pub fn close_buffer(self: *Self, buffer: *Buffer) void {
     buffer.hidden = true;
+    buffer.set_last_view(null);
     tp.trace(tp.channel.debug, .{ "buffer", "close", buffer.get_file_path(), "hidden", buffer.hidden, "ephemeral", buffer.ephemeral });
     if (buffer.is_ephemeral())
         self.delete_buffer(buffer);

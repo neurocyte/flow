@@ -49,6 +49,7 @@ meta: ?[]const u8 = null,
 lsp_version: usize = 1,
 vcs_id: ?[]const u8 = null,
 vcs_content: ?ArrayList(u8) = null,
+last_view: ?usize = null,
 
 undo_head: ?*UndoNode = null,
 redo_head: ?*UndoNode = null,
@@ -1241,6 +1242,14 @@ pub inline fn get_file_path(self: *const Self) []const u8 {
     return self.file_path_buf.items;
 }
 
+pub fn set_last_view(self: *Self, last_view: ?usize) void {
+    self.last_view = last_view;
+}
+
+pub fn get_last_view(self: *Self) ?usize {
+    return self.last_view;
+}
+
 pub fn set_vcs_id(self: *Self, vcs_id: []const u8) error{OutOfMemory}!bool {
     if (self.vcs_id) |old_id| {
         if (std.mem.eql(u8, old_id, vcs_id)) return false;
@@ -1687,6 +1696,7 @@ pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOf
         self.hidden,
         self.ephemeral,
         self.auto_save,
+        self.last_view,
         dirty,
         self.meta,
         self.file_type_name,
@@ -1712,6 +1722,7 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
         cbor.extract(&self.hidden),
         cbor.extract(&self.ephemeral),
         cbor.extract(&self.auto_save),
+        cbor.extract(&self.last_view),
         cbor.extract(&dirty),
         cbor.extract(&meta),
         cbor.extract(&file_type_name),
