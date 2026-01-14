@@ -1484,7 +1484,7 @@ pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.re
 
     if (try m.match(.{ "E", "close" })) {
         if (!self.closing_project) {
-            if (self.get_next_mru_buffer_same_view_only(.non_hidden)) |file_path|
+            if (self.get_next_mru_buffer_for_view(self.active_view, .non_hidden)) |file_path|
                 self.show_file_async(file_path)
             else {
                 if (self.views.widgets.items.len == 1)
@@ -1627,6 +1627,12 @@ pub fn get_view_for_file(self: *Self, file_path: []const u8) ?usize {
     if (self.buffer_manager.get_buffer_for_file(file_path)) |buffer|
         return buffer.get_last_view();
     return null;
+}
+
+pub fn get_file_for_view(self: *Self, view_: usize) ?[]const u8 {
+    const view = self.views.get_at(view_) orelse return null;
+    const editor = view.widget.get("editor") orelse return null;
+    return if (editor.dynamic_cast(ed.EditorWidget)) |p| p.editor.file_path else null;
 }
 
 pub fn get_active_file_path(self: *Self) ?[]const u8 {
@@ -1927,19 +1933,19 @@ fn send_buffer_did_open(allocator: std.mem.Allocator, buffer: *Buffer) !void {
         project_manager.request_vcs_id(buffer.get_file_path()) catch {};
 }
 
-fn get_next_mru_buffer_same_view_only(self: *Self, mode: enum { all, hidden, non_hidden }) ?[]const u8 {
+fn get_next_mru_buffer_for_view(self: *Self, view: usize, mode: enum { all, hidden, non_hidden }) ?[]const u8 {
     const buffers = self.buffer_manager.list_most_recently_used(self.allocator) catch return null;
     defer self.allocator.free(buffers);
-    const active_file_path = self.get_active_file_path();
+    const file_path = self.get_file_for_view(view);
     for (buffers) |buffer| {
-        if (active_file_path) |fp| if (std.mem.eql(u8, fp, buffer.get_file_path()))
+        if (file_path) |fp| if (std.mem.eql(u8, fp, buffer.get_file_path()))
             continue;
         if (switch (mode) {
             .all => false,
             .hidden => !buffer.hidden,
             .non_hidden => buffer.hidden,
         }) continue;
-        if (buffer.get_last_view() != self.active_view)
+        if (buffer.get_last_view() != view)
             continue;
         return buffer.get_file_path();
     }
