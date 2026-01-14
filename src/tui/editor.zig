@@ -6067,51 +6067,47 @@ pub const Editor = struct {
     }
     pub const goto_byte_offset_meta: Meta = .{ .arguments = &.{.integer} };
 
-    pub fn goto_definition(self: *Self, _: Context) Result {
+    const PmFunc = fn (file_path: []const u8, row: usize, col: usize) project_manager.Error!void;
+
+    fn pm_with_primary_cursor_pos(self: *Self, func: PmFunc) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
-        return project_manager.goto_definition(file_path, primary.cursor.row, primary.cursor.col);
+        const root = self.buf_root() catch return;
+        const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
+        return func(file_path, primary.cursor.row, col);
+    }
+
+    pub fn goto_definition(self: *Self, _: Context) Result {
+        return self.pm_with_primary_cursor_pos(project_manager.goto_definition);
     }
     pub const goto_definition_meta: Meta = .{ .description = "Language: Goto definition" };
 
     pub fn goto_declaration(self: *Self, _: Context) Result {
-        const file_path = self.file_path orelse return;
-        const primary = self.get_primary();
-        return project_manager.goto_declaration(file_path, primary.cursor.row, primary.cursor.col);
+        return self.pm_with_primary_cursor_pos(project_manager.goto_declaration);
     }
     pub const goto_declaration_meta: Meta = .{ .description = "Language: Goto declaration" };
 
     pub fn goto_implementation(self: *Self, _: Context) Result {
-        const file_path = self.file_path orelse return;
-        const primary = self.get_primary();
-        return project_manager.goto_implementation(file_path, primary.cursor.row, primary.cursor.col);
+        return self.pm_with_primary_cursor_pos(project_manager.goto_implementation);
     }
     pub const goto_implementation_meta: Meta = .{ .description = "Language: Goto implementation" };
 
     pub fn goto_type_definition(self: *Self, _: Context) Result {
-        const file_path = self.file_path orelse return;
-        const primary = self.get_primary();
-        return project_manager.goto_type_definition(file_path, primary.cursor.row, primary.cursor.col);
+        return self.pm_with_primary_cursor_pos(project_manager.goto_type_definition);
     }
     pub const goto_type_definition_meta: Meta = .{ .description = "Language: Goto type definition" };
 
     pub fn references(self: *Self, _: Context) Result {
-        const file_path = self.file_path orelse return;
-        const primary = self.get_primary();
-        return project_manager.references(file_path, primary.cursor.row, primary.cursor.col);
+        return self.pm_with_primary_cursor_pos(project_manager.references);
     }
     pub const references_meta: Meta = .{ .description = "Language: Find all references" };
 
     pub fn completion(self: *Self, _: Context) Result {
         const mv = tui.mainview() orelse return;
-        const file_path = self.file_path orelse return;
-        const root = self.buf_root() catch return;
-        const primary = self.get_primary();
-        const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
         self.completions.clearRetainingCapacity();
         if (!mv.is_any_panel_view_showing())
             self.clamp_offset(mv.get_panel_height());
-        return project_manager.completion(file_path, primary.cursor.row, col);
+        return self.pm_with_primary_cursor_pos(project_manager.completion);
     }
     pub const completion_meta: Meta = .{ .description = "Language: Show completions at cursor" };
 
@@ -6124,11 +6120,7 @@ pub const Editor = struct {
     pub const show_symbols_meta: Meta = .{ .description = "Language: Show available symbols on current file" };
 
     pub fn rename_symbol(self: *Self, _: Context) Result {
-        const file_path = self.file_path orelse return;
-        const root = self.buf_root() catch return;
-        const primary = self.get_primary();
-        const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
-        return project_manager.rename_symbol(file_path, primary.cursor.row, col);
+        return self.pm_with_primary_cursor_pos(project_manager.rename_symbol);
     }
     pub const rename_symbol_meta: Meta = .{ .description = "Language: Rename symbol at cursor" };
 
@@ -6230,8 +6222,7 @@ pub const Editor = struct {
     }
 
     pub fn hover(self: *Self, _: Context) Result {
-        const primary = self.get_primary();
-        return self.hover_at(primary.cursor.row, primary.cursor.col);
+        return self.pm_with_primary_cursor_pos(project_manager.hover);
     }
     pub const hover_meta: Meta = .{ .description = "Language: Show documentation for symbol (hover)" };
 
@@ -6260,11 +6251,7 @@ pub const Editor = struct {
     }
 
     pub fn highlight_references(self: *Self, _: Context) Result {
-        const file_path = self.file_path orelse return;
-        const primary = self.get_primary();
-        const root = self.buf_root() catch return;
-        const pos = root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics) catch return;
-        return project_manager.highlight_references(file_path, primary.cursor.row, pos);
+        return self.pm_with_primary_cursor_pos(project_manager.highlight_references);
     }
     pub const highlight_references_meta: Meta = .{ .description = "Language: Highlight references" };
 
