@@ -29,14 +29,16 @@ pub inline fn eql(self: Self, other: Self) bool {
     return self.row == other.row and self.col == other.col and self.rows == other.rows and self.cols == other.cols;
 }
 
-pub fn move_left(self: *Self) !void {
-    if (self.col > 0) {
-        self.col -= 1;
+pub fn move_left(self: *Self, n: usize) error{Stop}!void {
+    if (self.col > n) {
+        self.col -= n;
+    } else if (self.col > 0) {
+        self.col = 0;
     } else return error.Stop;
 }
 
-pub fn move_right(self: *Self) !void {
-    self.col += 1;
+pub fn move_right(self: *Self, n: usize) error{Stop}!void {
+    self.col += n;
 }
 
 pub fn move_up(self: *Self) !void {

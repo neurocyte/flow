@@ -37,6 +37,8 @@ const Allocator = std.mem.Allocator;
 const time = std.time;
 
 const scroll_step_small = 3;
+const scroll_step_horizontal = 5;
+const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
 const scroll_cursor_min_border_distance = 5;
 
 const double_click_time_ms = 350;
@@ -4150,12 +4152,18 @@ pub const Editor = struct {
     pub const move_scroll_down_meta: Meta = .{ .description = "Move and scroll down", .arguments = &.{.integer} };
 
     pub fn move_scroll_left(self: *Self, _: Context) Result {
-        self.view.move_left() catch {};
+        if (self.fast_scroll)
+            self.view.move_left(scroll_step_horizontal_fast) catch {}
+        else
+            self.view.move_left(scroll_step_horizontal) catch {};
     }
     pub const move_scroll_left_meta: Meta = .{ .description = "Scroll left" };
 
     pub fn move_scroll_right(self: *Self, _: Context) Result {
-        self.view.move_right() catch {};
+        if (self.fast_scroll)
+            self.view.move_right(scroll_step_horizontal_fast) catch {}
+        else
+            self.view.move_right(scroll_step_horizontal) catch {};
     }
     pub const move_scroll_right_meta: Meta = .{ .description = "Scroll right" };
 
