@@ -126,10 +126,11 @@ pub const KeyEvent = struct {
         modifiers: Mods,
     ) @This() {
         const mods_ = switch (keypress_) {
-            key.left_super, key.right_super => modifiers & ~mod.super,
-            key.left_shift, key.right_shift => modifiers & ~mod.shift,
-            key.left_control, key.right_control => modifiers & ~mod.ctrl,
-            key.left_alt, key.right_alt => modifiers & ~mod.alt,
+            key.left_control, key.right_control => 0,
+            key.left_alt, key.right_alt => 0,
+            key.left_shift, key.right_shift => 0,
+            key.left_super, key.right_super => 0,
+            key.iso_level_3_shift, key.iso_level_5_shift => 0,
             else => modifiers,
         };
 
