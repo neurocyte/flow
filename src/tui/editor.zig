@@ -2794,16 +2794,20 @@ pub const Editor = struct {
         self.update_scroll_dest_abs(dest.row);
     }
 
-    pub fn scroll_up_pageup(self: *Self, _: Context) Result {
-        if (self.fast_scroll)
+    pub fn scroll_up_pageup(self: *Self, ctx: Context) Result {
+        if (self.alt_scroll)
+            try self.move_scroll_left(ctx)
+        else if (self.fast_scroll)
             self.scroll_pageup()
         else
             self.scroll_up();
     }
     pub const scroll_up_pageup_meta: Meta = .{};
 
-    pub fn scroll_down_pagedown(self: *Self, _: Context) Result {
-        if (self.fast_scroll)
+    pub fn scroll_down_pagedown(self: *Self, ctx: Context) Result {
+        if (self.alt_scroll)
+            try self.move_scroll_right(ctx)
+        else if (self.fast_scroll)
             self.scroll_pagedown()
         else
             self.scroll_down();
