@@ -6928,10 +6928,6 @@ pub const EditorWidget = struct {
                 try self.editor.hover_at_abs(@intCast(self.hover_y), @intCast(self.hover_x));
         } else if (try m.match(.{"input_idle"})) {
             for (tui.config().idle_actions) |action| switch (action) {
-                .cancel => {
-                    self.editor.cancel_all_matches();
-                    tui.need_render();
-                },
                 .hover => {
                     try self.editor.hover(.{});
                 },
