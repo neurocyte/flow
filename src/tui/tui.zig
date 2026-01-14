@@ -87,6 +87,10 @@ color_scheme_locked: bool = false,
 hint_mode: HintMode = .prefix,
 last_palette: ?LastPalette = null,
 
+fast_scroll_: bool = false,
+alt_scroll_: bool = false,
+jump_mode_: bool = false,
+
 auto_run_timer: ?tp.Cancellable = null,
 
 const HintMode = enum { none, prefix, all };
@@ -1623,6 +1627,39 @@ const cmds = struct {
         try save_config();
     }
     pub const dropdown_next_widget_style_meta: Meta = .{};
+
+    pub fn enable_fast_scroll(self: *Self, _: Ctx) Result {
+        self.fast_scroll_ = true;
+    }
+    pub const enable_fast_scroll_meta: Meta = .{ .description = "Enable fast scroll mode" };
+
+    pub fn disable_fast_scroll(self: *Self, _: Ctx) Result {
+        self.fast_scroll_ = false;
+    }
+    pub const disable_fast_scroll_meta: Meta = .{};
+
+    pub fn enable_alt_scroll(self: *Self, _: Ctx) Result {
+        self.alt_scroll_ = true;
+    }
+    pub const enable_alt_scroll_meta: Meta = .{ .description = "Enable alternate scroll mode" };
+
+    pub fn disable_alt_scroll(self: *Self, _: Ctx) Result {
+        self.alt_scroll_ = false;
+    }
+    pub const disable_alt_scroll_meta: Meta = .{};
+
+    pub fn enable_jump_mode(self: *Self, _: Ctx) Result {
+        self.jump_mode_ = true;
+        self.rdr_.request_mouse_cursor_pointer(true);
+    }
+    pub const enable_jump_mode_meta: Meta = .{ .description = "Enable jump/hover mode" };
+
+    pub fn disable_jump_mode(self: *Self, _: Ctx) Result {
+        self.jump_mode_ = false;
+        self.rdr_.request_mouse_cursor_text(true);
+    }
+    pub const disable_jump_mode_meta: Meta = .{};
+
 };
 
 pub const MiniMode = struct {
@@ -2449,3 +2486,19 @@ pub fn disable_match_events() void {
     keybind.enable_match_events = false;
     keybind.enable_insert_events = false;
 }
+
+pub fn fast_scroll() bool {
+    const self = current();
+    return self.fast_scroll_;
+}
+
+pub fn alt_scroll() bool {
+    const self = current();
+    return self.alt_scroll_;
+}
+
+pub fn jump_mode() bool {
+    const self = current();
+    return self.jump_mode_;
+}
+

@@ -372,9 +372,6 @@ pub const Editor = struct {
     view: View = View{},
     handlers: EventHandler.List,
     scroll_dest: usize = 0,
-    fast_scroll: bool = false,
-    alt_scroll: bool = false,
-    jump_mode: bool = false,
 
     animation_step: usize = 0,
     animation_frame_rate: i64,
@@ -2608,7 +2605,7 @@ pub const Editor = struct {
 
     pub fn primary_click(self: *Self, y: c_int, x: c_int) !void {
         const root = self.buf_root() catch return;
-        if (self.fast_scroll) {
+        if (tui.fast_scroll()) {
             var at: Cursor = .{};
             at.move_abs(root, &self.view, @intCast(y), @intCast(x), self.metrics) catch return;
             if (self.remove_cursor_at(at))
@@ -2625,7 +2622,7 @@ pub const Editor = struct {
         self.collapse_cursors();
         self.clamp_mouse();
         try self.send_editor_jump_destination();
-        if (self.jump_mode) try self.goto_definition(.{});
+        if (tui.jump_mode()) try self.goto_definition(.{});
         tui.reset_input_idle_timer();
     }
 
@@ -2795,9 +2792,9 @@ pub const Editor = struct {
     }
 
     pub fn scroll_up_pageup(self: *Self, ctx: Context) Result {
-        if (self.alt_scroll)
+        if (tui.alt_scroll())
             try self.move_scroll_left(ctx)
-        else if (self.fast_scroll)
+        else if (tui.fast_scroll())
             self.scroll_pageup()
         else
             self.scroll_up();
@@ -2805,9 +2802,9 @@ pub const Editor = struct {
     pub const scroll_up_pageup_meta: Meta = .{};
 
     pub fn scroll_down_pagedown(self: *Self, ctx: Context) Result {
-        if (self.alt_scroll)
+        if (tui.alt_scroll())
             try self.move_scroll_right(ctx)
-        else if (self.fast_scroll)
+        else if (tui.fast_scroll())
             self.scroll_pagedown()
         else
             self.scroll_down();
@@ -4157,7 +4154,7 @@ pub const Editor = struct {
     pub const move_scroll_down_meta: Meta = .{ .description = "Move and scroll down", .arguments = &.{.integer} };
 
     pub fn move_scroll_left(self: *Self, _: Context) Result {
-        if (self.fast_scroll)
+        if (tui.fast_scroll())
             self.view.move_left(scroll_step_horizontal_fast) catch {}
         else
             self.view.move_left(scroll_step_horizontal) catch {};
@@ -4165,7 +4162,7 @@ pub const Editor = struct {
     pub const move_scroll_left_meta: Meta = .{ .description = "Scroll left" };
 
     pub fn move_scroll_right(self: *Self, _: Context) Result {
-        if (self.fast_scroll)
+        if (tui.fast_scroll())
             self.view.move_right(scroll_step_horizontal_fast) catch {}
         else
             self.view.move_right(scroll_step_horizontal) catch {};
@@ -5092,38 +5089,6 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const smart_insert_pair_close_meta: Meta = .{ .arguments = &.{ .string, .string } };
-
-    pub fn enable_fast_scroll(self: *Self, _: Context) Result {
-        self.fast_scroll = true;
-    }
-    pub const enable_fast_scroll_meta: Meta = .{ .description = "Enable fast scroll mode" };
-
-    pub fn disable_fast_scroll(self: *Self, _: Context) Result {
-        self.fast_scroll = false;
-    }
-    pub const disable_fast_scroll_meta: Meta = .{};
-
-    pub fn enable_alt_scroll(self: *Self, _: Context) Result {
-        self.alt_scroll = true;
-    }
-    pub const enable_alt_scroll_meta: Meta = .{ .description = "Enable alternate scroll mode" };
-
-    pub fn disable_alt_scroll(self: *Self, _: Context) Result {
-        self.alt_scroll = false;
-    }
-    pub const disable_alt_scroll_meta: Meta = .{};
-
-    pub fn enable_jump_mode(self: *Self, _: Context) Result {
-        self.jump_mode = true;
-        tui.rdr().request_mouse_cursor_pointer(true);
-    }
-    pub const enable_jump_mode_meta: Meta = .{ .description = "Enable jump/hover mode" };
-
-    pub fn disable_jump_mode(self: *Self, _: Context) Result {
-        self.jump_mode = false;
-        tui.rdr().request_mouse_cursor_text(true);
-    }
-    pub const disable_jump_mode_meta: Meta = .{};
 
     fn update_syntax(self: *Self) !void {
         const root = try self.buf_root();
@@ -6901,7 +6866,7 @@ pub const EditorWidget = struct {
             const hover_y, const hover_x = self.editor.plane.abs_yx_to_rel(y, x);
             if (hover_y != self.hover_y or hover_x != self.hover_x) {
                 self.hover_y, self.hover_x = .{ hover_y, hover_x };
-                if (self.editor.jump_mode) {
+                if (tui.jump_mode()) {
                     self.update_hover_timer(.init);
                     self.hover_mouse_event = true;
                 }
@@ -6923,7 +6888,7 @@ pub const EditorWidget = struct {
         } else if (try m.match(.{ "A", tp.more })) {
             self.editor.add_match(m) catch {};
         } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-            if (self.editor.jump_mode) {
+            if (tui.jump_mode()) {
                 self.update_hover_timer(.init);
                 tui.rdr().request_mouse_cursor_pointer(self.hover);
             } else {
