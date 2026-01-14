@@ -46,7 +46,6 @@ floating_views: WidgetStack,
 commands: Commands = undefined,
 top_bar: ?Widget = null,
 bottom_bar: ?Widget = null,
-active_editor: ?*ed.Editor = null,
 views: *WidgetList,
 views_widget: Widget,
 active_view: usize = 0,
@@ -1488,7 +1487,6 @@ pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
             else
                 self.show_home_async();
         } else self.show_home_async();
-        self.active_editor = null;
         return;
     }
 
@@ -1573,11 +1571,9 @@ fn store_last_match_text(self: *Self, text: ?[]const u8) void {
 }
 
 pub fn get_active_editor(self: *Self) ?*ed.Editor {
-    if (self.active_editor) |editor| return editor;
     const active_view = self.views.get_at(self.active_view) orelse return null;
     const editor = active_view.get("editor") orelse return null;
     if (editor.dynamic_cast(ed.EditorWidget)) |p| {
-        self.active_editor = &p.editor;
         return &p.editor;
     }
     return null;
@@ -1626,7 +1622,6 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
 }
 
 fn close_all_editors(self: *Self) !void {
-    self.active_editor = null;
     for (self.views.widgets.items) |*view| {
         const editor = view.widget.get("editor") orelse continue;
         if (editor.dynamic_cast(ed.EditorWidget)) |p| {
@@ -1637,7 +1632,6 @@ fn close_all_editors(self: *Self) !void {
 }
 
 fn add_and_activate_view(self: *Self, widget: Widget) !void {
-    self.active_editor = null;
     if (self.views.get_at(self.active_view)) |view| view.unfocus();
     try self.views.add(widget);
     self.active_view = self.views.widgets.items.len - 1;
@@ -1663,7 +1657,6 @@ pub fn focus_view_by_widget(self: *Self, w: *const Widget) tui.FocusAction {
     if (n >= self.views.widgets.items.len) return .notfound;
     if (n == self.active_view) return .same;
     if (self.views.get_at(self.active_view)) |view| view.unfocus();
-    self.active_editor = null;
     self.active_view = n;
     if (self.views.get_at(self.active_view)) |view| view.focus();
     return .changed;
@@ -1682,7 +1675,6 @@ pub fn focus_view(self: *Self, n: usize) !void {
 
 fn remove_active_view(self: *Self) !void {
     if (self.views.widgets.items.len == 1) return; // can't delete last view
-    self.active_editor = null;
     self.views.delete(self.active_view);
     if (self.active_view >= self.views.widgets.items.len)
         self.active_view = self.views.widgets.items.len - 1;
@@ -1692,7 +1684,6 @@ fn remove_active_view(self: *Self) !void {
 
 fn replace_active_view(self: *Self, widget: Widget) !void {
     const n = self.active_view;
-    self.active_editor = null;
     if (self.views.get_at(n)) |view| view.unfocus();
     self.views.replace(n, widget);
     if (self.views.get_at(n)) |view| view.focus();
