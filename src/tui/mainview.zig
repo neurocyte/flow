@@ -1935,6 +1935,18 @@ fn get_next_mru_buffer(self: *Self, mode: enum { all, hidden, non_hidden }) ?[]c
             .hidden => !buffer.hidden,
             .non_hidden => buffer.hidden,
         }) continue;
+        if (buffer.get_last_view() != self.active_view)
+            continue;
+        return buffer.get_file_path();
+    }
+    for (buffers) |buffer| {
+        if (active_file_path) |fp| if (std.mem.eql(u8, fp, buffer.get_file_path()))
+            continue;
+        if (switch (mode) {
+            .all => false,
+            .hidden => !buffer.hidden,
+            .non_hidden => buffer.hidden,
+        }) continue;
         return buffer.get_file_path();
     }
     return null;
