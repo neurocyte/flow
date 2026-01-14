@@ -175,7 +175,7 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return true;
     } else if (try m.match(.{ "hover", tp.extract(&path), tp.string, tp.extract(&lines), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
         try self.set_info_content(lines, .replace);
-        if (self.get_active_editor()) |editor|
+        if (self.get_editor_for_file(path)) |editor|
             editor.add_hover_highlight(.{
                 .begin = .{ .row = begin_line, .col = begin_pos },
                 .end = .{ .row = end_line, .col = end_pos },
@@ -755,7 +755,7 @@ const cmds = struct {
 
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
 
-        if (self.get_active_editor()) |editor| blk: {
+        if (self.get_editor_for_file(file_path)) |editor| blk: {
             const editor_buffer = editor.buffer orelse break :blk;
             if (buffer == editor_buffer) {
                 try editor.save_file(.{});
@@ -827,7 +827,7 @@ const cmds = struct {
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
         if (buffer.is_dirty())
             return tp.exit("unsaved changes");
-        if (self.get_active_editor()) |editor| if (editor.buffer == buffer)
+        if (self.get_editor_for_buffer(buffer)) |editor|
             editor.close_file(.{}) catch |e| return e;
         self.buffer_manager.delete_buffer(buffer);
         const logger = log.logger("buffer");
@@ -844,10 +844,10 @@ const cmds = struct {
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
         if (buffer.is_dirty())
             return tp.exit("unsaved changes");
-        if (self.get_active_editor()) |editor| if (editor.buffer == buffer) {
+        if (self.get_editor_for_buffer(buffer)) |editor| {
             editor.close_file(.{}) catch |e| return e;
             return;
-        };
+        }
         _ = self.buffer_manager.close_buffer(buffer);
         tui.need_render();
     }
@@ -1022,11 +1022,11 @@ const cmds = struct {
             tp.extract(&sel.end.col),
         })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
-        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
+        if (self.get_editor_for_file(file_path)) |editor| {
             try editor.add_diagnostic(file_path, source, code, message, severity, sel);
             if (!tui.config().show_local_diagnostics_in_panel)
                 return;
-        };
+        }
         try self.add_find_in_files_result(
             .diagnostics,
             file_path,
@@ -1054,7 +1054,7 @@ const cmds = struct {
             tp.more,
         })) return error.InvalidAddDiagnosticArgument;
         file_path = project_manager.normalize_file_path(file_path);
-        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+        if (self.get_editor_for_file(file_path)) |editor|
             try editor.add_completion(row, col, is_incomplete, ctx.args);
     }
     pub const add_completion_meta: Meta = .{
@@ -1169,8 +1169,6 @@ const cmds = struct {
     };
 
     pub fn rename_symbol_item(self: *Self, ctx: Ctx) Result {
-        const editor = self.get_active_editor() orelse return;
-        const primary_cursor = editor.get_primary().cursor;
         var iter = ctx.args.buf;
         var len = try cbor.decodeArrayHeader(&iter);
         var first = true;
@@ -1189,6 +1187,9 @@ const cmds = struct {
             if (!try cbor.matchString(&iter, &line_text)) return error.MissingArgument;
 
             file_path = project_manager.normalize_file_path(file_path);
+            const editor = self.get_editor_for_file(file_path) orelse continue;
+            const primary_cursor = editor.get_primary().cursor;
+
             if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
                 if (len == 1 and sel.begin.row == 0 and sel.begin.col == 0 and sel.end.row > 0) //probably a full file edit
                     return editor.add_cursors_from_content_diff(new_text);
@@ -1206,8 +1207,8 @@ const cmds = struct {
                     .Information,
                 );
             }
+            try editor.set_primary_selection_from_cursor(primary_cursor);
         }
-        try editor.set_primary_selection_from_cursor(primary_cursor);
     }
     pub const rename_symbol_item_meta: Meta = .{ .arguments = &.{.array} };
     pub const rename_symbol_item_elem_meta: Meta = .{ .arguments = &.{ .string, .integer, .integer, .integer, .integer, .string } };
@@ -1216,7 +1217,7 @@ const cmds = struct {
         var file_path: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidClearDiagnosticsArgument;
         file_path = project_manager.normalize_file_path(file_path);
-        if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse ""))
+        if (self.get_editor_for_file(file_path)) |editor|
             editor.clear_diagnostics();
 
         self.clear_find_in_files_results(.diagnostics);
@@ -1376,10 +1377,10 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&buffer_ref)}))
             return error.InvalidShellOutputCompleteArgument;
         const buffer = self.buffer_manager.buffer_from_ref(buffer_ref) orelse return;
-        if (self.get_active_editor()) |editor| if (editor.buffer) |eb| if (eb == buffer) {
+        if (self.get_editor_for_buffer(buffer)) |editor| {
             editor.forced_mark_clean(.{}) catch {};
             return;
-        };
+        }
         buffer.mark_clean();
         tui.need_render();
     }
