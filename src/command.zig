@@ -207,6 +207,8 @@ pub fn get_icon(id: ID) ?[]const u8 {
 const suppressed_errors = std.StaticStringMap(void).initComptime(.{
     .{ "enable_fast_scroll", void },
     .{ "disable_fast_scroll", void },
+    .{ "enable_alt_scroll", void },
+    .{ "disable_alt_scroll", void },
     .{ "clear_diagnostics", void },
     .{ "palette_menu_cancel", void },
 });
