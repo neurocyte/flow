@@ -6954,7 +6954,9 @@ pub const EditorWidget = struct {
         switch (self.editor.match_type) {
             .find, .auto_find => return,
             .highlight_references => {
-                if (self.editor.match_at_cursor(primary.cursor) == null) {
+                if (self.editor.match_at_cursor(primary.cursor)) |_| {
+                    return;
+                } else {
                     self.editor.cancel_all_matches();
                     tui.need_render();
                 }
