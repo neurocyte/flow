@@ -940,6 +940,18 @@ const cmds = struct {
     }
     pub const close_split_meta: Meta = .{ .description = "Close split view" };
 
+    pub fn close_splits(self: *Self, _: Ctx) Result {
+        while (self.views.widgets.items.len > 1)
+            try self.remove_view(1);
+
+        if (self.closing_project) return;
+
+        const buffers = try self.buffer_manager.list_unordered(self.allocator);
+        defer self.allocator.free(buffers);
+        for (buffers) |buffer| buffer.set_last_view(0);
+    }
+    pub const close_splits_meta: Meta = .{ .description = "Close all split views" };
+
     pub fn focus_split(self: *Self, ctx: Ctx) Result {
         var n: usize = undefined;
         if (!try ctx.args.match(.{tp.extract(&n)})) return error.InvalidFocusSplitArgument;
@@ -1699,13 +1711,18 @@ pub fn focus_view(self: *Self, n: usize) !void {
     if (self.views.get_at(self.active_view)) |view| view.focus();
 }
 
-fn remove_active_view(self: *Self) !void {
+fn remove_view(self: *Self, view: usize) !void {
     if (self.views.widgets.items.len == 1) return; // can't delete last view
-    self.views.delete(self.active_view);
+    if (view >= self.views.widgets.items.len) return;
+    self.views.delete(view);
     if (self.active_view >= self.views.widgets.items.len)
         self.active_view = self.views.widgets.items.len - 1;
-    if (self.views.get_at(self.active_view)) |view| view.focus();
+    if (self.views.get_at(self.active_view)) |active_view| active_view.focus();
     tui.resize();
+}
+
+fn remove_active_view(self: *Self) !void {
+    return self.remove_view(self.active_view);
 }
 
 fn replace_active_view(self: *Self, widget: Widget) !void {
