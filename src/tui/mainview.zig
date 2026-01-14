@@ -582,7 +582,9 @@ const cmds = struct {
     fn navigate_complete(self: *Self, view: ?usize, f: []const u8, goto_args: []const u8, line: ?i64, column: ?i64, offset: ?i64) Result {
         if (view) |n| try self.focus_view(n);
 
-        if (view == null) {
+        const different_file = if (self.get_active_file_path()) |active_file_path| !std.mem.eql(u8, active_file_path, f) else true;
+
+        if (view == null or different_file) {
             if (self.get_active_editor()) |editor| {
                 editor.send_editor_jump_source() catch {};
             }
@@ -1618,6 +1620,8 @@ pub fn get_view_for_file(self: *Self, file_path: []const u8) ?usize {
             if (std.mem.eql(u8, p.editor.file_path orelse continue, file_path))
                 return n;
     }
+    if (self.buffer_manager.get_buffer_for_file(file_path)) |buffer|
+        return buffer.get_last_view();
     return null;
 }
 
