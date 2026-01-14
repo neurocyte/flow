@@ -1534,6 +1534,8 @@ pub fn location_update_from_editor(self: *Self) void {
     const editor = self.get_active_editor() orelse return;
     const file_path = editor.file_path orelse return;
     const ephemeral = if (editor.buffer) |buffer| buffer.is_ephemeral() else false;
+    if (editor.buffer) |buffer|
+        buffer.set_last_view(self.active_view);
     const primary = editor.get_primary();
     const row: usize = primary.cursor.row;
     const col: usize = primary.cursor.col;
