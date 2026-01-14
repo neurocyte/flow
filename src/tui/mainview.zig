@@ -1474,8 +1474,7 @@ fn no_lsp_error() void {
     logger.print("no LSP currently in use", .{});
 }
 
-pub fn handle_editor_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
-    const editor = self.get_active_editor() orelse return;
+pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.result {
     var sel: ed.Selection = undefined;
 
     if (try m.match(.{ "E", "location", tp.more }))
@@ -1699,10 +1698,28 @@ fn create_editor(self: *Self) !void {
     const editor = editor_widget.get("editor") orelse @panic("mainview editor not found");
     if (self.top_bar) |*bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
     if (self.bottom_bar) |*bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
-    editor.subscribe(EventHandler.bind(self, handle_editor_event)) catch @panic("subscribe unsupported");
+    const event_handler = try self.allocator.create(EditorEventHandler);
+    event_handler.* = .{
+        .mainview = self,
+        .editor_widget = editor.dynamic_cast(ed.EditorWidget) orelse @panic("dynamic_cast(ed.EditorWidget) failed"),
+    };
+    editor.subscribe(EventHandler.to_owned(event_handler)) catch @panic("subscribe unsupported");
     try self.replace_active_view(editor_widget);
     tui.resize();
 }
+
+const EditorEventHandler = struct {
+    mainview: *Self,
+    editor_widget: *ed.EditorWidget,
+
+    pub fn deinit(self: *@This()) void {
+        self.mainview.allocator.destroy(self);
+    }
+
+    pub fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
+        return handle_editor_event(self.mainview, &self.editor_widget.editor, m);
+    }
+};
 
 fn toggle_logview_async(_: *Self) void {
     tp.self_pid().send(.{ "cmd", "toggle_logview" }) catch return;
