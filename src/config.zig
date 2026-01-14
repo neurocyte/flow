@@ -47,7 +47,7 @@ bottom_bar: []const u8 = "mode file log selection diagnostics keybind branch lin
 show_scrollbars: bool = true,
 show_fileicons: bool = true,
 show_local_diagnostics_in_panel: bool = false,
-scrollbar_auto_hide: bool = false,
+scrollbar_auto_hide: bool = true,
 
 start_debugger_on_crash: bool = false,
 
