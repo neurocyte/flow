@@ -460,6 +460,7 @@ const cmds = struct {
         {
             self.closing_project = true;
             defer self.closing_project = false;
+            try close_splits(self, .{});
             try self.close_all_editors();
             self.delete_all_buffers();
             self.clear_find_in_files_results(.diagnostics);
