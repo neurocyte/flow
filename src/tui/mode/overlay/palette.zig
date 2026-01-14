@@ -29,6 +29,11 @@ pub const Placement = enum {
     primary_cursor,
 };
 
+pub const ActivateMode = enum {
+    normal,
+    alternate,
+};
+
 pub fn Create(options: type) type {
     return struct {
         allocator: std.mem.Allocator,
@@ -44,6 +49,7 @@ pub fn Create(options: type) type {
         initial_selected: ?usize = null,
         placement: Placement,
         quick_activate_enabled: bool = true,
+        activate: ActivateMode = .normal,
 
         items: usize = 0,
         view_rows: usize,
@@ -579,6 +585,12 @@ pub fn Create(options: type) type {
                 self.menu.activate_selected();
             }
             pub const palette_menu_activate_meta: Meta = .{};
+
+            pub fn palette_menu_activate_alternate(self: *Self, _: Ctx) Result {
+                self.activate = .alternate;
+                self.menu.activate_selected();
+            }
+            pub const palette_menu_activate_alternate_meta: Meta = .{};
 
             pub fn palette_menu_activate_quick(self: *Self, _: Ctx) Result {
                 if (!self.quick_activate_enabled) return;

@@ -1659,7 +1659,6 @@ const cmds = struct {
         self.rdr_.request_mouse_cursor_text(true);
     }
     pub const disable_jump_mode_meta: Meta = .{};
-
 };
 
 pub const MiniMode = struct {
@@ -2501,4 +2500,3 @@ pub fn jump_mode() bool {
     const self = current();
     return self.jump_mode_;
 }
-

@@ -63,7 +63,11 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &file_path) catch false)) return;
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    const cmd_ = switch (menu.*.opts.ctx.activate) {
+        .normal => "navigate",
+        .alternate => "navigate_split_vertical",
+    };
+    tp.self_pid().send(.{ "cmd", cmd_, .{ .file = file_path } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
 pub fn delete_item(menu: *Type.MenuType, button: *Type.ButtonType) bool {
