@@ -79,6 +79,7 @@ const default_actions = [_]IdleAction{};
 pub const IdleAction = enum {
     hover,
     highlight_references,
+    cancel,
 };
 
 pub const DigitStyle = enum {
