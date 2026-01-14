@@ -1579,6 +1579,16 @@ pub fn get_active_editor(self: *Self) ?*ed.Editor {
     return null;
 }
 
+const ForEachEditorFunc = fn (*ed.Editor) void;
+
+pub fn foreach_editor(self: *Self, func: ForEachEditorFunc) void {
+    for (self.views.widgets.items) |*view| {
+        const editor = view.widget.get("editor") orelse continue;
+        if (editor.dynamic_cast(ed.EditorWidget)) |p|
+            func(&p.editor);
+    }
+}
+
 pub fn get_editor_for_buffer(self: *Self, buffer: *Buffer) ?*ed.Editor {
     for (self.views.widgets.items) |*view| {
         const editor = view.widget.get("editor") orelse continue;
@@ -2018,6 +2028,5 @@ pub fn vcs_content_update(self: *Self, m: tp.message) void {
 
 pub fn trigger_characters_update(self: *Self, m: tp.message) void {
     self.lsp_info.add_from_event(m.buf) catch return;
-    const editor = self.get_active_editor() orelse return;
-    editor.update_completion_triggers();
+    self.foreach_editor(ed.Editor.update_completion_triggers);
 }
