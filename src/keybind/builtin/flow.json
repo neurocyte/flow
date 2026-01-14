@@ -255,13 +255,17 @@
             ["left_control", "enable_jump_mode"],
             ["right_control", "enable_jump_mode"],
             ["left_alt", "enable_fast_scroll"],
-            ["right_alt", "enable_fast_scroll"]
+            ["right_alt", "enable_fast_scroll"],
+            ["left_shift", "enable_alt_scroll"],
+            ["right_shift", "enable_alt_scroll"]
         ],
         "release": [
             ["left_control", "disable_jump_mode"],
             ["right_control", "disable_jump_mode"],
             ["left_alt", "disable_fast_scroll"],
-            ["right_alt", "disable_fast_scroll"]
+            ["right_alt", "disable_fast_scroll"],
+            ["left_shift", "disable_alt_scroll"],
+            ["right_shift", "disable_alt_scroll"]
         ]
     },
     "select": {
