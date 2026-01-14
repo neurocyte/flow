@@ -6941,6 +6941,7 @@ pub const EditorWidget = struct {
                 },
                 .highlight_references => self.idle_highlight_references(),
             };
+            return false;
         } else if (try m.match(.{ "whitespace_mode", tp.extract(&whitespace_mode) })) {
             self.editor.render_whitespace = whitespace_mode;
         } else {
