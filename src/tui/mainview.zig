@@ -937,7 +937,15 @@ const cmds = struct {
     pub fn close_split(self: *Self, _: Ctx) Result {
         if (self.views.widgets.items.len == 1 and self.views.widgets.items[0].widget.dynamic_cast(home) != null)
             return command.executeName("quit", .{});
-        return self.remove_active_view();
+        try self.remove_active_view();
+
+        if (self.closing_project) return;
+
+        const buffers = try self.buffer_manager.list_unordered(self.allocator);
+        defer self.allocator.free(buffers);
+        for (buffers) |buffer| if (buffer.get_last_view()) |view|
+            if (view >= self.views.widgets.items.len)
+                buffer.set_last_view(null);
     }
     pub const close_split_meta: Meta = .{ .description = "Close split view" };
 
