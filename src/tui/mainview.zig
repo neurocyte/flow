@@ -1484,10 +1484,14 @@ pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.re
 
     if (try m.match(.{ "E", "close" })) {
         if (!self.closing_project) {
-            if (self.get_next_mru_buffer(.non_hidden)) |file_path|
+            if (self.get_next_mru_buffer_same_view_only(.non_hidden)) |file_path|
                 self.show_file_async(file_path)
-            else
-                self.show_home_async();
+            else {
+                if (self.views.widgets.items.len == 1)
+                    self.show_home_async()
+                else
+                    tp.self_pid().send(.{ "cmd", "close_split", .{} }) catch return;
+            }
         } else self.show_home_async();
         return;
     }
@@ -1921,6 +1925,25 @@ fn send_buffer_did_open(allocator: std.mem.Allocator, buffer: *Buffer) !void {
     );
     if (!buffer.is_ephemeral())
         project_manager.request_vcs_id(buffer.get_file_path()) catch {};
+}
+
+fn get_next_mru_buffer_same_view_only(self: *Self, mode: enum { all, hidden, non_hidden }) ?[]const u8 {
+    const buffers = self.buffer_manager.list_most_recently_used(self.allocator) catch return null;
+    defer self.allocator.free(buffers);
+    const active_file_path = self.get_active_file_path();
+    for (buffers) |buffer| {
+        if (active_file_path) |fp| if (std.mem.eql(u8, fp, buffer.get_file_path()))
+            continue;
+        if (switch (mode) {
+            .all => false,
+            .hidden => !buffer.hidden,
+            .non_hidden => buffer.hidden,
+        }) continue;
+        if (buffer.get_last_view() != self.active_view)
+            continue;
+        return buffer.get_file_path();
+    }
+    return null;
 }
 
 fn get_next_mru_buffer(self: *Self, mode: enum { all, hidden, non_hidden }) ?[]const u8 {
