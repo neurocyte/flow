@@ -156,12 +156,15 @@ pub fn focus(self: *Self) void {
     self.commands.register() catch @panic("home.commands.register");
     self.focused = true;
     command.executeName("enter_mode", command.Context.fmt(.{"home"})) catch {};
+    if (self.menu.selected == null)
+        self.menu.select_down();
 }
 
 pub fn unfocus(self: *Self) void {
     if (self.focused) self.commands.unregister();
     self.focused = false;
     command.executeName("enter_mode_default", .{}) catch {};
+    self.menu.selected = null;
 }
 
 fn add_menu_command(self: *Self, command_name: []const u8, description: []const u8, hint: []const u8, menu: anytype) !void {
