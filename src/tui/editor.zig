@@ -1433,8 +1433,16 @@ pub const Editor = struct {
     fn render_diagnostic_message(self: *Self, message_: []const u8, y: usize, max_space: usize, style: Widget.Theme.Style) void {
         self.plane.set_style(style);
         var iter = std.mem.splitScalar(u8, message_, '\n');
-        if (iter.next()) |message|
-            _ = self.plane.print_aligned_right(@intCast(y), " • {s}", .{message[0..@min(max_space - 3, message.len)]}) catch {};
+        if (iter.next()) |message| {
+            switch (tui.config().inline_diagnostics_alignment) {
+                .right => _ = self.plane.print_aligned_right(@intCast(y), " • {s}", .{message[0..@min(max_space - 3, message.len)]}) catch {},
+                .left => {
+                    const width = self.plane.window.width;
+                    self.plane.cursor_move_yx(@intCast(y), @intCast(width -| max_space + 2));
+                    _ = self.plane.print(" • {s}", .{message}) catch 0;
+                },
+            }
+        }
     }
 
     inline fn render_diagnostic_cell(self: *Self, style: Widget.Theme.Style) void {

@@ -17,6 +17,7 @@ highlight_columns_alpha: u8 = 240,
 highlight_columns_enabled: bool = false,
 whitespace_mode: WhitespaceMode = .indent,
 inline_diagnostics: bool = true,
+inline_diagnostics_alignment: Alignment = .right,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 50, //milliseconds
 hover_time_ms: usize = 500, //milliseconds
@@ -179,4 +180,9 @@ pub const CompletionTrigger = enum {
 pub const CompletionStyle = enum {
     palette,
     dropdown,
+};
+
+pub const Alignment = enum {
+    left,
+    right,
 };
