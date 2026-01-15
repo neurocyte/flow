@@ -668,11 +668,13 @@ fn render(self: *Self) void {
         if (!self.frame_clock_running) {
             self.frame_clock.start() catch {};
             self.frame_clock_running = true;
+            tp.trace(tp.channel.widget, .{ "frame_clock_running", "started", more });
         }
     } else {
         if (self.frame_clock_running) {
             self.frame_clock.stop() catch {};
             self.frame_clock_running = false;
+            tp.trace(tp.channel.widget, .{ "frame_clock_running", "stopped", more });
         }
     }
 }
