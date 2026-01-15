@@ -879,7 +879,6 @@ fn send_hover_msg(widget: *const Widget, hover: bool) tp.result {
 pub fn refresh_hover(src: std.builtin.SourceLocation) void {
     const self = current();
     tp.trace(tp.channel.debug, .{ "tui", "refresh_hover", if (self.hover_focus) |h| @intFromPtr(h) else 0, src.fn_name, src.file, src.line });
-    self.clear_hover_focus(@src()) catch return;
     _ = self.update_hover(self.last_hover_y, self.last_hover_x) catch {};
 }
 
