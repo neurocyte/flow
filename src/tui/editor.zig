@@ -365,6 +365,7 @@ pub const Editor = struct {
     find_history: ?std.ArrayListUnmanaged([]const u8) = null,
     find_operation: ?enum { goto_next_match, goto_prev_match } = null,
     highlight_references_state: enum { adding, done } = .done,
+    highlight_references_pending: Match.List = .empty,
 
     prefix_buf: [8]u8 = undefined,
     prefix: []const u8 = &[_]u8{},
@@ -622,6 +623,7 @@ pub const Editor = struct {
         self.cancel_all_tabstops();
         self.cursels.deinit(self.allocator);
         self.matches.deinit(self.allocator);
+        self.highlight_references_pending.deinit(self.allocator);
         self.handlers.deinit();
         self.logger.deinit();
         if (self.buffer) |p| self.buffer_manager.retire(p, meta.written());
@@ -6239,7 +6241,7 @@ pub const Editor = struct {
     pub fn add_highlight_reference(self: *Self, match_: Match) void {
         if (self.highlight_references_state == .done) {
             self.highlight_references_state = .adding;
-            self.cancel_all_matches();
+            self.highlight_references_pending.clearRetainingCapacity();
         }
         self.match_type = .highlight_references;
         const root = self.buf_root() catch return;
@@ -6247,13 +6249,16 @@ pub const Editor = struct {
         match.begin.row -|= 1;
         match.end.row -|= 1;
         match = match.from_pos(root, self.metrics);
-        (self.matches.addOne(self.allocator) catch return).* = match;
-        self.need_render();
+        (self.highlight_references_pending.addOne(self.allocator) catch return).* = match;
     }
 
     pub fn done_highlight_reference(self: *Self) void {
+        self.cancel_all_matches();
+        for (self.highlight_references_pending.items) |match|
+            (self.matches.addOne(self.allocator) catch return).* = match;
         self.sort_matches();
         self.highlight_references_state = .done;
+        self.need_render();
     }
 
     pub fn add_diagnostic(
