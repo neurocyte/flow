@@ -718,7 +718,8 @@ fn dispatch_mouse(ctx: *anyopaque, y: c_int, x: c_int, cbor_msg: []const u8) voi
     self.update_mouse_idle_timer();
     const m: tp.message = .{ .buf = cbor_msg };
     const from = tp.self_pid();
-    self.unrendered_input_events_count += 1;
+    if (!(m.match(.{ "M", tp.more }) catch false))
+        self.unrendered_input_events_count += 1;
     const send_func = if (self.drag_source) |_| &send_mouse_drag else &send_mouse;
     send_func(self, y, x, from, m) catch |e| self.logger.err("dispatch mouse", e);
     var btn: input.MouseType = 0;
