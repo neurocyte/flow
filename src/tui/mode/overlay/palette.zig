@@ -635,7 +635,7 @@ pub fn Create(options: type) type {
                 tui.set_next_style(widget_type);
                 const padding = tui.get_widget_style(widget_type).padding;
                 self.do_resize(padding);
-                tui.need_render();
+                tui.need_render(@src());
                 try tui.save_config();
             }
             pub const overlay_next_widget_style_meta: Meta = .{};

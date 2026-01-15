@@ -605,7 +605,7 @@ const cmds = struct {
             if (view == null)
                 try command.executeName("scroll_view_center", .{});
         }
-        tui.need_render();
+        tui.need_render(@src());
         self.location_update_from_editor();
     }
 
@@ -613,7 +613,7 @@ const cmds = struct {
         tui.reset_drag_context();
         try self.create_editor();
         try command.executeName("open_scratch_buffer", command.fmt(.{ "help", @embedFile("help.md"), "markdown" }));
-        tui.need_render();
+        tui.need_render(@src());
         self.location_update_from_editor();
     }
     pub const open_help_meta: Meta = .{ .description = "Open help" };
@@ -622,7 +622,7 @@ const cmds = struct {
         tui.reset_drag_context();
         try self.create_editor();
         try command.executeName("open_scratch_buffer", command.fmt(.{ "font test", @import("fonts.zig").font_test_text, "text" }));
-        tui.need_render();
+        tui.need_render(@src());
         self.location_update_from_editor();
     }
     pub const open_font_test_text_meta: Meta = .{ .description = "Open font glyph test text" };
@@ -631,7 +631,7 @@ const cmds = struct {
         tui.reset_drag_context();
         try self.create_editor();
         try command.executeName("open_scratch_buffer", command.fmt(.{ "version", root.version_info, "gitcommit" }));
-        tui.need_render();
+        tui.need_render(@src());
         self.location_update_from_editor();
     }
     pub const open_version_info_meta: Meta = .{ .description = "Version" };
@@ -726,7 +726,7 @@ const cmds = struct {
         tui.reset_drag_context();
         try self.create_editor();
         try command.executeName("open_scratch_buffer", .{ .args = args });
-        tui.need_render();
+        tui.need_render(@src());
         self.location_update_from_editor();
     }
     pub const create_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
@@ -807,7 +807,7 @@ const cmds = struct {
                 new_buffer.mark_dirty();
                 new_editor.clamp();
                 new_editor.update_buf(new_buffer.root) catch {};
-                tui.need_render();
+                tui.need_render(@src());
             }
             try command.executeName("save_file", .{});
             try command.executeName("place_next_tab", command.fmt(.{
@@ -836,7 +836,7 @@ const cmds = struct {
         const logger = log.logger("buffer");
         defer logger.deinit();
         logger.print("deleted buffer {s}", .{file_path});
-        tui.need_render();
+        tui.need_render(@src());
     }
     pub const delete_buffer_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -852,13 +852,13 @@ const cmds = struct {
             return;
         }
         _ = self.buffer_manager.close_buffer(buffer);
-        tui.need_render();
+        tui.need_render(@src());
     }
     pub const close_buffer_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn restore_session(self: *Self, _: Ctx) Result {
         try self.read_restore_info();
-        tui.need_render();
+        tui.need_render(@src());
     }
     pub const restore_session_meta: Meta = .{};
 
@@ -1117,7 +1117,7 @@ const cmds = struct {
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
             self.symbols_complete = true;
             try tui.open_overlay(@import("mode/overlay/symbol_palette.zig").Type);
-            tui.need_render();
+            tui.need_render(@src());
         };
     }
     pub const add_document_symbol_done_meta: Meta = .{
@@ -1181,7 +1181,7 @@ const cmds = struct {
                     .palette => try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type),
                     .dropdown => try tui.open_overlay(@import("mode/overlay/completion_dropdown.zig").Type),
                 }
-                tui.need_render();
+                tui.need_render(@src());
             }
         };
     }
@@ -1383,7 +1383,7 @@ const cmds = struct {
         const buffer = self.buffer_manager.buffer_from_ref(buffer_ref) orelse return;
         if (self.get_editor_for_buffer(buffer)) |editor| if (editor.buffer) |eb| if (eb == buffer) {
             editor.smart_buffer_append(command.fmt(.{output})) catch {};
-            tui.need_render();
+            tui.need_render(@src());
             return;
         };
         var cursor: Buffer.Cursor = .{};
@@ -1393,7 +1393,7 @@ const cmds = struct {
         _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, output, self.allocator, metrics);
         buffer.store_undo(&[_]u8{}) catch {};
         buffer.update(root_);
-        tui.need_render();
+        tui.need_render(@src());
     }
     pub const shell_execute_stream_output_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
@@ -1407,7 +1407,7 @@ const cmds = struct {
             return;
         }
         buffer.mark_clean();
-        tui.need_render();
+        tui.need_render(@src());
     }
     pub const shell_execute_stream_output_complete_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
@@ -2074,12 +2074,12 @@ pub fn set_info_content(self: *Self, content: []const u8, mode: enum { replace, 
         .replace => info.set_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
         .append => info.append_content(content) catch |e| return tp.exit_error(e, @errorReturnTrace()),
     }
-    tui.need_render();
+    tui.need_render(@src());
 }
 
 pub fn cancel_info_content(self: *Self) tp.result {
     _ = self.toggle_panel_view(info_view, .disable) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    tui.need_render();
+    tui.need_render(@src());
 }
 
 pub fn vcs_id_update(self: *Self, m: tp.message) void {

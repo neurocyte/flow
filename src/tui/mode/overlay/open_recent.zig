@@ -273,7 +273,7 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
             self.menu.select_down();
             self.need_select_first = false;
         }
-        tui.need_render();
+        tui.need_render(@src());
     } else if (try cbor.match(m.buf, .{
         "PRJ",
         "recent",
@@ -291,7 +291,7 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
             self.menu.select_down();
             self.need_select_first = false;
         }
-        tui.need_render();
+        tui.need_render(@src());
     } else if (try cbor.match(m.buf, .{ "PRJ", "recent_done", tp.extract(&self.longest), tp.extract(&query), tp.extract(&self.total_files_in_project) })) {
         self.update_count_hint();
         self.query_pending = false;
@@ -492,7 +492,7 @@ const cmds = struct {
     pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
         tui.set_next_style(widget_type);
         self.do_resize();
-        tui.need_render();
+        tui.need_render(@src());
         try tui.save_config();
     }
     pub const overlay_next_widget_style_meta: Meta = .{};

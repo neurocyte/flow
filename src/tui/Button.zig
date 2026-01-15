@@ -123,7 +123,7 @@ fn State(ctx_type: type) type {
                     input.mouse.BUTTON1 => {
                         self.active = true;
                         self.drag_anchor = self.to_rel_cursor(x, y);
-                        tui.need_render();
+                        tui.need_render(@src());
                     },
                     input.mouse.BUTTON4, input.mouse.BUTTON5 => {
                         self.call_click_handler(btn_enum, self.to_rel_cursor(x, y));
@@ -136,7 +136,7 @@ fn State(ctx_type: type) type {
                 self.drag_anchor = null;
                 self.drag_pos = null;
                 self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
-                tui.need_render();
+                tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.any, tp.any })) {
                 self.drag_pos = .{ .x = x, .y = y };
@@ -153,11 +153,11 @@ fn State(ctx_type: type) type {
                 self.drag_anchor = null;
                 self.drag_pos = null;
                 self.call_click_handler(@enumFromInt(btn), self.to_rel_cursor(x, y));
-                tui.need_render();
+                tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
                 tui.rdr().request_mouse_cursor_pointer(self.hover);
-                tui.need_render();
+                tui.need_render(@src());
                 return true;
             }
             self.drag_anchor = null;

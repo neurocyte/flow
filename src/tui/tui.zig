@@ -407,7 +407,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         };
         try self.dispatch_flush_input_event();
         if (self.unrendered_input_events_count > 0 and !self.frame_clock_running)
-            need_render();
+            need_render(@src());
         return;
     }
 
@@ -1613,21 +1613,21 @@ const cmds = struct {
 
     pub fn panel_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.panel);
-        need_render();
+        need_render(@src());
         try save_config();
     }
     pub const panel_next_widget_style_meta: Meta = .{};
 
     pub fn hint_window_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.hint_window);
-        need_render();
+        need_render(@src());
         try save_config();
     }
     pub const hint_window_next_widget_style_meta: Meta = .{};
 
     pub fn dropdown_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.dropdown);
-        need_render();
+        need_render(@src());
         try save_config();
     }
     pub const dropdown_next_widget_style_meta: Meta = .{};
@@ -1803,9 +1803,10 @@ fn maybe_reset_drag_source(self: *Self, btn: input.MouseType) void {
     self.drag_button = 0;
 }
 
-pub fn need_render() void {
+pub fn need_render(src: std.builtin.SourceLocation) void {
     const self = current();
     if (!(self.render_pending or self.frame_clock_running)) {
+        tp.trace(tp.channel.debug, .{ "tui", "need_render", src.fn_name, src.file, src.line });
         self.render_pending = true;
         tp.self_pid().send(.{"render"}) catch {};
     }
@@ -1819,7 +1820,7 @@ pub fn frames_rendered() usize {
 pub fn resize() void {
     mainview_widget().resize(screen());
     refresh_hover();
-    need_render();
+    need_render(@src());
 }
 
 pub fn plane() renderer.Plane {

@@ -188,7 +188,7 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
             self.menu.select_down();
             self.need_select_first = false;
         }
-        tui.need_render();
+        tui.need_render(@src());
     } else if (try cbor.match(m.buf, .{
         "PRJ",
         "new_or_modified_files",
@@ -207,7 +207,7 @@ fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void 
             self.menu.select_down();
             self.need_select_first = false;
         }
-        tui.need_render();
+        tui.need_render(@src());
     } else if (try cbor.match(m.buf, .{ "PRJ", "new_or_modified_files_done", tp.extract(&self.longest), tp.extract(&query) })) {
         self.query_pending = false;
         self.need_reset = true;
@@ -369,7 +369,7 @@ const cmds = struct {
     pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
         tui.set_next_style(widget_type);
         self.do_resize();
-        tui.need_render();
+        tui.need_render(@src());
         try tui.save_config();
     }
     pub const overlay_next_widget_style_meta: Meta = .{};

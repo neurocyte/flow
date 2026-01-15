@@ -170,7 +170,7 @@ pub fn dynamic_cast(self: Self, comptime T: type) ?*T {
 }
 
 pub fn need_render() void {
-    tui.need_render();
+    tui.need_render(@src());
 }
 
 pub fn need_reflow() void {

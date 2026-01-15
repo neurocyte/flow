@@ -95,7 +95,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
 fn receive_tick(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
     if (try cbor.match(m.buf, .{"CLOCK"})) {
-        tui.need_render();
+        tui.need_render(@src());
         self.update_tick_timer(.ticked);
         return true;
     }

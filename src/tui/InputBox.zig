@@ -132,21 +132,21 @@ pub fn State(ctx_type: type) type {
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
             if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.active = true;
-                tui.need_render();
+                tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ "B", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.opts.on_click(self.opts.ctx, self);
                 self.active = false;
-                tui.need_render();
+                tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ "D", input.event.release, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
                 self.opts.on_click(self.opts.ctx, self);
                 self.active = false;
-                tui.need_render();
+                tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
                 tui.rdr().request_mouse_cursor_pointer(self.hover);
-                tui.need_render();
+                tui.need_render(@src());
                 return true;
             }
             return false;

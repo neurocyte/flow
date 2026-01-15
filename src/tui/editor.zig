@@ -6934,7 +6934,7 @@ pub const EditorWidget = struct {
                     return;
                 } else {
                     self.editor.cancel_all_matches();
-                    tui.need_render();
+                    tui.need_render(@src());
                 }
             },
             .none => {},

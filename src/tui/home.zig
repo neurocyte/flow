@@ -209,7 +209,7 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var hover: bool = false;
     if (try m.match(.{ "H", tp.extract(&hover) })) {
         tui.rdr().request_mouse_cursor_default(hover);
-        tui.need_render();
+        tui.need_render(@src());
         return true;
     }
     if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.more }) or
@@ -453,7 +453,7 @@ const cmds = struct {
         const padding = tui.get_widget_style(widget_type).padding;
         self.menu_len = self.menu_count + padding.top + padding.bottom;
         self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
-        tui.need_render();
+        tui.need_render(@src());
         try tui.save_config();
     }
     pub const home_next_widget_style_meta: Meta = .{};

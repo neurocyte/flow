@@ -179,7 +179,7 @@ pub fn Create(options: type) type {
             } else {
                 log.logger("file_browser").err("receive", tp.unexpected(m));
             }
-            tui.need_render();
+            tui.need_render(@src());
         }
 
         fn add_entry(self: *Self, file_name: []const u8, entry_type: EntryType, file_type: []const u8, icon: []const u8, color: u24) !void {
