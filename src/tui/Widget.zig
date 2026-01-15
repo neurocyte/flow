@@ -203,7 +203,10 @@ pub fn update(self: Self) void {
 }
 
 pub fn render(self: Self, theme: *const Theme) bool {
-    return self.vtable.render(self.ptr, theme);
+    const more = self.vtable.render(self.ptr, theme);
+    if (more)
+        tp.trace(tp.channel.widget, .{ "continue_by", self.vtable.type_name });
+    return more;
 }
 
 pub fn resize(self: Self, pos: Box) void {
