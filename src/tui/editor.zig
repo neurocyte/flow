@@ -1257,61 +1257,57 @@ pub const Editor = struct {
         if (tui.config().inline_diagnostics)
             self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
         self.render_column_highlights() catch {};
-        if (focused)
-            self.render_cursors(theme, ctx_.cell_map) catch {};
+        self.render_cursors(theme, ctx_.cell_map, focused) catch {};
     }
 
-    fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
+    fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
-        if (tui.config().enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor)
+        if (focused and tui.config().enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor)
             tui.rdr().clear_all_multi_cursors() catch {};
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel| {
             const cursor = cursel.cursor;
-            try self.render_cursor_secondary(&cursor, theme, cell_map);
+            try self.render_cursor_secondary(&cursor, theme, cell_map, focused);
         };
         const cursor = self.get_primary().cursor;
-        try self.render_cursor_primary(&cursor, theme, cell_map);
+        try self.render_cursor_primary(&cursor, theme, cell_map, focused);
     }
 
-    fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap) !void {
-        if (!tui.is_mainview_focused() or !self.enable_terminal_cursor) {
-            if (self.screen_cursor(cursor)) |pos| {
-                set_cell_map_cursor(cell_map, pos.row, pos.col);
+    fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
+        if (self.screen_cursor(cursor)) |pos| {
+            set_cell_map_cursor(cell_map, pos.row, pos.col);
+            if (!focused or !tui.is_mainview_focused() or !self.enable_terminal_cursor) {
                 self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
-                const style = if (tui.is_mainview_focused()) theme.editor_cursor else theme.editor_cursor_secondary;
+                const style = if (focused and tui.is_mainview_focused()) theme.editor_cursor else theme.editor_cursor_secondary;
                 self.render_cursor_cell(style);
-            }
-        } else {
-            const configured_shape = tui.get_cursor_shape();
-            const cursor_shape = if (tui.rdr().vx.caps.multi_cursor)
-                configured_shape
-            else if (self.cursels.items.len > 1) switch (configured_shape) {
-                .beam => .block,
-                .beam_blink => .block_blink,
-                .underline => .block,
-                .underline_blink => .block_blink,
-                else => configured_shape,
-            } else configured_shape;
-            if (self.screen_cursor(cursor)) |pos| {
-                set_cell_map_cursor(cell_map, pos.row, pos.col);
+            } else {
+                const configured_shape = tui.get_cursor_shape();
+                const cursor_shape = if (tui.rdr().vx.caps.multi_cursor)
+                    configured_shape
+                else if (self.cursels.items.len > 1) switch (configured_shape) {
+                    .beam => .block,
+                    .beam_blink => .block_blink,
+                    .underline => .block,
+                    .underline_blink => .block_blink,
+                    else => configured_shape,
+                } else configured_shape;
                 const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
                 tui.rdr().cursor_enable(y, x, cursor_shape) catch {};
-            } else {
-                tui.rdr().cursor_enable(-1, -1, cursor_shape) catch {};
             }
+        } else {
+            tui.rdr().cursor_enable(-1, -1, .default) catch {};
         }
     }
 
-    fn render_cursor_secondary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap) !void {
+    fn render_cursor_secondary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
         if (self.screen_cursor(cursor)) |pos| {
             set_cell_map_cursor(cell_map, pos.row, pos.col);
-            if (tui.config().enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor) {
-                const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
-                tui.rdr().show_multi_cursor_yx(y, x) catch return;
-            } else {
+            if (!focused or !tui.is_mainview_focused() or !self.enable_terminal_cursor or !tui.rdr().vx.caps.multi_cursor) {
                 self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
                 self.render_cursor_cell(theme.editor_cursor_secondary);
+            } else {
+                const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
+                tui.rdr().show_multi_cursor_yx(y, x) catch return;
             }
         }
     }
