@@ -1283,22 +1283,22 @@ pub const Editor = struct {
                 self.render_cursor_cell(style);
             }
         } else {
+            const configured_shape = tui.get_cursor_shape();
+            const cursor_shape = if (tui.rdr().vx.caps.multi_cursor)
+                configured_shape
+            else if (self.cursels.items.len > 1) switch (configured_shape) {
+                .beam => .block,
+                .beam_blink => .block_blink,
+                .underline => .block,
+                .underline_blink => .block_blink,
+                else => configured_shape,
+            } else configured_shape;
             if (self.screen_cursor(cursor)) |pos| {
                 set_cell_map_cursor(cell_map, pos.row, pos.col);
                 const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
-                const configured_shape = tui.get_cursor_shape();
-                const cursor_shape = if (tui.rdr().vx.caps.multi_cursor)
-                    configured_shape
-                else if (self.cursels.items.len > 1) switch (configured_shape) {
-                    .beam => .block,
-                    .beam_blink => .block_blink,
-                    .underline => .block,
-                    .underline_blink => .block_blink,
-                    else => configured_shape,
-                } else configured_shape;
                 tui.rdr().cursor_enable(y, x, cursor_shape) catch {};
             } else {
-                tui.rdr().cursor_disable();
+                tui.rdr().cursor_enable(-1, -1, cursor_shape) catch {};
             }
         }
     }
