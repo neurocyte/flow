@@ -55,7 +55,7 @@ pub const VTable = struct {
     walk: *const fn (ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn, self_widget: *Self) bool,
     focus: *const fn (ctx: *anyopaque) void,
     unfocus: *const fn (ctx: *anyopaque) void,
-    hover: *const fn (ctx: *anyopaque) bool,
+    hover: *const fn (ctx: *const anyopaque) bool,
     type_name: []const u8,
 };
 
@@ -154,8 +154,8 @@ pub fn to(pimpl: anytype) Self {
                 }
             }.unfocus,
             .hover = struct {
-                pub fn hover(ctx: *anyopaque) bool {
-                    return if (comptime @hasField(child, "hover")) @as(*child, @ptrCast(@alignCast(ctx))).hover else false;
+                pub fn hover(ctx: *const anyopaque) bool {
+                    return if (comptime @hasField(child, "hover")) @as(*const child, @ptrCast(@alignCast(ctx))).hover else false;
                 }
             }.hover,
         },
@@ -245,7 +245,7 @@ pub fn unfocus(self: *Self) void {
     self.vtable.unfocus(self.ptr);
 }
 
-pub fn hover(self: *Self) bool {
+pub fn hover(self: *const Self) bool {
     return self.vtable.hover(self.ptr);
 }
 
@@ -316,7 +316,7 @@ pub fn empty(allocator: Allocator, parent: Plane, layout_: Layout) !Self {
                 pub fn unfocus(_: *anyopaque) void {}
             }.unfocus,
             .hover = struct {
-                pub fn hover(_: *anyopaque) bool {
+                pub fn hover(_: *const anyopaque) bool {
                     return false;
                 }
             }.hover,
