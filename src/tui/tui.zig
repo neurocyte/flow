@@ -1775,9 +1775,10 @@ pub fn get_keybind_mode() ?Mode {
     return self.input_mode_ orelse self.delayed_init_input_mode;
 }
 
-pub fn update_drag_source(drag_source: *Widget) void {
+pub fn update_drag_source(drag_source: *Widget, btn: input.MouseType) void {
     const self = current();
     self.drag_source = drag_source;
+    self.drag_button = btn;
 }
 
 fn set_drag_source(self: *Self, drag_source: ?*Widget, btn: input.MouseType) void {
