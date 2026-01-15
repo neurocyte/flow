@@ -1274,6 +1274,16 @@ pub const Editor = struct {
     }
 
     fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
+        const configured_shape = tui.get_cursor_shape();
+        const cursor_shape = if (tui.rdr().vx.caps.multi_cursor)
+            configured_shape
+        else if (self.cursels.items.len > 1) switch (configured_shape) {
+            .beam => .block,
+            .beam_blink => .block_blink,
+            .underline => .block,
+            .underline_blink => .block_blink,
+            else => configured_shape,
+        } else configured_shape;
         if (self.screen_cursor(cursor)) |pos| {
             set_cell_map_cursor(cell_map, pos.row, pos.col);
             if (!focused or !tui.is_mainview_focused() or !self.enable_terminal_cursor) {
@@ -1281,21 +1291,15 @@ pub const Editor = struct {
                 const style = if (focused and tui.is_mainview_focused()) theme.editor_cursor else theme.editor_cursor_secondary;
                 self.render_cursor_cell(style);
             } else {
-                const configured_shape = tui.get_cursor_shape();
-                const cursor_shape = if (tui.rdr().vx.caps.multi_cursor)
-                    configured_shape
-                else if (self.cursels.items.len > 1) switch (configured_shape) {
-                    .beam => .block,
-                    .beam_blink => .block_blink,
-                    .underline => .block,
-                    .underline_blink => .block_blink,
-                    else => configured_shape,
-                } else configured_shape;
                 const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
+                tui.rdr().set_terminal_cursor_color(theme.editor_cursor.bg.?);
                 tui.rdr().cursor_enable(y, x, cursor_shape) catch {};
             }
         } else {
-            tui.rdr().cursor_enable(-1, -1, .default) catch {};
+            if (self.enable_terminal_cursor) {
+                tui.rdr().set_terminal_cursor_color(theme.statusbar.bg.?);
+                tui.rdr().cursor_enable(-1, -1, cursor_shape) catch {};
+            }
         }
     }
 

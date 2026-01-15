@@ -562,8 +562,8 @@ pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
 }
 
 pub fn cursor_enable(self: *Self, y_: c_int, x_: c_int, shape: CursorShape) !void {
-    const y: u16 = if (y_ < 0) self.vx.screen.height + 1 else @intCast(y_);
-    const x: u16 = if (x_ < 0) self.vx.screen.width + 1 else @intCast(x_);
+    const y: u16 = if (y_ < 0) 9999 else @intCast(y_);
+    const x: u16 = if (x_ < 0) 9999 else @intCast(x_);
     self.vx.screen.cursor_vis = true;
     self.vx.screen.cursor_row = y;
     self.vx.screen.cursor_col = x;
