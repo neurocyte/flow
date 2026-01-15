@@ -2892,7 +2892,7 @@ pub const Editor = struct {
         cursor.row, cursor.col, root_ = try root_.insert_chars(cursor.row, cursor.col, s, allocator, self.metrics);
         cursor.target = cursor.col;
         self.nudge_insert(.{ .begin = begin, .end = cursor.* }, cursel, s.len);
-        if (s.len == 1) self.run_triggers(cursel, s[0], .insert);
+        if (s.len > 0) self.run_triggers(cursel, s[s.len - 1], .insert);
         return root_;
     }
 
