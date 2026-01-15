@@ -3,6 +3,7 @@ const build_options = @import("build_options");
 const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
+const input = @import("input");
 const builtin = @import("builtin");
 
 const Plane = @import("renderer").Plane;
@@ -208,6 +209,13 @@ pub fn receive(_: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         tui.need_render();
         return true;
     }
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.more }) or
+        try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON2), tp.more }) or
+        try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON3), tp.more }))
+        return switch (tui.set_focus_by_mouse_event()) {
+            .changed, .same => true,
+            .notfound => false,
+        };
     return false;
 }
 
@@ -281,6 +289,7 @@ fn menu_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, 
 }
 
 fn menu_action(_: **Menu.State(*Self), button: *ButtonType, _: Widget.Pos) void {
+    _ = tui.set_focus_by_mouse_event();
     var description: []const u8 = undefined;
     var hint: []const u8 = undefined;
     var command_name: []const u8 = undefined;
