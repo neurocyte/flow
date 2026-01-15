@@ -6243,7 +6243,6 @@ pub const Editor = struct {
             self.highlight_references_state = .adding;
             self.highlight_references_pending.clearRetainingCapacity();
         }
-        self.match_type = .highlight_references;
         const root = self.buf_root() catch return;
         var match = match_;
         match.begin.row -|= 1;
@@ -6254,11 +6253,13 @@ pub const Editor = struct {
 
     pub fn done_highlight_reference(self: *Self) void {
         self.cancel_all_matches();
+        self.match_type = .highlight_references;
         for (self.highlight_references_pending.items) |match|
             (self.matches.addOne(self.allocator) catch return).* = match;
-        self.sort_matches();
+        self.highlight_references_pending.clearRetainingCapacity();
         self.highlight_references_state = .done;
-        self.need_render();
+        self.sort_matches();
+        tui.need_render(@src());
     }
 
     pub fn add_diagnostic(
@@ -6923,7 +6924,16 @@ pub const EditorWidget = struct {
                 .hover => {
                     try self.editor.hover(.{});
                 },
-                .highlight_references => self.idle_highlight_references(),
+                .highlight_references => {
+                    const primary = self.editor.get_primary();
+                    switch (self.editor.match_type) {
+                        .find, .auto_find => {},
+                        .highlight_references, .none => {
+                            if (self.editor.cursels.items.len == 1 and primary.selection == null)
+                                self.editor.highlight_references(.{}) catch {};
+                        },
+                    }
+                },
             };
             return false;
         } else if (try m.match(.{ "whitespace_mode", tp.extract(&whitespace_mode) })) {
@@ -6932,24 +6942,6 @@ pub const EditorWidget = struct {
             return false;
         }
         return true;
-    }
-
-    fn idle_highlight_references(self: *Self) void {
-        const primary = self.editor.get_primary();
-        switch (self.editor.match_type) {
-            .find, .auto_find => return,
-            .highlight_references => {
-                if (self.editor.match_at_cursor(primary.cursor)) |_| {
-                    return;
-                } else {
-                    self.editor.cancel_all_matches();
-                    tui.need_render(@src());
-                }
-            },
-            .none => {},
-        }
-        if (self.editor.cursels.items.len == 1 and primary.selection == null)
-            self.editor.highlight_references(.{}) catch return;
     }
 
     fn update_hover_timer(self: *Self, event: enum { init, fired, cancel }) void {

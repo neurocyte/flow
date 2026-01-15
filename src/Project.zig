@@ -1142,7 +1142,7 @@ pub fn highlight_references(self: *Self, from: tp.pid_ref, file_path: []const u8
         pub fn receive(self_: @This(), response: tp.message) !void {
             var highlights: []const u8 = undefined;
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
-                return;
+                self_.from.send(.{ "HREF", self_.file_path, "done" }) catch {};
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&highlights) })) {
                 _ = try send_highlight_list(self_.from.ref(), highlights, self_.file_path);
             }
