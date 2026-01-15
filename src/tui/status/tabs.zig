@@ -234,7 +234,11 @@ pub const TabBar = struct {
     fn update_tabs(self: *Self, drag_source: ?*Widget) !void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffers_changed = try self.update_tab_buffers();
-        if (!buffers_changed and self.widget_list.widgets.items.len > 0) return;
+        const dragging = for (self.tabs) |*tab| {
+            if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
+                if (btn.drag_pos) |_| break true;
+        } else false;
+        if (!dragging and !buffers_changed and self.widget_list.widgets.items.len > 0) return;
         var prev_widget_count: usize = 0;
         for (self.widget_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split| {
             prev_widget_count += 1;
