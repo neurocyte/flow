@@ -1786,6 +1786,11 @@ fn set_drag_source(self: *Self, drag_source: ?*Widget, btn: input.MouseType) voi
     self.drag_button = btn;
 }
 
+pub fn get_drag_source() struct { ?*Widget, input.MouseType } {
+    const self = current();
+    return .{ self.drag_source, self.drag_button };
+}
+
 pub fn reset_drag_context() void {
     const self = current();
     self.drag_source = null;
