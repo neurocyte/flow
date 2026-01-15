@@ -159,7 +159,8 @@ pub const TabBar = struct {
         });
         self.plane.fill(" ");
         self.plane.home();
-        return self.widget_list_widget.render(theme);
+        for (self.tabs) |*tab| _ = tab.widget.render(theme);
+        return false;
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
