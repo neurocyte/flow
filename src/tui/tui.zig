@@ -655,6 +655,7 @@ fn render(self: *Self) void {
         defer frame.deinit();
         self.rdr_.render() catch |e| self.logger.err("render", e);
         tracy.frameMark();
+        self.unrendered_input_events_count = 0;
     }
     self.top_layer_reset();
 
@@ -664,7 +665,6 @@ fn render(self: *Self) void {
         self.idle_frame_count + 1;
 
     if (more or self.idle_frame_count < idle_frames or self.no_sleep) {
-        self.unrendered_input_events_count = 0;
         if (!self.frame_clock_running) {
             self.frame_clock.start() catch {};
             self.frame_clock_running = true;
