@@ -104,6 +104,7 @@ pub const TabBar = struct {
     const TabBarTab = struct {
         buffer_ref: usize,
         widget: Widget,
+        view: ?usize,
     };
 
     fn init(allocator: std.mem.Allocator, parent: Plane, event_handler: ?EventHandler, min_tabs: ?usize) !Self {
@@ -138,9 +139,14 @@ pub const TabBar = struct {
     }
 
     pub fn update(self: *Self) void {
-        self.update_tabs() catch {};
+        const drag_source, const drag_btn = tui.get_drag_source();
+        self.update_tabs(drag_source) catch {};
         self.widget_list_widget.resize(Widget.Box.from(self.plane));
         self.widget_list_widget.update();
+        for (self.widget_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split|
+            for (split.widgets.items) |*widgetstate| if (widgetstate.widget.dynamic_cast(Tab.ButtonType)) |btn| if (btn.drag_pos) |_|
+                tui.update_drag_source(&widgetstate.widget, drag_btn);
+        tui.refresh_hover(@src());
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -200,14 +206,9 @@ pub const TabBar = struct {
                     if (btn.hover) break idx;
             } else return;
             if (dragging != hover_) {
-                const tmp = self.tabs[dragging];
-                self.tabs[dragging] = self.tabs[hover_];
-                self.tabs[hover_] = tmp;
+                self.swap_tabs_by_index(dragging, hover_);
                 if (self.tabs[dragging].widget.dynamic_cast(Tab.ButtonType)) |btn| btn.hover = false;
                 self.update();
-                for (self.widget_list.widgets.items) |*widgetstate| if (widgetstate.widget.dynamic_cast(Tab.ButtonType)) |btn| if (btn.drag_pos) |_|
-                    tui.update_drag_source(&widgetstate.widget, 0);
-                tui.refresh_hover(@src());
             }
         }
     }
@@ -229,23 +230,49 @@ pub const TabBar = struct {
         return self.widget_list_widget.hover();
     }
 
-    fn update_tabs(self: *Self) !void {
+    fn update_tabs(self: *Self, drag_source: ?*Widget) !void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         try self.update_tab_buffers();
-        const prev_widget_count = self.widget_list.widgets.items.len;
-        while (self.widget_list.pop()) |widget| if (widget.dynamic_cast(Tab.ButtonType) == null)
-            widget.deinit(self.widget_list.allocator);
-        var first = true;
-        for (self.tabs) |tab| {
-            if (first) {
-                first = false;
-            } else {
-                try self.widget_list.add(try self.make_spacer());
-            }
-            try self.widget_list.add(tab.widget);
-            if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn| {
-                if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer|
-                    try btn.update_label(Tab.name_from_buffer(buffer));
+        var prev_widget_count: usize = 0;
+        for (self.widget_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split| {
+            prev_widget_count += 1;
+            for (split.widgets.items) |_| prev_widget_count += 1;
+        };
+
+        for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split| {
+            for (split.widgets.items) |*widget|
+                if (&widget.widget == drag_source) tui.reset_drag_context();
+        };
+        while (self.widget_list.pop()) |split_widget| if (split_widget.dynamic_cast(WidgetList)) |split| {
+            while (split.pop()) |widget| if (widget.dynamic_cast(Tab.ButtonType) == null)
+                widget.deinit(self.widget_list.allocator);
+            split.deinit(self.widget_list.allocator);
+        };
+
+        var max_view: usize = 0;
+        for (self.tabs) |tab| max_view = @max(max_view, tab.view orelse 0);
+
+        var widget_count: usize = 0;
+        for (0..max_view + 1) |view| {
+            var first = true;
+            var view_widget_list = try WidgetList.createH(self.allocator, self.widget_list.plane, "split", .dynamic);
+            try self.widget_list.add(view_widget_list.widget());
+            widget_count += 1;
+            for (self.tabs) |tab| {
+                const tab_view = tab.view orelse 0;
+                if (tab_view != view) continue;
+                if (first) {
+                    first = false;
+                } else {
+                    try view_widget_list.add(try self.make_spacer(view_widget_list.plane));
+                    widget_count += 1;
+                }
+                try view_widget_list.add(tab.widget);
+                widget_count += 1;
+                if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn| {
+                    if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer|
+                        try btn.update_label(Tab.name_from_buffer(buffer));
+                }
             }
         }
         if (prev_widget_count != self.widget_list.widgets.items.len)
@@ -295,14 +322,14 @@ pub const TabBar = struct {
             else
                 try result.addOne(self.allocator),
         };
-        pos.* = .{ .buffer_ref = buffer_ref, .widget = tab };
+        pos.* = .{ .buffer_ref = buffer_ref, .widget = tab, .view = buffer.get_last_view() };
         self.place_next = .atend;
     }
 
-    fn make_spacer(self: @This()) !Widget {
+    fn make_spacer(self: @This(), parent: Plane) !Widget {
         return spacer.create(
             self.allocator,
-            self.widget_list.plane,
+            parent,
             self.tab_style.spacer,
             self.tab_style.spacer_fg,
             self.tab_style.spacer_bg,
@@ -371,9 +398,23 @@ pub const TabBar = struct {
             tp.trace(tp.channel.debug, .{ "swap_tabs", "not_found", "buffer_ref_b" });
             return;
         };
+        self.swap_tabs_by_index(tab_a_idx, tab_b_idx);
+    }
+
+    fn swap_tabs_by_index(self: *Self, tab_a_idx: usize, tab_b_idx: usize) void {
         const tmp = self.tabs[tab_a_idx];
         self.tabs[tab_a_idx] = self.tabs[tab_b_idx];
         self.tabs[tab_b_idx] = tmp;
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        if (buffer_manager.buffer_from_ref(self.tabs[tab_a_idx].buffer_ref)) |buffer_a|
+            if (buffer_manager.buffer_from_ref(self.tabs[tab_b_idx].buffer_ref)) |buffer_b| {
+                const view_a = buffer_a.get_last_view();
+                const view_b = buffer_b.get_last_view();
+                if (view_a != view_b) {
+                    buffer_a.set_last_view(view_b);
+                    buffer_b.set_last_view(view_a);
+                }
+            };
         tp.trace(tp.channel.debug, .{ "swap_tabs", "swapped", "indexes", tab_a_idx, tab_b_idx });
     }
 
@@ -417,21 +458,27 @@ pub const TabBar = struct {
         while (count > 0) : (count -= 1) {
             var buffer_name: ?[]const u8 = undefined;
             if (!(cbor.matchValue(&iter2, cbor.extract(&buffer_name)) catch false)) return error.MatchTabBufferNameFailed;
-            if (buffer_name) |name| if (name_to_ref(name)) |buffer_ref| {
-                (try result.addOne(self.allocator)).* = .{
-                    .buffer_ref = buffer_ref,
-                    .widget = try Tab.create(self, buffer_ref, &self.tab_style),
-                };
-            };
+            if (buffer_name) |name| {
+                const buffer_ref_, const buffer_view = name_to_ref_and_view(name);
+                if (buffer_ref_) |buffer_ref|
+                    (try result.addOne(self.allocator)).* = .{
+                        .buffer_ref = buffer_ref,
+                        .widget = try Tab.create(self, buffer_ref, &self.tab_style),
+                        .view = buffer_view,
+                    };
+            }
         }
 
         self.tabs = try result.toOwnedSlice(self.allocator);
         iter.* = iter2;
     }
 
-    fn name_to_ref(buffer_name: []const u8) ?usize {
+    fn name_to_ref_and_view(buffer_name: []const u8) struct { ?usize, ?usize } {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        return if (buffer_manager.get_buffer_for_file(buffer_name)) |buffer| buffer_manager.buffer_to_ref(buffer) else null;
+        return if (buffer_manager.get_buffer_for_file(buffer_name)) |buffer|
+            .{ buffer_manager.buffer_to_ref(buffer), buffer.get_last_view() }
+        else
+            .{ null, null };
     }
 };
 
