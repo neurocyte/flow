@@ -349,7 +349,7 @@ pub fn Create(options: type) type {
                     self.menu.select_down();
                 const padding = tui.get_widget_style(widget_type).padding;
                 self.do_resize(padding);
-                tui.refresh_hover();
+                tui.refresh_hover(@src());
                 self.selection_updated();
             }
         }

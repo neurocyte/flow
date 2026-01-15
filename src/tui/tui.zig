@@ -556,7 +556,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{"MOUSE_IDLE"})) {
         if (self.mouse_idle_timer) |*t| t.deinit();
         self.mouse_idle_timer = null;
-        try self.clear_hover_focus();
+        try self.clear_hover_focus(@src());
         return;
     }
 
@@ -851,32 +851,35 @@ fn update_hover(self: *Self, y: c_int, x: c_int) !?*Widget {
     self.last_hover_x = x;
     if (y >= 0 and x >= 0) if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
         if (if (self.hover_focus) |h| h != w else true) {
-            var buf: [256]u8 = undefined;
-            if (self.hover_focus) |h| {
-                if (self.is_live_widget_ptr(h))
-                    _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
-            }
+            tp.trace(tp.channel.debug, .{ "update_hover", if (self.hover_focus) |h| @intFromPtr(h) else 0, @intFromPtr(w) });
+            if (self.hover_focus) |h| if (self.is_live_widget_ptr(h))
+                try send_hover_msg(h, false);
             self.hover_focus = w;
-            _ = try w.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", true }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
+            try send_hover_msg(w, true);
         }
         return w;
     };
-    try self.clear_hover_focus();
+    try self.clear_hover_focus(@src());
     return null;
 }
 
-fn clear_hover_focus(self: *Self) tp.result {
-    if (self.hover_focus) |h| {
-        var buf: [256]u8 = undefined;
-        if (self.is_live_widget_ptr(h))
-            _ = try h.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", false }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
-    }
+fn clear_hover_focus(self: *Self, src: std.builtin.SourceLocation) tp.result {
+    if (self.hover_focus) |h| if (self.is_live_widget_ptr(h))
+        try send_hover_msg(h, false);
+    tp.trace(tp.channel.debug, .{ "tui", "clear_hover_focus", if (self.hover_focus) |h| @intFromPtr(h) else 0, src.fn_name, src.file, src.line });
     self.hover_focus = null;
 }
 
-pub fn refresh_hover() void {
+fn send_hover_msg(widget: *const Widget, hover: bool) tp.result {
+    var buf: [256]u8 = undefined;
+    tp.trace(tp.channel.debug, .{ "hover_msg", @intFromPtr(widget), hover });
+    _ = try widget.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", hover }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
+}
+
+pub fn refresh_hover(src: std.builtin.SourceLocation) void {
     const self = current();
-    self.clear_hover_focus() catch return;
+    tp.trace(tp.channel.debug, .{ "tui", "refresh_hover", if (self.hover_focus) |h| @intFromPtr(h) else 0, src.fn_name, src.file, src.line });
+    self.clear_hover_focus(@src()) catch return;
     _ = self.update_hover(self.last_hover_y, self.last_hover_x) catch {};
 }
 
@@ -900,7 +903,7 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
     self.input_mode_outer_ = self.input_mode_;
     self.input_mode_ = new_mode;
     if (self.input_mode_) |*m| m.run_init();
-    refresh_hover();
+    refresh_hover(@src());
 }
 
 fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) command.Result {
@@ -912,7 +915,7 @@ fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) c
     self.input_mode_outer_ = self.input_mode_;
     self.input_mode_ = try mode.create_with_args(self.allocator, ctx);
     if (self.input_mode_) |*m| m.run_init();
-    refresh_hover();
+    refresh_hover(@src());
 }
 
 fn get_input_mode(self: *Self, mode_name: []const u8) !Mode {
@@ -1388,7 +1391,7 @@ const cmds = struct {
         if (self.input_mode_) |*mode| mode.deinit();
         self.input_mode_ = self.input_mode_outer_;
         self.input_mode_outer_ = null;
-        refresh_hover();
+        refresh_hover(@src());
     }
     pub const exit_overlay_mode_meta: Meta = .{};
 
@@ -1821,7 +1824,7 @@ pub fn frames_rendered() usize {
 
 pub fn resize() void {
     mainview_widget().resize(screen());
-    refresh_hover();
+    refresh_hover(@src());
     need_render(@src());
 }
 

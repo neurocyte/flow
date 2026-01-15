@@ -206,8 +206,8 @@ pub const TabBar = struct {
                 if (self.tabs[dragging].widget.dynamic_cast(Tab.ButtonType)) |btn| btn.hover = false;
                 self.update();
                 for (self.widget_list.widgets.items) |*widgetstate| if (widgetstate.widget.dynamic_cast(Tab.ButtonType)) |btn| if (btn.drag_pos) |_|
-                    tui.update_drag_source(&widgetstate.widget);
-                tui.refresh_hover();
+                    tui.update_drag_source(&widgetstate.widget, 0);
+                tui.refresh_hover(@src());
             }
         }
     }
@@ -249,7 +249,7 @@ pub const TabBar = struct {
             }
         }
         if (prev_widget_count != self.widget_list.widgets.items.len)
-            tui.refresh_hover();
+            tui.refresh_hover(@src());
     }
 
     fn update_tab_buffers(self: *Self) !void {
