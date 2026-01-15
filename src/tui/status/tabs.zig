@@ -232,7 +232,7 @@ pub const TabBar = struct {
 
     fn update_tabs(self: *Self, drag_source: ?*Widget) !void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        try self.update_tab_buffers();
+        if (!try self.update_tab_buffers()) return;
         var prev_widget_count: usize = 0;
         for (self.widget_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split| {
             prev_widget_count += 1;
@@ -275,11 +275,11 @@ pub const TabBar = struct {
                 }
             }
         }
-        if (prev_widget_count != self.widget_list.widgets.items.len)
+        if (prev_widget_count != widget_count)
             tui.refresh_hover(@src());
     }
 
-    fn update_tab_buffers(self: *Self) !void {
+    fn update_tab_buffers(self: *Self) !bool {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffers = try buffer_manager.list_unordered(self.allocator);
         defer self.allocator.free(buffers);
@@ -305,6 +305,16 @@ pub const TabBar = struct {
         }
 
         self.tabs = try result.toOwnedSlice(self.allocator);
+
+        if (existing_tabs.len != self.tabs.len)
+            return true;
+        for (existing_tabs, self.tabs) |tab_a, tab_b| {
+            if (tab_a.buffer_ref == tab_b.buffer_ref and
+                tab_a.view == tab_b.view)
+                continue;
+            return true;
+        }
+        return false;
     }
 
     fn place_new_tab(self: *Self, result: *std.ArrayListUnmanaged(TabBarTab), buffer: *Buffer) !void {
