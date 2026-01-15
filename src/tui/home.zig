@@ -384,8 +384,7 @@ fn position_menu(self: *Self, y: usize, x: usize) void {
 fn center(self: *Self, non_centered: usize, w: usize) usize {
     if (!self.home_style.centered) return non_centered;
     const box = Widget.Box.from(self.plane);
-    const x = if (box.w > w) (box.w - w) / 2 else 0;
-    return box.x + x;
+    return if (box.w > w) (box.w - w) / 2 else 0;
 }
 
 fn centerI(self: *Self, non_centered: usize, w: usize) c_int {
@@ -396,7 +395,7 @@ fn v_center(self: *Self, non_centered: usize, h: usize, minoffset: usize) usize 
     if (!self.home_style.centered) return non_centered;
     const box = Widget.Box.from(self.plane);
     const y = if (box.h > h) (box.h - h) / 2 else 0;
-    return box.y + @max(y, minoffset);
+    return @max(y, minoffset);
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
