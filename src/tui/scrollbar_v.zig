@@ -65,6 +65,7 @@ pub fn handle_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     var y: i32 = undefined;
     var ypx: i32 = undefined;
+    const old_hover = self.hover;
 
     if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.extract(&y), tp.any, tp.extract(&ypx) })) {
         self.active = true;
@@ -86,6 +87,8 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         self.active = false;
         return true;
     } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
+        if (old_hover != self.hover)
+            tui.need_render(@src());
         return true;
     }
 
