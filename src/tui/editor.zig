@@ -4663,15 +4663,22 @@ pub const Editor = struct {
             node = try cursel.select_parent_node(node, root, metrics);
     }
 
-    pub fn expand_selection(self: *Self, _: Context) Result {
-        try self.send_editor_jump_source();
-        const root = try self.buf_root();
-        const cursel = self.get_primary();
+    fn expand_selection_cursel(self: *Self, root: Buffer.Root, cursel: *CurSel, _: Allocator) error{Stop}!Buffer.Root {
         cursel.check_selection(root, self.metrics);
         try if (cursel.selection) |_|
-            self.expand_selection_to_parent_node(root, cursel, self.metrics)
+            self.expand_selection_to_parent_node(root, cursel, self.metrics) catch |e| switch (e) {
+                error.NotFound => error.Stop,
+                else => |e_| e_,
+            }
         else
             cursel.select_node(try self.top_node_at_cursel(cursel, root, self.metrics), root, self.metrics);
+        return root;
+    }
+
+    pub fn expand_selection(self: *Self, ctx: Context) Result {
+        try self.send_editor_jump_source();
+        const root = try self.buf_root();
+        _ = try self.with_cursels_mut_repeat(root, &expand_selection_cursel, try self.buf_a(), ctx);
         self.clamp();
         try self.send_editor_jump_destination();
     }
@@ -4695,19 +4702,32 @@ pub const Editor = struct {
         return cursel.select_node(child, root, metrics);
     }
 
+    fn shrink_selection_cursel_unnamed(self: *Self, root: Buffer.Root, cursel: *CurSel, _: Allocator) error{Stop}!Buffer.Root {
+        if (cursel.selection) |_|
+            try self.shrink_selection_to_child_node(root, cursel, self.metrics)
+        else
+            cursel.select_node(try self.top_node_at_cursel(cursel, root, self.metrics), root, self.metrics);
+        return root;
+    }
+
+    fn shrink_selection_cursel(self: *Self, root: Buffer.Root, cursel: *CurSel, _: Allocator) error{Stop}!Buffer.Root {
+        if (cursel.selection) |_|
+            try self.shrink_selection_to_named_child_node(root, cursel, self.metrics)
+        else
+            cursel.select_node(try self.top_node_at_cursel(cursel, root, self.metrics), root, self.metrics);
+        return root;
+    }
+
     pub fn shrink_selection(self: *Self, ctx: Context) Result {
         var unnamed: bool = false;
         _ = ctx.args.match(.{tp.extract(&unnamed)}) catch false;
+
         try self.send_editor_jump_source();
         const root = try self.buf_root();
-        const cursel = self.get_primary();
-        cursel.check_selection(root, self.metrics);
-        if (cursel.selection) |_| {
-            try if (unnamed)
-                self.shrink_selection_to_child_node(root, cursel, self.metrics)
-            else
-                self.shrink_selection_to_named_child_node(root, cursel, self.metrics);
-        } else cursel.select_node(try self.top_node_at_cursel(cursel, root, self.metrics), root, self.metrics);
+        _ = if (unnamed)
+            try self.with_cursels_mut_repeat(root, &shrink_selection_cursel_unnamed, try self.buf_a(), .{})
+        else
+            try self.with_cursels_mut_repeat(root, &shrink_selection_cursel, try self.buf_a(), ctx);
         self.clamp();
         try self.send_editor_jump_destination();
     }
