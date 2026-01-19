@@ -1470,17 +1470,6 @@ const cmds = struct {
     }
     pub const move_tab_previous_meta: Meta = .{ .description = "Move tab to previous position" };
 
-    pub fn swap_tabs(self: *Self, ctx: Ctx) Result {
-        var buffer_ref_a: usize = undefined;
-        var buffer_ref_b: usize = undefined;
-        if (!try ctx.args.match(.{
-            tp.extract(&buffer_ref_a),
-            tp.extract(&buffer_ref_b),
-        })) return error.InvalidSwapTabsArgument;
-        _ = try self.widgets_widget.msg(.{ "swap_tabs", buffer_ref_a, buffer_ref_b });
-    }
-    pub const swap_tabs_meta: Meta = .{ .arguments = &.{ .integer, .integer } };
-
     pub fn place_next_tab(self: *Self, ctx: Ctx) Result {
         var pos: enum { before, after } = undefined;
         var buffer_ref: usize = undefined;

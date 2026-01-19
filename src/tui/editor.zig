@@ -5419,6 +5419,10 @@ pub const Editor = struct {
     }
     pub const save_file_without_formatting_meta: Meta = .{ .description = "Save file without formatting" };
 
+    pub fn close_editor(self: *Self) Result {
+        return self.close();
+    }
+
     pub fn close_file(self: *Self, _: Context) Result {
         const buffer_ = self.buffer;
         if (buffer_) |buffer| if (buffer.is_dirty())

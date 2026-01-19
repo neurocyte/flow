@@ -166,8 +166,7 @@ pub const TabBar = struct {
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         var file_path: []const u8 = undefined;
-        var buffer_ref_a: usize = undefined;
-        var buffer_ref_b: usize = undefined;
+        var buffer_ref: usize = undefined;
         if (try m.match(.{"next_tab"})) {
             self.select_next_tab();
         } else if (try m.match(.{"previous_tab"})) {
@@ -176,12 +175,10 @@ pub const TabBar = struct {
             self.move_tab_next();
         } else if (try m.match(.{"move_tab_previous"})) {
             self.move_tab_previous();
-        } else if (try m.match(.{ "swap_tabs", tp.extract(&buffer_ref_a), tp.extract(&buffer_ref_b) })) {
-            self.swap_tabs(buffer_ref_a, buffer_ref_b);
-        } else if (try m.match(.{ "place_next_tab", "after", tp.extract(&buffer_ref_a) })) {
-            self.place_next_tab(.after, buffer_ref_a);
-        } else if (try m.match(.{ "place_next_tab", "before", tp.extract(&buffer_ref_a) })) {
-            self.place_next_tab(.before, buffer_ref_a);
+        } else if (try m.match(.{ "place_next_tab", "after", tp.extract(&buffer_ref) })) {
+            self.place_next_tab(.after, buffer_ref);
+        } else if (try m.match(.{ "place_next_tab", "before", tp.extract(&buffer_ref) })) {
+            self.place_next_tab(.before, buffer_ref);
         } else if (try m.match(.{ "place_next_tab", "atend" })) {
             self.place_next = .atend;
         } else if (try m.match(.{ "E", "open", tp.extract(&file_path), tp.more })) {
@@ -207,7 +204,7 @@ pub const TabBar = struct {
                     if (btn.hover) break idx;
             } else return;
             if (dragging != hover_) {
-                self.swap_tabs_by_index(dragging, hover_);
+                self.move_tab_to(hover_, dragging);
                 if (self.tabs[dragging].widget.dynamic_cast(Tab.ButtonType)) |btn| btn.hover = false;
                 self.update();
             }
@@ -232,13 +229,17 @@ pub const TabBar = struct {
     }
 
     fn update_tabs(self: *Self, drag_source: ?*Widget) !void {
-        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffers_changed = try self.update_tab_buffers();
         const dragging = for (self.tabs) |*tab| {
             if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
                 if (btn.drag_pos) |_| break true;
         } else false;
         if (!dragging and !buffers_changed and self.widget_list.widgets.items.len > 0) return;
+        try self.update_tab_widgets(drag_source);
+    }
+
+    fn update_tab_widgets(self: *Self, drag_source: ?*Widget) !void {
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         var prev_widget_count: usize = 0;
         for (self.widget_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split| {
             prev_widget_count += 1;
@@ -295,10 +296,11 @@ pub const TabBar = struct {
         errdefer result.deinit(self.allocator);
 
         // add existing tabs in original order if they still exist
-        outer: for (existing_tabs) |existing_tab|
+        outer: for (existing_tabs) |*existing_tab|
             for (buffers) |buffer| if (existing_tab.buffer_ref == buffer_manager.buffer_to_ref(buffer)) {
+                existing_tab.view = buffer.get_last_view();
                 if (!buffer.hidden)
-                    (try result.addOne(self.allocator)).* = existing_tab;
+                    (try result.addOne(self.allocator)).* = existing_tab.*;
                 continue :outer;
             };
 
@@ -353,85 +355,90 @@ pub const TabBar = struct {
         );
     }
 
+    fn find_buffer_tab(self: *Self, buffer_ref: usize) ?usize {
+        for (self.tabs, 0..) |*tab, idx|
+            if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
+                if (btn.opts.ctx.buffer_ref == buffer_ref) return idx;
+        return null;
+    }
+
+    fn find_next_tab_buffer(self: *Self) ?usize {
+        var found_active: bool = false;
+        for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
+            for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
+                if (found_active)
+                    return btn.opts.ctx.buffer_ref;
+                if (btn.opts.ctx.buffer_ref == self.active_buffer_ref)
+                    found_active = true;
+            };
+        return null;
+    }
+
+    fn find_previous_tab_buffer(self: *Self) ?usize {
+        var previous: ?usize = null;
+        for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
+            for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
+                if (btn.opts.ctx.buffer_ref == self.active_buffer_ref)
+                    return previous;
+                previous = btn.opts.ctx.buffer_ref;
+            };
+        return null;
+    }
+
     fn select_next_tab(self: *Self) void {
         tp.trace(tp.channel.debug, .{"select_next_tab"});
-        var activate_next = false;
-        var first: ?*const TabBarTab = null;
-        for (self.tabs) |*tab| {
-            if (first == null)
-                first = tab;
-            if (activate_next)
-                return navigate_to_tab(tab);
-            if (tab.buffer_ref == self.active_buffer_ref)
-                activate_next = true;
-        }
-        if (first) |tab|
-            navigate_to_tab(tab);
+        const buffer_ref = self.find_next_tab_buffer() orelse return;
+        navigate_to_buffer(buffer_ref);
     }
 
     fn select_previous_tab(self: *Self) void {
         tp.trace(tp.channel.debug, .{"select_previous_tab"});
-        var goto: ?*const TabBarTab = if (self.tabs.len > 0) &self.tabs[self.tabs.len - 1] else null;
-        for (self.tabs) |*tab| {
-            if (tab.buffer_ref == self.active_buffer_ref)
-                break;
-            goto = tab;
-        }
-        if (goto) |tab| navigate_to_tab(tab);
+        const buffer_ref = self.find_previous_tab_buffer() orelse return;
+        navigate_to_buffer(buffer_ref);
     }
 
     fn move_tab_next(self: *Self) void {
         tp.trace(tp.channel.debug, .{"move_tab_next"});
-        for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == self.active_buffer_ref and idx < self.tabs.len - 1) {
-            const tmp = self.tabs[idx + 1];
-            self.tabs[idx + 1] = self.tabs[idx];
-            self.tabs[idx] = tmp;
-            break;
-        };
+        const this_idx = self.find_buffer_tab(self.active_buffer_ref orelse return) orelse return;
+        const other_buffer_ref = self.find_next_tab_buffer() orelse return;
+        const other_idx = self.find_buffer_tab(other_buffer_ref) orelse return;
+        self.move_tab_to(other_idx, this_idx);
     }
 
     fn move_tab_previous(self: *Self) void {
         tp.trace(tp.channel.debug, .{"move_tab_previous"});
-        for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == self.active_buffer_ref and idx > 0) {
-            const tmp = self.tabs[idx - 1];
-            self.tabs[idx - 1] = self.tabs[idx];
-            self.tabs[idx] = tmp;
-            break;
-        };
+        const this_idx = self.find_buffer_tab(self.active_buffer_ref orelse return) orelse return;
+        const other_buffer_ref = self.find_previous_tab_buffer() orelse return;
+        const other_idx = self.find_buffer_tab(other_buffer_ref) orelse return;
+        self.move_tab_to(other_idx, this_idx);
     }
 
-    fn swap_tabs(self: *Self, buffer_ref_a: usize, buffer_ref_b: usize) void {
-        tp.trace(tp.channel.debug, .{ "swap_tabs", "buffers", buffer_ref_a, buffer_ref_b });
-        if (buffer_ref_a == buffer_ref_b) {
-            tp.trace(tp.channel.debug, .{ "swap_tabs", "same_buffer" });
-            return;
-        }
-        const tab_a_idx = for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == buffer_ref_a) break idx else continue else {
-            tp.trace(tp.channel.debug, .{ "swap_tabs", "not_found", "buffer_ref_a" });
-            return;
-        };
-        const tab_b_idx = for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == buffer_ref_b) break idx else continue else {
-            tp.trace(tp.channel.debug, .{ "swap_tabs", "not_found", "buffer_ref_b" });
-            return;
-        };
-        self.swap_tabs_by_index(tab_a_idx, tab_b_idx);
-    }
-
-    fn swap_tabs_by_index(self: *Self, tab_a_idx: usize, tab_b_idx: usize) void {
-        const tmp = self.tabs[tab_a_idx];
-        self.tabs[tab_a_idx] = self.tabs[tab_b_idx];
-        self.tabs[tab_b_idx] = tmp;
+    fn move_tab_to(self: *Self, dst_idx: usize, src_idx: usize) void {
+        if (dst_idx == src_idx) return;
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        if (buffer_manager.buffer_from_ref(self.tabs[tab_a_idx].buffer_ref)) |buffer_a|
-            if (buffer_manager.buffer_from_ref(self.tabs[tab_b_idx].buffer_ref)) |buffer_b| {
-                const view_a = buffer_a.get_last_view();
-                const view_b = buffer_b.get_last_view();
-                if (view_a != view_b) {
-                    buffer_a.set_last_view(view_b);
-                    buffer_b.set_last_view(view_a);
-                }
-            };
-        tp.trace(tp.channel.debug, .{ "swap_tabs", "swapped", "indexes", tab_a_idx, tab_b_idx });
+        const mv = tui.mainview() orelse return;
+
+        var tabs: std.ArrayListUnmanaged(TabBarTab) = .fromOwnedSlice(self.tabs);
+        defer self.tabs = tabs.toOwnedSlice(self.allocator) catch @panic("OOM move_tab_to");
+
+        const old_view = tabs.items[src_idx].view;
+        const new_view = tabs.items[dst_idx].view;
+
+        var src_tab = tabs.orderedRemove(src_idx);
+        src_tab.view = new_view;
+
+        tabs.insert(self.allocator, dst_idx, src_tab) catch @panic("OOM move_tab_to");
+
+        if (new_view != old_view) blk: {
+            const buffer = buffer_manager.buffer_from_ref(src_tab.buffer_ref) orelse break :blk;
+            buffer.set_last_view(new_view);
+            if (mv.get_editor_for_buffer(buffer)) |editor|
+                editor.close_editor() catch {};
+            if (src_tab.buffer_ref == self.active_buffer_ref)
+                navigate_to_buffer(src_tab.buffer_ref);
+        }
+        const drag_source, _ = tui.get_drag_source();
+        self.update_tab_widgets(drag_source) catch {};
     }
 
     fn place_next_tab(self: *Self, position: enum { before, after }, buffer_ref: usize) void {
@@ -447,8 +454,12 @@ pub const TabBar = struct {
     }
 
     fn navigate_to_tab(tab: *const TabBarTab) void {
+        return navigate_to_buffer(tab.buffer_ref);
+    }
+
+    fn navigate_to_buffer(buffer_ref: usize) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer|
+        if (buffer_manager.buffer_from_ref(buffer_ref)) |buffer|
             tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.get_file_path() } }) catch {};
     }
 
