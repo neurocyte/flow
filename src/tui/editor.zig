@@ -1298,7 +1298,7 @@ pub const Editor = struct {
                 tui.rdr().cursor_enable(y, x, cursor_shape) catch {};
             }
         } else {
-            if (self.enable_terminal_cursor) {
+            if (focused and self.enable_terminal_cursor) {
                 tui.rdr().set_terminal_cursor_color(theme.statusbar.bg.?);
                 tui.rdr().cursor_enable(-1, -1, cursor_shape) catch {};
             }
