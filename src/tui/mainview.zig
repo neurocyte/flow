@@ -1496,7 +1496,8 @@ pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.re
 
     if (try m.match(.{ "E", "close" })) {
         if (!self.closing_project) {
-            if (self.get_next_mru_buffer_for_view(self.active_view, .non_hidden)) |file_path|
+            const view = self.get_view_for_editor(editor) orelse return;
+            if (self.get_next_mru_buffer_for_view(view, .non_hidden)) |file_path|
                 self.show_file_async(file_path)
             else {
                 if (self.views.widgets.items.len == 1)
@@ -1599,8 +1600,13 @@ pub fn get_view_count(self: *const Self) usize {
 }
 
 pub fn get_active_editor(self: *Self) ?*ed.Editor {
-    const active_view = self.views.get_at(self.active_view) orelse return null;
-    const editor = active_view.get("editor") orelse return null;
+    return self.get_editor_for_view(self.active_view);
+}
+
+pub fn get_editor_for_view(self: *Self, view_idx: usize) ?*ed.Editor {
+    if (view_idx >= self.get_view_count()) return null;
+    const view = self.views.get_at(view_idx) orelse return null;
+    const editor = view.get("editor") orelse return null;
     if (editor.dynamic_cast(ed.EditorWidget)) |p| {
         return &p.editor;
     }
@@ -1646,6 +1652,16 @@ pub fn get_view_for_file(self: *Self, file_path: []const u8) ?usize {
     }
     if (self.buffer_manager.get_buffer_for_file(file_path)) |buffer|
         return buffer.get_last_view();
+    return null;
+}
+
+pub fn get_view_for_editor(self: *Self, editor: *ed.Editor) ?usize {
+    for (self.views.widgets.items, 0..) |*view, n| {
+        const widget = view.widget.get("editor") orelse continue;
+        if (widget.dynamic_cast(ed.EditorWidget)) |p|
+            if (&p.editor == editor)
+                return n;
+    }
     return null;
 }
 
