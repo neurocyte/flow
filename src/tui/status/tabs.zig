@@ -222,12 +222,28 @@ pub const TabBar = struct {
             const hover_ = for (self.tabs, 0..) |*tab, idx| {
                 if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
                     if (btn.hover) break idx;
-            } else return;
+            } else return self.handle_event_drop_target(dragging);
             if (dragging != hover_) {
                 self.move_tab_to(hover_, dragging);
                 if (self.tabs[dragging].widget.dynamic_cast(Tab.ButtonType)) |btn| btn.hover = false;
                 self.update();
             }
+        }
+    }
+
+    fn handle_event_drop_target(self: *Self, dragging: usize) tp.result {
+        var hover_view: ?usize = null;
+        for (self.widget_list.widgets.items, 0..) |*split_widgetstate, idx|
+            if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split| {
+                for (split.widgets.items) |*widgetstate|
+                    if (widgetstate.widget.dynamic_cast(drop_target.ButtonType)) |btn| {
+                        if (btn.hover)
+                            hover_view = idx;
+                    };
+            };
+        if (hover_view) |view| {
+            self.move_tab_to_view(view, dragging);
+            self.update();
         }
     }
 
@@ -303,6 +319,7 @@ pub const TabBar = struct {
                     }
                 }
             }
+            try view_widget_list.add(try self.make_drop_target(view));
         }
         if (prev_widget_count != widget_count)
             tui.refresh_hover(@src());
@@ -375,6 +392,10 @@ pub const TabBar = struct {
             self.tab_style.spacer_bg,
             null,
         );
+    }
+
+    fn make_drop_target(self: *@This(), view: usize) !Widget {
+        return drop_target.create(self, view);
     }
 
     fn find_buffer_tab(self: *Self, buffer_ref: usize) ?usize {
@@ -474,6 +495,37 @@ pub const TabBar = struct {
             if (mv.get_editor_for_buffer(buf)) |editor|
                 editor.close_editor() catch {};
         };
+
+        const drag_source, _ = tui.get_drag_source();
+        self.update_tab_widgets(drag_source) catch {};
+        if (active)
+            navigate_to_buffer(src_tab.buffer_ref);
+    }
+
+    fn move_tab_to_view(self: *Self, new_view: usize, src_idx: usize) void {
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        const mv = tui.mainview() orelse return;
+
+        var tabs: std.ArrayListUnmanaged(TabBarTab) = .fromOwnedSlice(self.tabs);
+        defer self.tabs = tabs.toOwnedSlice(self.allocator) catch @panic("OOM move_tab_to_view");
+
+        const old_view = tabs.items[src_idx].view;
+
+        if (new_view == old_view) return;
+        var src_tab = &tabs.items[src_idx];
+        src_tab.view = new_view;
+        const src_buffer_ref = src_tab.buffer_ref;
+
+        tabs.append(self.allocator, tabs.orderedRemove(src_idx)) catch @panic("OOM move_tab_to_view");
+
+        const buffer = buffer_manager.buffer_from_ref(src_buffer_ref);
+        const active = if (buffer) |buf| if (mv.get_editor_for_buffer(buf)) |_| true else false else false;
+
+        if (buffer) |buf| {
+            buf.set_last_view(new_view);
+            if (mv.get_editor_for_buffer(buf)) |editor|
+                editor.close_editor() catch {};
+        }
 
         const drag_source, _ = tui.get_drag_source();
         self.update_tab_widgets(drag_source) catch {};
@@ -915,6 +967,39 @@ const Tab = struct {
         try cbor.writeValue(writer, self.ephemeral);
         try cbor.writeValue(writer, self.meta);
         try cbor.writeValue(writer, self.file_type_name);
+    }
+};
+
+const drop_target = struct {
+    tabbar: *TabBar,
+    view: usize,
+    on_event: ?EventHandler = null,
+
+    const ButtonType = Button.Options(@This()).ButtonType;
+
+    fn create(
+        tabbar: *TabBar,
+        view: usize,
+    ) !Widget {
+        return Button.create_widget(@This(), tabbar.allocator, tabbar.widget_list.plane, .{
+            .ctx = .{ .tabbar = tabbar, .view = view },
+            .label = &.{},
+            .on_layout = @This().layout,
+            .on_render = @This().render,
+            .on_event = EventHandler.bind(tabbar, TabBar.handle_event),
+            .cursor = .default,
+        });
+    }
+
+    fn render(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
+        _ = self;
+        _ = btn;
+        _ = theme;
+        return false;
+    }
+
+    fn layout(_: *@This(), _: *ButtonType) Widget.Layout {
+        return .dynamic;
     }
 };
 
