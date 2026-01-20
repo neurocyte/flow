@@ -966,6 +966,23 @@ const cmds = struct {
     }
     pub const close_split_meta: Meta = .{ .description = "Close split view" };
 
+    pub fn close_view(self: *Self, ctx: Ctx) Result {
+        var view: usize = undefined;
+        if (!try ctx.args.match(.{tp.extract(&view)})) return error.InvalidCloseViewArgument;
+
+        if (view >= self.views.widgets.items.len) return;
+        self.remove_view(view) catch return;
+
+        const buffers = self.buffer_manager.list_unordered(self.allocator) catch @panic("OOM close_view");
+        defer self.allocator.free(buffers);
+        for (buffers) |buffer| if (buffer.get_last_view()) |buffer_view|
+            if (buffer_view >= view)
+                buffer.set_last_view(buffer_view - 1);
+
+        _ = self.widgets_widget.msg(.{"splits_updated"}) catch {};
+    }
+    pub const close_view_meta: Meta = .{ .arguments = &.{.integer} };
+
     pub fn close_splits(self: *Self, _: Ctx) Result {
         while (self.views.widgets.items.len > 1)
             try self.remove_view(1);
@@ -1524,11 +1541,8 @@ pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.re
                 self.show_file_async(file_path)
             else if (self.views.widgets.items.len == 1)
                 self.show_home_async()
-            else {
-                tp.self_pid().send(.{ "cmd", "close_split", .{} }) catch return;
-                if (self.get_next_mru_buffer(.non_hidden)) |file_path|
-                    self.show_file_async(file_path);
-            }
+            else
+                tp.self_pid().send(.{ "cmd", "close_view", .{view} }) catch return;
         } else self.show_home_async();
         return;
     }
