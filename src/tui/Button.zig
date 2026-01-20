@@ -13,6 +13,7 @@ pub fn Options(context: type) type {
         label: []const u8 = "button",
         pos: Widget.Box = .{ .y = 0, .x = 0, .w = 8, .h = 1 },
         ctx: Context,
+        cursor: tui.renderer.MouseCursorShape = .pointer,
 
         on_click: ClickHandler = do_nothing,
         on_click2: ClickHandler = do_nothing,
@@ -156,7 +157,7 @@ fn State(ctx_type: type) type {
                 tui.need_render(@src());
                 return true;
             } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
-                tui.rdr().request_mouse_cursor_pointer(self.hover);
+                tui.rdr().request_mouse_cursor(self.opts.cursor, self.hover);
                 tui.need_render(@src());
                 return true;
             }
