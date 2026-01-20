@@ -511,25 +511,26 @@ pub const TabBar = struct {
 
         const old_view = tabs.items[src_idx].view;
 
-        if (new_view == old_view) return;
         var src_tab = &tabs.items[src_idx];
-        src_tab.view = new_view;
         const src_buffer_ref = src_tab.buffer_ref;
+        src_tab.view = new_view;
 
         tabs.append(self.allocator, tabs.orderedRemove(src_idx)) catch @panic("OOM move_tab_to_view");
 
         const buffer = buffer_manager.buffer_from_ref(src_buffer_ref);
         const active = if (buffer) |buf| if (mv.get_editor_for_buffer(buf)) |_| true else false else false;
 
-        if (buffer) |buf| {
-            buf.set_last_view(new_view);
-            if (mv.get_editor_for_buffer(buf)) |editor|
-                editor.close_editor() catch {};
+        if (new_view != old_view) {
+            if (buffer) |buf| {
+                buf.set_last_view(new_view);
+                if (mv.get_editor_for_buffer(buf)) |editor|
+                    editor.close_editor() catch {};
+            }
         }
 
         const drag_source, _ = tui.get_drag_source();
         self.update_tab_widgets(drag_source) catch {};
-        if (active)
+        if (active and new_view != old_view)
             navigate_to_buffer(src_tab.buffer_ref);
     }
 
