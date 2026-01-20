@@ -1515,14 +1515,19 @@ pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.re
 
     if (try m.match(.{ "E", "close" })) {
         if (!self.closing_project) {
-            const view = self.get_view_for_editor(editor) orelse return;
+            const view = self.get_view_for_editor(editor) orelse {
+                if (self.get_next_mru_buffer(.non_hidden)) |file_path|
+                    self.show_file_async(file_path);
+                return;
+            };
             if (self.get_next_mru_buffer_for_view(view, .non_hidden)) |file_path|
                 self.show_file_async(file_path)
+            else if (self.views.widgets.items.len == 1)
+                self.show_home_async()
             else {
-                if (self.views.widgets.items.len == 1)
-                    self.show_home_async()
-                else
-                    tp.self_pid().send(.{ "cmd", "close_split", .{} }) catch return;
+                tp.self_pid().send(.{ "cmd", "close_split", .{} }) catch return;
+                if (self.get_next_mru_buffer(.non_hidden)) |file_path|
+                    self.show_file_async(file_path);
             }
         } else self.show_home_async();
         return;
