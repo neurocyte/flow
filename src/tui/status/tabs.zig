@@ -201,6 +201,9 @@ pub const TabBar = struct {
             self.refresh_active_buffer();
         } else if (try m.match(.{ "E", "close" })) {
             self.refresh_active_buffer();
+        } else if (try m.match(.{"splits_updated"})) {
+            const drag_source, _ = tui.get_drag_source();
+            self.update_tab_widgets(drag_source) catch {};
         }
         return false;
     }

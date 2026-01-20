@@ -961,6 +961,8 @@ const cmds = struct {
         for (buffers) |buffer| if (buffer.get_last_view()) |view|
             if (view >= self.views.widgets.items.len)
                 buffer.set_last_view(null);
+
+        _ = try self.widgets_widget.msg(.{"splits_updated"});
     }
     pub const close_split_meta: Meta = .{ .description = "Close split view" };
 
@@ -973,6 +975,8 @@ const cmds = struct {
         const buffers = try self.buffer_manager.list_unordered(self.allocator);
         defer self.allocator.free(buffers);
         for (buffers) |buffer| buffer.set_last_view(0);
+
+        _ = try self.widgets_widget.msg(.{"splits_updated"});
     }
     pub const close_splits_meta: Meta = .{ .description = "Close all split views" };
 
@@ -1832,6 +1836,7 @@ fn create_home(self: *Self) !void {
 fn create_home_split(self: *Self) !void {
     tui.reset_drag_context();
     try self.add_and_activate_view(try home.create(self.allocator, Widget.to(self)));
+    _ = try self.widgets_widget.msg(.{"splits_updated"});
     tui.resize();
 }
 
