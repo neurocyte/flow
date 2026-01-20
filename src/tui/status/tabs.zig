@@ -104,7 +104,7 @@ pub const TabBar = struct {
     widget_list_widget: Widget,
     event_handler: ?EventHandler,
     tabs: []TabBarTab = &[_]TabBarTab{},
-    active_buffer_ref: ?usize = null,
+    active_focused_buffer_ref: ?usize = null,
     minimum_tabs_shown: usize,
     place_next: Placement = .atend,
 
@@ -182,8 +182,6 @@ pub const TabBar = struct {
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        var file_path: []const u8 = undefined;
         var buffer_ref: usize = undefined;
         if (try m.match(.{"next_tab"})) {
             self.select_next_tab();
@@ -199,15 +197,19 @@ pub const TabBar = struct {
             self.place_next_tab(.before, buffer_ref);
         } else if (try m.match(.{ "place_next_tab", "atend" })) {
             self.place_next = .atend;
-        } else if (try m.match(.{ "E", "open", tp.extract(&file_path), tp.more })) {
-            self.active_buffer_ref = if (buffer_manager.get_buffer_for_file(file_path)) |buffer|
-                buffer_manager.buffer_to_ref(buffer)
-            else
-                null;
+        } else if (try m.match(.{ "E", "open", tp.more })) {
+            self.refresh_active_buffer();
         } else if (try m.match(.{ "E", "close" })) {
-            self.active_buffer_ref = null;
+            self.refresh_active_buffer();
         }
         return false;
+    }
+
+    fn refresh_active_buffer(self: *Self) void {
+        const mv = tui.mainview() orelse @panic("tabs no main view");
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        const buffer = mv.get_active_buffer();
+        self.active_focused_buffer_ref = if (buffer) |buf| buffer_manager.buffer_to_ref(buf) else null;
     }
 
     fn handle_event(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
@@ -257,6 +259,7 @@ pub const TabBar = struct {
     }
 
     fn update_tab_widgets(self: *Self, drag_source: ?*Widget) !void {
+        const mv = tui.mainview() orelse @panic("tabs no main view");
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         var prev_widget_count: usize = 0;
         for (self.widget_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split| {
@@ -274,11 +277,10 @@ pub const TabBar = struct {
             split.deinit(self.widget_list.allocator);
         };
 
-        var max_view: usize = 0;
-        for (self.tabs) |tab| max_view = @max(max_view, tab.view orelse 0);
+        const views = mv.get_view_count();
 
         var widget_count: usize = 0;
-        for (0..max_view + 1) |view| {
+        for (0..views) |view| {
             var first = true;
             var view_widget_list = try WidgetList.createH(self.allocator, self.widget_list.plane, "split", .dynamic);
             try self.widget_list.add(view_widget_list.widget());
@@ -295,8 +297,10 @@ pub const TabBar = struct {
                 try view_widget_list.add(tab.widget);
                 widget_count += 1;
                 if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn| {
-                    if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer|
+                    if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer| {
                         try btn.update_label(Tab.name_from_buffer(buffer));
+                        btn.opts.ctx.view = buffer.get_last_view() orelse 0;
+                    }
                 }
             }
         }
@@ -402,7 +406,7 @@ pub const TabBar = struct {
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                 if (found_active)
                     return btn.opts.ctx.buffer_ref;
-                if (btn.opts.ctx.buffer_ref == self.active_buffer_ref)
+                if (btn.opts.ctx.buffer_ref == self.active_focused_buffer_ref)
                     found_active = true;
             };
         return null;
@@ -412,7 +416,7 @@ pub const TabBar = struct {
         var previous: ?usize = null;
         for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
-                if (btn.opts.ctx.buffer_ref == self.active_buffer_ref)
+                if (btn.opts.ctx.buffer_ref == self.active_focused_buffer_ref)
                     return previous;
                 previous = btn.opts.ctx.buffer_ref;
             };
@@ -433,7 +437,7 @@ pub const TabBar = struct {
 
     fn move_tab_next(self: *Self) void {
         tp.trace(tp.channel.debug, .{"move_tab_next"});
-        const this_idx = self.find_buffer_tab(self.active_buffer_ref orelse return) orelse return;
+        const this_idx = self.find_buffer_tab(self.active_focused_buffer_ref orelse return) orelse return;
         const other_buffer_ref = self.find_next_tab_buffer() orelse return;
         const other_idx = self.find_buffer_tab(other_buffer_ref) orelse return;
         self.move_tab_to(other_idx, this_idx);
@@ -441,7 +445,7 @@ pub const TabBar = struct {
 
     fn move_tab_previous(self: *Self) void {
         tp.trace(tp.channel.debug, .{"move_tab_previous"});
-        const this_idx = self.find_buffer_tab(self.active_buffer_ref orelse return) orelse return;
+        const this_idx = self.find_buffer_tab(self.active_focused_buffer_ref orelse return) orelse return;
         const other_buffer_ref = self.find_previous_tab_buffer() orelse return;
         const other_idx = self.find_buffer_tab(other_buffer_ref) orelse return;
         self.move_tab_to(other_idx, this_idx);
@@ -460,16 +464,17 @@ pub const TabBar = struct {
 
         var src_tab = tabs.orderedRemove(src_idx);
         src_tab.view = new_view;
-        const active = src_tab.buffer_ref == self.active_buffer_ref;
+        const buffer = buffer_manager.buffer_from_ref(src_tab.buffer_ref);
+        const active = if (buffer) |buf| if (mv.get_editor_for_buffer(buf)) |_| true else false else false;
 
         tabs.insert(self.allocator, dst_idx, src_tab) catch @panic("OOM move_tab_to");
 
-        if (new_view != old_view) blk: {
-            const buffer = buffer_manager.buffer_from_ref(src_tab.buffer_ref) orelse break :blk;
-            buffer.set_last_view(new_view);
-            if (mv.get_editor_for_buffer(buffer)) |editor|
+        if (new_view != old_view) if (buffer) |buf| {
+            buf.set_last_view(new_view);
+            if (mv.get_editor_for_buffer(buf)) |editor|
                 editor.close_editor() catch {};
-        }
+        };
+
         const drag_source, _ = tui.get_drag_source();
         self.update_tab_widgets(drag_source) catch {};
         if (active)
@@ -547,6 +552,7 @@ pub const TabBar = struct {
 const Tab = struct {
     tabbar: *TabBar,
     buffer_ref: usize,
+    view: usize,
     tab_style: *const Style,
     close_pos: ?i32 = null,
     save_pos: ?i32 = null,
@@ -564,7 +570,7 @@ const Tab = struct {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer = buffer_manager.buffer_from_ref(buffer_ref);
         return Button.create_widget(Tab, tabbar.allocator, tabbar.widget_list.plane, .{
-            .ctx = .{ .tabbar = tabbar, .buffer_ref = buffer_ref, .tab_style = tab_style },
+            .ctx = .{ .tabbar = tabbar, .buffer_ref = buffer_ref, .view = if (buffer) |buf| buf.get_last_view() orelse 0 else 0, .tab_style = tab_style },
             .label = if (buffer) |buf| name_from_buffer(buf) else "???",
             .on_click = Tab.on_click,
             .on_click2 = Tab.on_click2,
@@ -595,8 +601,19 @@ const Tab = struct {
             tp.self_pid().send(.{ "cmd", "close_buffer", .{buffer.get_file_path()} }) catch {};
     }
 
+    fn is_active(self: *@This()) bool {
+        const mv = tui.mainview() orelse @panic("tabs no main view");
+        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
+        const buffer = buffer_manager.buffer_from_ref(self.buffer_ref) orelse return false;
+        return if (mv.get_editor_for_buffer(buffer)) |_| true else false;
+    }
+
+    fn is_focused(self: *@This()) bool {
+        const mv = tui.mainview() orelse @panic("tabs no main view");
+        return self.view == mv.get_active_view();
+    }
+
     fn render(self: *@This(), btn: *ButtonType, theme: *const Widget.Theme) bool {
-        const active = self.tabbar.active_buffer_ref == self.buffer_ref;
         if (btn.drag_pos) |pos| {
             self.render_dragging(&btn.plane, theme);
             const anchor: Widget.Pos = btn.drag_anchor orelse .{};
@@ -604,9 +621,10 @@ const Tab = struct {
             box.y = @intCast(@max(pos.y, anchor.y) - anchor.y);
             box.x = @intCast(@max(pos.x, anchor.x) - anchor.x);
             if (tui.top_layer(box.to_layer())) |top_layer| {
-                self.render_selected(top_layer, btn.opts.label, false, theme, active);
+                self.render_selected(top_layer, btn.opts.label, false, theme, self.is_active());
             }
         } else {
+            const active = self.is_active();
             const mode: Mode = if (btn.hover) .selected else if (active) .active else .inactive;
             switch (mode) {
                 .selected => self.render_selected(&btn.plane, btn.opts.label, btn.hover, theme, active),
@@ -859,7 +877,7 @@ const Tab = struct {
     fn layout(self: *@This(), btn: *ButtonType) Widget.Layout {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const is_dirty = if (buffer_manager.buffer_from_ref(self.buffer_ref)) |buffer| buffer.is_dirty() else false;
-        const active = self.tabbar.active_buffer_ref == self.buffer_ref;
+        const active = self.is_active();
         const len = btn.plane.egc_chunk_width(btn.opts.label, 0, 1);
         const len_padding = padding_len(btn.plane, self.tabbar.tab_style, active, is_dirty);
         return .{ .static = len + len_padding };
