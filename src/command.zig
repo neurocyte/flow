@@ -18,11 +18,20 @@ pub const Context = struct {
         cbor.writeValue(&context_buffer.writer, value) catch @panic("command.Context.fmt failed");
         return .{ .args = .{ .buf = context_buffer.written() } };
     }
+
+    fn fmtbuf(buf: []u8, value: anytype) error{CommandContextBufferNoSpaceLeft}!Context {
+        var writer: std.Io.Writer = .fixed(buf);
+        cbor.writeValue(&writer, value) catch |e| return switch (e) {
+            error.WriteFailed => error.CommandContextBufferNoSpaceLeft,
+        };
+        return .{ .args = .{ .buf = writer.buffered() } };
+    }
 };
 
 const context_buffer_allocator = std.heap.c_allocator;
 threadlocal var context_buffer: std.Io.Writer.Allocating = .init(context_buffer_allocator);
 pub const fmt = Context.fmt;
+pub const fmtbuf = Context.fmtbuf;
 
 const Vtable = struct {
     id: ID = ID_unknown,
