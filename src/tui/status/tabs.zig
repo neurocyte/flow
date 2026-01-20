@@ -610,8 +610,14 @@ const Tab = struct {
             const mode: Mode = if (btn.hover) .selected else if (active) .active else .inactive;
             switch (mode) {
                 .selected => self.render_selected(&btn.plane, btn.opts.label, btn.hover, theme, active),
-                .active => self.render_active(&btn.plane, btn.opts.label, btn.hover, theme),
-                .inactive => self.render_inactive(&btn.plane, btn.opts.label, btn.hover, theme),
+                .active => if (self.is_focused())
+                    self.render_active(&btn.plane, btn.opts.label, btn.hover, theme)
+                else
+                    self.render_unfocused_active(&btn.plane, btn.opts.label, btn.hover, theme),
+                .inactive => if (self.is_focused())
+                    self.render_inactive(&btn.plane, btn.opts.label, btn.hover, theme)
+                else
+                    self.render_unfocused_inactive(&btn.plane, btn.opts.label, btn.hover, theme),
             }
         }
         return false;
@@ -731,6 +737,72 @@ const Tab = struct {
         });
         plane.fill(" ");
         plane.home();
+    }
+
+    fn render_unfocused_active(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
+            .fg = self.tab_style.inactive_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+        plane.set_style(.{
+            .fg = self.tab_style.active_fg.from_theme(theme),
+            .bg = self.tab_style.active_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+
+        plane.set_style(.{
+            .fg = self.tab_style.active_left_fg.from_theme(theme),
+            .bg = self.tab_style.active_left_bg.from_theme(theme),
+        });
+        _ = plane.putstr(self.tab_style.unfocused_active_left) catch {};
+
+        plane.set_style(.{
+            .fg = self.tab_style.unfocused_active_fg.from_theme(theme),
+            .bg = self.tab_style.active_bg.from_theme(theme),
+        });
+        self.render_content(plane, label, hover, self.tab_style.unfocused_active_fg.from_theme(theme), theme);
+
+        plane.set_style(.{
+            .fg = self.tab_style.active_right_fg.from_theme(theme),
+            .bg = self.tab_style.active_right_bg.from_theme(theme),
+        });
+        _ = plane.putstr(self.tab_style.unfocused_active_right) catch {};
+    }
+
+    fn render_unfocused_inactive(self: *@This(), plane: *Plane, label: []const u8, hover: bool, theme: *const Widget.Theme) void {
+        plane.set_base_style(theme.editor);
+        plane.erase();
+        plane.home();
+        plane.set_style(.{
+            .fg = self.tab_style.inactive_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_bg.from_theme(theme),
+        });
+        plane.fill(" ");
+        plane.home();
+
+        plane.set_style(.{
+            .fg = self.tab_style.inactive_left_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_left_bg.from_theme(theme),
+        });
+        _ = plane.putstr(self.tab_style.unfocused_inactive_left) catch {};
+
+        plane.set_style(.{
+            .fg = self.tab_style.inactive_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_bg.from_theme(theme),
+        });
+        self.render_content(plane, label, hover, self.tab_style.unfocused_inactive_fg.from_theme(theme), theme);
+
+        plane.set_style(.{
+            .fg = self.tab_style.inactive_right_fg.from_theme(theme),
+            .bg = self.tab_style.inactive_right_bg.from_theme(theme),
+        });
+        _ = plane.putstr(self.tab_style.unfocused_inactive_right) catch {};
     }
 
     fn render_content(self: *@This(), plane: *Plane, label: []const u8, hover: bool, fg: ?Widget.Theme.Color, theme: *const Widget.Theme) void {
