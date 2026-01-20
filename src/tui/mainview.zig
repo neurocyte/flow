@@ -724,6 +724,21 @@ const cmds = struct {
         const args = try ctx.args.clone(self.allocator);
         defer self.allocator.free(args.buf);
         tui.reset_drag_context();
+
+        var file_path: []const u8 = undefined;
+        if (ctx.args.match(.{ tp.extract(&file_path), tp.string, tp.string }) catch false or
+            ctx.args.match(.{ tp.extract(&file_path), tp.string }) catch false or
+            ctx.args.match(.{tp.extract(&file_path)}) catch false)
+        {
+            if (self.buffer_manager.get_buffer_for_file(file_path)) |_| {
+                var buf: [tp.max_message_size]u8 = undefined;
+                try command.executeName("navigate", try command.fmtbuf(&buf, .{ .file = file_path }));
+                tui.need_render(@src());
+                self.location_update_from_editor();
+                return;
+            }
+        }
+
         try self.create_editor();
         try command.executeName("open_scratch_buffer", .{ .args = args });
         tui.need_render(@src());
