@@ -1354,7 +1354,8 @@ const cmds = struct {
             defer buffer_name.deinit();
             buffer_name.writer.print("*{s}*", .{cmd}) catch {};
             call_add_task(task);
-            tp.self_pid().send(.{ "cmd", "create_scratch_buffer", .{ buffer_name.written(), "", "conf" } }) catch |e| self.logger.err("task", e);
+            var buf: [tp.max_message_size]u8 = undefined;
+            try command.executeName("create_scratch_buffer", try command.fmtbuf(&buf, .{ buffer_name.written(), "", "conf" }));
             tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{cmd} }) catch |e| self.logger.err("task", e);
         } else {
             return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
