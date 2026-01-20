@@ -442,6 +442,7 @@ pub const TabBar = struct {
 
         var src_tab = tabs.orderedRemove(src_idx);
         src_tab.view = new_view;
+        const active = src_tab.buffer_ref == self.active_buffer_ref;
 
         tabs.insert(self.allocator, dst_idx, src_tab) catch @panic("OOM move_tab_to");
 
@@ -450,11 +451,11 @@ pub const TabBar = struct {
             buffer.set_last_view(new_view);
             if (mv.get_editor_for_buffer(buffer)) |editor|
                 editor.close_editor() catch {};
-            if (src_tab.buffer_ref == self.active_buffer_ref)
-                navigate_to_buffer(src_tab.buffer_ref);
         }
         const drag_source, _ = tui.get_drag_source();
         self.update_tab_widgets(drag_source) catch {};
+        if (active)
+            navigate_to_buffer(src_tab.buffer_ref);
     }
 
     fn place_next_tab(self: *Self, position: enum { before, after }, buffer_ref: usize) void {
