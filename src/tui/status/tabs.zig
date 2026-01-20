@@ -491,13 +491,19 @@ pub const TabBar = struct {
         const buffer = buffer_manager.buffer_from_ref(src_tab.buffer_ref);
         const active = if (buffer) |buf| if (mv.get_editor_for_buffer(buf)) |_| true else false else false;
 
-        tabs.insert(self.allocator, dst_idx, src_tab) catch @panic("OOM move_tab_to");
-
-        if (new_view != old_view) if (buffer) |buf| {
-            buf.set_last_view(new_view);
-            if (mv.get_editor_for_buffer(buf)) |editor|
-                editor.close_editor() catch {};
-        };
+        if (new_view == old_view) {
+            tabs.insert(self.allocator, dst_idx, src_tab) catch @panic("OOM move_tab_to");
+        } else {
+            if (new_view orelse 0 < old_view orelse 0)
+                tabs.append(self.allocator, src_tab) catch @panic("OOM move_tab_to")
+            else
+                tabs.insert(self.allocator, 0, src_tab) catch @panic("OOM move_tab_to");
+            if (buffer) |buf| {
+                buf.set_last_view(new_view);
+                if (mv.get_editor_for_buffer(buf)) |editor|
+                    editor.close_editor() catch {};
+            }
+        }
 
         const drag_source, _ = tui.get_drag_source();
         self.update_tab_widgets(drag_source) catch {};
