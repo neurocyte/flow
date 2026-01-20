@@ -1833,7 +1833,7 @@ fn create_home(self: *Self) !void {
     tui.resize();
 }
 
-fn create_home_split(self: *Self) !void {
+pub fn create_home_split(self: *Self) !void {
     tui.reset_drag_context();
     try self.add_and_activate_view(try home.create(self.allocator, Widget.to(self)));
     _ = try self.widgets_widget.msg(.{"splits_updated"});

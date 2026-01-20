@@ -462,7 +462,7 @@ pub const TabBar = struct {
     fn move_tab_next(self: *Self) void {
         tp.trace(tp.channel.debug, .{"move_tab_next"});
         const this_idx = self.find_buffer_tab(self.active_focused_buffer_ref orelse return) orelse return;
-        const other_buffer_ref = self.find_next_tab_buffer() orelse return;
+        const other_buffer_ref = self.find_next_tab_buffer() orelse return self.move_tab_to_new_split(this_idx);
         const other_idx = self.find_buffer_tab(other_buffer_ref) orelse return;
         self.move_tab_to(other_idx, this_idx);
     }
@@ -535,6 +535,21 @@ pub const TabBar = struct {
         self.update_tab_widgets(drag_source) catch {};
         if (active and new_view != old_view)
             navigate_to_buffer(src_tab.buffer_ref);
+    }
+
+    fn move_tab_to_new_split(self: *Self, src_idx: usize) void {
+        const mv = tui.mainview() orelse return;
+        const src_tab = &self.tabs[src_idx];
+        var tabs_in_view: usize = 0;
+        for (self.tabs) |*tab| if (tab.view) |view| {
+            if (view == src_tab.view)
+                tabs_in_view += 1;
+        };
+        if (tabs_in_view > 1) {
+            const view = mv.get_view_count();
+            mv.create_home_split() catch return;
+            self.move_tab_to_view(view, src_idx);
+        }
     }
 
     fn place_next_tab(self: *Self, position: enum { before, after }, buffer_ref: usize) void {
