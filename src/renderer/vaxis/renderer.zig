@@ -549,6 +549,12 @@ pub fn request_windows_clipboard(allocator: std.mem.Allocator) ![]u8 {
     return allocator.dupe(u8, text);
 }
 
+pub const MouseCursorShape = vaxis.Mouse.Shape;
+
+pub fn request_mouse_cursor(self: *Self, shape: MouseCursorShape, push_or_pop: bool) void {
+    if (push_or_pop) self.vx.setMouseShape(shape) else self.vx.setMouseShape(.default);
+}
+
 pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {
     if (push_or_pop) self.vx.setMouseShape(.text) else self.vx.setMouseShape(.default);
 }
