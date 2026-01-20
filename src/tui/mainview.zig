@@ -1590,6 +1590,14 @@ fn store_last_match_text(self: *Self, text: ?[]const u8) void {
     self.last_match_text = text;
 }
 
+pub fn get_active_view(self: *const Self) usize {
+    return self.active_view;
+}
+
+pub fn get_view_count(self: *const Self) usize {
+    return self.views.widgets.items.len;
+}
+
 pub fn get_active_editor(self: *Self) ?*ed.Editor {
     const active_view = self.views.get_at(self.active_view) orelse return null;
     const editor = active_view.get("editor") orelse return null;
