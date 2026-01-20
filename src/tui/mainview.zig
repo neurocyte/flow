@@ -1548,7 +1548,7 @@ pub fn location_update(self: *Self, editor: *ed.Editor, m: tp.message) tp.result
     }
 }
 
-pub fn location_update_from_editor(self: *Self) void {
+fn location_update_from_editor(self: *Self) void {
     const editor = self.get_active_editor() orelse return;
     const file_path = editor.file_path orelse return;
     const ephemeral = if (editor.buffer) |buffer| buffer.is_ephemeral() else false;

@@ -2096,13 +2096,12 @@ pub fn render_pointer_vcs(self: *renderer.Plane, vcs_status: u8, selected: bool)
     }
 }
 
-pub fn render_file_item(
+fn render_file_item(
     self: *renderer.Plane,
     file_path_: []const u8,
     icon: []const u8,
     color: u24,
     indicator: []const u8,
-    indicator_suffix: []const u8,
     matches_cbor: []const u8,
     active: bool,
     selected: bool,
@@ -2130,7 +2129,7 @@ pub fn render_file_item(
     _ = self.print("{s} ", .{file_path_}) catch {};
 
     self.set_style(style_hint);
-    _ = self.print_aligned_right(0, "{s}{s} ", .{ indicator, indicator_suffix }) catch {};
+    _ = self.print_aligned_right(0, "{s} ", .{indicator}) catch {};
 
     var iter = matches_cbor;
     var index: usize = 0;
@@ -2157,7 +2156,7 @@ pub fn render_file_item_cbor(self: *renderer.Plane, file_item_cbor: []const u8, 
     if (!(cbor.matchString(&iter, &indicator) catch false)) indicator = "";
 
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) @panic("invalid matches cbor");
-    return render_file_item(self, file_path_, icon, color, indicator, &.{}, matches_cbor, active, selected, hover, theme_);
+    return render_file_item(self, file_path_, icon, color, indicator, matches_cbor, active, selected, hover, theme_);
 }
 
 pub fn render_file_vcs_item(

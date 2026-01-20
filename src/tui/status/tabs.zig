@@ -916,11 +916,6 @@ const Tab = struct {
         try cbor.writeValue(writer, self.meta);
         try cbor.writeValue(writer, self.file_type_name);
     }
-
-    fn extract_state(self: *@This(), iter: *[]const u8) !void {
-        _ = self;
-        _ = iter;
-    }
 };
 
 const spacer = struct {
