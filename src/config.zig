@@ -21,7 +21,7 @@ inline_diagnostics_alignment: Alignment = .right,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 50, //milliseconds
 hover_time_ms: usize = 500, //milliseconds
-input_idle_time_ms: usize = 150, //milliseconds
+input_idle_time_ms: usize = 100, //milliseconds
 idle_actions: []const IdleAction = &default_actions,
 idle_commands: ?[]const []const u8 = null, // a list of simple commands
 enable_format_on_save: bool = false,
@@ -77,7 +77,7 @@ dropdown_keybinds: DropdownKeybindMode = .standard,
 
 include_files: []const u8 = "",
 
-const default_actions = [_]IdleAction{};
+const default_actions = [_]IdleAction{.highlight_references};
 pub const IdleAction = enum {
     hover,
     highlight_references,
