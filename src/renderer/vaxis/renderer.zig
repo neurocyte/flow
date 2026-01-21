@@ -13,6 +13,7 @@ pub const Plane = @import("Plane.zig");
 pub const Layer = @import("Layer.zig");
 pub const Cell = @import("Cell.zig");
 pub const CursorShape = vaxis.Cell.CursorShape;
+pub const MouseCursorShape = vaxis.Mouse.Shape;
 
 pub const style = @import("style.zig").StyleBits;
 pub const styles = @import("style.zig");
@@ -548,8 +549,6 @@ pub fn request_windows_clipboard(allocator: std.mem.Allocator) ![]u8 {
 
     return allocator.dupe(u8, text);
 }
-
-pub const MouseCursorShape = vaxis.Mouse.Shape;
 
 pub fn request_mouse_cursor(self: *Self, shape: MouseCursorShape, push_or_pop: bool) void {
     if (push_or_pop) self.vx.setMouseShape(shape) else self.vx.setMouseShape(.default);

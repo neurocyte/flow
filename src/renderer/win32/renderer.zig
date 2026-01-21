@@ -7,8 +7,9 @@ const vaxis = @import("vaxis");
 const Style = @import("theme").Style;
 const Color = @import("theme").Color;
 pub const CursorShape = vaxis.Cell.CursorShape;
-const GraphemeCache = @import("tuirenderer").GraphemeCache;
+pub const MouseCursorShape = vaxis.Mouse.Shape;
 
+const GraphemeCache = @import("tuirenderer").GraphemeCache;
 pub const Plane = @import("tuirenderer").Plane;
 pub const Layer = @import("tuirenderer").Layer;
 const input = @import("input");
@@ -457,6 +458,13 @@ pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) vo
 
 pub const copy_to_windows_clipboard = @import("tuirenderer").copy_to_windows_clipboard;
 pub const request_windows_clipboard = @import("tuirenderer").request_windows_clipboard;
+
+pub fn request_mouse_cursor(self: *Self, shape: MouseCursorShape, push_or_pop: bool) void {
+    _ = self;
+    _ = shape;
+    _ = push_or_pop;
+    //@panic("todo");
+}
 
 pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {
     _ = self;
