@@ -522,6 +522,17 @@ const cmds_ = struct {
         try ed.add_cursor_next_match(.{});
     }
     pub const add_next_match_helix_meta: Meta = .{};
+
+    pub fn switch_to_lowercase(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const b = try ed.buf_for_update();
+        const root = try ed.with_cursels_mut_once_arg(b.root, switch_to_lowercase_cursel, ed.allocator, ctx);
+        try ed.update_buf(root);
+        ed.clamp();
+        ed.need_render();
+    }
+    pub const switch_to_lowercase_meta: Meta = .{ .description = "Switch to lowercase" };
 };
 
 fn match_bracket(root: Buffer.Root, cursel: *CurSel, ctx: command.Context, metrics: Buffer.Metrics) error{Stop}!void {
@@ -1216,6 +1227,29 @@ fn is_cursel_from_extend_line_below(cursel: CurSel) bool {
         return sel.end.row != sel.begin.row and sel.end.col == 0;
     }
     return false;
+}
+
+fn switch_to_lowercase_cursel(
+    ed: *Editor,
+    root: Buffer.Root,
+    cursel: *CurSel,
+    allocator: Allocator,
+    _: command.Context,
+) error{Stop}!Buffer.Root {
+    const saved = cursel.*;
+    defer cursel.* = saved;
+
+    const selection = cursel.enable_selection(root, ed.metrics);
+
+    const ucased = blk: {
+        const selected_text = Editor.copy_selection(root, selection.*, allocator, ed.metrics) catch return error.Stop;
+        defer allocator.free(selected_text);
+
+        break :blk Buffer.unicode.to_lower(allocator, selected_text) catch return error.Stop;
+    };
+    defer allocator.free(ucased);
+
+    return insert_replace_selection(ed, root, cursel, ucased, allocator) catch return error.Stop;
 }
 
 const private = @This();
