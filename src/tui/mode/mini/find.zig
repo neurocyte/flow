@@ -13,6 +13,7 @@ const ed = @import("../../editor.zig");
 const Allocator = @import("std").mem.Allocator;
 const eql = @import("std").mem.eql;
 const ArrayList = @import("std").ArrayList;
+const Writer = @import("std").Io.Writer;
 
 const Self = @This();
 const name = "󱎸 find";
@@ -130,7 +131,10 @@ fn flush_input(self: *Self) !void {
 }
 
 fn auto_detect_mode(self: *Self) Buffer.FindMode {
-    return if (Buffer.unicode.is_lowercase(self.input_.items)) .case_folded else .exact;
+    const pattern = self.input_.items;
+    const folded = Buffer.unicode.case_fold(self.allocator, pattern) catch return .case_folded;
+    defer self.allocator.free(folded);
+    return if (eql(u8, pattern, folded)) .case_folded else .exact;
 }
 
 fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
