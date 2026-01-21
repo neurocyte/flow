@@ -6409,7 +6409,16 @@ pub const Editor = struct {
     }
 
     pub fn get_completion_replacement_selection(self: *Self, replace: Selection) ?Selection {
-        return replace.from_pos(self.buf_root() catch return null, self.metrics);
+        var sel = replace.from_pos(self.buf_root() catch return null, self.metrics);
+        sel.normalize();
+        const cursor = self.get_primary().cursor;
+        return switch (tui.config().completion_insert_mode) {
+            .insert => if (self.get_primary().cursor.within(sel))
+                .{ .begin = sel.begin, .end = cursor }
+            else
+                sel,
+            .replace => sel,
+        };
     }
 
     pub fn select(self: *Self, ctx: Context) Result {
