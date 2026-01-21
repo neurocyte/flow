@@ -12,6 +12,7 @@
             ["ctrl+\\", "add_split"],
             ["ctrl+k w", "close_split"],
             ["ctrl+k x", "toggle_centered_view"],
+            ["ctrl+k r", "toggle_completion_insert_mode"],
             ["ctrl+1", "focus_split", 0],
             ["ctrl+2", "focus_split", 1],
             ["ctrl+3", "focus_split", 2],
