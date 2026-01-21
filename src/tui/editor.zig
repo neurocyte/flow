@@ -2108,10 +2108,12 @@ pub const Editor = struct {
 
     fn with_cursors_and_view_const(self: *Self, root: Buffer.Root, move: cursor_view_operator_const, view: *const View) error{Stop}!void {
         var someone_stopped = false;
-        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel|
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            cursel.disable_selection(root, self.metrics);
             with_cursor_and_view_const(root, move, cursel, view, self.metrics) catch {
                 someone_stopped = true;
             };
+        };
         self.collapse_cursors();
         return if (someone_stopped) error.Stop else {};
     }
