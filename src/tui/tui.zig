@@ -1150,6 +1150,17 @@ const cmds = struct {
     }
     pub const toggle_completion_trigger_meta: Meta = .{ .description = "Toggle auto completion" };
 
+    pub fn toggle_completion_insert_mode(self: *Self, _: Ctx) Result {
+        self.config_.completion_insert_mode = switch (self.config_.completion_insert_mode) {
+            .insert => .replace,
+            .replace => .insert,
+        };
+        defer self.logger.print("completion insert mode {t}", .{self.config_.completion_insert_mode});
+        try save_config();
+        resize();
+    }
+    pub const toggle_completion_insert_mode_meta: Meta = .{ .description = "Toggle completion insert mode" };
+
     pub fn toggle_keybind_hints(self: *Self, _: Ctx) Result {
         self.hint_mode = switch (self.hint_mode) {
             .all => .prefix,
