@@ -832,31 +832,26 @@ fn replace_cursel_with_character(ed: *Editor, root: Buffer.Root, cursel: *CurSel
     var egc: []const u8 = undefined;
     if (!(ctx.args.match(.{tp.extract(&egc)}) catch return error.Stop))
         return error.Stop;
-    const no_selection = try select_char_if_no_selection(cursel, root, ed.metrics);
-    var begin: Cursor = undefined;
+
+    const saved = cursel.*;
+    defer cursel.* = saved;
+
+    const selection = cursel.enable_selection(root, ed.metrics);
+    selection.normalize();
+
     var sel_length: usize = 1;
-    if (cursel.selection) |*sel| {
-        sel.normalize();
-        begin = sel.*.begin;
-        _ = root.get_range(sel.*, null, null, &sel_length, ed.metrics) catch return error.Stop;
-    }
-    const total_length = sel_length * egc.len;
+    _ = root.get_range(selection.*, null, null, &sel_length, ed.metrics) catch return error.Stop;
+
     var sfa = std.heap.stackFallback(4096, ed.allocator);
     const sfa_allocator = sfa.get();
+
+    const total_length = sel_length * egc.len;
     const replacement = sfa_allocator.alloc(u8, total_length) catch return error.Stop;
     defer sfa_allocator.free(replacement);
+
     for (0..sel_length) |i|
         @memcpy(replacement[i * egc.len .. (i + 1) * egc.len], egc);
-
-    const root_ = insert_replace_selection(ed, root, cursel, replacement, allocator) catch return error.Stop;
-
-    if (no_selection) {
-        try cursel.cursor.move_left(root, ed.metrics);
-        cursel.disable_selection(root, ed.metrics);
-    } else {
-        cursel.selection = Selection{ .begin = begin, .end = cursel.cursor };
-    }
-    return root_;
+    return insert_replace_selection(ed, root, cursel, replacement, allocator) catch return error.Stop;
 }
 
 fn move_noop(_: Buffer.Root, _: *Cursor, _: Buffer.Metrics) error{Stop}!void {}
@@ -1212,21 +1207,6 @@ fn move_cursor_carriage_return(root: Buffer.Root, cursel: CurSel, cursor: *Curso
         try Editor.move_cursor_end(root, cursor, metrics);
     }
     try Editor.move_cursor_right(root, cursor, metrics);
-}
-
-fn select_char_if_no_selection(cursel: *CurSel, root: Buffer.Root, metrics: Buffer.Metrics) !bool {
-    if (cursel.selection) |*sel_| {
-        const sel: *Selection = sel_;
-        if (sel.*.empty()) {
-            sel.*.begin = .{ .row = cursel.cursor.row, .col = cursel.cursor.col + 1, .target = cursel.cursor.target + 1 };
-            return true;
-        }
-        return false;
-    } else {
-        const sel = cursel.enable_selection(root, metrics);
-        sel.begin = .{ .row = cursel.cursor.row, .col = cursel.cursor.col + 1, .target = cursel.cursor.target + 1 };
-        return true;
-    }
 }
 
 fn is_cursel_from_extend_line_below(cursel: CurSel) bool {
