@@ -952,48 +952,20 @@ const cmds = struct {
     pub fn close_split(self: *Self, _: Ctx) Result {
         if (self.views.widgets.items.len == 1 and self.views.widgets.items[0].widget.dynamic_cast(home) != null)
             return command.executeName("quit", .{});
-        try self.remove_active_view();
-
-        if (self.closing_project) return;
-
-        const buffers = try self.buffer_manager.list_unordered(self.allocator);
-        defer self.allocator.free(buffers);
-        for (buffers) |buffer| if (buffer.get_last_view()) |view|
-            if (view >= self.views.widgets.items.len)
-                buffer.set_last_view(null);
-
-        _ = try self.widgets_widget.msg(.{"splits_updated"});
+        self.remove_view(self.active_view);
     }
     pub const close_split_meta: Meta = .{ .description = "Close split view" };
 
     pub fn close_view(self: *Self, ctx: Ctx) Result {
         var view: usize = undefined;
         if (!try ctx.args.match(.{tp.extract(&view)})) return error.InvalidCloseViewArgument;
-
-        if (view >= self.views.widgets.items.len) return;
-        self.remove_view(view) catch return;
-
-        const buffers = self.buffer_manager.list_unordered(self.allocator) catch @panic("OOM close_view");
-        defer self.allocator.free(buffers);
-        for (buffers) |buffer| if (buffer.get_last_view()) |buffer_view|
-            if (buffer_view >= view)
-                buffer.set_last_view(buffer_view - 1);
-
-        _ = self.widgets_widget.msg(.{"splits_updated"}) catch {};
+        self.remove_view(view);
     }
     pub const close_view_meta: Meta = .{ .arguments = &.{.integer} };
 
     pub fn close_splits(self: *Self, _: Ctx) Result {
         while (self.views.widgets.items.len > 1)
-            try self.remove_view(1);
-
-        if (self.closing_project) return;
-
-        const buffers = try self.buffer_manager.list_unordered(self.allocator);
-        defer self.allocator.free(buffers);
-        for (buffers) |buffer| buffer.set_last_view(0);
-
-        _ = try self.widgets_widget.msg(.{"splits_updated"});
+            self.remove_view(1);
     }
     pub const close_splits_meta: Meta = .{ .description = "Close all split views" };
 
@@ -1773,18 +1745,24 @@ pub fn focus_view(self: *Self, n: usize) !void {
     if (self.views.get_at(self.active_view)) |view| view.focus();
 }
 
-fn remove_view(self: *Self, view: usize) !void {
+fn remove_view(self: *Self, view: usize) void {
     if (self.views.widgets.items.len == 1) return; // can't delete last view
     if (view >= self.views.widgets.items.len) return;
+    defer {
+        _ = self.widgets_widget.msg(.{"splits_updated"}) catch {};
+        tui.resize();
+    }
     self.views.delete(view);
     if (self.active_view >= self.views.widgets.items.len)
         self.active_view = self.views.widgets.items.len - 1;
     if (self.views.get_at(self.active_view)) |active_view| active_view.focus();
-    tui.resize();
-}
 
-fn remove_active_view(self: *Self) !void {
-    return self.remove_view(self.active_view);
+    if (self.closing_project) return;
+    const buffers = self.buffer_manager.list_unordered(self.allocator) catch @panic("OOM remove_view");
+    defer self.allocator.free(buffers);
+    for (buffers) |buffer| if (buffer.get_last_view()) |buffer_view|
+        if (buffer_view >= view)
+            buffer.set_last_view(buffer_view - 1);
 }
 
 fn replace_active_view(self: *Self, widget: Widget) !void {
