@@ -157,19 +157,19 @@ if [ -z "$NO_FLOWCONTROL" ]; then
     ASSETS="$ASSETS --asset $DESTDIR/flow-${VERSION}-source.zip.sha256"
     echo uploading to git.flow-control.dev
     tea releases create --login flow-control --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" \
-        $ASSETS
+        "$ASSETS"
 fi
 
 if [ -z "$NO_CODEBERG" ]; then
-    for a in $DESTDIR/*; do
+    for a in "$DESTDIR"/*; do
         ASSETS="$ASSETS --asset $a"
     done
     echo uploading to codeberg.org
     tea releases create --login codeberg --repo "$repo" --tag "$VERSION" --title "$title $VERSION" --note-file "$release_notes" \
-        $ASSETS
+        "$ASSETS"
 fi
 
 if [ -z "$NO_GITHUB" ]; then
     echo uploading to github.com
-    gh release create "$VERSION" --repo "$repo" --title "$title $VERSION" --notes-file "$release_notes" $DESTDIR/*
+    gh release create "$VERSION" --repo "$repo" --title "$title $VERSION" --notes-file "$release_notes" "$DESTDIR"/*
 fi
