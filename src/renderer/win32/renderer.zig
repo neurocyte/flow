@@ -372,6 +372,12 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
     return error.UnexpectedRendererEvent;
 }
 
+pub fn set_sgr_pixel_mode_support(self: *Self, enable_sgr_pixel_mode_support: bool) void {
+    _ = self;
+    _ = enable_sgr_pixel_mode_support;
+    // this is a no-op for GUI renderers
+}
+
 pub fn set_terminal_title(self: *Self, text: []const u8) void {
     self.title_buf.clearRetainingCapacity();
     std.unicode.utf8ToUtf16LeArrayList(&self.title_buf, text) catch {
