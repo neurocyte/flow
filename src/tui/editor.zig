@@ -7257,15 +7257,21 @@ pub const Editor = struct {
         .arguments = &.{.integer},
     };
 
+    fn get_selection_or_select_word(self: *Self, root: Buffer.Root, cursel: *CurSel) error{Stop}!*Selection {
+        if (cursel.selection) |*sel| {
+            return sel;
+        } else {
+            var sel = cursel.enable_selection(root, self.metrics);
+            try move_cursor_word_begin(root, &sel.begin, self.metrics);
+            try move_cursor_word_end(root, &sel.end, self.metrics);
+            return sel;
+        }
+    }
+
     fn to_upper_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
-        const sel = if (cursel.selection) |*sel| sel else ret: {
-            var sel = cursel.enable_selection(root, self.metrics);
-            move_cursor_word_begin(root, &sel.begin, self.metrics) catch return error.Stop;
-            move_cursor_word_end(root, &sel.end, self.metrics) catch return error.Stop;
-            break :ret sel;
-        };
+        const sel = try self.get_selection_or_select_word(root, cursel);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
         const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
@@ -7289,12 +7295,7 @@ pub const Editor = struct {
     fn to_lower_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, buffer_allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
-        const sel = if (cursel.selection) |*sel| sel else ret: {
-            var sel = cursel.enable_selection(root, self.metrics);
-            move_cursor_word_begin(root, &sel.begin, self.metrics) catch return error.Stop;
-            move_cursor_word_end(root, &sel.end, self.metrics) catch return error.Stop;
-            break :ret sel;
-        };
+        const sel = try self.get_selection_or_select_word(root, cursel);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
         const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
