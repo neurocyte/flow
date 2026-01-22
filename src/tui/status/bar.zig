@@ -33,6 +33,9 @@ fn on_layout(_: ?*anyopaque, w: *WidgetList) Widget.Layout {
 fn render_grip(ctx: ?*anyopaque, theme: *const Widget.Theme) void {
     const w: *WidgetList = @ptrCast(@alignCast(ctx.?));
     if (w.hover()) {
+        w.plane.cursor_move_yx(0, 0);
+        w.plane.set_base_style(theme.editor);
+        _ = w.plane.putstr("   ") catch {};
         w.plane.set_style(theme.statusbar_hover);
         w.plane.cursor_move_yx(0, 0);
         _ = w.plane.putstr("  ") catch {};
