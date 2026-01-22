@@ -30,6 +30,7 @@ tty_buffer: []u8,
 cache_storage: GraphemeCache.Storage = .{},
 
 no_alternate: bool,
+enable_sgr_pixel_mode_support: bool = true,
 event_buffer: std.Io.Writer.Allocating,
 input_buffer: std.Io.Writer.Allocating,
 mods: vaxis.Key.Modifiers = .{},
@@ -383,7 +384,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         },
         .cap_sgr_pixels => {
             self.logger.print("pixel mouse capability detected", .{});
-            self.vx.caps.sgr_pixels = true;
+            self.vx.caps.sgr_pixels = self.enable_sgr_pixel_mode_support;
         },
         .cap_da1 => {
             self.queries_done = true;
@@ -467,6 +468,10 @@ fn handle_bracketed_paste_error(self: *Self, e: Error) !void {
     self.bracketed_paste_buffer.clearRetainingCapacity();
     self.bracketed_paste = false;
     return e;
+}
+
+pub fn set_sgr_pixel_mode_support(self: *Self, enable_sgr_pixel_mode_support: bool) void {
+    self.enable_sgr_pixel_mode_support = enable_sgr_pixel_mode_support;
 }
 
 pub fn set_terminal_title(self: *Self, text: []const u8) void {

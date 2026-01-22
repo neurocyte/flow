@@ -201,6 +201,7 @@ fn init(allocator: Allocator) InitError!*Self {
     instance_ = self;
     defer instance_ = null;
 
+    self.rdr_.set_sgr_pixel_mode_support(self.config_.enable_sgr_pixel_mode_support);
     self.rdr_.handler_ctx = self;
     self.rdr_.dispatch_input = dispatch_input;
     self.rdr_.dispatch_mouse = dispatch_mouse;
