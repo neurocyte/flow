@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const cbor = @import("cbor");
+const TypedInt = @import("TypedInt");
 const file_type_config = @import("file_type_config");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -1755,20 +1756,4 @@ pub fn to_ref(self: *Self) Ref {
     return @enumFromInt(@intFromPtr(self));
 }
 
-pub const Ref = enum(usize) {
-    _,
-
-    pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
-        const value: usize = @intFromEnum(self);
-        try cbor.writeValue(writer, .{ "BREF", value });
-    }
-
-    pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
-        var value: usize = 0;
-        if (try cbor.matchValue(iter, .{ "BREF", cbor.extract(&value) })) {
-            self.* = @enumFromInt(value);
-            return true;
-        }
-        return false;
-    }
-};
+pub const Ref = TypedInt.Tagged(usize, "BREF");

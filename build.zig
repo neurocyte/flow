@@ -434,11 +434,19 @@ pub fn build_exe(
         .root_source_file = b.path("src/lsp_types.zig"),
     });
 
+    const TypedInt_mod = b.createModule(.{
+        .root_source_file = b.path("src/TypedInt.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+        },
+    });
+
     const Buffer_mod = b.createModule(.{
         .root_source_file = b.path("src/buffer/Buffer.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "TypedInt", .module = TypedInt_mod },
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "file_type_config", .module = file_type_config_mod },
         },
