@@ -830,6 +830,10 @@ fn gen_version_info(
     const tracking_branch = std.mem.trimRight(u8, tracking_branch_, "\r\n ");
     const tracking_remote = std.mem.trimRight(u8, tracking_remote_, "\r\n ");
     const remote = std.mem.trimRight(u8, remote_, "\r\n ");
+    const base_commit_ = b.runAllowFail(&[_][]const u8{ "git", "merge-base", branch, tracking_branch }, &code, .Ignore) catch "";
+    const base_commit = std.mem.trimRight(u8, base_commit_, "\r\n ");
+    const describe_base_commit_ = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags", base_commit }, &code, .Ignore);
+    const describe_base_commit = std.mem.trimRight(u8, describe_base_commit_, "\r\n ");
     const log = std.mem.trimRight(u8, log_, "\r\n ");
     const diff = std.mem.trimRight(u8, diff_, "\r\n ");
     const target_triple = try target.result.zigTriple(b.allocator);
@@ -850,7 +854,7 @@ fn gen_version_info(
     try writer.print("build-mode: {t}\n", .{optimize});
 
     if (log.len > 0)
-        try writer.print("\nwith the following diverging commits:\n{s}\n", .{log});
+        try writer.print("\nbranched off {s} @ {s} with the following diverging commits:\n{s}\n", .{ tracking_branch, describe_base_commit, log });
 
     if (diff.len > 0)
         try writer.print("\nwith the following uncommited changes:\n\n{s}\n", .{diff});
