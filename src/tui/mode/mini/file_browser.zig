@@ -217,7 +217,8 @@ pub fn Create(options: type) type {
 
         fn construct_path(self: *Self, path_: []const u8, entry_name: []const u8, entry_type: EntryType, entry_no: usize) error{OutOfMemory}!void {
             self.matched_entry = entry_no;
-            const path = project_manager.normalize_file_path(path_);
+            var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const path = project_manager.normalize_file_path(path_, &file_path_buf);
             try self.file_path.appendSlice(self.allocator, path);
             if (path.len > 0 and path[path.len - 1] != std.fs.path.sep)
                 try self.file_path.append(self.allocator, std.fs.path.sep);

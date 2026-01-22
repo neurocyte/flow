@@ -19,6 +19,21 @@ test "normalize_file_path_dot_prefix" {
     try std.testing.expectEqualStrings(P1("."), pm.normalize_file_path_dot_prefix(P2(".")));
 }
 
+test "normalize_file_path_windows" {
+    var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    try std.testing.expectEqualStrings("example.txt", pm.normalize_file_path_windows("example.txt", &file_path_buf));
+    try std.testing.expectEqualStrings("\\example.txt", pm.normalize_file_path_windows("/example.txt", &file_path_buf));
+    try std.testing.expectEqualStrings(".\\example.txt", pm.normalize_file_path_windows("./example.txt", &file_path_buf));
+    try std.testing.expectEqualStrings(".\\.\\example.txt", pm.normalize_file_path_windows("././example.txt", &file_path_buf));
+    try std.testing.expectEqualStrings(".\\\\example.txt", pm.normalize_file_path_windows(".//example.txt", &file_path_buf));
+    try std.testing.expectEqualStrings(".\\\\.\\example.txt", pm.normalize_file_path_windows(".//./example.txt", &file_path_buf));
+    try std.testing.expectEqualStrings(".\\", pm.normalize_file_path_windows("./", &file_path_buf));
+    try std.testing.expectEqualStrings(".", pm.normalize_file_path_windows(".", &file_path_buf));
+    try std.testing.expectEqualStrings("C:\\User\\x\\example.txt", pm.normalize_file_path_windows("C:\\User\\x/example.txt", &file_path_buf));
+    try std.testing.expectEqualStrings("C:\\User\\x\\path\\example.txt", pm.normalize_file_path_windows("C:\\User\\x/path/example.txt", &file_path_buf));
+    try std.testing.expectEqualStrings("C:\\User\\x\\path\\example.txt", pm.normalize_file_path_windows("C:/User/x/path/example.txt", &file_path_buf));
+}
+
 fn P1(file_path: []const u8) []const u8 {
     const local = struct {
         var fixed_file_path: [256]u8 = undefined;

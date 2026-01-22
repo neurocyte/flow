@@ -536,7 +536,8 @@ const cmds = struct {
             try open_project_cwd(self, .{});
         }
 
-        const f_ = project_manager.normalize_file_path(file orelse return);
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const f_ = project_manager.normalize_file_path(file orelse return, &file_path_buf);
         var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(self.allocator);
         const f = project_manager.expand_home(self.allocator, &buf, f_);
@@ -1053,7 +1054,8 @@ const cmds = struct {
             tp.extract(&sel.end.row),
             tp.extract(&sel.end.col),
         })) return error.InvalidAddDiagnosticArgument;
-        file_path = project_manager.normalize_file_path(file_path);
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_editor_for_file(file_path)) |editor| {
             try editor.add_diagnostic(file_path, source, code, message, severity, sel);
             if (!tui.config().show_local_diagnostics_in_panel)
@@ -1085,7 +1087,8 @@ const cmds = struct {
             tp.extract(&is_incomplete),
             tp.more,
         })) return error.InvalidAddDiagnosticArgument;
-        file_path = project_manager.normalize_file_path(file_path);
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_editor_for_file(file_path)) |editor|
             try editor.add_completion(row, col, is_incomplete, ctx.args);
     }
@@ -1122,7 +1125,8 @@ const cmds = struct {
         if (!try ctx.args.match(.{
             tp.extract(&file_path),
         })) return error.InvalidAddDiagnosticArgument;
-        file_path = project_manager.normalize_file_path(file_path);
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
             self.symbols_complete = true;
             try tui.open_overlay(@import("mode/overlay/symbol_palette.zig").Type);
@@ -1147,7 +1151,8 @@ const cmds = struct {
             tp.extract(&kind),
             tp.more,
         })) return error.InvalidAddDiagnosticArgument;
-        file_path = project_manager.normalize_file_path(file_path);
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
             self.symbols_complete = false;
             try self.symbols.appendSlice(self.allocator, ctx.args.buf);
@@ -1183,7 +1188,8 @@ const cmds = struct {
             tp.extract(&row),
             tp.extract(&col),
         })) return error.InvalidAddDiagnosticArgument;
-        file_path = project_manager.normalize_file_path(file_path);
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
             if (editor.completions.items.len > 0) {
                 switch (tui.config().completion_style) {
@@ -1220,7 +1226,8 @@ const cmds = struct {
             var line_text: []const u8 = undefined;
             if (!try cbor.matchString(&iter, &line_text)) return error.MissingArgument;
 
-            file_path = project_manager.normalize_file_path(file_path);
+            var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
             const editor = self.get_editor_for_file(file_path) orelse continue;
             const primary_cursor = editor.get_primary().cursor;
 
@@ -1250,7 +1257,8 @@ const cmds = struct {
     pub fn clear_diagnostics(self: *Self, ctx: Ctx) Result {
         var file_path: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&file_path)})) return error.InvalidClearDiagnosticsArgument;
-        file_path = project_manager.normalize_file_path(file_path);
+        var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_editor_for_file(file_path)) |editor|
             editor.clear_diagnostics();
 

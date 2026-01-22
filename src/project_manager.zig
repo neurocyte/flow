@@ -1001,9 +1001,9 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
     }.spawn_link(a_, parent_, project_, max_, path_);
 }
 
-pub fn normalize_file_path(file_path: []const u8) []const u8 {
+fn normalize_file_path_project(file_path: []const u8) []const u8 {
     const project = tp.env.get().str("project");
-    const file_path_ = if (project.len == 0)
+    return if (project.len == 0)
         file_path
     else if (project.len >= file_path.len)
         file_path
@@ -1011,7 +1011,6 @@ pub fn normalize_file_path(file_path: []const u8) []const u8 {
         file_path[project.len + 1 ..]
     else
         file_path;
-    return normalize_file_path_dot_prefix(file_path_);
 }
 
 pub fn normalize_file_path_dot_prefix(file_path: []const u8) []const u8 {
@@ -1027,6 +1026,22 @@ pub fn normalize_file_path_dot_prefix(file_path: []const u8) []const u8 {
             file_path_;
     }
     return file_path;
+}
+
+pub fn normalize_file_path_windows(file_path_: []const u8, file_path_buf: []u8) []const u8 {
+    var file_path = file_path_buf[0..file_path_.len];
+    @memcpy(file_path, file_path_);
+    for (file_path, 0..) |c, i| if (c == '/') {
+        file_path[i] = '\\';
+    };
+    return file_path;
+}
+
+pub fn normalize_file_path(file_path: []const u8, file_path_buf: []u8) []const u8 {
+    return normalize_file_path_dot_prefix(normalize_file_path_project(if (builtin.os.tag == .windows)
+        normalize_file_path_windows(file_path, file_path_buf)
+    else
+        file_path));
 }
 
 pub fn abbreviate_home(buf: []u8, path: []const u8) []const u8 {
