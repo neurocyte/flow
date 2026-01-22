@@ -201,6 +201,24 @@ pub fn switch_case(allocator: std.mem.Allocator, text: []const u8) TransformErro
         to_upper(allocator, text);
 }
 
+pub fn toggle_case(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
+    var result: std.Io.Writer.Allocating = .init(allocator);
+    defer result.deinit();
+    const writer = &result.writer;
+    const view: Utf8View = .initUnchecked(text);
+    var it = view.iterator();
+    while (it.nextCodepoint()) |cp| {
+        const cp_ = if (uucode.get(.is_lowercase, cp))
+            uucode.get(.simple_uppercase_mapping, cp) orelse cp
+        else
+            uucode.get(.simple_lowercase_mapping, cp) orelse cp;
+        var utf8_buf: [6]u8 = undefined;
+        const size = try utf8Encode(cp_, &utf8_buf);
+        try writer.writeAll(utf8_buf[0..size]);
+    }
+    return result.toOwnedSlice();
+}
+
 pub fn is_lowercase(text: []const u8) bool {
     return utf8_predicate_all(.is_lowercase, text);
 }

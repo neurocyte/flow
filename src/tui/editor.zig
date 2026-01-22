@@ -7347,6 +7347,30 @@ pub const Editor = struct {
     }
     pub const switch_case_meta: Meta = .{ .description = "Switch the case of selection or character at cursor" };
 
+    fn toggle_case_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        var root = root_;
+        const saved = cursel.*;
+        const sel = try self.get_selection_or_select_word(root, cursel);
+        var sfa = std.heap.stackFallback(4096, self.allocator);
+        const sfa_allocator = sfa.get();
+        const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(cut_text);
+        const transformed = Buffer.unicode.toggle_case(sfa_allocator, cut_text) catch return error.Stop;
+        defer sfa_allocator.free(transformed);
+        root = try self.delete_selection(root, cursel, allocator);
+        root = self.insert(root, cursel, transformed, allocator) catch return error.Stop;
+        cursel.* = saved;
+        return root;
+    }
+
+    pub fn toggle_case(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut_once(b.root, toggle_case_cursel, b.allocator);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const toggle_case_meta: Meta = .{ .description = "Toggle the case of each character in selection or character at cursor" };
+
     pub fn forced_mark_clean(self: *Self, _: Context) Result {
         if (self.buffer) |b| {
             b.mark_clean();
