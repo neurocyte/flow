@@ -1760,12 +1760,12 @@ pub const Ref = enum(usize) {
 
     pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
         const value: usize = @intFromEnum(self);
-        try cbor.writeValue(writer, value);
+        try cbor.writeValue(writer, .{ "BREF", value });
     }
 
     pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
         var value: usize = 0;
-        if (try cbor.matchValue(iter, cbor.extract(&value))) {
+        if (try cbor.matchValue(iter, .{ "BREF", cbor.extract(&value) })) {
             self.* = @enumFromInt(value);
             return true;
         }

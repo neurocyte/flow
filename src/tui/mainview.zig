@@ -1361,10 +1361,12 @@ const cmds = struct {
             return error.InvalidShellArgument;
         const cmd = ctx.args;
         const handlers = struct {
-            fn out(buffer_ref: usize, parent: tp.pid_ref, _: []const u8, output: []const u8) void {
+            fn out(context: usize, parent: tp.pid_ref, _: []const u8, output: []const u8) void {
+                const buffer_ref: Buffer.Ref = @enumFromInt(context);
                 parent.send(.{ "cmd", "shell_execute_stream_output", .{ buffer_ref, output } }) catch {};
             }
-            fn exit(buffer_ref: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
+            fn exit(context: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
+                const buffer_ref: Buffer.Ref = @enumFromInt(context);
                 var buf: [256]u8 = undefined;
                 var stream = std.io.fixedBufferStream(&buf);
                 const writer = stream.writer();
