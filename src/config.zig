@@ -45,6 +45,7 @@ indent_mode: IndentMode = .auto,
 
 top_bar: []const u8 = "tabs",
 bottom_bar: []const u8 = "mode file log selection diagnostics keybind branch linenumber clock spacer",
+show_bottom_bar_grip: bool = true,
 show_scrollbars: bool = true,
 show_fileicons: bool = true,
 show_local_diagnostics_in_panel: bool = false,

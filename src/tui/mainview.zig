@@ -110,7 +110,8 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
     try widgets.add(self.panes_widget);
 
     if (tui.config().bottom_bar.len > 0) {
-        self.bottom_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().bottom_bar, .grip, EventHandler.bind(self, handle_bottom_bar_event)))).*;
+        const bar_style: @import("status/bar.zig").Style = if (tui.config().show_bottom_bar_grip) .grip else .none;
+        self.bottom_bar = (try widgets.addP(try @import("status/bar.zig").create(allocator, self.plane, tui.config().bottom_bar, bar_style, EventHandler.bind(self, handle_bottom_bar_event)))).*;
     }
     if (tp.env.get().is("show-input")) {
         self.toggle_inputview_async();
