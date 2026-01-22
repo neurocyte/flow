@@ -33,12 +33,18 @@ view_rows: usize = 0,
 view_cols: usize = 0,
 entries: std.ArrayList(Entry) = undefined,
 selected: ?usize = null,
+activate: ActivateMode = .normal,
 box: Widget.Box = .{},
 
 const MenuType = Menu.Options(*Self).MenuType;
 const ButtonType = MenuType.ButtonType;
 const path_column_ratio = 4;
 const widget_type: Widget.Type = .panel;
+
+pub const ActivateMode = enum {
+    normal,
+    alternate,
+};
 
 const Entry = struct {
     path: []const u8,
@@ -243,7 +249,12 @@ fn handle_menu_action(menu: **MenuType, button: *ButtonType, _: Widget.Pos) void
     self.update_selected();
     const entry = &self.entries.items[idx];
 
-    tp.self_pid().send(.{ "cmd", "navigate", .{
+    const cmd_ = switch (menu.*.opts.ctx.activate) {
+        .normal => "navigate",
+        .alternate => "navigate_split_vertical",
+    };
+
+    tp.self_pid().send(.{ "cmd", cmd_, .{
         .file = entry.path,
         .goto = .{
             entry.end_line + 1,
@@ -303,4 +314,11 @@ const cmds = struct {
         self.menu.activate_selected();
     }
     pub const goto_selected_file_meta: Meta = .{};
+
+    pub fn goto_selected_file_alternate(self: *Self, _: Ctx) Result {
+        if (self.menu.selected == null) return tp.exit_error(error.NoSelectedFile, @errorReturnTrace());
+        self.activate = .alternate;
+        self.menu.activate_selected();
+    }
+    pub const goto_selected_file_alternate_meta: Meta = .{};
 };

@@ -112,6 +112,12 @@ const cmds = struct {
     }
     pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
 
+    pub fn mini_mode_select_alternate(_: *Self, _: Ctx) Result {
+        command.executeName("goto_selected_file_alternate", .{}) catch {};
+        return command.executeName("exit_mini_mode", .{});
+    }
+    pub const mini_mode_select_alternate_meta: Meta = .{ .description = "Select alternate" };
+
     pub fn mini_mode_insert_code_point(self: *Self, ctx: Ctx) Result {
         var egc: u32 = 0;
         if (!try ctx.args.match(.{tp.extract(&egc)}))

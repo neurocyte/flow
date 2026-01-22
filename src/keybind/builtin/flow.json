@@ -513,7 +513,6 @@
             ["alt+v", "system_paste"],
             ["alt+n", "goto_next_file"],
             ["alt+p", "goto_prev_file"],
-            ["shift+enter", "goto_prev_match"],
             ["shift+f3", "goto_prev_match"],
             ["up", "select_prev_file"],
             ["down", "select_next_file"],
@@ -523,6 +522,7 @@
             ["f10", "theme_next"],
             ["escape", "mini_mode_cancel"],
             ["enter", "mini_mode_select"],
+            ["shift+enter", "mini_mode_select_alternate"],
             ["backspace", "mini_mode_delete_backwards"]
         ]
     },
