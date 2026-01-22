@@ -104,7 +104,7 @@ pub const TabBar = struct {
     widget_list_widget: Widget,
     event_handler: ?EventHandler,
     tabs: []TabBarTab = &[_]TabBarTab{},
-    active_focused_buffer_ref: ?usize = null,
+    active_focused_buffer_ref: ?Buffer.Ref = null,
     minimum_tabs_shown: usize,
     place_next: Placement = .atend,
 
@@ -120,7 +120,7 @@ pub const TabBar = struct {
     };
 
     const TabBarTab = struct {
-        buffer_ref: usize,
+        buffer_ref: Buffer.Ref,
         widget: Widget,
         view: ?usize,
     };
@@ -182,7 +182,7 @@ pub const TabBar = struct {
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
-        var buffer_ref: usize = undefined;
+        var buffer_ref: Buffer.Ref = undefined;
         if (try m.match(.{"next_tab"})) {
             self.select_next_tab();
         } else if (try m.match(.{"previous_tab"})) {
@@ -210,9 +210,8 @@ pub const TabBar = struct {
 
     fn refresh_active_buffer(self: *Self) void {
         const mv = tui.mainview() orelse @panic("tabs no main view");
-        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer = mv.get_active_buffer();
-        self.active_focused_buffer_ref = if (buffer) |buf| buffer_manager.buffer_to_ref(buf) else null;
+        self.active_focused_buffer_ref = if (buffer) |buf| buf.to_ref() else null;
     }
 
     fn handle_event(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
@@ -339,7 +338,7 @@ pub const TabBar = struct {
 
         // add existing tabs in original order if they still exist
         outer: for (existing_tabs) |*existing_tab|
-            for (buffers) |buffer| if (existing_tab.buffer_ref == buffer_manager.buffer_to_ref(buffer)) {
+            for (buffers) |buffer| if (existing_tab.buffer_ref == buffer.to_ref()) {
                 existing_tab.view = buffer.get_last_view();
                 if (!buffer.hidden)
                     (try result.addOne(self.allocator)).* = existing_tab.*;
@@ -348,7 +347,7 @@ pub const TabBar = struct {
 
         // add new tabs
         outer: for (buffers) |buffer| {
-            for (result.items) |result_tab| if (result_tab.buffer_ref == buffer_manager.buffer_to_ref(buffer))
+            for (result.items) |result_tab| if (result_tab.buffer_ref == buffer.to_ref())
                 continue :outer;
             if (!buffer.hidden)
                 try self.place_new_tab(&result, buffer);
@@ -368,8 +367,7 @@ pub const TabBar = struct {
     }
 
     fn place_new_tab(self: *Self, result: *std.ArrayListUnmanaged(TabBarTab), buffer: *Buffer) !void {
-        const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        const buffer_ref = buffer_manager.buffer_to_ref(buffer);
+        const buffer_ref = buffer.to_ref();
         const tab = try Tab.create(self, buffer_ref, &self.tab_style);
         const pos = switch (self.place_next) {
             .atend => try result.addOne(self.allocator),
@@ -401,22 +399,22 @@ pub const TabBar = struct {
         return drop_target.create(self, view);
     }
 
-    fn find_buffer_tab(self: *Self, buffer_ref: usize) ?usize {
+    fn find_buffer_tab(self: *Self, buffer_ref: Buffer.Ref) ?usize {
         for (self.tabs, 0..) |*tab, idx|
             if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
                 if (btn.opts.ctx.buffer_ref == buffer_ref) return idx;
         return null;
     }
 
-    fn find_first_tab_buffer(self: *Self) ?usize {
+    fn find_first_tab_buffer(self: *Self) ?Buffer.Ref {
         for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn|
                 return btn.opts.ctx.buffer_ref;
         return null;
     }
 
-    fn find_last_tab_buffer(self: *Self) ?usize {
-        var last: ?usize = null;
+    fn find_last_tab_buffer(self: *Self) ?Buffer.Ref {
+        var last: ?Buffer.Ref = null;
         for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                 last = btn.opts.ctx.buffer_ref;
@@ -424,7 +422,7 @@ pub const TabBar = struct {
         return last;
     }
 
-    fn find_next_tab_buffer(self: *Self) ?usize {
+    fn find_next_tab_buffer(self: *Self) ?Buffer.Ref {
         var found_active: bool = false;
         for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
@@ -436,8 +434,8 @@ pub const TabBar = struct {
         return null;
     }
 
-    fn find_previous_tab_buffer(self: *Self) ?usize {
-        var previous: ?usize = null;
+    fn find_previous_tab_buffer(self: *Self) ?Buffer.Ref {
+        var previous: ?Buffer.Ref = null;
         for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                 if (btn.opts.ctx.buffer_ref == self.active_focused_buffer_ref)
@@ -558,7 +556,7 @@ pub const TabBar = struct {
         }
     }
 
-    fn place_next_tab(self: *Self, position: enum { before, after }, buffer_ref: usize) void {
+    fn place_next_tab(self: *Self, position: enum { before, after }, buffer_ref: Buffer.Ref) void {
         tp.trace(tp.channel.debug, .{ "place_next_tab", position, buffer_ref });
         const tab_idx = for (self.tabs, 0..) |*tab, idx| if (tab.buffer_ref == buffer_ref) break idx else continue else {
             tp.trace(tp.channel.debug, .{ "place_next_tab", "not_found", buffer_ref });
@@ -574,7 +572,7 @@ pub const TabBar = struct {
         return navigate_to_buffer(tab.buffer_ref);
     }
 
-    fn navigate_to_buffer(buffer_ref: usize) void {
+    fn navigate_to_buffer(buffer_ref: Buffer.Ref) void {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         if (buffer_manager.buffer_from_ref(buffer_ref)) |buffer|
             tp.self_pid().send(.{ "cmd", "navigate", .{ .file = buffer.get_file_path() } }) catch {};
@@ -585,7 +583,7 @@ pub const TabBar = struct {
         for (self.tabs) |tab| try cbor.writeValue(writer, ref_to_name(tab.buffer_ref));
     }
 
-    fn ref_to_name(buffer_ref: usize) ?[]const u8 {
+    fn ref_to_name(buffer_ref: Buffer.Ref) ?[]const u8 {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         return if (buffer_manager.buffer_from_ref(buffer_ref)) |buffer| buffer.get_file_path() else null;
     }
@@ -617,10 +615,10 @@ pub const TabBar = struct {
         iter.* = iter2;
     }
 
-    fn name_to_ref_and_view(buffer_name: []const u8) struct { ?usize, ?usize } {
+    fn name_to_ref_and_view(buffer_name: []const u8) struct { ?Buffer.Ref, ?usize } {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         return if (buffer_manager.get_buffer_for_file(buffer_name)) |buffer|
-            .{ buffer_manager.buffer_to_ref(buffer), buffer.get_last_view() }
+            .{ buffer.to_ref(), buffer.get_last_view() }
         else
             .{ null, null };
     }
@@ -628,7 +626,7 @@ pub const TabBar = struct {
 
 const Tab = struct {
     tabbar: *TabBar,
-    buffer_ref: usize,
+    buffer_ref: Buffer.Ref,
     view: usize,
     tab_style: *const Style,
     close_pos: ?i32 = null,
@@ -641,7 +639,7 @@ const Tab = struct {
 
     fn create(
         tabbar: *TabBar,
-        buffer_ref: usize,
+        buffer_ref: Buffer.Ref,
         tab_style: *const Style,
     ) !Widget {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");

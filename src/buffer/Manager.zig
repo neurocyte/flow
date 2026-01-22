@@ -33,7 +33,7 @@ fn add_buffer(self: *Self, buffer: *Buffer) error{OutOfMemory}!void {
 }
 
 pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
-    const buffer = self.buffer_from_ref(self.buffer_to_ref(buffer_)) orelse return; // check buffer is valid
+    const buffer = self.buffer_from_ref(buffer_.to_ref()) orelse return; // check buffer is valid
     if (self.buffers.fetchRemove(buffer.get_file_path())) |kv| {
         self.allocator.free(kv.key);
         kv.value.deinit();
@@ -230,15 +230,11 @@ pub fn close_others(self: *Self, protected: *Buffer) error{OutOfMemory}!usize {
     return remaining;
 }
 
-pub fn buffer_from_ref(self: *Self, buffer_ref: usize) ?*Buffer {
+pub fn buffer_from_ref(self: *Self, buffer_ref: Buffer.Ref) ?*Buffer {
     var i = self.buffers.iterator();
     while (i.next()) |p|
-        if (@intFromPtr(p.value_ptr.*) == buffer_ref)
+        if (@intFromPtr(p.value_ptr.*) == @intFromEnum(buffer_ref))
             return p.value_ptr.*;
     tp.trace(tp.channel.debug, .{ "buffer_from_ref", "failed", buffer_ref });
     return null;
-}
-
-pub fn buffer_to_ref(_: *Self, buffer: *Buffer) usize {
-    return @intFromPtr(buffer);
 }

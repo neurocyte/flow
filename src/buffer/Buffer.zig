@@ -1750,3 +1750,25 @@ pub fn extract_state(self: *Self, iter: *[]const u8) !void {
     try self.reset_from_string_and_update(content);
     if (dirty) self.mark_dirty();
 }
+
+pub fn to_ref(self: *Self) Ref {
+    return @enumFromInt(@intFromPtr(self));
+}
+
+pub const Ref = enum(usize) {
+    _,
+
+    pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+        const value: usize = @intFromEnum(self);
+        try cbor.writeValue(writer, value);
+    }
+
+    pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
+        var value: usize = 0;
+        if (try cbor.matchValue(iter, cbor.extract(&value))) {
+            self.* = @enumFromInt(value);
+            return true;
+        }
+        return false;
+    }
+};

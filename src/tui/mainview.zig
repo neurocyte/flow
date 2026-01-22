@@ -828,7 +828,7 @@ const cmds = struct {
             try command.executeName("save_file", .{});
             try command.executeName("place_next_tab", command.fmt(.{
                 if (buffer.is_ephemeral()) "before" else "after",
-                self.buffer_manager.buffer_to_ref(buffer),
+                buffer.to_ref(),
             }));
             if (buffer.is_ephemeral())
                 self.buffer_manager.close_buffer(buffer);
@@ -1379,13 +1379,13 @@ const cmds = struct {
         };
         const editor = self.get_active_editor() orelse return error.Stop;
         const buffer = editor.buffer orelse return error.Stop;
-        const buffer_ref = self.buffer_manager.buffer_to_ref(buffer);
-        try shell.execute(self.allocator, cmd, .{ .context = buffer_ref, .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
+        const buffer_ref = buffer.to_ref();
+        try shell.execute(self.allocator, cmd, .{ .context = @intFromEnum(buffer_ref), .out = handlers.out, .err = handlers.out, .exit = handlers.exit });
     }
     pub const shell_execute_stream_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn shell_execute_stream_output(self: *Self, ctx: Ctx) Result {
-        var buffer_ref: usize = 0;
+        var buffer_ref: Buffer.Ref = undefined;
         var output: []const u8 = undefined;
         if (!try ctx.args.match(.{ tp.extract(&buffer_ref), tp.extract(&output) }))
             return error.InvalidShellOutputArgument;
@@ -1407,7 +1407,7 @@ const cmds = struct {
     pub const shell_execute_stream_output_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
     pub fn shell_execute_stream_output_complete(self: *Self, ctx: Ctx) Result {
-        var buffer_ref: usize = 0;
+        var buffer_ref: Buffer.Ref = undefined;
         if (!try ctx.args.match(.{tp.extract(&buffer_ref)}))
             return error.InvalidShellOutputCompleteArgument;
         const buffer = self.buffer_manager.buffer_from_ref(buffer_ref) orelse return;
