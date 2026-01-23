@@ -151,6 +151,7 @@
             ["alt+s", "filter", "sort"],
             ["alt+v", "paste"],
             ["alt+R", ["shell_execute_insert", "openssl", "rand", "-hex", "4"]],
+            ["alt+G", ["shell_execute_insert", "uuidgen"]],
             ["alt+left", "jump_back"],
             ["alt+right", "jump_forward"],
             ["alt+up", "pull_up"],
