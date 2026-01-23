@@ -186,6 +186,13 @@ pub fn request_vcs_content(file_path: []const u8, vcs_id: []const u8) (ProjectMa
     return send(.{ "request_vcs_content", project, file_path, vcs_id });
 }
 
+pub fn request_vcs_blame(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
+    const project = tp.env.get().str("project");
+    if (project.len == 0)
+        return error.NoProject;
+    return send(.{ "request_vcs_blame", project, file_path });
+}
+
 pub fn add_task(task: []const u8) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
@@ -428,6 +435,9 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "cat_file", tp.more })) {
             const request: *Project.VcsContentRequest = @ptrFromInt(context);
             request.project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-cat-file", e);
+        } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "blame", tp.more })) {
+            const request: *Project.GitBlameRequest = @ptrFromInt(context);
+            request.project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-blame", e);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), tp.more })) {
             const project: *Project = @ptrFromInt(context);
             project.process_git(self.parent.ref(), m) catch {};
@@ -523,6 +533,8 @@ const Process = struct {
             return;
         } else if (try cbor.match(m.buf, .{ "exit", "error.LspFailed", tp.more })) {
             return;
+        } else if (try cbor.match(m.buf, .{ "request_vcs_blame", tp.extract(&project_directory), tp.extract(&path) })) {
+            self.request_vcs_blame(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else {
             self.logger.err("receive", tp.unexpected(m));
         }
@@ -675,6 +687,11 @@ const Process = struct {
     fn request_vcs_content(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8, vcs_id: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         try project.request_vcs_content(file_path, vcs_id);
+    }
+
+    fn request_vcs_blame(self: *Process, _: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.RequestError)!void {
+        const project = self.projects.get(project_directory) orelse return error.NoProject;
+        try project.request_vcs_blame(file_path);
     }
 
     fn did_open(self: *Process, project_directory: []const u8, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, version: usize, text: []const u8) (ProjectError || Project.StartLspError || CallError || cbor.Error)!void {

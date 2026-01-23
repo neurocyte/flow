@@ -538,6 +538,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{ "PRJ", "vcs_content", tp.more }))
         return if (mainview()) |mv| mv.vcs_content_update(m);
 
+    if (try m.match(.{ "PRJ", "git_blame", tp.more })) {
+        return if (mainview()) |mv| mv.vcs_blame_update(m);
+    }
+
     if (try m.match(.{ "PRJ", "triggerCharacters", tp.more }))
         return if (mainview()) |mv| mv.trigger_characters_update(m);
 

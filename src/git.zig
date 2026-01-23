@@ -383,4 +383,22 @@ fn get_git() ?[]const u8 {
     return path;
 }
 
+pub fn blame(context_: usize, file_path: []const u8) !void {
+    const tag = @src().fn_name;
+    var arg: std.Io.Writer.Allocating = .init(allocator);
+    defer arg.deinit();
+    try arg.writer.print("{s}", .{file_path});
+    try git(context_, .{
+        "blame",
+        "--line-porcelain",
+        "HEAD",
+        "--",
+        arg.written(),
+    }, struct {
+        fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
+            parent.send(.{ module_name, context, tag, output }) catch {};
+        }
+    }.result, exit_null(tag));
+}
+
 const module_name = @typeName(@This());

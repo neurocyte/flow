@@ -2129,9 +2129,11 @@ pub fn vcs_id_update(self: *Self, m: tp.message) void {
 
     if (m.match(.{ "PRJ", "vcs_id", tp.extract(&file_path), tp.extract(&vcs_id) }) catch return) {
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
-        const need_vcs_content = buffer.set_vcs_id(vcs_id) catch false;
-        if (need_vcs_content)
+        const vcs_id_updated = buffer.set_vcs_id(vcs_id) catch false;
+        if (vcs_id_updated) {
             project_manager.request_vcs_content(file_path, vcs_id) catch {};
+            project_manager.request_vcs_blame(file_path) catch {};
+        }
     }
 }
 
@@ -2145,6 +2147,20 @@ pub fn vcs_content_update(self: *Self, m: tp.message) void {
         buffer.set_vcs_content(vcs_id, content) catch {};
     } else if (m.match(.{ "PRJ", "vcs_content", tp.extract(&file_path), tp.extract(&vcs_id), tp.null_ }) catch return) {
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        if (self.get_editor_for_buffer(buffer)) |editor|
+            editor.vcs_content_update() catch {};
+    }
+}
+
+pub fn vcs_blame_update(self: *Self, m: tp.message) void {
+    var file_path: []const u8 = undefined;
+    var blame_info: []const u8 = undefined;
+    if (m.match(.{ "PRJ", "git_blame", tp.extract(&file_path), tp.extract(&blame_info) }) catch return) {
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        buffer.set_vcs_blame(blame_info) catch {};
+    } else if (m.match(.{ "PRJ", "git_blame", tp.extract(&file_path), tp.null_ }) catch return) {
+        const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
+        buffer.parse_git_blame() catch return;
         if (self.get_editor_for_buffer(buffer)) |editor|
             editor.vcs_content_update() catch {};
     }
