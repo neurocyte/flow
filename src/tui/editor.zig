@@ -6378,7 +6378,11 @@ pub const Editor = struct {
     }
 
     pub fn run_triggers(self: *Self, cursel: *const CurSel, char: u8, event: TriggerEvent) void {
-        if (tui.config().completion_trigger == .manual) return;
+        switch (tui.config().completion_trigger) {
+            .manual => return,
+            .every_keystroke => return self.run_triggers_every_keystroke(cursel, char, event),
+            .automatic => {},
+        }
         switch (char) {
             '\n', '\t', ' ' => return,
             else => {},
@@ -6389,6 +6393,19 @@ pub const Editor = struct {
                 self.logger.print("trigger: {t} '{c}' {?s}({d})", .{ event, char, command.get_name(item.command), item.command });
             tp.self_pid().send(.{ "cmd", "run_trigger", .{ item.command, [_]u8{char} } }) catch {};
         };
+    }
+
+    pub fn run_triggers_every_keystroke(self: *Self, cursel: *const CurSel, char: u8, event: TriggerEvent) void {
+        switch (char) {
+            '\n', '\t', ' ' => return,
+            else => {},
+        }
+        if (!cursel.cursor.eql(self.get_primary().cursor)) return;
+        for (self.get_event_triggers(event).items) |item| {
+            if (command.log_execute)
+                self.logger.print("trigger: {t} '{c}' {?s}({d})", .{ event, char, command.get_name(item.command), item.command });
+            return tp.self_pid().send(.{ "cmd", "run_trigger", .{ item.command, [_]u8{char} } }) catch {};
+        }
     }
 
     pub fn run_trigger(_: *Self, ctx: Context) Result {

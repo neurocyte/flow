@@ -1144,6 +1144,7 @@ const cmds = struct {
         self.config_.completion_trigger = switch (self.config_.completion_trigger) {
             .manual => .automatic,
             .automatic => .manual,
+            .every_keystroke => .manual,
         };
         defer self.logger.print("{t} completion", .{self.config_.completion_trigger});
         try save_config();

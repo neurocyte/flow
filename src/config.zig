@@ -178,6 +178,7 @@ pub const InitialFindQuery = enum {
 pub const CompletionTrigger = enum {
     manual,
     automatic,
+    every_keystroke,
 };
 
 pub const CompletionStyle = enum {
