@@ -1258,6 +1258,7 @@ pub const Editor = struct {
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         if (tui.config().inline_diagnostics)
             self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
+        self.render_blame(theme, ctx_.cell_map) catch {};
         self.render_column_highlights() catch {};
         self.render_cursors(theme, ctx_.cell_map, focused) catch {};
     }
@@ -1453,6 +1454,44 @@ pub const Editor = struct {
         cell.set_style(.{ .fs = .undercurl });
         if (style.fg) |ul_col| cell.set_under_color(ul_col.color);
         _ = self.plane.putc(&cell) catch {};
+    }
+
+    fn render_blame(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
+        const cursor = self.get_primary().cursor;
+        const row_min = self.view.row;
+        const row_max = row_min + self.view.rows;
+        if (cursor.row < row_min or row_max < cursor.row)
+            return;
+
+        const row = cursor.row - self.view.row;
+        const col = cursor.col;
+
+        const screen_width = self.view.cols;
+        var style = theme.editor_hint;
+        style = .{ .fg = style.fg, .bg = theme.editor_hint.bg };
+
+        // @TODO: Get diff rows and edit this line number
+        const blame_name = self.buffer.?.get_line_blame(row) orelse return;
+
+        self.plane.cursor_move_yx(@intCast(row), @intCast(col));
+        self.render_diagnostic_cell(style);
+
+        var space_begin = screen_width;
+        while (space_begin > 0) : (space_begin -= 1)
+            if (cell_map.get_yx(row, space_begin).cell_type != .empty) break;
+        if (screen_width > min_diagnostic_view_len and space_begin < screen_width - min_diagnostic_view_len) {
+            self.plane.set_style(style);
+
+            // Opposite as diagnostics
+            switch (tui.config().inline_diagnostics_alignment) {
+                .right => {
+                    const width = self.plane.window.width;
+                    self.plane.cursor_move_yx(@intCast(row), @intCast(width -| (screen_width - space_begin) + 2));
+                    _ = self.plane.print("  {s}", .{blame_name}) catch 0;
+                },
+                .left => _ = self.plane.print_aligned_right(@intCast(row), "  {s}", .{blame_name[0..@min(screen_width - space_begin - 3, blame_name.len)]}) catch {},
+            }
+        }
     }
 
     inline fn render_selection_cell(_: *const Self, theme: *const Widget.Theme, cell: *Cell) void {

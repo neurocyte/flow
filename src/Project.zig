@@ -2861,6 +2861,8 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
     var context: usize = undefined;
     var vcs_id: []const u8 = undefined;
     var vcs_content: []const u8 = undefined;
+    var blame_output: []const u8 = undefined;
+
     _ = self;
 
     if (try m.match(.{ tp.any, tp.extract(&context), "rev_parse", tp.extract(&vcs_id) })) {
@@ -2876,5 +2878,34 @@ pub fn process_git_response(self: *Self, parent: tp.pid_ref, m: tp.message) (Out
         const request: *VcsContentRequest = @ptrFromInt(context);
         defer request.deinit();
         parent.send(.{ "PRJ", "vcs_content", request.file_path, request.vcs_id, null }) catch {};
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "blame", tp.extract(&blame_output) })) {
+        const request: *GitBlameRequest = @ptrFromInt(context);
+        parent.send(.{ "PRJ", "git_blame", request.file_path, blame_output }) catch {};
+    } else if (try m.match(.{ tp.any, tp.extract(&context), "blame", tp.null_ })) {
+        const request: *GitBlameRequest = @ptrFromInt(context);
+        defer request.deinit();
+        parent.send(.{ "PRJ", "git_blame", request.file_path, null }) catch {};
     }
 }
+
+pub fn request_vcs_blame(self: *Self, file_path: []const u8) error{OutOfMemory}!void {
+    const request = try self.allocator.create(GitBlameRequest);
+    request.* = .{
+        .allocator = self.allocator,
+        .project = self,
+        .file_path = try self.allocator.dupe(u8, file_path),
+    };
+    git.blame(@intFromPtr(request), file_path) catch |e|
+        self.logger_git.print_err("blame", "failed: {t}", .{e});
+}
+
+pub const GitBlameRequest = struct {
+    allocator: std.mem.Allocator,
+    project: *Self,
+    file_path: []const u8,
+
+    pub fn deinit(self: *@This()) void {
+        self.allocator.free(self.file_path);
+        self.allocator.destroy(self);
+    }
+};
