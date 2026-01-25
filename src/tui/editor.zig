@@ -1456,6 +1456,27 @@ pub const Editor = struct {
         _ = self.plane.putc(&cell) catch {};
     }
 
+    inline fn get_delta_lines_until_row(self: *const Self, row: usize) ?i32 {
+        var delta_lines: i32 = 0;
+
+        for (self.changes.items) |change| {
+            if (change.line > row)
+                break;
+
+            if (change.kind == .insert)
+                if (row >= change.line and row < change.line + change.lines)
+                    return null;
+
+            switch (change.kind) {
+                .insert => delta_lines -= @intCast(change.lines),
+                .delete => delta_lines += @intCast(change.lines),
+                else => {},
+            }
+        }
+
+        return delta_lines;
+    }
+
     fn render_blame(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
         const cursor = self.get_primary().cursor;
         const row_min = self.view.row;
@@ -1470,8 +1491,12 @@ pub const Editor = struct {
         var style = theme.editor_hint;
         style = .{ .fg = style.fg, .bg = theme.editor_hint.bg };
 
-        // @TODO: Get diff rows and edit this line number
-        const blame_name = self.buffer.?.get_line_blame(row) orelse return;
+        // Get delta line from HEAD version with diffs
+        const casted_row: i32 = @intCast(row);
+        const delta = self.get_delta_lines_until_row(row) orelse return;
+        const head_line: i32 = delta + casted_row;
+        if (head_line < 0) return;
+        const blame_name = self.buffer.?.get_line_blame(@intCast(head_line)) orelse return;
 
         self.plane.cursor_move_yx(@intCast(row), @intCast(col));
         self.render_diagnostic_cell(style);
