@@ -1475,11 +1475,38 @@ pub const Editor = struct {
         _ = self.plane.putc(&cell) catch {};
     }
 
+    inline fn get_delta_lines_until_row(self: *const Self, row: usize) ?i32 {
+        var delta_lines: i32 = 0;
+
+        for (self.changes.items) |change| {
+            if (change.line > row)
+                break;
+
+            if (change.kind == .insert)
+                if (row >= change.line and row < change.line + change.lines)
+                    return null;
+
+            switch (change.kind) {
+                .insert => delta_lines -= @intCast(change.lines),
+                .delete => delta_lines += @intCast(change.lines),
+                else => {},
+            }
+        }
+
+        return delta_lines;
+    }
+
     fn render_blame(self: *Self, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) !void {
         const cursor = self.get_primary().cursor;
         const pos = self.screen_cursor(&cursor) orelse return;
         const buffer = self.buffer orelse return;
-        const commit = buffer.get_vcs_blame(cursor.row) orelse return;
+
+        // Get delta line from HEAD version with diffs
+        const casted_row: i32 = @intCast(cursor.row);
+        const delta = self.get_delta_lines_until_row(cursor.row) orelse return;
+        const head_line: i32 = delta + casted_row;
+        if (head_line < 0) return;
+        const commit = buffer.get_vcs_blame(@intCast(head_line)) orelse return;
 
         var buf: std.Io.Writer.Allocating = .init(self.allocator);
         defer buf.deinit();
