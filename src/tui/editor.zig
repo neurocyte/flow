@@ -2780,27 +2780,28 @@ pub const Editor = struct {
     }
 
     fn scroll_up(self: *Self) void {
-        var dest: View = self.view;
-        dest.row = if (dest.row > scroll_step_small) dest.row - scroll_step_small else 0;
-        self.update_scroll_dest_abs(dest.row);
+        var dest_row = self.scroll_dest;
+        dest_row = if (dest_row > scroll_step_small) dest_row - scroll_step_small else 0;
+        self.update_scroll_dest_abs(dest_row);
     }
 
     fn scroll_down(self: *Self) void {
-        var dest: View = self.view;
-        dest.row += scroll_step_small;
-        self.update_scroll_dest_abs(dest.row);
+        var dest_row = self.scroll_dest;
+        dest_row += scroll_step_small;
+        self.update_scroll_dest_abs(dest_row);
     }
 
     fn scroll_pageup(self: *Self) void {
-        var dest: View = self.view;
-        dest.row = if (dest.row > dest.rows) dest.row - dest.rows else 0;
-        self.update_scroll_dest_abs(dest.row);
+        var dest_row = self.scroll_dest;
+        const view_rows = self.view.rows;
+        dest_row = if (dest_row > view_rows) dest_row - view_rows else 0;
+        self.update_scroll_dest_abs(dest_row);
     }
 
     fn scroll_pagedown(self: *Self) void {
-        var dest: View = self.view;
-        dest.row += dest.rows;
-        self.update_scroll_dest_abs(dest.row);
+        var dest_row: usize = self.scroll_dest;
+        dest_row += self.view.rows;
+        self.update_scroll_dest_abs(dest_row);
     }
 
     pub fn scroll_up_pageup(self: *Self, ctx: Context) Result {
