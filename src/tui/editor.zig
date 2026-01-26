@@ -1258,7 +1258,7 @@ pub const Editor = struct {
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         if (tui.config().inline_diagnostics)
             self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
-        self.render_blame(theme, ctx_.cell_map) catch {};
+        self.render_blame(theme, hl_row, ctx_.cell_map) catch {};
         self.render_column_highlights() catch {};
         self.render_cursors(theme, ctx_.cell_map, focused) catch {};
     }
@@ -1456,7 +1456,7 @@ pub const Editor = struct {
         _ = self.plane.putc(&cell) catch {};
     }
 
-    fn render_blame(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
+    fn render_blame(self: *Self, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) !void {
         const cursor = self.get_primary().cursor;
         const pos = self.screen_cursor(&cursor) orelse return;
         const buffer = self.buffer orelse return;
@@ -1464,7 +1464,7 @@ pub const Editor = struct {
         const author = commit.author;
 
         var style = theme.editor_hint;
-        style = .{ .fg = style.fg, .bg = theme.editor_hint.bg };
+        style = .{ .fg = style.fg, .bg = if (hl_row) |_| theme.editor_line_highlight.bg else theme.editor_hint.bg };
 
         self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
         self.render_diagnostic_cell(style);
