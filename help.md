@@ -176,8 +176,8 @@ Mouse commands are NOT rebindable and are not listed in the command palette.
 ## Configuration
 
 Configuration is stored in the standard location
-`${XDG_CONFIG_HOME}/flow/config.json`. This is usually
-`~/.config/flow/config.json`.
+`${XDG_CONFIG_HOME}/flow/config`. This is usually
+`~/.config/flow/config`.
 
 The default configuration will be written the first time
 Flow Control is started and looks similar to this:
