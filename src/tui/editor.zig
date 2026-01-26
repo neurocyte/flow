@@ -1456,55 +1456,23 @@ pub const Editor = struct {
         _ = self.plane.putc(&cell) catch {};
     }
 
-    inline fn get_delta_lines_until_row(self: *const Self, row: usize) ?i32 {
-        var delta_lines: i32 = 0;
-
-        for (self.changes.items) |change| {
-            if (change.line > row)
-                break;
-
-            if (change.kind == .insert)
-                if (row >= change.line and row < change.line + change.lines)
-                    return null;
-
-            switch (change.kind) {
-                .insert => delta_lines -= @intCast(change.lines),
-                .delete => delta_lines += @intCast(change.lines),
-                else => {},
-            }
-        }
-
-        return delta_lines;
-    }
-
     fn render_blame(self: *Self, theme: *const Widget.Theme, cell_map: CellMap) !void {
         const cursor = self.get_primary().cursor;
-        const row_min = self.view.row;
-        const row_max = row_min + self.view.rows;
-        if (cursor.row < row_min or row_max < cursor.row)
-            return;
+        const pos = self.screen_cursor(&cursor) orelse return;
+        const buffer = self.buffer orelse return;
+        const commit = buffer.get_vcs_blame(cursor.row) orelse return;
+        const author = commit.author;
 
-        const row = cursor.row - self.view.row;
-        const col = cursor.col;
-
-        const screen_width = self.view.cols;
         var style = theme.editor_hint;
         style = .{ .fg = style.fg, .bg = theme.editor_hint.bg };
 
-        // Get delta line from HEAD version with diffs
-        const casted_row: i32 = @intCast(row);
-        const delta = self.get_delta_lines_until_row(row) orelse return;
-        const head_line: i32 = delta + casted_row;
-        if (head_line < 0) return;
-        const commit = self.buffer.?.get_vcs_blame(@intCast(head_line)) orelse return;
-        const author = commit.author;
-
-        self.plane.cursor_move_yx(@intCast(row), @intCast(col));
+        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
         self.render_diagnostic_cell(style);
 
+        const screen_width = self.view.cols;
         var space_begin = screen_width;
         while (space_begin > 0) : (space_begin -= 1)
-            if (cell_map.get_yx(row, space_begin).cell_type != .empty) break;
+            if (cell_map.get_yx(pos.row, space_begin).cell_type != .empty) break;
         if (screen_width > min_diagnostic_view_len and space_begin < screen_width - min_diagnostic_view_len) {
             self.plane.set_style(style);
 
@@ -1512,10 +1480,10 @@ pub const Editor = struct {
             switch (tui.config().inline_diagnostics_alignment) {
                 .right => {
                     const width = self.plane.window.width;
-                    self.plane.cursor_move_yx(@intCast(row), @intCast(width -| (screen_width - space_begin) + 2));
+                    self.plane.cursor_move_yx(@intCast(pos.row), @intCast(width -| (screen_width - space_begin) + 2));
                     _ = self.plane.print("  {s}", .{author}) catch 0;
                 },
-                .left => _ = self.plane.print_aligned_right(@intCast(row), "  {s}", .{author[0..@min(screen_width - space_begin - 3, author.len)]}) catch {},
+                .left => _ = self.plane.print_aligned_right(@intCast(pos.row), "  {s}", .{author[0..@min(screen_width - space_begin - 3, author.len)]}) catch {},
             }
         }
     }
