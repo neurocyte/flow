@@ -2160,7 +2160,7 @@ pub fn vcs_blame_update(self: *Self, m: tp.message) void {
         buffer.set_vcs_blame(blame_info) catch {};
     } else if (m.match(.{ "PRJ", "git_blame", tp.extract(&file_path), tp.null_ }) catch return) {
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
-        buffer.parse_git_blame() catch return;
+        buffer.parse_vcs_blame() catch return;
         if (self.get_editor_for_buffer(buffer)) |editor|
             editor.vcs_content_update() catch {};
     }

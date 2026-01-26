@@ -390,7 +390,7 @@ pub fn blame(context_: usize, file_path: []const u8) !void {
     try arg.writer.print("{s}", .{file_path});
     try git(context_, .{
         "blame",
-        "--line-porcelain",
+        "--incremental",
         "HEAD",
         "--",
         arg.written(),

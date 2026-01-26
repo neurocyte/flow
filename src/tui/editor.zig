@@ -1496,7 +1496,8 @@ pub const Editor = struct {
         const delta = self.get_delta_lines_until_row(row) orelse return;
         const head_line: i32 = delta + casted_row;
         if (head_line < 0) return;
-        const blame_name = self.buffer.?.get_line_blame(@intCast(head_line)) orelse return;
+        const commit = self.buffer.?.get_vcs_blame(@intCast(head_line)) orelse return;
+        const author = commit.author;
 
         self.plane.cursor_move_yx(@intCast(row), @intCast(col));
         self.render_diagnostic_cell(style);
@@ -1512,9 +1513,9 @@ pub const Editor = struct {
                 .right => {
                     const width = self.plane.window.width;
                     self.plane.cursor_move_yx(@intCast(row), @intCast(width -| (screen_width - space_begin) + 2));
-                    _ = self.plane.print("  {s}", .{blame_name}) catch 0;
+                    _ = self.plane.print("  {s}", .{author}) catch 0;
                 },
-                .left => _ = self.plane.print_aligned_right(@intCast(row), "  {s}", .{blame_name[0..@min(screen_width - space_begin - 3, blame_name.len)]}) catch {},
+                .left => _ = self.plane.print_aligned_right(@intCast(row), "  {s}", .{author[0..@min(screen_width - space_begin - 3, author.len)]}) catch {},
             }
         }
     }
