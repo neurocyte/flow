@@ -1258,7 +1258,8 @@ pub const Editor = struct {
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
         if (tui.config().inline_diagnostics)
             self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
-        self.render_blame(theme, hl_row, ctx_.cell_map) catch {};
+        if (tui.config().inline_vcs_blame)
+            self.render_blame(theme, hl_row, ctx_.cell_map) catch {};
         self.render_column_highlights() catch {};
         self.render_cursors(theme, ctx_.cell_map, focused) catch {};
     }
