@@ -1463,18 +1463,16 @@ pub const Editor = struct {
         const commit = buffer.get_vcs_blame(cursor.row) orelse return;
         const author = commit.author;
 
-        var style = theme.editor_hint;
-        style = .{ .fg = style.fg, .bg = if (hl_row) |_| theme.editor_line_highlight.bg else theme.editor_hint.bg };
-
-        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
-        self.render_diagnostic_cell(style);
-
         const screen_width = self.view.cols;
         var space_begin = screen_width;
         while (space_begin > 0) : (space_begin -= 1)
             if (cell_map.get_yx(pos.row, space_begin).cell_type != .empty) break;
         if (screen_width > min_diagnostic_view_len and space_begin < screen_width - min_diagnostic_view_len) {
-            self.plane.set_style(style);
+            self.plane.set_style(.{
+                .fg = theme.editor_hint.fg,
+                .fs = theme.editor_hint.fs,
+                .bg = if (hl_row) |_| theme.editor_line_highlight.bg else theme.editor_hint.bg,
+            });
 
             // Opposite as diagnostics
             switch (tui.config().inline_diagnostics_alignment) {
