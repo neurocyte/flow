@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const cbor = @import("cbor");
 const TypedInt = @import("TypedInt");
+const VcsBlame = @import("VcsBlame");
 const file_type_config = @import("file_type_config");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -55,8 +56,7 @@ meta: ?[]const u8 = null,
 lsp_version: usize = 1,
 vcs_id: ?[]const u8 = null,
 vcs_content: ?ArrayList(u8) = null,
-vcs_blame: ?ArrayList(u8) = null,
-vcs_blame_items: ArrayList(BlameLine) = .empty,
+vcs_blame: VcsBlame = .{},
 last_view: ?usize = null,
 
 undo_head: ?*UndoNode = null,
@@ -1220,7 +1220,7 @@ pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
 pub fn deinit(self: *Self) void {
     self.clear_vcs_content();
     self.clear_vcs_blame();
-    self.vcs_blame_items.deinit(self.allocator);
+    self.vcs_blame.reset(self.external_allocator);
     if (self.vcs_id) |buf| self.external_allocator.free(buf);
     if (self.meta) |buf| self.external_allocator.free(buf);
     if (self.file_buf) |buf| self.external_allocator.free(buf);
@@ -1298,89 +1298,19 @@ pub fn get_vcs_content(self: *const Self) ?[]const u8 {
 }
 
 pub fn clear_vcs_blame(self: *Self) void {
-    if (self.vcs_blame) |*buf| {
-        buf.deinit(self.external_allocator);
-        self.vcs_blame = null;
-    }
+    self.vcs_blame.reset(self.external_allocator);
 }
 
-pub fn get_vcs_blame(self: *const Self) ?[]const u8 {
-    return if (self.vcs_blame) |*buf| buf.items else null;
+pub fn get_vcs_blame(self: *const Self, line: usize) ?*const VcsBlame.Commit {
+    return self.vcs_blame.getLine(line);
 }
 
 pub fn set_vcs_blame(self: *Self, vcs_blame: []const u8) error{OutOfMemory}!void {
-    if (self.vcs_blame) |*al| {
-        try al.appendSlice(self.external_allocator, vcs_blame);
-    } else {
-        var al: ArrayList(u8) = .empty;
-        try al.appendSlice(self.external_allocator, vcs_blame);
-        self.vcs_blame = al;
-    }
+    return self.vcs_blame.addContent(self.external_allocator, vcs_blame);
 }
 
-/// Can probably be optimized
-pub fn parse_git_blame(self: *Self) !void {
-    self.vcs_blame_items.clearAndFree(self.allocator);
-    var stream = std.io.fixedBufferStream(self.vcs_blame.?.items);
-    var reader = stream.reader();
-    var chunk_active = false;
-    var current_committer: []u8 = "";
-    var current_stamp: usize = undefined;
-    var buffer: [200]u8 = undefined;
-    while (true) {
-        const line = reader.readUntilDelimiter(&buffer, '\n') catch {
-            break;
-        };
-
-        if (line.len == 0)
-            continue;
-
-        if (line.len >= 40 and std.ascii.isHex(line[0])) {
-            if (chunk_active)
-                break; // error
-
-            chunk_active = true;
-            var it = std.mem.splitScalar(u8, line, ' ');
-
-            const sha = it.next() orelse continue;
-            if (sha.len != 40) continue;
-
-            _ = it.next(); // original line (ignored)
-            const number = try std.fmt.parseInt(
-                i64,
-                it.next() orelse break,
-                10,
-            );
-            if (number != self.vcs_blame_items.items.len + 1)
-                break;
-        } else if (std.mem.startsWith(u8, line, "author ")) {
-            if (!chunk_active)
-                break; // error
-            current_committer = try self.allocator.dupe(
-                u8,
-                line["author ".len..],
-            );
-        } else if (std.mem.startsWith(u8, line, "author-time ")) {
-            if (!chunk_active)
-                break; // error
-            current_stamp = try std.fmt.parseInt(
-                usize,
-                line["author-time ".len..],
-                10,
-            );
-
-            const ptr = try self.vcs_blame_items.addOne(self.allocator);
-            ptr.* = BlameLine{ .author_name = current_committer, .author_stamp = current_stamp };
-            chunk_active = false;
-        }
-    }
-}
-
-pub fn get_line_blame(self: *const Self, line: usize) ?[]const u8 {
-    if (line + 1 > self.vcs_blame_items.items.len)
-        return null;
-
-    return self.vcs_blame_items.items[line].author_name;
+pub fn parse_vcs_blame(self: *Self) VcsBlame.Error!void {
+    return self.vcs_blame.parse(self.external_allocator);
 }
 
 pub fn update_last_used_time(self: *Self) void {

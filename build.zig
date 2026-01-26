@@ -418,6 +418,11 @@ pub fn build_exe(
         .imports = &.{},
     });
 
+    const VcsBlame_mod = b.createModule(.{
+        .root_source_file = b.path("src/VcsBlame.zig"),
+        .imports = &.{},
+    });
+
     const color_mod = b.createModule(.{
         .root_source_file = b.path("src/color.zig"),
     });
@@ -449,6 +454,7 @@ pub fn build_exe(
             .{ .name = "TypedInt", .module = TypedInt_mod },
             .{ .name = "vaxis", .module = vaxis_mod },
             .{ .name = "file_type_config", .module = file_type_config_mod },
+            .{ .name = "VcsBlame", .module = VcsBlame_mod },
         },
     });
 
