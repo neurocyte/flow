@@ -1462,7 +1462,11 @@ pub const Editor = struct {
         const pos = self.screen_cursor(&cursor) orelse return;
         const buffer = self.buffer orelse return;
         const commit = buffer.get_vcs_blame(cursor.row) orelse return;
-        const author = commit.author;
+
+        var buf: std.Io.Writer.Allocating = .init(self.allocator);
+        defer buf.deinit();
+        _ = buf.writer.print("      {s}, {s}", .{ commit.summary, commit.author }) catch 0;
+        const msg = buf.written();
 
         const screen_width = self.view.cols;
         var space_begin = screen_width;
@@ -1480,9 +1484,9 @@ pub const Editor = struct {
                 .right => {
                     const width = self.plane.window.width;
                     self.plane.cursor_move_yx(@intCast(pos.row), @intCast(width -| (screen_width - space_begin) + 2));
-                    _ = self.plane.print("  {s}", .{author}) catch 0;
+                    _ = self.plane.print("{s}", .{msg}) catch 0;
                 },
-                .left => _ = self.plane.print_aligned_right(@intCast(pos.row), "  {s}", .{author[0..@min(screen_width - space_begin - 3, author.len)]}) catch {},
+                .left => _ = self.plane.print_aligned_right(@intCast(pos.row), "{s}", .{msg[0..@min(screen_width - space_begin, msg.len)]}) catch {},
             }
         }
     }
