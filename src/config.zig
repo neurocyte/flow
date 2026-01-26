@@ -19,6 +19,7 @@ highlight_columns_enabled: bool = false,
 whitespace_mode: WhitespaceMode = .indent,
 inline_diagnostics: bool = true,
 inline_diagnostics_alignment: Alignment = .right,
+inline_vcs_blame: bool = false,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 50, //milliseconds
 hover_time_ms: usize = 500, //milliseconds
