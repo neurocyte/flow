@@ -27,29 +27,40 @@ indent_mode: config.IndentMode = .spaces,
 padding: ?usize,
 leader: ?Leader,
 style: ?DigitStyle,
+mode: ?Mode,
 
 const Leader = enum {
     space,
     zero,
 };
+
+const Mode = enum {
+    default,
+    compact,
+    total,
+    percent,
+};
+
 const Self = @This();
 const ButtonType = Button.Options(Self).ButtonType;
 
 pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
-    const padding: ?usize, const leader: ?Leader, const style: ?DigitStyle = if (arg) |fmt| blk: {
+    const padding: ?usize, const leader: ?Leader, const style: ?DigitStyle, const mode: ?Mode = if (arg) |fmt| blk: {
         var it = std.mem.splitScalar(u8, fmt, ',');
         break :blk .{
             if (it.next()) |size| std.fmt.parseInt(usize, size, 10) catch null else null,
             if (it.next()) |leader| std.meta.stringToEnum(Leader, leader) orelse null else null,
             if (it.next()) |style| std.meta.stringToEnum(DigitStyle, style) orelse null else null,
+            if (it.next()) |mode| std.meta.stringToEnum(Mode, mode) orelse null else null,
         };
-    } else .{ null, null, null };
+    } else .{ null, null, null, null };
 
     return Button.create_widget(Self, allocator, parent, .{
         .ctx = .{
             .padding = padding,
             .leader = leader,
             .style = style,
+            .mode = mode,
         },
         .label = "",
         .on_click = on_click,
@@ -97,28 +108,59 @@ fn format(self: *Self) void {
         .spaces, .auto => "",
         .tabs => " ⭾ ",
     };
-    std.fmt.format(writer, "{s}{s} Ln ", .{ eol_mode, indent_mode }) catch {};
-    self.format_count(writer, self.line + 1, self.padding orelse 0) catch {};
-    std.fmt.format(writer, ", Col ", .{}) catch {};
-    self.format_count(writer, self.column + 1, self.padding orelse 0) catch {};
-    std.fmt.format(writer, " ", .{}) catch {};
+    writer.print("{s}{s} ", .{ eol_mode, indent_mode }) catch {};
+
+    (blk: switch (self.mode orelse .default) {
+        .default => writer.print("Ln {f}, Col {f} ", .{
+            digits_fmt(self, self.line + 1),
+            digits_fmt(self, self.column + 1),
+        }),
+        .compact => writer.print(" {f}:{f} ", .{
+            digits_fmt(self, self.line + 1),
+            digits_fmt(self, self.column + 1),
+        }),
+        .total => writer.print(" {f}:{f}/{f} ", .{
+            digits_fmt(self, self.line + 1),
+            digits_fmt(self, self.column + 1),
+            digits_fmt(self, self.lines),
+        }),
+        .percent => {
+            if (self.line == 0)
+                writer.print(" Top", .{}) catch {}
+            else if (self.line >= self.lines -| 1)
+                writer.print(" Bot", .{}) catch {}
+            else {
+                const percent = (self.line * 1000) / (self.lines * 10);
+                writer.print(" {f}%", .{digits_fmt(self, percent)}) catch {};
+            }
+            continue :blk .compact;
+        },
+    }) catch {};
     self.rendered = @ptrCast(fbs.getWritten());
     self.buf[self.rendered.len] = 0;
 }
 
-fn format_count(self: *Self, writer: anytype, value: usize, width: usize) !void {
-    var buf: [64]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    const writer_ = fbs.writer();
-    try std.fmt.format(writer_, "{d}", .{value});
-    const value_str = fbs.getWritten();
+pub fn digits_fmt(self_: *Self, value: usize) struct {
+    self: *Self,
+    value: usize,
+    pub fn format(ctx: @This(), writer: anytype) std.Io.Writer.Error!void {
+        const self = ctx.self;
+        const width = self.padding orelse 0;
+        var buf: [64]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        const writer_ = fbs.writer();
+        std.fmt.format(writer_, "{d}", .{ctx.value}) catch return error.WriteFailed;
+        const value_str = fbs.getWritten();
 
-    const char: []const u8 = switch (self.leader orelse .space) {
-        .space => " ",
-        .zero => "0",
-    };
-    for (0..(@max(value_str.len, width) - value_str.len)) |_| try writer.writeAll(fonts.get_digit_ascii(char, self.style orelse .ascii));
-    for (value_str, 0..) |_, i| try writer.writeAll(fonts.get_digit_ascii(value_str[i .. i + 1], self.style orelse .ascii));
+        const char: []const u8 = switch (self.leader orelse .space) {
+            .space => " ",
+            .zero => "0",
+        };
+        for (0..(@max(value_str.len, width) - value_str.len)) |_| try writer.writeAll(fonts.get_digit_ascii(char, self.style orelse .ascii));
+        for (value_str, 0..) |_, i| try writer.writeAll(fonts.get_digit_ascii(value_str[i .. i + 1], self.style orelse .ascii));
+    }
+} {
+    return .{ .self = self_, .value = value };
 }
 
 pub fn receive(self: *Self, _: *ButtonType, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
