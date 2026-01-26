@@ -1005,6 +1005,13 @@ const cmds = struct {
     }
     pub const gutter_style_next_meta: Meta = .{ .description = "Next line number style" };
 
+    pub fn toggle_inline_vcs_blame(_: *Self, _: Ctx) Result {
+        const config = tui.config_mut();
+        config.inline_vcs_blame = !config.inline_vcs_blame;
+        try tui.save_config();
+    }
+    pub const toggle_inline_vcs_blame_meta: Meta = .{ .description = "Toggle inline VCS blame info" };
+
     pub fn toggle_inline_diagnostics(_: *Self, _: Ctx) Result {
         const config = tui.config_mut();
         config.inline_diagnostics = !config.inline_diagnostics;
