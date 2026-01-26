@@ -337,7 +337,6 @@ pub fn updated(self: *Type, button_: ?*Type.ButtonType) !void {
 pub fn cancel(_: *Type) !void {
     const editor = tui.get_active_editor() orelse return;
     editor.cancel_all_matches();
-    editor.cancel_all_selections();
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
 }
