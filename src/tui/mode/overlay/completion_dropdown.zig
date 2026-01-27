@@ -117,19 +117,13 @@ pub fn initial_query(self: *Type, allocator: std.mem.Allocator) error{OutOfMemor
 
 pub fn update_query(self: *Type, query: []const u8) void {
     const editor = tui.get_active_editor() orelse return;
+    const sel = get_insert_selection(self, editor.get_primary().cursor);
+    editor.update_completion_cursels(sel, query) catch |e| self.logger.err(module_name, e);
+
     const primary = editor.get_primary();
-    primary.selection = get_insert_selection(self, editor.get_primary().cursor);
-    const b = editor.buf_for_update() catch return;
-    const root_ = if (query.len > 0)
-        editor.insert(b.root, primary, query, b.allocator) catch return
-    else
-        editor.delete_selection(b.root, primary, b.allocator) catch return;
-    self.value.cursor = editor.get_primary().cursor;
-    if (self.value.replace) |*sel| sel.* = .{ .begin = sel.begin, .end = self.value.cursor };
-    primary.selection = null;
-    editor.update_buf(root_) catch {};
-    editor.clamp();
-    editor.need_render();
+    self.value.cursor = primary.cursor;
+    self.value.view = editor.view;
+    if (self.value.replace) |*s| s.* = .{ .begin = s.begin, .end = self.value.cursor };
     if (query.len > 0) {
         const last_char = query[query.len - 1];
         editor.run_triggers(primary, last_char, .insert);
@@ -296,18 +290,14 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     const self = menu.*.opts.ctx;
     const values = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return;
-    const primary = editor.get_primary();
-    primary.selection = get_insert_selection(self, editor.get_primary().cursor);
+    const sel = get_insert_selection(self, editor.get_primary().cursor);
     const text = if (values.insertText.len > 0)
         values.insertText
     else if (values.textEdit_newText.len > 0)
         values.textEdit_newText
     else
         values.label;
-    switch (values.insertTextFormat) {
-        2 => editor.insert_snippet(text) catch |e| self.logger.err(module_name, e),
-        else => editor.insert_cursels(text) catch |e| self.logger.err(module_name, e),
-    }
+    editor.insert_completion(sel, text, values.insertTextFormat) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     self.value.cursor = editor.get_primary().cursor;
     self.value.view = editor.view;
     const mv = tui.mainview() orelse return;

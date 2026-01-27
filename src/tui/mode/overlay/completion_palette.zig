@@ -230,10 +230,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
         values.textEdit_newText
     else
         values.label;
-    switch (values.insertTextFormat) {
-        2 => editor.insert_snippet(text) catch |e| menu.*.opts.ctx.logger.err(module_name, e),
-        else => editor.insert_cursels(text) catch |e| menu.*.opts.ctx.logger.err(module_name, e),
-    }
+    editor.insert_completion(null, text, values.insertTextFormat) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);

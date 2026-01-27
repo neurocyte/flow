@@ -4900,6 +4900,52 @@ pub const Editor = struct {
         _ = self.pop_tabstop();
     }
 
+    fn replicate_selection(self: *Self, sel: Selection) void {
+        const dist = if (sel.begin.row != sel.end.row)
+            0
+        else if (sel.begin.col > sel.end.col)
+            sel.begin.col - sel.end.col
+        else
+            sel.end.col - sel.begin.col;
+
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            var s = Selection.from_cursor(&cursel.cursor);
+            s.begin.col -|= dist;
+            cursel.selection = s;
+        };
+    }
+
+    pub fn insert_completion(self: *Self, sel_: ?Selection, text: []const u8, insertTextFormat: usize) Result {
+        const primary = self.get_primary();
+        const sel = if (sel_) |s| blk: {
+            primary.selection = s;
+            break :blk s;
+        } else primary.selection orelse Selection.from_cursor(&primary.cursor);
+        self.replicate_selection(sel);
+
+        switch (insertTextFormat) {
+            2 => try self.insert_snippet(text),
+            else => try self.insert_cursels(text),
+        }
+    }
+
+    pub fn update_completion_cursels(self: *Self, sel: Selection, text: []const u8) Result {
+        const b = self.buf_for_update() catch return;
+        self.replicate_selection(sel);
+        var root = b.root;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            root = if (text.len > 0)
+                try self.insert(root, cursel, text, b.allocator)
+            else
+                try self.delete_selection(root, cursel, b.allocator);
+        };
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
+            cursel.selection = null;
+        };
+        try self.update_buf(root);
+        self.clamp();
+    }
+
     pub fn insert_cursels(self: *Self, chars: []const u8) Result {
         const b = try self.buf_for_update();
         var root = b.root;
