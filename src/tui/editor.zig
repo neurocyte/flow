@@ -1479,14 +1479,13 @@ pub const Editor = struct {
                 .bg = if (hl_row) |_| theme.editor_line_highlight.bg else theme.editor_hint.bg,
             });
 
-            // Opposite as diagnostics
-            switch (tui.config().inline_diagnostics_alignment) {
-                .right => {
+            switch (tui.config().inline_vcs_blame_alignment) {
+                .left => {
                     const width = self.plane.window.width;
                     self.plane.cursor_move_yx(@intCast(pos.row), @intCast(width -| (screen_width - space_begin) + 2));
                     _ = self.plane.print("{s}", .{msg}) catch 0;
                 },
-                .left => _ = self.plane.print_aligned_right(@intCast(pos.row), "{s}", .{msg[0..@min(screen_width - space_begin, msg.len)]}) catch {},
+                .right => _ = self.plane.print_aligned_right(@intCast(pos.row), "{s}", .{msg[0..@min(screen_width - space_begin, msg.len)]}) catch {},
             }
         }
     }
