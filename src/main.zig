@@ -498,9 +498,8 @@ var config_mutex: std.Thread.Mutex = .{};
 pub fn exists_config(T: type) bool {
     config_mutex.lock();
     defer config_mutex.unlock();
-    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return false;
-    const text_file_name = json_file_name[0 .. json_file_name.len - ".json".len];
-    var file = std.fs.openFileAbsolute(text_file_name, .{ .mode = .read_only }) catch return false;
+    const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return false;
+    var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return false;
     defer file.close();
     return true;
 }
@@ -520,19 +519,15 @@ pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const 
     config_mutex.lock();
     defer config_mutex.unlock();
     var bufs: [][]const u8 = &[_][]const u8{};
-    const json_file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ get_default(T), bufs };
-    const text_file_name = json_file_name[0 .. json_file_name.len - ".json".len];
+    const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ get_default(T), bufs };
     var conf: T = get_default(T);
-    if (!read_config_file(T, allocator, &conf, &bufs, text_file_name)) {
-        _ = read_config_file(T, allocator, &conf, &bufs, json_file_name);
-    }
+    _ = read_config_file(T, allocator, &conf, &bufs, file_name);
     read_nested_include_files(T, allocator, &conf, &bufs);
     return .{ conf, bufs };
 }
 
 // returns true if the file was found
 fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]const u8, file_name: []const u8) bool {
-    // std.log.info("loading {s}", .{file_name});
     const err: anyerror = blk: {
         if (std.mem.endsWith(u8, file_name, ".json")) if (read_json_config_file(T, allocator, conf, bufs, file_name)) return true else |e| break :blk e;
         if (read_text_config_file(T, allocator, conf, bufs, file_name)) return true else |e| break :blk e;
@@ -817,19 +812,6 @@ fn config_eql(config_type: type, T: type, a: T, b: T) bool {
     unsupported_error(config_type, T);
 }
 
-fn write_json_file(comptime T: type, data: T, allocator: std.mem.Allocator, file_name: []const u8) !void {
-    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
-    defer file.close();
-
-    var cb = std.ArrayList(u8).init(allocator);
-    defer cb.deinit();
-    try cbor.writeValue(cb.writer(), data);
-
-    var s = std.json.writeStream(file.writer(), .{ .whitespace = .indent_4 });
-    var iter: []const u8 = cb.items;
-    try cbor.JsonStream(std.fs.File).jsonWriteValue(&s, &iter);
-}
-
 pub fn read_keybind_namespace(allocator: std.mem.Allocator, namespace_name: []const u8) ?[]const u8 {
     const file_name = get_keybind_namespace_file_name(namespace_name) catch return null;
     var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
@@ -1044,7 +1026,7 @@ fn get_app_state_dir(appname: []const u8) ![]const u8 {
 }
 
 fn get_app_config_file_name(appname: []const u8, comptime base_name: []const u8) ConfigDirError![]const u8 {
-    return get_app_config_dir_file_name(appname, base_name ++ ".json");
+    return get_app_config_dir_file_name(appname, base_name);
 }
 
 fn get_app_config_dir_file_name(appname: []const u8, comptime config_file_name: []const u8) ConfigDirError![]const u8 {

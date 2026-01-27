@@ -349,7 +349,7 @@ fn open_style_config(self: *Self, Style: type) command.Result {
     tui.reset_drag_context();
     try self.create_editor();
     try command.executeName("open_scratch_buffer", command.fmt(.{
-        file_name[0 .. file_name.len - ".json".len],
+        file_name,
         conf.written(),
         "conf",
     }));
@@ -640,13 +640,13 @@ const cmds = struct {
 
     pub fn open_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("config"));
-        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - 5] } });
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
     }
     pub const open_config_meta: Meta = .{ .description = "Edit configuration" };
 
     pub fn open_gui_config(_: *Self, _: Ctx) Result {
         const file_name = try root.get_config_file_name(@import("gui_config"));
-        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name[0 .. file_name.len - ".json".len] } });
+        try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
     }
     pub const open_gui_config_meta: Meta = .{ .description = "Edit gui configuration" };
 
