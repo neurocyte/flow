@@ -452,6 +452,15 @@ pub const Editor = struct {
         if (self.buffer) |p| p.set_meta(meta.written()) catch {};
     }
 
+    pub fn has_secondary_cursors(self: *const Self) bool {
+        var count: usize = 0;
+        for (self.cursels.items) |*cursel_| if (cursel_.*) |_| {
+            count += 1;
+            if (count > 1) return true;
+        };
+        return false;
+    }
+
     fn count_cursels(self: *const Self) usize {
         var count: usize = 0;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |_| {
@@ -4864,7 +4873,7 @@ pub const Editor = struct {
         try self.insert_cursels(value.text);
         const root = try self.buf_root();
 
-        if (self.count_cursels() > 1)
+        if (self.has_secondary_cursors())
             return;
 
         self.cancel_all_tabstops();
