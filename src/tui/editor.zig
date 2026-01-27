@@ -1225,13 +1225,14 @@ pub const Editor = struct {
                 return Buffer.Walker.keep_walking;
             }
         };
+        const pc_row: usize = self.get_primary().cursor.row;
         const hl_row: ?usize = if (tui.config().highlight_current_line) blk: {
             if (self.get_primary().selection) |_|
                 if (theme.editor_selection.bg) |sel_bg|
                     if (theme.editor_line_highlight.bg) |hl_bg|
                         if (sel_bg.color == hl_bg.color and sel_bg.alpha == hl_bg.alpha)
                             break :blk null;
-            break :blk self.get_primary().cursor.row;
+            break :blk pc_row;
         } else null;
         var ctx_: ctx = .{
             .self = self,
@@ -1249,16 +1250,18 @@ pub const Editor = struct {
 
             self.plane.set_base_style(theme.editor);
             self.plane.erase();
-            if (hl_row) |_|
-                self.render_line_highlight(&self.get_primary().cursor, theme) catch {};
+            if (hl_row) |row|
+                self.render_line_highlight(row, theme) catch {};
             self.plane.home();
             _ = root.walk_from_line_begin_const(self.view.row, ctx.walker, &ctx_, self.metrics) catch {};
         }
         self.render_syntax(theme, cache, root) catch {};
         self.render_whitespace_map(theme, ctx_.cell_map) catch {};
-        if (tui.config().inline_diagnostics)
-            self.render_diagnostics(theme, hl_row, ctx_.cell_map) catch {};
-        if (tui.config().inline_vcs_blame)
+        const pc_row_diag = if (tui.config().inline_diagnostics)
+            self.render_diagnostics(theme, pc_row, hl_row, ctx_.cell_map)
+        else
+            false;
+        if (tui.config().inline_vcs_blame and !pc_row_diag)
             self.render_blame(theme, hl_row, ctx_.cell_map) catch {};
         self.render_column_highlights() catch {};
         self.render_cursors(theme, ctx_.cell_map, focused) catch {};
@@ -1353,12 +1356,12 @@ pub const Editor = struct {
         }
     }
 
-    fn render_line_highlight(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme) !void {
+    fn render_line_highlight(self: *Self, pc_row: usize, theme: *const Widget.Theme) !void {
         const row_min = self.view.row;
         const row_max = row_min + self.view.rows;
-        if (cursor.row < row_min or row_max < cursor.row)
+        if (pc_row < row_min or row_max < pc_row)
             return;
-        const row = cursor.row - self.view.row;
+        const row = pc_row - self.view.row;
         for (0..self.view.cols) |i| {
             self.plane.cursor_move_yx(@intCast(row), @intCast(i));
             var cell = self.plane.cell_init();
@@ -1401,8 +1404,14 @@ pub const Editor = struct {
             };
     }
 
-    fn render_diagnostics(self: *Self, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) !void {
-        for (self.diagnostics.items) |*diag| self.render_diagnostic(diag, theme, hl_row, cell_map);
+    fn render_diagnostics(self: *Self, theme: *const Widget.Theme, pc_row: usize, hl_row: ?usize, cell_map: CellMap) bool {
+        var diagnostic_on_pc_row: bool = false;
+        for (self.diagnostics.items) |*diag| {
+            if (diag.sel.begin.row == pc_row)
+                diagnostic_on_pc_row = true;
+            self.render_diagnostic(diag, theme, hl_row, cell_map);
+        }
+        return diagnostic_on_pc_row;
     }
 
     fn render_diagnostic(self: *Self, diag: *const Diagnostic, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) void {
