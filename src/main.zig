@@ -1205,7 +1205,14 @@ fn restart_manual() noreturn {
 fn restart_failed(ret: c_int) noreturn {
     var stderr_buffer: [1024]u8 = undefined;
     var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-    stderr_writer.interface.print("\nrestart failed: {t}", .{std.posix.errno(ret)}) catch {};
+    stderr_writer.interface.print("\nRestart failed: E{t}\n", .{std.posix.errno(ret)}) catch {};
+    stderr_writer.interface.print(
+        \\
+        \\ To restart manually run:
+        \\ > {s} --restore-session
+        \\
+        \\
+    , .{resolve_executable(std.mem.span(std.os.argv[0]))}) catch {};
     stderr_writer.interface.flush() catch {};
     exit(234);
 }
