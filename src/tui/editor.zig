@@ -1475,8 +1475,10 @@ pub const Editor = struct {
         _ = self.plane.putc(&cell) catch {};
     }
 
-    inline fn get_delta_lines_until_row(self: *const Self, row: usize) ?i32 {
-        var delta_lines: i32 = 0;
+    /// Get delta line from HEAD version with diffs
+    inline fn get_delta_lines_until_row(self: *const Self, row_: usize) ?usize {
+        const row: isize = @intCast(row_);
+        var delta_lines: isize = 0;
 
         for (self.changes.items) |change| {
             if (change.line > row)
@@ -1493,7 +1495,8 @@ pub const Editor = struct {
             }
         }
 
-        return delta_lines;
+        const head_line = delta_lines + row;
+        return if (head_line < 0) null else @intCast(head_line);
     }
 
     fn render_blame(self: *Self, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) !void {
@@ -1501,12 +1504,8 @@ pub const Editor = struct {
         const pos = self.screen_cursor(&cursor) orelse return;
         const buffer = self.buffer orelse return;
 
-        // Get delta line from HEAD version with diffs
-        const casted_row: i32 = @intCast(cursor.row);
-        const delta = self.get_delta_lines_until_row(cursor.row) orelse return;
-        const head_line: i32 = delta + casted_row;
-        if (head_line < 0) return;
-        const commit = buffer.get_vcs_blame(@intCast(head_line)) orelse return;
+        const blame_row = self.get_delta_lines_until_row(cursor.row) orelse return;
+        const commit = buffer.get_vcs_blame(blame_row) orelse return;
 
         var buf: std.Io.Writer.Allocating = .init(self.allocator);
         defer buf.deinit();
