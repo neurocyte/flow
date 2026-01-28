@@ -4901,16 +4901,17 @@ pub const Editor = struct {
     }
 
     fn replicate_selection(self: *Self, sel: Selection) void {
-        const dist = if (sel.begin.row != sel.end.row)
-            0
-        else if (sel.begin.col > sel.end.col)
-            sel.begin.col - sel.end.col
-        else
-            sel.end.col - sel.begin.col;
+        if (sel.begin.row != sel.end.row) return;
+        const primary = self.get_primary();
+        const cursor = primary.cursor;
+
+        const dist_begin = cursor.col - sel.begin.col;
+        const dist_end = sel.end.col - cursor.col;
 
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             var s = Selection.from_cursor(&cursel.cursor);
-            s.begin.col -|= dist;
+            s.begin.col -|= dist_begin;
+            s.end.col += dist_end;
             cursel.selection = s;
         };
     }
