@@ -43,7 +43,7 @@ pub fn load_entries(palette: *Type) !usize {
 
     const editor = tui.get_active_editor() orelse return error.NotFound;
     palette.value.start = editor.get_primary().*;
-    var iter: []const u8 = editor.completions.items;
+    var iter: []const u8 = editor.completions.data.items;
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;

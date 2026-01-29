@@ -34,6 +34,7 @@ pub const ValueType = struct {
     cursor: ed.Cursor = .{},
     view: ed.View = .{},
     replace: ?Buffer.Selection = null,
+    commands: command.Collection(cmds) = undefined,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -48,7 +49,7 @@ pub fn load_entries(self: *Type) !usize {
 
     const editor = tui.get_active_editor() orelse return error.NotFound;
     self.value.start = editor.get_primary().*;
-    var iter: []const u8 = editor.completions.items;
+    var iter: []const u8 = editor.completions.data.items;
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
@@ -88,8 +89,8 @@ pub fn load_entries(self: *Type) !usize {
     return @max(max_description, if (max_label_len > label.len + 3) 0 else label.len + 3 - max_label_len);
 }
 
-pub fn deinit(_: *Type) void {
-    //
+pub fn deinit(self: *Type) void {
+    self.value.commands.deinit();
 }
 
 pub fn handle_event(self: *Type, _: tp.pid_ref, m: tp.message) tp.result {
@@ -107,6 +108,7 @@ pub fn handle_event(self: *Type, _: tp.pid_ref, m: tp.message) tp.result {
 }
 
 pub fn initial_query(self: *Type, allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
+    try self.value.commands.init(self);
     const editor = tui.get_active_editor() orelse return allocator.dupe(u8, "");
     self.value.cursor = editor.get_primary().cursor;
     self.value.view = editor.view;
@@ -125,10 +127,7 @@ pub fn update_query(self: *Type, query: []const u8) void {
     self.value.cursor = primary.cursor;
     self.value.view = editor.view;
     if (self.value.replace) |*s| s.* = .{ .begin = s.begin, .end = self.value.cursor };
-    if (query.len > 0) {
-        const last_char = query[query.len - 1];
-        editor.run_triggers(primary, last_char, .insert);
-    }
+    tp.self_pid().send(.{ "cmd", "completion" }) catch |e| self.logger.err(module_name, e);
     return;
 }
 
@@ -331,3 +330,16 @@ pub fn cancel(_: *Type) !void {
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
 }
+
+const cmds = struct {
+    pub const Target = Type;
+    const Ctx = command.Context;
+    const Meta = command.Metadata;
+    const Result = command.Result;
+
+    pub fn update_completion(self: *Type, _: Ctx) Result {
+        clear_entries(self);
+        _ = try load_entries(self);
+    }
+    pub const update_completion_meta: Meta = .{};
+};

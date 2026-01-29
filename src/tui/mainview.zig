@@ -1198,7 +1198,8 @@ const cmds = struct {
         var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
         file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
-            if (editor.completions.items.len > 0) {
+            const have_completions = try editor.add_completion_done();
+            if (have_completions) {
                 switch (tui.config().completion_style) {
                     .palette => try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type),
                     .dropdown => try tui.open_overlay(@import("mode/overlay/completion_dropdown.zig").Type),

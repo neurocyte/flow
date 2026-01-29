@@ -418,10 +418,9 @@ pub const Editor = struct {
     diag_info: usize = 0,
     diag_hints: usize = 0,
 
-    completions: std.ArrayListUnmanaged(u8) = .empty,
-    completion_row: usize = 0,
-    completion_col: usize = 0,
-    completion_is_complete: bool = true,
+    completions: CompletionState = .empty,
+    completions_request: ?CompletionState = .done,
+    completions_refresh_pending: bool = false,
 
     changes: std.ArrayList(Diff) = .empty,
 
@@ -437,6 +436,22 @@ pub const Editor = struct {
             args: []const u8,
         } = null,
     } = null,
+
+    const CompletionState = struct {
+        data: std.ArrayListUnmanaged(u8) = .empty,
+        row: usize = 0,
+        col: usize = 0,
+        is_complete: bool = true,
+
+        const empty: @This() = .{};
+        const pending: @This() = .empty;
+        const done: ?@This() = null;
+
+        fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            self.data.deinit(allocator);
+            self.* = .empty;
+        }
+    };
 
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
@@ -626,6 +641,7 @@ pub const Editor = struct {
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.completions.deinit(self.allocator);
+        if (self.completions_request) |*p| p.deinit(self.allocator);
         self.changes.deinit(self.allocator);
         self.clear_event_triggers();
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
@@ -6251,7 +6267,10 @@ pub const Editor = struct {
 
     pub fn completion(self: *Self, _: Context) Result {
         const mv = tui.mainview() orelse return;
-        self.completions.clearRetainingCapacity();
+        if (self.completions_request) |_|
+            self.completions_refresh_pending = true
+        else
+            self.completions_request = .pending;
         if (!mv.is_any_panel_view_showing())
             self.clamp_offset(mv.get_panel_height());
         return self.pm_with_primary_cursor_pos(project_manager.completion);
@@ -6556,13 +6575,31 @@ pub const Editor = struct {
     pub const run_trigger_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
     pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
-        if (!(row == self.completion_row and col == self.completion_col)) {
-            self.completions.clearRetainingCapacity();
-            self.completion_row = row;
-            self.completion_col = col;
+        const request = if (self.completions_request) |*p| p else return;
+        request.row = row;
+        request.col = col;
+        try request.data.appendSlice(self.allocator, msg.buf);
+        request.is_complete = is_incomplete;
+    }
+
+    pub fn add_completion_done(self: *Self) anyerror!bool {
+        self.completions.deinit(self.allocator);
+        self.completions = .empty;
+        if (self.completions_request) |*request| {
+            self.completions.deinit(self.allocator);
+            self.completions = request.*;
+            self.completions_request = .done;
         }
-        try self.completions.appendSlice(self.allocator, msg.buf);
-        self.completion_is_complete = is_incomplete;
+
+        const update_completion = "update_completion";
+        if (command.get_id(update_completion)) |cmd_id|
+            try command.execute(cmd_id, update_completion, .{});
+
+        if (self.completions_refresh_pending) {
+            self.completions_refresh_pending = false;
+            try self.completion(.{});
+        }
+        return self.completions.data.items.len > 0;
     }
 
     pub fn get_completion_replacement_selection(self: *Self, replace: Selection) ?Selection {
