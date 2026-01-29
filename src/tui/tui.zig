@@ -637,7 +637,13 @@ fn render(self: *Self) void {
         const frame = tracy.initZone(@src(), .{ .name = "tui render" });
         defer frame.deinit();
         self.rdr_.stdplane().erase();
-        const continue_mainview = if (self.mainview_) |mv| mv.render(self.current_theme()) else false;
+        const theme_ = self.current_theme();
+        if (self.config_.enable_terminal_cursor) {
+            self.rdr_.cursor_disable();
+            if (self.rdr_.vx.caps.multi_cursor) self.rdr_.clear_all_multi_cursors() catch {};
+            self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
+        }
+        const continue_mainview = if (self.mainview_) |mv| mv.render(theme_) else false;
 
         switch (self.hint_mode) {
             .prefix => if (self.config_.enable_prefix_keyhints)
@@ -1403,7 +1409,6 @@ const cmds = struct {
     pub const change_fontface_meta: Meta = .{ .description = "Change font" };
 
     pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
-        self.rdr_.cursor_disable();
         if (self.input_mode_outer_ == null) return enter_mode_default(self, .{});
         if (self.input_mode_) |*mode| mode.deinit();
         self.input_mode_ = self.input_mode_outer_;
@@ -1514,7 +1519,6 @@ const cmds = struct {
     }
 
     pub fn exit_mini_mode(self: *Self, _: Ctx) Result {
-        self.rdr_.cursor_disable();
         if (self.mini_mode_) |_| {} else return;
         if (self.input_mode_) |*mode| mode.deinit();
         self.input_mode_ = self.input_mode_outer_;
