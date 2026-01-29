@@ -46,12 +46,12 @@ pub fn list(allocator: std.mem.Allocator, writer: *std.io.Writer, tty_config: st
         try write_segmented(writer, file_type.extensions, ",", max_extensions_len + 1, tty_config);
 
         if (file_type.language_server) |language_server|
-            try write_checkmark(writer, can_execute(allocator, language_server[0]), tty_config);
+            try write_checkmark(writer, bin_path.can_execute(allocator, language_server[0]), tty_config);
 
         try write_segmented(writer, file_type.language_server, " ", max_langserver_len + 1, tty_config);
 
         if (file_type.formatter) |formatter|
-            try write_checkmark(writer, can_execute(allocator, formatter[0]), tty_config);
+            try write_checkmark(writer, bin_path.can_execute(allocator, formatter[0]), tty_config);
 
         try write_segmented(writer, file_type.formatter, " ", null, tty_config);
         try writer.writeAll("\n");
@@ -94,12 +94,6 @@ fn write_segmented(
     }
     try tty_config.setColor(writer, .reset);
     if (pad) |pad_| try write_padding(writer, len, pad_);
-}
-
-fn can_execute(allocator: std.mem.Allocator, binary_name: []const u8) bool {
-    const resolved_binary_path = bin_path.find_binary_in_path(allocator, binary_name) catch return false;
-    defer if (resolved_binary_path) |path| allocator.free(path);
-    return resolved_binary_path != null;
 }
 
 fn setColorRgb(writer: anytype, color: u24) !void {

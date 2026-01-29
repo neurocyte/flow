@@ -1137,9 +1137,7 @@ pub fn get_theme_file_name(theme_name: []const u8) ![]const u8 {
 }
 
 fn resolve_executable(executable: [:0]const u8) [:0]const u8 {
-    return for (executable) |char| {
-        if (std.fs.path.isSep(char)) break executable;
-    } else bin_path.find_binary_in_path(std.heap.c_allocator, executable) catch executable orelse executable;
+    return bin_path.resolve_executable(std.heap.c_allocator, executable);
 }
 
 fn restart() noreturn {

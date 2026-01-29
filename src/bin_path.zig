@@ -53,3 +53,25 @@ fn find_binary_in_path_windows(allocator: std.mem.Allocator, binary_name_: []con
     }
     return null;
 }
+
+fn is_absolute_binary_path_executable(binary_path: []const u8) bool {
+    switch (builtin.os.tag) {
+        .windows => _ = std.fs.cwd().statFile(binary_path) catch return false,
+        else => std.posix.access(binary_path, std.posix.X_OK) catch return false,
+    }
+    return true;
+}
+
+pub fn can_execute(allocator: std.mem.Allocator, binary_name: []const u8) bool {
+    for (binary_name) |char| if (std.fs.path.isSep(char))
+        return is_absolute_binary_path_executable(binary_name);
+    const resolved_binary_path = find_binary_in_path(allocator, binary_name) catch return false;
+    defer if (resolved_binary_path) |path| allocator.free(path);
+    return resolved_binary_path != null;
+}
+
+pub fn resolve_executable(allocator: std.mem.Allocator, binary_name: [:0]const u8) [:0]const u8 {
+    return for (binary_name) |char| {
+        if (std.fs.path.isSep(char)) break binary_name;
+    } else find_binary_in_path(allocator, binary_name) catch binary_name orelse binary_name;
+}

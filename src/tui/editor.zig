@@ -6589,7 +6589,7 @@ pub const Editor = struct {
     fn get_formatter(self: *Self) ?[]const []const u8 {
         if (self.checked_formatter) return self.formatter;
         self.checked_formatter = true;
-        if (self.file_type) |file_type| if (file_type.formatter) |fmtr| if (fmtr.len > 0) if (can_execute(self.allocator, fmtr[0])) {
+        if (self.file_type) |file_type| if (file_type.formatter) |fmtr| if (fmtr.len > 0) if (bin_path.can_execute(self.allocator, fmtr[0])) {
             self.formatter = fmtr;
             return fmtr;
         } else {
@@ -6597,12 +6597,6 @@ pub const Editor = struct {
         };
         self.formatter = null;
         return null;
-    }
-
-    fn can_execute(allocator: std.mem.Allocator, binary_name: []const u8) bool {
-        const resolved_binary_path = bin_path.find_binary_in_path(allocator, binary_name) catch return false;
-        defer if (resolved_binary_path) |path| allocator.free(path);
-        return resolved_binary_path != null;
     }
 
     pub fn format(self: *Self, ctx: Context) Result {
