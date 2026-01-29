@@ -49,8 +49,9 @@ pub fn load_entries(palette: *Type) !usize {
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
         const values = get_values(cbor_item);
 
-        if (existing.contains(values.sort_text)) continue;
-        try existing.put(palette.allocator, values.sort_text, {});
+        const dup_text = if (values.sort_text.len > 0) values.sort_text else values.label;
+        if (existing.contains(dup_text)) continue;
+        try existing.put(palette.allocator, dup_text, {});
 
         if (palette.value.replace == null) if (get_replace_selection(values.replace)) |replace| {
             palette.value.replace = replace;
