@@ -2695,6 +2695,7 @@ pub const Editor = struct {
     }
 
     pub fn primary_click(self: *Self, y: c_int, x: c_int) !void {
+        if (y < 0 or x < 0) return;
         const root = self.buf_root() catch return;
         if (tui.fast_scroll()) {
             var at: Cursor = .{};
@@ -2718,6 +2719,7 @@ pub const Editor = struct {
     }
 
     pub fn primary_double_click(self: *Self, y: c_int, x: c_int) !void {
+        if (y < 0 or x < 0) return;
         const primary = self.get_primary();
         const root = self.buf_root() catch return;
         primary.disable_selection(root, self.metrics);
@@ -2731,6 +2733,7 @@ pub const Editor = struct {
     }
 
     pub fn primary_triple_click(self: *Self, y: c_int, x: c_int) !void {
+        if (y < 0 or x < 0) return;
         const primary = self.get_primary();
         const root = self.buf_root() catch return;
         primary.disable_selection(root, self.metrics);
