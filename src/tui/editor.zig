@@ -848,7 +848,6 @@ pub const Editor = struct {
         self.buffer = null;
         self.plane.erase();
         self.plane.home();
-        tui.rdr().cursor_disable();
         _ = try self.handlers.msg(.{ "E", "close" });
         if (self.syntax) |_| if (self.file_path) |file_path|
             project_manager.did_close(file_path) catch {};
@@ -1285,8 +1284,7 @@ pub const Editor = struct {
             const cursor = cursel.cursor;
             try self.render_cursor_secondary(&cursor, theme, cell_map, focused);
         };
-        const cursor = self.get_primary().cursor;
-        try self.render_cursor_primary(&cursor, theme, cell_map, focused);
+        try self.render_cursor_primary(&self.get_primary().cursor, theme, cell_map, focused);
     }
 
     fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
@@ -1300,36 +1298,46 @@ pub const Editor = struct {
             .underline_blink => .block_blink,
             else => configured_shape,
         } else configured_shape;
-        if (self.screen_cursor(cursor)) |pos| {
-            set_cell_map_cursor(cell_map, pos.row, pos.col);
-            if (!focused or !tui.is_mainview_focused() or !self.enable_terminal_cursor) {
-                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
-                const style = if (focused and tui.is_mainview_focused()) theme.editor_cursor else theme.editor_cursor_secondary;
-                self.render_cursor_cell(style);
-            } else {
-                const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
-                tui.rdr().set_terminal_cursor_color(theme.editor_cursor.bg.?);
-                tui.rdr().cursor_enable(y, x, cursor_shape) catch {};
+        const screen_pos = self.screen_cursor(cursor);
+        if (screen_pos) |pos| set_cell_map_cursor(cell_map, pos.row, pos.col);
+
+        if (focused and self.enable_terminal_cursor) {
+            if (screen_pos) |pos| {
+                self.render_term_cursor(pos, cursor_shape);
+            } else if (tui.is_mainview_focused() and tui.rdr().vx.caps.multi_cursor and self.has_secondary_cursors()) {
+                self.hide_term_cursor(theme.statusbar.bg.?, cursor_shape);
             }
-        } else {
-            if (focused and self.enable_terminal_cursor) {
-                tui.rdr().set_terminal_cursor_color(theme.statusbar.bg.?);
-                tui.rdr().cursor_enable(-1, -1, cursor_shape) catch {};
-            }
-        }
+        } else if (screen_pos) |pos|
+            self.render_soft_cursor(pos, if (focused) theme.editor_cursor else theme.editor_cursor_secondary);
     }
 
     fn render_cursor_secondary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
-        if (self.screen_cursor(cursor)) |pos| {
-            set_cell_map_cursor(cell_map, pos.row, pos.col);
-            if (!focused or !tui.is_mainview_focused() or !self.enable_terminal_cursor or !tui.rdr().vx.caps.multi_cursor) {
-                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
-                self.render_cursor_cell(theme.editor_cursor_secondary);
-            } else {
-                const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
-                tui.rdr().show_multi_cursor_yx(y, x) catch return;
-            }
-        }
+        const pos = self.screen_cursor(cursor) orelse return;
+        set_cell_map_cursor(cell_map, pos.row, pos.col);
+        if (focused and self.enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor)
+            self.render_term_cursor_secondary(pos)
+        else
+            self.render_soft_cursor(pos, theme.editor_cursor_secondary);
+    }
+
+    inline fn render_term_cursor(self: *Self, pos: Cursor, shape: anytype) void {
+        const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
+        tui.rdr().cursor_enable(y, x, shape) catch {};
+    }
+
+    inline fn render_term_cursor_secondary(self: *Self, pos: Cursor) void {
+        const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
+        tui.rdr().show_multi_cursor_yx(y, x) catch return;
+    }
+
+    inline fn hide_term_cursor(_: *Self, color: Widget.Theme.Color, shape: anytype) void {
+        tui.rdr().set_terminal_cursor_color(color);
+        tui.rdr().cursor_enable(-1, -1, shape) catch {};
+    }
+
+    inline fn render_soft_cursor(self: *Self, pos: Cursor, style: Widget.Theme.Style) void {
+        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
+        self.render_cursor_cell(style);
     }
 
     inline fn render_cursor_cell(self: *Self, style: Widget.Theme.Style) void {
@@ -7050,7 +7058,7 @@ pub const EditorWidget = struct {
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-        return self.editor.render(theme, self.focused);
+        return self.editor.render(theme, self.focused and tui.is_mainview_focused());
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
