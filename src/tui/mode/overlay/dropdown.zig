@@ -326,19 +326,18 @@ pub fn Create(options: type) type {
 
             for (self.entries.items) |*entry| {
                 const match = searcher.scoreMatches(entry.label, query);
-                if (match.score) |score|
-                    (try matches.addOne(self.allocator)).* = .{
-                        .entry = entry,
-                        .score = score,
-                        .matches = try self.allocator.dupe(usize, match.matches),
-                    };
+                (try matches.addOne(self.allocator)).* = .{
+                    .entry = entry,
+                    .score = match.score orelse 0,
+                    .matches = try self.allocator.dupe(usize, match.matches),
+                };
             }
             if (matches.items.len == 0) return 0;
 
             const less_fn = struct {
                 fn less_fn(_: void, lhs: Match, rhs: Match) bool {
                     return if (lhs.score == rhs.score)
-                        lhs.entry.label.len < rhs.entry.label.len
+                        std.mem.order(u8, lhs.entry.sort_text, rhs.entry.sort_text) == .lt
                     else
                         lhs.score > rhs.score;
                 }
