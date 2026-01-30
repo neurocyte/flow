@@ -267,6 +267,7 @@ pub fn Create(options: type) type {
         }
 
         pub fn update_query(self: *Self, query: []const u8) !void {
+            self.query.clearRetainingCapacity();
             try self.query.appendSlice(self.allocator, query);
             return self.start_query(0);
         }

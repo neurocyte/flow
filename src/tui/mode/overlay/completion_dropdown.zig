@@ -137,6 +137,7 @@ fn update_query(self: *Type, cursor: ed.Cursor) error{OutOfMemory}!void {
         else => |e_| return e_,
     };
     defer self.allocator.free(query);
+    self.update_query(query) catch return;
     tp.self_pid().send(.{ "cmd", "completion" }) catch |e| self.logger.err(module_name, e);
     return;
 }

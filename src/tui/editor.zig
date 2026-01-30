@@ -6601,15 +6601,18 @@ pub const Editor = struct {
             self.completions_request = .done;
         }
 
+        var open_completions = self.completions.data.items.len > 0;
         const update_completion = "update_completion";
-        if (command.get_id(update_completion)) |cmd_id|
+        if (command.get_id(update_completion)) |cmd_id| {
             try command.execute(cmd_id, update_completion, .{});
+            open_completions = false;
+        }
 
         if (self.completions_refresh_pending) {
             self.completions_refresh_pending = false;
             try self.completion(.{});
         }
-        return self.completions.data.items.len > 0;
+        return open_completions;
     }
 
     pub fn get_completion_replacement_selection(self: *Self, insert_: ?Selection, replace_: ?Selection) ?Selection {
