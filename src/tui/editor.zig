@@ -1492,7 +1492,7 @@ pub const Editor = struct {
             if (change.line > row)
                 break;
 
-            if (change.kind == .insert)
+            if (change.kind == .insert or change.kind == .modify)
                 if (row >= change.line and row < change.line + change.lines)
                     return null;
 
