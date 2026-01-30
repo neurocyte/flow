@@ -302,7 +302,7 @@ fn get_replacement_selection(editor: *ed.Editor, insert_: ?Buffer.Selection, rep
     const cursor = editor.get_primary().cursor;
     return switch (tui.config().completion_insert_mode) {
         .insert => .{ .begin = sel.begin, .end = cursor },
-        .replace => sel,
+        .replace => if (!cursor.within(sel)) .{ .begin = sel.begin, .end = cursor } else sel,
     };
 }
 
