@@ -278,11 +278,24 @@ const Range = struct { start: Position, end: Position };
 const Position = struct { line: usize, character: usize };
 
 pub fn get_replace_selection(editor: *ed.Editor, values: Values) ?Buffer.Selection {
-    return editor.get_completion_replacement_selection(values.insert, values.replace);
+    return get_replacement_selection(editor, values.insert, values.replace);
 }
 
-pub fn complete(self: *Type, _: ?*Type.ButtonType) !void {
-    self.menu.activate_selected();
+fn get_replacement_selection(editor: *ed.Editor, insert_: ?Buffer.Selection, replace_: ?Buffer.Selection) ?Buffer.Selection {
+    const pos = switch (tui.config().completion_insert_mode) {
+        .replace => replace_ orelse insert_ orelse return null,
+        .insert => insert_ orelse replace_ orelse return null,
+    };
+    var sel = pos.from_pos(editor.buf_root() catch return null, editor.metrics);
+    sel.normalize();
+    const cursor = editor.get_primary().cursor;
+    return switch (tui.config().completion_insert_mode) {
+        .insert => if (editor.get_primary().cursor.within(sel))
+            .{ .begin = sel.begin, .end = cursor }
+        else
+            sel,
+        .replace => sel,
+    };
 }
 
 fn get_insert_selection(self: *Type, values: Values, cursor: ed.Cursor) ed.Selection {

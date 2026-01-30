@@ -6615,20 +6615,6 @@ pub const Editor = struct {
         return open_completions;
     }
 
-    pub fn get_completion_replacement_selection(self: *Self, insert_: ?Selection, replace_: ?Selection) ?Selection {
-        const replace = replace_ orelse insert_ orelse return null;
-        var sel = replace.from_pos(self.buf_root() catch return null, self.metrics);
-        sel.normalize();
-        const cursor = self.get_primary().cursor;
-        return switch (tui.config().completion_insert_mode) {
-            .insert => if (self.get_primary().cursor.within(sel))
-                .{ .begin = sel.begin, .end = cursor }
-            else
-                sel,
-            .replace => sel,
-        };
-    }
-
     pub fn select(self: *Self, ctx: Context) Result {
         var sel: Selection = .{};
         if (!try ctx.args.match(.{ tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) }))
