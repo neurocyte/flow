@@ -128,7 +128,7 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) erro
     var lines_dst: usize = 0;
     var pos_dst: usize = 0;
     var last_offset: usize = 0;
-    var last_equal_char: u8 = 0;
+    var last_equal_char: u8 = '\n';
     for (diff_list.items) |diffz_diff| {
         switch (diffz_diff.operation) {
             .equal => {
