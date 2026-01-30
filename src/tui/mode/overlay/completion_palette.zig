@@ -13,6 +13,10 @@ const ed = @import("../../editor.zig");
 const module_name = @typeName(@This());
 const Widget = @import("../../Widget.zig");
 
+const Values = @import("completion_dropdown.zig").Values;
+const get_values = @import("completion_dropdown.zig").get_values;
+const get_replace_selection = @import("completion_dropdown.zig").get_replace_selection;
+
 pub const label = "Select completion";
 pub const name = "completion";
 pub const description = "completions";
@@ -53,7 +57,7 @@ pub fn load_entries(palette: *Type) !usize {
         if (existing.contains(dup_text)) continue;
         try existing.put(palette.allocator, dup_text, {});
 
-        if (palette.value.replace == null) if (get_replace_selection(values.replace)) |replace| {
+        if (palette.value.replace == null) if (get_replace_selection(editor, values)) |replace| {
             palette.value.replace = replace;
         };
         const item = (try palette.entries.addOne(palette.allocator));
@@ -135,89 +139,6 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     );
 }
 
-const Values = struct {
-    label: []const u8,
-    sort_text: []const u8,
-    kind: CompletionItemKind,
-    replace: Buffer.Selection,
-    additionalTextEdits: []const u8,
-    label_detail: []const u8,
-    label_description: []const u8,
-    detail: []const u8,
-    documentation: []const u8,
-    insertText: []const u8,
-    insertTextFormat: usize,
-    textEdit_newText: []const u8,
-};
-
-fn get_values(item_cbor: []const u8) Values {
-    var label_: []const u8 = "";
-    var label_detail: []const u8 = "";
-    var label_description: []const u8 = "";
-    var detail: []const u8 = "";
-    var documentation: []const u8 = "";
-    var sort_text: []const u8 = "";
-    var kind: u8 = 0;
-    var insertText: []const u8 = "";
-    var insertTextFormat: usize = 0;
-    var textEdit_newText: []const u8 = "";
-    var replace: Buffer.Selection = .{};
-    var additionalTextEdits: []const u8 = &.{};
-    _ = cbor.match(item_cbor, .{
-        cbor.any, // file_path
-        cbor.any, // row
-        cbor.any, // col
-        cbor.any, // is_incomplete
-        cbor.extract(&label_), // label
-        cbor.extract(&label_detail), // label_detail
-        cbor.extract(&label_description), // label_description
-        cbor.extract(&kind), // kind
-        cbor.extract(&detail), // detail
-        cbor.extract(&documentation), // documentation
-        cbor.any, // documentation_kind
-        cbor.extract(&sort_text), // sortText
-        cbor.extract(&insertText), // insertText
-        cbor.extract(&insertTextFormat), // insertTextFormat
-        cbor.extract(&textEdit_newText), // textEdit_newText
-        cbor.any, // insert.begin.row
-        cbor.any, // insert.begin.col
-        cbor.any, // insert.end.row
-        cbor.any, // insert.end.col
-        cbor.extract(&replace.begin.row), // replace.begin.row
-        cbor.extract(&replace.begin.col), // replace.begin.col
-        cbor.extract(&replace.end.row), // replace.end.row
-        cbor.extract(&replace.end.col), // replace.end.col
-        cbor.extract_cbor(&additionalTextEdits),
-    }) catch false;
-    return .{
-        .label = label_,
-        .sort_text = sort_text,
-        .kind = @enumFromInt(kind),
-        .replace = replace,
-        .additionalTextEdits = additionalTextEdits,
-        .label_detail = label_detail,
-        .label_description = label_description,
-        .detail = detail,
-        .documentation = documentation,
-        .insertTextFormat = insertTextFormat,
-        .insertText = insertText,
-        .textEdit_newText = textEdit_newText,
-    };
-}
-
-const TextEdit = struct { newText: []const u8 = &.{}, insert: ?Range = null, replace: ?Range = null };
-const Range = struct { start: Position, end: Position };
-const Position = struct { line: usize, character: usize };
-
-fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
-    return if (replace.empty())
-        null
-    else if (tui.get_active_editor()) |edt|
-        edt.get_completion_replacement_selection(replace)
-    else
-        replace;
-}
-
 pub fn complete(palette: *Type, _: ?*Type.ButtonType) !void {
     palette.menu.activate_selected();
 }
@@ -241,7 +162,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
     const values = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
-    editor.get_primary().selection = get_replace_selection(values.replace);
+    editor.get_primary().selection = get_replace_selection(editor, values);
 
     const mv = tui.mainview() orelse return;
     try mv.set_info_content(values.label, .replace);

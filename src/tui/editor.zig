@@ -4981,7 +4981,9 @@ pub const Editor = struct {
             primary.selection = s;
             break :blk s;
         } else primary.selection orelse Selection.from_cursor(&primary.cursor);
-        self.replicate_selection(sel);
+        if (self.has_secondary_cursors())
+            self.replicate_selection(sel);
+        primary.selection = sel;
 
         switch (insertTextFormat) {
             2 => try self.insert_snippet(text),
@@ -4991,7 +4993,9 @@ pub const Editor = struct {
 
     pub fn update_completion_cursels(self: *Self, sel: Selection, text: []const u8) Result {
         const b = self.buf_for_update() catch return;
-        self.replicate_selection(sel);
+        if (self.has_secondary_cursors())
+            self.replicate_selection(sel);
+        self.get_primary().selection = sel;
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             root = if (text.len > 0)
@@ -6608,7 +6612,8 @@ pub const Editor = struct {
         return self.completions.data.items.len > 0;
     }
 
-    pub fn get_completion_replacement_selection(self: *Self, replace: Selection) ?Selection {
+    pub fn get_completion_replacement_selection(self: *Self, insert_: ?Selection, replace_: ?Selection) ?Selection {
+        const replace = replace_ orelse insert_ orelse return null;
         var sel = replace.from_pos(self.buf_root() catch return null, self.metrics);
         sel.normalize();
         const cursor = self.get_primary().cursor;
