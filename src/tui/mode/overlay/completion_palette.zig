@@ -152,7 +152,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
         values.textEdit_newText
     else
         values.label;
-    editor.insert_completion(null, text, values.insertTextFormat) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    editor.insert_completion_at_cursor(text, values.insertTextFormat) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);

@@ -4975,20 +4975,21 @@ pub const Editor = struct {
         };
     }
 
-    pub fn insert_completion(self: *Self, sel_: ?Selection, text: []const u8, insertTextFormat: usize) Result {
-        const primary = self.get_primary();
-        const sel = if (sel_) |s| blk: {
-            primary.selection = s;
-            break :blk s;
-        } else primary.selection orelse Selection.from_cursor(&primary.cursor);
+    pub fn insert_completion(self: *Self, sel: Selection, text: []const u8, insertTextFormat: usize) Result {
         if (self.has_secondary_cursors())
             self.replicate_selection(sel);
-        primary.selection = sel;
+        self.get_primary().selection = sel;
 
         switch (insertTextFormat) {
             2 => try self.insert_snippet(text),
             else => try self.insert_cursels(text),
         }
+    }
+
+    pub fn insert_completion_at_cursor(self: *Self, text: []const u8, insertTextFormat: usize) Result {
+        const primary = self.get_primary();
+        const sel = primary.selection orelse Selection.from_cursor(&primary.cursor);
+        return self.insert_completion(sel, text, insertTextFormat);
     }
 
     pub fn update_completion_cursels(self: *Self, sel: Selection, text: []const u8) Result {

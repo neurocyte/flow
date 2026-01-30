@@ -299,36 +299,32 @@ pub fn get_query_selection(editor: *ed.Editor, values: Values) ?Buffer.Selection
     return get_replacement_selection(editor, values.insert, values.replace);
 }
 
-fn get_replacement_selection(editor: *ed.Editor, insert_: ?Buffer.Selection, replace_: ?Buffer.Selection) ?Buffer.Selection {
+fn get_replacement_selection(editor: *ed.Editor, insert_: ?Buffer.Selection, replace_: ?Buffer.Selection) Buffer.Selection {
     const pos = switch (tui.config().completion_insert_mode) {
-        .replace => replace_ orelse insert_ orelse return null,
-        .insert => insert_ orelse replace_ orelse return null,
+        .replace => replace_ orelse insert_ orelse return ed.Selection.from_cursor(&editor.get_primary().cursor),
+        .insert => insert_ orelse replace_ orelse return ed.Selection.from_cursor(&editor.get_primary().cursor),
     };
-    var sel = pos.from_pos(editor.buf_root() catch return null, editor.metrics);
+    var sel = pos.from_pos(editor.buf_root() catch return ed.Selection.from_cursor(&editor.get_primary().cursor), editor.metrics);
     sel.normalize();
     const cursor = editor.get_primary().cursor;
     return switch (tui.config().completion_insert_mode) {
-        .insert => if (editor.get_primary().cursor.within(sel))
-            .{ .begin = sel.begin, .end = cursor }
-        else
-            sel,
+        .insert => .{ .begin = sel.begin, .end = cursor },
         .replace => sel,
     };
 }
 
-fn get_insert_selection(self: *Type, values: Values, cursor: ed.Cursor) ed.Selection {
-    return if (values.replace) |sel|
-        sel
-    else if (self.value.start.selection) |sel|
-        sel
-    else
-        .{ .begin = self.value.start.cursor, .end = cursor };
+fn get_insert_selection(editor: *ed.Editor, values: Values) Buffer.Selection {
+    return get_replacement_selection(editor, values.insert, values.replace);
+}
+
+pub fn complete(self: *Type, _: ?*Type.ButtonType) !void {
+    self.menu.activate_selected();
 }
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     const self = menu.*.opts.ctx;
     const values = get_values(button.opts.label);
-    const sel = get_insert_selection(self, values, self.value.editor.get_primary().cursor);
+    const sel = get_insert_selection(self.value.editor, values);
     const text = if (values.insertText.len > 0)
         values.insertText
     else if (values.textEdit_newText.len > 0)
