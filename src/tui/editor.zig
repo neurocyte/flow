@@ -2966,14 +2966,20 @@ pub const Editor = struct {
     }
     pub const scroll_view_bottom_meta: Meta = .{};
 
-    pub fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]u8 {
+    pub fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) error{ Stop, OutOfMemory }![]u8 {
         var size: usize = 0;
-        _ = try root.get_range(sel, null, &size, null, metrics);
+        _ = root.get_range(sel, null, &size, null, metrics) catch |e| switch (e) {
+            error.NoSpaceLeft => @panic("copy_selection:size"), // get_range can only return NoSpaceLeft if passed a copy_buf
+            else => |e_| return e_,
+        };
         const buf__ = try text_allocator.alloc(u8, size);
-        return (try root.get_range(sel, buf__, null, null, metrics)).?;
+        return (root.get_range(sel, buf__, null, null, metrics) catch |e| switch (e) {
+            error.NoSpaceLeft => @panic("copy_selection:buf__"), // buf__.len does not match &size, which should be impossible
+            else => |e_| return e_,
+        }) orelse @panic("copy_selection:null");
     }
 
-    pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) ![]u8 {
+    pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) error{ Stop, OutOfMemory }![]u8 {
         return copy_selection(try self.buf_root(), sel, text_allocator, self.metrics);
     }
 
