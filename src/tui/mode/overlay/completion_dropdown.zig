@@ -31,10 +31,10 @@ pub const Entry = struct {
 
 pub const ValueType = struct {
     editor: *ed.Editor = undefined,
-    start: ed.CurSel = .{},
     cursor: ed.Cursor = .{},
     view: ed.View = .{},
-    replace: ?Buffer.Selection = null,
+    query: ?Buffer.Selection = null,
+    last_query: ?[]const u8 = null,
     commands: command.Collection(cmds) = undefined,
 };
 pub const defaultValue: ValueType = .{};
@@ -55,8 +55,7 @@ pub fn load_entries(self: *Type) !usize {
     var existing: std.StringHashMapUnmanaged(void) = .empty;
     defer existing.deinit(self.allocator);
 
-    self.value.start = self.value.editor.get_primary().*;
-    self.value.replace = null;
+    self.value.query = null;
     var iter: []const u8 = self.value.editor.completions.data.items;
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
@@ -67,8 +66,8 @@ pub fn load_entries(self: *Type) !usize {
         if (existing.contains(dup_text)) continue;
         try existing.put(self.allocator, dup_text, {});
 
-        if (self.value.replace == null) if (get_replace_selection(self.value.editor, values)) |replace| {
-            self.value.replace = replace;
+        if (self.value.query == null) if (get_query_selection(self.value.editor, values)) |query| {
+            self.value.query = query;
         };
         const item = try self.entries.addOne(self.allocator);
         item.* = .{
@@ -98,6 +97,7 @@ pub fn load_entries(self: *Type) !usize {
 }
 
 pub fn deinit(self: *Type) void {
+    if (self.value.last_query) |p| self.allocator.free(p);
     self.value.commands.deinit();
 }
 
@@ -115,20 +115,39 @@ pub fn handle_event(self: *Type, _: tp.pid_ref, m: tp.message) tp.result {
         {
             tp.self_pid().send(.{ "cmd", "palette_menu_cancel" }) catch |e| self.logger.err(module_name, e);
         } else {
-            update_query(self, cursor) catch |e| self.logger.err(module_name, e);
+            const query = get_query_text_nostore(self, cursor, self.allocator) catch |e| switch (e) {
+                error.Stop => return,
+                else => |e_| {
+                    self.logger.err(module_name, e_);
+                    return;
+                },
+            };
+            defer self.allocator.free(query);
+            if (self.value.last_query) |last| {
+                if (!std.mem.eql(u8, query, last))
+                    update_query(self, cursor) catch |e| self.logger.err(module_name, e);
+            } else update_query(self, cursor) catch |e| self.logger.err(module_name, e);
         }
     }
 }
 
 pub fn initial_query(self: *Type, allocator: std.mem.Allocator) error{ Stop, OutOfMemory }![]const u8 {
-    return get_query_text(self, self.value.cursor, allocator);
+    return allocator.dupe(u8, try get_query_text(self, self.value.cursor, allocator));
+}
+
+fn get_query_text_nostore(self: *Type, cursor: ed.Cursor, allocator: std.mem.Allocator) error{ Stop, OutOfMemory }![]const u8 {
+    return if (self.value.query) |query| blk: {
+        const sel: Buffer.Selection = .{ .begin = query.begin, .end = cursor };
+        break :blk try self.value.editor.get_selection(sel, allocator);
+    } else allocator.dupe(u8, "");
 }
 
 fn get_query_text(self: *Type, cursor: ed.Cursor, allocator: std.mem.Allocator) error{ Stop, OutOfMemory }![]const u8 {
-    return if (self.value.replace) |replace| blk: {
-        const sel: Buffer.Selection = .{ .begin = replace.begin, .end = cursor };
-        break :blk try self.value.editor.get_selection(sel, allocator);
-    } else allocator.dupe(u8, "");
+    if (self.value.last_query) |p| self.allocator.free(p);
+    self.value.last_query = null;
+    const query = try get_query_text_nostore(self, cursor, allocator);
+    self.value.last_query = query;
+    return query;
 }
 
 fn update_query(self: *Type, cursor: ed.Cursor) error{OutOfMemory}!void {
@@ -136,7 +155,6 @@ fn update_query(self: *Type, cursor: ed.Cursor) error{OutOfMemory}!void {
         error.Stop => return,
         else => |e_| return e_,
     };
-    defer self.allocator.free(query);
     self.update_query(query) catch return;
     tp.self_pid().send(.{ "cmd", "completion" }) catch |e| self.logger.err(module_name, e);
     return;
@@ -277,7 +295,7 @@ const TextEdit = struct { newText: []const u8 = &.{}, insert: ?Range = null, rep
 const Range = struct { start: Position, end: Position };
 const Position = struct { line: usize, character: usize };
 
-pub fn get_replace_selection(editor: *ed.Editor, values: Values) ?Buffer.Selection {
+pub fn get_query_selection(editor: *ed.Editor, values: Values) ?Buffer.Selection {
     return get_replacement_selection(editor, values.insert, values.replace);
 }
 

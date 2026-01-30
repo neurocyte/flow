@@ -15,7 +15,7 @@ const Widget = @import("../../Widget.zig");
 
 const Values = @import("completion_dropdown.zig").Values;
 const get_values = @import("completion_dropdown.zig").get_values;
-const get_replace_selection = @import("completion_dropdown.zig").get_replace_selection;
+const get_query_selection = @import("completion_dropdown.zig").get_query_selection;
 
 pub const label = "Select completion";
 pub const name = "completion";
@@ -32,7 +32,7 @@ pub const Entry = struct {
 
 pub const ValueType = struct {
     start: ed.CurSel = .{},
-    replace: ?Buffer.Selection = null,
+    query: ?Buffer.Selection = null,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -57,8 +57,8 @@ pub fn load_entries(palette: *Type) !usize {
         if (existing.contains(dup_text)) continue;
         try existing.put(palette.allocator, dup_text, {});
 
-        if (palette.value.replace == null) if (get_replace_selection(editor, values)) |replace| {
-            palette.value.replace = replace;
+        if (palette.value.query == null) if (get_query_selection(editor, values)) |query| {
+            palette.value.query = query;
         };
         const item = (try palette.entries.addOne(palette.allocator));
         item.* = .{
@@ -88,9 +88,9 @@ pub fn load_entries(palette: *Type) !usize {
 }
 
 pub fn initial_query(palette: *Type, allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
-    return if (palette.value.replace) |replace| blk: {
+    return if (palette.value.query) |query| blk: {
         const editor = tui.get_active_editor() orelse break :blk allocator.dupe(u8, "");
-        const sel: Buffer.Selection = .{ .begin = replace.begin, .end = palette.value.start.cursor };
+        const sel: Buffer.Selection = .{ .begin = query.begin, .end = palette.value.start.cursor };
         break :blk editor.get_selection(sel, allocator) catch break :blk allocator.dupe(u8, "");
     } else allocator.dupe(u8, "");
 }
@@ -162,7 +162,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
     const values = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
-    editor.get_primary().selection = get_replace_selection(editor, values);
+    editor.get_primary().selection = get_query_selection(editor, values);
 
     const mv = tui.mainview() orelse return;
     try mv.set_info_content(values.label, .replace);
