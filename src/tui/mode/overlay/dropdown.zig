@@ -84,15 +84,14 @@ pub fn Create(options: type) type {
                 .mode = try keybind.mode(switch (tui.config().dropdown_keybinds) {
                     .standard => "overlay/dropdown",
                     .noninvasive => "overlay/dropdown-noninvasive",
-                }, allocator, .{
-                    .insert_command = "overlay_insert_bytes",
-                }),
+                }, allocator, .{}),
                 .placement = if (@hasDecl(options, "placement")) options.placement else .top_center,
             };
             try self.commands.init(self);
             self.mode.event_handler = EventHandler.to_owned(self);
             self.mode.name = options.name;
             if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
+            if (@hasDecl(options, "init")) try options.init(self);
             self.longest_hint = if (@hasDecl(options, "load_entries_with_args"))
                 try options.load_entries_with_args(self, ctx)
             else
@@ -267,6 +266,12 @@ pub fn Create(options: type) type {
             return false;
         }
 
+        pub fn update_query(self: *Self, query: []const u8) !void {
+            self.query.clearRetainingCapacity();
+            try self.query.appendSlice(self.allocator, query);
+            return self.start_query(0);
+        }
+
         fn start_query(self: *Self, n: usize) !void {
             self.items = 0;
             self.menu.reset_items();
@@ -322,19 +327,18 @@ pub fn Create(options: type) type {
 
             for (self.entries.items) |*entry| {
                 const match = searcher.scoreMatches(entry.label, query);
-                if (match.score) |score|
-                    (try matches.addOne(self.allocator)).* = .{
-                        .entry = entry,
-                        .score = score,
-                        .matches = try self.allocator.dupe(usize, match.matches),
-                    };
+                (try matches.addOne(self.allocator)).* = .{
+                    .entry = entry,
+                    .score = match.score orelse 0,
+                    .matches = try self.allocator.dupe(usize, match.matches),
+                };
             }
             if (matches.items.len == 0) return 0;
 
             const less_fn = struct {
                 fn less_fn(_: void, lhs: Match, rhs: Match) bool {
                     return if (lhs.score == rhs.score)
-                        lhs.entry.label.len < rhs.entry.label.len
+                        std.mem.order(u8, lhs.entry.sort_text, rhs.entry.sort_text) == .lt
                     else
                         lhs.score > rhs.score;
                 }
@@ -351,51 +355,6 @@ pub fn Create(options: type) type {
                     try options.add_menu_entry(self, match.entry, match.matches);
             }
             return matches.items.len;
-        }
-
-        fn delete_word(self: *Self) !void {
-            if (self.query.items.len == 0 and @hasDecl(options, "delete_word_empty")) {
-                options.delete_word_empty(self);
-                return;
-            }
-            if (std.mem.lastIndexOfAny(u8, self.query.items, "/\\. -_")) |pos| {
-                self.query.shrinkRetainingCapacity(pos);
-            } else {
-                self.query.shrinkRetainingCapacity(0);
-            }
-            if (@hasDecl(options, "update_query"))
-                options.update_query(self, self.query.items);
-            return self.start_query(0);
-        }
-
-        fn delete_code_point(self: *Self) !void {
-            if (self.query.items.len > 0) {
-                self.query.shrinkRetainingCapacity(self.query.items.len - tui.egc_last(self.query.items).len);
-                if (@hasDecl(options, "update_query"))
-                    options.update_query(self, self.query.items);
-            } else {
-                if (@hasDecl(options, "delete_empty"))
-                    options.delete_empty(self);
-            }
-            try self.start_query(0);
-        }
-
-        fn insert_code_point(self: *Self, c: u32) !void {
-            var buf: [6]u8 = undefined;
-            const bytes = try input.ucs32_to_utf8(&[_]u32{c}, &buf);
-            try self.query.appendSlice(self.allocator, buf[0..bytes]);
-            if (@hasDecl(options, "update_query"))
-                options.update_query(self, self.query.items);
-            // std.log.debug("insert_code_point: '{s}'", .{self.query.items});
-            return self.start_query(0);
-        }
-
-        fn insert_bytes(self: *Self, bytes: []const u8) !void {
-            try self.query.appendSlice(self.allocator, bytes);
-            if (@hasDecl(options, "update_query"))
-                options.update_query(self, self.query.items);
-            // std.log.debug("insert_bytes: '{s}'", .{self.query.items});
-            return self.start_query(0);
         }
 
         fn cmd(_: *Self, name_: []const u8, ctx: command.Context) tp.result {
@@ -549,32 +508,6 @@ pub fn Create(options: type) type {
                 try self.cmd("exit_overlay_mode", .{});
             }
             pub const palette_menu_cancel_meta: Meta = .{};
-
-            pub fn overlay_delete_word_left(self: *Self, _: Ctx) Result {
-                self.delete_word() catch |e| return tp.exit_error(e, @errorReturnTrace());
-            }
-            pub const overlay_delete_word_left_meta: Meta = .{ .description = "Delete word to the left" };
-
-            pub fn overlay_delete_backwards(self: *Self, _: Ctx) Result {
-                self.delete_code_point() catch |e| return tp.exit_error(e, @errorReturnTrace());
-            }
-            pub const overlay_delete_backwards_meta: Meta = .{ .description = "Delete backwards" };
-
-            pub fn overlay_insert_code_point(self: *Self, ctx: Ctx) Result {
-                var egc: u32 = 0;
-                if (!try ctx.args.match(.{tp.extract(&egc)}))
-                    return error.InvalidPaletteInsertCodePointArgument;
-                self.insert_code_point(egc) catch |e| return tp.exit_error(e, @errorReturnTrace());
-            }
-            pub const overlay_insert_code_point_meta: Meta = .{ .arguments = &.{.integer} };
-
-            pub fn overlay_insert_bytes(self: *Self, ctx: Ctx) Result {
-                var bytes: []const u8 = undefined;
-                if (!try ctx.args.match(.{tp.extract(&bytes)}))
-                    return error.InvalidPaletteInsertBytesArgument;
-                self.insert_bytes(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
-            }
-            pub const overlay_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
             pub fn overlay_next_widget_style(self: *Self, _: Ctx) Result {
                 tui.set_next_style(widget_type);

@@ -398,9 +398,7 @@
             ["ctrl+up", "palette_menu_up"],
             ["ctrl+down", "palette_menu_down"],
             ["ctrl+enter", "palette_menu_activate"],
-            ["tab", "palette_menu_complete"],
-            ["ctrl+backspace", "overlay_delete_word_left"],
-            ["backspace", "overlay_delete_backwards"]
+            ["tab", "palette_menu_complete"]
         ]
     },
     "overlay/dropdown": {
@@ -413,9 +411,7 @@
             ["up", "palette_menu_up"],
             ["down", "palette_menu_down"],
             ["enter", "palette_menu_activate"],
-            ["tab", "palette_menu_complete"],
-            ["ctrl+backspace", "overlay_delete_word_left"],
-            ["backspace", "overlay_delete_backwards"]
+            ["tab", "palette_menu_complete"]
         ]
     },
     "mini/numeric": {

@@ -418,10 +418,9 @@ pub const Editor = struct {
     diag_info: usize = 0,
     diag_hints: usize = 0,
 
-    completions: std.ArrayListUnmanaged(u8) = .empty,
-    completion_row: usize = 0,
-    completion_col: usize = 0,
-    completion_is_complete: bool = true,
+    completions: CompletionState = .empty,
+    completions_request: ?CompletionState = .done,
+    completions_refresh_pending: bool = false,
 
     changes: std.ArrayList(Diff) = .empty,
 
@@ -437,6 +436,22 @@ pub const Editor = struct {
             args: []const u8,
         } = null,
     } = null,
+
+    const CompletionState = struct {
+        data: std.ArrayListUnmanaged(u8) = .empty,
+        row: usize = 0,
+        col: usize = 0,
+        is_complete: bool = true,
+
+        const empty: @This() = .{};
+        const pending: @This() = .empty;
+        const done: ?@This() = null;
+
+        fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            self.data.deinit(allocator);
+            self.* = .empty;
+        }
+    };
 
     const StyleCache = std.AutoHashMap(u32, ?Widget.Theme.Token);
 
@@ -626,6 +641,7 @@ pub const Editor = struct {
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.completions.deinit(self.allocator);
+        if (self.completions_request) |*p| p.deinit(self.allocator);
         self.changes.deinit(self.allocator);
         self.clear_event_triggers();
         if (self.syntax) |syn| syn.destroy(tui.query_cache());
@@ -2950,14 +2966,20 @@ pub const Editor = struct {
     }
     pub const scroll_view_bottom_meta: Meta = .{};
 
-    pub fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) ![]u8 {
+    pub fn copy_selection(root: Buffer.Root, sel: Selection, text_allocator: Allocator, metrics: Buffer.Metrics) error{ Stop, OutOfMemory }![]u8 {
         var size: usize = 0;
-        _ = try root.get_range(sel, null, &size, null, metrics);
+        _ = root.get_range(sel, null, &size, null, metrics) catch |e| switch (e) {
+            error.NoSpaceLeft => @panic("copy_selection:size"), // get_range can only return NoSpaceLeft if passed a copy_buf
+            else => |e_| return e_,
+        };
         const buf__ = try text_allocator.alloc(u8, size);
-        return (try root.get_range(sel, buf__, null, null, metrics)).?;
+        return (root.get_range(sel, buf__, null, null, metrics) catch |e| switch (e) {
+            error.NoSpaceLeft => @panic("copy_selection:buf__"), // buf__.len does not match &size, which should be impossible
+            else => |e_| return e_,
+        }) orelse @panic("copy_selection:null");
     }
 
-    pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) ![]u8 {
+    pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) error{ Stop, OutOfMemory }![]u8 {
         return copy_selection(try self.buf_root(), sel, text_allocator, self.metrics);
     }
 
@@ -4953,13 +4975,10 @@ pub const Editor = struct {
         };
     }
 
-    pub fn insert_completion(self: *Self, sel_: ?Selection, text: []const u8, insertTextFormat: usize) Result {
-        const primary = self.get_primary();
-        const sel = if (sel_) |s| blk: {
-            primary.selection = s;
-            break :blk s;
-        } else primary.selection orelse Selection.from_cursor(&primary.cursor);
-        self.replicate_selection(sel);
+    pub fn insert_completion(self: *Self, sel: Selection, text: []const u8, insertTextFormat: usize) Result {
+        if (self.has_secondary_cursors())
+            self.replicate_selection(sel);
+        self.get_primary().selection = sel;
 
         switch (insertTextFormat) {
             2 => try self.insert_snippet(text),
@@ -4967,9 +4986,17 @@ pub const Editor = struct {
         }
     }
 
+    pub fn insert_completion_at_cursor(self: *Self, text: []const u8, insertTextFormat: usize) Result {
+        const primary = self.get_primary();
+        const sel = primary.selection orelse Selection.from_cursor(&primary.cursor);
+        return self.insert_completion(sel, text, insertTextFormat);
+    }
+
     pub fn update_completion_cursels(self: *Self, sel: Selection, text: []const u8) Result {
         const b = self.buf_for_update() catch return;
-        self.replicate_selection(sel);
+        if (self.has_secondary_cursors())
+            self.replicate_selection(sel);
+        self.get_primary().selection = sel;
         var root = b.root;
         for (self.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
             root = if (text.len > 0)
@@ -6251,7 +6278,10 @@ pub const Editor = struct {
 
     pub fn completion(self: *Self, _: Context) Result {
         const mv = tui.mainview() orelse return;
-        self.completions.clearRetainingCapacity();
+        if (self.completions_request) |_|
+            self.completions_refresh_pending = true
+        else
+            self.completions_request = .pending;
         if (!mv.is_any_panel_view_showing())
             self.clamp_offset(mv.get_panel_height());
         return self.pm_with_primary_cursor_pos(project_manager.completion);
@@ -6556,26 +6586,34 @@ pub const Editor = struct {
     pub const run_trigger_meta: Meta = .{ .arguments = &.{ .integer, .string } };
 
     pub fn add_completion(self: *Self, row: usize, col: usize, is_incomplete: bool, msg: tp.message) Result {
-        if (!(row == self.completion_row and col == self.completion_col)) {
-            self.completions.clearRetainingCapacity();
-            self.completion_row = row;
-            self.completion_col = col;
-        }
-        try self.completions.appendSlice(self.allocator, msg.buf);
-        self.completion_is_complete = is_incomplete;
+        const request = if (self.completions_request) |*p| p else return;
+        request.row = row;
+        request.col = col;
+        try request.data.appendSlice(self.allocator, msg.buf);
+        request.is_complete = is_incomplete;
     }
 
-    pub fn get_completion_replacement_selection(self: *Self, replace: Selection) ?Selection {
-        var sel = replace.from_pos(self.buf_root() catch return null, self.metrics);
-        sel.normalize();
-        const cursor = self.get_primary().cursor;
-        return switch (tui.config().completion_insert_mode) {
-            .insert => if (self.get_primary().cursor.within(sel))
-                .{ .begin = sel.begin, .end = cursor }
-            else
-                sel,
-            .replace => sel,
-        };
+    pub fn add_completion_done(self: *Self) anyerror!bool {
+        self.completions.deinit(self.allocator);
+        self.completions = .empty;
+        if (self.completions_request) |*request| {
+            self.completions.deinit(self.allocator);
+            self.completions = request.*;
+            self.completions_request = .done;
+        }
+
+        var open_completions = self.completions.data.items.len > 0;
+        const update_completion = "update_completion";
+        if (command.get_id(update_completion)) |cmd_id| {
+            try tp.self_pid().send(.{ "cmd", cmd_id });
+            open_completions = false;
+        }
+
+        if (self.completions_refresh_pending) {
+            self.completions_refresh_pending = false;
+            try self.completion(.{});
+        }
+        return open_completions;
     }
 
     pub fn select(self: *Self, ctx: Context) Result {

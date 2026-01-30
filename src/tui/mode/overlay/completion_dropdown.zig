@@ -30,36 +30,37 @@ pub const Entry = struct {
 };
 
 pub const ValueType = struct {
-    start: ed.CurSel = .{},
+    editor: *ed.Editor = undefined,
     cursor: ed.Cursor = .{},
     view: ed.View = .{},
-    replace: ?Buffer.Selection = null,
+    query: ?Buffer.Selection = null,
+    last_query: ?[]const u8 = null,
+    commands: command.Collection(cmds) = undefined,
 };
 pub const defaultValue: ValueType = .{};
 
 var max_description: usize = 0;
 
+pub fn init(self: *Type) error{ Stop, OutOfMemory }!void {
+    try self.value.commands.init(self);
+    self.value.editor = tui.get_active_editor() orelse return error.Stop;
+    self.value.cursor = self.value.editor.get_primary().cursor;
+    self.value.view = self.value.editor.view;
+}
+
 pub fn load_entries(self: *Type) !usize {
     max_description = 0;
     var max_label_len: usize = 0;
 
-    var existing: std.StringHashMapUnmanaged(void) = .empty;
-    defer existing.deinit(self.allocator);
-
-    const editor = tui.get_active_editor() orelse return error.NotFound;
-    self.value.start = editor.get_primary().*;
-    var iter: []const u8 = editor.completions.items;
+    self.value.query = null;
+    var iter: []const u8 = self.value.editor.completions.data.items;
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
         const values = get_values(cbor_item);
 
-        const dup_text = if (values.sort_text.len > 0) values.sort_text else values.label;
-        if (existing.contains(dup_text)) continue;
-        try existing.put(self.allocator, dup_text, {});
-
-        if (self.value.replace == null) if (get_replace_selection(values.replace)) |replace| {
-            self.value.replace = replace;
+        if (self.value.query == null) if (get_query_selection(self.value.editor, values)) |query| {
+            self.value.query = query;
         };
         const item = try self.entries.addOne(self.allocator);
         item.* = .{
@@ -88,8 +89,9 @@ pub fn load_entries(self: *Type) !usize {
     return @max(max_description, if (max_label_len > label.len + 3) 0 else label.len + 3 - max_label_len);
 }
 
-pub fn deinit(_: *Type) void {
-    //
+pub fn deinit(self: *Type) void {
+    if (self.value.last_query) |p| self.allocator.free(p);
+    self.value.commands.deinit();
 }
 
 pub fn handle_event(self: *Type, _: tp.pid_ref, m: tp.message) tp.result {
@@ -99,56 +101,56 @@ pub fn handle_event(self: *Type, _: tp.pid_ref, m: tp.message) tp.result {
         try m.match(.{ "E", "pos", tp.more }) or
         try m.match(.{ "E", "close" }))
     {
-        const editor = tui.get_active_editor() orelse return;
-        if (!self.value.cursor.eql(editor.get_primary().cursor) or !self.value.view.eql(editor.view)) {
+        const cursor = self.value.editor.get_primary().cursor;
+        if (self.value.cursor.row != cursor.row or
+            self.value.cursor.col > cursor.col or
+            !self.value.view.eql(self.value.editor.view))
+        {
             tp.self_pid().send(.{ "cmd", "palette_menu_cancel" }) catch |e| self.logger.err(module_name, e);
+        } else {
+            const query = get_query_text_nostore(self, cursor, self.allocator) catch |e| switch (e) {
+                error.Stop => return,
+                else => |e_| {
+                    self.logger.err(module_name, e_);
+                    return;
+                },
+            };
+            defer self.allocator.free(query);
+            if (self.value.last_query) |last| {
+                if (!std.mem.eql(u8, query, last))
+                    update_query(self, cursor) catch |e| self.logger.err(module_name, e);
+            } else update_query(self, cursor) catch |e| self.logger.err(module_name, e);
         }
     }
 }
 
-pub fn initial_query(self: *Type, allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
-    const editor = tui.get_active_editor() orelse return allocator.dupe(u8, "");
-    self.value.cursor = editor.get_primary().cursor;
-    self.value.view = editor.view;
-    return if (self.value.replace) |replace| blk: {
-        const sel: Buffer.Selection = .{ .begin = replace.begin, .end = self.value.start.cursor };
-        break :blk editor.get_selection(sel, allocator) catch break :blk allocator.dupe(u8, "");
+pub fn initial_query(self: *Type, allocator: std.mem.Allocator) error{ Stop, OutOfMemory }![]const u8 {
+    return allocator.dupe(u8, try get_query_text(self, self.value.cursor, allocator));
+}
+
+fn get_query_text_nostore(self: *Type, cursor: ed.Cursor, allocator: std.mem.Allocator) error{ Stop, OutOfMemory }![]const u8 {
+    return if (self.value.query) |query| blk: {
+        const sel: Buffer.Selection = .{ .begin = query.begin, .end = cursor };
+        break :blk try self.value.editor.get_selection(sel, allocator);
     } else allocator.dupe(u8, "");
 }
 
-pub fn update_query(self: *Type, query: []const u8) void {
-    const editor = tui.get_active_editor() orelse return;
-    const sel = get_insert_selection(self, editor.get_primary().cursor);
-    editor.update_completion_cursels(sel, query) catch |e| self.logger.err(module_name, e);
+fn get_query_text(self: *Type, cursor: ed.Cursor, allocator: std.mem.Allocator) error{ Stop, OutOfMemory }![]const u8 {
+    if (self.value.last_query) |p| self.allocator.free(p);
+    self.value.last_query = null;
+    const query = try get_query_text_nostore(self, cursor, allocator);
+    self.value.last_query = query;
+    return query;
+}
 
-    const primary = editor.get_primary();
-    self.value.cursor = primary.cursor;
-    self.value.view = editor.view;
-    if (self.value.replace) |*s| s.* = .{ .begin = s.begin, .end = self.value.cursor };
-    if (query.len > 0) {
-        const last_char = query[query.len - 1];
-        editor.run_triggers(primary, last_char, .insert);
-    }
+fn update_query(self: *Type, cursor: ed.Cursor) error{OutOfMemory}!void {
+    const query = get_query_text(self, cursor, self.allocator) catch |e| switch (e) {
+        error.Stop => return,
+        else => |e_| return e_,
+    };
+    self.update_query(query) catch return;
+    tp.self_pid().send(.{ "cmd", "completion" }) catch |e| self.logger.err(module_name, e);
     return;
-}
-
-pub fn delete_word_empty(self: *Type) void {
-    cancel(self) catch return;
-    tp.self_pid().send(.{ "cmd", "delete_word_left" }) catch |e| self.logger.err(module_name, e);
-}
-
-pub fn delete_empty(self: *Type) void {
-    cancel(self) catch return;
-    tp.self_pid().send(.{ "cmd", "smart_delete_backward" }) catch |e| self.logger.err(module_name, e);
-}
-
-fn get_insert_selection(self: *Type, cursor: ed.Cursor) ed.Selection {
-    return if (self.value.replace) |sel|
-        sel
-    else if (self.value.start.selection) |sel|
-        sel
-    else
-        .{ .begin = self.value.start.cursor, .end = cursor };
 }
 
 pub fn clear_entries(self: *Type) void {
@@ -165,7 +167,7 @@ pub fn add_menu_entry(self: *Type, entry: *Entry, matches: ?[]const usize) !void
     self.items += 1;
 }
 
-pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
+pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
     var item_cbor: []const u8 = undefined;
     var matches_cbor: []const u8 = undefined;
 
@@ -178,7 +180,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     const color: u24 = 0x0;
 
     if (tui.config().enable_terminal_cursor) blk: {
-        const cursor = (tui.get_active_editor() orelse break :blk).get_primary_abs() orelse break :blk;
+        const cursor = self.value.editor.get_primary_abs() orelse break :blk;
         tui.rdr().cursor_enable(@intCast(cursor.row), @intCast(cursor.col), tui.get_cursor_shape()) catch {};
     }
 
@@ -200,11 +202,12 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     );
 }
 
-const Values = struct {
+pub const Values = struct {
     label: []const u8,
     sort_text: []const u8,
     kind: CompletionItemKind,
-    replace: Buffer.Selection,
+    insert: ?Buffer.Selection,
+    replace: ?Buffer.Selection,
     additionalTextEdits: []const u8,
     label_detail: []const u8,
     label_description: []const u8,
@@ -215,7 +218,7 @@ const Values = struct {
     textEdit_newText: []const u8,
 };
 
-fn get_values(item_cbor: []const u8) Values {
+pub fn get_values(item_cbor: []const u8) Values {
     var label_: []const u8 = "";
     var label_detail: []const u8 = "";
     var label_description: []const u8 = "";
@@ -226,7 +229,8 @@ fn get_values(item_cbor: []const u8) Values {
     var insertText: []const u8 = "";
     var insertTextFormat: usize = 0;
     var textEdit_newText: []const u8 = "";
-    var replace: Buffer.Selection = .{};
+    var insert_cbor: []const u8 = &.{};
+    var replace_cbor: []const u8 = &.{};
     var additionalTextEdits: []const u8 = &.{};
     _ = cbor.match(item_cbor, .{
         cbor.any, // file_path
@@ -244,21 +248,16 @@ fn get_values(item_cbor: []const u8) Values {
         cbor.extract(&insertText), // insertText
         cbor.extract(&insertTextFormat), // insertTextFormat
         cbor.extract(&textEdit_newText), // textEdit_newText
-        cbor.any, // insert.begin.row
-        cbor.any, // insert.begin.col
-        cbor.any, // insert.end.row
-        cbor.any, // insert.end.col
-        cbor.extract(&replace.begin.row), // replace.begin.row
-        cbor.extract(&replace.begin.col), // replace.begin.col
-        cbor.extract(&replace.end.row), // replace.end.row
-        cbor.extract(&replace.end.col), // replace.end.col
+        cbor.extract_cbor(&insert_cbor),
+        cbor.extract_cbor(&replace_cbor),
         cbor.extract_cbor(&additionalTextEdits),
     }) catch false;
     return .{
         .label = label_,
         .sort_text = sort_text,
         .kind = @enumFromInt(kind),
-        .replace = replace,
+        .insert = get_range(insert_cbor),
+        .replace = get_range(replace_cbor),
         .additionalTextEdits = additionalTextEdits,
         .label_detail = label_detail,
         .label_description = label_description,
@@ -270,17 +269,45 @@ fn get_values(item_cbor: []const u8) Values {
     };
 }
 
+fn get_range(range_cbor: []const u8) ?Buffer.Selection {
+    var range: Buffer.Selection = .{};
+    return if (cbor.match(range_cbor, tp.null_) catch false)
+        null
+    else if (cbor.match(range_cbor, .{
+        cbor.extract(&range.begin.row),
+        cbor.extract(&range.begin.col),
+        cbor.extract(&range.end.row),
+        cbor.extract(&range.end.col),
+    }) catch false)
+        range
+    else
+        null;
+}
+
 const TextEdit = struct { newText: []const u8 = &.{}, insert: ?Range = null, replace: ?Range = null };
 const Range = struct { start: Position, end: Position };
 const Position = struct { line: usize, character: usize };
 
-fn get_replace_selection(replace: Buffer.Selection) ?Buffer.Selection {
-    return if (replace.empty())
-        null
-    else if (tui.get_active_editor()) |edt|
-        edt.get_completion_replacement_selection(replace)
-    else
-        replace;
+pub fn get_query_selection(editor: *ed.Editor, values: Values) ?Buffer.Selection {
+    return get_replacement_selection(editor, values.insert, values.replace);
+}
+
+fn get_replacement_selection(editor: *ed.Editor, insert_: ?Buffer.Selection, replace_: ?Buffer.Selection) Buffer.Selection {
+    const pos = switch (tui.config().completion_insert_mode) {
+        .replace => replace_ orelse insert_ orelse return ed.Selection.from_cursor(&editor.get_primary().cursor),
+        .insert => insert_ orelse replace_ orelse return ed.Selection.from_cursor(&editor.get_primary().cursor),
+    };
+    var sel = pos.from_pos(editor.buf_root() catch return ed.Selection.from_cursor(&editor.get_primary().cursor), editor.metrics);
+    sel.normalize();
+    const cursor = editor.get_primary().cursor;
+    return switch (tui.config().completion_insert_mode) {
+        .insert => .{ .begin = sel.begin, .end = cursor },
+        .replace => if (!cursor.within(sel)) .{ .begin = sel.begin, .end = cursor } else sel,
+    };
+}
+
+fn get_insert_selection(editor: *ed.Editor, values: Values) Buffer.Selection {
+    return get_replacement_selection(editor, values.insert, values.replace);
 }
 
 pub fn complete(self: *Type, _: ?*Type.ButtonType) !void {
@@ -290,17 +317,14 @@ pub fn complete(self: *Type, _: ?*Type.ButtonType) !void {
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     const self = menu.*.opts.ctx;
     const values = get_values(button.opts.label);
-    const editor = tui.get_active_editor() orelse return;
-    const sel = get_insert_selection(self, editor.get_primary().cursor);
+    const sel = get_insert_selection(self.value.editor, values);
     const text = if (values.insertText.len > 0)
         values.insertText
     else if (values.textEdit_newText.len > 0)
         values.textEdit_newText
     else
         values.label;
-    editor.insert_completion(sel, text, values.insertTextFormat) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    self.value.cursor = editor.get_primary().cursor;
-    self.value.view = editor.view;
+    self.value.editor.insert_completion(sel, text, values.insertTextFormat) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| self.logger.err(module_name, e);
@@ -331,3 +355,21 @@ pub fn cancel(_: *Type) !void {
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
 }
+
+const cmds = struct {
+    pub const Target = Type;
+    const Ctx = command.Context;
+    const Meta = command.Metadata;
+    const Result = command.Result;
+
+    pub fn update_completion(self: *Type, _: Ctx) Result {
+        if (self.value.editor.completions.data.items.len == 0) {
+            tp.self_pid().send(.{ "cmd", "palette_menu_cancel" }) catch |e| self.logger.err(module_name, e);
+            return;
+        }
+
+        clear_entries(self);
+        _ = try load_entries(self);
+    }
+    pub const update_completion_meta: Meta = .{};
+};
