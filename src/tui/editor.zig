@@ -6604,7 +6604,7 @@ pub const Editor = struct {
         var open_completions = self.completions.data.items.len > 0;
         const update_completion = "update_completion";
         if (command.get_id(update_completion)) |cmd_id| {
-            try command.execute(cmd_id, update_completion, .{});
+            try tp.self_pid().send(.{ "cmd", cmd_id });
             open_completions = false;
         }
 
