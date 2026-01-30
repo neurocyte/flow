@@ -52,19 +52,12 @@ pub fn load_entries(self: *Type) !usize {
     max_description = 0;
     var max_label_len: usize = 0;
 
-    var existing: std.StringHashMapUnmanaged(void) = .empty;
-    defer existing.deinit(self.allocator);
-
     self.value.query = null;
     var iter: []const u8 = self.value.editor.completions.data.items;
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
         const values = get_values(cbor_item);
-
-        const dup_text = if (values.sort_text.len > 0) values.sort_text else values.label;
-        if (existing.contains(dup_text)) continue;
-        try existing.put(self.allocator, dup_text, {});
 
         if (self.value.query == null) if (get_query_selection(self.value.editor, values)) |query| {
             self.value.query = query;

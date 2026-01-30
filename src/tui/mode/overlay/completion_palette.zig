@@ -42,9 +42,6 @@ pub fn load_entries(palette: *Type) !usize {
     max_description = 0;
     var max_label_len: usize = 0;
 
-    var existing: std.StringHashMapUnmanaged(void) = .empty;
-    defer existing.deinit(palette.allocator);
-
     const editor = tui.get_active_editor() orelse return error.NotFound;
     palette.value.start = editor.get_primary().*;
     var iter: []const u8 = editor.completions.data.items;
@@ -52,10 +49,6 @@ pub fn load_entries(palette: *Type) !usize {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
         const values = get_values(cbor_item);
-
-        const dup_text = if (values.sort_text.len > 0) values.sort_text else values.label;
-        if (existing.contains(dup_text)) continue;
-        try existing.put(palette.allocator, dup_text, {});
 
         if (palette.value.query == null) if (get_query_selection(editor, values)) |query| {
             palette.value.query = query;
