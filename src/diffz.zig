@@ -120,7 +120,7 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) erro
 
     const dmp = diffz.default;
     var diff_list = try diffz.diff(&dmp, arena, src, dst, false);
-    try diffz.diffCleanupSemantic(arena, &diff_list);
+    try diffz.diffCleanupSemanticLossless(arena, &diff_list);
 
     if (diff_list.items.len > 2)
         try diffs.ensureTotalCapacity(allocator, (diff_list.items.len - 1) / 2);
@@ -128,53 +128,89 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) erro
     var lines_dst: usize = 0;
     var pos_dst: usize = 0;
     var last_offset: usize = 0;
-
+    var last_equal_char: u8 = 0;
     for (diff_list.items) |diffz_diff| {
         switch (diffz_diff.operation) {
             .equal => {
                 const dist = diffz_diff.text.len;
                 pos_dst += dist;
                 scan_eol(diffz_diff.text, &lines_dst, &last_offset);
+                last_equal_char = diffz_diff.text[diffz_diff.text.len - 1];
             },
             .insert => {
                 const dist = diffz_diff.text.len;
                 pos_dst += dist;
-                const line_start_dst: usize = lines_dst;
+                var line_start_dst: usize = lines_dst;
                 scan_eol(diffz_diff.text, &lines_dst, &last_offset);
-                (try diffs.addOne(allocator)).* = .{
-                    .kind = .insert,
-                    .line = line_start_dst,
-                    .lines = lines_dst - line_start_dst,
-                };
-                if (last_offset > 0)
+                const n_lines = lines_dst - line_start_dst;
+
+                if (n_lines == 0) {
                     (try diffs.addOne(allocator)).* = .{
                         .kind = .modify,
                         .line = line_start_dst,
                         .lines = 1,
                     };
+                } else {
+                    if (diffz_diff.text[0] != '\n') {
+                        (try diffs.addOne(allocator)).* = .{
+                            .kind = .modify,
+                            .line = line_start_dst,
+                            .lines = 1,
+                        };
+                        line_start_dst += 1;
+                    }
+                    (try diffs.addOne(allocator)).* = .{
+                        .kind = .insert,
+                        .line = line_start_dst,
+                        .lines = n_lines,
+                    };
+                    line_start_dst += n_lines;
+
+                    if (last_offset > 0) {
+                        (try diffs.addOne(allocator)).* = .{
+                            .kind = .modify,
+                            .line = line_start_dst,
+                            .lines = 1,
+                        };
+                    }
+                }
             },
             .delete => {
                 pos_dst += 0;
                 var lines: usize = 0;
                 var diff_offset: usize = 0;
+                var line_start_dst: usize = lines_dst;
                 scan_eol(diffz_diff.text, &lines, &diff_offset);
-                (try diffs.addOne(allocator)).* = .{
-                    .kind = .modify,
-                    .line = lines_dst,
-                    .lines = 1,
-                };
-                if (lines > 0)
-                    (try diffs.addOne(allocator)).* = .{
-                        .kind = .delete,
-                        .line = lines_dst,
-                        .lines = lines,
-                    };
-                if (lines > 0 and diff_offset > 0)
+                if (lines == 0) {
                     (try diffs.addOne(allocator)).* = .{
                         .kind = .modify,
-                        .line = lines_dst,
+                        .line = line_start_dst,
                         .lines = 1,
                     };
+                } else {
+                    if (last_equal_char != '\n') {
+                        // Deleting starts in previous line
+                        (try diffs.addOne(allocator)).* = .{
+                            .kind = .modify,
+                            .line = line_start_dst,
+                            .lines = 1,
+                        };
+                        line_start_dst += 1;
+                    }
+                    (try diffs.addOne(allocator)).* = .{
+                        .kind = .delete,
+                        .line = line_start_dst,
+                        .lines = 1,
+                    };
+
+                    if (diff_offset > 0 and last_equal_char == '\n') {
+                        (try diffs.addOne(allocator)).* = .{
+                            .kind = .modify,
+                            .line = line_start_dst,
+                            .lines = 1,
+                        };
+                    }
+                }
             },
         }
     }
