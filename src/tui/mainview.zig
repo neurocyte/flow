@@ -1499,7 +1499,7 @@ const cmds = struct {
 
     pub fn place_next_tab(self: *Self, ctx: Ctx) Result {
         var pos: enum { before, after } = undefined;
-        var buffer_ref: usize = undefined;
+        var buffer_ref: Buffer.Ref = undefined;
         if (try ctx.args.match(.{ tp.extract(&pos), tp.extract(&buffer_ref) })) {
             _ = try self.widgets_widget.msg(.{ "place_next_tab", pos, buffer_ref });
         } else if (try ctx.args.match(.{"atend"})) {
