@@ -5,10 +5,19 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
     var output: std.Io.Writer.Allocating = .init(allocator);
     const writer = &output.writer;
 
+    var first = true;
     var line_len: usize = 0;
     for (words) |word| {
         if (line_len == 0) {
-            try writer.writeAll(prefix);
+            if (first) {
+                try writer.writeAll(prefix.first);
+                first = false;
+            } else {
+                try writer.writeAll(prefix.continuation);
+                var pad = prefix.first.len - prefix.continuation.len;
+                while (pad > 0) : (pad -= 1)
+                    try writer.writeByte(' ');
+            }
             line_len += prefix.len;
         }
         if (line_len > prefix.len)
@@ -28,6 +37,7 @@ fn split_words(allocator: std.mem.Allocator, text: []const u8, prefix: usize) er
     var words: std.ArrayList([]const u8) = .empty;
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |line| {
+        if (line.len <= prefix) continue;
         var it = std.mem.splitAny(u8, line[prefix..], " \t");
         while (it.next()) |word| if (word.len > 0) {
             (try words.addOne(allocator)).* = word;
@@ -36,14 +46,34 @@ fn split_words(allocator: std.mem.Allocator, text: []const u8, prefix: usize) er
     return words.toOwnedSlice(allocator);
 }
 
-fn detect_prefix(text: []const u8) []const u8 {
+fn detect_prefix(text: []const u8) Prefix {
     var lines = std.mem.splitScalar(u8, text, '\n');
-    const line1 = lines.next() orelse return &.{};
+    const line1 = lines.next() orelse return .{};
     var prefix: []const u8 = line1;
     while (lines.next()) |line|
         prefix = lcp(prefix, line);
-    return prefix;
+
+    if (line1.len > prefix.len + 2 and line1[prefix.len] == '-' and line1[prefix.len + 1] == ' ') {
+        const first = line1[0 .. prefix.len + 2];
+        return .{
+            .len = first.len,
+            .first = first,
+            .continuation = prefix,
+        };
+    }
+
+    return .{
+        .len = prefix.len,
+        .first = prefix,
+        .continuation = prefix,
+    };
 }
+
+const Prefix = struct {
+    len: usize = 0,
+    first: []const u8 = &.{},
+    continuation: []const u8 = &.{},
+};
 
 fn lcp(a: []const u8, b: []const u8) []const u8 {
     const len = @min(a.len, b.len);
