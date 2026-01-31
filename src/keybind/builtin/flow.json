@@ -143,6 +143,7 @@
             ["alt+p", "goto_prev_file_or_diagnostic"],
             ["alt+u", "to_upper"],
             ["alt+l", "to_lower"],
+            ["alt+q", "reflow"],
             ["alt+c", "switch_case"],
             ["ctrl+_", "underline"],
             ["ctrl+=", "underline_with_char", "=", "solid"],

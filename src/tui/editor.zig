@@ -6818,6 +6818,30 @@ pub const Editor = struct {
         self.filter_ = null;
     }
 
+    fn reflow_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        var root = root_;
+        var sel = cursel.selection orelse return root;
+        sel.normalize();
+        var sfa = std.heap.stackFallback(4096, self.allocator);
+        const sfa_allocator = sfa.get();
+        const cut_text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(cut_text);
+        const reflowed = Buffer.reflow(sfa_allocator, cut_text, tui.config().reflow_width) catch return error.Stop;
+        defer sfa_allocator.free(reflowed);
+        root = try self.delete_selection(root, cursel, allocator);
+        root = self.insert(root, cursel, reflowed, allocator) catch return error.Stop;
+        cursel.selection = .{ .begin = sel.begin, .end = cursel.cursor };
+        return root;
+    }
+
+    pub fn reflow(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut_once(b.root, reflow_cursel, b.allocator);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const reflow_meta: Meta = .{ .description = "Reflow selection" };
+
     fn to_upper_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
