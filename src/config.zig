@@ -53,6 +53,9 @@ show_scrollbars: bool = true,
 show_fileicons: bool = true,
 show_local_diagnostics_in_panel: bool = false,
 scrollbar_auto_hide: bool = true,
+scroll_step_vertical: usize = 3,
+scroll_step_horizontal: usize = 5,
+scroll_cursor_min_border_distance: usize = 5,
 
 start_debugger_on_crash: bool = false,
 

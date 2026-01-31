@@ -36,11 +36,6 @@ pub const Selection = Buffer.Selection;
 const Allocator = std.mem.Allocator;
 const time = std.time;
 
-const scroll_step_small = 3;
-const scroll_step_horizontal = 5;
-const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
-const scroll_cursor_min_border_distance = 5;
-
 const double_click_time_ms = 350;
 const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
 const syntax_full_reparse_error_threshold = 3; // number of tree-sitter errors that trigger a full reparse
@@ -2879,6 +2874,7 @@ pub const Editor = struct {
     }
 
     pub fn update_scroll_dest_abs(self: *Self, dest: usize) void {
+        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
         const root = self.buf_root() catch return;
         const max_view = if (root.lines() <= scroll_cursor_min_border_distance) 0 else root.lines() - scroll_cursor_min_border_distance;
         self.scroll_dest = @min(dest, max_view);
@@ -2886,14 +2882,16 @@ pub const Editor = struct {
     }
 
     fn scroll_up(self: *Self) void {
+        const scroll_step_vertical = tui.config().scroll_step_vertical;
         var dest_row = self.scroll_dest;
-        dest_row = if (dest_row > scroll_step_small) dest_row - scroll_step_small else 0;
+        dest_row = if (dest_row > scroll_step_vertical) dest_row - scroll_step_vertical else 0;
         self.update_scroll_dest_abs(dest_row);
     }
 
     fn scroll_down(self: *Self) void {
+        const scroll_step_vertical = tui.config().scroll_step_vertical;
         var dest_row = self.scroll_dest;
-        dest_row += scroll_step_small;
+        dest_row += scroll_step_vertical;
         self.update_scroll_dest_abs(dest_row);
     }
 
@@ -2946,6 +2944,7 @@ pub const Editor = struct {
     pub const scroll_view_center_meta: Meta = .{ .description = "Scroll cursor to center of view" };
 
     pub fn scroll_view_center_cycle(self: *Self, _: Context) Result {
+        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
         const cursor_row = self.get_primary().cursor.row;
         return if (cursor_row == self.view.row + scroll_cursor_min_border_distance)
             self.scroll_view_bottom(.{})
@@ -2957,11 +2956,13 @@ pub const Editor = struct {
     pub const scroll_view_center_cycle_meta: Meta = .{ .description = "Scroll cursor to center/top/bottom of view" };
 
     pub fn scroll_view_top(self: *Self, _: Context) Result {
+        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
         return self.scroll_view_offset(scroll_cursor_min_border_distance);
     }
     pub const scroll_view_top_meta: Meta = .{};
 
     pub fn scroll_view_bottom(self: *Self, _: Context) Result {
+        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
         return self.scroll_view_offset(if (self.view.rows > scroll_cursor_min_border_distance) self.view.rows - scroll_cursor_min_border_distance else 0);
     }
     pub const scroll_view_bottom_meta: Meta = .{};
@@ -4279,6 +4280,8 @@ pub const Editor = struct {
     pub const move_scroll_down_meta: Meta = .{ .description = "Move and scroll down", .arguments = &.{.integer} };
 
     pub fn move_scroll_left(self: *Self, _: Context) Result {
+        const scroll_step_horizontal = tui.config().scroll_step_horizontal;
+        const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
         if (tui.fast_scroll())
             self.view.move_left(scroll_step_horizontal_fast) catch {}
         else
@@ -4287,6 +4290,8 @@ pub const Editor = struct {
     pub const move_scroll_left_meta: Meta = .{ .description = "Scroll left" };
 
     pub fn move_scroll_right(self: *Self, _: Context) Result {
+        const scroll_step_horizontal = tui.config().scroll_step_horizontal;
+        const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
         if (tui.fast_scroll())
             self.view.move_right(scroll_step_horizontal_fast) catch {}
         else
@@ -6207,6 +6212,7 @@ pub const Editor = struct {
         const cursor = sel.begin;
         const range_height = sel.end.row - sel.begin.row + 1;
         const view_height = self.view.rows;
+        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
         const offset = if (range_height > view_height - @min(view_height, scroll_cursor_min_border_distance * 2))
             scroll_cursor_min_border_distance
         else
