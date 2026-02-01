@@ -379,6 +379,7 @@ pub const Editor = struct {
     indent_size: usize,
     tab_width: usize,
     indent_mode: IndentMode,
+    reflow_width: ?usize = null,
 
     last: struct {
         root: ?Buffer.Root = null,
@@ -516,13 +517,14 @@ pub const Editor = struct {
     }
 
     pub fn write_state(self: *const Self, writer: *std.Io.Writer) !void {
-        try cbor.writeArrayHeader(writer, 12);
+        try cbor.writeArrayHeader(writer, 13);
         try cbor.writeValue(writer, self.file_path orelse "");
         try cbor.writeValue(writer, self.last_find_query orelse "");
         try cbor.writeValue(writer, self.enable_format_on_save);
         try cbor.writeValue(writer, self.indent_size);
         try cbor.writeValue(writer, self.tab_width);
         try cbor.writeValue(writer, self.indent_mode);
+        try cbor.writeValue(writer, self.reflow_width);
         try cbor.writeValue(writer, self.syntax_no_render);
         try cbor.writeValue(writer, self.insert_triggers.items);
         try cbor.writeValue(writer, self.delete_triggers.items);
@@ -557,6 +559,7 @@ pub const Editor = struct {
             tp.extract(&self.indent_size),
             tp.extract(&self.tab_width),
             tp.extract(&self.indent_mode),
+            tp.extract(&self.reflow_width),
             tp.extract(&self.syntax_no_render),
             cbor.extractAlloc(&insert_triggers, self.allocator),
             cbor.extractAlloc(&delete_triggers, self.allocator),
@@ -6830,8 +6833,9 @@ pub const Editor = struct {
     }
 
     fn reflow_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator, ctx: Context) error{Stop}!Buffer.Root {
-        var reflow_width: usize = tui.config().reflow_width;
+        var reflow_width: usize = self.reflow_width orelse tui.config().reflow_width;
         _ = ctx.args.match(.{tp.extract(&reflow_width)}) catch {};
+        self.reflow_width = reflow_width;
         var root = root_;
         var sel = cursel.selection orelse return root;
         sel.normalize();
