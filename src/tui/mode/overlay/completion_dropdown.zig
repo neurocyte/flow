@@ -374,7 +374,8 @@ const cmds = struct {
         }
 
         clear_entries(self);
-        _ = try load_entries(self);
+        self.longest_hint = try load_entries(self);
+        try update_query_text(self, self.value.editor.get_primary().cursor);
     }
     pub const update_completion_meta: Meta = .{};
 };
