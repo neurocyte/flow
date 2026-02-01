@@ -6552,7 +6552,15 @@ pub const Editor = struct {
     }
 
     pub fn run_triggers(self: *Self, cursel: *const CurSel, char: u8, event: TriggerEvent) void {
-        switch (tui.config().completion_trigger) {
+        var mode = tui.config().completion_trigger;
+
+        if (mode == .every_keystroke) {
+            const update_completion = "update_completion";
+            const in_completion = command.get_id(update_completion) != null;
+            mode = if (in_completion) .automatic else .every_keystroke;
+        }
+
+        switch (mode) {
             .manual => return,
             .every_keystroke => return self.run_triggers_every_keystroke(cursel, char, event),
             .automatic => {},
