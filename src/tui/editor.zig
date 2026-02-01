@@ -6849,6 +6849,8 @@ pub const Editor = struct {
 
     pub fn reflow(self: *Self, ctx: Context) Result {
         const b = try self.buf_for_update();
+        if (!self.has_secondary_cursors()) if (self.get_primary().selection == null)
+            try self.select_line_at_cursor(b.root, self.get_primary(), .exclude_eol);
         const root = try self.with_cursels_mut_once_arg(b.root, reflow_cursel, b.allocator, ctx);
         try self.update_buf(root);
         self.clamp();
