@@ -27,7 +27,7 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
                 continue :blk .words;
             },
             .words => {
-                if (line_len + word.len + 1 >= width - 1) {
+                if (line_len > prefix.len and line_len + word.len + 1 >= width - 1) {
                     try writer.writeByte('\n');
                     line_len = 0;
                     continue :blk .begin;
