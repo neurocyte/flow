@@ -231,8 +231,9 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
     } else if (try m.match(.{ tp.any, "eol_mode", tp.extract(&self.eol_mode), tp.extract(&self.utf8_sanitized), tp.extract(&self.indent_mode) })) {
         //
     } else if (try m.match(.{ tp.any, "save", tp.extract(&file_path), tp.extract(&self.auto_save) })) {
-        @memcpy(self.name_buf[0..file_path.len], file_path);
-        self.name = self.name_buf[0..file_path.len];
+        const name_len = @min(file_path.len, self.name_buf.len);
+        @memcpy(self.name_buf[0..name_len], file_path[0..name_len]);
+        self.name = self.name_buf[0..name_len];
         self.file_exists = true;
         self.file_dirty = false;
         self.name = project_manager.abbreviate_home(&self.name_buf, self.name);
@@ -246,9 +247,10 @@ fn process_event(self: *Self, m: tp.message) error{Exit}!bool {
         tp.extract(&self.file_color),
         tp.extract(&self.auto_save),
     })) {
+        const name_len = @min(file_path.len, self.name_buf.len);
         self.eol_mode = .lf;
-        @memcpy(self.name_buf[0..file_path.len], file_path);
-        self.name = self.name_buf[0..file_path.len];
+        @memcpy(self.name_buf[0..name_len], file_path[0..name_len]);
+        self.name = self.name_buf[0..name_len];
         @memcpy(self.file_type_buf[0..file_type.len], file_type);
         self.file_type = self.file_type_buf[0..file_type.len];
         @memcpy(self.file_icon_buf[0..file_icon.len], file_icon);
