@@ -6601,12 +6601,8 @@ pub const Editor = struct {
 
     pub fn add_completion_done(self: *Self) anyerror!bool {
         self.completions.deinit(self.allocator);
-        self.completions = .empty;
-        if (self.completions_request) |*request| {
-            self.completions.deinit(self.allocator);
-            self.completions = request.*;
-            self.completions_request = .done;
-        }
+        self.completions = if (self.completions_request) |*request| request.* else .empty;
+        self.completions_request = .done;
 
         var open_completions = self.completions.data.items.len > 0;
         const update_completion = "update_completion";
