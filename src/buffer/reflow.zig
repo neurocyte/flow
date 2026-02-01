@@ -60,8 +60,16 @@ fn detect_prefix(text: []const u8) Prefix {
     var lines = std.mem.splitScalar(u8, text, '\n');
     const line1 = lines.next() orelse return .{};
     var prefix: []const u8 = line1;
-    while (lines.next()) |line|
+    var count: usize = 0;
+    while (lines.next()) |line| {
         prefix = lcp(prefix, line);
+        count += 1;
+    }
+    if (count < 1) return .{
+        .len = 0,
+        .first = &.{},
+        .continuation = &.{},
+    };
 
     if (line1.len > prefix.len + 2 and line1[prefix.len] == '-' and line1[prefix.len + 1] == ' ') {
         const first = line1[0 .. prefix.len + 2];
