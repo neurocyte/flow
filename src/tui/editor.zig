@@ -6829,7 +6829,9 @@ pub const Editor = struct {
         self.filter_ = null;
     }
 
-    fn reflow_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+    fn reflow_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator, ctx: Context) error{Stop}!Buffer.Root {
+        var reflow_width: usize = tui.config().reflow_width;
+        _ = ctx.args.match(.{tp.extract(&reflow_width)}) catch {};
         var root = root_;
         var sel = cursel.selection orelse return root;
         sel.normalize();
@@ -6837,7 +6839,7 @@ pub const Editor = struct {
         const sfa_allocator = sfa.get();
         const cut_text = copy_selection(root, sel, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(cut_text);
-        const reflowed = Buffer.reflow(sfa_allocator, cut_text, tui.config().reflow_width) catch return error.Stop;
+        const reflowed = Buffer.reflow(sfa_allocator, cut_text, reflow_width) catch return error.Stop;
         defer sfa_allocator.free(reflowed);
         root = try self.delete_selection(root, cursel, allocator);
         root = self.insert(root, cursel, reflowed, allocator) catch return error.Stop;
@@ -6845,13 +6847,16 @@ pub const Editor = struct {
         return root;
     }
 
-    pub fn reflow(self: *Self, _: Context) Result {
+    pub fn reflow(self: *Self, ctx: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut_once(b.root, reflow_cursel, b.allocator);
+        const root = try self.with_cursels_mut_once_arg(b.root, reflow_cursel, b.allocator, ctx);
         try self.update_buf(root);
         self.clamp();
     }
-    pub const reflow_meta: Meta = .{ .description = "Reflow selection" };
+    pub const reflow_meta: Meta = .{
+        .description = "Reflow selection",
+        .arguments = &.{.integer},
+    };
 
     fn to_upper_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
