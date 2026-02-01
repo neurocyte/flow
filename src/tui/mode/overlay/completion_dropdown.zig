@@ -44,7 +44,6 @@ var max_description: usize = 0;
 pub fn init(self: *Type) error{ Stop, OutOfMemory }!void {
     try self.value.commands.init(self);
     self.value.editor = tui.get_active_editor() orelse return error.Stop;
-    self.value.cursor = self.value.editor.get_primary().cursor;
     self.value.view = self.value.editor.view;
 }
 
@@ -52,6 +51,7 @@ pub fn load_entries(self: *Type) !usize {
     max_description = 0;
     var max_label_len: usize = 0;
 
+    self.value.cursor = self.value.editor.get_primary().cursor;
     self.value.query = null;
     var iter: []const u8 = self.value.editor.completions.data.items;
     while (iter.len > 0) {
