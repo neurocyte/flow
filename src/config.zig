@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 
-frame_rate: usize = 120,
+frame_rate: usize = 60,
 theme: []const u8 = "ayu-mirage-bordered",
 light_theme: []const u8 = "ayu-light",
 input_mode: []const u8 = "flow",
