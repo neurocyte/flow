@@ -36,6 +36,7 @@ pub const ValueType = struct {
     query: ?Buffer.Selection = null,
     last_query: ?[]const u8 = null,
     commands: command.Collection(cmds) = undefined,
+    data: []const u8 = &.{},
 };
 pub const defaultValue: ValueType = .{};
 
@@ -53,7 +54,9 @@ pub fn load_entries(self: *Type) !usize {
 
     self.value.cursor = self.value.editor.get_primary().cursor;
     self.value.query = null;
-    var iter: []const u8 = self.value.editor.completions.data.items;
+    self.allocator.free(self.value.data);
+    self.value.data = try self.allocator.dupe(u8, self.value.editor.completions.data.items);
+    var iter: []const u8 = self.value.data;
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
@@ -90,6 +93,7 @@ pub fn load_entries(self: *Type) !usize {
 }
 
 pub fn deinit(self: *Type) void {
+    self.allocator.free(self.value.data);
     if (self.value.last_query) |p| self.allocator.free(p);
     self.value.commands.deinit();
 }
