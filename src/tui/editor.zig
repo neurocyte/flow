@@ -6604,6 +6604,13 @@ pub const Editor = struct {
         self.completions = if (self.completions_request) |*request| request.* else .empty;
         self.completions_request = .done;
 
+        if (command.log_execute) {
+            var iter: []const u8 = self.completions.data.items;
+            var count: usize = 0;
+            while (iter.len > 0) : (count += 1) try cbor.skipValue(&iter);
+            self.logger.print("completions: {d}", .{count});
+        }
+
         var open_completions = self.completions.data.items.len > 0;
         const update_completion = "update_completion";
         if (command.get_id(update_completion)) |cmd_id| {
