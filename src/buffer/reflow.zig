@@ -8,25 +8,35 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
     var first = true;
     var line_len: usize = 0;
     for (words) |word| {
-        if (line_len == 0) {
-            if (first) {
-                try writer.writeAll(prefix.first);
-                first = false;
-            } else {
-                try writer.writeAll(prefix.continuation);
-                var pad = prefix.first.len - prefix.continuation.len;
-                while (pad > 0) : (pad -= 1)
+        const state: enum {
+            begin,
+            words,
+        } = if (line_len == 0) .begin else .words;
+        blk: switch (state) {
+            .begin => {
+                if (first) {
+                    try writer.writeAll(prefix.first);
+                    first = false;
+                } else {
+                    try writer.writeAll(prefix.continuation);
+                    var pad = prefix.first.len - prefix.continuation.len;
+                    while (pad > 0) : (pad -= 1)
+                        try writer.writeByte(' ');
+                }
+                line_len += prefix.len;
+                continue :blk .words;
+            },
+            .words => {
+                if (line_len + word.len + 1 >= width) {
+                    try writer.writeByte('\n');
+                    line_len = 0;
+                    continue :blk .begin;
+                }
+                if (line_len > prefix.len)
                     try writer.writeByte(' ');
-            }
-            line_len += prefix.len;
-        }
-        if (line_len > prefix.len)
-            try writer.writeByte(' ');
-        try writer.writeAll(word);
-        line_len += word.len;
-        if (line_len >= width) {
-            try writer.writeByte('\n');
-            line_len = 0;
+                try writer.writeAll(word);
+                line_len += word.len;
+            },
         }
     }
 
