@@ -102,25 +102,8 @@ pub fn handle_event(self: *Type, _: tp.pid_ref, m: tp.message) tp.result {
         try m.match(.{ "E", "close" }))
     {
         const cursor = self.value.editor.get_primary().cursor;
-        if (self.value.cursor.row != cursor.row or
-            self.value.cursor.col > cursor.col or
-            !self.value.view.eql(self.value.editor.view))
-        {
-            tp.self_pid().send(.{ "cmd", "palette_menu_cancel" }) catch |e| self.logger.err(module_name, e);
-        } else {
-            const query = get_query_text_nostore(self, cursor, self.allocator) catch |e| switch (e) {
-                error.Stop => return,
-                else => |e_| {
-                    self.logger.err(module_name, e_);
-                    return;
-                },
-            };
-            defer self.allocator.free(query);
-            if (self.value.last_query) |last| {
-                if (!std.mem.eql(u8, query, last))
-                    update_query(self, cursor) catch |e| self.logger.err(module_name, e);
-            } else update_query(self, cursor) catch |e| self.logger.err(module_name, e);
-        }
+        if (!maybe_cancel(self, cursor))
+            maybe_update_query(self, cursor) catch |e| self.logger.err(module_name, e);
     }
 }
 
@@ -143,12 +126,35 @@ fn get_query_text(self: *Type, cursor: ed.Cursor, allocator: std.mem.Allocator) 
     return query;
 }
 
-fn update_query(self: *Type, cursor: ed.Cursor) error{OutOfMemory}!void {
+fn maybe_cancel(self: *Type, cursor: Buffer.Cursor) bool {
+    if (self.value.cursor.row != cursor.row or
+        self.value.cursor.col > cursor.col or
+        !self.value.view.eql(self.value.editor.view))
+    {
+        tp.self_pid().send(.{ "cmd", "palette_menu_cancel" }) catch |e| self.logger.err(module_name, e);
+        return true;
+    }
+    return false;
+}
+
+fn maybe_update_query(self: *Type, cursor: Buffer.Cursor) error{OutOfMemory}!void {
+    const query = get_query_text_nostore(self, cursor, self.allocator) catch |e| switch (e) {
+        error.Stop => return,
+        else => |e_| return e_,
+    };
+    defer self.allocator.free(query);
+    if (self.value.last_query) |last| {
+        if (!std.mem.eql(u8, query, last))
+            try update_query_text(self, cursor);
+    } else try update_query_text(self, cursor);
+}
+
+fn update_query_text(self: *Type, cursor: ed.Cursor) error{OutOfMemory}!void {
     const query = get_query_text(self, cursor, self.allocator) catch |e| switch (e) {
         error.Stop => return,
         else => |e_| return e_,
     };
-    self.update_query(query) catch return;
+    Type.update_query(self, query) catch return;
     tp.self_pid().send(.{ "cmd", "completion" }) catch |e| self.logger.err(module_name, e);
     return;
 }
