@@ -155,7 +155,6 @@ fn update_query_text(self: *Type, cursor: ed.Cursor) error{OutOfMemory}!void {
         else => |e_| return e_,
     };
     Type.update_query(self, query) catch return;
-    tp.self_pid().send(.{ "cmd", "completion" }) catch |e| self.logger.err(module_name, e);
     return;
 }
 
