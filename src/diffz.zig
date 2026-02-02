@@ -25,24 +25,21 @@ pub const AsyncDiffer = struct {
         }
     }
 
-    fn text_from_root(root: Buffer.Root, eol_mode: Buffer.EolMode) ![]const u8 {
-        var text: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
-        defer text.deinit();
-        try root.store(&text.writer, eol_mode);
-        return text.toOwnedSlice();
-    }
-
     pub const CallBack = fn (from: tp.pid_ref, data: usize, edits: []Diff) void;
 
-    pub fn diff_buffer(self: @This(), cb: *const CallBack, cb_data: usize, buffer: *const Buffer) tp.result {
+    pub fn diff_buffer(self: @This(), cb: *const CallBack, cb_data: usize, buffer: *Buffer) tp.result {
+        const allocator = std.heap.c_allocator;
         const eol_mode = buffer.file_eol_mode;
-        const text_dst = text_from_root(buffer.root, eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        errdefer std.heap.c_allocator.free(text_dst);
-        const text_src = if (buffer.get_vcs_content()) |vcs_content|
-            std.heap.c_allocator.dupe(u8, vcs_content) catch |e| return tp.exit_error(e, @errorReturnTrace())
-        else
-            text_from_root(buffer.last_save orelse return, eol_mode) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        errdefer std.heap.c_allocator.free(text_src);
+        const text_dst = allocator.dupe(u8, buffer.store_to_string_cached(buffer.root, eol_mode)) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        errdefer allocator.free(text_dst);
+        const text_src = allocator.dupe(
+            u8,
+            if (buffer.get_vcs_content()) |vcs_content|
+                vcs_content
+            else
+                buffer.store_last_save_to_string_cached(eol_mode) orelse return,
+        ) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        errdefer allocator.free(text_src);
         const text_dst_ptr: usize = if (text_dst.len > 0) @intFromPtr(text_dst.ptr) else 0;
         const text_src_ptr: usize = if (text_src.len > 0) @intFromPtr(text_src.ptr) else 0;
         if (self.pid) |pid| try pid.send(.{ "D", @intFromPtr(cb), cb_data, text_dst_ptr, text_dst.len, text_src_ptr, text_src.len });
