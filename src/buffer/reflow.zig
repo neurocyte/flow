@@ -21,24 +21,29 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
             .begin => {
                 if (first) {
                     try writer.writeAll(prefix.first);
+                    line_len += prefix.first.len;
                     first = false;
                 } else {
                     try writer.writeAll(prefix.continuation);
+                    line_len += prefix.continuation.len;
                     var pad = prefix.first.len - prefix.continuation.len;
-                    while (pad > 0) : (pad -= 1)
+                    while (pad > 0) : (pad -= 1) {
                         try writer.writeByte(' ');
+                        line_len += 1;
+                    }
                 }
-                line_len += prefix.len;
                 continue :blk .words;
             },
             .words => {
-                if (line_len > prefix.len and line_len + word.len + 1 >= width - 1) {
-                    try writer.writeByte('\n');
-                    line_len = 0;
-                    continue :blk .begin;
-                }
-                if (line_len > prefix.len)
+                if (line_len > prefix.len) {
+                    if (line_len + word.len + 1 >= width) {
+                        try writer.writeByte('\n');
+                        line_len = 0;
+                        continue :blk .begin;
+                    }
                     try writer.writeByte(' ');
+                    line_len += 1;
+                }
                 try writer.writeAll(word);
                 line_len += word.len;
             },
