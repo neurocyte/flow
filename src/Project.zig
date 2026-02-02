@@ -796,7 +796,6 @@ pub fn delete_task(self: *Self, command: []const u8) error{}!void {
 }
 
 pub fn did_open(self: *Self, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, version: usize, text: []const u8) StartLspError!void {
-    defer std.heap.c_allocator.free(text);
     self.update_mru(file_path, 0, 0) catch {};
     const lsp = try self.get_or_start_language_server(from, file_path, language_server, language_server_options);
     const uri = try self.make_URI(file_path);
