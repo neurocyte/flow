@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
     const release = switch (b.release_mode) {
         .off => false,
         .any => blk: {
-            b.release_mode = .safe;
+            b.release_mode = .fast;
             break :blk true;
         },
         else => true,
