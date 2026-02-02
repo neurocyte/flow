@@ -45,7 +45,7 @@ auto_run_commands: ?[]const []const u8 = &.{"save_session_quiet"}, // a list of 
 indent_size: usize = 4,
 tab_width: usize = 8,
 indent_mode: IndentMode = .auto,
-reflow_width: usize = 80,
+reflow_width: usize = 76,
 
 top_bar: []const u8 = "tabs",
 bottom_bar: []const u8 = "mode file log selection diagnostics keybind branch linenumber clock spacer",
