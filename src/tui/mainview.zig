@@ -812,9 +812,7 @@ const cmds = struct {
 
         if (self.get_active_editor()) |editor| {
             const buffer = editor.buffer orelse return;
-            var content: std.Io.Writer.Allocating = .init(self.allocator);
-            defer content.deinit();
-            try buffer.root.store(&content.writer, buffer.file_eol_mode);
+            const content = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
 
             var existing = false;
             if (self.buffer_manager.get_buffer_for_file(file_path)) |new_buffer| {
@@ -833,7 +831,7 @@ const cmds = struct {
             if (self.get_active_editor()) |new_editor| {
                 const new_buffer = new_editor.buffer orelse return;
                 if (existing) new_editor.update_buf(new_buffer.root) catch {}; // store an undo point
-                try new_buffer.reset_from_string_and_update(content.written());
+                try new_buffer.reset_from_string_and_update(content);
                 new_buffer.mark_not_ephemeral();
                 new_buffer.mark_dirty();
                 new_editor.clamp();
@@ -2000,7 +1998,7 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);
     for (buffers) |buffer| if (!buffer.is_ephemeral())
-        send_buffer_did_open(self.allocator, buffer) catch {};
+        send_buffer_did_open(buffer) catch {};
 
     var max_last_view: usize = 0;
     for (buffers) |buffer| if (buffer.get_last_view()) |view| {
@@ -2015,17 +2013,15 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
             try tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_path } });
 }
 
-fn send_buffer_did_open(allocator: std.mem.Allocator, buffer: *Buffer) !void {
+fn send_buffer_did_open(buffer: *Buffer) !void {
     const ft = try file_type_config.get(buffer.file_type_name orelse return) orelse return;
-    var content: std.Io.Writer.Allocating = .init(allocator);
-    defer content.deinit();
-    try buffer.root.store(&content.writer, buffer.file_eol_mode);
+    const content = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
 
     try project_manager.did_open(
         buffer.get_file_path(),
         ft,
         buffer.lsp_version,
-        try content.toOwnedSlice(),
+        content,
         buffer.is_ephemeral(),
     );
     if (!buffer.is_ephemeral())
