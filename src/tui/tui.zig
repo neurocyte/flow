@@ -499,12 +499,6 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{"mouse_leave"}))
         return;
 
-    if (try m.match(.{"focus_in"}))
-        return;
-
-    if (try m.match(.{"focus_out"}))
-        return;
-
     if (try m.match(.{ "K", tp.more }))
         return;
 
@@ -512,6 +506,12 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
 
     if (try self.send_widgets(from, m))
+        return;
+
+    if (try m.match(.{"focus_in"}))
+        return;
+
+    if (try m.match(.{"focus_out"}))
         return;
 
     if (try m.match(.{ "exit", tp.more })) {
