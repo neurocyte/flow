@@ -188,8 +188,16 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.null_, tp.null_ })) {
         cmds.navigate_complete(self, null, path, goto_args, null, null, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
+    } else if (try m.match(.{"focus_out"})) {
+        self.process_focus_out() catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     return if (try self.floating_views.send(from_, m)) true else self.widgets.send(from_, m);
+}
+
+fn process_focus_out(self: *Self) error{OutOfMemory}!void {
+    const buffers = try self.buffer_manager.list_unordered(self.allocator);
+    defer self.allocator.free(buffers);
+    for (buffers) |b| ed.auto_save_buffer(b, .on_focus_change);
 }
 
 pub fn update(self: *Self) void {
@@ -769,8 +777,11 @@ const cmds = struct {
     pub const create_new_file_meta: Meta = .{ .description = "New file" };
 
     pub fn save_buffer(self: *Self, ctx: Ctx) Result {
+        var auto_save: bool = false;
         var file_path: []const u8 = undefined;
-        if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
+        if (ctx.args.match(.{ tp.extract(&file_path), "auto_save" }) catch false) {
+            auto_save = true;
+        } else if (!(ctx.args.match(.{tp.extract(&file_path)}) catch false))
             return error.InvalidSaveBufferArgument;
 
         const buffer = self.buffer_manager.get_buffer_for_file(file_path) orelse return;
@@ -786,7 +797,10 @@ const cmds = struct {
         const logger = log.logger("buffer");
         defer logger.deinit();
         if (buffer.is_ephemeral()) return logger.print_err("save", "ephemeral buffer, use save as", .{});
-        if (!buffer.is_dirty()) return logger.print("no changes to save", .{});
+        if (!buffer.is_dirty()) {
+            if (!auto_save) logger.print("no changes to save", .{});
+            return;
+        }
         try buffer.store_to_file_and_clean(file_path);
     }
     pub const save_buffer_meta: Meta = .{ .arguments = &.{.string} };

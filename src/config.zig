@@ -33,6 +33,7 @@ follow_cursor_on_buffer_switch: bool = false, //scroll cursor into view on buffe
 default_cursor: CursorShape = .default,
 modes_can_change_cursor: bool = true,
 enable_auto_save: bool = false,
+auto_save_mode: AutoSaveMode = .on_focus_change,
 limit_auto_save_file_types: ?[]const []const u8 = null, // null means *all*
 enable_prefix_keyhints: bool = true,
 enable_auto_find: bool = true,
@@ -147,6 +148,12 @@ pub const WhitespaceMode = enum {
     visible,
     full,
     none,
+};
+
+pub const AutoSaveMode = enum {
+    on_input_idle,
+    on_focus_change,
+    on_document_change,
 };
 
 pub const CursorShape = enum {

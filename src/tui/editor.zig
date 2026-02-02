@@ -649,7 +649,7 @@ pub const Editor = struct {
         self.highlight_references_pending.deinit(self.allocator);
         self.handlers.deinit();
         self.logger.deinit();
-        if (self.buffer) |p| self.buffer_manager.retire(p, meta.written());
+        if (self.buffer) |p| self.retire_buffer(p, meta.written());
     }
 
     pub fn need_render(_: *Self) void {
@@ -697,7 +697,6 @@ pub const Editor = struct {
             defer frame.deinit();
             break :blk try self.buffer_manager.open_file(file_path);
         };
-        if (tui.config().enable_auto_save) buffer.enable_auto_save();
         return self.open_buffer(file_path, buffer, null);
     }
 
@@ -713,7 +712,7 @@ pub const Editor = struct {
     fn open_buffer(self: *Self, file_path: []const u8, new_buf: *Buffer, file_type_: ?[]const u8) !void {
         const frame = tracy.initZone(@src(), .{ .name = "open_buffer" });
         defer frame.deinit();
-        errdefer self.buffer_manager.retire(new_buf, null);
+        errdefer self.retire_buffer(new_buf, null);
         self.cancel_all_selections();
         self.get_primary().reset();
         self.file_path = try self.allocator.dupe(u8, file_path);
@@ -755,8 +754,6 @@ pub const Editor = struct {
             self.checked_formatter = false;
             self.formatter = null;
 
-            self.maybe_enable_auto_save();
-
             const syn = blk: {
                 const frame_ = tracy.initZone(@src(), .{ .name = "create" });
                 defer frame_.deinit();
@@ -793,7 +790,6 @@ pub const Editor = struct {
             buffer.file_type_icon = fti;
             buffer.file_type_color = ftc;
         }
-        const auto_save = if (self.buffer) |b| b.is_auto_save() and !b.is_ephemeral() else false;
 
         if (buffer_meta) |meta| {
             const frame_ = tracy.initZone(@src(), .{ .name = "extract_state" });
@@ -801,24 +797,29 @@ pub const Editor = struct {
             var iter = meta;
             try self.extract_state(&iter, .none);
         }
+
+        const auto_save = if (self.buffer) |b|
+            self.maybe_enable_buffer_auto_save(b)
+        else
+            false;
+
         try self.send_editor_open(file_path, new_buf.file_exists, ftn, fti, ftc, auto_save);
     }
 
-    fn maybe_enable_auto_save(self: *Self) void {
-        const buffer = self.buffer orelse return;
-        if (self.restored_state) return;
-        buffer.disable_auto_save();
-        if (!tui.config().enable_auto_save) return;
-        const self_file_type = self.file_type orelse return;
+    fn maybe_enable_buffer_auto_save(self: *Self, buffer: *Buffer) bool {
+        if (self.restored_state) return false;
+        if (!tui.config().enable_auto_save) return false;
+        const self_file_type = self.file_type orelse return false;
 
         enable: {
             const file_types = tui.config().limit_auto_save_file_types orelse break :enable;
             for (file_types) |file_type|
                 if (std.mem.eql(u8, file_type, self_file_type.name))
                     break :enable;
-            return;
+            return false;
         }
         buffer.enable_auto_save();
+        return !buffer.is_ephemeral();
     }
 
     fn detect_indent_mode(self: *Self, content: []const u8) void {
@@ -853,11 +854,16 @@ pub const Editor = struct {
     }
     pub const set_editor_tab_width_meta: Meta = .{ .arguments = &.{.integer} };
 
+    fn retire_buffer(self: *const Self, buffer: *Buffer, meta: ?[]const u8) void {
+        self.buffer_manager.retire(buffer, meta);
+        auto_save_buffer(buffer, .on_focus_change);
+    }
+
     fn close(self: *Self) !void {
         var meta: std.Io.Writer.Allocating = .init(self.allocator);
         defer meta.deinit();
         self.write_state(&meta.writer) catch {};
-        if (self.buffer) |b_mut| self.buffer_manager.retire(b_mut, meta.written());
+        if (self.buffer) |b_mut| self.retire_buffer(b_mut, meta.written());
         self.cancel_all_selections();
         self.buffer = null;
         self.plane.erase();
@@ -2020,10 +2026,11 @@ pub const Editor = struct {
 
     fn send_editor_update(self: *const Self, old_root: ?Buffer.Root, new_root: ?Buffer.Root, eol_mode: Buffer.EolMode) !void {
         _ = try self.handlers.msg(.{ "E", "update" });
-        if (self.buffer) |buffer| if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
-            project_manager.did_change(file_path, buffer.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
-        if (self.buffer) |b| if (b.is_auto_save() and !b.is_ephemeral())
-            tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
+        if (self.buffer) |buffer| {
+            if (self.syntax) |_| if (self.file_path) |file_path| if (old_root != null and new_root != null)
+                project_manager.did_change(file_path, buffer.lsp_version, try text_from_root(new_root, eol_mode), try text_from_root(old_root, eol_mode), eol_mode) catch {};
+            auto_save_buffer(buffer, .on_document_change);
+        }
     }
 
     pub fn vcs_content_update(self: *const Self) !void {
@@ -5547,7 +5554,10 @@ pub const Editor = struct {
             buffer.disable_auto_save();
         self.send_editor_auto_save(buffer.is_auto_save()) catch {};
         if (buffer.is_auto_save())
-            tp.self_pid().send(.{ "cmd", "save_file", .{} }) catch {};
+            std.log.info("enabled auto save {t}", .{tui.config().auto_save_mode})
+        else
+            std.log.info("disabled auto save", .{});
+        auto_save_buffer(buffer, .on_document_change);
     }
     pub const toggle_auto_save_meta: Meta = .{ .description = "Toggle auto save" };
 
@@ -7135,6 +7145,7 @@ pub const EditorWidget = struct {
         if (self.focused) self.commands.unregister();
         self.focused = false;
         command.executeName("enter_mode_default", .{}) catch {};
+        if (self.editor.buffer) |b| auto_save_buffer(b, .on_focus_change);
     }
 
     pub fn update(self: *Self) void {
@@ -7213,6 +7224,7 @@ pub const EditorWidget = struct {
                     }
                 },
             };
+            if (self.editor.buffer) |b| auto_save_buffer(b, .on_input_idle);
             return false;
         } else if (try m.match(.{ "whitespace_mode", tp.extract(&whitespace_mode) })) {
             self.editor.render_whitespace = whitespace_mode;
@@ -7427,4 +7439,25 @@ fn ViewMap(T: type, default: T) type {
             return self.data[y * self.cols + x];
         }
     };
+}
+
+pub fn auto_save_buffer(b: *Buffer, comptime event: @import("config").AutoSaveMode) void {
+    const auto_save = switch (tui.config().auto_save_mode) {
+        .on_input_idle => comptime switch (event) {
+            .on_input_idle, .on_focus_change => true,
+            .on_document_change => false,
+        },
+        .on_document_change => comptime switch (event) {
+            .on_document_change => true,
+            .on_input_idle, .on_focus_change => false,
+        },
+        .on_focus_change => comptime switch (event) {
+            .on_focus_change => true,
+            .on_input_idle, .on_document_change => false,
+        },
+    };
+    if (auto_save and b.is_auto_save() and !b.is_ephemeral() and b.is_dirty()) {
+        tp.self_pid().send(.{ "cmd", "save_buffer", .{ b.get_file_path(), "auto_save" } }) catch {};
+        std.log.debug("auto save {t} {s}", .{ event, b.get_file_path() });
+    }
 }
