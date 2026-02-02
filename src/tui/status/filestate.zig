@@ -83,6 +83,10 @@ pub fn layout(_: *Self, _: *ButtonType) Widget.Layout {
 }
 
 pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
+    const auto_save = if (self.auto_save) switch (tui.config().auto_save_mode) {
+        .on_input_idle, .on_document_change => true,
+        .on_focus_change => false,
+    } else false;
     const style_base = theme.statusbar;
     const style_label = if (btn.active) theme.editor_cursor else style_base;
     btn.plane.set_base_style(theme.editor);
@@ -99,9 +103,9 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
     if (tui.mini_mode()) |_|
         render_mini_mode(&btn.plane, theme)
     else if (self.detailed)
-        self.render_detailed(&btn.plane, theme)
+        self.render_detailed(&btn.plane, theme, auto_save)
     else
-        self.render_normal(&btn.plane, theme);
+        self.render_normal(&btn.plane, theme, auto_save);
     self.render_terminal_title();
     return false;
 }
@@ -135,19 +139,19 @@ fn render_mini_mode(plane: *Plane, theme: *const Widget.Theme) void {
 // 󱣪 Content save check
 // 󱑛 Content save cog
 // 󰆔 Content save all
-fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
+fn render_normal(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_save: bool) void {
     plane.on_styles(styles.italic);
     _ = plane.putstr(" ") catch {};
     if (self.file_icon.len > 0 and tui.config().show_fileicons) {
         self.render_file_icon(plane, theme);
         _ = plane.print(" ", .{}) catch {};
     }
-    _ = plane.putstr(if (!self.file_exists) "󰽂 " else if (self.auto_save) "󱑛 " else if (self.file_dirty) "󰆓 " else "") catch {};
+    _ = plane.putstr(if (!self.file_exists) "󰽂 " else if (auto_save) "󱑛 " else if (self.file_dirty) "󰆓 " else "") catch {};
     _ = plane.print("{s}", .{self.name}) catch {};
     return;
 }
 
-fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void {
+fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme, auto_save: bool) void {
     plane.on_styles(styles.italic);
     _ = plane.putstr(" ") catch {};
     if (self.file_icon.len > 0 and tui.config().show_fileicons) {
@@ -167,7 +171,7 @@ fn render_detailed(self: *Self, plane: *Plane, theme: *const Widget.Theme) void 
             .tabs => "[⭾ = ␉]",
         };
 
-        _ = plane.putstr(if (!self.file_exists) "󰽂" else if (self.auto_save) "󱑛" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
+        _ = plane.putstr(if (!self.file_exists) "󰽂" else if (auto_save) "󱑛" else if (self.file_dirty) "󰆓" else "󱣪") catch {};
         _ = plane.print(" {s}:{d}:{d}", .{ self.name, self.line + 1, self.column + 1 }) catch {};
         _ = plane.print(" of {d} lines", .{self.lines}) catch {};
         if (self.file_type.len > 0)
