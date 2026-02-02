@@ -64,10 +64,10 @@ fn detect_prefix(text: []const u8) Prefix {
     const line1 = lines.next() orelse return .{};
     var prefix: []const u8 = line1;
     var count: usize = 0;
-    while (lines.next()) |line| {
+    while (lines.next()) |line| if (line.len > 0) {
         prefix = lcp(prefix, line);
         count += 1;
-    }
+    };
     if (count < 1) return .{
         .len = 0,
         .first = &.{},
