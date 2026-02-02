@@ -67,8 +67,7 @@ test "buffer" {
     try std.testing.expect(root.is_balanced());
     buffer.update(root);
 
-    const result: []const u8 = try buffer.store_to_string(a, eol_mode);
-    defer a.free(result);
+    const result: []const u8 = buffer.store_to_string_cached(buffer.root, eol_mode);
     try std.testing.expectEqualDeep(result, doc);
     try std.testing.expectEqual(doc.len, result.len);
     try std.testing.expectEqual(doc.len, buffer.root.length());
@@ -299,9 +298,6 @@ test "delete_bytes_with_tab_issue83" {
 
     buffer.update(try buffer.root.delete_bytes(2, 0, len, buffer.allocator, metrics()));
 
-    const result: []const u8 = try buffer.store_to_string(a, eol_mode);
-    defer a.free(result);
-    // std.debug.print("{s}", .{result});
     try check_line(buffer, 2, "ropes");
 }
 
