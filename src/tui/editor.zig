@@ -730,15 +730,9 @@ pub const Editor = struct {
             self.syntax_no_render = true;
         }
 
-        var content: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
-        defer content.deinit();
-        {
-            const frame_ = tracy.initZone(@src(), .{ .name = "store" });
-            defer frame_.deinit();
-            try new_buf.root.store(&content.writer, new_buf.file_eol_mode);
-        }
+        const content = new_buf.store_to_string_cached(new_buf.root, new_buf.file_eol_mode);
         if (self.indent_mode == .auto)
-            self.detect_indent_mode(content.written());
+            self.detect_indent_mode(content);
 
         self.syntax = syntax: {
             const lang_override = file_type orelse tp.env.get().str("language");
@@ -749,7 +743,7 @@ pub const Editor = struct {
                 break :blk if (lang_override.len > 0)
                     try file_type_config.get(lang_override)
                 else
-                    file_type_config.guess_file_type(self.file_path, content.written());
+                    file_type_config.guess_file_type(self.file_path, content);
             };
             self.checked_formatter = false;
             self.formatter = null;
@@ -770,7 +764,7 @@ pub const Editor = struct {
                     file_path,
                     ft,
                     new_buf.lsp_version,
-                    try content.toOwnedSlice(),
+                    content,
                     new_buf.is_ephemeral(),
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
@@ -2020,7 +2014,7 @@ pub const Editor = struct {
         const root = root_ orelse return &.{};
         var text: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
         defer text.deinit();
-        try root.store(&text.writer, eol_mode);
+        try root.store_node(&text.writer, eol_mode);
         return text.toOwnedSlice();
     }
 
@@ -5303,7 +5297,8 @@ pub const Editor = struct {
     pub const smart_insert_pair_close_meta: Meta = .{ .arguments = &.{ .string, .string } };
 
     fn update_syntax(self: *Self) !void {
-        const root = try self.buf_root();
+        const buffer = self.buffer orelse return error.Stop;
+        const root = buffer.root;
         const eol_mode = try self.buf_eol_mode();
         if (!self.syntax_refresh_full and self.syntax_last_rendered_root == root)
             return;
@@ -5323,15 +5318,7 @@ pub const Editor = struct {
                 self.syntax_refresh_full = true;
             if (self.syntax_last_rendered_root == null)
                 self.syntax_refresh_full = true;
-            var content_: std.Io.Writer.Allocating = .init(self.allocator);
-            defer content_.deinit();
-            {
-                const frame = tracy.initZone(@src(), .{ .name = "editor store syntax" });
-                defer frame.deinit();
-                try root.store(&content_.writer, eol_mode);
-            }
-            const content = try content_.toOwnedSliceSentinel(0);
-            defer self.allocator.free(content);
+            const content = buffer.store_to_string_cached(root, eol_mode);
             if (self.syntax_refresh_full) {
                 {
                     const frame = tracy.initZone(@src(), .{ .name = "editor reset syntax" });
@@ -5354,7 +5341,7 @@ pub const Editor = struct {
                     {
                         const frame = tracy.initZone(@src(), .{ .name = "editor store syntax" });
                         defer frame.deinit();
-                        try root_src.store(&old_content.writer, eol_mode);
+                        try root_src.store_node(&old_content.writer, eol_mode);
                     }
                     {
                         const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
@@ -5381,10 +5368,8 @@ pub const Editor = struct {
                 }
             }
         } else {
-            var content: std.Io.Writer.Allocating = .init(self.allocator);
-            defer content.deinit();
-            try root.store(&content.writer, eol_mode);
-            self.syntax = file_type_config.create_syntax_guess_file_type(self.allocator, content.written(), self.file_path, tui.query_cache()) catch |e| switch (e) {
+            const content = buffer.store_to_string_cached(root, eol_mode);
+            self.syntax = file_type_config.create_syntax_guess_file_type(self.allocator, content, self.file_path, tui.query_cache()) catch |e| switch (e) {
                 error.NotFound => null,
                 else => return e,
             };
@@ -5392,7 +5377,7 @@ pub const Editor = struct {
                 if (self.syntax) |syn| {
                     const frame = tracy.initZone(@src(), .{ .name = "editor parse syntax" });
                     defer frame.deinit();
-                    try syn.refresh_full(content.written());
+                    try syn.refresh_full(content);
                     self.syntax_last_rendered_root = root;
                 }
             }
@@ -6340,12 +6325,10 @@ pub const Editor = struct {
         const frame = tracy.initZone(@src(), .{ .name = "editor diff syntax" });
         defer frame.deinit();
 
-        var content_: std.Io.Writer.Allocating = .init(self.allocator);
-        defer content_.deinit();
-        const root = self.buf_root() catch return;
+        const buffer = self.buffer orelse return;
+        const root = buffer.root;
         const eol_mode = self.buf_eol_mode() catch return;
-        try root.store(&content_.writer, eol_mode);
-        const content = content_.written();
+        const content = buffer.store_to_string_cached(root, eol_mode);
         var last_begin_row: usize = 0;
         var last_begin_col_pos: usize = 0;
         var last_end_row: usize = 0;
@@ -6785,7 +6768,8 @@ pub const Editor = struct {
 
     fn filter_done(self: *Self) !void {
         const b = try self.buf_for_update();
-        const root = self.buf_root() catch return;
+        const buffer = self.buffer orelse return;
+        const root = b.root;
         const state = if (self.filter_) |*s| s else return error.Stop;
         if (state.before_root != root) return error.Stop;
         defer self.filter_deinit();
@@ -6796,10 +6780,8 @@ pub const Editor = struct {
                 return;
             }
             const old_hash = blk: {
-                var content: std.Io.Writer.Allocating = .init(self.allocator);
-                defer content.deinit();
-                try root.store(&content.writer, try self.buf_eol_mode());
-                break :blk std.hash.XxHash3.hash(0, content.written());
+                const content = buffer.store_to_string_cached(root, try self.buf_eol_mode());
+                break :blk std.hash.XxHash3.hash(0, content);
             };
             const new_hash = std.hash.XxHash3.hash(0, buf.items);
             if (old_hash == new_hash) {
@@ -7029,17 +7011,15 @@ pub const Editor = struct {
         };
 
         if (self.file_type) |ft| {
-            var content: std.Io.Writer.Allocating = .init(self.allocator);
-            defer content.deinit();
-            const root = try self.buf_root();
-            try root.store(&content.writer, try self.buf_eol_mode());
+            const buffer = self.buffer orelse return error.Stop;
+            const content = buffer.store_to_string_cached(buffer.root, try self.buf_eol_mode());
 
-            if (self.buffer) |buffer| if (self.file_path) |file_path|
+            if (self.file_path) |file_path|
                 project_manager.did_open(
                     file_path,
                     ft,
                     buffer.lsp_version,
-                    try content.toOwnedSlice(),
+                    content,
                     if (self.buffer) |p| p.is_ephemeral() else true,
                 ) catch |e|
                     self.logger.print("project_manager.did_open failed: {any}", .{e});
