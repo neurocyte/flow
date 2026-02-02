@@ -5563,6 +5563,9 @@ pub const Editor = struct {
 
     pub fn toggle_format_on_save(self: *Self, _: Context) Result {
         self.enable_format_on_save = !self.enable_format_on_save;
+        std.log.info("format on save {s}", .{
+            if (self.enable_format_on_save) "enabled" else "disabled",
+        });
     }
     pub const toggle_format_on_save_meta: Meta = .{ .description = "Toggle format on save" };
 
