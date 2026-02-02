@@ -1,6 +1,9 @@
 pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) error{ OutOfMemory, WriteFailed }![]u8 {
-    const prefix = detect_prefix(text);
-    const words = try split_words(allocator, text, prefix.len);
+    const len = text.len;
+    const trailing_ln: bool = (len > 0 and text[len - 1] == '\n');
+    const input = if (trailing_ln) text[0 .. len - 1] else text;
+    const prefix = detect_prefix(input);
+    const words = try split_words(allocator, input, prefix.len);
     defer allocator.free(words);
     var output: std.Io.Writer.Allocating = .init(allocator);
     const writer = &output.writer;
@@ -39,7 +42,7 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
             },
         }
     }
-
+    if (trailing_ln) try writer.writeByte('\n');
     return output.toOwnedSlice();
 }
 
