@@ -8,6 +8,8 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
     var output: std.Io.Writer.Allocating = .init(allocator);
     const writer = &output.writer;
 
+    std.log.info("reflow @{d}", .{width});
+
     var first = true;
     var line_len: usize = 0;
     for (words) |word| {
