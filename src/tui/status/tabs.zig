@@ -902,7 +902,10 @@ const Tab = struct {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const buffer_ = buffer_manager.buffer_from_ref(self.buffer_ref);
         const is_dirty = if (buffer_) |buffer| buffer.is_dirty() else false;
-        const auto_save = if (buffer_) |buffer| buffer.is_auto_save() else false;
+        const auto_save = if (buffer_) |buffer| if (buffer.is_auto_save()) switch (tui.config().auto_save_mode) {
+            .on_input_idle, .on_document_change => true,
+            .on_focus_change => false,
+        } else false else false;
         self.render_padding(plane, .left);
         if (self.tab_style.file_type_icon) if (buffer_) |buffer| if (buffer.file_type_icon) |icon| {
             const color_: ?u24 = if (buffer.file_type_color) |color| if (!(color == 0xFFFFFF or color == 0x000000 or color == 0x000001)) color else null else null;
