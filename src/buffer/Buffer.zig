@@ -283,6 +283,12 @@ const Node = union(enum) {
 
     const walker = *const fn (ctx: *anyopaque, node: *const Node) WalkerMut;
 
+    pub const Ref = TypedInt.Tagged(usize, "NREF");
+
+    pub fn to_ref(self: *const Node) Node.Ref {
+        return @enumFromInt(@intFromPtr(self));
+    }
+
     fn new(allocator: Allocator, l: *const Node, r: *const Node) !*const Node {
         const node = try allocator.create(Node);
         errdefer allocator.destroy(node);
