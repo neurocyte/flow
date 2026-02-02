@@ -437,35 +437,35 @@ inline fn set_font_style(style: *vaxis.Cell.Style, fs: FontStyle) void {
     }
 }
 
-inline fn is_control_code(c: u8) bool {
-    return switch (c) {
-        0...8, 10...31 => true,
-        else => false,
-    };
-}
-
 pub fn egc_length(self: *const Plane, egcs: []const u8, colcount: *usize, abs_col: usize, tab_width: usize) usize {
     if (egcs.len == 0) {
         colcount.* = 0;
         return 0;
     }
-    if (is_control_code(egcs[0])) {
-        colcount.* = 1;
-        return 1;
+    switch (egcs[0]) {
+        0...8,
+        10...31, //control codes
+        32...126,
+        => { //ascii
+            colcount.* = 1;
+            return 1;
+        },
+        '\t' => {
+            colcount.* = tab_width - (abs_col % tab_width);
+            return 1;
+        },
+        else => {
+            var iter = vaxis.unicode.graphemeIterator(egcs);
+            const grapheme = iter.next() orelse {
+                colcount.* = 1;
+                return 1;
+            };
+            const s = grapheme.bytes(egcs);
+            const w = self.window.gwidth(s);
+            colcount.* = w;
+            return s.len;
+        },
     }
-    if (egcs[0] == '\t') {
-        colcount.* = tab_width - (abs_col % tab_width);
-        return 1;
-    }
-    var iter = vaxis.unicode.graphemeIterator(egcs);
-    const grapheme = iter.next() orelse {
-        colcount.* = 1;
-        return 1;
-    };
-    const s = grapheme.bytes(egcs);
-    const w = self.window.gwidth(s);
-    colcount.* = w;
-    return s.len;
 }
 
 pub fn egc_chunk_width(self: *const Plane, chunk_: []const u8, abs_col_: usize, tab_width: usize) usize {
