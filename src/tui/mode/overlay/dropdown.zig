@@ -32,6 +32,7 @@ pub fn Create(options: type) type {
         menu: *Menu.State(*Self),
         mode: keybind.Mode,
         query: std.ArrayList(u8),
+        match_count: usize,
         logger: log.Logger,
         longest: usize = 0,
         commands: command.Collection(cmds) = undefined,
@@ -86,6 +87,7 @@ pub fn Create(options: type) type {
                     .noninvasive => "overlay/dropdown-noninvasive",
                 }, allocator, .{}),
                 .placement = if (@hasDecl(options, "placement")) options.placement else .top_center,
+                .match_count = 0,
             };
             try self.commands.init(self);
             self.mode.event_handler = EventHandler.to_owned(self);
@@ -96,6 +98,7 @@ pub fn Create(options: type) type {
                 try options.load_entries_with_args(self, ctx)
             else
                 try options.load_entries(self);
+            self.match_count = self.entries.items.len;
             if (@hasDecl(options, "restore_state"))
                 options.restore_state(self) catch {};
             if (@hasDecl(options, "initial_query")) blk: {
@@ -290,8 +293,9 @@ pub fn Create(options: type) type {
                     if (self.items < self.view_rows)
                         try options.add_menu_entry(self, entry, null);
                 }
+                self.match_count = self.entries.items.len;
             } else {
-                _ = try self.query_entries(self.query.items);
+                self.match_count = try self.query_entries(self.query.items);
             }
             if (self.initial_selected) |idx| {
                 self.initial_selected = null;
