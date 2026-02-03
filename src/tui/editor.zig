@@ -440,8 +440,14 @@ pub const Editor = struct {
         is_complete: bool = true,
 
         const empty: @This() = .{};
-        const pending: @This() = .empty;
         const done: ?@This() = null;
+
+        fn pending(row: usize, col: usize) @This() {
+            return .{
+                .row = row,
+                .col = col,
+            };
+        }
 
         fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
             self.data.deinit(allocator);
@@ -6285,10 +6291,14 @@ pub const Editor = struct {
 
     pub fn completion(self: *Self, _: Context) Result {
         const mv = tui.mainview() orelse return;
-        if (self.completions_request) |_|
-            self.completions_refresh_pending = true
-        else
-            self.completions_request = .pending;
+        const cursor = self.get_primary().cursor;
+        if (self.completions_request) |request| {
+            if (request.row != cursor.row or request.col != cursor.col)
+                self.completions_refresh_pending = true;
+            return;
+        } else {
+            self.completions_request = .pending(cursor.row, cursor.col);
+        }
         if (!mv.is_any_panel_view_showing())
             self.clamp_offset(mv.get_panel_height());
         return self.pm_with_primary_cursor_pos(project_manager.completion);
