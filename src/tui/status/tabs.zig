@@ -422,45 +422,50 @@ pub const TabBar = struct {
         return last;
     }
 
-    fn find_next_tab_buffer(self: *Self) ?Buffer.Ref {
+    fn find_next_tab_buffer(self: *Self) struct { ?Buffer.Ref, usize } {
         var found_active: bool = false;
         for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                 if (found_active)
-                    return btn.opts.ctx.buffer_ref;
+                    return .{ btn.opts.ctx.buffer_ref, btn.opts.ctx.view };
                 if (btn.opts.ctx.buffer_ref == self.active_focused_buffer_ref)
                     found_active = true;
             };
-        return null;
+        return .{ null, 0 };
     }
 
-    fn find_previous_tab_buffer(self: *Self) ?Buffer.Ref {
+    fn find_previous_tab_buffer(self: *Self) struct { ?Buffer.Ref, usize } {
         var previous: ?Buffer.Ref = null;
+        var previous_view: usize = 0;
         for (self.widget_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                 if (btn.opts.ctx.buffer_ref == self.active_focused_buffer_ref)
-                    return previous;
+                    return .{ previous, previous_view };
                 previous = btn.opts.ctx.buffer_ref;
+                previous_view = btn.opts.ctx.view;
             };
-        return null;
+        return .{ null, 0 };
     }
 
     fn select_next_tab(self: *Self) void {
         tp.trace(tp.channel.debug, .{"select_next_tab"});
-        const buffer_ref = self.find_next_tab_buffer() orelse self.find_first_tab_buffer() orelse return;
-        navigate_to_buffer(buffer_ref);
+        const buffer_ref, _ = self.find_next_tab_buffer();
+        if (buffer_ref) |ref| return navigate_to_buffer(ref);
+        if (self.find_first_tab_buffer()) |ref| return navigate_to_buffer(ref);
     }
 
     fn select_previous_tab(self: *Self) void {
         tp.trace(tp.channel.debug, .{"select_previous_tab"});
-        const buffer_ref = self.find_previous_tab_buffer() orelse self.find_last_tab_buffer() orelse return;
-        navigate_to_buffer(buffer_ref);
+        const buffer_ref, _ = self.find_previous_tab_buffer();
+        if (buffer_ref) |ref| return navigate_to_buffer(ref);
+        if (self.find_last_tab_buffer()) |ref| return navigate_to_buffer(ref);
     }
 
     fn move_tab_next(self: *Self) void {
         tp.trace(tp.channel.debug, .{"move_tab_next"});
         const this_idx = self.find_buffer_tab(self.active_focused_buffer_ref orelse return) orelse return;
-        const other_buffer_ref = self.find_next_tab_buffer() orelse return self.move_tab_to_new_split(this_idx);
+        const other_buffer_ref_, _ = self.find_next_tab_buffer();
+        const other_buffer_ref = other_buffer_ref_ orelse return self.move_tab_to_new_split(this_idx);
         const other_idx = self.find_buffer_tab(other_buffer_ref) orelse return;
         self.move_tab_to(other_idx, this_idx);
     }
@@ -468,7 +473,8 @@ pub const TabBar = struct {
     fn move_tab_previous(self: *Self) void {
         tp.trace(tp.channel.debug, .{"move_tab_previous"});
         const this_idx = self.find_buffer_tab(self.active_focused_buffer_ref orelse return) orelse return;
-        const other_buffer_ref = self.find_previous_tab_buffer() orelse return;
+        const other_buffer_ref_, _ = self.find_previous_tab_buffer();
+        const other_buffer_ref = other_buffer_ref_ orelse return;
         const other_idx = self.find_buffer_tab(other_buffer_ref) orelse return;
         self.move_tab_to(other_idx, this_idx);
     }
