@@ -4208,8 +4208,13 @@ pub const Editor = struct {
                 root = try self.indent_cursor(root, sel.end, true, allocator);
             if (sel_from_start)
                 sel_.begin.col = 0;
+            cursel.cursor.clamp_to_buffer(root, self.metrics);
             return root;
-        } else return try self.indent_cursor(root_, cursel.cursor, self.cursels.items.len > 1, allocator);
+        } else {
+            const root = try self.indent_cursor(root_, cursel.cursor, self.cursels.items.len > 1, allocator);
+            cursel.cursor.clamp_to_buffer(root, self.metrics);
+            return root;
+        }
     }
 
     pub fn indent(self: *Self, ctx: Context) Result {
