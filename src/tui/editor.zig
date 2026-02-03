@@ -4934,7 +4934,20 @@ pub const Editor = struct {
     }
     pub const select_prev_sibling_meta: Meta = .{ .description = "Move selection to previous AST sibling node" };
 
-    pub fn insert_snippet(self: *Self, snippet_text: []const u8) Result {
+    pub fn insert_snippet(self: *Self, snippet_text_: []const u8) Result {
+        var snippet_buf: std.ArrayList(u8) = .empty;
+        defer snippet_buf.deinit(self.allocator);
+        const snippet_text = switch (self.indent_mode) {
+            .tabs => snippet_text_,
+            .spaces, .auto => blk: {
+                const space = "                                ";
+                for (snippet_text_) |c| try if (c == '\t')
+                    snippet_buf.appendSlice(self.allocator, space[0..self.indent_size])
+                else
+                    snippet_buf.append(self.allocator, c);
+                break :blk snippet_buf.items;
+            },
+        };
         self.logger.print("snippet: {s}", .{snippet_text});
         const value = try snippet.parse(self.allocator, snippet_text);
         defer value.deinit(self.allocator);
