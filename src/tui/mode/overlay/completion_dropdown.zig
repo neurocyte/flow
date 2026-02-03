@@ -314,19 +314,8 @@ fn get_replacement_selection(editor: *ed.Editor, insert_: ?Selection, replace_: 
 
     var sel = if (pos) |p|
         p.from_pos(editor.buf_root() catch return ed.Selection.from_cursor(&editor.get_primary().cursor), editor.metrics)
-    else blk: {
-        if (query) |sel| break :blk sel;
-        var cursel = editor.get_primary().*;
-        var sel = ed.Selection.from_cursor(&cursel.cursor);
-        if (cursel.cursor.col == 0) break :blk sel;
-        const root_ = editor.buf_root() catch break :blk sel;
-        ed.Editor.move_cursor_word_left(root_, &sel.begin, editor.metrics) catch break :blk sel;
-        if (tui.config().completion_insert_mode == .replace) {
-            sel.end = sel.begin;
-            ed.Editor.move_cursor_word_right(root_, &sel.end, editor.metrics) catch break :blk sel;
-        }
-        break :blk sel;
-    };
+    else
+        query orelse editor.guest_completion_range();
     sel.normalize();
     const cursor = editor.get_primary().cursor;
     return switch (tui.config().completion_insert_mode) {
