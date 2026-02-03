@@ -328,16 +328,18 @@ pub fn Create(options: type) type {
             };
 
             var matches: std.ArrayList(Match) = .empty;
+            var match_count: usize = 0;
 
             for (self.entries.items) |*entry| {
                 const match = searcher.scoreMatches(entry.label, query);
+                if (match.score) |_| match_count += 1;
                 (try matches.addOne(self.allocator)).* = .{
                     .entry = entry,
                     .score = match.score orelse 0,
                     .matches = try self.allocator.dupe(usize, match.matches),
                 };
             }
-            if (matches.items.len == 0) return 0;
+            if (matches.items.len == 0) return match_count;
 
             const less_fn = struct {
                 fn less_fn(_: void, lhs: Match, rhs: Match) bool {
@@ -358,7 +360,7 @@ pub fn Create(options: type) type {
                 if (self.items < self.view_rows)
                     try options.add_menu_entry(self, match.entry, match.matches);
             }
-            return matches.items.len;
+            return match_count;
         }
 
         fn cmd(_: *Self, name_: []const u8, ctx: command.Context) tp.result {
