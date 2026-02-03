@@ -4,6 +4,7 @@ const tp = @import("thespian");
 const root = @import("soft_root").root;
 const command = @import("command");
 const Buffer = @import("Buffer");
+const Selection = Buffer.Selection;
 const builtin = @import("builtin");
 const CompletionItemKind = @import("lsp_types").CompletionItemKind;
 
@@ -33,7 +34,7 @@ pub const ValueType = struct {
     editor: *ed.Editor = undefined,
     cursor: ed.Cursor = .{},
     view: ed.View = .{},
-    query: ?Buffer.Selection = null,
+    query: ?Selection = null,
     last_query: ?[]const u8 = null,
     commands: command.Collection(cmds) = undefined,
     data: []const u8 = &.{},
@@ -118,7 +119,7 @@ pub fn initial_query(self: *Type, allocator: std.mem.Allocator) error{ Stop, Out
 
 fn get_query_text_nostore(self: *Type, cursor: ed.Cursor, allocator: std.mem.Allocator) error{ Stop, OutOfMemory }![]const u8 {
     return if (self.value.query) |query| blk: {
-        const sel: Buffer.Selection = .{ .begin = query.begin, .end = cursor };
+        const sel: Selection = .{ .begin = query.begin, .end = cursor };
         break :blk try self.value.editor.get_selection(sel, allocator);
     } else allocator.dupe(u8, "");
 }
@@ -219,8 +220,8 @@ pub const Values = struct {
     label: []const u8,
     sort_text: []const u8,
     kind: CompletionItemKind,
-    insert: ?Buffer.Selection,
-    replace: ?Buffer.Selection,
+    insert: ?Selection,
+    replace: ?Selection,
     additionalTextEdits: []const u8,
     label_detail: []const u8,
     label_description: []const u8,
@@ -282,8 +283,8 @@ pub fn get_values(item_cbor: []const u8) Values {
     };
 }
 
-fn get_range(range_cbor: []const u8) ?Buffer.Selection {
-    var range: Buffer.Selection = .{};
+fn get_range(range_cbor: []const u8) ?Selection {
+    var range: Selection = .{};
     return if (cbor.match(range_cbor, tp.null_) catch false)
         null
     else if (cbor.match(range_cbor, .{
@@ -301,11 +302,11 @@ const TextEdit = struct { newText: []const u8 = &.{}, insert: ?Range = null, rep
 const Range = struct { start: Position, end: Position };
 const Position = struct { line: usize, character: usize };
 
-pub fn get_query_selection(editor: *ed.Editor, values: Values) ?Buffer.Selection {
+pub fn get_query_selection(editor: *ed.Editor, values: Values) ?Selection {
     return get_replacement_selection(editor, values.insert, values.replace, null);
 }
 
-fn get_replacement_selection(editor: *ed.Editor, insert_: ?Buffer.Selection, replace_: ?Buffer.Selection, query: ?Buffer.Selection) Buffer.Selection {
+fn get_replacement_selection(editor: *ed.Editor, insert_: ?Selection, replace_: ?Selection, query: ?Selection) Selection {
     const pos = switch (tui.config().completion_insert_mode) {
         .replace => replace_ orelse insert_,
         .insert => insert_ orelse replace_,
@@ -334,7 +335,7 @@ fn get_replacement_selection(editor: *ed.Editor, insert_: ?Buffer.Selection, rep
     };
 }
 
-fn get_insert_selection(editor: *ed.Editor, values: Values, query: ?Buffer.Selection) Buffer.Selection {
+fn get_insert_selection(editor: *ed.Editor, values: Values, query: ?Selection) Selection {
     return get_replacement_selection(editor, values.insert, values.replace, query);
 }
 
