@@ -249,6 +249,7 @@ fn receive_project_manager(self: *Self, _: tp.pid_ref, m: tp.message) MessageFil
 }
 
 fn process_project_manager(self: *Self, m: tp.message) MessageFilter.Error!void {
+    defer tui.reset_hover(@src());
     var file_name: []const u8 = undefined;
     var file_type: []const u8 = undefined;
     var file_icon: []const u8 = undefined;

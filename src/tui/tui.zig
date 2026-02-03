@@ -893,6 +893,11 @@ pub fn refresh_hover(src: std.builtin.SourceLocation) void {
     _ = self.update_hover(self.last_hover_y, self.last_hover_x) catch {};
 }
 
+pub fn reset_hover(src: std.builtin.SourceLocation) void {
+    const self = current();
+    self.clear_hover_focus(src) catch {};
+}
+
 pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {
     const self = current();
     try root.write_config(self.config_, self.allocator);

@@ -276,6 +276,7 @@ pub fn Create(options: type) type {
         }
 
         fn start_query(self: *Self, n: usize) !void {
+            defer tui.reset_hover(@src());
             self.items = 0;
             self.menu.reset_items();
             self.menu.selected = null;
@@ -307,7 +308,6 @@ pub fn Create(options: type) type {
                     self.menu.select_down();
                 const padding = tui.get_widget_style(widget_type).padding;
                 self.do_resize(padding);
-                tui.refresh_hover(@src());
                 self.selection_updated();
             }
         }

@@ -318,6 +318,7 @@ pub fn Create(options: type) type {
         }
 
         fn start_query(self: *Self, n: usize) !void {
+            defer tui.reset_hover(@src());
             defer self.update_count_hint();
             self.items = 0;
             self.menu.reset_items();
