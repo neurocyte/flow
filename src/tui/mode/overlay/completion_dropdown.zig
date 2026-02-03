@@ -151,6 +151,9 @@ fn maybe_update_query(self: *Type, cursor: Buffer.Cursor) error{OutOfMemory}!voi
         if (!std.mem.eql(u8, query, last))
             try update_query_text(self, cursor);
     } else try update_query_text(self, cursor);
+
+    if (self.match_count == 0)
+        tp.self_pid().send(.{ "cmd", "completion" }) catch |e| self.logger.err(module_name, e);
 }
 
 fn update_query_text(self: *Type, cursor: ed.Cursor) error{OutOfMemory}!void {
