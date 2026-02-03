@@ -46,6 +46,7 @@ pub fn init(self: *Type) error{ Stop, OutOfMemory }!void {
     try self.value.commands.init(self);
     self.value.editor = tui.get_active_editor() orelse return error.Stop;
     self.value.view = self.value.editor.view;
+    self.value.editor.cursor_focus_override = true;
 }
 
 pub fn load_entries(self: *Type) !usize {

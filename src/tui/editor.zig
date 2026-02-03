@@ -361,6 +361,7 @@ pub const Editor = struct {
     find_operation: ?enum { goto_next_match, goto_prev_match } = null,
     highlight_references_state: enum { adding, done } = .done,
     highlight_references_pending: Match.List = .empty,
+    cursor_focus_override: bool = false,
 
     prefix_buf: [8]u8 = undefined,
     prefix: []const u8 = &[_]u8{},
@@ -1307,7 +1308,7 @@ pub const Editor = struct {
         try self.render_cursor_primary(&self.get_primary().cursor, theme, cell_map, focused);
     }
 
-    fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
+    fn render_cursor_primary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused_: bool) !void {
         const configured_shape = tui.get_cursor_shape();
         const cursor_shape = if (tui.rdr().vx.caps.multi_cursor)
             configured_shape
@@ -1320,6 +1321,8 @@ pub const Editor = struct {
         } else configured_shape;
         const screen_pos = self.screen_cursor(cursor);
         if (screen_pos) |pos| set_cell_map_cursor(cell_map, pos.row, pos.col);
+
+        const focused = focused_ or self.cursor_focus_override;
 
         if (focused and self.enable_terminal_cursor) {
             if (screen_pos) |pos| {
@@ -7145,6 +7148,7 @@ pub const EditorWidget = struct {
     }
 
     pub fn focus(self: *Self) void {
+        self.editor.cursor_focus_override = false;
         if (self.focused) return;
         self.commands.register() catch @panic("editor.commands.register");
         self.focused = true;
@@ -7153,6 +7157,7 @@ pub const EditorWidget = struct {
     }
 
     pub fn unfocus(self: *Self) void {
+        self.editor.cursor_focus_override = false;
         if (self.focused) self.commands.unregister();
         self.focused = false;
         command.executeName("enter_mode_default", .{}) catch {};
