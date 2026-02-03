@@ -3565,7 +3565,7 @@ pub const Editor = struct {
         try move_cursor_right(root, cursor, metrics);
     }
 
-    fn move_cursor_word_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+    pub fn move_cursor_word_left(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
         try move_cursor_left(root, cursor, metrics);
         move_cursor_left_until(root, cursor, is_word_boundary_left, metrics);
     }
