@@ -375,11 +375,6 @@ const cmds = struct {
     const Result = command.Result;
 
     pub fn update_completion(self: *Type, _: Ctx) Result {
-        if (self.value.editor.completions.data.items.len == 0) {
-            tp.self_pid().send(.{ "cmd", "palette_menu_cancel" }) catch |e| self.logger.err(module_name, e);
-            return;
-        }
-
         clear_entries(self);
         self.longest_hint = try load_entries(self);
         try update_query_text(self, self.value.editor.get_primary().cursor);
