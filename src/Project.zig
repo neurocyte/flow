@@ -1250,7 +1250,7 @@ pub fn completion(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
         pub fn receive(self_: @This(), response: tp.message) (CompletionError || cbor.Error)!void {
             var result: []const u8 = undefined;
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
-                try send_content_msg_empty(self_.from.ref(), "hover", self_.file_path, self_.row, self_.col);
+                send_completion_done(self_.from.ref(), self_.file_path, self_.row, self_.col);
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.array })) {
                 if (try cbor.match(response.buf, .{ tp.any, tp.any, tp.any, tp.extract_cbor(&result) }))
                     try send_completion_items(self_.from.ref(), self_.file_path, self_.row, self_.col, result, false);
@@ -1343,9 +1343,7 @@ fn send_completion_list(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
     return if (items.len > 0)
         send_completion_items(to, file_path, row, col, items, is_incomplete)
     else
-        to.send(.{ "cmd", "add_completion_done", .{ file_path, row, col } }) catch |e| {
-            std.log.err("send add_completion_done failed: {t}", .{e});
-        };
+        send_completion_done(to, file_path, row, col);
 }
 
 pub const CompletionItemError = error{
@@ -1361,6 +1359,10 @@ fn send_completion_items(to: tp.pid_ref, file_path: []const u8, row: usize, col:
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidCompletionItem;
         try send_completion_item(to, file_path, row, col, item, if (len > 1) true else is_incomplete);
     }
+    send_completion_done(to, file_path, row, col);
+}
+
+fn send_completion_done(to: tp.pid_ref, file_path: []const u8, row: usize, col: usize) void {
     return to.send(.{ "cmd", "add_completion_done", .{ file_path, row, col } }) catch |e| {
         std.log.err("send add_completion_done failed: {t}", .{e});
     };
