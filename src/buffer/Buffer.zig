@@ -1508,9 +1508,6 @@ pub fn refresh_from_file(self: *Self) LoadFromFileError!void {
 }
 
 pub fn store_to_string_cached(self: *Self, root: *const Node, eol_mode: EolMode) [:0]const u8 {
-    std.log.debug("BEGIN store_to_string_cached 0x{x}", .{root.to_ref()});
-    defer std.log.debug("END   store_to_string_cached 0x{x}", .{root.to_ref()});
-
     if (get_cached_text(self.cache, root.to_ref(), eol_mode)) |text| return text;
     var s: std.Io.Writer.Allocating = std.Io.Writer.Allocating.initCapacity(self.external_allocator, root.weights_sum().len) catch @panic("OOM store_to_string_cached");
     root.store(&s.writer, eol_mode) catch @panic("store_to_string_cached");
@@ -1519,9 +1516,6 @@ pub fn store_to_string_cached(self: *Self, root: *const Node, eol_mode: EolMode)
 
 pub fn store_last_save_to_string_cached(self: *Self, eol_mode: EolMode) ?[]const u8 {
     const root = self.last_save orelse return null;
-    std.log.debug("BEGIN store_last_save_to_string_cached 0x{x}", .{root.to_ref()});
-    defer std.log.debug("END   store_last_save_to_string_cached 0x{x}", .{root.to_ref()});
-
     if (get_cached_text(self.last_save_cache, root.to_ref(), eol_mode)) |text| return text;
     var s: std.Io.Writer.Allocating = std.Io.Writer.Allocating.initCapacity(self.external_allocator, root.weights_sum().len) catch @panic("OOM store_last_save_to_string_cached");
     root.store(&s.writer, eol_mode) catch @panic("store_last_save_to_string_cached");
@@ -1530,20 +1524,12 @@ pub fn store_last_save_to_string_cached(self: *Self, eol_mode: EolMode) ?[]const
 
 fn get_cached_text(cache_: ?StringCache, ref: Node.Ref, eol_mode: EolMode) ?[:0]const u8 {
     const cache = cache_ orelse return null;
-    return if (cache.ref == ref and cache.eol_mode == eol_mode) blk: {
-        std.log.debug("fetched string cache 0x{x}", .{cache.ref});
-        break :blk cache.text;
-    } else blk: {
-        std.log.debug("cache miss for 0x{x} (was 0x{x})", .{ ref, cache.ref });
-        break :blk null;
-    };
+    return if (cache.ref == ref and cache.eol_mode == eol_mode) cache.text else null;
 }
 
 fn store_cached_text(self: *Self, cache: *?StringCache, ref: Node.Ref, eol_mode: EolMode, text: [:0]const u8) [:0]const u8 {
-    if (cache.*) |*c| {
-        std.log.debug("0x{x} updated string cache 0x{x} -> 0x{x}", .{ @intFromPtr(self), c.ref, ref });
+    if (cache.*) |*c|
         c.deinit(self.external_allocator);
-    } else std.log.debug("0x{x} stored string cache 0x{x}", .{ @intFromPtr(self), ref });
     cache.* = .{
         .ref = ref,
         .eol_mode = eol_mode,
@@ -1559,7 +1545,6 @@ const StringCache = struct {
     code_folded: ?[:0]const u8 = null,
 
     fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        std.log.debug("cleared string cache 0x{x}", .{self.ref});
         allocator.free(self.text);
         if (self.code_folded) |text| allocator.free(text);
     }
