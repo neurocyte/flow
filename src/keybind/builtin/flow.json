@@ -1,14 +1,16 @@
 {
     "project": {
         "press": [
+            ["f1", "open_help"],
+            ["alt+f1", "toggle_keybind_hints"],
             ["ctrl+?", "toggle_keybind_hints"],
+            ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+alt+shift+r", "restart"],
             ["ctrl+e", "find_file"],
             ["ctrl+shift+n", "create_new_file"],
             ["ctrl+r", "open_recent_project"],
             ["ctrl+,", "last_palette"],
-            ["f1", "open_help"],
             ["ctrl+\\", "add_split"],
             ["ctrl+k w", "close_split"],
             ["ctrl+k x", "toggle_centered_view"],
@@ -337,7 +339,9 @@
     },
     "overlay/palette": {
         "press": [
+            ["alt+f1", "toggle_keybind_hints"],
             ["ctrl+?", "toggle_keybind_hints"],
+            ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["alt+f9", "overlay_next_widget_style"],
             ["alt+!", "add_task"],
@@ -417,7 +421,9 @@
     },
     "mini/numeric": {
         "press": [
+            ["alt+f1", "toggle_keybind_hints"],
             ["ctrl+?", "toggle_keybind_hints"],
+            ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["b", "toggle_goto_style"],
             ["ctrl+q", "quit"],
@@ -434,7 +440,9 @@
     },
     "mini/get_char": {
         "press": [
+            ["alt+f1", "toggle_keybind_hints"],
             ["ctrl+?", "toggle_keybind_hints"],
+            ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+g", "mini_mode_cancel"],
             ["ctrl+c", "mini_mode_cancel"],
@@ -447,7 +455,9 @@
     },
     "mini/buffer": {
         "press": [
+            ["alt+f1", "toggle_keybind_hints"],
             ["ctrl+?", "toggle_keybind_hints"],
+            ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
@@ -467,7 +477,9 @@
     },
     "mini/file_browser": {
         "press": [
+            ["alt+f1", "toggle_keybind_hints"],
             ["ctrl+?", "toggle_keybind_hints"],
+            ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
@@ -493,7 +505,9 @@
     },
     "mini/find_in_files": {
         "press": [
+            ["alt+f1", "toggle_keybind_hints"],
             ["ctrl+?", "toggle_keybind_hints"],
+            ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["alt+f9", "panel_next_widget_style"],
             ["ctrl+q", "quit"],
@@ -527,7 +541,9 @@
     },
     "mini/find": {
         "press": [
+            ["alt+f1", "toggle_keybind_hints"],
             ["ctrl+?", "toggle_keybind_hints"],
+            ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],

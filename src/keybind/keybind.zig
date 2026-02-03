@@ -827,7 +827,7 @@ const BindingSet = struct {
             input.key.iso_level_3_shift, input.key.iso_level_5_shift => return,
             else => {},
         };
-        log.info("{f} is unbound, press C-? for key hints", .{current_key_event_sequence_fmt()});
+        log.info("{f} is unbound, press A-f1 or C-? for key hints", .{current_key_event_sequence_fmt()});
     }
 
     /// Retrieve bindings that will match a key event sequence
