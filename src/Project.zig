@@ -424,7 +424,18 @@ fn simple_query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize,
     return i;
 }
 
-pub fn query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) RequestError!usize {
+fn strip_non_search_chars(self: *const Self, s: []const u8) error{OutOfMemory}![]const u8 {
+    var stripped: std.ArrayList(u8) = try .initCapacity(self.allocator, s.len);
+    for (s) |c| switch (c) {
+        ' ', '\t', '\n' => {},
+        else => |c_| (try stripped.addOne(self.allocator)).* = c_,
+    };
+    return try stripped.toOwnedSlice(self.allocator);
+}
+
+pub fn query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize, query_: []const u8) RequestError!usize {
+    const query = try self.strip_non_search_chars(query_);
+    defer self.allocator.free(query);
     if (query.len < 3)
         return self.simple_query_new_or_modified_files(from, max, query);
     defer from.send(.{ "PRJ", "new_or_modified_files_done", self.longest_file_path, query }) catch {};
@@ -511,7 +522,9 @@ fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: [
     return i;
 }
 
-pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: []const u8) RequestError!usize {
+pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query_: []const u8) RequestError!usize {
+    const query = try self.strip_non_search_chars(query_);
+    defer self.allocator.free(query);
     if (query.len < 3)
         return self.simple_query_recent_files(from, max, query);
     defer from.send(.{ "PRJ", "recent_done", self.longest_file_path, query, self.files.items.len }) catch {};
