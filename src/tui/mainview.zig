@@ -1739,6 +1739,7 @@ fn add_and_activate_view(self: *Self, widget: Widget) !void {
     try self.views.add(widget);
     self.active_view = self.views.widgets.items.len - 1;
     if (self.views.get_at(self.active_view)) |view| view.focus();
+    _ = try self.widgets_widget.msg(.{"splits_updated"});
 }
 
 pub fn find_view_for_widget(self: *Self, w_: *const Widget) ?usize {
@@ -1864,7 +1865,6 @@ fn create_home(self: *Self) !void {
 pub fn create_home_split(self: *Self) !void {
     tui.reset_drag_context();
     try self.add_and_activate_view(try home.create(self.allocator, Widget.to(self)));
-    _ = try self.widgets_widget.msg(.{"splits_updated"});
     tui.resize();
 }
 

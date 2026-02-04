@@ -281,6 +281,7 @@ pub const TabBar = struct {
         const mv = tui.mainview() orelse @panic("tabs no main view");
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         var prev_widget_count: usize = 0;
+
         for (self.widget_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split| {
             prev_widget_count += 1;
             for (split.widgets.items) |_| prev_widget_count += 1;
@@ -294,6 +295,10 @@ pub const TabBar = struct {
             while (split.pop()) |widget| if (widget.dynamic_cast(Tab.ButtonType) == null)
                 widget.deinit(self.widget_list.allocator);
             split.deinit(self.widget_list.allocator);
+        };
+
+        for (self.tabs) |*tab| if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer| {
+            tab.view = buffer.get_last_view() orelse 0;
         };
 
         const views = mv.get_view_count();
