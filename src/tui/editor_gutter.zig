@@ -271,16 +271,31 @@ inline fn render_diff(self: *Self, sym: Diff, pos: usize, theme: *const Widget.T
     };
 
     var lines = if (sym.kind == .delete) 1 else sym.lines;
+
+    var offset_pos = pos;
+    if (sym.kind == .delete and pos > 0)
+        offset_pos -= 1;
+
     while (lines > 0) : (lines -= 1) {
-        self.plane.cursor_move_yx(@intCast(pos + lines - 1), @intCast(self.get_width() - 1));
+        self.plane.cursor_move_yx(@intCast(offset_pos + lines - 1), @intCast(self.get_width() - 1));
         var cell = self.plane.cell_init();
         _ = self.plane.at_cursor_cell(&cell) catch return;
-        cell.set_style_fg(switch (sym.kind) {
-            .insert => theme.editor_gutter_added,
-            .modify => theme.editor_gutter_modified,
-            .delete => theme.editor_gutter_deleted,
-        });
-        _ = self.plane.cell_load(&cell, char) catch {};
+
+        switch (sym.kind) {
+            .delete => {
+                cell.set_style(.{ .fs = .undercurl });
+                if (theme.editor_gutter_deleted.fg) |ul_col| cell.set_under_color(ul_col.color);
+            },
+            .modify => {
+                cell.set_style_fg(theme.editor_gutter_modified);
+                _ = self.plane.cell_load(&cell, char) catch {};
+            },
+            .insert => {
+                cell.set_style_fg(theme.editor_gutter_added);
+                _ = self.plane.cell_load(&cell, char) catch {};
+            },
+        }
+
         _ = self.plane.putc(&cell) catch {};
     }
 }
