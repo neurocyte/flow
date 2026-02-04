@@ -381,6 +381,9 @@ const cmds = struct {
     const Result = command.Result;
 
     pub fn update_completion(self: *Type, _: Ctx) Result {
+        if (tui.config().completion_trigger == .automatic and self.value.editor.get_last_trigger_char() == null)
+            return tp.self_pid().send(.{ "cmd", "palette_menu_cancel" }) catch |e| self.logger.err(module_name, e);
+
         clear_entries(self);
         self.longest_hint = try load_entries(self);
         try update_query_text(self, self.value.editor.get_primary().cursor);

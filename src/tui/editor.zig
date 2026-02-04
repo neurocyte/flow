@@ -4995,6 +4995,15 @@ pub const Editor = struct {
         _ = self.pop_tabstop();
     }
 
+    pub fn get_last_trigger_char(self: *Self) ?u8 {
+        const root = self.buf_root() catch return null;
+        var cursor = self.get_primary().cursor;
+        cursor.move_left(root, self.metrics) catch return null;
+        const egc, _, _ = cursor.egc_at(root, self.metrics) catch return null;
+        const char = if (egc.len == 1) egc[0] else return null;
+        return if (self.is_event_trigger(char, .insert)) char else null;
+    }
+
     fn is_completion_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics, triggers: []const TriggerSymbol) bool {
         if (cursor.col == 0) return true;
         var next = cursor.*;
@@ -6574,6 +6583,11 @@ pub const Editor = struct {
             .insert => &self.insert_triggers,
             .delete => &self.delete_triggers,
         };
+    }
+
+    pub fn is_event_trigger(self: *Self, char: u8, event: TriggerEvent) bool {
+        for (self.get_event_triggers(event).items) |item| if (item.char == char) return true;
+        return false;
     }
 
     fn clear_event_triggers(self: *Self) void {
