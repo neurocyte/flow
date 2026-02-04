@@ -135,7 +135,8 @@ fn get_query_text(self: *Type, cursor: ed.Cursor, allocator: std.mem.Allocator) 
 fn maybe_cancel(self: *Type, cursor: Buffer.Cursor) bool {
     if (self.value.cursor.row != cursor.row or
         self.value.cursor.col > cursor.col or
-        !self.value.view.eql(self.value.editor.view))
+        self.value.view.row != self.value.editor.view.row or
+        self.value.view.col != self.value.editor.view.col)
     {
         tp.self_pid().send(.{ "cmd", "palette_menu_cancel" }) catch |e| self.logger.err(module_name, e);
         return true;
