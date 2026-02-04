@@ -4995,7 +4995,7 @@ pub const Editor = struct {
         _ = self.pop_tabstop();
     }
 
-    fn is_trigger_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics, triggers: []const TriggerSymbol) bool {
+    fn is_completion_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics, triggers: []const TriggerSymbol) bool {
         if (cursor.col == 0) return true;
         var next = cursor.*;
         next.move_left(root, metrics) catch return true;
@@ -5007,17 +5007,27 @@ pub const Editor = struct {
         return false;
     }
 
+    fn is_completion_boundary_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics, triggers: []const TriggerSymbol) bool {
+        var pos = cursor.*;
+        const egc, _, _ = pos.egc_at(root, metrics) catch return true;
+        if (is_non_word_char(egc)) return true;
+        const c = egc[0];
+        for (triggers) |t| if (c == t.char) return true;
+        return false;
+    }
+
     pub fn guest_completion_range(self: *Self) Selection {
         var cursel = self.get_primary().*;
         var sel = Selection.from_cursor(&cursel.cursor);
         if (cursel.cursor.col == 0) return sel;
         const root = self.buf_root() catch return sel;
 
-        while (!is_trigger_left(root, &sel.begin, self.metrics, self.get_event_triggers(.insert).items))
+        while (!is_completion_boundary_left(root, &sel.begin, self.metrics, self.get_event_triggers(.insert).items))
             move_cursor_left(root, &sel.begin, self.metrics) catch return sel;
 
         if (tui.config().completion_insert_mode == .replace)
-            move_cursor_word_right(root, &sel.end, self.metrics) catch return sel;
+            while (!is_completion_boundary_at_cursor(root, &sel.end, self.metrics, self.get_event_triggers(.insert).items))
+                move_cursor_right(root, &sel.end, self.metrics) catch return sel;
         return sel;
     }
 
