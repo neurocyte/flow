@@ -202,6 +202,7 @@ pub const TabBar = struct {
         } else if (try m.match(.{ "E", "close" })) {
             self.refresh_active_buffer();
         } else if (try m.match(.{"splits_updated"})) {
+            self.refresh_active_buffer();
             const drag_source, _ = tui.get_drag_source();
             self.update_tab_widgets(drag_source) catch {};
         }
@@ -399,11 +400,11 @@ pub const TabBar = struct {
         return drop_target.create(self, view);
     }
 
-    fn find_buffer_tab(self: *Self, buffer_ref: Buffer.Ref) ?usize {
+    fn find_buffer_tab(self: *Self, buffer_ref: Buffer.Ref) struct { ?usize, usize } {
         for (self.tabs, 0..) |*tab, idx|
             if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
-                if (btn.opts.ctx.buffer_ref == buffer_ref) return idx;
-        return null;
+                if (btn.opts.ctx.buffer_ref == buffer_ref) return .{ idx, btn.opts.ctx.view };
+        return .{ null, 0 };
     }
 
     fn find_first_tab_buffer(self: *Self) ?Buffer.Ref {
@@ -463,20 +464,24 @@ pub const TabBar = struct {
 
     fn move_tab_next(self: *Self) void {
         tp.trace(tp.channel.debug, .{"move_tab_next"});
-        const this_idx = self.find_buffer_tab(self.active_focused_buffer_ref orelse return) orelse return;
-        const other_buffer_ref_, _ = self.find_next_tab_buffer();
-        const other_buffer_ref = other_buffer_ref_ orelse return self.move_tab_to_new_split(this_idx);
-        const other_idx = self.find_buffer_tab(other_buffer_ref) orelse return;
-        self.move_tab_to(other_idx, this_idx);
+        const this_idx_, const this_view = self.find_buffer_tab(self.active_focused_buffer_ref orelse return);
+        const this_idx = this_idx_ orelse return;
+        const other_buffer_ref_, const other_view = self.find_next_tab_buffer();
+        const other_buffer_ref = other_buffer_ref_ orelse return self.move_tab_to_new_split(this_idx, this_view);
+        if (other_view -| this_view > 1) return self.move_tab_to_view(this_view + 1, this_idx);
+        const other_idx, _ = self.find_buffer_tab(other_buffer_ref);
+        if (other_idx) |idx| self.move_tab_to(idx, this_idx);
     }
 
     fn move_tab_previous(self: *Self) void {
         tp.trace(tp.channel.debug, .{"move_tab_previous"});
-        const this_idx = self.find_buffer_tab(self.active_focused_buffer_ref orelse return) orelse return;
-        const other_buffer_ref_, _ = self.find_previous_tab_buffer();
+        const this_idx_, const this_view = self.find_buffer_tab(self.active_focused_buffer_ref orelse return);
+        const this_idx = this_idx_ orelse return;
+        const other_buffer_ref_, const other_view = self.find_previous_tab_buffer();
         const other_buffer_ref = other_buffer_ref_ orelse return;
-        const other_idx = self.find_buffer_tab(other_buffer_ref) orelse return;
-        self.move_tab_to(other_idx, this_idx);
+        if (this_view -| other_view > 1) return self.move_tab_to_view(this_view -| 1, this_idx);
+        const other_idx, _ = self.find_buffer_tab(other_buffer_ref);
+        if (other_idx) |idx| self.move_tab_to(idx, this_idx);
     }
 
     fn move_tab_to(self: *Self, dst_idx: usize, src_idx: usize) void {
@@ -547,18 +552,21 @@ pub const TabBar = struct {
             navigate_to_buffer(src_tab.buffer_ref);
     }
 
-    fn move_tab_to_new_split(self: *Self, src_idx: usize) void {
+    fn move_tab_to_new_split(self: *Self, src_idx: usize, src_view: usize) void {
         const mv = tui.mainview() orelse return;
-        const src_tab = &self.tabs[src_idx];
         var tabs_in_view: usize = 0;
         for (self.tabs) |*tab| if (tab.view) |view| {
-            if (view == src_tab.view)
+            if (view == src_view)
                 tabs_in_view += 1;
         };
         if (tabs_in_view > 1) {
             const view = mv.get_view_count();
-            mv.create_home_split() catch return;
-            self.move_tab_to_view(view, src_idx);
+            if (view -| src_view > 1) {
+                self.move_tab_to_view(src_view + 1, src_idx);
+            } else {
+                mv.create_home_split() catch return;
+                self.move_tab_to_view(view, src_idx);
+            }
         }
     }
 

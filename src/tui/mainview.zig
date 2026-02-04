@@ -1792,7 +1792,7 @@ fn remove_view(self: *Self, view: usize) void {
     const buffers = self.buffer_manager.list_unordered(self.allocator) catch @panic("OOM remove_view");
     defer self.allocator.free(buffers);
     for (buffers) |buffer| if (buffer.get_last_view()) |buffer_view|
-        if (buffer_view >= view)
+        if (buffer_view > view)
             buffer.set_last_view(buffer_view - 1);
 }
 
