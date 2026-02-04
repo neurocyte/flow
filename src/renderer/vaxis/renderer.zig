@@ -490,8 +490,7 @@ pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
 }
 
 pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
-    const rgb = RGB.from_u24(color.color);
-    self.tty.writer().print("\x1b[>40;2:{d}:{d}:{d} q", .{ rgb.r, rgb.g, rgb.b }) catch {};
+    self.vx.setTerminalCursorSecondaryColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
@@ -575,8 +574,8 @@ pub fn cursor_enable(self: *Self, y_: c_int, x_: c_int, shape: CursorShape) !voi
     const y: u16 = if (y_ < 0) 9999 else @intCast(y_);
     const x: u16 = if (x_ < 0) 9999 else @intCast(x_);
     self.vx.screen.cursor_vis = true;
-    self.vx.screen.cursor_row = y;
-    self.vx.screen.cursor_col = x;
+    self.vx.screen.cursor.row = y;
+    self.vx.screen.cursor.col = x;
     self.vx.screen.cursor_shape = shape;
 }
 
@@ -585,11 +584,11 @@ pub fn cursor_disable(self: *Self) void {
 }
 
 pub fn clear_all_multi_cursors(self: *Self) !void {
-    try self.tty.writer().print("\x1b[>0;4 q", .{});
+    try self.vx.resetAllTerminalSecondaryCursors(self.allocator);
 }
 
 pub fn show_multi_cursor_yx(self: *Self, y: c_int, x: c_int) !void {
-    try self.tty.writer().print("\x1b[>29;2:{d}:{d} q", .{ y + 1, x + 1 });
+    try self.vx.addTerminalSecondaryCursor(self.allocator, @intCast(y), @intCast(x));
 }
 
 fn sync_mod_state(self: *Self, keypress: u32, modifiers: vaxis.Key.Modifiers) !void {
