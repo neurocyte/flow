@@ -2458,7 +2458,7 @@ pub const Editor = struct {
     const cursel_operator_mut = *const fn (self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root;
     const cursel_operator_mut_arg = *const fn (self: *Self, root: Buffer.Root, cursel: *CurSel, allocator: Allocator, ctx: Context) error{Stop}!Buffer.Root;
 
-    pub fn is_not_word_char(c: []const u8) bool {
+    pub fn is_non_word_char(c: []const u8) bool {
         if (c.len == 0) return true;
         return switch (c[0]) {
             ' ' => true,
@@ -2493,7 +2493,7 @@ pub const Editor = struct {
     }
 
     pub fn is_word_char(c: []const u8) bool {
-        return !is_not_word_char(c);
+        return !is_non_word_char(c);
     }
 
     fn is_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
@@ -2501,7 +2501,7 @@ pub const Editor = struct {
     }
 
     pub fn is_non_word_char_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
-        return cursor.test_at(root, is_not_word_char, metrics);
+        return cursor.test_at(root, is_non_word_char, metrics);
     }
 
     pub fn is_word_boundary_left(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {

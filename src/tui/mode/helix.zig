@@ -829,8 +829,8 @@ fn move_cursor_word_left_helix(root: Buffer.Root, cursor: *Cursor, metrics: Buff
     var next_next = next;
     next_next.move_left(root, metrics) catch return;
 
-    const cur = next.test_at(root, Editor.is_not_word_char, metrics);
-    const nxt = next_next.test_at(root, Editor.is_not_word_char, metrics);
+    const cur = next.test_at(root, Editor.is_non_word_char, metrics);
+    const nxt = next_next.test_at(root, Editor.is_non_word_char, metrics);
     if (cur != nxt) {
         try Editor.move_cursor_left(root, cursor, metrics);
         return;
