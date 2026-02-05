@@ -86,6 +86,7 @@ lsp_output: enum { quiet, verbose } = .quiet,
 
 keybind_mode: KeybindMode = .normal,
 dropdown_keybinds: DropdownKeybindMode = .standard,
+dropdown_limit: usize = 12,
 
 include_files: []const u8 = "",
 

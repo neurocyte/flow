@@ -80,7 +80,10 @@ pub fn Create(options: type) type {
                 }),
                 .logger = log.logger(@typeName(Self)),
                 .query = .empty,
-                .view_rows = get_view_rows(tui.screen()),
+                .view_rows = @min(
+                    get_view_rows(tui.screen()),
+                    tui.config().dropdown_limit + self.menu.header_count,
+                ),
                 .entries = .empty,
                 .mode = try keybind.mode(switch (tui.config().dropdown_keybinds) {
                     .standard => "overlay/dropdown",
@@ -163,7 +166,10 @@ pub fn Create(options: type) type {
         }
 
         fn prepare_resize_at_y_x(self: *Self, screen: Widget.Box, w: usize, y: usize, x: usize) Widget.Box {
-            self.view_rows = get_view_rows(screen) -| y;
+            self.view_rows = @min(
+                get_view_rows(screen) -| y,
+                tui.config().dropdown_limit + self.menu.header_count,
+            );
             const h = @min(self.items + self.menu.header_count, self.view_rows + self.menu.header_count);
             return .{ .y = y, .x = x, .w = w, .h = h };
         }
@@ -193,9 +199,13 @@ pub fn Create(options: type) type {
         }
 
         fn get_view_rows(screen: Widget.Box) usize {
-            var h = screen.h;
-            if (h > 0) h = h / 5 * 4;
-            return h;
+            if (tui.config().completion_info_mode == .panel) {
+                var h = screen.h;
+                if (h > 0) h = h / 5 * 4;
+                return h;
+            } else {
+                return screen.h;
+            }
         }
 
         fn on_scroll(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!void {

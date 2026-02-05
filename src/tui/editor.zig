@@ -6424,7 +6424,7 @@ pub const Editor = struct {
         } else {
             self.completions_request = .pending(cursor.row, cursor.col);
         }
-        if (!mv.is_any_panel_view_showing())
+        if (tui.config().completion_info_mode == .panel) if (!mv.is_any_panel_view_showing())
             self.clamp_offset(mv.get_panel_height());
         return self.pm_with_primary_cursor_pos(project_manager.completion);
     }
