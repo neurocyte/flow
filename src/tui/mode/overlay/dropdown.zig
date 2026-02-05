@@ -71,7 +71,7 @@ pub fn Create(options: type) type {
                 .menu = try Menu.create(*Self, allocator, tui.plane(), .{
                     .ctx = self,
                     .style = widget_type,
-                    .on_render = if (@hasDecl(options, "on_render_menu")) options.on_render_menu else on_render_menu,
+                    .on_render = options.on_render_menu,
                     .prepare_resize = prepare_resize_menu,
                     .after_resize = after_resize_menu,
                     .on_scroll = EventHandler.bind(self, Self.on_scroll),
@@ -143,41 +143,6 @@ pub fn Create(options: type) type {
                 .{ .fg = theme.scrollbar_hover.fg, .bg = theme.editor_widget.bg }
             else
                 .{ .fg = theme.scrollbar.fg, .bg = theme.editor_widget.bg };
-        }
-
-        fn on_render_menu(_: *Self, button: *ButtonType, theme: *const Widget.Theme, selected: bool) bool {
-            const style_base = theme.editor_widget;
-            const style_label = if (button.active) theme.editor_cursor else if (button.hover or selected) theme.editor_selection else theme.editor_widget;
-            const style_hint = if (tui.find_scope_style(theme, "entity.name")) |sty| sty.style else style_label;
-            button.plane.set_base_style(style_base);
-            button.plane.erase();
-            button.plane.home();
-            button.plane.set_style(style_label);
-            if (button.active or button.hover or selected) {
-                button.plane.fill(" ");
-                button.plane.home();
-            }
-            var label: []const u8 = undefined;
-            var hint: []const u8 = undefined;
-            var iter = button.opts.label; // label contains cbor, first the file name, then multiple match indexes
-            if (!(cbor.matchString(&iter, &label) catch false))
-                label = "#ERROR#";
-            if (!(cbor.matchString(&iter, &hint) catch false))
-                hint = "";
-            button.plane.set_style(style_hint);
-            tui.render_pointer(&button.plane, selected);
-            button.plane.set_style(style_label);
-            _ = button.plane.print("{s} ", .{label}) catch {};
-            button.plane.set_style(style_hint);
-            _ = button.plane.print_aligned_right(0, "{s} ", .{hint}) catch {};
-            var index: usize = 0;
-            var len = cbor.decodeArrayHeader(&iter) catch return false;
-            while (len > 0) : (len -= 1) {
-                if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-                    tui.render_match_cell(&button.plane, 0, index + 2, theme) catch break;
-                } else break;
-            }
-            return false;
         }
 
         fn prepare_resize_menu(self: *Self, menu: *Menu.State(*Self), _: Widget.Box) Widget.Box {
