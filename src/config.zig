@@ -77,6 +77,7 @@ pane_right_style: WidgetStyle = .bar_left,
 pane_style: PaneStyle = .panel,
 hint_window_style: WidgetStyle = .thick_boxed,
 info_box_style: WidgetStyle = .bar_left_spacious,
+info_box_width_limit: usize = 80,
 
 centered_view: bool = false,
 centered_view_width: usize = 145,

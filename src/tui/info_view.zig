@@ -3,6 +3,8 @@ const Allocator = @import("std").mem.Allocator;
 const Plane = @import("renderer").Plane;
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
+const reflow = @import("Buffer").reflow;
+const tui = @import("tui.zig");
 
 pub const name = @typeName(Self);
 
@@ -13,6 +15,7 @@ plane: Plane,
 
 view_rows: usize = 0,
 lines: std.ArrayList([]const u8),
+widget_type: Widget.Type,
 
 const default_widget_type: Widget.Type = .panel;
 
@@ -28,6 +31,7 @@ pub fn create_widget_type(allocator: Allocator, parent: Plane, widget_type: Widg
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(name), parent),
         .lines = .empty,
+        .widget_type = widget_type,
     };
     container.ctx = self;
     try container.add(Widget.to(self));
@@ -56,7 +60,16 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
 pub fn append_content(self: *Self, content: []const u8) !void {
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| if (line.len > 0) {
-        (try self.lines.addOne(self.allocator)).* = try self.allocator.dupe(u8, line);
+        const width = if (self.widget_type == .info_box)
+            tui.config().info_box_width_limit
+        else
+            tui.screen().w;
+        const text = try reflow(self.allocator, line, width);
+        defer self.allocator.free(text);
+        var iter_ = std.mem.splitScalar(u8, text, '\n');
+        while (iter_.next()) |line_| if (line_.len > 0) {
+            (try self.lines.addOne(self.allocator)).* = try self.allocator.dupe(u8, line_);
+        };
     };
 }
 
