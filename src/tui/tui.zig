@@ -1714,9 +1714,17 @@ const cmds = struct {
     pub const shrink_centered_view_meta: Meta = .{ .description = "Shrink centered view" };
 
     pub fn panel_next_widget_style(_: *Self, _: Ctx) Result {
-        set_next_style(.panel);
+        if (mainview()) |mv| if (mv.is_any_panel_view_showing()) {
+            set_next_style(.panel);
+            need_render(@src());
+            try save_config();
+            return;
+        };
+        set_next_style(.info_box);
         need_render(@src());
         try save_config();
+        tp.self_pid().send(.{ "cmd", "hover" }) catch {};
+        return;
     }
     pub const panel_next_widget_style_meta: Meta = .{};
 
@@ -2447,7 +2455,8 @@ pub fn set_next_style(widget_type: WidgetType) void {
 
 fn next_widget_style(tag: ConfigWidgetStyle) ConfigWidgetStyle {
     const max_tag = comptime std.meta.tags(ConfigWidgetStyle).len;
-    const new_value = @intFromEnum(tag) + 1;
+    const value: usize = @intFromEnum(tag);
+    const new_value = value + 1;
     return if (new_value >= max_tag) @enumFromInt(0) else @enumFromInt(new_value);
 }
 
