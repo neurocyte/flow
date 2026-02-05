@@ -416,6 +416,7 @@ pub const Editor = struct {
     diag_info: usize = 0,
     diag_hints: usize = 0,
     info_box: ?Widget = null,
+    info_box_range: ?Match = null,
 
     completions: CompletionState = .empty,
     completions_request: ?CompletionState = .done,
@@ -1924,7 +1925,7 @@ pub const Editor = struct {
         }
 
         if (lines != self.last.lines or !primary.cursor.eql(self.last.primary.cursor)) {
-            self.clear_info_box();
+            self.maybe_clear_info_box();
             try self.send_editor_pos(lines, &primary.cursor);
         }
 
@@ -1941,7 +1942,7 @@ pub const Editor = struct {
             try self.send_editor_selection_removed();
 
         if (lines != self.last.lines or !self.view.eql(self.last.view)) {
-            self.clear_info_box();
+            self.maybe_clear_info_box();
             try self.send_editor_view(lines, self.view);
         }
 
@@ -2052,10 +2053,22 @@ pub const Editor = struct {
         _ = try self.handlers.msg(.{ "E", "eol_mode", eol_mode, utf8_sanitized, indent_mode });
     }
 
+    fn maybe_clear_info_box(self: *Self) void {
+        if (self.info_box_range) |range| {
+            const cursor = self.get_primary().cursor;
+            var sel = range.to_selection();
+            sel.end.col += 1;
+            if (cursor.within(sel))
+                return;
+        }
+        return self.clear_info_box();
+    }
+
     fn clear_info_box(self: *Self) void {
         if (self.info_box) |*w| {
             w.deinit(self.allocator);
             self.info_box = null;
+            self.info_box_range = null;
             self.clear_matches();
         }
     }
@@ -2100,6 +2113,7 @@ pub const Editor = struct {
         info.clear();
         try info.append_content(content);
         self.place_info_box(range.begin);
+        self.info_box_range = range;
     }
 
     fn clamp_abs_offset(self: *Self, abs: bool, offset: usize) void {
