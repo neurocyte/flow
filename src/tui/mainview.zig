@@ -175,12 +175,14 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         if (self.get_editor_for_file(path)) |editor| editor.done_highlight_reference();
         return true;
     } else if (try m.match(.{ "hover", tp.extract(&path), tp.string, tp.extract(&lines), tp.extract(&begin_line), tp.extract(&begin_pos), tp.extract(&end_line), tp.extract(&end_pos) })) {
-        try self.set_info_content(lines, .replace);
-        if (self.get_editor_for_file(path)) |editor|
-            editor.add_hover_highlight(.{
-                .begin = .{ .row = begin_line, .col = begin_pos },
-                .end = .{ .row = end_line, .col = end_pos },
-            });
+        switch (tui.config().hover_info_mode) {
+            .panel => self.set_info_content(lines, .replace) catch {},
+            .box => if (self.get_editor_for_file(path)) |editor|
+                editor.set_hover_content(.{
+                    .begin = .{ .row = begin_line, .col = begin_pos },
+                    .end = .{ .row = end_line, .col = end_pos },
+                }, lines) catch |e| return tp.exit_error(e, @errorReturnTrace()),
+        }
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column) })) {
         cmds.navigate_complete(self, null, path, goto_args, line, column, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
