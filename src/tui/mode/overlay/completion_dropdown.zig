@@ -13,6 +13,7 @@ pub const Type = @import("dropdown.zig").Create(@This());
 const ed = @import("../../editor.zig");
 const module_name = @typeName(@This());
 const Widget = @import("../../Widget.zig");
+const info_view = @import("../../info_view.zig");
 
 pub const label = "Select completion";
 pub const name = "completion";
@@ -23,6 +24,8 @@ pub const placement = .primary_cursor;
 pub const widget_type: Widget.Type = .dropdown;
 pub var detail_limit: usize = 40;
 pub var description_limit: usize = 25;
+
+const info_box_widget_type: Widget.Type = .info_box;
 
 pub const Entry = struct {
     label: []const u8,
@@ -38,6 +41,7 @@ pub const ValueType = struct {
     last_query: ?[]const u8 = null,
     commands: command.Collection(cmds) = undefined,
     data: []const u8 = &.{},
+    info_box: ?Widget = null,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -97,6 +101,7 @@ pub fn load_entries(self: *Type) !usize {
 pub fn deinit(self: *Type) void {
     self.allocator.free(self.value.data);
     if (self.value.last_query) |p| self.allocator.free(p);
+    if (self.value.info_box) |w| w.deinit(self.allocator);
     self.value.commands.deinit();
 }
 
@@ -199,6 +204,9 @@ pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widge
         tui.rdr().cursor_enable(@intCast(cursor.row), @intCast(cursor.col), tui.get_cursor_shape()) catch {};
     }
 
+    defer if (selected) if (self.value.info_box) |w| {
+        _ = w.render(theme);
+    };
     return tui.render_symbol(
         &button.plane,
         values.label,
@@ -215,6 +223,13 @@ pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widge
         if (values.label_description.len > description_limit) "…" else "",
         &.{},
     );
+}
+
+pub fn after_resize(self: *Type) void {
+    if (self.value.info_box) |w| {
+        w.deinit(self.allocator);
+        self.value.info_box = null;
+    }
 }
 
 pub const Values = struct {
@@ -351,8 +366,18 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 
 pub fn updated(self: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(self);
-    const values = get_values(button.opts.label);
     const mv = tui.mainview() orelse return;
+    const values = get_values(button.opts.label);
+    switch (tui.config().completion_info_mode) {
+        .none => {},
+        .box => try show_info_box(self, button, values),
+        .panel => try show_info_panel(mv, values),
+    }
+    if (mv.get_active_editor()) |editor|
+        self.value.view = editor.view;
+}
+
+fn show_info_panel(mv: anytype, values: Values) !void {
     try mv.set_info_content(values.label, .replace);
     try mv.set_info_content(" ", .append); // blank line
     try mv.set_info_content(values.detail, .append);
@@ -364,8 +389,41 @@ pub fn updated(self: *Type, button_: ?*Type.ButtonType) !void {
     }
     try mv.set_info_content(" ", .append); // blank line
     try mv.set_info_content(values.documentation, .append);
-    if (mv.get_active_editor()) |editor|
-        self.value.view = editor.view;
+}
+
+fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
+    const w = self.value.info_box orelse blk: {
+        self.value.info_box = try info_view.create_widget_type(self.allocator, self.menu.container.plane, info_box_widget_type);
+        break :blk self.value.info_box.?;
+    };
+    const info_ = if (w.get(@typeName(info_view))) |w_| w_.dynamic_cast(info_view) orelse null else null;
+    const info = info_ orelse @panic("show_info_box");
+
+    try info.set_content(values.label);
+    if (values.detail.len > 0) {
+        try info.append_content(" "); // blank line
+        try info.append_content(values.detail);
+    }
+    if (builtin.mode == .Debug) {
+        try info.append_content("newText:"); // blank line
+        try info.append_content(values.textEdit_newText);
+        try info.append_content("insertText:"); // blank line
+        try info.append_content(values.insertText);
+    }
+    if (values.documentation.len > 0) {
+        try info.append_content(" "); // blank line
+        try info.append_content(values.documentation);
+    }
+
+    const padding = tui.get_widget_style(info_box_widget_type).padding;
+    const btn_box = Widget.Box.from(button.plane);
+    const dim = info.content_size();
+    w.resize(.{
+        .h = dim.rows + padding.top + padding.bottom,
+        .w = dim.cols + padding.left + padding.right + 3,
+        .y = btn_box.y,
+        .x = btn_box.x + btn_box.w + 1,
+    });
 }
 
 pub fn cancel(_: *Type) !void {

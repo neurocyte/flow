@@ -182,6 +182,8 @@ pub fn Create(options: type) type {
         fn after_resize(self: *Self) void {
             self.update_scrollbar();
             // self.start_query(0) catch {};
+            if (@hasDecl(options, "after_resize"))
+                options.after_resize(self);
         }
 
         fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
