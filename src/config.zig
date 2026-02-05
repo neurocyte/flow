@@ -24,6 +24,7 @@ inline_vcs_blame_alignment: Alignment = .right,
 animation_min_lag: usize = 0, //milliseconds
 animation_max_lag: usize = 50, //milliseconds
 hover_time_ms: usize = 500, //milliseconds
+hover_info_mode: HoverInfoMode = .box,
 input_idle_time_ms: usize = 100, //milliseconds
 idle_actions: []const IdleAction = &default_actions,
 idle_commands: ?[]const []const u8 = null, // a list of simple commands
@@ -75,7 +76,7 @@ pane_left_style: WidgetStyle = .bar_right,
 pane_right_style: WidgetStyle = .bar_left,
 pane_style: PaneStyle = .panel,
 hint_window_style: WidgetStyle = .thick_boxed,
-info_box_style: WidgetStyle = .bar_left,
+info_box_style: WidgetStyle = .bar_left_spacious,
 
 centered_view: bool = false,
 centered_view_width: usize = 145,
@@ -138,6 +139,8 @@ pub const WidgetStyle = enum {
     single_double_top_bottom_boxed,
     single_double_left_right_boxed,
     boxed,
+    bar_left_spacious,
+    bar_right_spacious,
     spacious,
     compact,
 };
@@ -209,6 +212,11 @@ pub const CompletionInsertMode = enum {
 
 pub const CompletionInfoMode = enum {
     none,
+    box,
+    panel,
+};
+
+pub const HoverInfoMode = enum {
     box,
     panel,
 };
