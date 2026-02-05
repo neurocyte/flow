@@ -64,6 +64,7 @@ start_debugger_on_crash: bool = false,
 completion_trigger: CompletionTrigger = .automatic,
 completion_style: CompletionStyle = .dropdown,
 completion_insert_mode: CompletionInsertMode = .insert,
+completion_info_mode: CompletionInfoMode = .box,
 
 widget_style: WidgetStyle = .compact,
 palette_style: WidgetStyle = .bars_top_bottom,
@@ -204,6 +205,12 @@ pub const CompletionStyle = enum {
 pub const CompletionInsertMode = enum {
     insert,
     replace,
+};
+
+pub const CompletionInfoMode = enum {
+    none,
+    box,
+    panel,
 };
 
 pub const Alignment = enum {
