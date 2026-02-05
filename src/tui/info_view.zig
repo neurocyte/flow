@@ -55,8 +55,9 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
 
 pub fn append_content(self: *Self, content: []const u8) !void {
     var iter = std.mem.splitScalar(u8, content, '\n');
-    while (iter.next()) |line|
+    while (iter.next()) |line| if (line.len > 0) {
         (try self.lines.addOne(self.allocator)).* = try self.allocator.dupe(u8, line);
+    };
 }
 
 pub fn set_content(self: *Self, content: []const u8) !void {
