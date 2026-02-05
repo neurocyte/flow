@@ -61,6 +61,8 @@ pub const Border = struct {
     const @"thick box (half)": Border = .{ .nw = "▛", .n = "▀", .ne = "▜", .e = "▐", .se = "▟", .s = "▄", .sw = "▙", .w = "▌", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
     const @"thick box (sextant)": Border = .{ .nw = "🬕", .n = "🬂", .ne = "🬨", .e = "▐", .se = "🬷", .s = "🬭", .sw = "🬲", .w = "▌", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
     const @"thick box (octant)": Border = .{ .nw = "𜵊", .n = "🮂", .ne = "𜶘", .e = "▐", .se = "𜷕", .s = "▂", .sw = "𜷀", .w = "▌", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
+    const @"thick bar left (octant)": Border = .{ .nw = "▌", .n = " ", .ne = " ", .e = " ", .se = " ", .s = " ", .sw = "▌", .w = "▌", .nib = " ", .nie = " ", .sib = " ", .sie = " " };
+    const @"thick bar right (octant)": Border = .{ .nw = " ", .n = " ", .ne = "▐", .e = "▐", .se = "▐", .s = " ", .sw = " ", .w = " ", .nib = " ", .nie = " ", .sib = " ", .sie = " " };
     const @"extra thick box": Border = .{ .nw = "█", .n = "▀", .ne = "█", .e = "█", .se = "█", .s = "▄", .sw = "█", .w = "█", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
     const @"round thick box": Border = .{ .nw = "█", .n = "▀", .ne = "█", .e = "█", .se = "█", .s = "▄", .sw = "█", .w = "█", .nib = "▌", .nie = "▐", .sib = "▌", .sie = "▐" };
 };
@@ -132,6 +134,16 @@ const bar_right: @This() = .{
     .border = Border.@"thick box (octant)",
 };
 
+const bar_left_spacious: @This() = .{
+    .padding = Margin.@"1/2",
+    .border = Border.@"thick bar left (octant)",
+};
+
+const bar_right_spacious: @This() = .{
+    .padding = Margin.@"1/2",
+    .border = Border.@"thick bar right (octant)",
+};
+
 pub fn from_tag(tag: WidgetStyle) *const @This() {
     return switch (tag) {
         .compact => &compact,
@@ -148,6 +160,8 @@ pub fn from_tag(tag: WidgetStyle) *const @This() {
         .bars_left_right => &bars_left_right,
         .bar_left => &bar_left,
         .bar_right => &bar_right,
+        .bar_left_spacious => &bar_left_spacious,
+        .bar_right_spacious => &bar_right_spacious,
     };
 }
 
