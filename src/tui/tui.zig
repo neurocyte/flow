@@ -1663,6 +1663,13 @@ const cmds = struct {
     }
     pub const dropdown_next_widget_style_meta: Meta = .{};
 
+    pub fn info_box_widget_style(_: *Self, _: Ctx) Result {
+        set_next_style(.info_box);
+        need_render(@src());
+        try save_config();
+    }
+    pub const info_box_widget_style_meta: Meta = .{};
+
     pub fn enable_fast_scroll(self: *Self, _: Ctx) Result {
         self.fast_scroll_ = true;
     }
@@ -2355,6 +2362,7 @@ pub fn get_widget_style(widget_type: WidgetType) *const WidgetStyle {
         .pane_left => WidgetStyle.from_tag(config_.pane_left_style),
         .pane_right => WidgetStyle.from_tag(config_.pane_right_style),
         .hint_window => WidgetStyle.from_tag(config_.hint_window_style),
+        .info_box => WidgetStyle.from_tag(config_.info_box_style),
     };
 }
 
@@ -2383,6 +2391,7 @@ fn widget_type_config_variable(widget_type: WidgetType) *ConfigWidgetStyle {
         .pane_left => &config_.pane_left_style,
         .pane_right => &config_.pane_right_style,
         .hint_window => &config_.hint_window_style,
+        .info_box => &config_.info_box_style,
     };
 }
 

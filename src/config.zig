@@ -74,6 +74,7 @@ pane_left_style: WidgetStyle = .bar_right,
 pane_right_style: WidgetStyle = .bar_left,
 pane_style: PaneStyle = .panel,
 hint_window_style: WidgetStyle = .thick_boxed,
+info_box_style: WidgetStyle = .bar_left,
 
 centered_view: bool = false,
 centered_view_width: usize = 145,
@@ -119,6 +120,7 @@ pub const WidgetType = enum {
     pane_left,
     pane_right,
     hint_window,
+    info_box,
     dropdown,
 };
 

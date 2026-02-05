@@ -169,6 +169,7 @@ pub fn theme_style_from_type(style_type: WidgetType, theme: *const Theme) Theme.
             .editor => .{ .fg = theme.editor_widget.bg, .bg = theme.editor.bg },
         },
         .hint_window => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },
+        .info_box => .{ .fg = theme.editor_widget_border.fg, .bg = theme.editor_widget.bg },
     };
 }
 
