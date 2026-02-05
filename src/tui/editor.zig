@@ -28,6 +28,7 @@ const WidgetList = @import("WidgetList.zig");
 const tui = @import("tui.zig");
 const IndentMode = @import("config").IndentMode;
 const WhitespaceMode = @import("config").WhitespaceMode;
+const info_view = @import("info_view.zig");
 
 pub const Cursor = Buffer.Cursor;
 pub const View = Buffer.View;
@@ -414,6 +415,7 @@ pub const Editor = struct {
     diag_warnings: usize = 0,
     diag_info: usize = 0,
     diag_hints: usize = 0,
+    info_box: ?Widget = null,
 
     completions: CompletionState = .empty,
     completions_request: ?CompletionState = .done,
@@ -643,6 +645,7 @@ pub const Editor = struct {
         var meta: std.Io.Writer.Allocating = .init(self.allocator);
         defer meta.deinit();
         if (self.buffer) |_| self.write_state(&meta.writer) catch {};
+        if (self.info_box) |*w| w.deinit(self.allocator);
         for (self.diagnostics.items) |*d| d.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.completions.deinit(self.allocator);
@@ -1294,6 +1297,7 @@ pub const Editor = struct {
             self.render_blame(theme, hl_row, ctx_.cell_map) catch {};
         self.render_column_highlights() catch {};
         self.render_cursors(theme, ctx_.cell_map, focused) catch {};
+        if (self.info_box) |w| _ = w.render(theme);
     }
 
     fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
@@ -1919,8 +1923,10 @@ pub const Editor = struct {
             self.last.cursels = self.cursels.items.len;
         }
 
-        if (lines != self.last.lines or !primary.cursor.eql(self.last.primary.cursor))
+        if (lines != self.last.lines or !primary.cursor.eql(self.last.primary.cursor)) {
+            self.clear_info_box();
             try self.send_editor_pos(lines, &primary.cursor);
+        }
 
         if (primary.selection) |primary_selection_| {
             var primary_selection = primary_selection_;
@@ -1934,8 +1940,10 @@ pub const Editor = struct {
         } else if (self.last.primary.selection) |_|
             try self.send_editor_selection_removed();
 
-        if (lines != self.last.lines or !self.view.eql(self.last.view))
+        if (lines != self.last.lines or !self.view.eql(self.last.view)) {
+            self.clear_info_box();
             try self.send_editor_view(lines, self.view);
+        }
 
         self.last.view = self.view;
         self.last.lines = lines;
@@ -2042,6 +2050,56 @@ pub const Editor = struct {
 
     fn send_editor_eol_mode(self: *const Self, eol_mode: Buffer.EolMode, utf8_sanitized: bool, indent_mode: IndentMode) !void {
         _ = try self.handlers.msg(.{ "E", "eol_mode", eol_mode, utf8_sanitized, indent_mode });
+    }
+
+    fn clear_info_box(self: *Self) void {
+        if (self.info_box) |*w| {
+            w.deinit(self.allocator);
+            self.info_box = null;
+            self.clear_matches();
+        }
+    }
+
+    const info_box_widget_type: Widget.Type = .info_box;
+    fn show_info_box(self: *Self) !*info_view {
+        const w = self.info_box orelse blk: {
+            self.info_box = try info_view.create_widget_type(self.allocator, self.plane, info_box_widget_type);
+            break :blk self.info_box.?;
+        };
+        const info_ = if (w.get(@typeName(info_view))) |w_| w_.dynamic_cast(info_view) orelse null else null;
+        const info = info_ orelse @panic("Editor.show_info_box");
+        return info;
+    }
+
+    fn place_info_box(self: *Self, cursor: Cursor) void {
+        const w = self.info_box orelse return;
+        const info = self.show_info_box() catch return;
+        const padding = tui.get_widget_style(info_box_widget_type).padding;
+        const dim = info.content_size();
+        const pos = self.screen_cursor(&cursor) orelse {
+            self.clear_info_box();
+            return;
+        };
+        const y, const x = self.plane.rel_yx_to_abs(@intCast(pos.row), @intCast(pos.col));
+
+        w.resize(.{
+            .h = dim.rows + padding.top + padding.bottom,
+            .w = dim.cols + padding.left + padding.right + 3,
+            .y = @intCast(y + 1),
+            .x = @intCast(x + 1),
+        });
+    }
+
+    pub fn set_hover_content(self: *Self, range: Match, content: []const u8) !void {
+        self.add_hover_highlight(range);
+        if (content.len == 0) {
+            self.clear_info_box();
+            return;
+        }
+        const info = try self.show_info_box();
+        info.clear();
+        try info.append_content(content);
+        self.place_info_box(range.begin);
     }
 
     fn clamp_abs_offset(self: *Self, abs: bool, offset: usize) void {
@@ -4464,6 +4522,7 @@ pub const Editor = struct {
     pub const move_buffer_end_meta: Meta = .{ .description = "Move cursor to end of file" };
 
     pub fn cancel(self: *Self, _: Context) Result {
+        self.clear_info_box();
         self.cancel_all_tabstops();
         self.cancel_all_selections();
         self.cancel_all_matches();
