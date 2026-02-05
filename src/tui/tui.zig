@@ -1178,6 +1178,21 @@ const cmds = struct {
     }
     pub const toggle_completion_insert_mode_meta: Meta = .{ .description = "Toggle completion insert mode" };
 
+    pub fn toggle_completion_info_mode(self: *Self, _: Ctx) Result {
+        self.config_.completion_info_mode = switch (self.config_.completion_info_mode) {
+            .none => .box,
+            .box => .panel,
+            .panel => blk: {
+                if (mainview()) |mv| mv.hide_info_view_panel();
+                break :blk .none;
+            },
+        };
+        defer self.logger.print("completion info mode {t}", .{self.config_.completion_info_mode});
+        try save_config();
+        resize();
+    }
+    pub const toggle_completion_info_mode_meta: Meta = .{ .description = "Toggle completion item info display" };
+
     pub fn toggle_keybind_hints(self: *Self, _: Ctx) Result {
         self.hint_mode = switch (self.hint_mode) {
             .all => .prefix,
@@ -1663,12 +1678,12 @@ const cmds = struct {
     }
     pub const dropdown_next_widget_style_meta: Meta = .{};
 
-    pub fn info_box_widget_style(_: *Self, _: Ctx) Result {
+    pub fn info_box_next_widget_style(_: *Self, _: Ctx) Result {
         set_next_style(.info_box);
         need_render(@src());
         try save_config();
     }
-    pub const info_box_widget_style_meta: Meta = .{};
+    pub const info_box_next_widget_style_meta: Meta = .{};
 
     pub fn enable_fast_scroll(self: *Self, _: Ctx) Result {
         self.fast_scroll_ = true;

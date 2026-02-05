@@ -339,6 +339,10 @@ fn close_all_panel_views(self: *Self) void {
     tui.resize();
 }
 
+pub fn hide_info_view_panel(self: *Self) void {
+    self.toggle_panel_view(info_view, .disable) catch {};
+}
+
 fn check_all_not_dirty(self: *const Self) command.Result {
     if (self.buffer_manager.is_dirty())
         return tp.exit("unsaved changes");

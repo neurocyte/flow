@@ -14,9 +14,13 @@ plane: Plane,
 view_rows: usize = 0,
 lines: std.ArrayList([]const u8),
 
-const widget_type: Widget.Type = .panel;
+const default_widget_type: Widget.Type = .panel;
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
+    return create_widget_type(allocator, parent, default_widget_type);
+}
+
+pub fn create_widget_type(allocator: Allocator, parent: Plane, widget_type: Widget.Type) !Widget {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);
@@ -58,6 +62,12 @@ pub fn append_content(self: *Self, content: []const u8) !void {
 pub fn set_content(self: *Self, content: []const u8) !void {
     self.clear();
     return self.append_content(content);
+}
+
+pub fn content_size(self: *Self) struct { rows: usize, cols: usize } {
+    var cols: usize = 0;
+    for (self.lines.items) |line| cols = @max(cols, line.len);
+    return .{ .rows = self.lines.items.len, .cols = cols };
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
