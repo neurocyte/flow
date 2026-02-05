@@ -105,6 +105,7 @@ pub const kdl = .{};
 
 pub const lua = .{
     .language_server = .{"lua-language-server"},
+    .formatter = .{ "stylua", "--indent-type", "{{indent_mode}}", "--indent-width", "{{indent_size}}", "-" },
 };
 
 pub const mail = .{};
