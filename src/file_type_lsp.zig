@@ -104,7 +104,7 @@ pub const julia = .{
 pub const kdl = .{};
 
 pub const lua = .{
-    .language_server = .{"lua-lsp"},
+    .language_server = .{"lua-language-server"},
 };
 
 pub const mail = .{};
