@@ -1223,6 +1223,20 @@ const cmds = struct {
     }
     pub const toggle_completion_info_mode_meta: Meta = .{ .description = "Toggle completion item info display" };
 
+    pub fn toggle_hover_info_mode(self: *Self, _: Ctx) Result {
+        self.config_.hover_info_mode = switch (self.config_.hover_info_mode) {
+            .box => .panel,
+            .panel => blk: {
+                if (mainview()) |mv| mv.hide_info_view_panel();
+                break :blk .box;
+            },
+        };
+        defer self.logger.print("hover info mode {t}", .{self.config_.hover_info_mode});
+        try save_config();
+        resize();
+    }
+    pub const toggle_hover_info_mode_meta: Meta = .{ .description = "Toggle hover info display" };
+
     pub fn toggle_keybind_hints(self: *Self, _: Ctx) Result {
         self.hint_mode = switch (self.hint_mode) {
             .all => .prefix,
