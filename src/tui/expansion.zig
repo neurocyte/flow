@@ -6,7 +6,9 @@
 /// {{selection}} - The current selection of the primary cursor
 /// {{selections}} - All current selections seperated by NL characters
 /// {{selectionsZ}} - All current selections separated by NULL characters
-/// {{selections*}} All current selections expanded to multiple quoted arguments
+/// {{selections*}} - All current selections expanded to multiple quoted arguments
+/// {{indent_mode}} - The current indent mode ("tabs" or "spaces")
+/// {{indent_size}} - The current indent size (in columns)
 pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
     var result: std.Io.Writer.Allocating = .init(allocator);
     defer result.deinit();
@@ -140,6 +142,24 @@ const functions = struct {
     //     };
     //     return results.toOwnedSlice(allocator);
     // }
+
+    /// {{indent_mode}} - The current indent mode ("tabs" or "spaces")
+    pub fn indent_mode(allocator: Allocator) Error![]const u8 {
+        const mv = tui.mainview() orelse return &.{};
+        const ed = mv.get_active_editor() orelse return &.{};
+        var stream: std.Io.Writer.Allocating = .init(allocator);
+        try stream.writer.print("{t}", .{ed.indent_mode});
+        return stream.toOwnedSlice();
+    }
+
+    /// {{indent_size}} - The current indent size (in columns)
+    pub fn indent_size(allocator: Allocator) Error![]const u8 {
+        const mv = tui.mainview() orelse return &.{};
+        const ed = mv.get_active_editor() orelse return &.{};
+        var stream: std.Io.Writer.Allocating = .init(allocator);
+        try stream.writer.print("{d}", .{ed.indent_size});
+        return stream.toOwnedSlice();
+    }
 };
 
 fn get_functions() []struct { []const u8, Function } {
