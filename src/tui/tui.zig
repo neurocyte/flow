@@ -19,6 +19,7 @@ const syntax = @import("syntax");
 const Widget = @import("Widget.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const MainView = @import("mainview.zig");
+const IdleAction = @import("config").IdleAction;
 
 // exports for unittesting
 pub const exports = struct {
@@ -86,6 +87,7 @@ color_scheme: enum { dark, light } = .dark,
 color_scheme_locked: bool = false,
 hint_mode: HintMode = .prefix,
 last_palette: ?LastPalette = null,
+idle_actions_: std.ArrayList(IdleAction) = .empty,
 
 fast_scroll_: bool = false,
 alt_scroll_: bool = false,
@@ -296,6 +298,7 @@ fn deinit(self: *Self) void {
         m.deinit();
         self.delayed_init_input_mode = null;
     }
+    self.idle_actions_.deinit(self.allocator);
     self.commands.deinit();
     if (self.mainview_) |*mv| mv.deinit(self.allocator);
     self.message_filters_.deinit();
@@ -1022,6 +1025,30 @@ fn current_theme(self: *const Self) *const Widget.Theme {
     };
 }
 
+fn toggle_idle_action(self: *Self, action: IdleAction) !bool {
+    var enable: bool = true;
+
+    if (self.idle_actions_.items.len == 0)
+        try self.idle_actions_.appendSlice(self.allocator, self.config_.idle_actions);
+
+    for (self.idle_actions_.items) |item| if (item == action) {
+        enable = false;
+    };
+
+    if (enable) {
+        (try self.idle_actions_.addOne(self.allocator)).* = action;
+    } else {
+        for (self.idle_actions_.items, 0..) |item, idx| if (item == action) {
+            _ = self.idle_actions_.orderedRemove(idx);
+            break;
+        };
+    }
+
+    self.config_.idle_actions = self.idle_actions_.items;
+    try save_config();
+    return enable;
+}
+
 const cmds = struct {
     pub const Target = Self;
     const Ctx = command.Context;
@@ -1220,6 +1247,18 @@ const cmds = struct {
         try save_config();
     }
     pub const toggle_auto_find_meta: Meta = .{ .description = "Toggle auto find mode" };
+
+    pub fn toggle_auto_highlight_references(self: *Self, _: Ctx) Result {
+        const enabled = try self.toggle_idle_action(.highlight_references);
+        self.logger.print("auto highlight references {s}", .{if (enabled) "enabled" else "disabled"});
+    }
+    pub const toggle_auto_highlight_references_meta: Meta = .{ .description = "Toggle auto highlight references" };
+
+    pub fn toggle_auto_hover(self: *Self, _: Ctx) Result {
+        const enabled = try self.toggle_idle_action(.hover);
+        self.logger.print("auto hover {s}", .{if (enabled) "enabled" else "disabled"});
+    }
+    pub const toggle_auto_hover_meta: Meta = .{ .description = "Toggle auto hover" };
 
     pub fn force_color_scheme(self: *Self, ctx: Ctx) Result {
         self.force_color_scheme(if (try ctx.args.match(.{"dark"}))
