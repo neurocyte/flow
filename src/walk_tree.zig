@@ -169,23 +169,14 @@ const FilteredWalker = struct {
                 try self.name_buffer.appendSlice(self.allocator, base.name);
                 switch (base.kind) {
                     .directory => {
-                        if (is_filtered_dir(base.name))
-                            continue;
-                        var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
-                            error.NameTooLong => @panic("unexpected error.NameTooLong"), // no path sep in base.name
-                            else => continue,
-                        };
-                        {
-                            errdefer new_dir.close();
-                            try self.stack.append(self.allocator, .{
-                                .iter = new_dir.iterateAssumeFirstIteration(),
-                                .dirname_len = self.name_buffer.items.len,
-                            });
-                            top = &self.stack.items[self.stack.items.len - 1];
-                            containing = &self.stack.items[self.stack.items.len - 2];
-                        }
+                        _ = try self.next_directory(&base, &top, &containing);
+                        continue;
                     },
                     .file => return self.name_buffer.items,
+                    .sym_link => if (try self.next_sym_link(&base, &top, &containing, 5)) |file|
+                        return file
+                    else
+                        continue,
                     else => continue,
                 }
             } else {
@@ -197,5 +188,38 @@ const FilteredWalker = struct {
             }
         }
         return null;
+    }
+
+    fn next_directory(self: *FilteredWalker, base: *const std.fs.Dir.Entry, top: **StackItem, containing: **StackItem) !void {
+        if (is_filtered_dir(base.name))
+            return;
+        var new_dir = top.*.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
+            error.NameTooLong => @panic("unexpected error.NameTooLong"), // no path sep in base.name
+            else => return,
+        };
+        {
+            errdefer new_dir.close();
+            try self.stack.append(self.allocator, .{
+                .iter = new_dir.iterateAssumeFirstIteration(),
+                .dirname_len = self.name_buffer.items.len,
+            });
+            top.* = &self.stack.items[self.stack.items.len - 1];
+            containing.* = &self.stack.items[self.stack.items.len - 2];
+        }
+        return;
+    }
+
+    fn next_sym_link(self: *FilteredWalker, base: *const std.fs.Dir.Entry, top: **StackItem, containing: **StackItem, stat_depth: usize) !?[]const u8 {
+        if (stat_depth == 0) return null;
+        const st = top.*.iter.dir.statFile(base.name) catch return null;
+        switch (st.kind) {
+            .directory => {
+                _ = try self.next_directory(base, top, containing);
+                return null;
+            },
+            .file => return self.name_buffer.items,
+            .sym_link => return try self.next_sym_link(base, top, containing, stat_depth - 1),
+            else => return null,
+        }
     }
 };
