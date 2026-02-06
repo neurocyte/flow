@@ -3909,7 +3909,7 @@ pub const Editor = struct {
         try self.with_cursels_const(root, &move_to_match_bracket, self.metrics);
         self.clamp();
     }
-    pub const goto_bracket_meta: Meta = .{ .description = "goto matching bracket" };
+    pub const goto_bracket_meta: Meta = .{ .description = "Goto matching bracket" };
 
     pub fn move_or_select_to_char_right(self: *Self, ctx: Context) Result {
         const selected = if (self.get_primary().selection) |_| true else false;
@@ -6370,6 +6370,36 @@ pub const Editor = struct {
         self.update_scroll_dest_abs(row);
     }
     pub const focus_on_range_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
+
+    pub fn select_range(self: *Self, ctx: Context) Result {
+        var sel: Selection = .{};
+        if (!try ctx.args.match(.{
+            tp.extract(&sel.begin.row),
+            tp.extract(&sel.begin.col),
+            tp.extract(&sel.end.row),
+            tp.extract(&sel.end.col),
+        })) return error.InvalidSelectRangeArgument;
+
+        self.cancel_all_matches();
+        self.add_match_internal(sel.begin.row + 1, sel.begin.col, sel.end.row + 1, sel.end.col);
+        const primary = self.get_primary();
+        primary.selection = sel;
+        const cursor = sel.end;
+        primary.cursor = cursor;
+        const range_height = sel.end.row - sel.begin.row + 1;
+        const view_height = self.view.rows;
+        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
+        const offset = if (range_height > view_height - @min(view_height, scroll_cursor_min_border_distance * 2))
+            scroll_cursor_min_border_distance
+        else
+            (view_height / 2) - (range_height / 2);
+        const row = if (cursor.row > offset)
+            cursor.row - offset
+        else
+            0;
+        self.update_scroll_dest_abs(row);
+    }
+    pub const select_range_meta: Meta = .{ .arguments = &.{ .integer, .integer, .integer, .integer } };
 
     pub fn goto_byte_offset(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();

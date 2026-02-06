@@ -148,11 +148,23 @@ fn find_closest(palette: *Type) ?usize {
 }
 
 fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
+    const self = menu.*.opts.ctx;
     const editor = tui.get_active_editor() orelse return;
     editor.clear_matches();
     _, _, _, const sel = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
-    tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{ sel.begin.row + 1, sel.begin.col + 1 } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    switch (self.activate) {
+        .normal => tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{
+            sel.begin.row + 1,
+            sel.begin.col + 1,
+        } }) catch |e| menu.*.opts.ctx.logger.err(module_name, e),
+        .alternate => tp.self_pid().send(.{ "cmd", "select_range", .{
+            sel.begin.row,
+            sel.begin.col,
+            sel.end.row,
+            sel.end.col,
+        } }) catch {},
+    }
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
