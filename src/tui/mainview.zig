@@ -827,6 +827,8 @@ const cmds = struct {
                 if (new_buffer.is_dirty())
                     return tp.exit("save as would overwrite unsaved changes");
                 existing = true;
+                if (self.get_editor_for_buffer(new_buffer)) |other_editor|
+                    other_editor.close_editor() catch {};
             }
             try self.create_editor();
             try command.executeName("open_scratch_buffer", command.fmt(.{
