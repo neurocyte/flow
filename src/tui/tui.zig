@@ -1561,6 +1561,11 @@ const cmds = struct {
     }
     pub const match_meta: Meta = .{ .description = "Match mode" };
 
+    pub fn goto_word(self: *Self, ctx: Ctx) Result {
+        return enter_mini_mode(self, @import("mode/mini/goto_word.zig"), ctx);
+    }
+    pub const goto_word_meta: Meta = .{ .description = "Goto word (jump labels)" };
+
     pub fn open_file(self: *Self, ctx: Ctx) Result {
         if (get_active_selection(self.allocator)) |text| {
             defer self.allocator.free(text);

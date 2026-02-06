@@ -64,6 +64,7 @@
             ["ctrl+c l h h", "hover"],
             ["ctrl+c l r r", "rename_symbol"],
             ["ctrl+c f", "copy_file_name"],
+            ["alt+g w", "goto_word"],
 
             ["super+l = =", "format"],
             ["super+l = r", "format"],

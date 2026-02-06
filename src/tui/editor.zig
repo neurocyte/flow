@@ -317,6 +317,13 @@ pub const Editor = struct {
         word,
         line,
     };
+
+    pub const JumpLabel = struct {
+        row: usize,
+        col: usize,
+        label: [2]u8,
+    };
+
     const Self = @This();
     pub const Target = Self;
 
@@ -363,6 +370,9 @@ pub const Editor = struct {
     highlight_references_state: enum { adding, done } = .done,
     highlight_references_pending: Match.List = .empty,
     cursor_focus_override: bool = false,
+
+    jump_labels: ?[]const JumpLabel = null,
+    jump_label_first_char: ?u8 = null,
 
     prefix_buf: [8]u8 = undefined,
     prefix: []const u8 = &[_]u8{},
@@ -1298,6 +1308,7 @@ pub const Editor = struct {
             self.render_blame(theme, hl_row, ctx_.cell_map) catch {};
         self.render_column_highlights() catch {};
         self.render_cursors(theme, ctx_.cell_map, focused) catch {};
+        self.render_jump_labels(theme);
         if (self.info_box) |w| _ = w.render(theme);
     }
 
@@ -1378,6 +1389,180 @@ pub const Editor = struct {
     inline fn set_cell_map_cursor(cell_map: CellMap, y: usize, x: usize) void {
         const cell_type = cell_map.get_yx(y, x).cell_type;
         cell_map.set_yx(y, x, .{ .cursor = true, .cell_type = cell_type });
+    }
+
+    fn render_jump_labels(self: *Self, theme: *const Widget.Theme) void {
+        const labels = self.jump_labels orelse return;
+        const label_style: Widget.Theme.Style = .{
+            .fg = theme.editor_warning.bg orelse theme.editor.bg,
+            .bg = theme.editor_warning.fg,
+            .fs = .bold,
+        };
+        const dim_style: Widget.Theme.Style = .{
+            .fg = theme.editor_gutter.fg,
+            .bg = theme.editor.bg,
+        };
+        const first_char = self.jump_label_first_char;
+
+        for (labels) |jl| {
+            const pos = self.screen_cursor(&Cursor{ .row = jl.row, .col = jl.col }) orelse continue;
+
+            if (first_char) |fc| {
+                if (jl.label[0] != fc) {
+                    self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
+                    var cell0 = self.plane.cell_init();
+                    _ = self.plane.at_cursor_cell(&cell0) catch continue;
+                    cell0.set_style(dim_style);
+                    _ = self.plane.putc(&cell0) catch {};
+                    if (pos.col + 1 < self.view.cols) {
+                        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col + 1));
+                        var cell1 = self.plane.cell_init();
+                        _ = self.plane.at_cursor_cell(&cell1) catch continue;
+                        cell1.set_style(dim_style);
+                        _ = self.plane.putc(&cell1) catch {};
+                    }
+                } else {
+                    self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
+                    var cell0 = self.plane.cell_init();
+                    cell0.set_style(dim_style);
+                    _ = self.plane.cell_load(&cell0, &[_]u8{jl.label[0]}) catch continue;
+                    _ = self.plane.putc(&cell0) catch {};
+
+                    if (pos.col + 1 < self.view.cols) {
+                        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col + 1));
+                        var cell1 = self.plane.cell_init();
+                        cell1.set_style(label_style);
+                        _ = self.plane.cell_load(&cell1, &[_]u8{jl.label[1]}) catch continue;
+                        _ = self.plane.putc(&cell1) catch {};
+                    }
+                }
+            } else {
+                self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
+                var cell0 = self.plane.cell_init();
+                cell0.set_style(label_style);
+                _ = self.plane.cell_load(&cell0, &[_]u8{jl.label[0]}) catch continue;
+                _ = self.plane.putc(&cell0) catch {};
+
+                if (pos.col + 1 < self.view.cols) {
+                    self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col + 1));
+                    var cell1 = self.plane.cell_init();
+                    cell1.set_style(label_style);
+                    _ = self.plane.cell_load(&cell1, &[_]u8{jl.label[1]}) catch continue;
+                    _ = self.plane.putc(&cell1) catch {};
+                }
+            }
+        }
+    }
+
+    pub fn set_jump_labels(self: *Self, labels: ?[]const JumpLabel) void {
+        if (self.jump_labels) |old| self.allocator.free(old);
+        self.jump_labels = labels;
+        self.jump_label_first_char = null;
+    }
+
+    pub fn clear_jump_labels(self: *Self) void {
+        self.set_jump_labels(null);
+    }
+
+    pub const jump_label_alphabet = "abcdefghijklmnopqrstuvwxyz";
+
+    pub fn compute_jump_labels(self: *Self) ?[]const JumpLabel {
+        const root = self.buf_root() catch return null;
+        const primary_cursor = self.get_primary().cursor;
+        return compute_jump_labels_static(root, primary_cursor, self.view, self.metrics, self.allocator);
+    }
+
+    pub fn compute_jump_labels_static(
+        root: Buffer.Root,
+        primary_cursor: Cursor,
+        view: View,
+        the_metrics: Buffer.Metrics,
+        allocator: std.mem.Allocator,
+    ) ?[]const JumpLabel {
+        const max_labels = jump_label_alphabet.len * jump_label_alphabet.len;
+
+        const WordPos = struct { row: usize, col: usize };
+        var word_starts: std.ArrayList(WordPos) = .empty;
+        defer word_starts.deinit(allocator);
+
+        const row_begin = view.row;
+        const row_end = @min(view.row + view.rows, root.lines());
+
+        for (row_begin..row_end) |row| {
+            const line_width = root.line_width(row, the_metrics) catch continue;
+            if (line_width == 0) continue;
+            const col_begin = view.col;
+            const col_end = @min(view.col + view.cols, line_width);
+            if (col_begin >= col_end) continue;
+
+            var cursor = Cursor{ .row = row, .col = col_begin };
+            while (cursor.col < col_end) {
+                if (is_word_boundary_left(root, &cursor, the_metrics)) {
+                    // Skip the word under the primary cursor
+                    if (cursor.row != primary_cursor.row or cursor.col != primary_cursor.col) {
+                        // Check the word has at least 2 characters
+                        var check = cursor;
+                        check.move_right(root, the_metrics) catch break;
+                        if (is_word_char_at_cursor(root, &check, the_metrics)) {
+                            word_starts.append(allocator, .{ .row = cursor.row, .col = cursor.col }) catch break;
+                        }
+                    }
+                }
+                cursor.move_right(root, the_metrics) catch break;
+            }
+        }
+
+        if (word_starts.items.len == 0) return null;
+
+        const items = word_starts.items;
+        var sorted: std.ArrayList(WordPos) = .empty;
+        defer sorted.deinit(allocator);
+
+        var before: std.ArrayList(WordPos) = .empty;
+        defer before.deinit(allocator);
+        var after: std.ArrayList(WordPos) = .empty;
+        defer after.deinit(allocator);
+
+        for (items) |wp| {
+            if (wp.row < primary_cursor.row or (wp.row == primary_cursor.row and wp.col < primary_cursor.col)) {
+                before.append(allocator, wp) catch break;
+            } else {
+                after.append(allocator, wp) catch break;
+            }
+        }
+
+        // Reverse 'before' so closest to cursor comes first
+        std.mem.reverse(WordPos, before.items);
+
+        // Alternate: after[0], before[0], after[1], before[1], ...
+        var ai: usize = 0;
+        var bi: usize = 0;
+        while (sorted.items.len < max_labels and (ai < after.items.len or bi < before.items.len)) {
+            if (ai < after.items.len) {
+                sorted.append(allocator, after.items[ai]) catch break;
+                ai += 1;
+            }
+            if (sorted.items.len >= max_labels) break;
+            if (bi < before.items.len) {
+                sorted.append(allocator, before.items[bi]) catch break;
+                bi += 1;
+            }
+        }
+
+        if (sorted.items.len == 0) return null;
+
+        const result = allocator.alloc(JumpLabel, sorted.items.len) catch return null;
+        for (sorted.items, 0..) |wp, i| {
+            result[i] = .{
+                .row = wp.row,
+                .col = wp.col,
+                .label = .{
+                    jump_label_alphabet[i / jump_label_alphabet.len],
+                    jump_label_alphabet[i % jump_label_alphabet.len],
+                },
+            };
+        }
+        return result;
     }
 
     fn render_column_highlights(self: *Self) !void {
@@ -1995,7 +2180,7 @@ pub const Editor = struct {
         try self.send_editor_cursel_msg("jump_source", self.get_primary());
     }
 
-    fn send_editor_jump_destination(self: *Self) !void {
+    pub fn send_editor_jump_destination(self: *Self) !void {
         try self.send_editor_cursel_msg("jump_destination", self.get_primary());
     }
 

@@ -140,6 +140,7 @@
             ["ctrl+shift+left", "select_word_left"],
             ["ctrl+shift+right", "select_word_right"],
             ["ctrl+shift+space", "selections_reverse"],
+            ["alt+g w", "goto_word"],
             ["alt+j", "join_next_line"],
             ["alt+n", "goto_next_file_or_diagnostic"],
             ["alt+p", "goto_prev_file_or_diagnostic"],

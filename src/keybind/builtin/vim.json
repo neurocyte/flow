@@ -102,6 +102,7 @@
 
             ["gt", "next_tab"],
             ["gT", "previous_tab"],
+            ["gw", "goto_word"],
 
             ["0", "move_begin_or_add_integer_argument_zero"],
             ["1", "add_integer_argument_digit", 1],
@@ -154,6 +155,7 @@
             ["<C-u>", "move_scroll_half_page_up_vim"],
             ["<C-d>", "move_scroll_half_page_down_vim"],
 
+            ["gw", "goto_word"],
             ["zz", "scroll_view_center"],
             ["<S-.>", "indent"],
             ["<S-,>", "unindent"],
