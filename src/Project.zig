@@ -600,12 +600,13 @@ pub fn walk_tree_entry(self: *Self, m: tp.message) OutOfMemoryError!void {
         tp.extract(&file_color),
     }) catch return)) return;
     const mtime = (@as(i128, @intCast(mtime_high)) << 64) | @as(i128, @intCast(mtime_low));
+    const ft = file_type_config.get(file_type) catch null;
 
     self.longest_file_path = @max(self.longest_file_path, file_path.len);
     (try self.pending.addOne(self.allocator)).* = .{
         .path = try self.allocator.dupe(u8, file_path),
-        .type = file_type,
-        .icon = file_icon,
+        .type = if (ft) |ft_| ft_.name else try self.allocator.dupe(u8, file_type),
+        .icon = if (ft) |ft_| ft_.icon orelse &.{} else try self.allocator.dupe(u8, file_icon),
         .color = @intCast(file_color),
         .mtime = mtime,
     };
