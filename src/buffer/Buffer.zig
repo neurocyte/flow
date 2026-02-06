@@ -38,6 +38,8 @@ pub const BlameLine = struct {
     author_stamp: usize,
 };
 
+pub var retain_symlinks: bool = true;
+
 arena: std.heap.ArenaAllocator,
 allocator: Allocator,
 external_allocator: Allocator,
@@ -1599,7 +1601,14 @@ pub const StoreToFileError = error{
     WriteFailed,
 };
 
-pub fn store_to_existing_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
+pub fn store_to_existing_file_const(self: *const Self, file_path_: []const u8) StoreToFileError!void {
+    var file_path = file_path_;
+    var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (retain_symlinks) blk: {
+        const link = cwd().readLink(file_path, &link_buf) catch break :blk;
+        file_path = link;
+    }
+
     var atomic = blk: {
         var write_buffer: [4096]u8 = undefined;
         const stat = cwd().statFile(file_path) catch

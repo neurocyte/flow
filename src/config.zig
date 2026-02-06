@@ -89,6 +89,8 @@ keybind_mode: KeybindMode = .normal,
 dropdown_keybinds: DropdownKeybindMode = .standard,
 dropdown_limit: usize = 12,
 
+retain_symlinks: bool = true,
+
 include_files: []const u8 = "",
 
 const default_actions = [_]IdleAction{.highlight_references};

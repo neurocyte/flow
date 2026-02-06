@@ -8,6 +8,7 @@ const root = @import("soft_root").root;
 const tracy = @import("tracy");
 const builtin = @import("builtin");
 const file_link = @import("file_link");
+const Buffer = @import("Buffer");
 
 pub const renderer = @import("renderer");
 const input = @import("input");
@@ -153,6 +154,8 @@ fn init(allocator: Allocator) InitError!*Self {
     log.stdout(.disable);
 
     var conf, const conf_bufs = root.read_config(@import("config"), allocator);
+
+    Buffer.retain_symlinks = conf.retain_symlinks;
 
     if (@hasDecl(renderer, "install_crash_handler") and conf.start_debugger_on_crash)
         renderer.jit_debugger_enabled = true;
