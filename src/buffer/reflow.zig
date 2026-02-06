@@ -35,6 +35,12 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
                 continue :blk .words;
             },
             .words => {
+                if (word.len == 1 and word[0] == '\n') {
+                    try writer.writeByte('\n');
+                    try writer.writeByte('\n');
+                    line_len = 0;
+                    continue;
+                }
                 if (line_len > prefix.len) {
                     if (line_len + word.len + 1 >= width) {
                         try writer.writeByte('\n');
@@ -56,8 +62,15 @@ pub fn reflow(allocator: std.mem.Allocator, text: []const u8, width: usize) erro
 fn split_words(allocator: std.mem.Allocator, text: []const u8, prefix: usize) error{OutOfMemory}![]const []const u8 {
     var words: std.ArrayList([]const u8) = .empty;
     var lines = std.mem.splitScalar(u8, text, '\n');
+    var blank = false;
     while (lines.next()) |line| {
-        if (line.len <= prefix) continue;
+        if (line.len <= prefix) {
+            if (!blank)
+                (try words.addOne(allocator)).* = "\n";
+            blank = true;
+            continue;
+        }
+        blank = false;
         var it = std.mem.splitAny(u8, line[prefix..], " \t");
         while (it.next()) |word| if (word.len > 0) {
             (try words.addOne(allocator)).* = word;
