@@ -416,7 +416,10 @@ pub const Editor = struct {
     diag_info: usize = 0,
     diag_hints: usize = 0,
     info_box: ?Widget = null,
-    info_box_range: ?Match = null,
+    info_box_state: ?struct {
+        range: Match,
+        view: View,
+    } = null,
 
     completions: CompletionState = .empty,
     completions_request: ?CompletionState = .done,
@@ -2054,11 +2057,11 @@ pub const Editor = struct {
     }
 
     fn maybe_clear_info_box(self: *Self) void {
-        if (self.info_box_range) |range| {
+        if (self.info_box_state) |state| {
             const cursor = self.get_primary().cursor;
-            var sel = range.to_selection();
+            var sel = state.range.to_selection();
             sel.end.col += 1;
-            if (cursor.within(sel))
+            if (cursor.within(sel) and self.view.row == state.view.row)
                 return;
         }
         return self.clear_info_box();
@@ -2068,7 +2071,7 @@ pub const Editor = struct {
         if (self.info_box) |*w| {
             w.deinit(self.allocator);
             self.info_box = null;
-            self.info_box_range = null;
+            self.info_box_state = null;
             self.clear_matches();
         }
     }
@@ -2113,7 +2116,10 @@ pub const Editor = struct {
         info.clear();
         try info.append_content(content);
         self.place_info_box(range.begin);
-        self.info_box_range = range;
+        self.info_box_state = .{
+            .range = range,
+            .view = self.view,
+        };
     }
 
     fn clamp_abs_offset(self: *Self, abs: bool, offset: usize) void {
