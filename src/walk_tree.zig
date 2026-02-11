@@ -10,7 +10,11 @@ const OutOfMemoryError = error{OutOfMemory};
 pub const EntryCallBack = *const fn (parent: tp.pid_ref, root_path: []const u8, path: []const u8, mtime_high: i64, mtime_low: i64) error{Exit}!void;
 pub const DoneCallBack = *const fn (parent: tp.pid_ref, root_path: []const u8) error{Exit}!void;
 
-pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: EntryCallBack, done_handler: DoneCallBack) (SpawnError || std.fs.Dir.OpenError)!tp.pid {
+pub const Options = struct {
+    follow_directory_symlinks: bool = false,
+};
+
+pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: EntryCallBack, done_handler: DoneCallBack, options: Options) (SpawnError || std.fs.Dir.OpenError)!tp.pid {
     return struct {
         allocator: std.mem.Allocator,
         root_path: []const u8,
@@ -20,11 +24,12 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
         walker: FilteredWalker,
         entry_handler: EntryCallBack,
         done_handler: DoneCallBack,
+        options: Options,
 
         const tree_walker = @This();
         const Receiver = tp.Receiver(*tree_walker);
 
-        fn spawn_link(allocator: std.mem.Allocator, root_path: []const u8, entry_handler_: EntryCallBack, done_handler_: DoneCallBack) (SpawnError || std.fs.Dir.OpenError)!tp.pid {
+        fn spawn_link(allocator: std.mem.Allocator, root_path: []const u8, entry_handler_: EntryCallBack, done_handler_: DoneCallBack, options_: Options) (SpawnError || std.fs.Dir.OpenError)!tp.pid {
             const self = try allocator.create(tree_walker);
             errdefer allocator.destroy(self);
             self.* = .{
@@ -33,9 +38,10 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
                 .parent = tp.self_pid().clone(),
                 .receiver = .init(tree_walker.receive, self),
                 .dir = try std.fs.cwd().openDir(self.root_path, .{ .iterate = true }),
-                .walker = try .init(self.dir, self.allocator),
+                .walker = try .init(self.dir, self.allocator, options_),
                 .entry_handler = entry_handler_,
                 .done_handler = done_handler_,
+                .options = options_,
             };
             return tp.spawn_link(allocator, self, tree_walker.start, module_name ++ ".tree_walker");
         }
@@ -86,7 +92,7 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
                 return tp.exit_normal();
             }
         }
-    }.spawn_link(a_, root_path_, entry_handler, done_handler);
+    }.spawn_link(a_, root_path_, entry_handler, done_handler, options);
 }
 
 const filtered_dirs = [_][]const u8{
@@ -113,6 +119,7 @@ const FilteredWalker = struct {
     allocator: std.mem.Allocator,
     stack: std.ArrayListUnmanaged(StackItem),
     name_buffer: std.ArrayListUnmanaged(u8),
+    options: Options,
 
     const Path = []const u8;
 
@@ -121,7 +128,7 @@ const FilteredWalker = struct {
         dirname_len: usize,
     };
 
-    pub fn init(dir: std.fs.Dir, allocator: std.mem.Allocator) !FilteredWalker {
+    pub fn init(dir: std.fs.Dir, allocator: std.mem.Allocator, options: Options) !FilteredWalker {
         var stack: std.ArrayListUnmanaged(FilteredWalker.StackItem) = .{};
         errdefer stack.deinit(allocator);
 
@@ -134,6 +141,7 @@ const FilteredWalker = struct {
             .allocator = allocator,
             .stack = stack,
             .name_buffer = .{},
+            .options = options,
         };
     }
 
@@ -214,7 +222,8 @@ const FilteredWalker = struct {
         const st = top.*.iter.dir.statFile(base.name) catch return null;
         switch (st.kind) {
             .directory => {
-                _ = try self.next_directory(base, top, containing);
+                if (self.options.follow_directory_symlinks)
+                    _ = try self.next_directory(base, top, containing);
                 return null;
             },
             .file => return self.name_buffer.items,

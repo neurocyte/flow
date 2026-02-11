@@ -174,6 +174,7 @@ fn init(allocator: Allocator) InitError!*Self {
     const frame_clock = try tp.metronome.init(frame_time);
 
     tp.env.get().set("lsp_verbose", conf.lsp_output == .verbose);
+    tp.env.get().set("follow_directory_symlinks", conf.follow_directory_symlinks);
 
     var self = try allocator.create(Self);
     // don't destroy

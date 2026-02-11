@@ -2701,7 +2701,9 @@ pub fn query_git(self: *Self) void {
 
 fn start_walker(self: *Self) void {
     self.state.walk_tree = .running;
-    self.walker = walk_tree.start(self.allocator, self.name, walk_tree_entry_callback, walk_tree_done_callback) catch blk: {
+    self.walker = walk_tree.start(self.allocator, self.name, walk_tree_entry_callback, walk_tree_done_callback, .{
+        .follow_directory_symlinks = tp.env.get().is("follow_directory_symlinks"),
+    }) catch blk: {
         self.state.walk_tree = .failed;
         break :blk null;
     };
