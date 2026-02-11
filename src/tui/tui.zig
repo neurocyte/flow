@@ -1703,8 +1703,8 @@ const cmds = struct {
 
     pub fn expand_centered_view(_: *Self, _: Ctx) Result {
         const conf = config_mut();
-        conf.centered_view_width = conf.centered_view_width + 1;
-        conf.centered_view_min_screen_width = conf.centered_view_min_screen_width + 1;
+        conf.centered_view_width = conf.centered_view_width + 2;
+        conf.centered_view_min_screen_width = conf.centered_view_min_screen_width + 2;
         try save_config();
         resize();
     }
@@ -1712,8 +1712,8 @@ const cmds = struct {
 
     pub fn shrink_centered_view(_: *Self, _: Ctx) Result {
         const conf = config_mut();
-        conf.centered_view_width = conf.centered_view_width - @min(1, conf.centered_view_width);
-        conf.centered_view_min_screen_width = conf.centered_view_min_screen_width - @min(1, conf.centered_view_min_screen_width);
+        conf.centered_view_width = conf.centered_view_width -| 2;
+        conf.centered_view_min_screen_width = conf.centered_view_min_screen_width -| 2;
         try save_config();
         resize();
     }
