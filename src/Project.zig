@@ -662,7 +662,7 @@ fn safe_file_read(self: std.fs.File, buffer: []u8) (error{FileHandleInvalidForRe
 
 fn safe_posix_read(fd: std.posix.fd_t, buf: []u8) (error{FileHandleInvalidForReading} || std.fs.File.ReadError)!usize {
     const native_os = builtin.os.tag;
-    const unexpectedErrno = std.posix.unexpectedErrno;
+    const unexpectedErrno = safe_unexpectedErrno;
     const maxInt = std.math.maxInt;
     const system = std.posix.system;
     const errno = std.posix.errno;
@@ -725,6 +725,10 @@ fn safe_posix_read(fd: std.posix.fd_t, buf: []u8) (error{FileHandleInvalidForRea
             else => |err| return unexpectedErrno(err),
         }
     }
+}
+
+fn safe_unexpectedErrno(_: std.posix.system.E) std.posix.UnexpectedError {
+    return error.Unexpected;
 }
 
 fn merge_pending_files(self: *Self) OutOfMemoryError!void {
