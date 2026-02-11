@@ -12,6 +12,8 @@ pub const DoneCallBack = *const fn (parent: tp.pid_ref, root_path: []const u8) e
 
 pub const Options = struct {
     follow_directory_symlinks: bool = false,
+    maximum_symlink_depth: usize = 1,
+    log_ignored_links: bool = false,
 };
 
 pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: EntryCallBack, done_handler: DoneCallBack, options: Options) (SpawnError || std.fs.Dir.OpenError)!tp.pid {
@@ -126,15 +128,17 @@ const FilteredWalker = struct {
     const StackItem = struct {
         iter: std.fs.Dir.Iterator,
         dirname_len: usize,
+        symlink_depth: usize,
     };
 
-    pub fn init(dir: std.fs.Dir, allocator: std.mem.Allocator, options: Options) !FilteredWalker {
+    fn init(dir: std.fs.Dir, allocator: std.mem.Allocator, options: Options) !FilteredWalker {
         var stack: std.ArrayListUnmanaged(FilteredWalker.StackItem) = .{};
         errdefer stack.deinit(allocator);
 
         try stack.append(allocator, .{
             .iter = dir.iterate(),
             .dirname_len = 0,
+            .symlink_depth = options.maximum_symlink_depth,
         });
 
         return .{
@@ -145,7 +149,7 @@ const FilteredWalker = struct {
         };
     }
 
-    pub fn deinit(self: *FilteredWalker) void {
+    fn deinit(self: *FilteredWalker) void {
         // Close any remaining directories except the initial one (which is always at index 0)
         if (self.stack.items.len > 1) {
             for (self.stack.items[1..]) |*item| {
@@ -156,7 +160,7 @@ const FilteredWalker = struct {
         self.name_buffer.deinit(self.allocator);
     }
 
-    pub fn next(self: *FilteredWalker) OutOfMemoryError!?Path {
+    fn next(self: *FilteredWalker) OutOfMemoryError!?Path {
         while (self.stack.items.len != 0) {
             var top = &self.stack.items[self.stack.items.len - 1];
             var containing = top;
@@ -177,14 +181,21 @@ const FilteredWalker = struct {
                 try self.name_buffer.appendSlice(self.allocator, base.name);
                 switch (base.kind) {
                     .directory => {
-                        _ = try self.next_directory(&base, &top, &containing);
+                        _ = try self.next_directory(&base, &top, &containing, top.symlink_depth);
                         continue;
                     },
                     .file => return self.name_buffer.items,
-                    .sym_link => if (try self.next_sym_link(&base, &top, &containing, 5)) |file|
-                        return file
-                    else
-                        continue,
+                    .sym_link => {
+                        if (top.symlink_depth == 0) {
+                            if (self.options.log_ignored_links)
+                                std.log.warn("TOO MANY LINKS! ignoring symlink: {s}", .{base.name});
+                            continue;
+                        }
+                        if (try self.next_sym_link(&base, &top, &containing, top.symlink_depth -| 1)) |file|
+                            return file
+                        else
+                            continue;
+                    },
                     else => continue,
                 }
             } else {
@@ -198,7 +209,7 @@ const FilteredWalker = struct {
         return null;
     }
 
-    fn next_directory(self: *FilteredWalker, base: *const std.fs.Dir.Entry, top: **StackItem, containing: **StackItem) !void {
+    fn next_directory(self: *FilteredWalker, base: *const std.fs.Dir.Entry, top: **StackItem, containing: **StackItem, symlink_depth: usize) !void {
         if (is_filtered_dir(base.name))
             return;
         var new_dir = top.*.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
@@ -210,6 +221,7 @@ const FilteredWalker = struct {
             try self.stack.append(self.allocator, .{
                 .iter = new_dir.iterateAssumeFirstIteration(),
                 .dirname_len = self.name_buffer.items.len,
+                .symlink_depth = symlink_depth,
             });
             top.* = &self.stack.items[self.stack.items.len - 1];
             containing.* = &self.stack.items[self.stack.items.len - 2];
@@ -217,17 +229,23 @@ const FilteredWalker = struct {
         return;
     }
 
-    fn next_sym_link(self: *FilteredWalker, base: *const std.fs.Dir.Entry, top: **StackItem, containing: **StackItem, stat_depth: usize) !?[]const u8 {
-        if (stat_depth == 0) return null;
+    fn next_sym_link(self: *FilteredWalker, base: *const std.fs.Dir.Entry, top: **StackItem, containing: **StackItem, symlink_depth: usize) !?[]const u8 {
         const st = top.*.iter.dir.statFile(base.name) catch return null;
         switch (st.kind) {
             .directory => {
                 if (self.options.follow_directory_symlinks)
-                    _ = try self.next_directory(base, top, containing);
+                    _ = try self.next_directory(base, top, containing, symlink_depth);
                 return null;
             },
             .file => return self.name_buffer.items,
-            .sym_link => return try self.next_sym_link(base, top, containing, stat_depth - 1),
+            .sym_link => {
+                if (symlink_depth == 0) {
+                    if (self.options.log_ignored_links)
+                        std.log.warn("TOO MANY LINKS! ignoring symlink: {s}", .{base.name});
+                    return null;
+                }
+                return try self.next_sym_link(base, top, containing, symlink_depth -| 1);
+            },
             else => return null,
         }
     }
