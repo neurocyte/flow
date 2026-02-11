@@ -1546,11 +1546,6 @@ pub const Editor = struct {
         const blame_row = self.get_delta_lines_until_row(cursor.row) orelse return;
         const commit = buffer.get_vcs_blame(blame_row) orelse return;
 
-        var buf: std.Io.Writer.Allocating = .init(self.allocator);
-        defer buf.deinit();
-        _ = buf.writer.print("      {s}, {s}", .{ commit.summary, commit.author }) catch 0;
-        const msg = buf.written();
-
         const screen_width = self.view.cols;
         var space_begin = screen_width;
         while (space_begin > 0) : (space_begin -= 1)
@@ -1561,6 +1556,23 @@ pub const Editor = struct {
                 .fs = theme.editor_hint.fs,
                 .bg = if (hl_row) |_| theme.editor_line_highlight.bg else theme.editor_hint.bg,
             });
+
+            var summary_freespace: i32 = @intCast(screen_width - space_begin);
+            const static_text = "      , ";
+            summary_freespace -= @intCast(static_text.len + commit.author.len);
+
+            var buf: std.Io.Writer.Allocating = .init(self.allocator);
+            defer buf.deinit();
+
+            if (summary_freespace >= @as(i32, @intCast(commit.summary.len))) {
+                _ = buf.writer.print("      {s}, {s}", .{ commit.summary, commit.author }) catch 0;
+            } else if (summary_freespace <= 3) {
+                _ = buf.writer.print("      {s}", .{commit.author}) catch 0;
+            } else {
+                _ = buf.writer.print("      {s}..., {s}", .{ commit.summary[0 .. @as(usize, @intCast(summary_freespace)) - 3], commit.author }) catch 0;
+            }
+
+            const msg = buf.written();
 
             switch (tui.config().inline_vcs_blame_alignment) {
                 .left => {
