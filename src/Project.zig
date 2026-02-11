@@ -642,7 +642,7 @@ pub fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u
     const content: []const u8 = blk: {
         const file = std.fs.cwd().openFile(file_path, .{ .mode = .read_only }) catch break :blk &.{};
         defer file.close();
-        const size = file.read(&buf) catch break :blk &.{};
+        const size = safe_file_read(file, &buf) catch break :blk &.{};
         break :blk buf[0..size];
     };
     return if (file_type_config.guess_file_type(file_path, content)) |ft| .{
@@ -650,6 +650,81 @@ pub fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u
         ft.icon orelse file_type_config.default.icon,
         ft.color orelse file_type_config.default.color,
     } else default_ft();
+}
+
+fn safe_file_read(self: std.fs.File, buffer: []u8) (error{FileHandleInvalidForReading} || std.fs.File.ReadError)!usize {
+    if (builtin.os.tag == .windows) {
+        return std.os.windows.ReadFile(self.handle, buffer, null);
+    }
+
+    return safe_posix_read(self.handle, buffer);
+}
+
+fn safe_posix_read(fd: std.posix.fd_t, buf: []u8) (error{FileHandleInvalidForReading} || std.fs.File.ReadError)!usize {
+    const native_os = builtin.os.tag;
+    const unexpectedErrno = std.posix.unexpectedErrno;
+    const maxInt = std.math.maxInt;
+    const system = std.posix.system;
+    const errno = std.posix.errno;
+    if (buf.len == 0) return 0;
+    if (native_os == .windows) {
+        return std.os.windows.ReadFile(fd, buf, null);
+    }
+    if (native_os == .wasi and !builtin.link_libc) {
+        const iovec = std.os.posix.iovec;
+        const wasi = std.os.wasi;
+        const iovs = [1]iovec{iovec{
+            .base = buf.ptr,
+            .len = buf.len,
+        }};
+
+        var nread: usize = undefined;
+        switch (wasi.fd_read(fd, &iovs, iovs.len, &nread)) {
+            .SUCCESS => return nread,
+            .INTR => unreachable,
+            .INVAL => return error.FileHandleInvalidForReading,
+            .FAULT => unreachable,
+            .AGAIN => unreachable,
+            .BADF => return error.NotOpenForReading, // Can be a race condition.
+            .IO => return error.InputOutput,
+            .ISDIR => return error.IsDir,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            .NOTCAPABLE => return error.AccessDenied,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    // Prevents EINVAL.
+    const max_count = switch (native_os) {
+        .linux => 0x7ffff000,
+        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
+        else => maxInt(isize),
+    };
+    while (true) {
+        const rc = system.read(fd, buf.ptr, @min(buf.len, max_count));
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .INTR => continue,
+            .INVAL => return error.FileHandleInvalidForReading,
+            .FAULT => unreachable,
+            .SRCH => return error.ProcessNotFound,
+            .AGAIN => return error.WouldBlock,
+            .CANCELED => return error.Canceled,
+            .BADF => return error.NotOpenForReading, // Can be a race condition.
+            .IO => return error.InputOutput,
+            .ISDIR => return error.IsDir,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
 }
 
 fn merge_pending_files(self: *Self) OutOfMemoryError!void {
