@@ -91,6 +91,8 @@ dropdown_limit: usize = 12,
 
 retain_symlinks: bool = true,
 follow_directory_symlinks: bool = false,
+log_ignored_links: bool = false,
+maximum_symlink_depth: usize = 3,
 
 include_files: []const u8 = "",
 

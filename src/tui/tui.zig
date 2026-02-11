@@ -175,6 +175,8 @@ fn init(allocator: Allocator) InitError!*Self {
 
     tp.env.get().set("lsp_verbose", conf.lsp_output == .verbose);
     tp.env.get().set("follow_directory_symlinks", conf.follow_directory_symlinks);
+    tp.env.get().set("log_ignored_links", conf.log_ignored_links);
+    tp.env.get().num_set("maximum_symlink_depth", @intCast(conf.maximum_symlink_depth));
 
     var self = try allocator.create(Self);
     // don't destroy

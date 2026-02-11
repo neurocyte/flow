@@ -2782,6 +2782,8 @@ fn start_walker(self: *Self) void {
     self.state.walk_tree = .running;
     self.walker = walk_tree.start(self.allocator, self.name, walk_tree_entry_callback, walk_tree_done_callback, .{
         .follow_directory_symlinks = tp.env.get().is("follow_directory_symlinks"),
+        .maximum_symlink_depth = @intCast(tp.env.get().num("maximum_symlink_depth")),
+        .log_ignored_links = tp.env.get().is("log_ignored_links"),
     }) catch blk: {
         self.state.walk_tree = .failed;
         break :blk null;
