@@ -1538,13 +1538,16 @@ pub const Editor = struct {
         return if (head_line < 0) null else @intCast(head_line);
     }
 
+    pub fn get_vcs_blame(self: *const Self, row: usize) ?*const Buffer.VcsBlame.Commit {
+        const buffer = self.buffer orelse return null;
+        const blame_row = self.get_delta_lines_until_row(row) orelse return null;
+        return buffer.get_vcs_blame(blame_row) orelse return null;
+    }
+
     fn render_blame(self: *Self, theme: *const Widget.Theme, hl_row: ?usize, cell_map: CellMap) !void {
         const cursor = self.get_primary().cursor;
         const pos = self.screen_cursor(&cursor) orelse return;
-        const buffer = self.buffer orelse return;
-
-        const blame_row = self.get_delta_lines_until_row(cursor.row) orelse return;
-        const commit = buffer.get_vcs_blame(blame_row) orelse return;
+        const commit = self.get_vcs_blame(cursor.row) orelse return;
 
         const screen_width = self.view.cols;
         var space_begin = screen_width;
