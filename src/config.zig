@@ -7,6 +7,9 @@ input_mode: []const u8 = "flow",
 gutter_line_numbers_mode: ?LineNumberMode = null,
 gutter_line_numbers_style: DigitStyle = .ascii,
 gutter_symbols: bool = true,
+gutter_width_mode: GutterWidthMode = .local,
+gutter_width_minimum: usize = 4,
+gutter_width_maximum: usize = 8,
 enable_terminal_cursor: bool = true,
 enable_terminal_color_scheme: bool = false,
 enable_sgr_pixel_mode_support: bool = true,
@@ -113,6 +116,11 @@ pub const LineNumberMode = enum {
     none,
     relative,
     absolute,
+};
+
+pub const GutterWidthMode = enum {
+    local,
+    global,
 };
 
 pub const IndentMode = enum {

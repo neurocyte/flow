@@ -22,6 +22,8 @@ const ed = @import("editor.zig");
 const DigitStyle = @import("config").DigitStyle;
 const LineNumberMode = @import("config").LineNumberMode;
 
+var width_global: usize = 0;
+
 allocator: Allocator,
 plane: Plane,
 parent: Widget,
@@ -34,7 +36,7 @@ line_number_mode: ?LineNumberMode = null,
 line_number_style: DigitStyle,
 highlight: bool,
 symbols: bool,
-width: usize = 4,
+width: usize,
 editor: *ed.Editor,
 editor_widget: ?*const Widget = null,
 differ: diffz.AsyncDiffer,
@@ -52,9 +54,11 @@ pub fn create(allocator: Allocator, parent: Widget, event_source: Widget, editor
         .line_number_style = tui.config().gutter_line_numbers_style,
         .highlight = tui.config().highlight_current_line_gutter,
         .symbols = tui.config().gutter_symbols,
+        .width = undefined,
         .editor = editor,
         .differ = try diffz.create(),
     };
+    self.update_width();
     try tui.message_filters().add(MessageFilter.bind(self, filter_receive));
     try event_source.subscribe(EventHandler.bind(self, handle_event));
     return self.widget();
@@ -122,8 +126,19 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
 fn update_width(self: *Self) void {
     if (self.line_number_mode == .none) return;
-    const width = int_width(self.lines);
-    self.width = if (self.line_number_mode == .relative and width > 4) 4 else @max(width, 2);
+    const minimum = tui.config().gutter_width_minimum;
+    const maximum = tui.config().gutter_width_maximum;
+    const local = @max(int_width(self.lines), minimum);
+    const width =
+        switch (tui.config().gutter_width_mode) {
+            .local => local,
+            .global => blk: {
+                const width = @max(width_global, local);
+                width_global = @min(width, maximum);
+                break :blk width;
+            },
+        };
+    self.width = if (self.line_number_mode == .relative and width > minimum) minimum else @max(width, 2);
     self.width += if (self.symbols) 3 else 1;
 }
 
