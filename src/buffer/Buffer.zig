@@ -947,6 +947,7 @@ const Node = union(enum) {
         while (rest.len > 0) {
             if (std.mem.indexOfScalar(u8, rest, '\n')) |eol| {
                 chunk = rest[0..eol];
+                chunk = if (chunk.len > 0 and chunk[chunk.len - 1] == '\r') chunk[0 .. chunk.len - 1] else chunk;
                 rest = rest[eol + 1 ..];
                 need_eol = true;
             } else {
