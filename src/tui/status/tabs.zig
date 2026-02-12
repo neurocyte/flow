@@ -30,6 +30,7 @@ const @"style.config" = struct {
     close_icon_fg: colors = .Error,
     save_icon: []const u8 = "󰆓",
     save_icon_fg: ?colors = null,
+    clipping_indicator: []const u8 = "»",
 
     spacer: []const u8 = "|",
     spacer_fg: colors = .active_bg,
@@ -177,8 +178,38 @@ pub const TabBar = struct {
         });
         self.plane.fill(" ");
         self.plane.home();
-        for (self.tabs) |*tab| _ = tab.widget.render(theme);
+        for (self.tabs) |*tab| {
+            const clipped, const clip_box = self.is_tab_clipped(tab);
+            if (clipped) {
+                if (clip_box) |box| self.render_clipping_indicator(box, theme);
+                continue;
+            }
+            _ = tab.widget.render(theme);
+        }
         return false;
+    }
+
+    fn is_tab_clipped(self: *const Self, tab: *const TabBarTab) struct { bool, ?Widget.Box } {
+        const view = tab.view orelse return .{ true, null };
+        const split_idx = if (view < self.splits_list.widgets.items.len) view else return .{ true, null };
+        const split = self.splits_list.widgets.items[split_idx];
+        const split_box = Widget.Box.from(split.widget.plane.*);
+        const widget_box = tab.widget.box();
+        const dragging = if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn| if (btn.drag_pos) |_| true else false else false;
+        if (dragging) return .{ false, split_box };
+        if (split_box.y + split_box.h < widget_box.y + widget_box.h or
+            split_box.x + split_box.w < widget_box.x + widget_box.w)
+            return .{ true, split_box };
+        return .{ false, split_box };
+    }
+
+    fn render_clipping_indicator(self: *@This(), box: Widget.Box, theme: *const Widget.Theme) void {
+        self.plane.set_style(.{
+            .fg = self.tab_style.bar_fg.from_theme(theme),
+            .bg = self.tab_style.bar_bg.from_theme(theme),
+        });
+        self.plane.cursor_move_yx(0, @intCast(box.x + box.w -| 1));
+        self.plane.putchar(self.tab_style.clipping_indicator);
     }
 
     pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -259,8 +290,13 @@ pub const TabBar = struct {
         return self.splits_list_widget.get(name);
     }
 
-    pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, _: *Widget) bool {
-        return self.splits_list_widget.walk(ctx, f);
+    pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, self_w: *Widget) bool {
+        for (self.tabs) |*tab| {
+            const clipped, _ = self.is_tab_clipped(tab);
+            if (!clipped)
+                if (tab.widget.walk(ctx, f)) return true;
+        }
+        return f(ctx, self_w);
     }
 
     pub fn hover(self: *Self) bool {
