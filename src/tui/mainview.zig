@@ -496,6 +496,7 @@ const cmds = struct {
 
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
+        _ = try self.widgets_widget.msg(.{"splits_updated"});
     }
     pub const change_project_meta: Meta = .{ .arguments = &.{.string} };
 
