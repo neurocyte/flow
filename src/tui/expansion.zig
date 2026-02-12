@@ -9,6 +9,7 @@
 /// {{selections*}} - All current selections expanded to multiple quoted arguments
 /// {{indent_mode}} - The current indent mode ("tabs" or "spaces")
 /// {{indent_size}} - The current indent size (in columns)
+/// {{blame_commit}} - The blame commit ID at the line number of the primary cursor
 pub fn expand(allocator: Allocator, arg: []const u8) Error![]const u8 {
     var result: std.Io.Writer.Allocating = .init(allocator);
     defer result.deinit();
@@ -158,6 +159,18 @@ const functions = struct {
         const ed = mv.get_active_editor() orelse return &.{};
         var stream: std.Io.Writer.Allocating = .init(allocator);
         try stream.writer.print("{d}", .{ed.indent_size});
+        return stream.toOwnedSlice();
+    }
+
+    /// {{blame_commit}} - The blame commit ID at the line number of the primary cursor
+    pub fn blame_commit(allocator: Allocator) Error![]const u8 {
+        const mv = tui.mainview() orelse return &.{};
+        const ed = mv.get_active_editor() orelse return &.{};
+        const row = ed.get_primary().cursor.row;
+        const commit = ed.get_vcs_blame(row);
+        const id = if (commit) |c| c.id else "";
+        var stream: std.Io.Writer.Allocating = .init(allocator);
+        try stream.writer.print("{s}", .{id});
         return stream.toOwnedSlice();
     }
 };
