@@ -68,7 +68,7 @@
             ["ctrl+plus", "adjust_fontsize", 1.0],
             ["ctrl+alt+plus", "adjust_fontsize", 1.0],
             ["ctrl+minus", "adjust_fontsize", -1.0],
-            ["ctrl+alt+minus", "adjust_fontsize", 1.0],
+            ["ctrl+alt+minus", "adjust_fontsize", -1.0],
             ["ctrl+f5", "open_config"],
             ["f5", ["create_scratch_buffer", "*test*"], ["shell_execute_insert", "zig", "build", "test"]],
             ["f7", ["create_scratch_buffer", "*build*"], ["shell_execute_insert", "zig", "build"]],
