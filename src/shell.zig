@@ -103,7 +103,10 @@ pub fn log_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, output:
     const logger = log.logger(@typeName(Self));
     defer logger.deinit();
     var it = std.mem.splitScalar(u8, output, '\n');
-    while (it.next()) |line| if (line.len > 0) logger.print("{s}", .{line});
+    while (it.next()) |line_| if (line_.len > 0) {
+        const line = if (line_[line_.len - 1] == '\r') line_[0 .. line_.len - 1] else line_;
+        logger.print("{s}", .{line});
+    };
 }
 
 pub fn log_err_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, output: []const u8) void {
@@ -112,7 +115,10 @@ pub fn log_err_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, out
     const logger = log.logger(@typeName(Self));
     defer logger.deinit();
     var it = std.mem.splitScalar(u8, output, '\n');
-    while (it.next()) |line| logger.print_err(arg0, "{s}", .{line});
+    while (it.next()) |line_| if (line_.len > 0) {
+        const line = if (line_[line_.len - 1] == '\r') line_[0 .. line_.len - 1] else line_;
+        logger.print_err(arg0, "{s}", .{line});
+    };
 }
 
 pub fn log_exit_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
