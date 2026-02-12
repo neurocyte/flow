@@ -296,6 +296,10 @@ pub const TabBar = struct {
             if (!clipped)
                 if (tab.widget.walk(ctx, f)) return true;
         }
+        for (self.splits_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split|
+            for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(drop_target.ButtonType)) |_| {
+                if (widget_state.widget.walk(ctx, f)) return true;
+            };
         return f(ctx, self_w);
     }
 
