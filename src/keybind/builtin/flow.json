@@ -28,6 +28,7 @@
             ["ctrl+w", "close_split"],
             ["ctrl+o", "open_file"],
             ["ctrl+e", "open_recent"],
+            ["ctrl+shift+o", "open_project_file_tree"],
             ["alt+o", "open_previous_file"],
             ["ctrl+shift+t", "restore_closed_tab"],
             ["ctrl+shift+f5", "reload_file"],
