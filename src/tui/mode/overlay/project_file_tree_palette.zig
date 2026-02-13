@@ -32,7 +32,10 @@ pub const Node = struct {
 };
 
 pub const Entry = struct {
-    label: []const u8,
+    label: []const u8, // TODO: Just needed because of pallete.zig L:328 self.longest = @max(self.longest, entry.label.len)
+    indent: usize,
+    file_icon: []const u8,
+    file_color: u24,
     node: *Node,
 };
 
@@ -134,9 +137,12 @@ pub fn load_entries(palette: *Type) !usize {
 }
 
 fn buildVisibleList(palette: *Type, node: *Node, depth: usize) !void {
-    const node_label = try createNodeLabel(palette.allocator, node, depth);
+    const file_icon, const file_color = try getNodeIconAndColor(node);
     try palette.entries.append(palette.allocator, .{
-        .label = node_label,
+        .label = node.name,
+        .indent = depth,
+        .file_icon = file_icon,
+        .file_color = file_color,
         .node = node,
     });
 
@@ -159,36 +165,24 @@ fn isNodeVisible(node: *const Node, root_ptr: *const Node) bool {
     return false;
 }
 
-fn createNodeLabel(allocator: std.mem.Allocator, node: *const Node, depth: usize) ![]const u8 {
-    var buffer: std.ArrayList(u8) = .empty;
-
-    // Add indentation
-    for (0..depth) |_| {
-        try buffer.append(allocator, ' ');
-    }
+fn getNodeIconAndColor(node: *const Node) !struct { []const u8, u24 } {
 
     // Add folder icon or file icon
     if (node.type_ == .folder) {
         if (node.expanded) {
-            try buffer.appendSlice(allocator, "");
-        } else {
-            try buffer.appendSlice(allocator, "");
-        }
-    } else {
-        _, const icon_, _ = guess_file_type(node.path);
-        try buffer.appendSlice(allocator, icon_);
+            return .{ "", 0xAAAAAA };
+        } else return .{ "", 0xAAAAAA };
     }
-    try buffer.append(allocator, ' ');
 
-    try buffer.appendSlice(allocator, node.name);
-    return buffer.toOwnedSlice(allocator);
+    _, const icon_, const color_ = guess_file_type(node.path);
+    return .{ icon_, color_ };
 }
 
 fn default_ft() struct { []const u8, []const u8, u24 } {
     return .{
         file_type_config.default.name,
         file_type_config.default.icon,
-        file_type_config.default.color,
+        0xAAAAAA, // At least with my theme the default color (black) was barely visible
     };
 }
 
@@ -225,10 +219,26 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
         button.plane.home();
     }
     var label_str: []const u8 = undefined;
+    var file_icon: []const u8 = undefined;
+    var indent: usize = 0;
+    var entry_index: usize = 0;
+    var icon_color: u24 = 0;
+
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &label_str) catch false)) return false;
+    if (!(cbor.matchInt(usize, &iter, &entry_index) catch false)) return false;
+    if (!(cbor.matchInt(usize, &iter, &indent) catch false)) return false;
+    if (!(cbor.matchString(&iter, &file_icon) catch false)) return false;
+    if (!(cbor.matchInt(u24, &iter, &icon_color) catch false)) return false;
+
+    var icon_style = style_label;
+    icon_style.fg.?.color = icon_color;
+
     button.plane.set_style(style_hint);
     tui.render_pointer(&button.plane, selected);
+    button.plane.set_style(icon_style);
+    for (0..indent) |_| _ = button.plane.print(" ", .{}) catch {};
+    _ = button.plane.print("{s} ", .{file_icon}) catch {};
     button.plane.set_style(style_label);
     _ = button.plane.print("{s} ", .{label_str}) catch {};
     button.plane.set_style(style_hint);
@@ -292,6 +302,9 @@ pub fn add_menu_entry(palette: *Type, entry: *Entry, matches: ?[]const usize) !v
         if (existing_entry.node == entry.node) break idx;
     } else palette.entries.items.len;
     try cbor.writeValue(writer, entry_idx);
+    try cbor.writeValue(writer, entry.indent);
+    try cbor.writeValue(writer, entry.file_icon);
+    try cbor.writeValue(writer, entry.file_color);
     try cbor.writeValue(writer, matches orelse &[_]usize{});
     try palette.menu.add_item_with_handler(value.written(), select);
     palette.items += 1;
