@@ -1560,18 +1560,26 @@ pub const Editor = struct {
                 .bg = if (hl_row) |_| theme.editor_line_highlight.bg else theme.editor_hint.bg,
             });
 
+            var age_buf: [32]u8 = undefined;
+            var age_stream: std.Io.Writer = .fixed(&age_buf);
+            switch (tui.config().inline_vcs_blame_age) {
+                .short => age_stream.print(" ({f})", .{@import("time_fmt").age_short(commit.@"author-time")}) catch {},
+                .long => age_stream.print(", {f}", .{@import("time_fmt").age_long(commit.@"author-time")}) catch {},
+            }
+            const age = age_stream.buffered();
+
             const static_text = "      , ";
-            const summary_freespace = screen_width -| (space_begin + static_text.len + commit.author.len);
+            const summary_freespace = screen_width -| (space_begin + static_text.len + commit.author.len + age.len);
 
             var buf: std.Io.Writer.Allocating = .init(self.allocator);
             defer buf.deinit();
 
             if (summary_freespace >= commit.summary.len) {
-                _ = buf.writer.print("      {s}, {s}", .{ commit.summary, commit.author }) catch 0;
+                _ = buf.writer.print("      {s}, {s}{s}", .{ commit.summary, commit.author, age }) catch 0;
             } else if (summary_freespace <= 3) {
-                _ = buf.writer.print("      {s}", .{commit.author}) catch 0;
+                _ = buf.writer.print("      {s}{s}", .{ commit.author, age }) catch 0;
             } else {
-                _ = buf.writer.print("      {s}..., {s}", .{ commit.summary[0..summary_freespace -| 3], commit.author }) catch 0;
+                _ = buf.writer.print("      {s}..., {s}{s}", .{ commit.summary[0..summary_freespace -| 3], commit.author, age }) catch 0;
             }
 
             const msg = buf.written();

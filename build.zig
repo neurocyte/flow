@@ -353,6 +353,10 @@ pub fn build_exe(
         .imports = &.{},
     });
 
+    const time_fmt_mod = b.createModule(.{
+        .root_source_file = b.path("src/time_fmt.zig"),
+    });
+
     const config_mod = b.createModule(.{
         .root_source_file = b.path("src/config.zig"),
         .imports = &.{
@@ -668,6 +672,7 @@ pub fn build_exe(
             .{ .name = "bin_path", .module = bin_path_mod },
             .{ .name = "snippet", .module = snippet_mod },
             .{ .name = "lsp_types", .module = lsp_types_mod },
+            .{ .name = "time_fmt", .module = time_fmt_mod },
         },
     });
 
