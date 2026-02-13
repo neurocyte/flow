@@ -49,7 +49,7 @@ and is my daily driver for almost everything.
 
 # Roadmap
 
-See our [devlog](https://flow-control.dev/devlog/2025/) for on-going
+See our [devlog](https://flow-control.dev/devlog/2026/) for on-going
 updates from the development team.
 
 ## In Development
