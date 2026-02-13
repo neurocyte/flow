@@ -3,7 +3,7 @@
 This is my Zig text editor. It is under active development, but very stable
 and is my daily driver for almost everything.
 
-[![Announcement](https://img.youtube.com/vi/iwPg3sIxMGw/maxresdefault.jpg)](https://www.youtube.com/watch?v=iwPg3sIxMGw)
+[![Announcement](https://img.youtube.com/vi/Mf3k2uFkyK4/maxresdefault.jpg)](https://www.youtube.com/watch?v=Mf3k2uFkyK4)
 
 
 # Features
