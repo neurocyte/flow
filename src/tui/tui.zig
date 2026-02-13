@@ -1570,7 +1570,10 @@ const cmds = struct {
     pub fn open_file(self: *Self, ctx: Ctx) Result {
         if (get_active_selection(self.allocator)) |text| {
             defer self.allocator.free(text);
-            const link = try file_link.parse(text);
+            var buf: std.ArrayList(u8) = .empty;
+            defer buf.deinit(self.allocator);
+            const file_path = project_manager.expand_home(self.allocator, &buf, text);
+            const link = try file_link.parse(file_path);
             switch (link) {
                 .file => |file| if (file.exists)
                     return file_link.navigate(tp.self_pid(), &link),
