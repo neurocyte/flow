@@ -1371,6 +1371,11 @@ const cmds = struct {
     }
     pub const open_command_palette_meta: Meta = .{ .description = "Command palette" };
 
+    pub fn open_project_file_tree(self: *Self, _: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/project_file_tree_palette.zig").Type);
+    }
+    pub const open_project_file_tree_meta: Meta = .{ .description = "Project file tree explorer" };
+
     pub fn insert_command_name(self: *Self, _: Ctx) Result {
         return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type);
     }
