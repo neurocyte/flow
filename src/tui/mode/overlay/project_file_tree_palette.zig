@@ -3,6 +3,7 @@ const cbor = @import("cbor");
 const tp = @import("thespian");
 const root = @import("soft_root").root;
 const command = @import("command");
+const file_type_config = @import("file_type_config");
 
 const tui = @import("../../tui.zig");
 pub const Type = @import("palette.zig").Create(@This());
@@ -12,7 +13,7 @@ const Widget = @import("../../Widget.zig");
 pub const label = "File Explorer";
 pub const name = "File Explorer";
 pub const description = "Project file explorer";
-pub const icon = "🗂️ ";
+pub const icon = "  ";
 pub const modal_dim = true;
 pub const placement = .top_center;
 
@@ -169,18 +170,41 @@ fn createNodeLabel(allocator: std.mem.Allocator, node: *const Node, depth: usize
     // Add folder icon or file icon
     if (node.type_ == .folder) {
         if (node.expanded) {
-            try buffer.appendSlice(allocator, "🗁");
+            try buffer.appendSlice(allocator, "");
         } else {
-            try buffer.appendSlice(allocator, "🗀");
+            try buffer.appendSlice(allocator, "");
         }
     } else {
-        // @TODO: Add here file icon
-        try buffer.append(allocator, '>');
+        _, const icon_, _ = guess_file_type(node.path);
+        try buffer.appendSlice(allocator, icon_);
     }
     try buffer.append(allocator, ' ');
 
     try buffer.appendSlice(allocator, node.name);
     return buffer.toOwnedSlice(allocator);
+}
+
+fn default_ft() struct { []const u8, []const u8, u24 } {
+    return .{
+        file_type_config.default.name,
+        file_type_config.default.icon,
+        file_type_config.default.color,
+    };
+}
+
+pub fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u24 } {
+    var buf: [1024]u8 = undefined;
+    const content: []const u8 = blk: {
+        const file = std.fs.cwd().openFile(file_path, .{ .mode = .read_only }) catch break :blk &.{};
+        defer file.close();
+        const size = file.read(&buf) catch break :blk &.{};
+        break :blk buf[0..size];
+    };
+    return if (file_type_config.guess_file_type(file_path, content)) |ft| .{
+        ft.name,
+        ft.icon orelse file_type_config.default.icon,
+        ft.color orelse file_type_config.default.color,
+    } else default_ft();
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
