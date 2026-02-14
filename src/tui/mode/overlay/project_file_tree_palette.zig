@@ -170,8 +170,8 @@ fn getNodeIconAndColor(node: *const Node) !struct { []const u8, u24 } {
     // Add folder icon or file icon
     if (node.type_ == .folder) {
         if (node.expanded) {
-            return .{ "", 0xAAAAAA };
-        } else return .{ "", 0xAAAAAA };
+            return .{ "", 0 };
+        } else return .{ "", 0 };
     }
 
     _, const icon_, const color_ = guess_file_type(node.path);
@@ -182,7 +182,7 @@ fn default_ft() struct { []const u8, []const u8, u24 } {
     return .{
         file_type_config.default.name,
         file_type_config.default.icon,
-        0xAAAAAA, // At least with my theme the default color (black) was barely visible
+        0,
     };
 }
 
@@ -230,6 +230,9 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     if (!(cbor.matchInt(usize, &iter, &indent) catch false)) return false;
     if (!(cbor.matchString(&iter, &file_icon) catch false)) return false;
     if (!(cbor.matchInt(u24, &iter, &icon_color) catch false)) return false;
+
+    if (icon_color == 0xFFFFFF or icon_color == 0x000000 or icon_color == 0x000001)
+        icon_color = style_label.fg.?.color;
 
     var icon_style = style_label;
     icon_style.fg.?.color = icon_color;
