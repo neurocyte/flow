@@ -2,6 +2,13 @@ const std = @import("std");
 const command = @import("command");
 const cmd = command.executeName;
 
+const tui = @import("../tui.zig");
+
+const Buffer = @import("Buffer");
+const Cursor = Buffer.Cursor;
+const CurSel = @import("../editor.zig").CurSel;
+const Editor = @import("../editor.zig").Editor;
+
 var commands: Commands = undefined;
 
 pub fn init() !void {
@@ -138,6 +145,125 @@ const cmds_ = struct {
         //TODO
         return undefined;
     }
-
     pub const copy_line_meta: Meta = .{ .description = "Copies the current line" };
+
+    pub fn select_inside_word(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_word_textobject, ed.metrics);
+    }
+    pub const select_inside_word_meta: Meta = .{ .description = "Select inside word" };
+
+    pub fn select_around_word(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_word_textobject, ed.metrics);
+    }
+    pub const select_around_word_meta: Meta = .{ .description = "Select around word" };
+
+    pub fn cut_inside_word(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_word_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_inside_word_meta: Meta = .{ .description = "Cut inside word" };
+
+    pub fn cut_around_word(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_word_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_around_word_meta: Meta = .{ .description = "Cut around word" };
+
+    pub fn copy_inside_word(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_word_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_inside_word_meta: Meta = .{ .description = "Copy inside word" };
+
+    pub fn copy_around_word(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_word_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_around_word_meta: Meta = .{ .description = "Copy around word" };
 };
+
+fn is_tab_or_space(c: []const u8) bool {
+    return (c[0] == ' ') or (c[0] == '\t');
+}
+
+fn is_tab_or_space_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    return cursor.test_at(root, is_tab_or_space, metrics);
+}
+fn is_not_tab_or_space_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    return !cursor.test_at(root, is_tab_or_space, metrics);
+}
+
+fn select_inside_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_word_textobject(root, cursel, metrics, .inside);
+}
+
+fn select_around_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_word_textobject(root, cursel, metrics, .around);
+}
+
+fn select_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics, scope: enum { inside, around }) !void {
+    var prev = cursel.cursor;
+    var next = cursel.cursor;
+
+    if (cursel.cursor.test_at(root, Editor.is_non_word_char, metrics)) {
+        if (cursel.cursor.test_at(root, Editor.is_whitespace_or_eol, metrics)) {
+            Editor.move_cursor_left_until(root, &prev, Editor.is_non_whitespace_at_cursor, metrics);
+            Editor.move_cursor_right_until(root, &next, Editor.is_non_whitespace_at_cursor, metrics);
+        } else {
+            Editor.move_cursor_left_until(root, &prev, Editor.is_whitespace_or_eol_at_cursor, metrics);
+            Editor.move_cursor_right_until(root, &next, Editor.is_whitespace_or_eol_at_cursor, metrics);
+        }
+        prev.move_right(root, metrics) catch {};
+    } else {
+        Editor.move_cursor_left_until(root, &prev, Editor.is_word_boundary_left_vim, metrics);
+        Editor.move_cursor_right_until(root, &next, Editor.is_word_boundary_right_vim, metrics);
+        next.move_right(root, metrics) catch {};
+    }
+
+    if (scope == .around) {
+        const inside_prev = prev;
+        const inside_next = next;
+
+        if (next.test_at(root, is_tab_or_space, metrics)) {
+            Editor.move_cursor_right_until(root, &next, is_not_tab_or_space_at_cursor, metrics);
+        } else {
+            next = inside_next;
+            prev.move_left(root, metrics) catch {};
+            if (prev.test_at(root, is_tab_or_space, metrics)) {
+                Editor.move_cursor_left_until(root, &prev, is_not_tab_or_space_at_cursor, metrics);
+                prev.move_right(root, metrics) catch {};
+            } else {
+                prev = inside_prev;
+            }
+        }
+    }
+
+    const sel = cursel.enable_selection(root, metrics);
+    sel.begin = prev;
+    sel.end = next;
+    cursel.*.cursor = next;
+}

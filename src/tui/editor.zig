@@ -2628,7 +2628,15 @@ pub const Editor = struct {
         return cursor.test_at(root, is_whitespace, metrics);
     }
 
-    fn is_non_whitespace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+    pub fn is_whitespace_or_eol_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return cursor.test_at(root, is_whitespace_or_eol, metrics);
+    }
+
+    pub fn is_non_whitespace_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
+        return !cursor.test_at(root, is_whitespace, metrics);
+    }
+
+    pub fn is_non_whitespace_or_eol_at_cursor(root: Buffer.Root, cursor: *const Cursor, metrics: Buffer.Metrics) bool {
         return !cursor.test_at(root, is_whitespace_or_eol, metrics);
     }
 
@@ -3745,7 +3753,7 @@ pub const Editor = struct {
     }
 
     pub fn move_cursor_right_until_non_whitespace(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
-        move_cursor_right_until(root, cursor, is_non_whitespace_at_cursor, metrics);
+        move_cursor_right_until(root, cursor, is_non_whitespace_or_eol_at_cursor, metrics);
     }
 
     pub fn move_word_left(self: *Self, ctx: Context) Result {

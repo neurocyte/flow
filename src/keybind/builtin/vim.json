@@ -81,13 +81,22 @@
             ["dgg", "cut_buffer_begin"],
             ["\"_dd", "delete_line"],
 
+            ["diw", "cut_inside_word"],
+            ["daw", "cut_around_word"],
+
             ["cc", ["enter_mode", "insert"], ["cut_internal_vim"]],
             ["C", ["enter_mode", "insert"], ["cut_to_end_vim"]],
             ["D", "cut_to_end_vim"],
             ["cw", ["enter_mode", "insert"], ["cut_word_right_vim"]],
             ["cb", ["enter_mode", "insert"], ["cut_word_left_vim"]],
 
+            ["ciw", ["enter_mode", "insert"], ["cut_inside_word"]],
+            ["caw", ["enter_mode", "insert"], ["cut_around_word"]],
+
             ["yy", ["copy_line_internal_vim"], ["cancel"]],
+
+            ["yiw", ["copy_inside_word"], ["cancel"]],
+            ["yaw", ["copy_around_word"], ["cancel"]],
 
             ["<C-u>", "move_scroll_half_page_up_vim"],
             ["<C-d>", "move_scroll_half_page_down_vim"],
@@ -158,6 +167,9 @@
             ["W", "select_word_right"],
             ["B", "select_word_left"],
             ["e", "select_word_right_end_vim"],
+
+            ["iw", "select_inside_word"],
+            ["aw", "select_around_word"],
 
             ["^", "smart_move_begin"],
             ["$", "select_end"],
