@@ -6,6 +6,7 @@
             ["ctrl+=", "adjust_fontsize", 1.0],
             ["ctrl+-", "adjust_fontsize", -1.0],
             ["ctrl+r", "find_file"],
+            ["ctrl+x d", "open_project_file_tree"],
             ["ctrl+h ctrl+a", "open_help"],
             ["ctrl+c ctrl+o", "open_recent_project"],
             ["ctrl+c g", "find_in_files"],
