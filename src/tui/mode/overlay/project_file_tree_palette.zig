@@ -231,17 +231,12 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     if (!(cbor.matchString(&iter, &file_icon) catch false)) return false;
     if (!(cbor.matchInt(u24, &iter, &icon_color) catch false)) return false;
 
-    if (icon_color == 0xFFFFFF or icon_color == 0x000000 or icon_color == 0x000001)
-        icon_color = style_label.fg.?.color;
-
-    var icon_style = style_label;
-    icon_style.fg.?.color = icon_color;
-
     button.plane.set_style(style_hint);
     tui.render_pointer(&button.plane, selected);
-    button.plane.set_style(icon_style);
     for (0..indent) |_| _ = button.plane.print(" ", .{}) catch {};
-    _ = button.plane.print("{s} ", .{file_icon}) catch {};
+
+    const icon_width = tui.render_file_icon(&button.plane, file_icon, icon_color);
+
     button.plane.set_style(style_label);
     _ = button.plane.print("{s} ", .{label_str}) catch {};
     button.plane.set_style(style_hint);
@@ -249,7 +244,7 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     var len = cbor.decodeArrayHeader(&iter) catch return false;
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
-            tui.render_match_cell(&button.plane, 0, index + 2, theme) catch break;
+            tui.render_match_cell(&button.plane, 0, index + 2 + icon_width + indent, theme) catch break;
         } else break;
     }
     return false;
