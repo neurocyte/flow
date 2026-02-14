@@ -220,7 +220,7 @@
             ["page_down", "move_scroll_page_down"],
 
             ["space F", "find_file"],
-            ["space e", "open_project_file_tree"],
+            ["space e", "open_file_tree"],
             ["space S", "workspace_symbol_picker"],
             ["space D", "workspace_diagnostics_picker"],
             ["space P", "system_paste"],

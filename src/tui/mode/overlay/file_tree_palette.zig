@@ -10,12 +10,10 @@ pub const Type = @import("palette.zig").Create(@This());
 const module_name = @typeName(@This());
 const Widget = @import("../../Widget.zig");
 
-pub const label = "File Explorer";
-pub const name = "File Explorer";
-pub const description = "Project file explorer";
-pub const icon = "  ";
-pub const modal_dim = true;
-pub const placement = .top_center;
+pub const label = "Filter tree";
+pub const name = "󰙅 tree";
+pub const description = "file tree";
+pub const icon = "  ";
 
 pub const NodeType = enum {
     file,
