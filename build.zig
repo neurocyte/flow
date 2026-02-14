@@ -20,7 +20,9 @@ pub fn build(b: *std.Build) void {
 
     var version: std.ArrayList(u8) = .empty;
     defer version.deinit(b.allocator);
-    gen_version(b, version.writer(b.allocator)) catch {
+    gen_version(b, version.writer(b.allocator)) catch |e| {
+        if (b.release_mode != .off)
+            std.debug.panic("gen_version failed: {any}", .{e});
         version.clearAndFree(b.allocator);
         version.appendSlice(b.allocator, "unknown") catch {};
     };
@@ -272,7 +274,9 @@ pub fn build_exe(
 
     var version_info: std.ArrayList(u8) = .empty;
     defer version_info.deinit(b.allocator);
-    gen_version_info(b, target, version_info.writer(b.allocator), optimize) catch {
+    gen_version_info(b, target, version_info.writer(b.allocator), optimize) catch |e| {
+        if (b.release_mode != .off)
+            std.debug.panic("gen_version failed: {any}", .{e});
         version_info.clearAndFree(b.allocator);
         version_info.appendSlice(b.allocator, "unknown") catch {};
     };
