@@ -171,7 +171,7 @@ fn getNodeIconAndColor(node: *const Node) !struct { []const u8, u24 } {
     if (node.type_ == .folder) {
         if (node.expanded) {
             return .{ "", 0 };
-        } else return .{ "", 0 };
+        } else return .{ "", 0 };
     }
 
     _, const icon_, const color_ = guess_file_type(node.path);
