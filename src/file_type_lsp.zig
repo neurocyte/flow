@@ -154,6 +154,11 @@ pub const openscad = .{
 
 pub const org = .{};
 
+pub const perl = .{
+    .language_server = .{"pls"},
+    .formatter = .{ "perltidy", "-ci=4", "-et=4", "-st" },
+};
+
 pub const php = .{
     .language_server = .{ "intelephense", "--stdio" },
 };
