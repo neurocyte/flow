@@ -112,8 +112,8 @@ pub const TransformError = error{
     WriteFailed,
 };
 
-fn utf8_write_transform(comptime field: uucode.FieldEnum, writer: *std.Io.Writer, text: []const u8) TransformError!void {
-    const view: Utf8View = .initUnchecked(text);
+fn utf8_write_transform_T(comptime View: anytype, comptime field: uucode.FieldEnum, writer: *std.Io.Writer, text: []const u8) TransformError!@typeInfo(@TypeOf(View.iterator)).@"fn".return_type.? {
+    const view: View = .initUnchecked(text);
     var it = view.iterator();
     while (it.nextCodepoint()) |cp| {
         const cp_ = switch (field) {
@@ -125,21 +125,15 @@ fn utf8_write_transform(comptime field: uucode.FieldEnum, writer: *std.Io.Writer
         const size = try utf8Encode(cp_, &utf8_buf);
         try writer.writeAll(utf8_buf[0..size]);
     }
+    return it;
+}
+
+fn utf8_write_transform(comptime field: uucode.FieldEnum, writer: *std.Io.Writer, text: []const u8) TransformError!void {
+    _ = try utf8_write_transform_T(Utf8View, field, writer, text);
 }
 
 fn utf8_partial_write_transform(comptime field: uucode.FieldEnum, writer: *std.Io.Writer, text: []const u8) TransformError![]const u8 {
-    const view: Utf8PartialView = .initUnchecked(text);
-    var it = view.iterator();
-    while (it.nextCodepoint()) |cp| {
-        const cp_ = switch (field) {
-            .simple_uppercase_mapping, .simple_lowercase_mapping => uucode.get(field, cp) orelse cp,
-            .case_folding_simple => uucode.get(field, cp),
-            else => @compileError(@tagName(field) ++ " is not a unicode transformation"),
-        };
-        var utf8_buf: [6]u8 = undefined;
-        const size = try utf8Encode(cp_, &utf8_buf);
-        try writer.writeAll(utf8_buf[0..size]);
-    }
+    const it = try utf8_write_transform_T(Utf8PartialView, field, writer, text);
     return text[0..it.end];
 }
 
