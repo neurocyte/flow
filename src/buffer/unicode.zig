@@ -150,17 +150,34 @@ fn utf8_transform(comptime field: uucode.FieldEnum, allocator: std.mem.Allocator
     return result.toOwnedSlice();
 }
 
-fn utf8_predicate(comptime field: uucode.FieldEnum, text: []const u8) bool {
+fn utf8_predicate_all(comptime field: uucode.FieldEnum, text: []const u8) bool {
     const view: Utf8View = .initUnchecked(text);
     var it = view.iterator();
     while (it.nextCodepoint()) |cp| {
         const result = switch (field) {
             .is_lowercase => uucode.get(field, cp),
+            .changes_when_casefolded => uucode.get(field, cp),
+            .changes_when_lowercased => uucode.get(field, cp),
             else => @compileError(@tagName(field) ++ " is not a unicode predicate"),
         };
         if (!result) return false;
     }
     return true;
+}
+
+fn utf8_predicate_any(comptime field: uucode.FieldEnum, text: []const u8) bool {
+    const view: Utf8View = .initUnchecked(text);
+    var it = view.iterator();
+    while (it.nextCodepoint()) |cp| {
+        const result = switch (field) {
+            .is_lowercase => uucode.get(field, cp),
+            .changes_when_casefolded => uucode.get(field, cp),
+            .changes_when_lowercased => uucode.get(field, cp),
+            else => @compileError(@tagName(field) ++ " is not a unicode predicate"),
+        };
+        if (result) return true;
+    }
+    return false;
 }
 
 pub fn to_upper(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
@@ -184,14 +201,14 @@ pub fn case_folded_write_partial(writer: *std.Io.Writer, text: []const u8) Trans
 }
 
 pub fn switch_case(allocator: std.mem.Allocator, text: []const u8) TransformError![]u8 {
-    return if (utf8_predicate(.is_lowercase, text))
-        to_upper(allocator, text)
+    return if (utf8_predicate_any(.changes_when_lowercased, text))
+        to_lower(allocator, text)
     else
-        to_lower(allocator, text);
+        to_upper(allocator, text);
 }
 
 pub fn is_lowercase(text: []const u8) bool {
-    return utf8_predicate(.is_lowercase, text);
+    return utf8_predicate_all(.is_lowercase, text);
 }
 
 const std = @import("std");
