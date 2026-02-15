@@ -138,6 +138,11 @@ pub const nu = .{
     .language_server = .{ "nu", "--lsp" },
 };
 
+pub const objc = .{
+    .language_server = .{"clangd"},
+    .formatter = .{"clang-format"},
+};
+
 pub const ocaml = .{
     .language_server = .{ "ocamllsp", "--fallback-read-dot-merlin" },
     .formatter = .{ "ocamlformat", "--profile=ocamlformat", "-" },
