@@ -1,5 +1,7 @@
 pub const agda = .{};
 
+pub const @"asm" = .{};
+
 pub const astro = .{
     .language_server = .{ "astro-ls", "--stdio" },
 };
