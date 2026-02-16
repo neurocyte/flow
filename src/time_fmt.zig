@@ -9,11 +9,11 @@ pub fn age_short(timestamp: i64) struct {
         else if (age < 86400)
             writer.print("{d}h", .{@divTrunc(age, 3600)})
         else if (age < 2592000)
-            writer.print("{d}d", .{@divTrunc(age, 86400)})
+            writer.print("{d}D", .{@divTrunc(age, 86400)})
         else if (age < 31536000)
-            writer.print("{d}mo", .{@divTrunc(age, 2592000)})
+            writer.print("{d}M", .{@divTrunc(age, 2592000)})
         else
-            writer.print("{d}y", .{@divTrunc(age, 31536000)});
+            writer.print("{d}Y", .{@divTrunc(age, 31536000)});
     }
 } {
     return .{ .timestamp = timestamp };
