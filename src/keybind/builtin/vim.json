@@ -3,10 +3,22 @@
         "init_command": ["enter_vim_mode"],
         "deinit_command": ["exit_vim_mode"]
     },
+    "project": {
+        "syntax": "vim",
+        "on_match_failure": "ignore",
+        "press": [
+            ["<Space><Space>", "find_file"],
+            ["<Space>b", "switch_buffers"],
+            ["<Space>/", "find_in_files"],
+
+            ["<Space>gs", "show_vcs_status"]
+        ]
+    },
     "normal": {
         "syntax": "vim",
         "on_match_failure": "ignore",
         "name": "NORMAL",
+        "inherit": "project",
         "line_numbers": "relative",
         "cursor": "block",
         "selection": "normal",
@@ -24,7 +36,6 @@
             ["k", "move_up_vim"],
             ["l", "move_right_vim"],
             ["h", "move_left_vim"],
-            ["<Space>", "move_right_vim"],
 
             ["J", "join_next_line"],
 
@@ -56,7 +67,7 @@
             ["gi", "goto_implementation"],
             ["gy", "goto_type_definition"],
             ["gg", "goto_line_vim"],
-            ["grn", "rename_symbol"],
+            ["gr", "references"],
             ["gD", "goto_declaration"],
             ["G", "move_buffer_end"],
 
@@ -112,13 +123,20 @@
             ["6", "add_integer_argument_digit", 6],
             ["7", "add_integer_argument_digit", 7],
             ["8", "add_integer_argument_digit", 8],
-            ["9", "add_integer_argument_digit", 9]
+            ["9", "add_integer_argument_digit", 9],
+
+            ["<Space>lf", "format"],
+            ["<Space>lr", "rename_symbol"],
+
+            ["<Space>sd", "show_diagnostics"],
+            ["<Space>ss", "show_symbols"]
         ]
     },
     "visual": {
         "syntax": "vim",
         "on_match_failure": "ignore",
         "name": "VISUAL",
+        "inherit": "project",
         "line_numbers": "relative",
         "cursor": "block",
         "selection": "normal",
@@ -184,6 +202,7 @@
         "syntax": "vim",
         "on_match_failure": "ignore",
         "name": "VISUAL LINE",
+        "inherit": "project",
         "line_numbers": "relative",
         "cursor": "block",
         "selection": "normal",
