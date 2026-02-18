@@ -2987,7 +2987,7 @@ pub const Editor = struct {
     }
 
     pub fn update_scroll_dest_abs(self: *Self, dest: usize) void {
-        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
+        const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         const root = self.buf_root() catch return;
         const max_view = if (root.lines() <= scroll_cursor_min_border_distance) 0 else root.lines() - scroll_cursor_min_border_distance;
         self.scroll_dest = @min(dest, max_view);
@@ -3057,7 +3057,7 @@ pub const Editor = struct {
     pub const scroll_view_center_meta: Meta = .{ .description = "Scroll cursor to center of view" };
 
     pub fn scroll_view_center_cycle(self: *Self, _: Context) Result {
-        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
+        const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         const cursor_row = self.get_primary().cursor.row;
         return if (cursor_row == self.view.row + scroll_cursor_min_border_distance)
             self.scroll_view_bottom(.{})
@@ -3069,14 +3069,14 @@ pub const Editor = struct {
     pub const scroll_view_center_cycle_meta: Meta = .{ .description = "Scroll cursor to center/top/bottom of view" };
 
     pub fn scroll_view_top(self: *Self, _: Context) Result {
-        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
+        const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         return self.scroll_view_offset(scroll_cursor_min_border_distance);
     }
     pub const scroll_view_top_meta: Meta = .{};
 
     pub fn scroll_view_bottom(self: *Self, _: Context) Result {
-        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
-        return self.scroll_view_offset(if (self.view.rows > scroll_cursor_min_border_distance) self.view.rows - scroll_cursor_min_border_distance else 0);
+        const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
+        return self.scroll_view_offset(if (self.view.rows > scroll_cursor_min_border_distance) self.view.rows -| scroll_cursor_min_border_distance + 1 else 0);
     }
     pub const scroll_view_bottom_meta: Meta = .{};
 
@@ -6386,7 +6386,7 @@ pub const Editor = struct {
         const cursor = sel.begin;
         const range_height = sel.end.row - sel.begin.row + 1;
         const view_height = self.view.rows;
-        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
+        const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         const offset = if (range_height > view_height - @min(view_height, scroll_cursor_min_border_distance * 2))
             scroll_cursor_min_border_distance
         else
@@ -6416,7 +6416,7 @@ pub const Editor = struct {
         primary.cursor = cursor;
         const range_height = sel.end.row - sel.begin.row + 1;
         const view_height = self.view.rows;
-        const scroll_cursor_min_border_distance = tui.config().scroll_cursor_min_border_distance;
+        const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         const offset = if (range_height > view_height - @min(view_height, scroll_cursor_min_border_distance * 2))
             scroll_cursor_min_border_distance
         else

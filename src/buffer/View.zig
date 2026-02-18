@@ -9,7 +9,7 @@ col: usize = 0,
 rows: usize = 0,
 cols: usize = 0,
 
-const scroll_cursor_min_border_distance = 5;
+pub var scroll_cursor_min_border_distance: usize = 5;
 const scroll_cursor_min_border_distance_mouse = 1;
 
 const Self = @This();
@@ -65,7 +65,7 @@ inline fn is_at_top(self: *const Self) bool {
 
 inline fn is_at_bottom(self: *const Self, root: Buffer.Root) bool {
     if (root.lines() < self.rows) return true;
-    return self.row >= root.lines() - scroll_cursor_min_border_distance;
+    return self.row >= root.lines() -| scroll_cursor_min_border_distance;
 }
 
 pub inline fn is_visible(self: *const Self, cursor: *const Cursor) bool {
@@ -96,7 +96,7 @@ inline fn to_cursor_bottom(self: *const Self, root: Buffer.Root) Cursor {
 
 fn clamp_row(self: *Self, cursor: *const Cursor, abs: bool, bottom_offset: usize) void {
     const top_min_border_distance: usize = if (abs) scroll_cursor_min_border_distance_mouse else scroll_cursor_min_border_distance;
-    const bottom_min_border_distance: usize = top_min_border_distance + bottom_offset;
+    const bottom_min_border_distance: usize = top_min_border_distance + bottom_offset + 1;
     if (cursor.row < top_min_border_distance) {
         self.row = 0;
         return;
