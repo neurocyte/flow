@@ -854,7 +854,7 @@ fn sendKey(
     }
 
     if (unicode_result == 0) {
-        std.log.warn("unknown virtual key {f} (0x{x})", .{ winkey, winkey.vk });
+        std.log.debug("unknown virtual key {f} (0x{x})", .{ winkey, winkey.vk });
         return;
     }
     for (char_buf[0..@intCast(unicode_result)]) |codepoint| {
