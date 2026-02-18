@@ -748,7 +748,54 @@ fn sendKey(
         win32.GetLastError(),
     );
 
-    const mods: vaxis.Key.Modifiers = .{
+    const win_key_flags: WinKeyFlags = @bitCast(@as(u32, @intCast(0xffffffff & lparam)));
+    const winkey: WinKey = .{
+        .vk = @intCast(0xffff & wparam),
+        .extended = win_key_flags.extended,
+    };
+
+    const is_altgr: bool = blk: {
+        if (winkey.vk == @intFromEnum(win32.VK_CONTROL)) {
+            var next: win32.MSG = undefined;
+            if (win32.PeekMessageW(&next, null, win32.WM_KEYFIRST, win32.WM_KEYLAST, win32.PM_NOREMOVE) != 0) {
+                const next_win_key_flags: WinKeyFlags = @bitCast(@as(u32, @intCast(0xffffffff & next.lParam)));
+                const next_winkey: WinKey = .{
+                    .vk = @intCast(0xffff & next.wParam),
+                    .extended = next_win_key_flags.extended,
+                };
+                if (next_winkey.vk == @intFromEnum(win32.VK_MENU) and next_win_key_flags.extended) {
+                    _ = win32.PeekMessageW(&next, null, win32.WM_KEYFIRST, win32.WM_KEYLAST, win32.PM_REMOVE);
+                    break :blk true;
+                }
+            }
+        }
+        const right_alt = keyboard_state[@intFromEnum(win32.VK_RMENU)] & 0x80 != 0;
+        const left_ctrl = keyboard_state[@intFromEnum(win32.VK_LCONTROL)] & 0x80 != 0;
+        const right_ctrl = keyboard_state[@intFromEnum(win32.VK_RCONTROL)] & 0x80 != 0;
+        break :blk right_alt and left_ctrl and !right_ctrl;
+    };
+
+    if (is_altgr) {
+        if (winkey.vk == @intFromEnum(win32.VK_CONTROL) or
+            winkey.vk == @intFromEnum(win32.VK_LCONTROL) or
+            winkey.vk == @intFromEnum(win32.VK_MENU) or
+            winkey.vk == @intFromEnum(win32.VK_RMENU))
+        {
+            std.log.debug("dropped AltGr key event: {!t} {t}", .{ std.meta.intToEnum(win32.VIRTUAL_KEY, winkey.vk), kind });
+            return;
+        }
+    }
+
+    const mods: vaxis.Key.Modifiers = if (is_altgr) .{
+        .shift = (0 != (keyboard_state[@intFromEnum(win32.VK_SHIFT)] & 0x80)),
+        .alt = (0 != (keyboard_state[@intFromEnum(win32.VK_LMENU)] & 0x80)),
+        .ctrl = (0 != (keyboard_state[@intFromEnum(win32.VK_RCONTROL)] & 0x80)),
+        .super = false,
+        .hyper = false,
+        .meta = false,
+        .caps_lock = (0 != (keyboard_state[@intFromEnum(win32.VK_CAPITAL)] & 1)),
+        .num_lock = false,
+    } else .{
         .shift = (0 != (keyboard_state[@intFromEnum(win32.VK_SHIFT)] & 0x80)),
         .alt = (0 != (keyboard_state[@intFromEnum(win32.VK_MENU)] & 0x80)),
         .ctrl = (0 != (keyboard_state[@intFromEnum(win32.VK_CONTROL)] & 0x80)),
@@ -769,11 +816,6 @@ fn sendKey(
         .release => input.event.release,
     };
 
-    const win_key_flags: WinKeyFlags = @bitCast(@as(u32, @intCast(0xffffffff & lparam)));
-    const winkey: WinKey = .{
-        .vk = @intCast(0xffff & wparam),
-        .extended = win_key_flags.extended,
-    };
     if (winkey.skipToUnicode()) |codepoint| {
         state.pid.send(.{
             "RDR",
