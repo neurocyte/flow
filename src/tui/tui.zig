@@ -177,7 +177,6 @@ fn init(allocator: Allocator) InitError!*Self {
     tp.env.get().set("follow_directory_symlinks", conf.follow_directory_symlinks);
     tp.env.get().set("log_ignored_links", conf.log_ignored_links);
     tp.env.get().num_set("maximum_symlink_depth", @intCast(conf.maximum_symlink_depth));
-    Buffer.View.scroll_cursor_min_border_distance = conf.scroll_cursor_min_border_distance;
 
     var self = try allocator.create(Self);
     // don't destroy
@@ -1950,7 +1949,11 @@ pub fn frames_rendered() usize {
 }
 
 pub fn resize() void {
-    mainview_widget().resize(screen());
+    const self = current();
+    const scr = screen();
+    const half_scr = (scr.h -| 2) / 2;
+    Buffer.View.scroll_cursor_min_border_distance = @min(half_scr, self.config_.scroll_cursor_min_border_distance);
+    mainview_widget().resize(scr);
     refresh_hover(@src());
     need_render(@src());
 }
