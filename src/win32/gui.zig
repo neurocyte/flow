@@ -832,8 +832,6 @@ fn sendKey(
     const max_char_count = 20;
     var char_buf: [max_char_count + 1]u16 = undefined;
 
-    // release control key when getting the unicode character of this key
-    keyboard_state[@intFromEnum(win32.VK_CONTROL)] = 0;
     const unicode_result = win32.ToUnicode(
         winkey.vk,
         win_key_flags.scan_code,
