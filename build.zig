@@ -345,6 +345,7 @@ pub fn build_exe(
         .target = target,
         .optimize = optimize_deps,
         .use_tree_sitter = use_tree_sitter,
+        .use_llvm = use_llvm,
     });
     const syntax_mod = syntax_dep.module("syntax");
 
