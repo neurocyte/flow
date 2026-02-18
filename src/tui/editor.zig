@@ -3021,25 +3021,23 @@ pub const Editor = struct {
         self.update_scroll_dest_abs(dest_row);
     }
 
-    pub fn scroll_up_pageup(self: *Self, ctx: Context) Result {
+    pub fn mouse_scroll_up(self: *Self) void {
         if (tui.alt_scroll())
-            try self.move_scroll_left(ctx)
+            self.mouse_scroll_left()
         else if (tui.fast_scroll())
             self.scroll_pageup()
         else
             self.scroll_up();
     }
-    pub const scroll_up_pageup_meta: Meta = .{};
 
-    pub fn scroll_down_pagedown(self: *Self, ctx: Context) Result {
+    pub fn mouse_scroll_down(self: *Self) void {
         if (tui.alt_scroll())
-            try self.move_scroll_right(ctx)
+            self.mouse_scroll_right()
         else if (tui.fast_scroll())
             self.scroll_pagedown()
         else
             self.scroll_down();
     }
-    pub const scroll_down_pagedown_meta: Meta = .{};
 
     pub fn scroll_to(self: *Self, row: usize) void {
         self.update_scroll_dest_abs(row);
@@ -4398,24 +4396,32 @@ pub const Editor = struct {
     pub const move_scroll_down_meta: Meta = .{ .description = "Move and scroll down", .arguments = &.{.integer} };
 
     pub fn move_scroll_left(self: *Self, _: Context) Result {
-        const scroll_step_horizontal = tui.config().scroll_step_horizontal;
-        const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
-        if (tui.fast_scroll())
-            self.view.move_left(scroll_step_horizontal_fast) catch {}
-        else
-            self.view.move_left(scroll_step_horizontal) catch {};
+        self.view.move_left(tui.config().scroll_step_horizontal) catch {};
     }
     pub const move_scroll_left_meta: Meta = .{ .description = "Scroll left" };
 
     pub fn move_scroll_right(self: *Self, _: Context) Result {
-        const scroll_step_horizontal = tui.config().scroll_step_horizontal;
-        const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
-        if (tui.fast_scroll())
-            self.view.move_right(scroll_step_horizontal_fast) catch {}
-        else
-            self.view.move_right(scroll_step_horizontal) catch {};
+        self.view.move_right(tui.config().scroll_step_horizontal) catch {};
     }
     pub const move_scroll_right_meta: Meta = .{ .description = "Scroll right" };
+
+    pub fn mouse_scroll_left(self: *Self) void {
+        const scroll_step_horizontal = tui.config().scroll_step_horizontal;
+        const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
+        self.view.move_left(if (tui.fast_scroll())
+            scroll_step_horizontal_fast
+        else
+            scroll_step_horizontal) catch {};
+    }
+
+    pub fn mouse_scroll_right(self: *Self) void {
+        const scroll_step_horizontal = tui.config().scroll_step_horizontal;
+        const scroll_step_horizontal_fast = scroll_step_horizontal * 5;
+        self.view.move_right(if (tui.fast_scroll())
+            scroll_step_horizontal_fast
+        else
+            scroll_step_horizontal) catch {};
+    }
 
     pub fn move_scroll_page_up(self: *Self, _: Context) Result {
         if (self.screen_cursor(&self.get_primary().cursor)) |cursor| {
@@ -7533,19 +7539,19 @@ pub const EditorWidget = struct {
     }
 
     fn mouse_click_button4(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
-        try self.editor.scroll_up_pageup(.{});
+        self.editor.mouse_scroll_up();
     }
 
     fn mouse_click_button5(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
-        try self.editor.scroll_down_pagedown(.{});
+        self.editor.mouse_scroll_down();
     }
 
     fn mouse_click_button6(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
-        try self.editor.move_scroll_left(.{});
+        self.editor.mouse_scroll_left();
     }
 
     fn mouse_click_button7(self: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {
-        try self.editor.move_scroll_right(.{});
+        self.editor.mouse_scroll_right();
     }
 
     fn mouse_click_button8(_: *Self, _: c_int, _: c_int, _: c_int, _: c_int) Result {

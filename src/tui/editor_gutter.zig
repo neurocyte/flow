@@ -369,12 +369,12 @@ fn middle_click(_: *Self) error{Exit}!bool {
 }
 
 fn mouse_click_button4(self: *Self) error{Exit}!bool {
-    self.editor.scroll_up_pageup(.{}) catch {};
+    self.editor.mouse_scroll_up();
     return true;
 }
 
 fn mouse_click_button5(self: *Self) error{Exit}!bool {
-    self.editor.scroll_down_pagedown(.{}) catch {};
+    self.editor.mouse_scroll_down();
     return true;
 }
 
