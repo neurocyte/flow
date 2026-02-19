@@ -305,6 +305,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
         palette.inputbox.cursor = tui.egc_chunk_width(palette.inputbox.text.items, 0, 8);
 
         if (node.expanded and node.children == null) {
+            select_child(palette, node);
             request_node_children(palette, node) catch |e| {
                 palette.logger.err("request_node_children", e);
                 return;
@@ -321,6 +322,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 
         palette.initial_selected = new_idx;
         palette.start_query(0) catch {};
+        select_child(palette, node);
         tui.need_render(@src());
     } else {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| palette.logger.err(module_name, e);
