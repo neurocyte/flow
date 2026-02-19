@@ -23,6 +23,8 @@
         "cursor": "block",
         "selection": "normal",
         "press": [
+            ["<C-w>", "close_file"],
+            ["<C-s>", "save_file"],
             ["b", "move_word_left_vim"],
             ["w", "move_word_right_vim"],
             ["W", "move_word_right"],
