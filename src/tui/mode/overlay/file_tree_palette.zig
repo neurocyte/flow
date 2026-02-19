@@ -44,6 +44,10 @@ pub const Entry = struct {
 pub fn deinit(palette: *Type) void {
     tui.message_filters().remove_ptr(palette);
     palette.value.pending_node = null;
+    if (palette.value.follow_file_path) |path| {
+        palette.allocator.free(path);
+        palette.value.follow_file_path = null;
+    }
     if (palette.value.root_node) |node| {
         deinit_root_node(palette.allocator, node);
         palette.value.root_node = null;
@@ -70,6 +74,7 @@ fn deinit_node(allocator: std.mem.Allocator, node: *Node) void {
 pub const ValueType = struct {
     root_node: ?*Node = null,
     pending_node: ?*Node = null,
+    follow_file_path: ?[]const u8 = null,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -118,10 +123,12 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     } else if (try cbor.match(m.buf, .{ "PRJ", "path_entry", tp.any, tp.any, "LINK", tp.extract(&file_name), tp.extract(&file_type_name), tp.extract(&icon_), tp.extract(&color_) })) {
         try append_pending_child(palette, file_name, .file, icon_, color_);
     } else if (try cbor.match(m.buf, .{ "PRJ", "path_done", tp.any, tp.any, tp.any })) {
+        const pending = palette.value.pending_node;
         palette.value.pending_node = null;
         palette.entries.clearRetainingCapacity();
         if (palette.value.root_node) |root| try build_visible_list(palette, root, 0);
         palette.longest_hint = max_entry_overhead(palette);
+        try follow_file(palette, pending);
         palette.start_query(0) catch {};
         tui.need_render(@src());
     } else if (try cbor.match(m.buf, .{ "PRJ", "path_error", tp.any, tp.any, tp.any })) {
@@ -162,7 +169,38 @@ fn max_entry_overhead(palette: *Type) usize {
     return max_overhead;
 }
 
+fn follow_file(palette: *Type, pending_: ?*Node) !void {
+    const pending = pending_ orelse return;
+    const target = palette.value.follow_file_path orelse return;
+    const children = pending.children orelse return;
+
+    for (children.items) |*child| {
+        if (child.type_ == .folder and std.mem.startsWith(u8, target, child.path) and
+            (target.len == child.path.len or target[child.path.len] == std.fs.path.sep))
+        {
+            child.expanded = true;
+            try request_node_children(palette, child);
+            return;
+        } else if (child.type_ == .file and std.mem.eql(u8, target, child.path)) {
+            select_child(palette, child);
+            palette.allocator.free(palette.value.follow_file_path.?);
+            palette.value.follow_file_path = null;
+            return;
+        }
+    }
+    palette.allocator.free(palette.value.follow_file_path.?);
+    palette.value.follow_file_path = null;
+}
+
+fn select_child(palette: *Type, child: *Node) void {
+    const idx = for (palette.entries.items, 0..) |entry, i| {
+        if (entry.node == child) break i;
+    } else return;
+    palette.initial_selected = idx + 1;
+}
+
 pub fn load_entries(palette: *Type) !usize {
+    palette.quick_activate_enabled = false;
     palette.entries.clearRetainingCapacity();
 
     tui.message_filters().add(MessageFilter.bind(palette, receive_project_manager)) catch {};
@@ -176,7 +214,7 @@ pub fn load_entries(palette: *Type) !usize {
         const basename = std.fs.path.basename(project_path);
         const node_name = try palette.allocator.dupe(u8, basename);
         errdefer palette.allocator.free(node_name);
-        const path = try palette.allocator.dupe(u8, project_path);
+        const path = try palette.allocator.dupe(u8, "");
         errdefer palette.allocator.free(path);
         const node_icon = try palette.allocator.dupe(u8, "󰝰");
         errdefer palette.allocator.free(node_icon);
@@ -191,17 +229,15 @@ pub fn load_entries(palette: *Type) !usize {
             .color = 0,
         };
         palette.value.root_node = node;
+        if (tui.get_active_editor()) |editor| if (editor.file_path) |file_path| {
+            palette.value.follow_file_path = try palette.allocator.dupe(u8, file_path);
+        };
         try request_node_children(palette, node);
         return 0;
     }
 
     try build_visible_list(palette, palette.value.root_node.?, 0);
     return max_entry_overhead(palette);
-}
-
-pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
-    _ = palette;
-    _ = button_;
 }
 
 pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.Theme, selected: bool) bool {
