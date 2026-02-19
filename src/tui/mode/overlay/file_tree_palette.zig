@@ -44,9 +44,9 @@ pub const Entry = struct {
 pub fn deinit(palette: *Type) void {
     tui.message_filters().remove_ptr(palette);
     palette.value.pending_node = null;
-    if (palette.value.follow_file_path) |path| {
+    if (palette.value.follow_path) |path| {
         palette.allocator.free(path);
-        palette.value.follow_file_path = null;
+        palette.value.follow_path = null;
     }
     if (palette.value.root_node) |node| {
         deinit_root_node(palette.allocator, node);
@@ -74,7 +74,7 @@ fn deinit_node(allocator: std.mem.Allocator, node: *Node) void {
 pub const ValueType = struct {
     root_node: ?*Node = null,
     pending_node: ?*Node = null,
-    follow_file_path: ?[]const u8 = null,
+    follow_path: ?[]const u8 = null,
 };
 pub const defaultValue: ValueType = .{};
 
@@ -128,7 +128,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
         palette.entries.clearRetainingCapacity();
         if (palette.value.root_node) |root| try build_visible_list(palette, root, 0);
         palette.longest_hint = max_entry_overhead(palette);
-        try follow_file(palette, pending);
+        try follow_path(palette, pending);
         palette.start_query(0) catch {};
         tui.need_render(@src());
     } else if (try cbor.match(m.buf, .{ "PRJ", "path_error", tp.any, tp.any, tp.any })) {
@@ -169,9 +169,9 @@ fn max_entry_overhead(palette: *Type) usize {
     return max_overhead;
 }
 
-fn follow_file(palette: *Type, pending_: ?*Node) !void {
+fn follow_path(palette: *Type, pending_: ?*Node) !void {
     const pending = pending_ orelse return;
-    const target = palette.value.follow_file_path orelse return;
+    const target = palette.value.follow_path orelse return;
     const children = pending.children orelse return;
 
     for (children.items) |*child| {
@@ -183,13 +183,13 @@ fn follow_file(palette: *Type, pending_: ?*Node) !void {
             return;
         } else if (child.type_ == .file and std.mem.eql(u8, target, child.path)) {
             select_child(palette, child);
-            palette.allocator.free(palette.value.follow_file_path.?);
-            palette.value.follow_file_path = null;
+            palette.allocator.free(palette.value.follow_path.?);
+            palette.value.follow_path = null;
             return;
         }
     }
-    palette.allocator.free(palette.value.follow_file_path.?);
-    palette.value.follow_file_path = null;
+    palette.allocator.free(palette.value.follow_path.?);
+    palette.value.follow_path = null;
 }
 
 fn select_child(palette: *Type, child: *Node) void {
@@ -230,7 +230,7 @@ pub fn load_entries(palette: *Type) !usize {
         };
         palette.value.root_node = node;
         if (tui.get_active_editor()) |editor| if (editor.file_path) |file_path| {
-            palette.value.follow_file_path = try palette.allocator.dupe(u8, file_path);
+            palette.value.follow_path = try palette.allocator.dupe(u8, file_path);
         };
         try request_node_children(palette, node);
         return 0;
