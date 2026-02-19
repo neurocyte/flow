@@ -55,7 +55,17 @@ const Self = @This();
 
 const OutOfMemoryError = error{OutOfMemory};
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
-pub const RequestError = error{InvalidRequest} || OutOfMemoryError || cbor.Error;
+pub const RequestError = error{
+    InvalidMostRecentFileRequest,
+    InvalidNewOrModifiedFilesRequest,
+    InvalidQueryNewOrModifiedFilesRequest,
+    InvalidRequestNewOrModifiedFilesRequest,
+    InvalidRecentFilesRequest,
+    InvalidQueryRecentFilesRequest,
+    InvalidGetMruPositionRequest,
+    InvalidVcsStatusRequest,
+    InvalidTasksRequest,
+} || OutOfMemoryError || cbor.Error;
 pub const StartLspError = (error{ ThespianSpawnFailed, Timeout, InvalidLspCommand } || LspError || OutOfMemoryError || cbor.Error);
 pub const LspError = (error{ NoLsp, LspFailed } || OutOfMemoryError || std.Io.Writer.Error);
 pub const GitError = error{InvalidGitResponse};
@@ -386,7 +396,7 @@ inline fn sort_by_mtime(T: type, items: []T) void {
 }
 
 pub fn request_n_most_recent_file(self: *Self, from: tp.pid_ref, n: usize) RequestError!void {
-    if (n >= self.files.items.len) return error.InvalidRequest;
+    if (n >= self.files.items.len) return error.InvalidMostRecentFileRequest;
     const file_path = if (self.files.items.len > 0) self.files.items[n].path else null;
     from.send(.{file_path}) catch |e|
         std.log.err("send request_n_most_recent_file failed: {t}", .{e});
@@ -415,7 +425,7 @@ fn simple_query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize,
             while (n < query.len) : (n += 1) matches[n] = idx + n;
             from.send(.{ "PRJ", "new_or_modified_files", self.longest_new_or_modified_file_path, file.path, file.type, file.icon, file.color, file.vcs_status, matches }) catch |e| {
                 std.log.err("send new_or_modified_files failed: {t}", .{e});
-                return error.InvalidRequest;
+                return error.InvalidNewOrModifiedFilesRequest;
             };
             i += 1;
             if (i >= max) return i;
@@ -485,7 +495,7 @@ pub fn query_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize, qu
     for (matches.items[0..@min(max, matches.items.len)]) |match|
         from.send(.{ "PRJ", "new_or_modified_files", self.longest_new_or_modified_file_path, match.path, match.type, match.icon, match.color, match.vcs_status, match.matches }) catch |e| {
             std.log.err("send new_or_modified_files failed: {t}", .{e});
-            return error.InvalidRequest;
+            return error.InvalidQueryNewOrModifiedFilesRequest;
         };
     return @min(max, matches.items.len);
 }
@@ -495,7 +505,7 @@ pub fn request_new_or_modified_files(self: *Self, from: tp.pid_ref, max: usize) 
     for (self.new_or_modified_files.items, 0..) |file, i| {
         from.send(.{ "PRJ", "new_or_modified_files", self.longest_new_or_modified_file_path, file.path, file.type, file.icon, file.color, file.vcs_status }) catch |e| {
             std.log.err("send navigate failed: {t}", .{e});
-            return error.InvalidRequest;
+            return error.InvalidRequestNewOrModifiedFilesRequest;
         };
         if (i >= max) return;
     }
@@ -513,7 +523,7 @@ fn simple_query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query: [
             while (n < query.len) : (n += 1) matches[n] = idx + n;
             from.send(.{ "PRJ", "recent", self.longest_file_path, file.path, file.type, file.icon, file.color, matches }) catch |e| {
                 std.log.err("send navigate failed: {t}", .{e});
-                return error.InvalidRequest;
+                return error.InvalidRecentFilesRequest;
             };
             i += 1;
             if (i >= max) return i;
@@ -572,7 +582,7 @@ pub fn query_recent_files(self: *Self, from: tp.pid_ref, max: usize, query_: []c
     for (matches.items[0..@min(max, matches.items.len)]) |match|
         from.send(.{ "PRJ", "recent", self.longest_file_path, match.path, match.type, match.icon, match.color, match.matches }) catch |e| {
             std.log.err("send navigate failed: {t}", .{e});
-            return error.InvalidRequest;
+            return error.InvalidQueryRecentFilesRequest;
         };
     return @min(max, matches.items.len);
 }
@@ -808,10 +818,10 @@ fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usi
 pub fn get_mru_position(self: *Self, from: tp.pid_ref, file_path: []const u8) RequestError!void {
     for (self.files.items) |*file| {
         if (!std.mem.eql(u8, file.path, file_path)) continue;
-        from.send(.{ file.pos.row + 1, file.pos.col + 1 }) catch return error.InvalidRequest;
+        from.send(.{ file.pos.row + 1, file.pos.col + 1 }) catch return error.InvalidGetMruPositionRequest;
         return;
     }
-    from.send(.{"none"}) catch return error.InvalidRequest;
+    from.send(.{"none"}) catch return error.InvalidGetMruPositionRequest;
 }
 
 pub fn request_vcs_status(self: *Self, from: tp.pid_ref) RequestError!void {
@@ -822,7 +832,7 @@ pub fn request_vcs_status(self: *Self, from: tp.pid_ref) RequestError!void {
                 if (self.status_request) |_| return;
                 self.status_request = from.clone();
             },
-            else => return error.InvalidRequest,
+            else => return error.InvalidVcsStatusRequest,
         },
         .running => {
             if (self.status_request) |_| return;
@@ -859,7 +869,7 @@ pub fn request_tasks(self: *Self, from: tp.pid_ref) RequestError!void {
         try cbor.writeValue(writer, task.command);
     from.send_raw(.{ .buf = message.written() }) catch |e| {
         std.log.err("send navigate failed: {t}", .{e});
-        return error.InvalidRequest;
+        return error.InvalidTasksRequest;
     };
 }
 
