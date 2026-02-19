@@ -6286,7 +6286,7 @@ pub const Editor = struct {
         self.clamp();
         try self.send_editor_jump_destination();
     }
-    pub const goto_line_vim_meta: Meta = .{ .arguments = &.{.integer} };
+    pub const goto_line_vim_meta: Meta = .{ .description = "Goto line (vim)", .arguments = &.{.integer} };
 
     pub fn select_to_line_vim(self: *Self, ctx: Context) Result {
         try self.send_editor_jump_source();
