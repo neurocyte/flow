@@ -281,6 +281,7 @@
     "home": {
         "syntax": "vim",
         "on_match_failure": "ignore",
+        "inherit": "project",
         "press": [
             ["f", "find_file"],
             ["g", "find_in_files"],
@@ -291,8 +292,7 @@
             ["F", "change_fontface"],
             ["h", "open_help"],
             ["v", "open_version_info"],
-            ["q", "quit"],
-            ["<Space>", "home_menu_activate"]
+            ["q", "quit"]
         ]
     }
 }
