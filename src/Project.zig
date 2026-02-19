@@ -832,6 +832,7 @@ pub fn request_vcs_status(self: *Self, from: tp.pid_ref) RequestError!void {
                 if (self.status_request) |_| return;
                 self.status_request = from.clone();
             },
+            .failed => return,
             else => return error.InvalidVcsStatusRequest,
         },
         .running => {
