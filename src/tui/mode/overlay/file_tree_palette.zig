@@ -301,6 +301,9 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     if (node.type_ == .folder) {
         node.expanded = !node.expanded;
 
+        palette.inputbox.text.shrinkRetainingCapacity(0);
+        palette.inputbox.cursor = tui.egc_chunk_width(palette.inputbox.text.items, 0, 8);
+
         if (node.expanded and node.children == null) {
             request_node_children(palette, node) catch |e| {
                 palette.logger.err("request_node_children", e);
@@ -311,9 +314,6 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 
         palette.entries.clearRetainingCapacity();
         if (palette.value.root_node) |root| build_visible_list(palette, root, 0) catch return;
-
-        palette.inputbox.text.shrinkRetainingCapacity(0);
-        palette.inputbox.cursor = tui.egc_chunk_width(palette.inputbox.text.items, 0, 8);
 
         const new_idx = for (palette.entries.items, 0..) |e, i| {
             if (e.node == node) break i + 1;
