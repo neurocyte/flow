@@ -704,7 +704,8 @@ const BindingSet = struct {
     }
 
     //register a key press and try to match it with a binding
-    fn process_key_event(self: *const @This(), key_event: KeyEvent) !?*Binding {
+    fn process_key_event(self: *const @This(), key_event_: KeyEvent) !?*Binding {
+        var key_event = key_event_;
         const event = key_event.event;
         const text = key_event.text;
         var codepoint_buf: [6]u8 = undefined;
@@ -714,14 +715,17 @@ const BindingSet = struct {
         };
 
         //ignore modifiers for modifier key events
-        const mods = switch (key_event.key) {
+        key_event.modifiers = switch (key_event.key) {
             input.key.left_control, input.key.right_control => 0,
             input.key.left_alt, input.key.right_alt => 0,
             input.key.left_shift, input.key.right_shift => 0,
             input.key.left_super, input.key.right_super => 0,
             input.key.iso_level_3_shift, input.key.iso_level_5_shift => 0,
             else => switch (mode_flag) {
-                .ignore_alt_text_modifiers => if (std.mem.eql(u8, text, codepoint)) key_event.modifiers else 0,
+                .ignore_alt_text_modifiers => if (text.len == 0 or std.mem.eql(u8, text, codepoint))
+                    key_event.modifiers
+                else
+                    key_event.modifiers & ~input.mod.alt,
                 .normal => key_event.modifiers,
             },
         };
@@ -740,7 +744,7 @@ const BindingSet = struct {
             return null;
 
         try globals.current_sequence.append(globals_allocator, key_event);
-        if ((mods & ~(input.mod.shift | input.mod.caps_lock) == 0) and !input.is_non_input_key(key_event.key)) {
+        if ((key_event.modifiers & ~(input.mod.shift | input.mod.caps_lock) == 0) and !input.is_non_input_key(key_event.key)) {
             const bytes = if (text.len > 0) text else codepoint;
             try globals.current_sequence_egc.appendSlice(globals_allocator, bytes);
         }
