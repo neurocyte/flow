@@ -1089,6 +1089,9 @@ const cmds = struct {
             if (!tui.config().show_local_diagnostics_in_panel)
                 return;
         }
+        if (!self.is_panel_view_showing(filelist_view) and !tui.config().auto_open_panel_for_diagnostics) {
+            return;
+        }
         try self.add_find_in_files_result(
             .diagnostics,
             file_path,
