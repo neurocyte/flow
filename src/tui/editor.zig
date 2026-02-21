@@ -3697,7 +3697,15 @@ pub const Editor = struct {
     }
 
     pub fn move_cursor_word_right(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        const line_width = root.line_width(cursor.row, metrics) catch 0;
+        if (cursor.col >= line_width) {
+            cursor.move_down(root, metrics) catch return;
+            cursor.move_begin();
+            return;
+        }
         move_cursor_right_until(root, cursor, is_word_boundary_right, metrics);
+        const new_line_width = root.line_width(cursor.row, metrics) catch 0;
+        if (cursor.col >= new_line_width) return;
         try move_cursor_right(root, cursor, metrics);
     }
 
