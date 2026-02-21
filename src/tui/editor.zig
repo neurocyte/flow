@@ -656,7 +656,7 @@ pub const Editor = struct {
         if (self.completions_request) |*p| p.deinit(self.allocator);
         self.changes.deinit(self.allocator);
         self.clear_event_triggers();
-        if (self.syntax) |syn| syn.destroy(tui.query_cache());
+        if (self.syntax) |syn| syn.destroy();
         self.cancel_all_tabstops();
         self.cursels.deinit(self.allocator);
         self.matches.deinit(self.allocator);
@@ -7217,7 +7217,7 @@ pub const Editor = struct {
         if (!try ctx.args.match(.{tp.extract(&file_type)}))
             return error.InvalidSetFileTypeArgument;
 
-        if (self.syntax) |syn| syn.destroy(tui.query_cache());
+        if (self.syntax) |syn| syn.destroy();
         self.syntax_last_rendered_root = null;
         self.syntax_refresh_full = true;
         self.syntax_incremental_reparse = false;
