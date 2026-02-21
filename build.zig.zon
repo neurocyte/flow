@@ -1,6 +1,6 @@
 .{
     .name = .flow,
-    .version = "0.6.0",
+    .version = "0.7.2",
     .minimum_zig_version = "0.15.2",
     .fingerprint = 0x52c0d670590aa80f,
 
