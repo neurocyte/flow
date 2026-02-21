@@ -3712,16 +3712,22 @@ pub const Editor = struct {
     }
 
     pub fn move_cursor_word_right_space(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) error{Stop}!void {
+        const line_width = root.line_width(cursor.row, metrics) catch 0;
+        if (cursor.col >= line_width) {
+            cursor.move_down(root, metrics) catch return;
+            cursor.move_begin();
+            return;
+        }
         var next = cursor.*;
         next.move_right(root, metrics) catch {
-            move_cursor_right_until(root, cursor, is_word_boundary_right, metrics);
-            try move_cursor_right(root, cursor, metrics);
             return;
         };
         if (is_non_word_char_at_cursor(root, cursor, metrics) and is_non_word_char_at_cursor(root, &next, metrics))
             move_cursor_right_until(root, cursor, is_non_word_boundary_right, metrics)
         else
             move_cursor_right_until(root, cursor, is_word_boundary_right, metrics);
+        const new_line_width = root.line_width(cursor.row, metrics) catch 0;
+        if (cursor.col >= new_line_width) return;
         try move_cursor_right(root, cursor, metrics);
     }
 
