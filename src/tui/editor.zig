@@ -3057,9 +3057,9 @@ pub const Editor = struct {
     pub fn scroll_view_center_cycle(self: *Self, _: Context) Result {
         const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
         const cursor_row = self.get_primary().cursor.row;
-        return if (cursor_row == self.view.row + scroll_cursor_min_border_distance)
+        return if (cursor_row <= self.view.row + scroll_cursor_min_border_distance)
             self.scroll_view_bottom(.{})
-        else if (cursor_row == self.view.row + self.view.rows / 2)
+        else if (cursor_row <= self.view.row + self.view.rows / 2)
             self.scroll_view_top(.{})
         else
             self.scroll_view_offset(self.view.rows / 2);
@@ -3074,7 +3074,7 @@ pub const Editor = struct {
 
     pub fn scroll_view_bottom(self: *Self, _: Context) Result {
         const scroll_cursor_min_border_distance = Buffer.View.scroll_cursor_min_border_distance;
-        return self.scroll_view_offset(if (self.view.rows > scroll_cursor_min_border_distance) self.view.rows -| scroll_cursor_min_border_distance + 1 else 0);
+        return self.scroll_view_offset(self.view.rows -| (scroll_cursor_min_border_distance + 1));
     }
     pub const scroll_view_bottom_meta: Meta = .{};
 
