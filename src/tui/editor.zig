@@ -3345,6 +3345,11 @@ pub const Editor = struct {
         else
             tui.clipboard_get_group(0);
 
+        if (clipboard.len == 0) {
+            self.logger.print("paste: nothing to paste", .{});
+            return;
+        }
+
         const b = try self.buf_for_update();
         var root = b.root;
 
