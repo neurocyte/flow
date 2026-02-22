@@ -519,8 +519,12 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{"focus_in"}))
         return;
 
-    if (try m.match(.{"focus_out"}))
+    if (try m.match(.{"focus_out"})) {
+        self.clear_hover_focus(@src()) catch {};
+        self.last_hover_x = -1;
+        self.last_hover_y = -1;
         return;
+    }
 
     if (try m.match(.{ "exit", tp.more })) {
         if (try m.match(.{ tp.string, "normal" }) or

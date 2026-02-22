@@ -165,7 +165,6 @@ pub const TabBar = struct {
         for (self.splits_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split|
             for (split.widgets.items) |*widgetstate| if (widgetstate.widget.dynamic_cast(Tab.ButtonType)) |btn| if (btn.drag_pos) |_|
                 tui.update_drag_source(&widgetstate.widget, drag_btn);
-        tui.refresh_hover(@src());
     }
 
     pub fn render(self: *Self, theme: *const Widget.Theme) bool {
