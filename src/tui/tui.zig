@@ -113,7 +113,6 @@ pub const ClipboardEntry = struct {
 };
 
 const keepalive = std.time.us_per_day * 365; // one year
-const idle_frames = 0;
 const mouse_idle_time_milliseconds = 3000;
 
 const init_delay = 1; // ms
@@ -687,7 +686,7 @@ fn render(self: *Self) void {
     else
         self.idle_frame_count + 1;
 
-    if (more or self.idle_frame_count < idle_frames or self.no_sleep) {
+    if (more or self.idle_frame_count < self.config_.frame_rate or self.no_sleep) {
         if (!self.frame_clock_running) {
             self.frame_clock.start() catch {};
             self.frame_clock_running = true;
