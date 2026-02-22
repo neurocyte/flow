@@ -10,7 +10,7 @@ const input = @import("input");
 
 const tui = @import("../tui.zig");
 const Widget = @import("../Widget.zig");
-const WidgetList = @import("../WidgetList.zig");
+const WidgetList = @import("../WidgetList.zig")
 const Button = @import("../Button.zig");
 
 const default_min_tabs = 2;
@@ -330,6 +330,7 @@ pub const TabBar = struct {
             for (split.widgets.items) |*widget|
                 if (&widget.widget == drag_source) tui.reset_drag_context();
         };
+        tui.reset_hover(@src());
         while (self.splits_list.pop()) |split_widget| if (split_widget.dynamic_cast(WidgetList)) |split| {
             while (split.pop()) |widget| if (widget.dynamic_cast(Tab.ButtonType) == null)
                 widget.deinit(self.splits_list.allocator);
@@ -368,8 +369,6 @@ pub const TabBar = struct {
             }
             try view_widget_list.add(try self.make_drop_target(view));
         }
-        if (prev_widget_count != widget_count)
-            tui.refresh_hover(@src());
     }
 
     fn update_tab_buffers(self: *Self) !bool {
