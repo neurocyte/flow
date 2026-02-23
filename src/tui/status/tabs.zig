@@ -159,12 +159,13 @@ pub const TabBar = struct {
 
     pub fn update(self: *Self) void {
         const drag_source, const drag_btn = tui.get_drag_source();
-        self.update_tabs(drag_source) catch {};
+        const tab_update = self.update_tabs(drag_source) catch true;
         self.splits_list_widget.resize(Widget.Box.from(self.plane));
         self.splits_list_widget.update();
+        if (!tab_update) return;
         for (self.splits_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split|
             for (split.widgets.items) |*widgetstate| if (widgetstate.widget.dynamic_cast(Tab.ButtonType)) |btn| if (btn.drag_pos) |_|
-                tui.update_drag_source(&widgetstate.widget, drag_btn);
+                tui.update_drag_source(widgetstate.widget, drag_btn);
         tui.refresh_hover(@src());
     }
 
@@ -313,53 +314,42 @@ pub const TabBar = struct {
             if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|
                 if (btn.drag_pos) |_| break true;
         } else false;
-        if (!dragging and !buffers_changed and self.splits_list.widgets.items.len > 0) return;
+        if (!dragging and !buffers_changed and self.splits_list.widgets.items.len > 0) return false;
         try self.update_tab_widgets(drag_source);
+        return true;
     }
 
-    fn update_tab_widgets(self: *Self, drag_source: ?*Widget) !void {
+    fn update_tab_widgets(self: *Self, drag_source_: ?Widget) !void {
+        tp.trace(tp.channel.debug, .{"update_tab_widgets"});
         const mv = tui.mainview() orelse @panic("tabs no main view");
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
-        var prev_widget_count: usize = 0;
 
-        for (self.splits_list.widgets.items) |*split_widgetstate| if (split_widgetstate.widget.dynamic_cast(WidgetList)) |split| {
-            prev_widget_count += 1;
-            for (split.widgets.items) |_| prev_widget_count += 1;
-        };
-
-        for (self.splits_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split| {
-            for (split.widgets.items) |*widget|
-                if (&widget.widget == drag_source) tui.reset_drag_context();
-        };
+        if (drag_source_) |drag_source|
+            for (self.splits_list.widgets.items) |*split_widget| if (split_widget.widget.dynamic_cast(WidgetList)) |split| {
+                for (split.widgets.items) |widget|
+                    if (widget.widget.ptr == drag_source.ptr) tui.reset_drag_context();
+            };
         while (self.splits_list.pop()) |split_widget| if (split_widget.dynamic_cast(WidgetList)) |split| {
             while (split.pop()) |widget| if (widget.dynamic_cast(Tab.ButtonType) == null)
                 widget.deinit(self.splits_list.allocator);
             split.deinit(self.splits_list.allocator);
         };
 
-        for (self.tabs) |*tab| if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer| {
-            tab.view = buffer.get_last_view() orelse 0;
-        };
-
         const views = mv.get_view_count();
 
-        var widget_count: usize = 0;
         for (0..views) |view| {
             var first = true;
             var view_widget_list = try WidgetList.createH(self.allocator, self.splits_list.plane, "split", .dynamic);
             try self.splits_list.add(view_widget_list.widget());
-            widget_count += 1;
-            for (self.tabs) |tab| {
+            for (self.tabs) |*tab| {
                 const tab_view = tab.view orelse 0;
                 if (tab_view != view) continue;
                 if (first) {
                     first = false;
                 } else {
                     try view_widget_list.add(try self.make_spacer(view_widget_list.plane));
-                    widget_count += 1;
                 }
                 try view_widget_list.add(tab.widget);
-                widget_count += 1;
                 if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn| {
                     if (buffer_manager.buffer_from_ref(tab.buffer_ref)) |buffer| {
                         try btn.update_label(Tab.name_from_buffer(buffer));
@@ -369,8 +359,6 @@ pub const TabBar = struct {
             }
             try view_widget_list.add(try self.make_drop_target(view));
         }
-        if (prev_widget_count != widget_count)
-            tui.refresh_hover(@src());
     }
 
     fn update_tab_buffers(self: *Self) !bool {
