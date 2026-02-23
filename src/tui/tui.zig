@@ -54,12 +54,12 @@ input_mode_outer_: ?Mode = null,
 input_listeners_: EventHandler.List,
 keyboard_focus: ?Widget = null,
 mini_mode_: ?MiniMode = null,
-hover_focus: ?*Widget = null,
+hover_focus: ?Widget = null,
 last_hover_x: c_int = -1,
 last_hover_y: c_int = -1,
 commands: Commands = undefined,
 logger: log.Logger,
-drag_source: ?*Widget = null,
+drag_source: ?Widget = null,
 drag_button: input.MouseType = 0,
 dark_theme: Widget.Theme,
 dark_parsed_theme: ?std.json.Parsed(Widget.Theme),
@@ -787,12 +787,12 @@ fn handle_system_clipboard(self: *Self, text: []const u8) !void {
     return command.executeName("paste", command.fmt(.{text}));
 }
 
-fn find_coord_widget(self: *Self, y: usize, x: usize) ?*Widget {
+fn find_coord_widget(self: *Self, y: usize, x: usize) ?Widget {
     const Ctx = struct {
-        widget: ?*Widget = null,
+        widget: ?Widget = null,
         y: usize,
         x: usize,
-        fn find(ctx_: *anyopaque, w: *Widget) bool {
+        fn find(ctx_: *anyopaque, w: Widget) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
             if (w.box().is_abs_coord_inside(ctx.y, ctx.x)) {
                 ctx.widget = w;
@@ -810,12 +810,12 @@ pub fn is_abs_coord_in_widget(w: *const Widget, y: usize, x: usize) bool {
     return w.box().is_abs_coord_inside(y, x);
 }
 
-fn is_live_widget_ptr(self: *Self, w_: *Widget) bool {
+fn is_live_widget_ptr(self: *Self, w_: Widget) bool {
     const Ctx = struct {
-        w: *Widget,
-        fn find(ctx_: *anyopaque, w: *Widget) bool {
+        w: Widget,
+        fn find(ctx_: *anyopaque, w: Widget) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            return ctx.w == w;
+            return ctx.w.ptr == w.ptr;
         }
     };
     var ctx: Ctx = .{ .w = w_ };
@@ -824,7 +824,7 @@ fn is_live_widget_ptr(self: *Self, w_: *Widget) bool {
 
 pub const FocusAction = enum { same, changed, notfound };
 
-pub fn set_focus_by_widget(w: *const Widget) FocusAction {
+pub fn set_focus_by_widget(w: Widget) FocusAction {
     const mv = mainview() orelse return .notfound;
     return mv.focus_view_by_widget(w);
 }
@@ -869,12 +869,12 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
     if (self.drag_source) |w| _ = try w.send(from, m);
 }
 
-fn update_hover(self: *Self, y: c_int, x: c_int) !?*Widget {
+fn update_hover(self: *Self, y: c_int, x: c_int) !?Widget {
     self.last_hover_y = y;
     self.last_hover_x = x;
     if (y >= 0 and x >= 0) if (self.find_coord_widget(@intCast(y), @intCast(x))) |w| {
-        if (if (self.hover_focus) |h| h != w else true) {
-            tp.trace(tp.channel.debug, .{ "update_hover", if (self.hover_focus) |h| @intFromPtr(h) else 0, @intFromPtr(w) });
+        if (if (self.hover_focus) |h| h.ptr != w.ptr else true) {
+            tp.trace(tp.channel.debug, .{ "update_hover", if (self.hover_focus) |h| @as(u64, @intFromPtr(h.ptr)) else 0, @as(u64, @intFromPtr(w.ptr)) });
             if (self.hover_focus) |h| if (self.is_live_widget_ptr(h))
                 try send_hover_msg(h, false);
             self.hover_focus = w;
@@ -889,19 +889,19 @@ fn update_hover(self: *Self, y: c_int, x: c_int) !?*Widget {
 fn clear_hover_focus(self: *Self, src: std.builtin.SourceLocation) tp.result {
     if (self.hover_focus) |h| if (self.is_live_widget_ptr(h))
         try send_hover_msg(h, false);
-    tp.trace(tp.channel.debug, .{ "tui", "clear_hover_focus", if (self.hover_focus) |h| @intFromPtr(h) else 0, src.fn_name, src.file, src.line });
+    tp.trace(tp.channel.debug, .{ "tui", "clear_hover_focus", if (self.hover_focus) |h| @intFromPtr(h.ptr) else 0, src.fn_name, src.file, src.line });
     self.hover_focus = null;
 }
 
-fn send_hover_msg(widget: *const Widget, hover: bool) tp.result {
+fn send_hover_msg(widget: Widget, hover: bool) tp.result {
     var buf: [256]u8 = undefined;
-    tp.trace(tp.channel.debug, .{ "hover_msg", @intFromPtr(widget), hover });
+    tp.trace(tp.channel.debug, .{ "hover_msg", @intFromPtr(widget.ptr), hover });
     _ = try widget.send(tp.self_pid(), tp.message.fmtbuf(&buf, .{ "H", hover }) catch |e| return tp.exit_error(e, @errorReturnTrace()));
 }
 
 pub fn refresh_hover(src: std.builtin.SourceLocation) void {
     const self = current();
-    tp.trace(tp.channel.debug, .{ "tui", "refresh_hover", if (self.hover_focus) |h| @intFromPtr(h) else 0, src.fn_name, src.file, src.line });
+    tp.trace(tp.channel.debug, .{ "tui", "refresh_hover", if (self.hover_focus) |h| @intFromPtr(h.ptr) else 0, src.fn_name, src.file, src.line });
     _ = self.update_hover(self.last_hover_y, self.last_hover_x) catch {};
 }
 
@@ -1906,18 +1906,18 @@ pub fn get_keybind_mode() ?Mode {
     return self.input_mode_ orelse self.delayed_init_input_mode;
 }
 
-pub fn update_drag_source(drag_source: *Widget, btn: input.MouseType) void {
+pub fn update_drag_source(drag_source: Widget, btn: input.MouseType) void {
     const self = current();
     self.drag_source = drag_source;
     self.drag_button = btn;
 }
 
-fn set_drag_source(self: *Self, drag_source: ?*Widget, btn: input.MouseType) void {
+fn set_drag_source(self: *Self, drag_source: ?Widget, btn: input.MouseType) void {
     self.drag_source = drag_source;
     self.drag_button = btn;
 }
 
-pub fn get_drag_source() struct { ?*Widget, input.MouseType } {
+pub fn get_drag_source() struct { ?Widget, input.MouseType } {
     const self = current();
     return .{ self.drag_source, self.drag_button };
 }

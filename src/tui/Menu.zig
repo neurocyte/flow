@@ -186,7 +186,14 @@ pub fn State(ctx_type: type) type {
         }
 
         pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
-            return self.menu.walk(walk_ctx, f, if (self.frame_widget) |*frame| frame else &self.container_widget);
+            for (self.menu.widgets.items) |*w|
+                if (w.widget.walk(walk_ctx, f))
+                    return true;
+
+            return if (self.frame_widget) |frame|
+                frame.walk(walk_ctx, f)
+            else
+                self.container_widget.walk(walk_ctx, f);
         }
 
         pub fn count(self: *Self) usize {

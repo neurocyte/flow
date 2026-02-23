@@ -21,7 +21,7 @@ vtable: *const VTable,
 
 const Self = @This();
 
-pub const WalkFn = *const fn (ctx: *anyopaque, w: *Self) bool;
+pub const WalkFn = *const fn (ctx: *anyopaque, w: Self) bool;
 
 pub const Direction = enum { horizontal, vertical };
 pub const Layout = union(enum) {
@@ -51,8 +51,8 @@ pub const VTable = struct {
     layout: *const fn (ctx: *anyopaque) Layout,
     subscribe: *const fn (ctx: *anyopaque, h: EventHandler) error{NotSupported}!void,
     unsubscribe: *const fn (ctx: *anyopaque, h: EventHandler) error{NotSupported}!void,
-    get: *const fn (ctx: *const anyopaque, name_: []const u8) ?*const Self,
-    walk: *const fn (ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn, self_widget: *Self) bool,
+    get: *const fn (ctx: *const anyopaque, name_: []const u8) ?Self,
+    walk: *const fn (ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn) bool,
     focus: *const fn (ctx: *anyopaque) void,
     unfocus: *const fn (ctx: *anyopaque) void,
     hover: *const fn (ctx: *const anyopaque) bool,
@@ -134,13 +134,13 @@ pub fn to(pimpl: anytype) Self {
                 }
             }.unsubscribe,
             .get = struct {
-                pub fn get(ctx: *const anyopaque, name_: []const u8) ?*const Self {
+                pub fn get(ctx: *const anyopaque, name_: []const u8) ?Self {
                     return if (comptime @hasDecl(child, "get")) child.get(@as(*const child, @ptrCast(@alignCast(ctx))), name_) else null;
                 }
             }.get,
             .walk = struct {
-                pub fn walk(ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn, self: *Self) bool {
-                    return if (comptime @hasDecl(child, "walk")) child.walk(@as(*child, @ptrCast(@alignCast(ctx))), walk_ctx, f, self) else false;
+                pub fn walk(ctx: *anyopaque, walk_ctx: *anyopaque, f: WalkFn) bool {
+                    return if (comptime @hasDecl(child, "walk")) child.walk(@as(*child, @ptrCast(@alignCast(ctx))), walk_ctx, f) else false;
                 }
             }.walk,
             .focus = struct {
@@ -225,16 +225,16 @@ pub fn unsubscribe(self: Self, h: EventHandler) !void {
     return self.vtable.unsubscribe(self.ptr, h);
 }
 
-pub fn get(self: *const Self, name_: []const u8) ?*const Self {
+pub fn get(self: *const Self, name_: []const u8) ?Self {
     var buf: [256]u8 = undefined;
     return if (std.mem.eql(u8, self.plane.name(&buf), name_))
-        self
+        self.*
     else
         self.vtable.get(self.ptr, name_);
 }
 
-pub fn walk(self: *Self, walk_ctx: *anyopaque, f: WalkFn) bool {
-    return if (self.vtable.walk(self.ptr, walk_ctx, f, self)) true else f(walk_ctx, self);
+pub fn walk(self: *const Self, walk_ctx: *anyopaque, f: WalkFn) bool {
+    return if (self.vtable.walk(self.ptr, walk_ctx, f)) true else f(walk_ctx, self.*);
 }
 
 pub fn focus(self: *Self) void {
@@ -300,12 +300,12 @@ pub fn empty(allocator: Allocator, parent: Plane, layout_: Layout) !Self {
                 }
             }.unsubscribe,
             .get = struct {
-                pub fn get(_: *const anyopaque, _: []const u8) ?*const Self {
+                pub fn get(_: *const anyopaque, _: []const u8) ?Self {
                     return null;
                 }
             }.get,
             .walk = struct {
-                pub fn walk(_: *anyopaque, _: *anyopaque, _: WalkFn, _: *Self) bool {
+                pub fn walk(_: *anyopaque, _: *anyopaque, _: WalkFn) bool {
                     return false;
                 }
             }.walk,

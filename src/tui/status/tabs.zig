@@ -286,11 +286,11 @@ pub const TabBar = struct {
         self.plane = self.splits_list.plane;
     }
 
-    pub fn get(self: *const Self, name: []const u8) ?*const Widget {
+    pub fn get(self: *const Self, name: []const u8) ?Widget {
         return self.splits_list_widget.get(name);
     }
 
-    pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, self_w: *Widget) bool {
+    pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
         for (self.tabs) |*tab| {
             const clipped, _ = self.is_tab_clipped(tab);
             if (!clipped)
@@ -300,14 +300,14 @@ pub const TabBar = struct {
             for (split.widgets.items) |*widget_state| if (widget_state.widget.dynamic_cast(drop_target.ButtonType)) |_| {
                 if (widget_state.widget.walk(ctx, f)) return true;
             };
-        return f(ctx, self_w);
+        return f(ctx, Widget.to(self));
     }
 
     pub fn hover(self: *Self) bool {
         return self.splits_list_widget.hover();
     }
 
-    fn update_tabs(self: *Self, drag_source: ?*Widget) !void {
+    fn update_tabs(self: *Self, drag_source: ?Widget) !bool {
         const buffers_changed = try self.update_tab_buffers();
         const dragging = for (self.tabs) |*tab| {
             if (tab.widget.dynamic_cast(Tab.ButtonType)) |btn|

@@ -115,7 +115,7 @@ pub fn addP(self: *Self, w_: Widget) !*Widget {
     return &w.widget;
 }
 
-pub fn get(self: *const Self, name_: []const u8) ?*const Widget {
+pub fn get(self: *const Self, name_: []const u8) ?Widget {
     for (self.widgets.items) |*w|
         if (w.widget.get(name_)) |p|
             return p;
@@ -347,10 +347,10 @@ fn do_resize(self: *Self, padding: Widget.Style.Margin) void {
     }
 }
 
-pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, self_w: *Widget) bool {
+pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
     for (self.widgets.items) |*w|
         if (w.widget.walk(ctx, f)) return true;
-    return f(ctx, self_w);
+    return f(ctx, Widget.to(self));
 }
 
 pub fn focus(self: *Self) void {

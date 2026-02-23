@@ -38,7 +38,7 @@ highlight: bool,
 symbols: bool,
 width: usize,
 editor: *ed.Editor,
-editor_widget: ?*const Widget = null,
+editor_widget: ?Widget = null,
 differ: diffz.AsyncDiffer,
 
 const Self = @This();

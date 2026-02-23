@@ -1732,8 +1732,8 @@ pub fn get_active_buffer(self: *Self) ?*Buffer {
     return if (self.get_active_editor()) |editor| editor.buffer orelse null else null;
 }
 
-pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
-    return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f, &self.widgets_widget) or f(ctx, w);
+pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
+    return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f) or f(ctx, Widget.to(self));
 }
 
 fn close_all_editors(self: *Self) !void {
@@ -1754,12 +1754,12 @@ fn add_and_activate_view(self: *Self, widget: Widget) !void {
     _ = try self.widgets_widget.msg(.{"splits_updated"});
 }
 
-pub fn find_view_for_widget(self: *Self, w_: *const Widget) ?usize {
+pub fn find_view_for_widget(self: *Self, w_: Widget) ?usize {
     const Ctx = struct {
-        w: *const Widget,
-        fn find(ctx_: *anyopaque, w: *Widget) bool {
+        w: Widget,
+        fn find(ctx_: *anyopaque, w: Widget) bool {
             const ctx = @as(*@This(), @ptrCast(@alignCast(ctx_)));
-            return ctx.w == w;
+            return ctx.w.ptr == w.ptr;
         }
     };
     var ctx: Ctx = .{ .w = w_ };
@@ -1768,7 +1768,7 @@ pub fn find_view_for_widget(self: *Self, w_: *const Widget) ?usize {
     return null;
 }
 
-pub fn focus_view_by_widget(self: *Self, w: *const Widget) tui.FocusAction {
+pub fn focus_view_by_widget(self: *Self, w: Widget) tui.FocusAction {
     const n = self.find_view_for_widget(w) orelse return .notfound;
     if (n >= self.views.widgets.items.len) return .notfound;
     if (n == self.active_view) return .same;

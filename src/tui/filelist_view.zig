@@ -107,8 +107,8 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.update_scrollbar();
 }
 
-pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn, w: *Widget) bool {
-    return self.menu.container_widget.walk(walk_ctx, f) or f(walk_ctx, w);
+pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
+    return self.menu.container_widget.walk(walk_ctx, f) or f(walk_ctx, Widget.to(self));
 }
 
 pub fn add_item(self: *Self, entry_: Entry) !void {
