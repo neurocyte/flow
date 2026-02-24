@@ -485,7 +485,7 @@ const BindingSet = struct {
     deinit_command: ?Command = null,
 
     const KeySyntax = enum { flow, vim };
-    const OnMatchFailure = enum { insert, ignore };
+    const OnMatchFailure = enum { insert, ignore, nothing };
 
     fn load(allocator: std.mem.Allocator, namespace_name: []const u8, config_section: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet, namespace: *Namespace) (error{ OutOfMemory, WriteFailed } || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
         var self: @This() = .{ .name = undefined, .config_section = config_section, .selection_style = undefined };
@@ -787,6 +787,7 @@ const BindingSet = struct {
                 else
                     log_keyhints_message(),
                 .ignore => log_keyhints_message(),
+                .nothing => {},
             }
             globals.current_sequence.clearRetainingCapacity();
             globals.current_sequence_egc.clearRetainingCapacity();
