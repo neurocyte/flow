@@ -237,11 +237,11 @@ pub fn walk(self: *const Self, walk_ctx: *anyopaque, f: WalkFn) bool {
     return if (self.vtable.walk(self.ptr, walk_ctx, f)) true else f(walk_ctx, self.*);
 }
 
-pub fn focus(self: *Self) void {
+pub fn focus(self: *const Self) void {
     self.vtable.focus(self.ptr);
 }
 
-pub fn unfocus(self: *Self) void {
+pub fn unfocus(self: *const Self) void {
     self.vtable.unfocus(self.ptr);
 }
 
