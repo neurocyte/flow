@@ -13,6 +13,8 @@ const WidgetList = @import("WidgetList.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
 const input = @import("input");
+const keybind = @import("keybind");
+pub const Mode = keybind.Mode;
 
 pub const name = @typeName(Self);
 
@@ -30,6 +32,7 @@ pty_pid: ?tp.pid = null,
 focused: bool = false,
 cwd: std.ArrayListUnmanaged(u8) = .empty,
 title: std.ArrayListUnmanaged(u8) = .empty,
+input_mode: Mode,
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
     return create_with_args(allocator, parent, .{});
@@ -107,6 +110,7 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
         .env = env,
         .write_buf = undefined, // managed via self.vt's pty_writer pointer
         .pty_pid = null,
+        .input_mode = try keybind.mode("terminal", allocator, .{}),
     };
 
     try self.vt.spawn();
@@ -121,25 +125,38 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
     return container.widget();
 }
 
-pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "terminal_view", "output" })) {
         tui.need_render(@src());
         return true;
-    }
-    if (!self.focused) return false;
-    var evtype: u8 = 0;
-    var keycode: u21 = 0;
-    var shifted: u21 = 0;
-    var text: []const u8 = "";
-    var mods: u8 = 0;
-    if (!(try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keycode), tp.extract(&shifted), tp.extract(&text), tp.extract(&mods) })))
+    } else if (!(try m.match(.{ "I", tp.more })
+        // or
+        //     try m.match(.{ "B", tp.more }) or
+        //     try m.match(.{ "D", tp.more }) or
+        //     try m.match(.{ "M", tp.more })
+    ))
         return false;
+
+    if (!self.focused) return false;
+
+    if (try self.input_mode.bindings.receive(from, m))
+        return true;
+
+    var event: input.Event = 0;
+    var keypress: input.Key = 0;
+    var keypress_shifted: input.Key = 0;
+    var text: []const u8 = "";
+    var modifiers: u8 = 0;
+
+    if (!try m.match(.{ "I", tp.extract(&event), tp.extract(&keypress), tp.extract(&keypress_shifted), tp.extract(&text), tp.extract(&modifiers) }))
+        return false;
+
     // Only forward press and repeat events; ignore releases.
-    if (evtype != input.event.press and evtype != input.event.repeat) return true;
+    if (event != input.event.press and event != input.event.repeat) return true;
     const key: vaxis.Key = .{
-        .codepoint = keycode,
-        .shifted_codepoint = if (shifted != keycode) shifted else null,
-        .mods = @bitCast(mods),
+        .codepoint = keypress,
+        .shifted_codepoint = if (keypress_shifted != keypress) keypress_shifted else null,
+        .mods = @bitCast(modifiers),
         .text = if (text.len > 0) text else null,
     };
     self.vt.update(.{ .key_press = key }) catch |e|
