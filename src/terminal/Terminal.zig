@@ -657,15 +657,28 @@ fn run(self: *Terminal) !void {
                         self.event_queue.push(.{ .title_change = self.title.items });
                     },
                     7 => {
-                        // OSC 7 ; file:// <hostname> <pwd>
-                        log.err("osc: {s}", .{osc});
-                        self.working_directory.clearRetainingCapacity();
-                        const scheme = "file://";
-                        const start = std.mem.indexOfScalarPos(u8, osc, semicolon + 2 + scheme.len + 1, '/') orelse {
+                        // OSC 7 ; <scheme> <hostname> <path>
+                        // Supported schemes:
+                        //   file://hostname/path  (IETF RFC 8089, used by most shells)
+                        //   kitty-shell-cwd://hostname/path  (Kitty terminal extension)
+                        // In both cases we want everything from the first '/' that
+                        // begins the absolute path, percent-decoding as we go.
+                        const after_semi = osc[semicolon + 1 ..];
+                        const schemes = [_][]const u8{ "file://", "kitty-shell-cwd://" };
+                        const after_scheme = for (schemes) |scheme| {
+                            if (std.mem.startsWith(u8, after_semi, scheme))
+                                break after_semi[scheme.len..];
+                        } else {
                             log.info("unknown OSC 7 format: {s}", .{osc});
                             continue;
                         };
-                        const enc = osc[start..];
+                        // Skip the hostname (everything up to the next '/').
+                        const path_start = std.mem.indexOfScalar(u8, after_scheme, '/') orelse {
+                            log.info("unknown OSC 7 format: {s}", .{osc});
+                            continue;
+                        };
+                        const enc = after_scheme[path_start..];
+                        self.working_directory.clearRetainingCapacity();
                         var i: usize = 0;
                         while (i < enc.len) : (i += 1) {
                             const b = if (enc[i] == '%') blk: {
