@@ -5,7 +5,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ansi = @import("ansi.zig");
 pub const Command = @import("Command.zig");
-const Parser = @import("Parser.zig");
+pub const Parser = @import("Parser.zig");
 const Pty = @import("Pty.zig");
 const vaxis = @import("../../main.zig");
 const Winsize = vaxis.Winsize;
@@ -49,7 +49,6 @@ scrollback_size: u16,
 pty: Pty,
 pty_writer: std.fs.File.Writer,
 cmd: Command,
-thread: ?std.Thread = null,
 
 /// the screen we draw from
 front_screen: Screen,
@@ -64,8 +63,6 @@ scroll_offset: usize = 0,
 back_mutex: std.Thread.Mutex = .{},
 // dirty is protected by back_mutex. Only access this field when you hold that mutex
 dirty: bool = false,
-
-should_quit: bool = false,
 
 mode: Mode = .{},
 
@@ -118,16 +115,8 @@ pub fn init(
 
 /// release all resources of the Terminal
 pub fn deinit(self: *Terminal) void {
-    self.should_quit = true;
     self.cmd.kill();
-    if (self.thread) |thread| {
-        // write an EOT into the tty to trigger a read on our thread
-        const EOT = "\x04";
-        _ = self.pty.tty.write(EOT) catch {};
-        thread.join();
-        self.thread = null;
-    }
-    self.cmd.wait(); // Reap the child
+    // cmd.wait() is called by the pty read loop after it sees EIO/EOF
     self.pty.deinit();
     self.front_screen.deinit(self.allocator);
     self.back_screen_pri.deinit(self.allocator);
@@ -138,7 +127,6 @@ pub fn deinit(self: *Terminal) void {
 }
 
 pub fn spawn(self: *Terminal) !void {
-    if (self.thread != null) return;
     self.back_screen = &self.back_screen_pri;
 
     try self.cmd.spawn(self.allocator);
@@ -153,7 +141,9 @@ pub fn spawn(self: *Terminal) !void {
         try self.working_directory.appendSlice(self.allocator, out_path);
     }
 
-    self.thread = try std.Thread.spawn(.{}, Terminal.run, .{self});
+    // Set the pty master fd to non-blocking
+    const flags = try std.posix.fcntl(self.pty.pty.handle, std.posix.F.GETFL, 0);
+    _ = try std.posix.fcntl(self.pty.pty.handle, std.posix.F.SETFL, flags | @as(u32, std.posix.SOCK.NONBLOCK));
 }
 
 /// resize the screen. Locks access to the back screen. Should only be called from the main thread.
@@ -228,26 +218,18 @@ pub fn get_pty_writer(self: *Terminal) *std.Io.Writer {
     return &self.pty_writer.interface;
 }
 
-fn reader(self: *const Terminal, buf: []u8) std.fs.File.Reader {
-    return self.pty.pty.readerStreaming(buf);
-}
+/// Process all output bytes from the pty that were just read by read loop
+/// The read loop calls this after each non-blocking read. Returns true if
+/// the shell has exited.
+/// `parser` is owned by the read loop and persists across calls so that
+/// partial escape sequences spanning multiple reads are handled correctly.
+pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
+    var fixed_reader: std.Io.Reader = .fixed(data);
+    const reader: *std.Io.Reader = &fixed_reader;
 
-/// process the output from the command on the pty
-fn run(self: *Terminal) !void {
-    var parser: Parser = .{
-        .buf = try .initCapacity(self.allocator, 128),
-    };
-    defer parser.buf.deinit();
-
-    var reader_buf: [4096]u8 = undefined;
-    var reader_ = self.reader(&reader_buf);
-
-    while (!self.should_quit) {
-        const event = parser.parseReader(&reader_.interface) catch |e| switch (e) {
-            error.EndOfStream => {
-                self.event_queue.push(.exited);
-                return;
-            },
+    while (true) {
+        const event = parser.parseReader(reader) catch |e| switch (e) {
+            error.EndOfStream => return false, // partial sequence, wait for more data
             else => return e,
         };
         self.back_mutex.lock();
@@ -702,12 +684,13 @@ fn run(self: *Terminal) !void {
             .apc => |apc| log.info("unhandled apc: {s}", .{apc}),
         }
     }
+    return false;
 }
 
 inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
     switch (b) {
         .NUL, .SOH, .STX => {},
-        .EOT => {}, // we send EOT to quit the read thread
+        .EOT => {},
         .ENQ => {},
         .BEL => self.event_queue.push(.bell),
         .BS => self.back_screen.cursorLeft(1),
