@@ -220,6 +220,10 @@ pub fn update(self: *Terminal, event: InputEvent) !void {
     }
 }
 
+pub fn ptyFd(self: *const Terminal) i32 {
+    return self.pty.pty.handle;
+}
+
 pub fn get_pty_writer(self: *Terminal) *std.Io.Writer {
     return &self.pty_writer.interface;
 }
