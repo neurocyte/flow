@@ -34,6 +34,7 @@ const filelist_view = @import("filelist_view.zig");
 const info_view = @import("info_view.zig");
 const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
+const terminal_view = @import("terminal_view.zig");
 
 const Self = @This();
 const Commands = command.Collection(cmds);
@@ -313,6 +314,28 @@ fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, di
     tui.resize();
 }
 
+fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: enum { toggle, enable, disable }, ctx: command.Context) !void {
+    if (self.panels) |panels| {
+        if (self.get_panel(@typeName(view))) |w| {
+            if (mode != .enable) {
+                panels.remove(w.*);
+                if (panels.empty()) {
+                    self.widgets.remove(panels.widget());
+                    self.panels = null;
+                }
+            }
+        } else {
+            if (mode != .disable)
+                try panels.add(try view.create_with_args(self.allocator, self.widgets.plane, ctx));
+        }
+    } else if (mode != .disable) {
+        const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
+        try self.widgets.add(panels.widget());
+        try panels.add(try view.create_with_args(self.allocator, self.widgets.plane, ctx));
+        self.panels = panels;
+    }
+    tui.resize();
+}
 fn get_panel(self: *Self, name_: []const u8) ?*Widget {
     if (self.panels) |panels|
         for (panels.widgets.items) |*w|
@@ -911,6 +934,8 @@ const cmds = struct {
             try self.toggle_panel_view(keybind_view, .toggle)
         else if (self.is_panel_view_showing(input_view))
             try self.toggle_panel_view(input_view, .toggle)
+        else if (self.is_panel_view_showing(terminal_view))
+            try self.toggle_panel_view(terminal_view, .toggle)
         else
             try self.toggle_panel_view(logview, .toggle);
     }
@@ -945,6 +970,16 @@ const cmds = struct {
         try self.toggle_panel_view(@import("inspector_view.zig"), .enable);
     }
     pub const show_inspector_view_meta: Meta = .{};
+
+    pub fn toggle_terminal_view(self: *Self, _: Ctx) Result {
+        try self.toggle_panel_view(terminal_view, .toggle);
+    }
+    pub const toggle_terminal_view_meta: Meta = .{ .description = "Toggle terminal" };
+
+    pub fn open_terminal(self: *Self, ctx: Ctx) Result {
+        try self.toggle_panel_view_with_args(terminal_view, .enable, ctx);
+    }
+    pub const open_terminal_meta: Meta = .{ .description = "Open terminal", .arguments = &.{.string} };
 
     pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
         if (self.file_list_type == .find_in_files)

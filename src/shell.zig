@@ -304,7 +304,7 @@ const Process = struct {
     }
 };
 
-fn parse_arg0_to_argv(allocator: std.mem.Allocator, arg0: *[]const u8) !tp.message {
+pub fn parse_arg0_to_argv(allocator: std.mem.Allocator, arg0: *[]const u8) !tp.message {
     // this is horribly simplistic
     // TODO: add quotes parsing and workspace variables, etc.
     var args: std.ArrayList([]const u8) = .empty;

@@ -38,6 +38,7 @@ pub fn load_entries(palette: *Type) !usize {
     var longest_hint: usize = 0;
     longest_hint = @max(longest_hint, try add_palette_command(palette, "add_task", hints));
     longest_hint = @max(longest_hint, try add_palette_command(palette, "palette_menu_delete_item", hints));
+    longest_hint = @max(longest_hint, try add_palette_command(palette, "run_task_in_terminal", hints));
     return longest_hint - @min(longest_hint, longest) + 3;
 }
 
@@ -129,13 +130,19 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     var entry: Entry = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchValue(&iter, cbor.extract(&entry)) catch false)) return;
+    const activate = menu.*.opts.ctx.activate;
+    menu.*.opts.ctx.activate = .normal;
     if (entry.command) |command_name| {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
         tp.self_pid().send(.{ "cmd", command_name, .{} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     } else {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
         project_manager.add_task(entry.label) catch {};
-        tp.self_pid().send(.{ "cmd", "run_task", .{entry.label} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        const run_cmd = switch (activate) {
+            .normal => "run_task",
+            .alternate => "run_task_in_terminal",
+        };
+        tp.self_pid().send(.{ "cmd", run_cmd, .{entry.label} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     }
 }
 

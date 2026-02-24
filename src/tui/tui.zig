@@ -1483,6 +1483,27 @@ const cmds = struct {
         .arguments = &.{.string},
     };
 
+    pub fn run_task_in_terminal(self: *Self, ctx: Ctx) Result {
+        const expansion = @import("expansion.zig");
+        var task: []const u8 = undefined;
+        if (!try ctx.args.match(.{tp.extract(&task)})) return;
+        const args = expansion.expand_cbor(self.allocator, ctx.args.buf) catch |e| switch (e) {
+            error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        defer self.allocator.free(args);
+        var cmd: []const u8 = undefined;
+        if (!try cbor.match(args, .{tp.extract(&cmd)}))
+            cmd = task;
+        call_add_task(task);
+        var buf: [tp.max_message_size]u8 = undefined;
+        try command.executeName("open_terminal", try command.fmtbuf(&buf, .{cmd}));
+    }
+    pub const run_task_in_terminal_meta: Meta = .{
+        .description = "Run a task in terminal",
+        .arguments = &.{.string},
+    };
+
     pub fn delete_task(_: *Self, ctx: Ctx) Result {
         var task: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&task)}))
