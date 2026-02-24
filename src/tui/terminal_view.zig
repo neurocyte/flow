@@ -32,6 +32,8 @@ env: std.process.EnvMap,
 write_buf: [4096]u8,
 poll_timer: ?tp.Cancellable = null,
 focused: bool = false,
+cwd: std.ArrayListUnmanaged(u8) = .empty,
+title: std.ArrayListUnmanaged(u8) = .empty,
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
     return create_with_args(allocator, parent, .{});
@@ -158,6 +160,8 @@ pub fn unfocus(self: *Self) void {
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.focused) tui.release_keyboard_focus(Widget.to(self));
+    self.cwd.deinit(self.allocator);
+    self.title.deinit(self.allocator);
     tui.message_filters().remove_ptr(self);
     if (self.poll_timer) |*t| {
         t.cancel() catch {};
@@ -177,7 +181,15 @@ pub fn render(self: *Self, _: *const Widget.Theme) bool {
                 tp.self_pid().send(.{ "cmd", "toggle_terminal_view" }) catch {};
                 return false;
             },
-            .redraw, .bell, .title_change, .pwd_change => {},
+            .redraw, .bell => {},
+            .pwd_change => |path| {
+                self.cwd.clearRetainingCapacity();
+                self.cwd.appendSlice(self.allocator, path) catch {};
+            },
+            .title_change => |t| {
+                self.title.clearRetainingCapacity();
+                self.title.appendSlice(self.allocator, t) catch {};
+            },
         }
     }
 
