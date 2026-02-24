@@ -23,6 +23,7 @@
             ["ctrl+6", "focus_split", 5],
             ["ctrl+7", "focus_split", 6],
             ["ctrl+8", "focus_split", 7],
+            ["ctrl+`", "focus_terminal"],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+q", "quit"],
             ["ctrl+w", "close_split"],
@@ -580,6 +581,12 @@
             ["escape", "mini_mode_cancel"],
             ["enter", "mini_mode_select"],
             ["backspace", "mini_mode_delete_backwards"]
+        ]
+    },
+    "terminal": {
+        "on_match_failure": "nothing",
+        "press": [
+            ["ctrl+`", "focus_terminal"]
         ]
     }
 }
