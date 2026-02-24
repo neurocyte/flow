@@ -1,5 +1,6 @@
 /// Expand variables in arg
 /// {{project}} - The path to the current project directory
+/// {{project_name}} - The basename of the current project directory
 /// {{file}} - The path to the current file
 /// {{line}} - The line number of the primary cursor
 /// {{column}} - The column of the primary cursor
@@ -74,6 +75,13 @@ const variables = std.StaticStringMap(Function).initComptime(get_functions());
 const functions = struct {
     pub fn project(allocator: Allocator) Error![]const u8 {
         return try allocator.dupe(u8, tp.env.get().str("project"));
+    }
+
+    pub fn project_name(allocator: Allocator) Error![]const u8 {
+        const project_ = tp.env.get().str("project");
+        const basename_begin = std.mem.lastIndexOfScalar(u8, project_, std.fs.path.sep);
+        const basename = if (basename_begin) |begin| project_[begin + 1 ..] else project_;
+        return try allocator.dupe(u8, basename);
     }
 
     pub fn file(allocator: Allocator) Error![]const u8 {
