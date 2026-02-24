@@ -676,6 +676,9 @@ fn run(self: *Terminal) !void {
                         }
                         self.event_queue.push(.{ .pwd_change = self.working_directory.items });
                     },
+                    // OSC 9 ; 4 ; <state> ; <progress>
+                    // Progress notification. Silently ignored; we have no progress UI.
+                    9 => {},
                     else => log.info("unhandled osc: {s}", .{osc}),
                 }
             },
