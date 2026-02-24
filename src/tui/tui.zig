@@ -870,10 +870,9 @@ fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners_.send(from, m) catch {};
-    if (self.keyboard_focus) |w| {
-        _ = try w.send(from, m);
-        return;
-    }
+    if (self.keyboard_focus) |w|
+        if (try w.send(from, m))
+            return;
     if (try self.update_hover(y, x)) |w|
         _ = try w.send(from, m);
 }
@@ -882,8 +881,8 @@ fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.mess
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners_.send(from, m) catch {};
     if (self.keyboard_focus) |w| {
-        _ = try w.send(from, m);
-        return;
+        if (try w.send(from, m))
+            return;
     }
     _ = try self.update_hover(y, x);
     if (self.drag_source) |w| _ = try w.send(from, m);
