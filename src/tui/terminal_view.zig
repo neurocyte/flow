@@ -110,7 +110,7 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
         .env = env,
         .write_buf = undefined, // managed via self.vt's pty_writer pointer
         .pty_pid = null,
-        .input_mode = try keybind.mode("terminal", allocator, .{}),
+        .input_mode = try keybind.mode("terminal", allocator, .{ .insert_command = "do_nothing" }),
     };
 
     try self.vt.spawn();
