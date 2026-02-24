@@ -42,10 +42,10 @@ fn openPtyLinux() !Pty {
 
     // unlockpt
     var n: c_uint = 0;
-    if (posix.system.ioctl(p, posix.T.IOCSPTLCK, @intFromPtr(&n)) != 0) return error.IoctlError;
+    if (posix.system.ioctl(p, @as(c_int, @bitCast(posix.T.IOCSPTLCK)), @intFromPtr(&n)) != 0) return error.IoctlError;
 
     // ptsname
-    if (posix.system.ioctl(p, posix.T.IOCGPTN, @intFromPtr(&n)) != 0) return error.IoctlError;
+    if (posix.system.ioctl(p, @as(c_int, @bitCast(posix.T.IOCGPTN)), @intFromPtr(&n)) != 0) return error.IoctlError;
     var buf: [16]u8 = undefined;
     const sname = try std.fmt.bufPrint(&buf, "/dev/pts/{d}", .{n});
     std.log.debug("pts: {s}", .{sname});

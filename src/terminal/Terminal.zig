@@ -43,10 +43,6 @@ pub const InputEvent = union(enum) {
     key_press: vaxis.Key,
 };
 
-pub var global_vt_mutex: std.Thread.Mutex = .{};
-pub var global_vts: ?std.AutoHashMap(i32, *Terminal) = null;
-pub var global_sigchild_installed: bool = false;
-
 allocator: std.mem.Allocator,
 scrollback_size: u16,
 
@@ -123,18 +119,6 @@ pub fn init(
 /// release all resources of the Terminal
 pub fn deinit(self: *Terminal) void {
     self.should_quit = true;
-
-    pid: {
-        global_vt_mutex.lock();
-        defer global_vt_mutex.unlock();
-        var vts = global_vts orelse break :pid;
-        if (self.cmd.pid) |pid|
-            _ = vts.remove(pid);
-        if (vts.count() == 0) {
-            vts.deinit();
-            global_vts = null;
-        }
-    }
     self.cmd.kill();
     if (self.thread) |thread| {
         // write an EOT into the tty to trigger a read on our thread
@@ -143,6 +127,7 @@ pub fn deinit(self: *Terminal) void {
         thread.join();
         self.thread = null;
     }
+    self.cmd.wait(); // Reap the child
     self.pty.deinit();
     self.front_screen.deinit(self.allocator);
     self.back_screen_pri.deinit(self.allocator);
@@ -166,16 +151,6 @@ pub fn spawn(self: *Terminal) !void {
         var buffer: [std.fs.max_path_bytes]u8 = undefined;
         const out_path = try std.os.getFdPath(pwd.fd, &buffer);
         try self.working_directory.appendSlice(self.allocator, out_path);
-    }
-
-    {
-        // add to our global list
-        global_vt_mutex.lock();
-        defer global_vt_mutex.unlock();
-        if (global_vts == null)
-            global_vts = std.AutoHashMap(i32, *Terminal).init(self.allocator);
-        if (self.cmd.pid) |pid|
-            try global_vts.?.put(pid, self);
     }
 
     self.thread = try std.Thread.spawn(.{}, Terminal.run, .{self});
@@ -264,7 +239,13 @@ fn run(self: *Terminal) !void {
     var reader_ = self.reader(&reader_buf);
 
     while (!self.should_quit) {
-        const event = try parser.parseReader(&reader_.interface);
+        const event = parser.parseReader(&reader_.interface) catch |e| switch (e) {
+            error.EndOfStream => {
+                self.event_queue.push(.exited);
+                return;
+            },
+            else => return e,
+        };
         self.back_mutex.lock();
         defer self.back_mutex.unlock();
 

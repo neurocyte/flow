@@ -57,39 +57,26 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
     // we are the parent
     self.pid = @intCast(pid);
-
-    if (!Terminal.global_sigchild_installed) {
-        Terminal.global_sigchild_installed = true;
-        var act = posix.Sigaction{
-            .handler = .{ .handler = handleSigChild },
-            .mask = switch (builtin.os.tag) {
-                .macos => 0,
-                .linux => posix.sigemptyset(),
-                else => @compileError("os not supported"),
-            },
-            .flags = 0,
-        };
-        posix.sigaction(posix.SIG.CHLD, &act, null);
-    }
-
-    return;
-}
-
-fn handleSigChild(_: c_int) callconv(.c) void {
-    const result = std.posix.waitpid(-1, 0);
-
-    Terminal.global_vt_mutex.lock();
-    defer Terminal.global_vt_mutex.unlock();
-    if (Terminal.global_vts) |vts| {
-        var vt = vts.get(result.pid) orelse return;
-        vt.event_queue.push(.exited);
-    }
 }
 
 pub fn kill(self: *Command) void {
-    if (self.pid) |pid| {
+    if (self.pid) |pid|
         std.posix.kill(pid, std.posix.SIG.TERM) catch {};
-        self.pid = null;
+}
+
+/// Reap the child process. Must be called after the pty reader thread has
+/// exited (i.e. after thread.join()), so the child is guaranteed to have
+/// already exited. Uses WNOHANG in a loop to handle any remaining state.
+pub fn wait(self: *Command) void {
+    const pid = self.pid orelse return;
+    self.pid = null;
+    // WNOHANG: don't block if the child hasn't exited yet (shouldn't happen
+    // after the pty EOF, but be defensive). Loop until fully reaped.
+    while (true) {
+        const result = std.posix.waitpid(pid, std.posix.W.NOHANG);
+        if (result.pid != 0) return; // reaped
+        // pid == 0 means not yet exited — yield and retry
+        std.Thread.yield() catch {};
     }
 }
 
