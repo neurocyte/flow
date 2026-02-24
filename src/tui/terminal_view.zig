@@ -148,6 +148,10 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     return true;
 }
 
+pub fn toggle_focus(self: *Self) void {
+    if (self.focused) self.unfocus() else self.focus();
+}
+
 pub fn focus(self: *Self) void {
     self.focused = true;
     tui.set_keyboard_focus(Widget.to(self));

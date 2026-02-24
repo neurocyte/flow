@@ -982,10 +982,13 @@ const cmds = struct {
     pub const open_terminal_meta: Meta = .{ .description = "Open terminal", .arguments = &.{.string} };
 
     pub fn focus_terminal(self: *Self, _: Ctx) Result {
-        if (self.get_panel_view(terminal_view)) |vt|
-            vt.focus()
-        else
+        if (self.get_panel_view(terminal_view)) |vt| {
+            vt.toggle_focus();
+        } else {
             try self.toggle_panel_view(terminal_view, .enable);
+            if (self.get_panel_view(terminal_view)) |vt|
+                vt.focus();
+        }
     }
     pub const focus_terminal_meta: Meta = .{ .description = "Focus terminal panel" };
 
