@@ -842,6 +842,19 @@ pub fn set_focus_by_mouse_event() FocusAction {
     return mv.focus_view_by_widget(self.hover_focus orelse return .notfound);
 }
 
+pub fn set_keyboard_focus(w: Widget) void {
+    const self = current();
+    if (self.keyboard_focus) |prev| prev.unfocus();
+    self.keyboard_focus = w;
+}
+
+pub fn release_keyboard_focus(w: Widget) void {
+    const self = current();
+    if (self.keyboard_focus) |cur| if (cur.ptr == w.ptr) {
+        self.keyboard_focus = null;
+    };
+}
+
 fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     const frame = tracy.initZone(@src(), .{ .name = "tui widgets" });
     defer frame.deinit();

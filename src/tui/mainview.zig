@@ -981,6 +981,14 @@ const cmds = struct {
     }
     pub const open_terminal_meta: Meta = .{ .description = "Open terminal", .arguments = &.{.string} };
 
+    pub fn focus_terminal(self: *Self, _: Ctx) Result {
+        if (self.get_panel_view(terminal_view)) |vt|
+            vt.focus()
+        else
+            try self.toggle_panel_view(terminal_view, .enable);
+    }
+    pub const focus_terminal_meta: Meta = .{ .description = "Focus terminal panel" };
+
     pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
         if (self.file_list_type == .find_in_files)
             try self.toggle_panel_view(filelist_view, .disable);

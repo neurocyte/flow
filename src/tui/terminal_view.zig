@@ -12,6 +12,7 @@ const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const MessageFilter = @import("MessageFilter.zig");
 const tui = @import("tui.zig");
+const input = @import("input");
 
 pub const name = @typeName(Self);
 
@@ -30,6 +31,7 @@ vt: Terminal,
 env: std.process.EnvMap,
 write_buf: [4096]u8,
 poll_timer: ?tp.Cancellable = null,
+focused: bool = false,
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
     return create_with_args(allocator, parent, .{});
@@ -121,7 +123,41 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
     return container.widget();
 }
 
+pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    if (!self.focused) return false;
+    var evtype: u8 = 0;
+    var keycode: u21 = 0;
+    var shifted: u21 = 0;
+    var text: []const u8 = "";
+    var mods: u8 = 0;
+    if (!(try m.match(.{ "I", tp.extract(&evtype), tp.extract(&keycode), tp.extract(&shifted), tp.extract(&text), tp.extract(&mods) })))
+        return false;
+    // Only forward press and repeat events; ignore releases.
+    if (evtype != input.event.press and evtype != input.event.repeat) return true;
+    const key: vaxis.Key = .{
+        .codepoint = keycode,
+        .shifted_codepoint = if (shifted != keycode) shifted else null,
+        .mods = @bitCast(mods),
+        .text = if (text.len > 0) text else null,
+    };
+    self.vt.update(.{ .key_press = key }) catch |e|
+        std.log.err("terminal_view: input failed: {}", .{e});
+    tui.need_render(@src());
+    return true;
+}
+
+pub fn focus(self: *Self) void {
+    self.focused = true;
+    tui.set_keyboard_focus(Widget.to(self));
+}
+
+pub fn unfocus(self: *Self) void {
+    self.focused = false;
+    tui.release_keyboard_focus(Widget.to(self));
+}
+
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    if (self.focused) tui.release_keyboard_focus(Widget.to(self));
     tui.message_filters().remove_ptr(self);
     if (self.poll_timer) |*t| {
         t.cancel() catch {};
