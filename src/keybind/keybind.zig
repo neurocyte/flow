@@ -667,7 +667,7 @@ const BindingSet = struct {
         }
     }
 
-    fn receive(self: *const @This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    pub fn receive(self: *const @This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         var event: input.Event = 0;
         var keypress: input.Key = 0;
         var keypress_shifted: input.Key = 0;
@@ -696,6 +696,7 @@ const BindingSet = struct {
                 }
 
                 for (binding.commands) |*cmd| try cmd.execute();
+                return true;
             }
         } else if (try m.match(.{"F"})) {
             self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
