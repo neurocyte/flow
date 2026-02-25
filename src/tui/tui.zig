@@ -833,13 +833,23 @@ pub const FocusAction = enum { same, changed, notfound };
 
 pub fn set_focus_by_widget(w: Widget) FocusAction {
     const mv = mainview() orelse return .notfound;
+    clear_keyboard_focus();
     return mv.focus_view_by_widget(w);
 }
 
 pub fn set_focus_by_mouse_event() FocusAction {
     const self = current();
     const mv = mainview() orelse return .notfound;
-    return mv.focus_view_by_widget(self.hover_focus orelse return .notfound);
+    const hover_focus = self.hover_focus orelse return .notfound;
+    const keyboard_focus = if (self.keyboard_focus) |prev| prev.ptr else null;
+    if (hover_focus.ptr == keyboard_focus) return .same;
+    clear_keyboard_focus();
+    switch (mv.focus_view_by_widget(hover_focus)) {
+        .notfound => {},
+        else => |action| return action,
+    }
+    hover_focus.focus();
+    return .changed;
 }
 
 pub fn set_keyboard_focus(w: Widget) void {
@@ -853,6 +863,12 @@ pub fn release_keyboard_focus(w: Widget) void {
     if (self.keyboard_focus) |cur| if (cur.ptr == w.ptr) {
         self.keyboard_focus = null;
     };
+}
+
+pub fn clear_keyboard_focus() void {
+    const self = current();
+    if (self.keyboard_focus) |prev| prev.unfocus();
+    self.keyboard_focus = null;
 }
 
 fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {

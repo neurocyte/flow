@@ -33,6 +33,7 @@ focused: bool = false,
 cwd: std.ArrayListUnmanaged(u8) = .empty,
 title: std.ArrayListUnmanaged(u8) = .empty,
 input_mode: Mode,
+hover: bool = false,
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
     return create_with_args(allocator, parent, .{});
@@ -129,7 +130,20 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "terminal_view", "output" })) {
         tui.need_render(@src());
         return true;
-    } else if (!(try m.match(.{ "I", tp.more })
+    } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
+        tui.rdr().request_mouse_cursor_default(self.hover);
+        tui.need_render(@src());
+        return true;
+    }
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.more }) or
+        try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON2), tp.more }) or
+        try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON3), tp.more }))
+        switch (tui.set_focus_by_mouse_event()) {
+            .changed => return true,
+            .same, .notfound => {},
+        };
+
+    if (!(try m.match(.{ "I", tp.more })
         // or
         //     try m.match(.{ "B", tp.more }) or
         //     try m.match(.{ "D", tp.more }) or
