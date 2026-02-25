@@ -271,7 +271,7 @@ const Vt = struct {
         self.cwd.deinit(allocator);
         self.title.deinit(allocator);
         if (self.pty_pid) |pid| {
-            pid.send(.{ "pty_actor", "quit" }) catch {};
+            pid.send(.{"quit"}) catch {};
             pid.deinit();
             self.pty_pid = null;
         }
@@ -340,16 +340,20 @@ const pty = struct {
         errdefer self.deinit();
 
         if (try m.match(.{ "fd", "pty", "read_ready" })) {
-            try self.read_and_process();
-            return;
-        }
-
-        if (try m.match(.{ "pty_actor", "quit" })) {
+            self.read_and_process() catch |e| return switch (e) {
+                error.Terminated => tp.exit_normal(),
+                error.InputOutput => tp.exit_normal(),
+                error.SendFailed => tp.exit_normal(),
+                error.Unexpected => tp.exit_normal(),
+            };
+        } else if (try m.match(.{"quit"})) {
             return tp.exit_normal();
+        } else {
+            return tp.unexpected(m);
         }
     }
 
-    fn read_and_process(self: *@This()) tp.result {
+    fn read_and_process(self: *@This()) error{ Terminated, InputOutput, SendFailed, Unexpected }!void {
         var buf: [4096]u8 = undefined;
 
         while (true) {
@@ -359,27 +363,57 @@ const pty = struct {
                     const code = self.vt.cmd.wait();
                     self.vt.event_queue.push(.{ .exited = code });
                     self.parent.send(.{ "terminal_view", "output" }) catch {};
-                    return tp.exit_normal();
+                    return error.InputOutput;
                 },
-                else => return tp.exit_error(e, @errorReturnTrace()),
+                error.SystemResources,
+                error.IsDir,
+                error.OperationAborted,
+                error.BrokenPipe,
+                error.ConnectionResetByPeer,
+                error.ConnectionTimedOut,
+                error.NotOpenForReading,
+                error.SocketNotConnected,
+                error.Canceled,
+                error.AccessDenied,
+                error.ProcessNotFound,
+                error.LockViolation,
+                error.Unexpected,
+                => {
+                    std.log.err("terminal_view: read unexpected: {}", .{e});
+                    return error.Unexpected;
+                },
             };
             if (n == 0) {
                 const code = self.vt.cmd.wait();
                 self.vt.event_queue.push(.{ .exited = code });
                 self.parent.send(.{ "terminal_view", "output" }) catch {};
-                return tp.exit_normal();
+                return error.Terminated;
             }
 
-            const exited = self.vt.processOutput(&self.parser, buf[0..n]) catch |e|
-                return tp.exit_error(e, @errorReturnTrace());
-            if (exited) {
-                self.parent.send(.{ "terminal_view", "output" }) catch {};
-                return tp.exit_normal();
+            defer self.parent.send(.{ "terminal_view", "output" }) catch {};
+
+            switch (self.vt.processOutput(&self.parser, buf[0..n]) catch |e| switch (e) {
+                error.WriteFailed,
+                error.ReadFailed,
+                error.OutOfMemory,
+                error.Utf8InvalidStartByte,
+                => {
+                    std.log.err("terminal_view: processOutput unexpected: {}", .{e});
+                    return error.Unexpected;
+                },
+            }) {
+                .exited => {
+                    return error.Terminated;
+                },
+                .running => {},
             }
-            // Notify parent that new output is available.
-            self.parent.send(.{ "terminal_view", "output" }) catch {};
         }
 
-        self.fd.wait_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.fd.wait_read() catch |e| switch (e) {
+            error.ThespianFileDescriptorWaitReadFailed => {
+                std.log.err("terminal_view: wait_read unexpected: {}", .{e});
+                return error.Unexpected;
+            },
+        };
     }
 };
