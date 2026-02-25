@@ -198,9 +198,9 @@ pub fn render(self: *Self, _: *const Widget.Theme) bool {
     // Drain the vt event queue.
     while (self.vt.tryEvent()) |event| {
         switch (event) {
-            .exited => {
-                tp.self_pid().send(.{ "cmd", "toggle_terminal_view" }) catch {};
-                return false;
+            .exited => |code| {
+                self.show_exit_message(code);
+                tui.need_render(@src());
             },
             .redraw, .bell => {},
             .pwd_change => |path| {
@@ -220,6 +220,21 @@ pub fn render(self: *Self, _: *const Widget.Theme) bool {
     };
 
     return false;
+}
+
+fn show_exit_message(self: *Self, code: u8) void {
+    var msg: std.Io.Writer.Allocating = .init(self.allocator);
+    defer msg.deinit();
+    const w = &msg.writer;
+    w.writeAll("\r\n") catch {};
+    w.writeAll("\x1b[0m\x1b[2m") catch {};
+    w.writeAll("[process exited") catch {};
+    if (code != 0)
+        w.print(" with code {d}", .{code}) catch {};
+    w.writeAll("]\x1b[0m\r\n") catch {};
+    var parser: pty.Parser = .{ .buf = .init(self.allocator) };
+    defer parser.buf.deinit();
+    _ = self.vt.processOutput(&parser, msg.written()) catch {};
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
@@ -297,8 +312,7 @@ const pty = struct {
         }
 
         if (try m.match(.{ "pty_actor", "quit" })) {
-            self.deinit();
-            return;
+            return tp.exit_normal();
         }
     }
 
@@ -309,28 +323,25 @@ const pty = struct {
             const n = std.posix.read(self.vt.ptyFd(), &buf) catch |e| switch (e) {
                 error.WouldBlock => break,
                 error.InputOutput => {
-                    self.vt.event_queue.push(.exited);
-                    self.vt.cmd.wait();
-                    self.deinit();
-                    return;
+                    const code = self.vt.cmd.wait();
+                    self.vt.event_queue.push(.{ .exited = code });
+                    self.parent.send(.{ "terminal_view", "output" }) catch {};
+                    return tp.exit_normal();
                 },
                 else => return tp.exit_error(e, @errorReturnTrace()),
             };
             if (n == 0) {
-                self.vt.event_queue.push(.exited);
-                self.vt.cmd.wait();
-                self.deinit();
-                return;
+                const code = self.vt.cmd.wait();
+                self.vt.event_queue.push(.{ .exited = code });
+                self.parent.send(.{ "terminal_view", "output" }) catch {};
+                return tp.exit_normal();
             }
 
             const exited = self.vt.processOutput(&self.parser, buf[0..n]) catch |e|
                 return tp.exit_error(e, @errorReturnTrace());
             if (exited) {
-                self.vt.cmd.wait();
-                // Notify parent so it drains the .exited event on its next render.
                 self.parent.send(.{ "terminal_view", "output" }) catch {};
-                self.deinit();
-                return;
+                return tp.exit_normal();
             }
             // Notify parent that new output is available.
             self.parent.send(.{ "terminal_view", "output" }) catch {};
