@@ -170,7 +170,7 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
     try self.pty.setSize(ws);
 }
 
-pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window) !void {
+pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window, focused: bool) !void {
     if (self.back_mutex.tryLock()) {
         defer self.back_mutex.unlock();
         // We keep this as a separate condition so we don't deadlock by obtaining the lock but not
@@ -192,8 +192,18 @@ pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window) !v
     }
 
     if (self.mode.cursor) {
-        win.setCursorShape(self.front_screen.cursor.shape);
-        win.showCursor(self.front_screen.cursor.col, self.front_screen.cursor.row);
+        const cur_col = self.front_screen.cursor.col;
+        const cur_row = self.front_screen.cursor.row;
+        if (focused) {
+            win.setCursorShape(self.front_screen.cursor.shape);
+            win.showCursor(cur_col, cur_row);
+        } else {
+            if (win.readCell(cur_col, cur_row)) |cell| {
+                var soft = cell;
+                soft.style.reverse = !cell.style.reverse;
+                win.writeCell(cur_col, cur_row, soft);
+            }
+        }
     }
 }
 
