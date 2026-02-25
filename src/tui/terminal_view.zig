@@ -316,6 +316,7 @@ const Vt = struct {
         }
         self.vt.deinit();
         self.env.deinit();
+        std.log.debug("terminal: vt destroyed", .{});
     }
 
     pub fn resize(self: *@This(), pos: Widget.Box) void {
@@ -366,6 +367,7 @@ const pty = struct {
         self.parser.buf.deinit();
         self.parent.deinit();
         self.allocator.destroy(self);
+        std.log.debug("terminal: pty destroyed", .{});
     }
 
     fn start(self: *@This()) tp.result {
