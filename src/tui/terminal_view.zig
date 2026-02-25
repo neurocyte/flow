@@ -215,7 +215,7 @@ pub fn render(self: *Self, _: *const Widget.Theme) bool {
     }
 
     // Blit the terminal's front screen into our vaxis.Window.
-    self.vt.draw(self.allocator, self.plane.window) catch |e| {
+    self.vt.draw(self.allocator, self.plane.window, self.focused) catch |e| {
         std.log.err("terminal_view: draw failed: {}", .{e});
     };
 
