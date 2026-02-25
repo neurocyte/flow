@@ -852,6 +852,11 @@ pub fn set_focus_by_mouse_event() FocusAction {
     return .changed;
 }
 
+pub fn is_keyboard_focused() bool {
+    const self = current();
+    return self.keyboard_focus != null;
+}
+
 pub fn set_keyboard_focus(w: Widget) void {
     const self = current();
     if (self.keyboard_focus) |prev| prev.unfocus();

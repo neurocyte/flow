@@ -1825,6 +1825,7 @@ pub fn focus_view_by_widget(self: *Self, w: Widget) tui.FocusAction {
 }
 
 pub fn focus_view(self: *Self, n: usize) !void {
+    tui.clear_keyboard_focus();
     if (n == self.active_view) return;
     if (n > self.views.widgets.items.len) return;
     if (n == self.views.widgets.items.len)
