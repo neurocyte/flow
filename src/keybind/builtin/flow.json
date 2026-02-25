@@ -596,6 +596,9 @@
             ["ctrl+8", "focus_split", 7],
             ["ctrl+`", "focus_terminal"],
             ["ctrl+j", "toggle_panel"],
+            ["ctrl+shift+p", "open_command_palette"],
+            ["alt+shift+p", "open_command_palette"],
+            ["alt+x", "open_command_palette"],
             ["alt+f9", "panel_next_widget_style"]
         ]
     }
