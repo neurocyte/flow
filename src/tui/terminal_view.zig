@@ -177,13 +177,16 @@ pub fn unfocus(self: *Self) void {
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.focused) tui.release_keyboard_focus(Widget.to(self));
-    // if (state) |*p| {
-    //     p.deinit(self.allocator);
-    //     state = null;
-    // }
     self.commands.unregister();
     self.plane.deinit();
     allocator.destroy(self);
+}
+
+pub fn shutdown(allocator: Allocator) void {
+    if (global_vt) |*vt| {
+        vt.deinit(allocator);
+        global_vt = null;
+    }
 }
 
 pub fn render(self: *Self, _: *const Widget.Theme) bool {

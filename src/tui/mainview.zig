@@ -125,6 +125,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.close_all_panel_views();
+    terminal_view.shutdown(allocator);
     self.commands.deinit();
     self.widgets.deinit(allocator);
     self.symbols.deinit(allocator);
@@ -498,6 +499,7 @@ const cmds = struct {
         {
             self.closing_project = true;
             defer self.closing_project = false;
+            terminal_view.shutdown(self.allocator);
             try close_splits(self, .{});
             try self.close_all_editors();
             self.delete_all_buffers();
