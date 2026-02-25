@@ -197,15 +197,22 @@ pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window, fo
 
     if (self.mode.cursor) {
         const cur_col = self.front_screen.cursor.col;
-        const cur_row = self.front_screen.cursor.row;
-        if (focused) {
-            win.setCursorShape(self.front_screen.cursor.shape);
-            win.showCursor(cur_col, cur_row);
-        } else {
-            if (win.readCell(cur_col, cur_row)) |cell| {
-                var soft = cell;
-                soft.style.reverse = !cell.style.reverse;
-                win.writeCell(cur_col, cur_row, soft);
+        const live_row = self.front_screen.cursor.row;
+        const visual_row = @as(usize, live_row) + self.scroll_offset;
+        const visible: ?u16 = if (visual_row < self.front_screen.height)
+            @intCast(visual_row)
+        else
+            null;
+        if (visible) |cur_row| {
+            if (focused) {
+                win.setCursorShape(self.front_screen.cursor.shape);
+                win.showCursor(cur_col, cur_row);
+            } else {
+                if (win.readCell(cur_col, cur_row)) |cell| {
+                    var soft = cell;
+                    soft.style.reverse = !cell.style.reverse;
+                    win.writeCell(cur_col, cur_row, soft);
+                }
             }
         }
     }
