@@ -15,7 +15,7 @@ const Queue = vaxis.Queue(Event, 16);
 const key = @import("key.zig");
 
 pub const Event = union(enum) {
-    exited,
+    exited: u8,
     redraw,
     bell,
     title_change: []const u8,

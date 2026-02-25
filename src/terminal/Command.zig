@@ -64,17 +64,19 @@ pub fn kill(self: *Command) void {
         std.posix.kill(pid, std.posix.SIG.TERM) catch {};
 }
 
-/// Reap the child process. Must be called after the pty reader thread has
-/// exited (i.e. after thread.join()), so the child is guaranteed to have
-/// already exited. Uses WNOHANG in a loop to handle any remaining state.
-pub fn wait(self: *Command) void {
-    const pid = self.pid orelse return;
+/// Reap the child process. Must be called after the pty EOF has been seen,
+/// so the child is guaranteed to have already exited. Uses WNOHANG in a loop
+/// to handle any remaining state. Returns the exit code (0-255).
+pub fn wait(self: *Command) u8 {
+    const pid = self.pid orelse return 0;
     self.pid = null;
-    // WNOHANG: don't block if the child hasn't exited yet (shouldn't happen
-    // after the pty EOF, but be defensive). Loop until fully reaped.
     while (true) {
         const result = std.posix.waitpid(pid, std.posix.W.NOHANG);
-        if (result.pid != 0) return; // reaped
+        if (result.pid != 0) {
+            if (std.posix.W.IFEXITED(result.status))
+                return std.posix.W.EXITSTATUS(result.status);
+            return 0;
+        }
         // pid == 0 means not yet exited — yield and retry
         std.Thread.yield() catch {};
     }
