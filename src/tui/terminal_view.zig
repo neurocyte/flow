@@ -25,24 +25,16 @@ const Terminal = vaxis.widgets.Terminal;
 
 allocator: Allocator,
 plane: Plane,
-vt: Terminal,
-env: std.process.EnvMap,
-write_buf: [4096]u8,
-pty_pid: ?tp.pid = null,
 focused: bool = false,
-cwd: std.ArrayListUnmanaged(u8) = .empty,
-title: std.ArrayListUnmanaged(u8) = .empty,
 input_mode: Mode,
 hover: bool = false,
+vt: *Vt,
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
     return create_with_args(allocator, parent, .{});
 }
 
 pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget {
-    const self = try allocator.create(Self);
-    errdefer allocator.destroy(self);
-
     const container = try WidgetList.createHStyled(
         allocator,
         parent,
@@ -77,8 +69,6 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
     } else {
         try argv_list.append(allocator, env.get("SHELL") orelse "bash");
     }
-    const argv: []const []const u8 = argv_list.items;
-    const home = env.get("HOME") orelse "/tmp";
 
     // Use the current plane dimensions for the initial pty size. The plane
     // starts at 0×0 before the first resize, so use a sensible fallback
@@ -86,42 +76,22 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
     const cols: u16 = @intCast(@max(80, plane.dim_x()));
     const rows: u16 = @intCast(@max(24, plane.dim_y()));
 
-    // write_buf must outlive the Terminal because the pty writer holds a
-    // pointer into it. It lives inside Self so the lifetimes match.
-    self.write_buf = undefined;
-    const vt = try Terminal.init(
-        allocator,
-        argv,
-        &env,
-        .{
-            .winsize = .{ .rows = rows, .cols = cols, .x_pixel = 0, .y_pixel = 0 },
-            .scrollback_size = 0,
-            .initial_working_directory = blk: {
-                const project = tp.env.get().str("project");
-                break :blk if (project.len > 0) project else home;
-            },
-        },
-        &self.write_buf,
-    );
+    if (global_vt == null) try Vt.init(allocator, argv_list.items, env, rows, cols);
+
+    const self = try allocator.create(Self);
+    errdefer allocator.destroy(self);
 
     self.* = .{
         .allocator = allocator,
         .plane = plane,
-        .vt = vt,
-        .env = env,
-        .write_buf = undefined, // managed via self.vt's pty_writer pointer
-        .pty_pid = null,
         .input_mode = try keybind.mode("terminal", allocator, .{ .insert_command = "do_nothing" }),
+        .vt = &global_vt.?,
     };
-
-    try self.vt.spawn();
 
     try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
 
     container.ctx = self;
     try container.add(Widget.to(self));
-
-    self.pty_pid = try pty.spawn(allocator, &self.vt);
 
     return container.widget();
 }
@@ -173,7 +143,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         .mods = @bitCast(modifiers),
         .text = if (text.len > 0) text else null,
     };
-    self.vt.update(.{ .key_press = key }) catch |e|
+    self.vt.vt.update(.{ .key_press = key }) catch |e|
         std.log.err("terminal_view: input failed: {}", .{e});
     tui.need_render(@src());
     return true;
@@ -195,22 +165,17 @@ pub fn unfocus(self: *Self) void {
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
     if (self.focused) tui.release_keyboard_focus(Widget.to(self));
-    self.cwd.deinit(self.allocator);
-    self.title.deinit(self.allocator);
-    if (self.pty_pid) |pid| {
-        pid.send(.{ "pty_actor", "quit" }) catch {};
-        pid.deinit();
-        self.pty_pid = null;
-    }
-    self.vt.deinit();
-    self.env.deinit();
+    // if (state) |*p| {
+    //     p.deinit(self.allocator);
+    //     state = null;
+    // }
     self.plane.deinit();
     allocator.destroy(self);
 }
 
 pub fn render(self: *Self, _: *const Widget.Theme) bool {
     // Drain the vt event queue.
-    while (self.vt.tryEvent()) |event| {
+    while (self.vt.vt.tryEvent()) |event| {
         switch (event) {
             .exited => |code| {
                 self.show_exit_message(code);
@@ -218,18 +183,18 @@ pub fn render(self: *Self, _: *const Widget.Theme) bool {
             },
             .redraw, .bell => {},
             .pwd_change => |path| {
-                self.cwd.clearRetainingCapacity();
-                self.cwd.appendSlice(self.allocator, path) catch {};
+                self.vt.cwd.clearRetainingCapacity();
+                self.vt.cwd.appendSlice(self.allocator, path) catch {};
             },
             .title_change => |t| {
-                self.title.clearRetainingCapacity();
-                self.title.appendSlice(self.allocator, t) catch {};
+                self.vt.title.clearRetainingCapacity();
+                self.vt.title.appendSlice(self.allocator, t) catch {};
             },
         }
     }
 
     // Blit the terminal's front screen into our vaxis.Window.
-    self.vt.draw(self.allocator, self.plane.window, self.focused) catch |e| {
+    self.vt.vt.draw(self.allocator, self.plane.window, self.focused) catch |e| {
         std.log.err("terminal_view: draw failed: {}", .{e});
     };
 
@@ -248,23 +213,13 @@ fn show_exit_message(self: *Self, code: u8) void {
     w.writeAll("]\x1b[0m\r\n") catch {};
     var parser: pty.Parser = .{ .buf = .init(self.allocator) };
     defer parser.buf.deinit();
-    _ = self.vt.processOutput(&parser, msg.written()) catch {};
+    _ = self.vt.vt.processOutput(&parser, msg.written()) catch {};
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
-
-    const cols: u16 = @intCast(@max(1, pos.w));
-    const rows: u16 = @intCast(@max(1, pos.h));
-    self.vt.resize(.{
-        .rows = rows,
-        .cols = cols,
-        .x_pixel = 0,
-        .y_pixel = 0,
-    }) catch |e| {
-        std.log.err("terminal_view: resize failed: {}", .{e});
-    };
+    self.vt.resize(pos);
 }
 
 fn receive_filter(_: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
@@ -274,6 +229,70 @@ fn receive_filter(_: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bo
     }
     return false;
 }
+
+const Vt = struct {
+    vt: Terminal,
+    env: std.process.EnvMap,
+    write_buf: [4096]u8,
+    pty_pid: ?tp.pid = null,
+    cwd: std.ArrayListUnmanaged(u8) = .empty,
+    title: std.ArrayListUnmanaged(u8) = .empty,
+
+    fn init(allocator: std.mem.Allocator, argv: []const []const u8, env: std.process.EnvMap, rows: u16, cols: u16) !void {
+        const home = env.get("HOME") orelse "/tmp";
+
+        global_vt = .{
+            .vt = undefined,
+            .env = env,
+            .write_buf = undefined, // managed via self.vt's pty_writer pointer
+            .pty_pid = null,
+        };
+        const self = &global_vt.?;
+        self.vt = try Terminal.init(
+            allocator,
+            argv,
+            &env,
+            .{
+                .winsize = .{ .rows = rows, .cols = cols, .x_pixel = 0, .y_pixel = 0 },
+                .scrollback_size = 0,
+                .initial_working_directory = blk: {
+                    const project = tp.env.get().str("project");
+                    break :blk if (project.len > 0) project else home;
+                },
+            },
+            &self.write_buf,
+        );
+
+        try self.vt.spawn();
+        self.pty_pid = try pty.spawn(allocator, &self.vt);
+    }
+
+    fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        self.cwd.deinit(allocator);
+        self.title.deinit(allocator);
+        if (self.pty_pid) |pid| {
+            pid.send(.{ "pty_actor", "quit" }) catch {};
+            pid.deinit();
+            self.pty_pid = null;
+        }
+        self.vt.deinit();
+        self.env.deinit();
+    }
+
+    pub fn resize(self: *@This(), pos: Widget.Box) void {
+        const cols: u16 = @intCast(@max(1, pos.w));
+        const rows: u16 = @intCast(@max(1, pos.h));
+        self.vt.resize(.{
+            .rows = rows,
+            .cols = cols,
+            .x_pixel = 0,
+            .y_pixel = 0,
+        }) catch |e| {
+            std.log.err("terminal: resize failed: {}", .{e});
+        };
+    }
+};
+var global_vt: ?Vt = null;
 
 const pty = struct {
     const Parser = Terminal.Parser;
