@@ -142,8 +142,9 @@ pub fn spawn(self: *Terminal) !void {
     }
 
     // Set the pty master fd to non-blocking
-    const flags = try std.posix.fcntl(self.pty.pty.handle, std.posix.F.GETFL, 0);
-    _ = try std.posix.fcntl(self.pty.pty.handle, std.posix.F.SETFL, flags | @as(u32, std.posix.SOCK.NONBLOCK));
+    var flags: std.c.O = @bitCast(@as(u32, @intCast(try std.posix.fcntl(self.pty.pty.handle, std.posix.F.GETFL, 0))));
+    flags.NONBLOCK = true;
+    _ = try std.posix.fcntl(self.pty.pty.handle, std.posix.F.SETFL, @intCast(@as(u32, @bitCast(flags))));
 }
 
 /// resize the screen. Locks access to the back screen. Should only be called from the main thread.
