@@ -53,6 +53,7 @@ delayed_init_input_mode: ?Mode = null,
 input_mode_outer_: ?Mode = null,
 input_listeners_: EventHandler.List,
 keyboard_focus: ?Widget = null,
+keyboard_focus_outer: ?Widget = null,
 mini_mode_: ?MiniMode = null,
 hover_focus: ?Widget = null,
 last_hover_x: c_int = -1,
@@ -948,10 +949,12 @@ pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {
 
 pub fn is_mainview_focused() bool {
     const self = current();
-    return self.mini_mode_ == null and self.input_mode_outer_ == null;
+    return self.mini_mode_ == null and self.input_mode_outer_ == null and !is_keyboard_focused();
 }
 
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {
+    self.keyboard_focus_outer = self.keyboard_focus;
+    clear_keyboard_focus();
     command.executeName("disable_fast_scroll", .{}) catch {};
     command.executeName("disable_alt_scroll", .{}) catch {};
     command.executeName("disable_jump_mode", .{}) catch {};
@@ -1552,6 +1555,8 @@ const cmds = struct {
         if (self.input_mode_) |*mode| mode.deinit();
         self.input_mode_ = self.input_mode_outer_;
         self.input_mode_outer_ = null;
+        if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
+            widget.focus();
         refresh_hover(@src());
     }
     pub const exit_overlay_mode_meta: Meta = .{};
