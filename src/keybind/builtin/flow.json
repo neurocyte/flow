@@ -600,7 +600,8 @@
             ["alt+shift+p", "open_command_palette"],
             ["alt+x", "open_command_palette"],
             ["alt+!", "run_task"],
-            ["alt+f9", "panel_next_widget_style"]
+            ["alt+f9", "panel_next_widget_style"],
+            ["ctrl+shift+q", "quit_without_saving"]
         ]
     }
 }
