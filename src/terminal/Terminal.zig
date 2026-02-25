@@ -282,11 +282,11 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                     },
                     // Reverse Index
                     'M' => try self.back_screen.reverseIndex(),
-                    else => log.info("unhandled escape: {s}", .{esc}),
+                    else => log.debug("unhandled escape: {s}", .{esc}),
                 }
             },
-            .ss2 => |ss2| log.info("unhandled ss2: {c}", .{ss2}),
-            .ss3 => |ss3| log.info("unhandled ss3: {c}", .{ss3}),
+            .ss2 => |ss2| log.debug("unhandled ss2: {c}", .{ss2}),
+            .ss3 => |ss3| log.debug("unhandled ss3: {c}", .{ss3}),
             .csi => |seq| {
                 switch (seq.final) {
                     // Cursor up
@@ -486,7 +486,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                                 // Secondary
                                 '>' => try pty_writer.writeAll("\x1B[>1;69;0c"),
                                 '=' => try pty_writer.writeAll("\x1B[=0000c"),
-                                else => log.info("unhandled CSI: {f}", .{seq}),
+                                else => log.debug("unhandled CSI: {f}", .{seq}),
                             }
                         } else {
                             // Primary
@@ -533,7 +533,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                                 }
                             },
                             3 => self.tab_stops.clearAndFree(self.allocator),
-                            else => log.info("unhandled CSI: {f}", .{seq}),
+                            else => log.debug("unhandled CSI: {f}", .{seq}),
                         }
                     },
                     'h', 'l' => {
@@ -562,7 +562,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                                     self.back_screen.cursor.row + 1,
                                     self.back_screen.cursor.col + 1,
                                 }),
-                                else => log.info("unhandled CSI: {f}", .{seq}),
+                                else => log.debug("unhandled CSI: {f}", .{seq}),
                             }
                         }
                     },
@@ -583,7 +583,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                                         },
                                     }
                                 },
-                                else => log.info("unhandled CSI: {f}", .{seq}),
+                                else => log.debug("unhandled CSI: {f}", .{seq}),
                             }
                         }
                     },
@@ -607,7 +607,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                                     "\x1bP>|libvaxis {s}\x1B\\",
                                     .{"dev"},
                                 ),
-                                else => log.info("unhandled CSI: {f}", .{seq}),
+                                else => log.debug("unhandled CSI: {f}", .{seq}),
                             }
                         }
                     },
@@ -635,16 +635,16 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                             self.back_screen.cursor.row = 0;
                         }
                     },
-                    else => log.info("unhandled CSI: {f}", .{seq}),
+                    else => log.debug("unhandled CSI: {f}", .{seq}),
                 }
             },
             .osc => |osc| {
                 const semicolon = std.mem.indexOfScalar(u8, osc, ';') orelse {
-                    log.info("unhandled osc: {s}", .{osc});
+                    log.debug("unhandled osc: {s}", .{osc});
                     continue;
                 };
                 const ps = std.fmt.parseUnsigned(u8, osc[0..semicolon], 10) catch {
-                    log.info("unhandled osc: {s}", .{osc});
+                    log.debug("unhandled osc: {s}", .{osc});
                     continue;
                 };
                 switch (ps) {
@@ -666,12 +666,12 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                             if (std.mem.startsWith(u8, after_semi, scheme))
                                 break after_semi[scheme.len..];
                         } else {
-                            log.info("unknown OSC 7 format: {s}", .{osc});
+                            log.debug("unknown OSC 7 format: {s}", .{osc});
                             continue;
                         };
                         // Skip the hostname (everything up to the next '/').
                         const path_start = std.mem.indexOfScalar(u8, after_scheme, '/') orelse {
-                            log.info("unknown OSC 7 format: {s}", .{osc});
+                            log.debug("unknown OSC 7 format: {s}", .{osc});
                             continue;
                         };
                         const enc = after_scheme[path_start..];
@@ -689,10 +689,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                     // OSC 9 ; 4 ; <state> ; <progress>
                     // Progress notification. Silently ignored; we have no progress UI.
                     9 => {},
-                    else => log.info("unhandled osc: {s}", .{osc}),
+                    else => log.debug("unhandled osc: {s}", .{osc}),
                 }
             },
-            .apc => |apc| log.info("unhandled apc: {s}", .{apc}),
+            .apc => |apc| log.debug("unhandled apc: {s}", .{apc}),
         }
     }
     return false;
