@@ -234,14 +234,23 @@ pub fn get_pty_writer(self: *Terminal) *std.Io.Writer {
 /// the shell has exited.
 /// `parser` is owned by the read loop and persists across calls so that
 /// partial escape sequences spanning multiple reads are handled correctly.
-pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
+pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
+    ReadFailed,
+    WriteFailed,
+    OutOfMemory,
+    Utf8InvalidStartByte,
+}!enum { exited, running } {
     var fixed_reader: std.Io.Reader = .fixed(data);
     const reader: *std.Io.Reader = &fixed_reader;
 
     while (true) {
         const event = parser.parseReader(reader) catch |e| switch (e) {
-            error.EndOfStream => return false, // partial sequence, wait for more data
-            else => return e,
+            error.EndOfStream => return .running, // partial sequence, wait for more data
+            error.EOF => return .exited,
+            error.ReadFailed,
+            error.OutOfMemory,
+            error.Utf8InvalidStartByte,
+            => |e_| return e_,
         };
         self.back_mutex.lock();
         defer self.back_mutex.unlock();
@@ -680,7 +689,12 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) !bool {
                         while (i < enc.len) : (i += 1) {
                             const b = if (enc[i] == '%') blk: {
                                 defer i += 2;
-                                break :blk try std.fmt.parseUnsigned(u8, enc[i + 1 .. i + 3], 16);
+                                break :blk std.fmt.parseUnsigned(u8, enc[i + 1 .. i + 3], 16) catch |e| switch (e) {
+                                    error.Overflow, error.InvalidCharacter => {
+                                        log.debug("unknown OSC 7 format: {s}", .{osc});
+                                        continue;
+                                    },
+                                };
                             } else enc[i];
                             try self.working_directory.append(self.allocator, b);
                         }
