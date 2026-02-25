@@ -113,6 +113,15 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             .same, .notfound => {},
         };
 
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON4), tp.more })) {
+        if (self.vt.vt.scroll(3)) tui.need_render(@src());
+        return true;
+    }
+    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON5), tp.more })) {
+        if (self.vt.vt.scroll(-3)) tui.need_render(@src());
+        return true;
+    }
+
     if (!(try m.match(.{ "I", tp.more })
         // or
         //     try m.match(.{ "B", tp.more }) or
@@ -143,6 +152,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         .mods = @bitCast(modifiers),
         .text = if (text.len > 0) text else null,
     };
+    self.vt.vt.scrollToBottom();
     self.vt.vt.update(.{ .key_press = key }) catch |e|
         std.log.err("terminal_view: input failed: {}", .{e});
     tui.need_render(@src());
