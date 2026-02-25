@@ -39,6 +39,8 @@
             ["ctrl+shift+f", "find_in_files"],
             ["ctrl+shift+l", "toggle_panel"],
             ["alt+shift+p", "open_command_palette"],
+            ["ctrl+shift+page_up", "terminal_scroll_up"],
+            ["ctrl+shift+page_down", "terminal_scroll_down"],
             ["alt+n", "goto_next_file_or_diagnostic"],
             ["alt+p", "goto_prev_file_or_diagnostic"],
             ["alt+l", "toggle_panel"],

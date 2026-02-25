@@ -29,6 +29,7 @@ focused: bool = false,
 input_mode: Mode,
 hover: bool = false,
 vt: *Vt,
+commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, parent: Plane) !Widget {
     return create_with_args(allocator, parent, .{});
@@ -88,6 +89,7 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
         .vt = &global_vt.?,
     };
 
+    try self.commands.init(self);
     try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
 
     container.ctx = self;
@@ -179,6 +181,7 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     //     p.deinit(self.allocator);
     //     state = null;
     // }
+    self.commands.unregister();
     self.plane.deinit();
     allocator.destroy(self);
 }
@@ -239,6 +242,29 @@ fn receive_filter(_: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bo
     }
     return false;
 }
+
+const Commands = command.Collection(cmds);
+
+const cmds = struct {
+    pub const Target = Self;
+    const Ctx = command.Context;
+    const Meta = command.Metadata;
+    const Result = command.Result;
+
+    pub fn terminal_scroll_up(self: *Self, _: Ctx) Result {
+        const half_page = @max(1, self.vt.vt.front_screen.height / 2);
+        if (self.vt.vt.scroll(@intCast(half_page)))
+            tui.need_render(@src());
+    }
+    pub const terminal_scroll_up_meta: Meta = .{ .description = "Terminal: Scroll up" };
+
+    pub fn terminal_scroll_down(self: *Self, _: Ctx) Result {
+        const half_page = @max(1, self.vt.vt.front_screen.height / 2);
+        if (self.vt.vt.scroll(-@as(i32, @intCast(half_page))))
+            tui.need_render(@src());
+    }
+    pub const terminal_scroll_down_meta: Meta = .{ .description = "Terminal: Scroll down" };
+};
 
 const Vt = struct {
     vt: Terminal,
