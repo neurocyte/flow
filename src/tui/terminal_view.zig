@@ -264,7 +264,7 @@ const Vt = struct {
             &env,
             .{
                 .winsize = .{ .rows = rows, .cols = cols, .x_pixel = 0, .y_pixel = 0 },
-                .scrollback_size = 0,
+                .scrollback_size = tui.config().terminal_scrollback_size,
                 .initial_working_directory = blk: {
                     const project = tp.env.get().str("project");
                     break :blk if (project.len > 0) project else home;
