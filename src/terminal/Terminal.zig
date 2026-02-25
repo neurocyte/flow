@@ -107,7 +107,7 @@ pub fn init(
         .cmd = cmd,
         .scrollback_size = opts.scrollback_size,
         .front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
-        .back_screen_pri = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows + opts.scrollback_size),
+        .back_screen_pri = try Screen.initScrollback(allocator, opts.winsize.cols, opts.winsize.rows, opts.scrollback_size),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .tab_stops = tabs,
     };
@@ -162,10 +162,14 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
     self.front_screen.deinit(self.allocator);
     self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
 
+    var new_pri = try Screen.initScrollback(self.allocator, ws.cols, ws.rows, self.scrollback_size);
+    try self.back_screen_pri.copyHistoryTo(self.allocator, &new_pri);
+    try self.back_screen_pri.copyViewportTo(self.allocator, &new_pri);
     self.back_screen_pri.deinit(self.allocator);
+    self.back_screen_pri = new_pri;
     self.back_screen_alt.deinit(self.allocator);
-    self.back_screen_pri = try Screen.init(self.allocator, ws.cols, ws.rows + self.scrollback_size);
     self.back_screen_alt = try Screen.init(self.allocator, ws.cols, ws.rows);
+    self.scroll_offset = @min(self.scroll_offset, self.back_screen_pri.historySize());
 
     try self.pty.setSize(ws);
 }
@@ -176,7 +180,7 @@ pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window, fo
         // We keep this as a separate condition so we don't deadlock by obtaining the lock but not
         // having sync
         if (!self.mode.sync) {
-            try self.back_screen.copyTo(allocator, &self.front_screen);
+            try self.back_screen.copyTo(allocator, &self.front_screen, self.scroll_offset);
             self.dirty = false;
         }
     }
@@ -205,6 +209,32 @@ pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window, fo
             }
         }
     }
+}
+
+/// adjust the scrollback view
+/// returns true if the offset changed
+pub fn scroll(self: *Terminal, delta: i32) bool {
+    if (self.back_screen != &self.back_screen_pri) return false;
+    const history = self.back_screen_pri.historySize();
+    const new_offset: usize = if (delta > 0)
+        @min(history, self.scroll_offset + @as(usize, @intCast(delta)))
+    else
+        self.scroll_offset -| @as(usize, @intCast(-delta));
+    if (new_offset == self.scroll_offset) return false;
+    self.scroll_offset = new_offset;
+    self.back_mutex.lock();
+    defer self.back_mutex.unlock();
+    for (self.back_screen_pri.buf) |*cell| cell.dirty = true;
+    return true;
+}
+
+/// return to the live view
+pub fn scrollToBottom(self: *Terminal) void {
+    if (self.scroll_offset == 0) return;
+    self.scroll_offset = 0;
+    self.back_mutex.lock();
+    defer self.back_mutex.unlock();
+    for (self.back_screen_pri.buf) |*cell| cell.dirty = true;
 }
 
 pub fn tryEvent(self: *Terminal) ?Event {

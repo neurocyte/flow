@@ -85,6 +85,7 @@ allocator: std.mem.Allocator,
 
 width: u16 = 0,
 height: u16 = 0,
+visible_top: usize = 0,
 
 scrolling_region: ScrollingRegion,
 
@@ -96,17 +97,23 @@ csi_u_flags: vaxis.Key.KittyFlags = @bitCast(@as(u5, 0)),
 
 /// sets each cell to the default cell
 pub fn init(alloc: std.mem.Allocator, w: u16, h: u16) !Screen {
+    return initScrollback(alloc, w, h, 0);
+}
+
+pub fn initScrollback(alloc: std.mem.Allocator, w: u16, visible_h: u16, scrollback: u16) !Screen {
+    const total_h: usize = @as(usize, visible_h) + scrollback;
     var screen = Screen{
         .allocator = alloc,
-        .buf = try alloc.alloc(Cell, @as(usize, @intCast(w)) * h),
+        .buf = try alloc.alloc(Cell, @as(usize, @intCast(w)) * total_h),
         .scrolling_region = .{
             .top = 0,
-            .bottom = h - 1,
+            .bottom = visible_h - 1,
             .left = 0,
             .right = w - 1,
         },
         .width = w,
-        .height = h,
+        .height = visible_h,
+        .visible_top = 0,
     };
     for (screen.buf, 0..) |_, i| {
         screen.buf[i] = .{
@@ -127,18 +134,126 @@ pub fn deinit(self: *Screen, alloc: std.mem.Allocator) void {
     alloc.free(self.buf);
 }
 
-/// copies the visible area to the destination screen
-pub fn copyTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen) !void {
+/// Copy the visible area (or a scrolled-back view) to the destination screen
+/// `scroll_offset` is the number of history rows to look back (0 = live view)
+pub fn copyTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen, scroll_offset: usize) !void {
     dst.cursor = self.cursor;
-    for (self.buf, 0..) |cell, i| {
-        if (!cell.dirty) continue;
-        self.buf[i].dirty = false;
-        const grapheme = cell.char.items;
-        dst.buf[i].char.clearRetainingCapacity();
-        try dst.buf[i].char.appendSlice(allocator, grapheme);
-        dst.buf[i].width = cell.width;
-        dst.buf[i].style = cell.style;
+    var dst_row: usize = 0;
+    while (dst_row < self.height) : (dst_row += 1) {
+        const src_row = (self.visible_top -| scroll_offset) + dst_row;
+        var col: usize = 0;
+        while (col < self.width) : (col += 1) {
+            const src_i = src_row * self.width + col;
+            const dst_i = dst_row * self.width + col;
+            const cell = &self.buf[src_i];
+            if (!cell.dirty) continue;
+            self.buf[src_i].dirty = false;
+            dst.buf[dst_i].char.clearRetainingCapacity();
+            try dst.buf[dst_i].char.appendSlice(allocator, cell.char.items);
+            dst.buf[dst_i].width = cell.width;
+            dst.buf[dst_i].style = cell.style;
+        }
     }
+}
+
+/// Copy history rows from `self` into `dst`, which must be a freshly
+/// initialised scrollback screen
+pub fn copyHistoryTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen) !void {
+    const src_history = self.visible_top;
+    const dst_capacity = dst.buf.len / dst.width - dst.height;
+    const copy_rows = @min(src_history, dst_capacity);
+    if (copy_rows == 0) return;
+
+    dst.visible_top = copy_rows;
+
+    const copy_cols = @min(self.width, dst.width);
+
+    var i: usize = 0;
+    while (i < copy_rows) : (i += 1) {
+        const src_row = src_history - copy_rows + i;
+        const dst_row = i;
+        var col: usize = 0;
+        while (col < copy_cols) : (col += 1) {
+            const src_i = src_row * self.width + col;
+            const dst_i = dst_row * dst.width + col;
+            try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
+            dst.buf[dst_i].dirty = true;
+        }
+    }
+}
+
+/// Copy the visible viewport from `self` into `dst` for a vertical resize
+pub fn copyViewportTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen) !void {
+    const old_h: usize = self.height;
+    const new_h: usize = dst.height;
+    const copy_cols = @min(self.width, dst.width);
+    const old_cursor: usize = self.cursor.row;
+
+    var src_vp_start: usize = 0;
+    var new_cursor_row: usize = 0;
+
+    if (new_h >= old_h) {
+        const delta = new_h - old_h;
+        const pull = @min(delta, dst.visible_top);
+        dst.visible_top -= pull;
+        src_vp_start = 0;
+        new_cursor_row = @min(new_h - 1, pull + old_cursor);
+        var vp_row: usize = 0;
+        while (vp_row < old_h) : (vp_row += 1) {
+            const src_buf_row = self.visible_top + vp_row;
+            const dst_buf_row = dst.visible_top + pull + vp_row;
+            var col: usize = 0;
+            while (col < copy_cols) : (col += 1) {
+                const src_i = src_buf_row * self.width + col;
+                const dst_i = dst_buf_row * dst.width + col;
+                try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
+            }
+        }
+    } else {
+        const keep_above = @min(old_cursor, new_h - 1);
+        src_vp_start = old_cursor - keep_above;
+        new_cursor_row = keep_above;
+
+        const dst_capacity = dst.buf.len / dst.width - dst.height;
+        const space_in_history = dst_capacity -| dst.visible_top;
+        const push = @min(src_vp_start, space_in_history);
+
+        var i: usize = 0;
+        while (i < push) : (i += 1) {
+            const src_vp_row = src_vp_start - push + i;
+            const src_buf_row = self.visible_top + src_vp_row;
+            const dst_hist_row = dst.visible_top + i;
+            var col: usize = 0;
+            while (col < copy_cols) : (col += 1) {
+                const src_i = src_buf_row * self.width + col;
+                const dst_i = dst_hist_row * dst.width + col;
+                try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
+                dst.buf[dst_i].dirty = true;
+            }
+        }
+        dst.visible_top += push;
+
+        var vp_row: usize = 0;
+        while (vp_row < new_h) : (vp_row += 1) {
+            const src_buf_row = self.visible_top + src_vp_start + vp_row;
+            const dst_buf_row = dst.visible_top + vp_row;
+            var col: usize = 0;
+            while (col < copy_cols) : (col += 1) {
+                const src_i = src_buf_row * self.width + col;
+                const dst_i = dst_buf_row * dst.width + col;
+                try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
+            }
+        }
+    }
+
+    dst.cursor = self.cursor;
+    dst.cursor.row = @intCast(new_cursor_row);
+    dst.scrolling_region.bottom = @intCast(new_h - 1);
+    dst.scrolling_region.right = @intCast(dst.width - 1);
+
+    const vp_start = dst.visible_top * dst.width;
+    const vp_end = vp_start + new_h * dst.width;
+    for (dst.buf[vp_start..vp_end]) |*cell| cell.dirty = true;
 }
 
 pub fn readCell(self: *Screen, col: usize, row: usize) ?vaxis.Cell {
@@ -150,7 +265,7 @@ pub fn readCell(self: *Screen, col: usize, row: usize) ?vaxis.Cell {
         // height out of bounds
         return null;
     }
-    const i = (row * self.width) + col;
+    const i = self.rowIndex(row, col);
     assert(i < self.buf.len);
     const cell = self.buf[i];
     return .{
@@ -162,6 +277,16 @@ pub fn readCell(self: *Screen, col: usize, row: usize) ?vaxis.Cell {
 /// returns true if the current cursor position is within the scrolling region
 pub fn withinScrollingRegion(self: Screen) bool {
     return self.scrolling_region.contains(self.cursor.col, self.cursor.row);
+}
+
+/// absolute buffer index for (row, col) in the visible viewport
+inline fn rowIndex(self: *const Screen, row: usize, col: usize) usize {
+    return (self.visible_top + row) * self.width + col;
+}
+
+/// history lines available above the current viewport
+pub fn historySize(self: *const Screen) usize {
+    return self.visible_top;
 }
 
 /// writes a cell to a location. 0 indexed
@@ -180,7 +305,7 @@ pub fn print(
     const col = self.cursor.col;
     const row = self.cursor.row;
 
-    const i = (row * self.width) + col;
+    const i = self.rowIndex(row, col);
     assert(i < self.buf.len);
     self.buf[i].char.clearRetainingCapacity();
     self.buf[i].char.appendSlice(self.allocator, grapheme) catch {
@@ -213,10 +338,23 @@ pub fn index(self: *Screen) !void {
     }
     // We are inside the scrolling region
     if (self.cursor.row == self.scrolling_region.bottom) {
-        // Inside scrolling region *and* at bottom of screen, we scroll contents up and insert a
-        // blank line
-        // TODO: scrollback if scrolling region is entire visible screen
-        try self.deleteLine(1);
+        const full_screen = self.scrolling_region.top == 0 and
+            self.scrolling_region.bottom == self.height - 1 and
+            self.scrolling_region.left == 0 and
+            self.scrolling_region.right == self.width - 1;
+        const total_rows = self.buf.len / self.width;
+        if (full_screen and self.visible_top + self.height < total_rows) {
+            self.visible_top += 1;
+            const new_bottom = self.rowIndex(self.height - 1, 0);
+            for (self.buf[new_bottom .. new_bottom + self.width]) |*cell| {
+                cell.erase(self.allocator, self.cursor.style.bg);
+            }
+            const viewport_start = self.visible_top * self.width;
+            const viewport_end = viewport_start + @as(usize, self.height) * self.width;
+            for (self.buf[viewport_start..viewport_end]) |*cell| cell.dirty = true;
+        } else {
+            try self.deleteLine(1);
+        }
         return;
     }
     self.cursor.row += 1;
@@ -366,8 +504,9 @@ pub fn cursorDown(self: *Screen, n: usize) void {
 
 pub fn eraseRight(self: *Screen) void {
     self.cursor.pending_wrap = false;
-    const end = (self.cursor.row * self.width) + (self.width);
-    var i = (self.cursor.row * self.width) + self.cursor.col;
+    const start = self.rowIndex(self.cursor.row, self.cursor.col);
+    const end = self.rowIndex(self.cursor.row, self.width);
+    var i = start;
     while (i < end) : (i += 1) {
         self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
@@ -375,8 +514,8 @@ pub fn eraseRight(self: *Screen) void {
 
 pub fn eraseLeft(self: *Screen) void {
     self.cursor.pending_wrap = false;
-    const start = self.cursor.row * self.width;
-    const end = start + self.cursor.col + 1;
+    const start = self.rowIndex(self.cursor.row, 0);
+    const end = self.rowIndex(self.cursor.row, self.cursor.col + 1);
     var i = start;
     while (i < end) : (i += 1) {
         self.buf[i].erase(self.allocator, self.cursor.style.bg);
@@ -385,8 +524,8 @@ pub fn eraseLeft(self: *Screen) void {
 
 pub fn eraseLine(self: *Screen) void {
     self.cursor.pending_wrap = false;
-    const start = self.cursor.row * self.width;
-    const end = start + self.width;
+    const start = self.rowIndex(self.cursor.row, 0);
+    const end = self.rowIndex(self.cursor.row, self.width);
     var i = start;
     while (i < end) : (i += 1) {
         self.buf[i].erase(self.allocator, self.cursor.style.bg);
@@ -410,7 +549,7 @@ pub fn deleteLine(self: *Screen, n: usize) !void {
     while (row <= self.scrolling_region.bottom) : (row += 1) {
         var col: usize = self.scrolling_region.left;
         while (col <= self.scrolling_region.right) : (col += 1) {
-            const i = (row * self.width) + col;
+            const i = self.rowIndex(row, col);
             if (row + cnt > self.scrolling_region.bottom)
                 self.buf[i].erase(self.allocator, self.cursor.style.bg)
             else
@@ -434,7 +573,7 @@ pub fn insertLine(self: *Screen, n: usize) !void {
     while (row >= self.scrolling_region.top + adjusted_n) : (row -|= 1) {
         var col: usize = self.scrolling_region.left;
         while (col <= self.scrolling_region.right) : (col += 1) {
-            const i = (row * self.width) + col;
+            const i = self.rowIndex(row, col);
             try self.buf[i].copyFrom(self.allocator, self.buf[i - stride]);
         }
     }
@@ -443,7 +582,7 @@ pub fn insertLine(self: *Screen, n: usize) !void {
     while (row < self.scrolling_region.top + adjusted_n) : (row += 1) {
         var col: usize = self.scrolling_region.left;
         while (col <= self.scrolling_region.right) : (col += 1) {
-            const i = (row * self.width) + col;
+            const i = self.rowIndex(row, col);
             self.buf[i].erase(self.allocator, self.cursor.style.bg);
         }
     }
@@ -451,19 +590,20 @@ pub fn insertLine(self: *Screen, n: usize) !void {
 
 pub fn eraseBelow(self: *Screen) void {
     self.eraseRight();
-    // start is the first column of the row below us
-    const start = (self.cursor.row * self.width) + (self.width);
+    // erase all cells from the row below cursor to the bottom of the visible area
+    const start = self.rowIndex(self.cursor.row + 1, 0);
+    const end = self.rowIndex(self.height, 0);
     var i = start;
-    while (i < self.buf.len) : (i += 1) {
+    while (i < end) : (i += 1) {
         self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
 }
 
 pub fn eraseAbove(self: *Screen) void {
     self.eraseLeft();
-    // start is the first column of the row below us
-    const start: usize = 0;
-    const end = self.cursor.row * self.width;
+    // erase from the top of the visible area up to (but not including) cursor row
+    const start = self.rowIndex(0, 0);
+    const end = self.rowIndex(self.cursor.row, 0);
     var i = start;
     while (i < end) : (i += 1) {
         self.buf[i].erase(self.allocator, self.cursor.style.bg);
@@ -471,8 +611,9 @@ pub fn eraseAbove(self: *Screen) void {
 }
 
 pub fn eraseAll(self: *Screen) void {
-    var i: usize = 0;
-    while (i < self.buf.len) : (i += 1) {
+    var i = self.rowIndex(0, 0);
+    const end = self.rowIndex(self.height, 0);
+    while (i < end) : (i += 1) {
         self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
 }
@@ -483,10 +624,11 @@ pub fn deleteCharacters(self: *Screen, n: usize) !void {
     self.cursor.pending_wrap = false;
     var col = self.cursor.col;
     while (col <= self.scrolling_region.right) : (col += 1) {
+        const i = self.rowIndex(self.cursor.row, col);
         if (col + n <= self.scrolling_region.right)
-            try self.buf[col].copyFrom(self.allocator, self.buf[col + n])
+            try self.buf[i].copyFrom(self.allocator, self.buf[self.rowIndex(self.cursor.row, col + n)])
         else
-            self.buf[col].erase(self.allocator, self.cursor.style.bg);
+            self.buf[i].erase(self.allocator, self.cursor.style.bg);
     }
 }
 
