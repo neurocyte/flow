@@ -502,7 +502,6 @@ const pty = struct {
                 error.WriteFailed,
                 error.ReadFailed,
                 error.OutOfMemory,
-                error.Utf8InvalidStartByte,
                 => {
                     std.log.debug("terminal: processOutput error: {} (pid={?})", .{ e, self.vt.cmd.pid });
                     return error.Unexpected;
