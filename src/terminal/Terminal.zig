@@ -768,14 +768,21 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                         }
                     },
                     // CSI ? u - query Kitty keyboard protocol flags; respond with 0 (not enabled)
-                    'u' => {
-                        if (seq.private_marker == '?') {
+                    // Kitty keyboard protocol
+                    'u' => switch (seq.private_marker orelse 0) {
+                        // CSI ? u - query flags; respond with 0 (not enabled)
+                        '?' => {
                             const pty_writer = self.get_pty_writer();
                             defer pty_writer.flush() catch {};
                             try pty_writer.writeAll("\x1B[?0u");
-                        } else {
-                            log.debug("unhandled CSI: {f}", .{seq});
-                        }
+                        },
+                        // CSI > Flags u - push flags onto stack; silently accept
+                        '>' => {},
+                        // CSI = Flags u - set flags with mode; silently accept
+                        '=' => {},
+                        // CSI < u - pop flags from stack; silently accept
+                        '<' => {},
+                        else => log.debug("unhandled CSI: {f}", .{seq}),
                     },
                     // CSI Ps t - XTWINOPS window operations; silently ignore
                     't' => {},
