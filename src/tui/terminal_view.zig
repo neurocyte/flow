@@ -189,7 +189,7 @@ pub fn shutdown(allocator: Allocator) void {
     }
 }
 
-pub fn render(self: *Self, _: *const Widget.Theme) bool {
+pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     // Drain the vt event queue.
     while (self.vt.vt.tryEvent()) |event| {
         switch (event) {
@@ -207,6 +207,17 @@ pub fn render(self: *Self, _: *const Widget.Theme) bool {
                 self.vt.title.appendSlice(self.allocator, t) catch {};
             },
         }
+    }
+
+    // Update the terminal's fg/bg color cache from the current theme so that
+    // OSC 10/11 colour queries return accurate values.
+    if (theme.editor.fg) |fg| {
+        const c = fg.color;
+        self.vt.vt.fg_color = .{ @truncate(c >> 16), @truncate(c >> 8), @truncate(c) };
+    }
+    if (theme.editor.bg) |bg| {
+        const c = bg.color;
+        self.vt.vt.bg_color = .{ @truncate(c >> 16), @truncate(c >> 8), @truncate(c) };
     }
 
     // Blit the terminal's front screen into our vaxis.Window.
