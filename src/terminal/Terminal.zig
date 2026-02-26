@@ -767,6 +767,18 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             self.back_screen.cursor.row = 0;
                         }
                     },
+                    // CSI ? u - query Kitty keyboard protocol flags; respond with 0 (not enabled)
+                    'u' => {
+                        if (seq.private_marker == '?') {
+                            const pty_writer = self.get_pty_writer();
+                            defer pty_writer.flush() catch {};
+                            try pty_writer.writeAll("\x1B[?0u");
+                        } else {
+                            log.debug("unhandled CSI: {f}", .{seq});
+                        }
+                    },
+                    // CSI Ps t - XTWINOPS window operations; silently ignore
+                    't' => {},
                     else => log.debug("unhandled CSI: {f}", .{seq}),
                 }
             },
