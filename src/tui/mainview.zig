@@ -945,7 +945,7 @@ const cmds = struct {
         else if (self.is_panel_view_showing(terminal_view))
             try self.toggle_panel_view(terminal_view, .toggle)
         else
-            try self.toggle_panel_view(logview, .toggle);
+            try focus_terminal(self, .{});
     }
     pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
 
