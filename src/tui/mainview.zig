@@ -59,6 +59,7 @@ buffer_manager: Buffer.Manager,
 find_in_files_state: enum { init, adding, done } = .done,
 file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
+panel_maximized: bool = false,
 symbols: std.ArrayListUnmanaged(u8) = .empty,
 symbols_complete: bool = true,
 closing_project: bool = false,
@@ -260,6 +261,10 @@ pub fn handle_resize(self: *Self, pos: Box) void {
     if (self.panel_height) |h| if (h >= self.box().h) {
         self.panel_height = null;
     };
+    if (self.panel_maximized) {
+        if (self.panels) |panels|
+            panels.layout_ = .{ .static = self.box().h -| 1 };
+    }
     self.widgets.handle_resize(pos);
     self.floating_views.resize(pos);
 }
@@ -281,6 +286,7 @@ fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
     };
     const h = self.plane.dim_y();
     self.panel_height = @max(1, h - @min(h, y + 1));
+    self.panel_maximized = false;
     panels.layout_ = .{ .static = self.panel_height.? };
     if (self.panel_height == 1) {
         self.panel_height = null;
@@ -942,6 +948,22 @@ const cmds = struct {
             try self.toggle_panel_view(logview, .toggle);
     }
     pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
+
+    pub fn toggle_maximize_panel(self: *Self, _: Ctx) Result {
+        const panels = self.panels orelse return;
+        const max_h = self.box().h -| 1;
+        if (self.panel_maximized) {
+            // Restore previous height
+            self.panel_maximized = false;
+            panels.layout_ = .{ .static = self.get_panel_height() };
+        } else {
+            // Maximize: fill screen minus status bar
+            self.panel_maximized = true;
+            panels.layout_ = .{ .static = max_h };
+        }
+        tui.resize();
+    }
+    pub const toggle_maximize_panel_meta: Meta = .{ .description = "Toggle maximize panel" };
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, .toggle);
