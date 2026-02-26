@@ -1591,6 +1591,22 @@ const cmds = struct {
     }
     pub const move_tab_previous_meta: Meta = .{ .description = "Move tab to previous position" };
 
+    pub fn move_tab_next_or_scroll_terminal_down(self: *Self, _: Ctx) Result {
+        if (self.is_panel_view_showing(terminal_view))
+            try command.executeName("terminal_scroll_down", .{})
+        else
+            _ = try self.widgets_widget.msg(.{"move_tab_next"});
+    }
+    pub const move_tab_next_or_scroll_terminal_down_meta: Meta = .{ .description = "Move tab next or scroll terminal down" };
+
+    pub fn move_tab_previous_or_scroll_terminal_up(self: *Self, _: Ctx) Result {
+        if (self.is_panel_view_showing(terminal_view))
+            try command.executeName("terminal_scroll_up", .{})
+        else
+            _ = try self.widgets_widget.msg(.{"move_tab_previous"});
+    }
+    pub const move_tab_previous_or_scroll_terminal_up_meta: Meta = .{ .description = "Move tab previous or scroll terminal up" };
+
     pub fn place_next_tab(self: *Self, ctx: Ctx) Result {
         var pos: enum { before, after } = undefined;
         var buffer_ref: Buffer.Ref = undefined;
