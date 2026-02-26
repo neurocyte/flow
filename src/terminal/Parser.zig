@@ -130,7 +130,8 @@ inline fn parseGround(self: *Parser, reader: *Reader) !Event {
     {
         std.debug.assert(self.buf.items.len > 0);
         // Handle first byte - complete the UTF-8 sequence
-        const len = try std.unicode.utf8ByteSequenceLength(self.buf.items[0]);
+        // Invalid start bytes are treated as single raw bytes (latin-1 passthrough).
+        const len = std.unicode.utf8ByteSequenceLength(self.buf.items[0]) catch 1;
         var i: usize = 1;
         while (i < len) : (i += 1) {
             const read = try reader.readSliceShort(&buf);
@@ -150,7 +151,7 @@ inline fn parseGround(self: *Parser, reader: *Reader) !Event {
             },
             else => {
                 try self.buf.append(b);
-                const len = try std.unicode.utf8ByteSequenceLength(b);
+                const len = std.unicode.utf8ByteSequenceLength(b) catch 1;
                 var i: usize = 1;
                 while (i < len) : (i += 1) {
                     const read = try reader.readSliceShort(&buf);

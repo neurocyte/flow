@@ -331,7 +331,6 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
     ReadFailed,
     WriteFailed,
     OutOfMemory,
-    Utf8InvalidStartByte,
 }!enum { exited, running } {
     var fixed_reader: std.Io.Reader = .fixed(data);
     const reader: *std.Io.Reader = &fixed_reader;
@@ -341,7 +340,6 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
             error.EndOfStream => return .running, // partial sequence, wait for more data
             error.ReadFailed,
             error.OutOfMemory,
-            error.Utf8InvalidStartByte,
             => |e_| return e_,
         };
         self.back_mutex.lock();
