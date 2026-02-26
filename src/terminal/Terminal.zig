@@ -74,6 +74,12 @@ dirty: bool = false,
 
 mode: Mode = .{},
 
+/// Default colours reported in response to OSC 10/11 queries.
+/// Set by the embedding widget after each render so apps get accurate colours.
+/// Stored as 8-bit RGB; the OSC response scales to 16-bit (xx/xx pattern).
+fg_color: [3]u8 = .{ 0xff, 0xff, 0xff },
+bg_color: [3]u8 = .{ 0x00, 0x00, 0x00 },
+
 /// G0 and G1 character set designations
 /// ESC ( X designates G0, ESC ) X designates G1
 charset_g0: Charset = .ascii,
@@ -785,6 +791,24 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     // OSC 9 ; 4 ; <state> ; <progress>
                     // Progress notification. Silently ignored; we have no progress UI.
                     9 => {},
+                    // OSC 10;? - foreground colour query
+                    10 => {
+                        if (std.mem.eql(u8, osc[semicolon + 1 ..], "?")) {
+                            const pty_writer = self.get_pty_writer();
+                            defer pty_writer.flush() catch {};
+                            const c = self.fg_color;
+                            try pty_writer.print("\x1B]10;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\", .{ c[0], c[0], c[1], c[1], c[2], c[2] });
+                        }
+                    },
+                    // OSC 11;? - background colour query
+                    11 => {
+                        if (std.mem.eql(u8, osc[semicolon + 1 ..], "?")) {
+                            const pty_writer = self.get_pty_writer();
+                            defer pty_writer.flush() catch {};
+                            const c = self.bg_color;
+                            try pty_writer.print("\x1B]11;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\", .{ c[0], c[0], c[1], c[1], c[2], c[2] });
+                        }
+                    },
                     else => log.debug("unhandled osc: {s}", .{osc}),
                 }
             },
