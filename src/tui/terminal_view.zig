@@ -206,6 +206,11 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
                 self.vt.title.clearRetainingCapacity();
                 self.vt.title.appendSlice(self.allocator, t) catch {};
             },
+            .color_change => |cc| {
+                self.vt.app_fg = cc.fg;
+                self.vt.app_bg = cc.bg;
+                self.vt.app_cursor = cc.cursor;
+            },
             .osc_copy => |text| {
                 // Terminal app wrote to clipboard via OSC 52.
                 // Add to flow clipboard history and forward to system clipboard.
@@ -310,6 +315,10 @@ const Vt = struct {
     pty_pid: ?tp.pid = null,
     cwd: std.ArrayListUnmanaged(u8) = .empty,
     title: std.ArrayListUnmanaged(u8) = .empty,
+    /// App-specified override colours (from OSC 10/11/12). null = use theme.
+    app_fg: ?[3]u8 = null,
+    app_bg: ?[3]u8 = null,
+    app_cursor: ?[3]u8 = null,
 
     fn init(allocator: std.mem.Allocator, argv: []const []const u8, env: std.process.EnvMap, rows: u16, cols: u16) !void {
         const home = env.get("HOME") orelse "/tmp";
