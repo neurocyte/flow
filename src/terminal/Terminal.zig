@@ -411,6 +411,9 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     '=' => self.mode.keypad_application = true,
                     // DECKPNM - keypad numeric mode
                     '>' => self.mode.keypad_application = false,
+                    // ESC \ is ST (String Terminator) - a no-op at top level.
+                    // Appears when ST is split from its OSC/APC across a read boundary.
+                    '\\' => {},
                     else => log.debug("unhandled escape: {s}", .{esc}),
                 }
             },

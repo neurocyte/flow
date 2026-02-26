@@ -194,7 +194,7 @@ inline fn parseApc(self: *Parser, reader: *Reader) !Event {
             0x1c...0x1f,
             => continue,
             0x1b => {
-                _ = try reader.discard(std.Io.Limit.limited(1));
+                _ = reader.discard(std.Io.Limit.limited(1)) catch {};
                 return .{ .apc = self.buf.items };
             },
             else => try self.buf.append(b),
@@ -229,7 +229,9 @@ inline fn resumeOsc(self: *Parser, reader: *Reader) !Event {
             0x1c...0x1f,
             => continue,
             0x1b => {
-                _ = try reader.discard(std.Io.Limit.limited(1));
+                // ST = ESC \. Consume the \ if present; if split across reads,
+                // save state so the \ is discarded on resume rather than leaking.
+                _ = reader.discard(std.Io.Limit.limited(1)) catch {};
                 return .{ .osc = self.buf.items };
             },
             0x07 => return .{ .osc = self.buf.items },
