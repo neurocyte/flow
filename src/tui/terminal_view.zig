@@ -406,17 +406,23 @@ const pty = struct {
     }
 
     fn deinit(self: *@This()) void {
+        std.log.debug("terminal: pty actor deinit (pid={?})", .{self.vt.cmd.pid});
         self.fd.deinit();
         self.parser.buf.deinit();
         self.parent.deinit();
         self.allocator.destroy(self);
-        std.log.debug("terminal: pty destroyed", .{});
     }
 
     fn start(self: *@This()) tp.result {
         errdefer self.deinit();
-        self.fd = tp.file_descriptor.init("pty", self.pty_fd) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.fd.wait_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.fd = tp.file_descriptor.init("pty", self.pty_fd) catch |e| {
+            std.log.debug("terminal: pty fd init failed: {}", .{e});
+            return tp.exit_error(e, @errorReturnTrace());
+        };
+        self.fd.wait_read() catch |e| {
+            std.log.debug("terminal: pty initial wait_read failed: {}", .{e});
+            return tp.exit_error(e, @errorReturnTrace());
+        };
         tp.receive(&self.receiver);
     }
 
@@ -425,14 +431,28 @@ const pty = struct {
 
         if (try m.match(.{ "fd", "pty", "read_ready" })) {
             self.read_and_process() catch |e| return switch (e) {
-                error.Terminated => tp.exit_normal(),
-                error.InputOutput => tp.exit_normal(),
-                error.SendFailed => tp.exit_normal(),
-                error.Unexpected => tp.exit_normal(),
+                error.Terminated => {
+                    std.log.debug("terminal: pty exiting: read loop terminated (process exited)", .{});
+                    return tp.exit_normal();
+                },
+                error.InputOutput => {
+                    std.log.debug("terminal: pty exiting: EIO on read (process exited)", .{});
+                    return tp.exit_normal();
+                },
+                error.SendFailed => {
+                    std.log.debug("terminal: pty exiting: send to parent failed", .{});
+                    return tp.exit_normal();
+                },
+                error.Unexpected => {
+                    std.log.debug("terminal: pty exiting: unexpected error (see preceding log)", .{});
+                    return tp.exit_normal();
+                },
             };
         } else if (try m.match(.{"quit"})) {
+            std.log.debug("terminal: pty exiting: received quit", .{});
             return tp.exit_normal();
         } else {
+            std.log.debug("terminal: pty exiting: unexpected message", .{});
             return tp.unexpected(m);
         }
     }
@@ -445,6 +465,7 @@ const pty = struct {
                 error.WouldBlock => break,
                 error.InputOutput => {
                     const code = self.vt.cmd.wait();
+                    std.log.debug("terminal: read EIO, process exited with code={d}", .{code});
                     self.vt.event_queue.push(.{ .exited = code });
                     self.parent.send(.{ "terminal_view", "output" }) catch {};
                     return error.InputOutput;
@@ -463,12 +484,13 @@ const pty = struct {
                 error.LockViolation,
                 error.Unexpected,
                 => {
-                    std.log.err("terminal_view: read unexpected: {}", .{e});
+                    std.log.debug("terminal: read unexpected error: {} (pid={?})", .{ e, self.vt.cmd.pid });
                     return error.Unexpected;
                 },
             };
             if (n == 0) {
                 const code = self.vt.cmd.wait();
+                std.log.debug("terminal: read returned 0 bytes (EOF), process exited with code={d}", .{code});
                 self.vt.event_queue.push(.{ .exited = code });
                 self.parent.send(.{ "terminal_view", "output" }) catch {};
                 return error.Terminated;
@@ -482,11 +504,12 @@ const pty = struct {
                 error.OutOfMemory,
                 error.Utf8InvalidStartByte,
                 => {
-                    std.log.err("terminal_view: processOutput unexpected: {}", .{e});
+                    std.log.debug("terminal: processOutput error: {} (pid={?})", .{ e, self.vt.cmd.pid });
                     return error.Unexpected;
                 },
             }) {
                 .exited => {
+                    std.log.debug("terminal: processOutput returned .exited (process EOF)", .{});
                     return error.Terminated;
                 },
                 .running => {},
@@ -495,7 +518,7 @@ const pty = struct {
 
         self.fd.wait_read() catch |e| switch (e) {
             error.ThespianFileDescriptorWaitReadFailed => {
-                std.log.err("terminal_view: wait_read unexpected: {}", .{e});
+                std.log.debug("terminal: wait_read failed: {} (pid={?})", .{ e, self.vt.cmd.pid });
                 return error.Unexpected;
             },
         };
