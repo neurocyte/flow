@@ -39,6 +39,13 @@ pub const Mode = struct {
     sync: bool = false,
 };
 
+pub const Charset = enum {
+    /// US ASCII - pass characters through unchanged
+    ascii,
+    /// DEC Special Character and Line Drawing Set (ESC ( 0)
+    dec_special,
+};
+
 pub const InputEvent = union(enum) {
     key_press: vaxis.Key,
 };
@@ -65,6 +72,13 @@ back_mutex: std.Thread.Mutex = .{},
 dirty: bool = false,
 
 mode: Mode = .{},
+
+/// G0 and G1 character set designations
+/// ESC ( X designates G0, ESC ) X designates G1
+charset_g0: Charset = .ascii,
+charset_g1: Charset = .ascii,
+/// When true, G1 is active (SO); when false, G0 is active (SI / default).
+charset_shifted: bool = false,
 
 tab_stops: std.ArrayList(u16),
 title: std.ArrayList(u8) = .empty,
@@ -297,19 +311,45 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
 
         switch (event) {
             .print => |str| {
+                const active_charset: Charset = if (self.charset_shifted) self.charset_g1 else self.charset_g0;
                 var iter = vaxis.unicode.graphemeIterator(str);
                 while (iter.next()) |grapheme| {
                     const gr = grapheme.bytes(str);
                     // TODO: use actual instead of .unicode
                     const w = vaxis.gwidth.gwidth(gr, .unicode);
-                    try self.back_screen.print(gr, @truncate(w), self.mode.autowrap);
+                    if (active_charset == .dec_special and gr.len == 1) {
+                        const mapped = decSpecialChar(gr[0]);
+                        try self.back_screen.print(mapped, @truncate(w), self.mode.autowrap);
+                    } else {
+                        try self.back_screen.print(gr, @truncate(w), self.mode.autowrap);
+                    }
                 }
             },
             .c0 => |b| try self.handleC0(b),
             .escape => |esc| {
                 const final = esc[esc.len - 1];
                 switch (final) {
-                    'B' => {}, // TODO: handle charsets
+                    'B', 'A' => {
+                        // ESC ( B / ESC ) B  - designate US ASCII
+                        // ESC ( A / ESC ) A  - designate UK ASCII (treat as ASCII)
+                        if (esc.len >= 2) {
+                            const slot = esc[esc.len - 2];
+                            if (slot == '(')
+                                self.charset_g0 = .ascii
+                            else if (slot == ')')
+                                self.charset_g1 = .ascii;
+                        }
+                    },
+                    '0' => {
+                        // ESC ( 0 / ESC ) 0  - designate DEC Special Character set
+                        if (esc.len >= 2) {
+                            const slot = esc[esc.len - 2];
+                            if (slot == '(')
+                                self.charset_g0 = .dec_special
+                            else if (slot == ')')
+                                self.charset_g1 = .dec_special;
+                        }
+                    },
                     // Index
                     'D' => try self.back_screen.index(),
                     // Next Line
@@ -759,8 +799,8 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
         .HT => self.horizontalTab(1),
         .LF, .VT, .FF => try self.back_screen.index(),
         .CR => self.carriageReturn(),
-        .SO => {}, // TODO: Charset shift out
-        .SI => {}, // TODO: Charset shift in
+        .SO => self.charset_shifted = true, // Shift Out: activate G1
+        .SI => self.charset_shifted = false, // Shift In: activate G0 (default)
         else => log.warn("unhandled C0: 0x{x}", .{@intFromEnum(b)}),
     }
 }
@@ -827,4 +867,44 @@ pub fn horizontalBackTab(self: *Terminal, n: usize) void {
 
     // Move left the delta
     self.back_screen.cursorLeft(final - col);
+}
+
+/// Translate a DEC Special Character and Line Drawing Set codepoint (0x60–0x7E)
+/// to its UTF-8 Unicode equivalent. Characters outside that range are returned
+/// as a single-byte ASCII string unchanged.
+fn decSpecialChar(c: u8) []const u8 {
+    return switch (c) {
+        '`' => "◆", // 0x60 diamond
+        'a' => "▒", // 0x61 checker board
+        'b' => "\t", // 0x62 HT (pass through)
+        'c' => "\x0c", // 0x63 FF (pass through)
+        'd' => "\r", // 0x64 CR (pass through)
+        'e' => "\x0a", // 0x65 LF (pass through)
+        'f' => "°", // 0x66 degree symbol
+        'g' => "±", // 0x67 plus/minus
+        'h' => "\n", // 0x68 NL (pass through)
+        'i' => "\x0b", // 0x69 VT (pass through)
+        'j' => "┘", // 0x6a lower-right corner
+        'k' => "┐", // 0x6b upper-right corner
+        'l' => "┌", // 0x6c upper-left corner
+        'm' => "└", // 0x6d lower-left corner
+        'n' => "┼", // 0x6e crossing lines
+        'o' => "⎺", // 0x6f upper horizontal line
+        'p' => "⎻", // 0x70 middle horizontal line (upper)
+        'q' => "─", // 0x71 horizontal line (middle)
+        'r' => "⎼", // 0x72 middle horizontal line (lower)
+        's' => "⎽", // 0x73 lower horizontal line
+        't' => "├", // 0x74 left tee
+        'u' => "┤", // 0x75 right tee
+        'v' => "┴", // 0x76 bottom tee
+        'w' => "┬", // 0x77 top tee
+        'x' => "│", // 0x78 vertical line
+        'y' => "≤", // 0x79 less than or equal
+        'z' => "≥", // 0x7a greater than or equal
+        '{' => "π", // 0x7b pi
+        '|' => "≠", // 0x7c not equal
+        '}' => "£", // 0x7d pound sterling
+        '~' => "·", // 0x7e middle dot
+        else => &[_]u8{c},
+    };
 }
