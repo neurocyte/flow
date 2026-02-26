@@ -37,6 +37,7 @@ pub const Mode = struct {
     autowrap: bool = true,
     cursor: bool = true,
     sync: bool = false,
+    keypad_application: bool = false,
 };
 
 pub const Charset = enum {
@@ -368,6 +369,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     },
                     // Reverse Index
                     'M' => try self.back_screen.reverseIndex(),
+                    // DECKPAM - keypad application mode
+                    '=' => self.mode.keypad_application = true,
+                    // DECKPNM - keypad numeric mode
+                    '>' => self.mode.keypad_application = false,
                     else => log.debug("unhandled escape: {s}", .{esc}),
                 }
             },
