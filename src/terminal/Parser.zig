@@ -129,19 +129,19 @@ inline fn parseGround(self: *Parser, reader: *Reader) !Event {
     var buf: [1]u8 = undefined;
     {
         std.debug.assert(self.buf.items.len > 0);
-        // Handle first byte
+        // Handle first byte - complete the UTF-8 sequence
         const len = try std.unicode.utf8ByteSequenceLength(self.buf.items[0]);
         var i: usize = 1;
         while (i < len) : (i += 1) {
             const read = try reader.readSliceShort(&buf);
-            if (read == 0) return error.EOF;
+            if (read == 0) return error.EndOfStream;
             try self.buf.append(buf[0]);
         }
     }
     while (true) {
         if (reader.bufferedLen() == 0) return .{ .print = self.buf.items };
         const n = try reader.readSliceShort(&buf);
-        if (n == 0) return error.EOF;
+        if (n == 0) return .{ .print = self.buf.items };
         const b = buf[0];
         switch (b) {
             0x00...0x1f => {
@@ -154,8 +154,7 @@ inline fn parseGround(self: *Parser, reader: *Reader) !Event {
                 var i: usize = 1;
                 while (i < len) : (i += 1) {
                     const read = try reader.readSliceShort(&buf);
-                    if (read == 0) return error.EOF;
-
+                    if (read == 0) return error.EndOfStream;
                     try self.buf.append(buf[0]);
                 }
             },

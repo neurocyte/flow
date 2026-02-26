@@ -339,7 +339,6 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
     while (true) {
         const event = parser.parseReader(reader) catch |e| switch (e) {
             error.EndOfStream => return .running, // partial sequence, wait for more data
-            error.EOF => return .exited,
             error.ReadFailed,
             error.OutOfMemory,
             error.Utf8InvalidStartByte,
