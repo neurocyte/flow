@@ -26,6 +26,13 @@ pub const Event = union(enum) {
     /// OSC 52 paste request: terminal app wants the clipboard contents.
     /// The handler should call Terminal.respondOsc52Paste() with the text.
     osc_paste_request,
+    /// OSC 10/11/12 set: app overrode fg, bg, or cursor colour.
+    /// null means "reset to default" for that slot.
+    color_change: struct {
+        fg: ?[3]u8,
+        bg: ?[3]u8,
+        cursor: ?[3]u8,
+    },
 };
 
 const posix = std.posix;
@@ -83,8 +90,14 @@ mode: Mode = .{},
 /// Default colours reported in response to OSC 10/11 queries.
 /// Set by the embedding widget after each render so apps get accurate colours.
 /// Stored as 8-bit RGB; the OSC response scales to 16-bit (xx/xx pattern).
+/// Colours set by the embedding widget. Used for OSC queries.
 fg_color: [3]u8 = .{ 0xff, 0xff, 0xff },
 bg_color: [3]u8 = .{ 0x00, 0x00, 0x00 },
+/// Colours overridden by the terminal application via OSC 10/11/12.
+/// null = not overridden (fall back to fg_color/bg_color/default cursor).
+app_fg_color: ?[3]u8 = null,
+app_bg_color: ?[3]u8 = null,
+app_cursor_color: ?[3]u8 = null,
 
 /// G0 and G1 character set designations
 /// ESC ( X designates G0, ESC ) X designates G1
@@ -205,6 +218,9 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
 }
 
 pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window, focused: bool) !void {
+    // Use app-overridden colour if set, otherwise fall back to theme colour.
+    const default_fg: vaxis.Cell.Color = .{ .rgb = self.app_fg_color orelse self.fg_color };
+    const default_bg: vaxis.Cell.Color = .{ .rgb = self.app_bg_color orelse self.bg_color };
     if (self.back_mutex.tryLock()) {
         defer self.back_mutex.unlock();
         // We keep this as a separate condition so we don't deadlock by obtaining the lock but not
@@ -220,7 +236,10 @@ pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window, fo
         var col: u16 = 0;
         while (col < self.front_screen.width) {
             const cell = self.front_screen.readCell(col, row) orelse continue;
-            win.writeCell(col, row, cell);
+            var out = cell;
+            if (out.style.fg == .default) out.style.fg = default_fg;
+            if (out.style.bg == .default) out.style.bg = default_bg;
+            win.writeCell(col, row, out);
             col += @max(cell.char.width, 1);
         }
     }
@@ -240,7 +259,14 @@ pub fn draw(self: *Terminal, allocator: std.mem.Allocator, win: vaxis.Window, fo
             } else {
                 if (win.readCell(cur_col, cur_row)) |cell| {
                     var soft = cell;
-                    soft.style.reverse = !cell.style.reverse;
+                    if (self.app_cursor_color) |cc| {
+                        // App specified a cursor colour - use it as bg, text colour as fg.
+                        soft.style.bg = .{ .rgb = cc };
+                        soft.style.fg = cell.style.bg;
+                        soft.style.reverse = false;
+                    } else {
+                        soft.style.reverse = !cell.style.reverse;
+                    }
                     win.writeCell(cur_col, cur_row, soft);
                 }
             }
@@ -800,27 +826,95 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     // OSC 9 ; 4 ; <state> ; <progress>
                     // Progress notification. Silently ignored; we have no progress UI.
                     9 => {},
-                    // OSC 10;? - foreground colour query
+                    // OSC 10 - foreground colour set or query
                     10 => {
-                        if (std.mem.eql(u8, osc[semicolon + 1 ..], "?")) {
+                        const val = osc[semicolon + 1 ..];
+                        if (std.mem.eql(u8, val, "?")) {
+                            const c = self.app_fg_color orelse self.fg_color;
                             const pty_writer = self.get_pty_writer();
                             defer pty_writer.flush() catch {};
-                            const c = self.fg_color;
-                            try pty_writer.print("\x1B]10;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\", .{ c[0], c[0], c[1], c[1], c[2], c[2] });
+                            try pty_writer.print(
+                                "\x1B]10;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\",
+                                .{ c[0], c[0], c[1], c[1], c[2], c[2] },
+                            );
+                        } else {
+                            self.app_fg_color = parseOscRgb(val);
+                            self.event_queue.push(.{ .color_change = .{
+                                .fg = self.app_fg_color,
+                                .bg = self.app_bg_color,
+                                .cursor = self.app_cursor_color,
+                            } });
                         }
                     },
-                    // OSC 11;? - background colour query
+                    // OSC 11 - background colour set or query
                     11 => {
-                        if (std.mem.eql(u8, osc[semicolon + 1 ..], "?")) {
+                        const val = osc[semicolon + 1 ..];
+                        if (std.mem.eql(u8, val, "?")) {
+                            const c = self.app_bg_color orelse self.bg_color;
                             const pty_writer = self.get_pty_writer();
                             defer pty_writer.flush() catch {};
-                            const c = self.bg_color;
-                            try pty_writer.print("\x1B]11;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\", .{ c[0], c[0], c[1], c[1], c[2], c[2] });
+                            try pty_writer.print(
+                                "\x1B]11;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\",
+                                .{ c[0], c[0], c[1], c[1], c[2], c[2] },
+                            );
+                        } else {
+                            self.app_bg_color = parseOscRgb(val);
+                            self.event_queue.push(.{ .color_change = .{
+                                .fg = self.app_fg_color,
+                                .bg = self.app_bg_color,
+                                .cursor = self.app_cursor_color,
+                            } });
+                        }
+                    },
+                    // OSC 12 - cursor colour set or query
+                    12 => {
+                        const val = osc[semicolon + 1 ..];
+                        if (std.mem.eql(u8, val, "?")) {
+                            if (self.app_cursor_color) |c| {
+                                const pty_writer = self.get_pty_writer();
+                                defer pty_writer.flush() catch {};
+                                try pty_writer.print(
+                                    "\x1B]12;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\",
+                                    .{ c[0], c[0], c[1], c[1], c[2], c[2] },
+                                );
+                            }
+                        } else {
+                            self.app_cursor_color = parseOscRgb(val);
+                            self.event_queue.push(.{ .color_change = .{
+                                .fg = self.app_fg_color,
+                                .bg = self.app_bg_color,
+                                .cursor = self.app_cursor_color,
+                            } });
                         }
                     },
                     // OSC 52 - clipboard access
                     // Format: 52;<targets>;<base64data|?>
                     52 => self.handleOsc52(osc[semicolon + 1 ..]),
+                    // OSC 110/111/112 - reset fg/bg/cursor colour to default
+                    110 => {
+                        self.app_fg_color = null;
+                        self.event_queue.push(.{ .color_change = .{
+                            .fg = null,
+                            .bg = self.app_bg_color,
+                            .cursor = self.app_cursor_color,
+                        } });
+                    },
+                    111 => {
+                        self.app_bg_color = null;
+                        self.event_queue.push(.{ .color_change = .{
+                            .fg = self.app_fg_color,
+                            .bg = null,
+                            .cursor = self.app_cursor_color,
+                        } });
+                    },
+                    112 => {
+                        self.app_cursor_color = null;
+                        self.event_queue.push(.{ .color_change = .{
+                            .fg = self.app_fg_color,
+                            .bg = self.app_bg_color,
+                            .cursor = null,
+                        } });
+                    },
                     else => log.debug("unhandled osc: {s}", .{osc}),
                 }
             },
@@ -908,6 +1002,30 @@ pub fn horizontalBackTab(self: *Terminal, n: usize) void {
 
     // Move left the delta
     self.back_screen.cursorLeft(final - col);
+}
+
+/// Parse an X11 rgb: colour spec of the form "rgb:RRRR/GGGG/BBBB".
+/// Returns the high byte of each 16-bit channel as [3]u8, or null on failure.
+fn parseOscRgb(spec: []const u8) ?[3]u8 {
+    // Accept both "rgb:RRRR/GGGG/BBBB" (16-bit) and "#RRGGBB" (8-bit) formats.
+    if (std.mem.startsWith(u8, spec, "rgb:")) {
+        const rest = spec[4..];
+        var it = std.mem.splitScalar(u8, rest, '/');
+        const rs = it.next() orelse return null;
+        const gs = it.next() orelse return null;
+        const bs = it.next() orelse return null;
+        // Take the high byte only (first two hex digits).
+        const r = std.fmt.parseUnsigned(u8, rs[0..@min(2, rs.len)], 16) catch return null;
+        const g = std.fmt.parseUnsigned(u8, gs[0..@min(2, gs.len)], 16) catch return null;
+        const b = std.fmt.parseUnsigned(u8, bs[0..@min(2, bs.len)], 16) catch return null;
+        return .{ r, g, b };
+    } else if (spec.len == 7 and spec[0] == '#') {
+        const r = std.fmt.parseUnsigned(u8, spec[1..3], 16) catch return null;
+        const g = std.fmt.parseUnsigned(u8, spec[3..5], 16) catch return null;
+        const b = std.fmt.parseUnsigned(u8, spec[5..7], 16) catch return null;
+        return .{ r, g, b };
+    }
+    return null;
 }
 
 /// Handle OSC 52 clipboard read/write from the terminal application.
