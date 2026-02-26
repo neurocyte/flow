@@ -34,6 +34,7 @@ const style = struct {
         \\open_recent_project
         \\find_in_files
         \\open_command_palette
+        \\focus_terminal
         \\run_task
         \\add_task
         \\open_config
@@ -52,6 +53,7 @@ const style = struct {
         \\open_recent_project
         \\find_in_files
         \\open_command_palette
+        \\focus_terminal
         \\run_task
         \\add_task
         \\open_config

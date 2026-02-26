@@ -1014,7 +1014,7 @@ const cmds = struct {
                 vt.focus();
         }
     }
-    pub const focus_terminal_meta: Meta = .{ .description = "Focus terminal panel" };
+    pub const focus_terminal_meta: Meta = .{ .description = "Terminal" };
 
     pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
         if (self.file_list_type == .find_in_files)
