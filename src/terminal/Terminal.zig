@@ -20,6 +20,12 @@ pub const Event = union(enum) {
     bell,
     title_change: []const u8,
     pwd_change: []const u8,
+    /// OSC 52 copy: terminal app wrote to clipboard. Text is owned by the Terminal
+    /// allocator; the event handler must NOT free it (Terminal manages the buffer).
+    osc_copy: []const u8,
+    /// OSC 52 paste request: terminal app wants the clipboard contents.
+    /// The handler should call Terminal.respondOsc52Paste() with the text.
+    osc_paste_request,
 };
 
 const posix = std.posix;
@@ -92,6 +98,8 @@ title: std.ArrayList(u8) = .empty,
 working_directory: std.ArrayList(u8) = .empty,
 
 last_printed: []const u8 = "",
+/// Scratch buffer for decoding OSC 52 base64 clipboard data.
+osc52_buf: std.ArrayListUnmanaged(u8) = .empty,
 
 event_queue: Queue = .{},
 
@@ -142,6 +150,7 @@ pub fn deinit(self: *Terminal) void {
     self.front_screen.deinit(self.allocator);
     self.back_screen_pri.deinit(self.allocator);
     self.back_screen_alt.deinit(self.allocator);
+    self.osc52_buf.deinit(self.allocator);
     self.tab_stops.deinit(self.allocator);
     self.title.deinit(self.allocator);
     self.working_directory.deinit(self.allocator);
@@ -809,6 +818,9 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             try pty_writer.print("\x1B]11;rgb:{x:0>2}{x:0>2}/{x:0>2}{x:0>2}/{x:0>2}{x:0>2}\x1B\\", .{ c[0], c[0], c[1], c[1], c[2], c[2] });
                         }
                     },
+                    // OSC 52 - clipboard access
+                    // Format: 52;<targets>;<base64data|?>
+                    52 => self.handleOsc52(osc[semicolon + 1 ..]),
                     else => log.debug("unhandled osc: {s}", .{osc}),
                 }
             },
@@ -896,6 +908,35 @@ pub fn horizontalBackTab(self: *Terminal, n: usize) void {
 
     // Move left the delta
     self.back_screen.cursorLeft(final - col);
+}
+
+/// Handle OSC 52 clipboard read/write from the terminal application.
+fn handleOsc52(self: *Terminal, rest: []const u8) void {
+    // rest is "<targets>;<base64data|?>"
+    const second_semi = std.mem.indexOfScalar(u8, rest, ';') orelse return;
+    const data = rest[second_semi + 1 ..];
+    if (std.mem.eql(u8, data, "?")) {
+        self.event_queue.push(.osc_paste_request);
+    } else {
+        const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(data) catch return;
+        self.osc52_buf.clearRetainingCapacity();
+        self.osc52_buf.ensureTotalCapacity(self.allocator, decoded_len) catch return;
+        self.osc52_buf.items.len = decoded_len;
+        std.base64.standard.Decoder.decode(self.osc52_buf.items, data) catch return;
+        self.event_queue.push(.{ .osc_copy = self.osc52_buf.items });
+    }
+}
+
+/// Send clipboard text back to the terminal application in response to OSC 52 paste request.
+pub fn respondOsc52Paste(self: *Terminal, text: []const u8) void {
+    const encoder = std.base64.standard.Encoder;
+    const encoded_len = encoder.calcSize(text.len);
+    const encoded_buf = self.allocator.alloc(u8, encoded_len) catch return;
+    defer self.allocator.free(encoded_buf);
+    const encoded = encoder.encode(encoded_buf, text);
+    const pty_writer = self.get_pty_writer();
+    defer pty_writer.flush() catch {};
+    pty_writer.print("\x1B]52;c;{s}\x1B\\", .{encoded}) catch {};
 }
 
 /// Translate a DEC Special Character and Line Drawing Set codepoint (0x60–0x7E)
