@@ -20,15 +20,32 @@ const Event = union(enum) {
 buf: std.array_list.Managed(u8),
 /// a leftover byte from a ground event
 pending_byte: ?u8 = null,
+/// Parser state for resuming mid-escape-sequence across partial reads
+state: State = .ground,
+
+const State = enum {
+    ground,
+    /// Saw ESC, buf contains intermediate bytes accumulated so far (may be empty)
+    escape,
+};
 
 pub fn parseReader(self: *Parser, reader: *Reader) !Event {
-    self.buf.clearRetainingCapacity();
+    // Only clear buf when starting fresh, not when resuming a partial escape sequence.
+    if (self.state == .ground) self.buf.clearRetainingCapacity();
+
+    // Resume an in-progress escape sequence (split across two reads).
+    if (self.state == .escape) {
+        self.state = .ground;
+        return self.parseEscape(reader);
+    }
+
     while (true) {
         const b = if (self.pending_byte) |p| p else try reader.takeByte();
         self.pending_byte = null;
         switch (b) {
             // Escape sequence
             0x1b => {
+                self.buf.clearRetainingCapacity();
                 const next = try reader.takeByte();
                 switch (next) {
                     0x4E => return .{ .ss2 = try reader.takeByte() },
@@ -101,11 +118,19 @@ inline fn parseGround(self: *Parser, reader: *Reader) !Event {
 }
 
 /// parse until b >= 0x30
+/// also appends intermediate bytes (0x20-0x2F) to buf so callers can inspect them
 inline fn parseEscape(self: *Parser, reader: *Reader) !Event {
     while (true) {
-        const b = try reader.takeByte();
+        const b = reader.takeByte() catch |e| switch (e) {
+            error.EndOfStream => {
+                // Partial sequence - save state so next call resumes here
+                self.state = .escape;
+                return error.EndOfStream;
+            },
+            else => return e,
+        };
         switch (b) {
-            0x20...0x2F => continue,
+            0x20...0x2F => try self.buf.append(b), // collect intermediates
             else => {
                 try self.buf.append(b);
                 return .{ .escape = self.buf.items };
