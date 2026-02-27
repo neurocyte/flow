@@ -74,7 +74,7 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
                 try argv_list.append(allocator, arg);
         }
     } else {
-        try argv_list.append(allocator, env.get("SHELL") orelse "bash");
+        try argv_list.append(allocator, env.get("SHELL") orelse "/bin/sh");
     }
 
     // Use the current plane dimensions for the initial pty size. The plane
