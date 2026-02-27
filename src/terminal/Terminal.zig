@@ -51,6 +51,8 @@ pub const Mode = struct {
     cursor: bool = true,
     sync: bool = false,
     keypad_application: bool = false,
+    /// DECCKM: when true, arrow keys send ESC O A/B/C/D instead of ESC [ A/B/C/D
+    cursor_keys_app: bool = false,
 };
 
 pub const Charset = enum {
@@ -318,7 +320,7 @@ pub fn update(self: *Terminal, event: InputEvent) !void {
         .key_press => |k| {
             const pty_writer = self.get_pty_writer();
             defer pty_writer.flush() catch {};
-            try key.encode(pty_writer, k, true, self.back_screen.csi_u_flags);
+            try key.encode(pty_writer, k, true, self.back_screen.csi_u_flags, self.mode.cursor_keys_app);
         },
     }
 }
@@ -970,6 +972,7 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
 
 pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
     switch (mode) {
+        1 => self.mode.cursor_keys_app = val,
         7 => self.mode.autowrap = val,
         25 => self.mode.cursor = val,
         1049 => {

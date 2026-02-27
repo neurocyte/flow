@@ -6,12 +6,13 @@ pub fn encode(
     key: vaxis.Key,
     press: bool,
     kitty_flags: vaxis.Key.KittyFlags,
+    cursor_keys_app: bool,
 ) !void {
     const flags: u5 = @bitCast(kitty_flags);
     switch (press) {
         true => {
             switch (flags) {
-                0 => try legacy(writer, key),
+                0 => try legacy(writer, key, cursor_keys_app),
                 else => unreachable, // TODO: kitty encodings
             }
         },
@@ -19,7 +20,7 @@ pub fn encode(
     }
 }
 
-fn legacy(writer: *std.Io.Writer, key: vaxis.Key) !void {
+fn legacy(writer: *std.Io.Writer, key: vaxis.Key, cursor_keys_app: bool) !void {
     // If we have text, we always write it directly
     if (key.text) |text| {
         try writer.writeAll(text);
@@ -123,6 +124,16 @@ fn legacy(writer: *std.Io.Writer, key: vaxis.Key) !void {
                     vaxis.Key.f3,
                     vaxis.Key.f4,
                     => try writer.print("\x1bO{c}", .{def.suffix}),
+                    // Arrow keys: use application mode (ESC O) or normal mode (ESC [)
+                    vaxis.Key.up,
+                    vaxis.Key.down,
+                    vaxis.Key.left,
+                    vaxis.Key.right,
+                    vaxis.Key.kp_up,
+                    vaxis.Key.kp_down,
+                    vaxis.Key.kp_left,
+                    vaxis.Key.kp_right,
+                    => try writer.print("{s}{c}", .{ if (cursor_keys_app) "\x1bO" else "\x1b[", def.suffix }),
                     else => try writer.print("\x1b[{c}", .{def.suffix}),
                 }
             else
