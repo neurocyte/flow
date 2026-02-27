@@ -390,6 +390,7 @@ const pty = struct {
     receiver: Receiver,
     parent: tp.pid,
     err_code: i64 = 0,
+    sigchld: ?tp.signal = null,
 
     pub fn spawn(allocator: std.mem.Allocator, vt: *Terminal) !tp.pid {
         const self = try allocator.create(@This());
@@ -408,6 +409,7 @@ const pty = struct {
 
     fn deinit(self: *@This()) void {
         std.log.debug("terminal: pty actor deinit (pid={?})", .{self.vt.cmd.pid});
+        if (self.sigchld) |s| s.deinit();
         self.fd.deinit();
         self.parser.buf.deinit();
         self.parent.deinit();
@@ -422,6 +424,10 @@ const pty = struct {
         };
         self.fd.wait_read() catch |e| {
             std.log.debug("terminal: pty initial wait_read failed: {}", .{e});
+            return tp.exit_error(e, @errorReturnTrace());
+        };
+        self.sigchld = tp.signal.init(std.posix.SIG.CHLD, tp.message.fmt(.{"sigchld"})) catch |e| {
+            std.log.debug("terminal: SIGCHLD signal init failed: {}", .{e});
             return tp.exit_error(e, @errorReturnTrace());
         };
         tp.receive(&self.receiver);
@@ -450,11 +456,24 @@ const pty = struct {
                 },
             };
         } else if (try m.match(.{ "fd", "pty", "read_error", tp.extract(&self.err_code), tp.more })) {
+            // thespian fires read_error with EPOLLHUP when the child exits cleanly.
+            // Treat it the same as EIO: reap the child and signal exit.
             const code = self.vt.cmd.wait();
             std.log.debug("terminal: read_error from fd (err={d}), process exited with code={d}", .{ self.err_code, code });
             self.vt.event_queue.push(.{ .exited = code });
             self.parent.send(.{ "terminal_view", "output" }) catch {};
             return tp.exit_normal();
+        } else if (try m.match(.{"sigchld"})) {
+            // SIGCHLD fires when any child exits. Check if it's our child.
+            if (self.vt.cmd.try_wait()) |code| {
+                std.log.debug("terminal: child exited (SIGCHLD) with code={d}", .{code});
+                self.vt.event_queue.push(.{ .exited = code });
+                self.parent.send(.{ "terminal_view", "output" }) catch {};
+                return tp.exit_normal();
+            }
+            // Not our child (or already reaped) - re-arm the signal and continue.
+            if (self.sigchld) |s| s.deinit();
+            self.sigchld = tp.signal.init(std.posix.SIG.CHLD, tp.message.fmt(.{"sigchld"})) catch null;
         } else if (try m.match(.{"quit"})) {
             std.log.debug("terminal: pty exiting: received quit", .{});
             return tp.exit_normal();
@@ -469,7 +488,19 @@ const pty = struct {
 
         while (true) {
             const n = std.posix.read(self.vt.ptyFd(), &buf) catch |e| switch (e) {
-                error.WouldBlock => break,
+                error.WouldBlock => {
+                    // No more data right now. Check if the child already exited -
+                    // on Linux a clean exit may not make the pty fd readable again
+                    // (no EPOLLIN), it just starts returning EIO on the next read.
+                    // Polling here catches that case before we arm wait_read again.
+                    if (self.vt.cmd.try_wait()) |code| {
+                        std.log.debug("terminal: child exited (detected via try_wait) with code={d}", .{code});
+                        self.vt.event_queue.push(.{ .exited = code });
+                        self.parent.send(.{ "terminal_view", "output" }) catch {};
+                        return error.InputOutput;
+                    }
+                    break;
+                },
                 error.InputOutput => {
                     const code = self.vt.cmd.wait();
                     std.log.debug("terminal: read EIO, process exited with code={d}", .{code});
@@ -520,6 +551,16 @@ const pty = struct {
                 },
                 .running => {},
             }
+        }
+
+        // Check for child exit once more before sleeping in wait_read.
+        // A clean exit with no final output will never make the pty fd readable,
+        // so we must detect it here rather than waiting forever.
+        if (self.vt.cmd.try_wait()) |code| {
+            std.log.debug("terminal: child exited (pre-wait_read check) with code={d}", .{code});
+            self.vt.event_queue.push(.{ .exited = code });
+            self.parent.send(.{ "terminal_view", "output" }) catch {};
+            return error.InputOutput;
         }
 
         self.fd.wait_read() catch |e| switch (e) {
