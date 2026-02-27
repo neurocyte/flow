@@ -138,11 +138,10 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     } else {
         tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
         project_manager.add_task(entry.label) catch {};
-        const run_cmd = switch (activate) {
-            .normal => "run_task",
-            .alternate => "run_task_in_terminal",
-        };
-        tp.self_pid().send(.{ "cmd", run_cmd, .{entry.label} }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+        (switch (activate) {
+            .normal => tp.self_pid().send(.{ "cmd", "run_task", .{entry.label} }),
+            .alternate => tp.self_pid().send(.{ "cmd", "run_task_in_terminal", .{ entry.label, "hold" } }),
+        }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     }
 }
 
