@@ -113,29 +113,98 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         tui.need_render(@src());
         return true;
     }
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.more }) or
-        try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON2), tp.more }) or
-        try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON3), tp.more }))
-        switch (tui.set_focus_by_mouse_event()) {
-            .changed => return true,
-            .same, .notfound => {},
-        };
-
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON4), tp.more })) {
-        if (self.vt.vt.scroll(3)) tui.need_render(@src());
-        return true;
+    // Mouse button press - set focus first, then forward to terminal if reporting is on
+    {
+        var btn: i64 = 0;
+        var col: i64 = 0;
+        var row: i64 = 0;
+        var xoffset: i64 = 0;
+        var yoffset: i64 = 0;
+        if (try m.match(.{ "B", input.event.press, tp.extract(&btn), tp.any, tp.extract(&col), tp.extract(&row), tp.extract(&xoffset), tp.extract(&yoffset) }) or
+            try m.match(.{ "B", input.event.release, tp.extract(&btn), tp.any, tp.extract(&col), tp.extract(&row), tp.extract(&xoffset), tp.extract(&yoffset) }))
+        {
+            const button: vaxis.Mouse.Button = @enumFromInt(btn);
+            const is_press = try m.match(.{ "B", input.event.press, tp.more });
+            // Set focus on left/middle/right button press
+            if (is_press) switch (button) {
+                .left, .middle, .right => switch (tui.set_focus_by_mouse_event()) {
+                    .changed => return true,
+                    .same, .notfound => {},
+                },
+                // Scroll wheel: forward to vt if reporting active, else scroll scrollback
+                .wheel_up => {
+                    if (self.vt.vt.mode.mouse == .none) {
+                        if (self.vt.vt.scroll(3)) tui.need_render(@src());
+                        return true;
+                    }
+                },
+                .wheel_down => {
+                    if (self.vt.vt.mode.mouse == .none) {
+                        if (self.vt.vt.scroll(-3)) tui.need_render(@src());
+                        return true;
+                    }
+                },
+                else => {},
+            };
+            // Forward to vt if terminal mouse reporting is active
+            if (self.focused and self.vt.vt.mode.mouse != .none) {
+                const rel = self.plane.abs_yx_to_rel(@intCast(row), @intCast(col));
+                const mouse_event: vaxis.Mouse = .{
+                    .col = @intCast(rel[1]),
+                    .row = @intCast(rel[0]),
+                    .xoffset = @intCast(xoffset),
+                    .yoffset = @intCast(yoffset),
+                    .button = button,
+                    .mods = .{},
+                    .type = if (is_press) .press else .release,
+                };
+                self.vt.vt.update(.{ .mouse = mouse_event }) catch {};
+                tui.need_render(@src());
+                return true;
+            }
+            return false;
+        }
+        // Mouse drag
+        if (try m.match(.{ "D", input.event.press, tp.extract(&btn), tp.any, tp.extract(&col), tp.extract(&row), tp.extract(&xoffset), tp.extract(&yoffset) })) {
+            if (self.focused and self.vt.vt.mode.mouse != .none) {
+                const rel = self.plane.abs_yx_to_rel(@intCast(row), @intCast(col));
+                const mouse_event: vaxis.Mouse = .{
+                    .col = @intCast(rel[1]),
+                    .row = @intCast(rel[0]),
+                    .xoffset = @intCast(xoffset),
+                    .yoffset = @intCast(yoffset),
+                    .button = @enumFromInt(btn),
+                    .mods = .{},
+                    .type = .drag,
+                };
+                self.vt.vt.update(.{ .mouse = mouse_event }) catch {};
+                tui.need_render(@src());
+                return true;
+            }
+            return false;
+        }
+        // Mouse motion (no button held)
+        if (try m.match(.{ "M", tp.extract(&col), tp.extract(&row), tp.extract(&xoffset), tp.extract(&yoffset) })) {
+            if (self.focused and self.vt.vt.mode.mouse == .any_event) {
+                const rel = self.plane.abs_yx_to_rel(@intCast(row), @intCast(col));
+                const mouse_event: vaxis.Mouse = .{
+                    .col = @intCast(rel[1]),
+                    .row = @intCast(rel[0]),
+                    .xoffset = @intCast(xoffset),
+                    .yoffset = @intCast(yoffset),
+                    .button = .none,
+                    .mods = .{},
+                    .type = .motion,
+                };
+                self.vt.vt.update(.{ .mouse = mouse_event }) catch {};
+                tui.need_render(@src());
+                return true;
+            }
+            return false;
+        }
     }
-    if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON5), tp.more })) {
-        if (self.vt.vt.scroll(-3)) tui.need_render(@src());
-        return true;
-    }
 
-    if (!(try m.match(.{ "I", tp.more })
-        // or
-        //     try m.match(.{ "B", tp.more }) or
-        //     try m.match(.{ "D", tp.more }) or
-        //     try m.match(.{ "M", tp.more })
-    ))
+    if (!(try m.match(.{ "I", tp.more })))
         return false;
 
     if (!self.focused) return false;
