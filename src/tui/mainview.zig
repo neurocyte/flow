@@ -1014,7 +1014,13 @@ const cmds = struct {
                 vt.focus();
         }
     }
-    pub const focus_terminal_meta: Meta = .{ .description = "Terminal" };
+    pub const focus_terminal_meta: Meta = .{ .description = "Open terminal" };
+
+    pub fn close_terminal(self: *Self, _: Ctx) Result {
+        if (self.get_panel_view(terminal_view)) |_|
+            try self.toggle_panel_view(terminal_view, .disable);
+    }
+    pub const close_terminal_meta: Meta = .{ .description = "Close terminal" };
 
     pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
         if (self.file_list_type == .find_in_files)
