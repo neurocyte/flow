@@ -64,6 +64,20 @@ pub fn kill(self: *Command) void {
         std.posix.kill(pid, std.posix.SIG.TERM) catch {};
 }
 
+/// Non-blocking check: if the child has already exited, reap it and return the
+/// exit code. Returns null if the child is still running. Safe to call repeatedly.
+pub fn try_wait(self: *Command) ?u8 {
+    const pid = self.pid orelse return null;
+    const result = std.posix.waitpid(pid, std.posix.W.NOHANG);
+    if (result.pid == 0) return null; // still running
+    self.pid = null;
+    if (std.posix.W.IFEXITED(result.status))
+        return std.posix.W.EXITSTATUS(result.status);
+    if (std.posix.W.IFSIGNALED(result.status))
+        return @truncate(std.posix.W.TERMSIG(result.status));
+    return 0;
+}
+
 /// Reap the child process. Must be called after the pty EOF has been seen,
 /// so the child is guaranteed to have already exited. Uses WNOHANG in a loop
 /// to handle any remaining state. Returns the exit code (0-255).
