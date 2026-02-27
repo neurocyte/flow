@@ -25,6 +25,8 @@ state: State = .ground,
 /// Saved CSI state across partial reads
 csi_intermediate: ?u8 = null,
 csi_pm: ?u8 = null,
+/// Number of UTF-8 continuation bytes still needed to complete the current character
+utf8_remaining: u3 = 0,
 
 const State = enum {
     ground,
@@ -36,6 +38,8 @@ const State = enum {
     csi,
     /// Mid-way through an OSC sequence; buf has content so far
     osc,
+    /// Mid-way through a multi-byte UTF-8 character; utf8_remaining bytes still needed
+    ground_utf8,
 };
 
 pub fn parseReader(self: *Parser, reader: *Reader) !Event {
@@ -70,6 +74,10 @@ pub fn parseReader(self: *Parser, reader: *Reader) !Event {
         self.state = .ground;
         return self.parseEscape(reader);
     }
+    if (self.state == .ground_utf8) {
+        return self.resumeGroundUtf8(reader);
+    }
+
     if (self.state == .csi) {
         self.state = .ground;
         return self.resumeCsi(reader);
@@ -125,20 +133,48 @@ pub fn parseReader(self: *Parser, reader: *Reader) !Event {
     }
 }
 
+/// Returns the number of continuation bytes expected after a given start byte,
+/// or 0 if the byte is not a valid multi-byte start byte (treat as single byte).
+fn utf8ContinuationCount(b: u8) u3 {
+    return switch (b) {
+        0x00...0x7F => 0, // ASCII, no continuations
+        0xC0...0xDF => 1,
+        0xE0...0xEF => 2,
+        0xF0...0xF7 => 3,
+        else => 0, // continuation byte or overlong - treat as single byte
+    };
+}
+
 inline fn parseGround(self: *Parser, reader: *Reader) !Event {
     var buf: [1]u8 = undefined;
     {
         std.debug.assert(self.buf.items.len > 0);
-        // Handle first byte - complete the UTF-8 sequence
-        // Invalid start bytes are treated as single raw bytes (latin-1 passthrough).
-        const len = std.unicode.utf8ByteSequenceLength(self.buf.items[0]) catch 1;
-        var i: usize = 1;
-        while (i < len) : (i += 1) {
+        // Complete the first character already started in buf.
+        const remaining = utf8ContinuationCount(self.buf.items[0]);
+        var i: usize = 0;
+        while (i < remaining) : (i += 1) {
             const read = try reader.readSliceShort(&buf);
-            if (read == 0) return error.EndOfStream;
+            if (read == 0) {
+                // Split read: save how many continuation bytes we still need.
+                self.utf8_remaining = @intCast(remaining - i);
+                self.state = .ground_utf8;
+                return error.EndOfStream;
+            }
+            // If the next byte isn't a continuation byte, the sequence is malformed.
+            // Emit what we have so far and leave the unexpected byte for the next event.
+            if (buf[0] & 0xC0 != 0x80) {
+                self.pending_byte = buf[0];
+                return .{ .print = self.buf.items };
+            }
             try self.buf.append(buf[0]);
         }
     }
+    // Greedy loop: keep accumulating characters while data is available.
+    return self.parseGroundGreedy(reader);
+}
+
+inline fn parseGroundGreedy(self: *Parser, reader: *Reader) !Event {
+    var buf: [1]u8 = undefined;
     while (true) {
         if (reader.bufferedLen() == 0) return .{ .print = self.buf.items };
         const n = try reader.readSliceShort(&buf);
@@ -151,16 +187,52 @@ inline fn parseGround(self: *Parser, reader: *Reader) !Event {
             },
             else => {
                 try self.buf.append(b);
-                const len = std.unicode.utf8ByteSequenceLength(b) catch 1;
-                var i: usize = 1;
-                while (i < len) : (i += 1) {
+                const remaining = utf8ContinuationCount(b);
+                var i: usize = 0;
+                while (i < remaining) : (i += 1) {
                     const read = try reader.readSliceShort(&buf);
-                    if (read == 0) return error.EndOfStream;
+                    if (read == 0) {
+                        self.utf8_remaining = @intCast(remaining - i);
+                        self.state = .ground_utf8;
+                        return error.EndOfStream;
+                    }
+                    if (buf[0] & 0xC0 != 0x80) {
+                        // Malformed: strip the incomplete start byte and any partial continuations.
+                        for (0..i + 1) |_| _ = self.buf.pop();
+                        self.pending_byte = buf[0];
+                        return .{ .print = self.buf.items };
+                    }
                     try self.buf.append(buf[0]);
                 }
             },
         }
     }
+}
+
+/// Resume a multi-byte UTF-8 character that was split across a read boundary.
+inline fn resumeGroundUtf8(self: *Parser, reader: *Reader) !Event {
+    var buf: [1]u8 = undefined;
+    var remaining = self.utf8_remaining;
+    while (remaining > 0) : (remaining -= 1) {
+        const read = try reader.readSliceShort(&buf);
+        if (read == 0) {
+            self.utf8_remaining = remaining;
+            return error.EndOfStream;
+        }
+        if (buf[0] & 0xC0 != 0x80) {
+            // Malformed continuation - emit what we have, re-queue byte
+            self.utf8_remaining = 0;
+            self.state = .ground;
+            self.pending_byte = buf[0];
+            return .{ .print = self.buf.items };
+        }
+        try self.buf.append(buf[0]);
+    }
+    self.utf8_remaining = 0;
+    self.state = .ground;
+    // Continue greedy accumulation now that the character is complete.
+    // We call parseGroundGreedy directly to avoid re-completing the first byte.
+    return self.parseGroundGreedy(reader);
 }
 
 /// parse until b >= 0x30
