@@ -392,6 +392,13 @@ pub fn build_exe(
         },
     });
 
+    const argv_mod = b.createModule(.{
+        .root_source_file = b.path("src/argv.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+        },
+    });
+
     const lsp_config_mod = b.createModule(.{
         .root_source_file = b.path("src/lsp_config.zig"),
         .imports = &.{
@@ -660,6 +667,7 @@ pub fn build_exe(
             .{ .name = "project_manager", .module = project_manager_mod },
             .{ .name = "syntax", .module = syntax_mod },
             .{ .name = "text_manip", .module = text_manip_mod },
+            .{ .name = "argv", .module = argv_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "keybind", .module = keybind_mod },
             .{ .name = "shell", .module = shell_mod },
@@ -709,6 +717,7 @@ pub fn build_exe(
     exe.root_module.addImport("cbor", cbor_mod);
     exe.root_module.addImport("config", config_mod);
     exe.root_module.addImport("text_manip", text_manip_mod);
+    exe.root_module.addImport("argv", argv_mod);
     exe.root_module.addImport("Buffer", Buffer_mod);
     exe.root_module.addImport("tui", tui_mod);
     exe.root_module.addImport("thespian", thespian_mod);
@@ -759,6 +768,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("cbor", cbor_mod);
     check_exe.root_module.addImport("config", config_mod);
     check_exe.root_module.addImport("text_manip", text_manip_mod);
+    check_exe.root_module.addImport("argv", argv_mod);
     check_exe.root_module.addImport("Buffer", Buffer_mod);
     check_exe.root_module.addImport("tui", tui_mod);
     check_exe.root_module.addImport("thespian", thespian_mod);

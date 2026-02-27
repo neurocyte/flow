@@ -6,6 +6,7 @@ const cbor = @import("cbor");
 const command = @import("command");
 const vaxis = @import("renderer").vaxis;
 const shell = @import("shell");
+const argv = @import("argv");
 
 const Plane = @import("renderer").Plane;
 const Widget = @import("Widget.zig");
@@ -274,18 +275,11 @@ fn show_exit_message(self: *Self, code: u8) void {
     if (code != 0)
         w.print(" with code {d}", .{code}) catch {};
     w.writeAll("]\x1b[0m\r\n") catch {};
-    // Build display command string from argv for the re-run prompt
-    const argv = self.vt.vt.cmd.argv;
-    if (argv.len > 0) {
+    // Re-run prompt
+    const cmd_argv = self.vt.vt.cmd.argv;
+    if (cmd_argv.len > 0) {
         w.writeAll("\x1b[0m\x1b[2mPress enter to re-run '") catch {};
-        for (argv, 0..) |arg, i| {
-            if (i > 0) w.writeByte(' ') catch {};
-            // Quote args that contain spaces
-            const needs_quote = std.mem.indexOfScalar(u8, arg, ' ') != null;
-            if (needs_quote) w.writeByte('"') catch {};
-            w.writeAll(arg) catch {};
-            if (needs_quote) w.writeByte('"') catch {};
-        }
+        _ = argv.write(w, cmd_argv) catch {};
         w.writeAll("'\x1b[0m\r\n") catch {};
     }
     var parser: pty.Parser = .{ .buf = .init(self.allocator) };
@@ -355,7 +349,7 @@ const Vt = struct {
     app_cursor: ?[3]u8 = null,
     process_exited: bool = false,
 
-    fn init(allocator: std.mem.Allocator, argv: []const []const u8, env: std.process.EnvMap, rows: u16, cols: u16) !void {
+    fn init(allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.EnvMap, rows: u16, cols: u16) !void {
         const home = env.get("HOME") orelse "/tmp";
 
         global_vt = .{
@@ -367,7 +361,7 @@ const Vt = struct {
         const self = &global_vt.?;
         self.vt = try Terminal.init(
             allocator,
-            argv,
+            cmd_argv,
             &env,
             .{
                 .winsize = .{ .rows = rows, .cols = cols, .x_pixel = 0, .y_pixel = 0 },

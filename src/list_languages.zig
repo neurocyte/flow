@@ -3,6 +3,7 @@ const file_type_config = @import("file_type_config");
 const text_manip = @import("text_manip");
 const write_string = text_manip.write_string;
 const write_padding = text_manip.write_padding;
+const argv = @import("argv");
 const builtin = @import("builtin");
 const RGB = @import("color").RGB;
 
@@ -22,9 +23,9 @@ pub fn list(allocator: std.mem.Allocator, writer: *std.io.Writer, tty_config: st
     for (file_type_config.get_all_names()) |file_type_name| {
         const file_type = try file_type_config.get(file_type_name) orelse unreachable;
         max_language_len = @max(max_language_len, file_type.name.len);
-        max_langserver_len = @max(max_langserver_len, args_string_length(file_type.language_server));
-        max_formatter_len = @max(max_formatter_len, args_string_length(file_type.formatter));
-        max_extensions_len = @max(max_extensions_len, args_string_length(file_type.extensions));
+        max_langserver_len = @max(max_langserver_len, argv.len(file_type.language_server));
+        max_formatter_len = @max(max_formatter_len, argv.len(file_type.formatter));
+        max_extensions_len = @max(max_extensions_len, argv.len(file_type.extensions));
     }
 
     try tty_config.setColor(writer, .yellow);
@@ -43,57 +44,40 @@ pub fn list(allocator: std.mem.Allocator, writer: *std.io.Writer, tty_config: st
         try tty_config.setColor(writer, .reset);
         try writer.writeAll("  ");
         try write_string(writer, file_type.name, max_language_len + 1);
-        try write_segmented(writer, file_type.extensions, ",", max_extensions_len + 1, tty_config);
+        {
+            const exts = file_type.extensions orelse &.{};
+            var ext_len: usize = 0;
+            for (exts, 0..) |ext, i| {
+                if (i > 0) {
+                    try writer.writeByte(',');
+                    ext_len += 1;
+                }
+                try writer.writeAll(ext);
+                ext_len += ext.len;
+            }
+            try tty_config.setColor(writer, .reset);
+            try write_padding(writer, ext_len, max_extensions_len + 1);
+        }
 
         if (file_type.language_server) |language_server|
             try write_checkmark(writer, bin_path.can_execute(allocator, language_server[0]), tty_config);
 
-        try write_segmented(writer, file_type.language_server, " ", max_langserver_len + 1, tty_config);
+        const len = try argv.write(writer, file_type.language_server);
+        try tty_config.setColor(writer, .reset);
+        try write_padding(writer, len, max_langserver_len + 1);
 
         if (file_type.formatter) |formatter|
             try write_checkmark(writer, bin_path.can_execute(allocator, formatter[0]), tty_config);
 
-        try write_segmented(writer, file_type.formatter, " ", null, tty_config);
+        _ = try argv.write(writer, file_type.formatter);
+        try tty_config.setColor(writer, .reset);
         try writer.writeAll("\n");
     }
-}
-
-fn args_string_length(args_: ?[]const []const u8) usize {
-    const args = args_ orelse return 0;
-    var len: usize = 0;
-    var first: bool = true;
-    for (args) |arg| {
-        if (first) first = false else len += 1;
-        len += arg.len;
-    }
-    return len;
 }
 
 fn write_checkmark(writer: anytype, success: bool, tty_config: std.io.tty.Config) !void {
     try tty_config.setColor(writer, if (success) .green else .red);
     if (success) try writer.writeAll(success_mark) else try writer.writeAll(fail_mark);
-}
-
-fn write_segmented(
-    writer: anytype,
-    args_: ?[]const []const u8,
-    sep: []const u8,
-    pad: ?usize,
-    tty_config: std.io.tty.Config,
-) !void {
-    const args = args_ orelse return;
-    var len: usize = 0;
-    var first: bool = true;
-    for (args) |arg| {
-        if (first) first = false else {
-            len += 1;
-            try writer.writeAll(sep);
-        }
-        len += arg.len;
-        try writer.writeAll(arg);
-    }
-    try tty_config.setColor(writer, .reset);
-    if (pad) |pad_| try write_padding(writer, len, pad_);
 }
 
 fn setColorRgb(writer: anytype, color: u24) !void {
