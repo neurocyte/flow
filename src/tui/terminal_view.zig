@@ -155,12 +155,18 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         .mods = @bitCast(modifiers),
         .text = if (text.len > 0) text else null,
     };
-    if (self.vt.process_exited and (keypress == input.key.enter or keypress == '\r')) {
-        self.vt.process_exited = false;
-        self.restart() catch |e|
-            std.log.err("terminal_view: restart failed: {}", .{e});
-        tui.need_render(@src());
-        return true;
+    if (self.vt.process_exited) {
+        if (keypress == input.key.enter) {
+            self.vt.process_exited = false;
+            self.restart() catch |e|
+                std.log.err("terminal_view: restart failed: {}", .{e});
+            tui.need_render(@src());
+            return true;
+        }
+        if (keypress == input.key.escape) {
+            tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {};
+            return true;
+        }
     }
     self.vt.vt.scrollToBottom();
     self.vt.vt.update(.{ .key_press = key }) catch |e|
