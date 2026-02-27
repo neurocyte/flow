@@ -131,8 +131,15 @@ pub fn init(
     }
     const pty = try Pty.init();
     try pty.setSize(opts.winsize);
+    // Dupe argv so Terminal owns the strings for its full lifetime.
+    const argv_owned = try allocator.alloc([]const u8, argv.len);
+    errdefer {
+        for (argv_owned) |a| allocator.free(a);
+        allocator.free(argv_owned);
+    }
+    for (argv, argv_owned) |src_arg, *dst| dst.* = try allocator.dupe(u8, src_arg);
     const cmd: Command = .{
-        .argv = argv,
+        .argv = argv_owned,
         .env_map = env,
         .pty = pty,
         .working_directory = opts.initial_working_directory,
@@ -159,6 +166,8 @@ pub fn init(
 pub fn deinit(self: *Terminal) void {
     self.cmd.kill();
     // cmd.wait() is called by the pty read loop after it sees EIO/EOF
+    for (self.cmd.argv) |a| self.allocator.free(a);
+    self.allocator.free(self.cmd.argv);
     self.pty.deinit();
     self.front_screen.deinit(self.allocator);
     self.back_screen_pri.deinit(self.allocator);
