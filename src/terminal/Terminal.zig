@@ -13,6 +13,7 @@ const Screen = @import("Screen.zig");
 const Key = vaxis.Key;
 const Queue = vaxis.Queue(Event, 16);
 const key = @import("key.zig");
+const mouse = @import("mouse.zig");
 
 pub const Event = union(enum) {
     exited: u8,
@@ -53,6 +54,23 @@ pub const Mode = struct {
     keypad_application: bool = false,
     /// DECCKM: when true, arrow keys send ESC O A/B/C/D instead of ESC [ A/B/C/D
     cursor_keys_app: bool = false,
+    /// Mouse reporting mode
+    mouse: MouseMode = .none,
+    /// SGR extended mouse coordinates (mode 1006); always enabled alongside any mouse mode
+    mouse_sgr: bool = false,
+};
+
+pub const MouseMode = enum {
+    /// No mouse reporting
+    none,
+    /// X10 compatibility: only button-press events, no release, no motion
+    x10,
+    /// Normal: press and release events
+    normal,
+    /// Button-event: press, release, and drag (motion while button held)
+    button_event,
+    /// Any-event: press, release, and all motion
+    any_event,
 };
 
 pub const Charset = enum {
@@ -64,6 +82,7 @@ pub const Charset = enum {
 
 pub const InputEvent = union(enum) {
     key_press: vaxis.Key,
+    mouse: vaxis.Mouse,
 };
 
 allocator: std.mem.Allocator,
@@ -321,6 +340,19 @@ pub fn update(self: *Terminal, event: InputEvent) !void {
             const pty_writer = self.get_pty_writer();
             defer pty_writer.flush() catch {};
             try key.encode(pty_writer, k, true, self.back_screen.csi_u_flags, self.mode.cursor_keys_app);
+        },
+        .mouse => |m| {
+            if (self.mode.mouse == .none) return;
+            // Ignore motion events unless the mode tracks them
+            switch (m.type) {
+                .motion => if (self.mode.mouse != .any_event) return,
+                .drag => if (self.mode.mouse == .x10 or self.mode.mouse == .normal) return,
+                .release => if (self.mode.mouse == .x10) return,
+                .press => {},
+            }
+            const pty_writer = self.get_pty_writer();
+            defer pty_writer.flush() catch {};
+            try mouse.encode(pty_writer, m, self.mode.mouse_sgr);
         },
     }
 }
@@ -974,6 +1006,12 @@ pub fn setMode(self: *Terminal, mode: u16, val: bool) void {
     switch (mode) {
         1 => self.mode.cursor_keys_app = val,
         7 => self.mode.autowrap = val,
+        1000 => self.mode.mouse = if (val) .normal else .none,
+        1002 => self.mode.mouse = if (val) .button_event else .none,
+        1003 => self.mode.mouse = if (val) .any_event else .none,
+        1005 => {}, // UTF-8 mouse encoding - we use SGR instead, ignore
+        1006 => self.mode.mouse_sgr = val,
+        1015 => {}, // URXVT mouse encoding - we use SGR instead, ignore
         25 => self.mode.cursor = val,
         1049 => {
             if (val)
