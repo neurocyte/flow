@@ -13,6 +13,7 @@ gutter_width_maximum: usize = 8,
 enable_terminal_cursor: bool = true,
 enable_terminal_color_scheme: bool = false,
 terminal_scrollback_size: u16 = 500,
+terminal_on_exit: TerminalOnExit = .hold_on_error,
 enable_sgr_pixel_mode_support: bool = true,
 enable_modal_dim: bool = true,
 highlight_current_line: bool = true,
@@ -247,4 +248,10 @@ pub const Alignment = enum {
 pub const AgeFormat = enum {
     short,
     long,
+};
+
+pub const TerminalOnExit = enum {
+    hold_on_error,
+    close,
+    hold,
 };

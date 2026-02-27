@@ -7,6 +7,7 @@ const command = @import("command");
 const vaxis = @import("renderer").vaxis;
 const shell = @import("shell");
 const argv = @import("argv");
+const config = @import("config");
 
 const Plane = @import("renderer").Plane;
 const Widget = @import("Widget.zig");
@@ -23,6 +24,7 @@ const Self = @This();
 const widget_type: Widget.Type = .panel;
 
 const Terminal = vaxis.widgets.Terminal;
+const TerminalOnExit = config.TerminalOnExit;
 
 allocator: Allocator,
 plane: Plane,
@@ -52,7 +54,10 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
     errdefer env.deinit();
 
     var cmd_arg: []const u8 = "";
+    var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
     const argv_msg: ?tp.message = if (ctx.args.match(.{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0)
+        try shell.parse_arg0_to_argv(allocator, &cmd_arg)
+    else if (ctx.args.match(.{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0)
         try shell.parse_arg0_to_argv(allocator, &cmd_arg)
     else
         null;
@@ -78,7 +83,7 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
     const cols: u16 = @intCast(@max(80, plane.dim_x()));
     const rows: u16 = @intCast(@max(24, plane.dim_y()));
 
-    if (global_vt == null) try Vt.init(allocator, argv_list.items, env, rows, cols);
+    if (global_vt == null) try Vt.init(allocator, argv_list.items, env, rows, cols, on_exit);
 
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
@@ -213,7 +218,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         switch (event) {
             .exited => |code| {
                 self.vt.process_exited = true;
-                self.show_exit_message(code);
+                self.handle_child_exit(code);
                 tui.need_render(@src());
             },
             .redraw, .bell => {},
@@ -273,6 +278,17 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     };
 
     return false;
+}
+
+fn handle_child_exit(self: *Self, code: u8) void {
+    switch (self.vt.on_exit) {
+        .hold => self.show_exit_message(code),
+        .hold_on_error => if (code == 0)
+            tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {}
+        else
+            self.show_exit_message(code),
+        .close => tp.self_pid().send(.{ "cmd", "close_terminal", .{} }) catch {},
+    }
 }
 
 fn show_exit_message(self: *Self, code: u8) void {
@@ -358,8 +374,9 @@ const Vt = struct {
     app_bg: ?[3]u8 = null,
     app_cursor: ?[3]u8 = null,
     process_exited: bool = false,
+    on_exit: TerminalOnExit,
 
-    fn init(allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.EnvMap, rows: u16, cols: u16) !void {
+    fn init(allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.EnvMap, rows: u16, cols: u16, on_exit: TerminalOnExit) !void {
         const home = env.get("HOME") orelse "/tmp";
 
         global_vt = .{
@@ -367,6 +384,7 @@ const Vt = struct {
             .env = env,
             .write_buf = undefined, // managed via self.vt's pty_writer pointer
             .pty_pid = null,
+            .on_exit = on_exit,
         };
         const self = &global_vt.?;
         self.vt = try Terminal.init(
