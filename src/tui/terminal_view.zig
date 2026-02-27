@@ -389,6 +389,7 @@ const pty = struct {
     parser: Parser,
     receiver: Receiver,
     parent: tp.pid,
+    err_code: i64 = 0,
 
     pub fn spawn(allocator: std.mem.Allocator, vt: *Terminal) !tp.pid {
         const self = try allocator.create(@This());
@@ -448,6 +449,12 @@ const pty = struct {
                     return tp.exit_normal();
                 },
             };
+        } else if (try m.match(.{ "fd", "pty", "read_error", tp.extract(&self.err_code), tp.more })) {
+            const code = self.vt.cmd.wait();
+            std.log.debug("terminal: read_error from fd (err={d}), process exited with code={d}", .{ self.err_code, code });
+            self.vt.event_queue.push(.{ .exited = code });
+            self.parent.send(.{ "terminal_view", "output" }) catch {};
+            return tp.exit_normal();
         } else if (try m.match(.{"quit"})) {
             std.log.debug("terminal: pty exiting: received quit", .{});
             return tp.exit_normal();
