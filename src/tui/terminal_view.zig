@@ -154,6 +154,13 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         .mods = @bitCast(modifiers),
         .text = if (text.len > 0) text else null,
     };
+    if (self.vt.process_exited and (keypress == input.key.enter or keypress == '\r')) {
+        self.vt.process_exited = false;
+        self.restart() catch |e|
+            std.log.err("terminal_view: restart failed: {}", .{e});
+        tui.need_render(@src());
+        return true;
+    }
     self.vt.vt.scrollToBottom();
     self.vt.vt.update(.{ .key_press = key }) catch |e|
         std.log.err("terminal_view: input failed: {}", .{e});
@@ -194,6 +201,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     while (self.vt.vt.tryEvent()) |event| {
         switch (event) {
             .exited => |code| {
+                self.vt.process_exited = true;
                 self.show_exit_message(code);
                 tui.need_render(@src());
             },
@@ -266,9 +274,35 @@ fn show_exit_message(self: *Self, code: u8) void {
     if (code != 0)
         w.print(" with code {d}", .{code}) catch {};
     w.writeAll("]\x1b[0m\r\n") catch {};
+    // Build display command string from argv for the re-run prompt
+    const argv = self.vt.vt.cmd.argv;
+    if (argv.len > 0) {
+        w.writeAll("\x1b[0m\x1b[2mPress enter to re-run '") catch {};
+        for (argv, 0..) |arg, i| {
+            if (i > 0) w.writeByte(' ') catch {};
+            // Quote args that contain spaces
+            const needs_quote = std.mem.indexOfScalar(u8, arg, ' ') != null;
+            if (needs_quote) w.writeByte('"') catch {};
+            w.writeAll(arg) catch {};
+            if (needs_quote) w.writeByte('"') catch {};
+        }
+        w.writeAll("'\x1b[0m\r\n") catch {};
+    }
     var parser: pty.Parser = .{ .buf = .init(self.allocator) };
     defer parser.buf.deinit();
     _ = self.vt.vt.processOutput(&parser, msg.written()) catch {};
+}
+
+fn restart(self: *Self) !void {
+    // Kill the old pty actor if still alive
+    if (self.vt.pty_pid) |pid| {
+        pid.send(.{"quit"}) catch {};
+        pid.deinit();
+        self.vt.pty_pid = null;
+    }
+    // Re-spawn the child process and a fresh pty actor
+    try self.vt.vt.spawn();
+    self.vt.pty_pid = try pty.spawn(self.allocator, &self.vt.vt);
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
@@ -319,6 +353,7 @@ const Vt = struct {
     app_fg: ?[3]u8 = null,
     app_bg: ?[3]u8 = null,
     app_cursor: ?[3]u8 = null,
+    process_exited: bool = false,
 
     fn init(allocator: std.mem.Allocator, argv: []const []const u8, env: std.process.EnvMap, rows: u16, cols: u16) !void {
         const home = env.get("HOME") orelse "/tmp";
