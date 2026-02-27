@@ -190,6 +190,10 @@ pub fn unfocus(self: *Self) void {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    if (global_vt) |*vt| if (vt.process_exited) {
+        vt.deinit(allocator);
+        global_vt = null;
+    };
     if (self.focused) tui.release_keyboard_focus(Widget.to(self));
     self.commands.unregister();
     self.plane.deinit();
