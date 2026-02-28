@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 const tp = @import("thespian");
@@ -74,7 +75,11 @@ pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Contex
                 try argv_list.append(allocator, arg);
         }
     } else {
-        try argv_list.append(allocator, env.get("SHELL") orelse "/bin/sh");
+        const default_shell = if (builtin.os.tag == .windows)
+            env.get("COMSPEC") orelse "cmd.exe"
+        else
+            env.get("SHELL") orelse "/bin/sh";
+        try argv_list.append(allocator, default_shell);
     }
 
     // Use the current plane dimensions for the initial pty size. The plane
@@ -503,7 +508,11 @@ const Vt = struct {
 };
 var global_vt: ?Vt = null;
 
-const pty = struct {
+// Platform-specific pty actor: POSIX uses tp.file_descriptor + SIGCHLD,
+// Windows uses tp.file_stream with IOCP overlapped reads on the ConPTY output pipe.
+const pty = if (builtin.os.tag == .windows) pty_windows else pty_posix;
+
+const pty_posix = struct {
     const Parser = Terminal.Parser;
 
     const Receiver = tp.Receiver(*@This());
@@ -696,5 +705,109 @@ const pty = struct {
                 return error.Unexpected;
             },
         };
+    }
+};
+
+/// Windows pty actor: reads ConPTY output pipe via tp.file_stream (IOCP overlapped I/O).
+/// Exit detection relies on error 109 (ERROR_BROKEN_PIPE) from the read stream,
+/// which fires when the child process exits and the ConPTY closes the pipe.
+const pty_windows = struct {
+    const Parser = Terminal.Parser;
+    const Receiver = tp.Receiver(*@This());
+
+    allocator: std.mem.Allocator,
+    vt: *Terminal,
+    stream: tp.file_stream,
+    parser: Parser,
+    receiver: Receiver,
+    parent: tp.pid,
+
+    pub fn spawn(allocator: std.mem.Allocator, vt: *Terminal) !tp.pid {
+        const self = try allocator.create(@This());
+        errdefer allocator.destroy(self);
+        // tp.file_stream.init takes a *anyopaque (Win32 HANDLE)
+        const stream = try tp.file_stream.init("pty_out", vt.ptyOutputHandle());
+        self.* = .{
+            .allocator = allocator,
+            .vt = vt,
+            .stream = stream,
+            .parser = .{ .buf = try .initCapacity(allocator, 128) },
+            .receiver = Receiver.init(pty_receive, self),
+            .parent = tp.self_pid().clone(),
+        };
+        return tp.spawn_link(allocator, self, start, "pty_actor");
+    }
+
+    fn deinit(self: *@This()) void {
+        std.log.debug("terminal: pty actor (windows) deinit", .{});
+        self.stream.deinit();
+        self.parser.buf.deinit();
+        self.parent.deinit();
+        self.allocator.destroy(self);
+    }
+
+    fn start(self: *@This()) tp.result {
+        errdefer self.deinit();
+        self.stream.start_read() catch |e| {
+            std.log.debug("terminal: pty stream start_read failed: {}", .{e});
+            return tp.exit_error(e, @errorReturnTrace());
+        };
+        tp.receive(&self.receiver);
+    }
+
+    fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
+        errdefer self.deinit();
+
+        var bytes: []const u8 = "";
+        var err_code: i64 = 0;
+        var err_msg: []const u8 = "";
+
+        if (try m.match(.{ "stream", "pty_out", "read_complete", tp.extract(&bytes) })) {
+            // Got output data from the child - process it, then arm next read.
+            if (bytes.len == 0) {
+                // Zero bytes = EOF on the pipe = child exited
+                const code = self.vt.cmd.wait();
+                std.log.debug("terminal: ConPTY pipe EOF, process exited with code={d}", .{code});
+                self.vt.event_queue.push(.{ .exited = code });
+                self.parent.send(.{ "terminal_view", "output" }) catch {};
+                return tp.exit_normal();
+            }
+            defer self.parent.send(.{ "terminal_view", "output" }) catch {};
+            switch (self.vt.processOutput(&self.parser, bytes) catch |e| {
+                std.log.debug("terminal: processOutput error: {}", .{e});
+                return tp.exit_normal();
+            }) {
+                .exited => {
+                    std.log.debug("terminal: processOutput returned .exited", .{});
+                    return tp.exit_normal();
+                },
+                .running => {},
+            }
+            // Re-arm the read for next chunk
+            self.stream.start_read() catch |e| {
+                std.log.debug("terminal: pty stream re-arm failed: {}", .{e});
+                return tp.exit_normal();
+            };
+        } else if (try m.match(.{ "stream", "pty_out", "read_error", 109, tp.extract(&err_msg) })) {
+            // ERROR_BROKEN_PIPE (109) = child process has exited and ConPTY closed the pipe.
+            const code = self.vt.cmd.wait();
+            std.log.debug("terminal: ConPTY pipe broken (child exited), code={d}", .{code});
+            self.vt.event_queue.push(.{ .exited = code });
+            self.parent.send(.{ "terminal_view", "output" }) catch {};
+            return tp.exit_normal();
+        } else if (try m.match(.{ "stream", "pty_out", "read_error", tp.extract(&err_code), tp.extract(&err_msg) })) {
+            // Other read error - treat as unexpected exit
+            std.log.debug("terminal: ConPTY read error: {d} {s}", .{ err_code, err_msg });
+            const code = self.vt.cmd.wait();
+            self.vt.event_queue.push(.{ .exited = code });
+            self.parent.send(.{ "terminal_view", "output" }) catch {};
+            return tp.exit_normal();
+        } else if (try m.match(.{"quit"})) {
+            std.log.debug("terminal: pty actor (windows) received quit", .{});
+            return tp.exit_normal();
+        } else {
+            std.log.debug("terminal: pty actor (windows) unexpected message", .{});
+            return tp.unexpected(m);
+        }
     }
 };
