@@ -582,7 +582,7 @@ const pty = struct {
                 },
             };
         } else if (try m.match(.{ "fd", "pty", "read_error", tp.extract(&self.err_code), tp.more })) {
-            // thespian fires read_error with EPOLLHUP when the child exits cleanly.
+            // thespian fires read_error when the pty fd signals an error condition
             // Treat it the same as EIO: reap the child and signal exit.
             const code = self.vt.cmd.wait();
             std.log.debug("terminal: read_error from fd (err={d}), process exited with code={d}", .{ self.err_code, code });
@@ -615,10 +615,11 @@ const pty = struct {
         while (true) {
             const n = std.posix.read(self.vt.ptyFd(), &buf) catch |e| switch (e) {
                 error.WouldBlock => {
-                    // No more data right now. Check if the child already exited -
-                    // on Linux a clean exit may not make the pty fd readable again
-                    // (no EPOLLIN), it just starts returning EIO on the next read.
-                    // Polling here catches that case before we arm wait_read again.
+                    // No more data right now. On Linux, a clean child exit may not
+                    // generate a readable event on the pty master - it just starts
+                    // returning EIO. Poll for exit here before sleeping in wait_read.
+                    // On macOS/FreeBSD the pty master raises EIO directly, so the
+                    // try_wait check here is just an extra safety net.
                     if (self.vt.cmd.try_wait()) |code| {
                         std.log.debug("terminal: child exited (detected via try_wait) with code={d}", .{code});
                         self.vt.event_queue.push(.{ .exited = code });
