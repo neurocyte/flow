@@ -32,11 +32,25 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
     const pid = try std.posix.fork();
     if (pid == 0) {
         // we are the child
-        _ = std.os.linux.setsid();
+        _ = std.posix.setsid() catch {};
 
         // set the controlling terminal
-        var u: c_uint = std.posix.STDIN_FILENO;
-        if (posix.system.ioctl(self.pty.tty.handle, posix.T.IOCSCTTY, @intFromPtr(&u)) != 0) return error.IoctlError;
+        // Linux takes a pointer-sized arg (non-zero = steal); macOS/FreeBSD take a plain int 0.
+        // TIOCSCTTY: make the tty the controlling terminal for this process.
+        // Linux exposes it via posix.T.IOCSCTTY; on macOS/FreeBSD it's a raw constant.
+        const TIOCSCTTY: c_int = switch (builtin.os.tag) {
+            .linux => @bitCast(@as(u32, posix.T.IOCSCTTY)),
+            else => @bitCast(@as(u32, 0x20007461)), // from <sys/ttycom.h>: _IOW('t', 97, int)
+        };
+        // Linux takes a pointer argument (non-zero = steal); macOS/FreeBSD ignore it.
+        const tiocsctty_arg: usize = switch (builtin.os.tag) {
+            .linux => blk: {
+                var u: c_uint = 0;
+                break :blk @intFromPtr(&u);
+            },
+            else => 0,
+        };
+        if (posix.system.ioctl(self.pty.tty.handle, TIOCSCTTY, tiocsctty_arg) != 0) return error.IoctlError;
 
         // set up io
         try posix.dup2(self.pty.tty.handle, std.posix.STDIN_FILENO);
