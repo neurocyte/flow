@@ -4,10 +4,13 @@ const Terminal = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const ansi = @import("ansi.zig");
-pub const Command = @import("Command.zig");
 pub const Parser = @import("Parser.zig");
-const Pty = @import("Pty.zig");
 const vaxis = @import("../../main.zig");
+
+// Platform-specific pty/command implementations
+const is_windows = builtin.os.tag == .windows;
+pub const Command = if (is_windows) @import("CommandWindows.zig") else @import("Command.zig");
+const Pty = if (is_windows) @import("ConPTY.zig") else @import("Pty.zig");
 const Winsize = vaxis.Winsize;
 const Screen = @import("Screen.zig");
 const Key = vaxis.Key;
@@ -35,8 +38,6 @@ pub const Event = union(enum) {
         cursor: ?[3]u8,
     },
 };
-
-const posix = std.posix;
 
 const log = std.log.scoped(.terminal);
 
@@ -150,8 +151,6 @@ pub fn init(
     if (opts.initial_working_directory) |pwd| {
         if (!std.fs.path.isAbsolute(pwd)) return error.InvalidWorkingDirectory;
     }
-    const pty = try Pty.init();
-    try pty.setSize(opts.winsize);
     // Dupe argv so Terminal owns the strings for its full lifetime.
     const argv_owned = try allocator.alloc([]const u8, argv.len);
     errdefer {
@@ -159,7 +158,21 @@ pub fn init(
         allocator.free(argv_owned);
     }
     for (argv, argv_owned) |src_arg, *dst| dst.* = try allocator.dupe(u8, src_arg);
-    const cmd: Command = .{
+
+    var pty = if (is_windows)
+        try Pty.init(allocator, opts.winsize)
+    else blk: {
+        const p = try Pty.init();
+        try p.setSize(opts.winsize);
+        break :blk p;
+    };
+    errdefer pty.deinit();
+
+    const cmd: Command = if (is_windows) .{
+        .argv = argv_owned,
+        .env_map = env,
+        .working_directory = opts.initial_working_directory,
+    } else .{
         .argv = argv_owned,
         .env_map = env,
         .pty = pty,
@@ -173,7 +186,10 @@ pub fn init(
     return .{
         .allocator = allocator,
         .pty = pty,
-        .pty_writer = pty.pty.writerStreaming(write_buf),
+        .pty_writer = if (is_windows)
+            pty.inputFile().writerStreaming(write_buf)
+        else
+            pty.pty.writerStreaming(write_buf),
         .cmd = cmd,
         .scrollback_size = opts.scrollback_size,
         .front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
@@ -202,7 +218,10 @@ pub fn deinit(self: *Terminal) void {
 pub fn spawn(self: *Terminal) !void {
     self.back_screen = &self.back_screen_pri;
 
-    try self.cmd.spawn(self.allocator);
+    if (is_windows)
+        try self.cmd.spawn(self.allocator, &self.pty)
+    else
+        try self.cmd.spawn(self.allocator);
 
     self.working_directory.clearRetainingCapacity();
     if (self.cmd.working_directory) |pwd| {
@@ -214,10 +233,14 @@ pub fn spawn(self: *Terminal) !void {
         try self.working_directory.appendSlice(self.allocator, out_path);
     }
 
-    // Set the pty master fd to non-blocking
-    var flags: std.c.O = @bitCast(@as(u32, @intCast(try std.posix.fcntl(self.pty.pty.handle, std.posix.F.GETFL, 0))));
-    flags.NONBLOCK = true;
-    _ = try std.posix.fcntl(self.pty.pty.handle, std.posix.F.SETFL, @intCast(@as(u32, @bitCast(flags))));
+    if (!is_windows) {
+        // Set the pty master fd to non-blocking so reads return EAGAIN
+        // when no data is available rather than blocking.
+        const posix = std.posix;
+        var flags: std.c.O = @bitCast(@as(u32, @intCast(try posix.fcntl(self.pty.pty.handle, posix.F.GETFL, 0))));
+        flags.NONBLOCK = true;
+        _ = try posix.fcntl(self.pty.pty.handle, posix.F.SETFL, @intCast(@as(u32, @bitCast(flags))));
+    }
 }
 
 /// resize the screen. Locks access to the back screen. Should only be called from the main thread.
@@ -357,8 +380,16 @@ pub fn update(self: *Terminal, event: InputEvent) !void {
     }
 }
 
-pub fn ptyFd(self: *const Terminal) i32 {
+/// POSIX only: returns the pty master fd for use by the pty actor read loop.
+pub fn ptyFd(self: *const Terminal) std.posix.fd_t {
+    if (is_windows) @compileError("ptyFd() is not available on Windows; use ptyOutputHandle()");
     return self.pty.pty.handle;
+}
+
+/// Windows only: returns the output pipe read HANDLE for tp.file_stream.
+pub fn ptyOutputHandle(self: *const Terminal) *anyopaque {
+    if (!is_windows) @compileError("ptyOutputHandle() is not available on POSIX; use ptyFd()");
+    return self.pty.outputHandle();
 }
 
 pub fn get_pty_writer(self: *Terminal) *std.Io.Writer {
