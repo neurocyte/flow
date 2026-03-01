@@ -56,6 +56,7 @@ keyboard_focus: ?Widget = null,
 keyboard_focus_outer: ?Widget = null,
 mini_mode_: ?MiniMode = null,
 hover_focus: ?Widget = null,
+terminal_focus: bool = true,
 last_hover_x: c_int = -1,
 last_hover_y: c_int = -1,
 commands: Commands = undefined,
@@ -519,15 +520,19 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
 
     if (try m.match(.{"focus_in"})) {
+        self.terminal_focus = true;
         std.log.debug("focus_in", .{});
+        need_render(@src());
         return;
     }
 
     if (try m.match(.{"focus_out"})) {
+        self.terminal_focus = false;
         std.log.debug("focus_out", .{});
         self.clear_hover_focus(@src()) catch {};
         self.last_hover_x = -1;
         self.last_hover_y = -1;
+        need_render(@src());
         return;
     }
 
@@ -949,7 +954,7 @@ pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {
 
 pub fn is_mainview_focused() bool {
     const self = current();
-    return self.mini_mode_ == null and self.input_mode_outer_ == null and !is_keyboard_focused();
+    return self.mini_mode_ == null and self.input_mode_outer_ == null and !is_keyboard_focused() and self.terminal_focus;
 }
 
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {
@@ -2704,4 +2709,9 @@ pub fn alt_scroll() bool {
 pub fn jump_mode() bool {
     const self = current();
     return self.jump_mode_;
+}
+
+pub fn terminal_has_focus() bool {
+    const self = current();
+    return self.terminal_focus;
 }
