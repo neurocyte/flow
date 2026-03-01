@@ -709,11 +709,23 @@ const pty_posix = struct {
 };
 
 /// Windows pty actor: reads ConPTY output pipe via tp.file_stream (IOCP overlapped I/O).
-/// Exit detection relies on error 109 (ERROR_BROKEN_PIPE) from the read stream,
-/// which fires when the child process exits and the ConPTY closes the pipe.
+///
+/// Exit detection: ConPTY does NOT close the output pipe when the child process exits -
+/// it keeps it open until ClosePseudoConsole is called. So a pending async read would
+/// block forever. Instead we use RegisterWaitForSingleObject on the process handle;
+/// when it fires the threadpool callback posts "child_exited" to this actor, which
+/// cancels the stream and tears down cleanly.
 const pty_windows = struct {
     const Parser = Terminal.Parser;
     const Receiver = tp.Receiver(*@This());
+    const windows = std.os.windows;
+
+    // Context struct allocated on the heap and passed to the wait callback.
+    // Heap-allocated so its lifetime is independent of the actor.
+    const WaitCtx = struct {
+        self_pid: tp.pid,
+        allocator: std.mem.Allocator,
+    };
 
     allocator: std.mem.Allocator,
     vt: *Terminal,
@@ -721,6 +733,7 @@ const pty_windows = struct {
     parser: Parser,
     receiver: Receiver,
     parent: tp.pid,
+    wait_handle: ?windows.HANDLE = null,
 
     pub fn spawn(allocator: std.mem.Allocator, vt: *Terminal) !tp.pid {
         const self = try allocator.create(@This());
@@ -737,6 +750,10 @@ const pty_windows = struct {
 
     fn deinit(self: *@This()) void {
         std.log.debug("terminal: pty actor (windows) deinit", .{});
+        if (self.wait_handle) |wh| {
+            _ = UnregisterWait(wh);
+            self.wait_handle = null;
+        }
         if (self.stream) |s| s.deinit();
         self.parser.buf.deinit();
         self.parent.deinit();
@@ -753,7 +770,44 @@ const pty_windows = struct {
             std.log.debug("terminal: pty stream start_read failed: {}", .{e});
             return tp.exit_error(e, @errorReturnTrace());
         };
+
+        // Register a one-shot wait on the process handle. When the child exits
+        // the threadpool fires on_child_exit, which sends "child_exited" to us.
+        // This is the only reliable way to detect ConPTY child exit without polling,
+        // since ConPTY keeps the output pipe open until ClosePseudoConsole.
+        const process_handle = self.vt.cmd.process_handle orelse {
+            std.log.debug("terminal: pty actor: no process handle to wait on", .{});
+            return tp.exit_error(error.NoProcessHandle, @errorReturnTrace());
+        };
+        const ctx = self.allocator.create(WaitCtx) catch |e|
+            return tp.exit_error(e, @errorReturnTrace());
+        ctx.* = .{
+            .self_pid = tp.self_pid().clone(),
+            .allocator = self.allocator,
+        };
+        var wh: windows.HANDLE = undefined;
+        // WT_EXECUTEONLYONCE: callback fires once then the wait is auto-unregistered.
+        const WT_EXECUTEONLYONCE: windows.ULONG = 0x00000008;
+        if (RegisterWaitForSingleObject(&wh, process_handle, on_child_exit, ctx, windows.INFINITE, WT_EXECUTEONLYONCE) == windows.FALSE) {
+            ctx.self_pid.deinit();
+            self.allocator.destroy(ctx);
+            std.log.debug("terminal: RegisterWaitForSingleObject failed", .{});
+            return tp.exit_error(error.RegisterWaitFailed, @errorReturnTrace());
+        }
+        self.wait_handle = wh;
+
         tp.receive(&self.receiver);
+    }
+
+    /// Threadpool callback - called when the process handle becomes signaled.
+    /// Must be fast and non-blocking. Sends "child_exited" to the pty actor.
+    fn on_child_exit(ctx_ptr: ?*anyopaque, _: windows.BOOLEAN) callconv(.winapi) void {
+        const ctx: *WaitCtx = @ptrCast(@alignCast(ctx_ptr orelse return));
+        defer {
+            ctx.self_pid.deinit();
+            ctx.allocator.destroy(ctx);
+        }
+        ctx.self_pid.send(.{"child_exited"}) catch {};
     }
 
     fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
@@ -763,16 +817,15 @@ const pty_windows = struct {
         var err_code: i64 = 0;
         var err_msg: []const u8 = "";
 
-        if (try m.match(.{ "stream", "pty_out", "read_complete", tp.extract(&bytes) })) {
-            // Got output data from the child - process it, then arm next read.
-            if (bytes.len == 0) {
-                // Zero bytes = EOF on the pipe = child exited
-                const code = self.vt.cmd.wait();
-                std.log.debug("terminal: ConPTY pipe EOF, process exited with code={d}", .{code});
-                self.vt.event_queue.push(.{ .exited = code });
-                self.parent.send(.{ "terminal_view", "output" }) catch {};
-                return tp.exit_normal();
-            }
+        if (try m.match(.{"child_exited"})) {
+            self.wait_handle = null;
+            if (self.stream) |s| s.cancel() catch {};
+            const code = self.vt.cmd.wait();
+            std.log.debug("terminal: child exited (process wait), code={d}", .{code});
+            self.vt.event_queue.push(.{ .exited = code });
+            self.parent.send(.{ "terminal_view", "output" }) catch {};
+            return tp.exit_normal();
+        } else if (try m.match(.{ "stream", "pty_out", "read_complete", tp.extract(&bytes) })) {
             defer self.parent.send(.{ "terminal_view", "output" }) catch {};
             switch (self.vt.processOutput(&self.parser, bytes) catch |e| {
                 std.log.debug("terminal: processOutput error: {}", .{e});
@@ -784,21 +837,12 @@ const pty_windows = struct {
                 },
                 .running => {},
             }
-            // Re-arm the read for next chunk
             self.stream.?.start_read() catch |e| {
                 std.log.debug("terminal: pty stream re-arm failed: {}", .{e});
                 return tp.exit_normal();
             };
-        } else if (try m.match(.{ "stream", "pty_out", "read_error", 109, tp.extract(&err_msg) })) {
-            // ERROR_BROKEN_PIPE (109) = child process has exited and ConPTY closed the pipe.
-            const code = self.vt.cmd.wait();
-            std.log.debug("terminal: ConPTY pipe broken (child exited), code={d}", .{code});
-            self.vt.event_queue.push(.{ .exited = code });
-            self.parent.send(.{ "terminal_view", "output" }) catch {};
-            return tp.exit_normal();
         } else if (try m.match(.{ "stream", "pty_out", "read_error", tp.extract(&err_code), tp.extract(&err_msg) })) {
-            // Other read error - treat as unexpected exit
-            std.log.debug("terminal: ConPTY read error: {d} {s}", .{ err_code, err_msg });
+            std.log.debug("terminal: ConPTY stream error: {d} {s}", .{ err_code, err_msg });
             const code = self.vt.cmd.wait();
             self.vt.event_queue.push(.{ .exited = code });
             self.parent.send(.{ "terminal_view", "output" }) catch {};
@@ -811,4 +855,18 @@ const pty_windows = struct {
             return tp.unexpected(m);
         }
     }
+
+    // Win32 extern declarations
+    extern "kernel32" fn RegisterWaitForSingleObject(
+        phNewWaitObject: *windows.HANDLE,
+        hObject: windows.HANDLE,
+        Callback: *const fn (?*anyopaque, windows.BOOLEAN) callconv(.winapi) void,
+        Context: ?*anyopaque,
+        dwMilliseconds: windows.DWORD,
+        dwFlags: windows.ULONG,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn UnregisterWait(
+        WaitHandle: windows.HANDLE,
+    ) callconv(.winapi) windows.BOOL;
 };
