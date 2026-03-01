@@ -182,9 +182,13 @@ pub fn inputFile(self: *const ConPTY) std.fs.File {
     return .{ .handle = self.pipe_in_write };
 }
 
-/// Returns the HANDLE for reading terminal output, to pass to tp.file_stream.
-pub fn outputHandle(self: *const ConPTY) *anyopaque {
-    return self.pipe_out_read;
+/// Returns the HANDLE for reading terminal output - transfers ownership
+/// The caller will/must close this handle, so ConPTY.deinit()
+/// must not. The handle is marked INVALID here to prevent a double-close.
+pub fn outputHandle(self: *ConPTY) *anyopaque {
+    const h = self.pipe_out_read;
+    self.pipe_out_read = windows.INVALID_HANDLE_VALUE;
+    return h;
 }
 
 /// Returns a pointer to the PROC_THREAD_ATTRIBUTE_LIST buffer for CreateProcess.

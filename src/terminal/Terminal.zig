@@ -386,8 +386,8 @@ pub fn ptyFd(self: *const Terminal) std.posix.fd_t {
     return self.pty.pty.handle;
 }
 
-/// Windows only: returns the output pipe read HANDLE for tp.file_stream.
-pub fn ptyOutputHandle(self: *const Terminal) *anyopaque {
+/// Windows only: returns the output pipe read HANDLE - transfers handle ownership
+pub fn ptyOutputHandle(self: *Terminal) *anyopaque {
     if (!is_windows) @compileError("ptyOutputHandle() is not available on POSIX; use ptyFd()");
     return self.pty.outputHandle();
 }
