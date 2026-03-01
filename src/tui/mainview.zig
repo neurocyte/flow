@@ -298,7 +298,13 @@ pub fn get_panel_height(self: *Self) usize {
     return self.panel_height orelse self.box().h / 5;
 }
 
-fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, disable }) !void {
+pub const PanelToggleMode = enum { toggle, enable, disable };
+
+fn toggle_panel_view(self: *Self, view: anytype, mode: PanelToggleMode) !void {
+    return self.toggle_panel_view_with_args(view, mode, .{});
+}
+
+fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode, ctx: command.Context) !void {
     if (self.panels) |panels| {
         if (self.get_panel(@typeName(view))) |w| {
             if (mode != .enable) {
@@ -310,39 +316,17 @@ fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, di
             }
         } else {
             if (mode != .disable)
-                try panels.add(try view.create(self.allocator, self.widgets.plane));
+                try panels.add(try view.create(self.allocator, self.widgets.plane, ctx));
         }
     } else if (mode != .disable) {
         const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
         try self.widgets.add(panels.widget());
-        try panels.add(try view.create(self.allocator, self.widgets.plane));
+        try panels.add(try view.create(self.allocator, self.widgets.plane, ctx));
         self.panels = panels;
     }
     tui.resize();
 }
 
-fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: enum { toggle, enable, disable }, ctx: command.Context) !void {
-    if (self.panels) |panels| {
-        if (self.get_panel(@typeName(view))) |w| {
-            if (mode != .enable) {
-                panels.remove(w.*);
-                if (panels.empty()) {
-                    self.widgets.remove(panels.widget());
-                    self.panels = null;
-                }
-            }
-        } else {
-            if (mode != .disable)
-                try panels.add(try view.create_with_args(self.allocator, self.widgets.plane, ctx));
-        }
-    } else if (mode != .disable) {
-        const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
-        try self.widgets.add(panels.widget());
-        try panels.add(try view.create_with_args(self.allocator, self.widgets.plane, ctx));
-        self.panels = panels;
-    }
-    tui.resize();
-}
 fn get_panel(self: *Self, name_: []const u8) ?*Widget {
     if (self.panels) |panels|
         for (panels.widgets.items) |*w|

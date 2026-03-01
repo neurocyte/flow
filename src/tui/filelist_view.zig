@@ -57,7 +57,7 @@ const Entry = struct {
     pos_type: editor.PosType,
 };
 
-pub fn create(allocator: Allocator, parent: Plane) !Widget {
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     self.* = .{

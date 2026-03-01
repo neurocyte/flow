@@ -9,6 +9,7 @@ const Plane = @import("renderer").Plane;
 const style = @import("renderer").style;
 const styles = @import("renderer").styles;
 const EventHandler = @import("EventHandler");
+const command = @import("command");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
@@ -25,7 +26,7 @@ last_node: usize = 0,
 const Self = @This();
 const widget_type: Widget.Type = .panel;
 
-pub fn create(allocator: Allocator, parent: Plane) !Widget {
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
     const editor = tui.get_active_editor() orelse return error.NotFound;
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);

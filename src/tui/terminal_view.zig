@@ -37,11 +37,7 @@ hover: bool = false,
 vt: *Vt,
 commands: Commands = undefined,
 
-pub fn create(allocator: Allocator, parent: Plane) !Widget {
-    return create_with_args(allocator, parent, .{});
-}
-
-pub fn create_with_args(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget {
+pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget {
     const container = try WidgetList.createHStyled(
         allocator,
         parent,

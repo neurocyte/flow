@@ -6,6 +6,7 @@ const array_list = @import("std").array_list;
 
 const tp = @import("thespian");
 const cbor = @import("cbor");
+const command = @import("command");
 
 const Plane = @import("renderer").Plane;
 
@@ -39,7 +40,7 @@ const Level = enum {
     err,
 };
 
-pub fn create(allocator: Allocator, parent: Plane) !Widget {
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);

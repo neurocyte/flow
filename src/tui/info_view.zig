@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = @import("std").mem.Allocator;
 const Plane = @import("renderer").Plane;
+const command = @import("command");
 const Widget = @import("Widget.zig");
 const WidgetList = @import("WidgetList.zig");
 const reflow = @import("Buffer").reflow;
@@ -19,7 +20,7 @@ widget_type: Widget.Type,
 
 const default_widget_type: Widget.Type = .panel;
 
-pub fn create(allocator: Allocator, parent: Plane) !Widget {
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
     return create_widget_type(allocator, parent, default_widget_type);
 }
 
