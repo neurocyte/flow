@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const Allocator = std.mem.Allocator;
 
 const tp = @import("thespian");
@@ -18,6 +19,7 @@ const tui = @import("tui.zig");
 const input = @import("input");
 const keybind = @import("keybind");
 pub const Mode = keybind.Mode;
+const RGB = @import("color").RGB;
 
 pub const name = @typeName(Self);
 
@@ -347,7 +349,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     }
 
     // Blit the terminal's front screen into our vaxis.Window.
-    self.vt.vt.draw(self.allocator, self.plane.window, self.focused) catch |e| {
+    const software_cursor = build_options.gui or !tui.config().enable_terminal_cursor;
+    const focused_cursor_color: ?[3]u8 = if (theme.editor_cursor.bg) |bg| RGB.to_u8s(RGB.from_u24(bg.color)) else null;
+    const unfocused_cursor_color: ?[3]u8 = if (theme.editor_cursor_secondary.bg) |bg| RGB.to_u8s(RGB.from_u24(bg.color)) else focused_cursor_color;
+    self.vt.vt.draw(self.allocator, self.plane.window, self.focused, software_cursor, focused_cursor_color, unfocused_cursor_color) catch |e| {
         std.log.err("terminal_view: draw failed: {}", .{e});
     };
 
