@@ -3,7 +3,7 @@ pub const log_name = "renderer";
 
 const std = @import("std");
 const cbor = @import("cbor");
-const vaxis = @import("vaxis");
+pub const vaxis = @import("vaxis");
 const Style = @import("theme").Style;
 const Color = @import("theme").Color;
 pub const CursorShape = vaxis.Cell.CursorShape;
