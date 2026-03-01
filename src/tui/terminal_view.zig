@@ -717,7 +717,7 @@ const pty_windows = struct {
 
     allocator: std.mem.Allocator,
     vt: *Terminal,
-    stream: tp.file_stream,
+    stream: ?tp.file_stream = null,
     parser: Parser,
     receiver: Receiver,
     parent: tp.pid,
@@ -725,12 +725,9 @@ const pty_windows = struct {
     pub fn spawn(allocator: std.mem.Allocator, vt: *Terminal) !tp.pid {
         const self = try allocator.create(@This());
         errdefer allocator.destroy(self);
-        // tp.file_stream.init takes a *anyopaque (Win32 HANDLE)
-        const stream = try tp.file_stream.init("pty_out", vt.ptyOutputHandle());
         self.* = .{
             .allocator = allocator,
             .vt = vt,
-            .stream = stream,
             .parser = .{ .buf = try .initCapacity(allocator, 128) },
             .receiver = Receiver.init(pty_receive, self),
             .parent = tp.self_pid().clone(),
@@ -740,7 +737,7 @@ const pty_windows = struct {
 
     fn deinit(self: *@This()) void {
         std.log.debug("terminal: pty actor (windows) deinit", .{});
-        self.stream.deinit();
+        if (self.stream) |s| s.deinit();
         self.parser.buf.deinit();
         self.parent.deinit();
         self.allocator.destroy(self);
@@ -748,7 +745,11 @@ const pty_windows = struct {
 
     fn start(self: *@This()) tp.result {
         errdefer self.deinit();
-        self.stream.start_read() catch |e| {
+        self.stream = tp.file_stream.init("pty_out", self.vt.ptyOutputHandle()) catch |e| {
+            std.log.debug("terminal: pty stream init failed: {}", .{e});
+            return tp.exit_error(e, @errorReturnTrace());
+        };
+        self.stream.?.start_read() catch |e| {
             std.log.debug("terminal: pty stream start_read failed: {}", .{e});
             return tp.exit_error(e, @errorReturnTrace());
         };
@@ -784,7 +785,7 @@ const pty_windows = struct {
                 .running => {},
             }
             // Re-arm the read for next chunk
-            self.stream.start_read() catch |e| {
+            self.stream.?.start_read() catch |e| {
                 std.log.debug("terminal: pty stream re-arm failed: {}", .{e});
                 return tp.exit_normal();
             };
