@@ -35,6 +35,7 @@ focused: bool = false,
 input_mode: Mode,
 hover: bool = false,
 vt: *Vt,
+last_cmd: ?[]const u8,
 commands: Commands = undefined,
 
 pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget {
@@ -49,45 +50,6 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
     var plane = try Plane.init(&(Widget.Box{}).opts(name), parent);
     errdefer plane.deinit();
 
-    var env = try std.process.getEnvMap(allocator);
-    errdefer env.deinit();
-
-    var cmd_arg: []const u8 = "";
-    var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
-    const argv_msg: ?tp.message = if (ctx.args.match(.{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0)
-        try shell.parse_arg0_to_argv(allocator, &cmd_arg)
-    else if (ctx.args.match(.{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0)
-        try shell.parse_arg0_to_argv(allocator, &cmd_arg)
-    else
-        null;
-    defer if (argv_msg) |msg| allocator.free(msg.buf);
-
-    var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
-    defer argv_list.deinit(allocator);
-    if (argv_msg) |msg| {
-        var iter = msg.buf;
-        var len = try cbor.decodeArrayHeader(&iter);
-        while (len > 0) : (len -= 1) {
-            var arg: []const u8 = undefined;
-            if (try cbor.matchValue(&iter, cbor.extract(&arg)))
-                try argv_list.append(allocator, arg);
-        }
-    } else {
-        const default_shell = if (builtin.os.tag == .windows)
-            env.get("COMSPEC") orelse "cmd.exe"
-        else
-            env.get("SHELL") orelse "/bin/sh";
-        try argv_list.append(allocator, default_shell);
-    }
-
-    // Use the current plane dimensions for the initial pty size. The plane
-    // starts at 0×0 before the first resize, so use a sensible fallback
-    // so the pty isn't created with a zero-cell screen.
-    const cols: u16 = @intCast(@max(80, plane.dim_x()));
-    const rows: u16 = @intCast(@max(24, plane.dim_y()));
-
-    if (global_vt == null) try Vt.init(allocator, argv_list.items, env, rows, cols, on_exit);
-
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
 
@@ -95,8 +57,10 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
         .allocator = allocator,
         .plane = plane,
         .input_mode = try keybind.mode("terminal", allocator, .{ .insert_command = "do_nothing" }),
-        .vt = &global_vt.?,
+        .vt = undefined,
+        .last_cmd = null,
     };
+    try self.run_cmd(ctx);
 
     try self.commands.init(self);
     try tui.message_filters().add(MessageFilter.bind(self, receive_filter));
@@ -105,6 +69,73 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
     try container.add(Widget.to(self));
 
     return container.widget();
+}
+
+pub fn run_cmd(self: *Self, ctx: command.Context) !void {
+    var env = try std.process.getEnvMap(self.allocator);
+    errdefer env.deinit();
+
+    var cmd_arg: []const u8 = "";
+    var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
+    const argv_msg: ?tp.message = if (ctx.args.match(.{tp.extract(&cmd_arg)}) catch false and cmd_arg.len > 0)
+        try shell.parse_arg0_to_argv(self.allocator, &cmd_arg)
+    else if (ctx.args.match(.{ tp.extract(&cmd_arg), tp.extract(&on_exit) }) catch false and cmd_arg.len > 0)
+        try shell.parse_arg0_to_argv(self.allocator, &cmd_arg)
+    else
+        null;
+    defer if (argv_msg) |msg| self.allocator.free(msg.buf);
+
+    var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer argv_list.deinit(self.allocator);
+    if (argv_msg) |msg| {
+        var iter = msg.buf;
+        var len = try cbor.decodeArrayHeader(&iter);
+        while (len > 0) : (len -= 1) {
+            var arg: []const u8 = undefined;
+            if (try cbor.matchValue(&iter, cbor.extract(&arg)))
+                try argv_list.append(self.allocator, arg);
+        }
+    } else {
+        const default_shell = if (builtin.os.tag == .windows)
+            env.get("COMSPEC") orelse "cmd.exe"
+        else
+            env.get("SHELL") orelse "/bin/sh";
+        try argv_list.append(self.allocator, default_shell);
+    }
+
+    // Use the current plane dimensions for the initial pty size. The plane
+    // starts at 0×0 before the first resize, so use a sensible fallback
+    // so the pty isn't created with a zero-cell screen.
+    const cols: u16 = @intCast(@max(80, self.plane.dim_x()));
+    const rows: u16 = @intCast(@max(24, self.plane.dim_y()));
+
+    if (global_vt) |*vt| {
+        if (!vt.process_exited) {
+            var msg: std.Io.Writer.Allocating = .init(self.allocator);
+            defer msg.deinit();
+            try msg.writer.writeAll("terminal is already running '");
+            try get_running_cmd(&msg.writer);
+            try msg.writer.writeAll("'");
+            return tp.exit(msg.written());
+        }
+        vt.deinit(self.allocator);
+        global_vt = null;
+    }
+    try Vt.init(self.allocator, argv_list.items, env, rows, cols, on_exit);
+    self.vt = &global_vt.?;
+
+    if (self.last_cmd) |cmd| {
+        self.allocator.free(cmd);
+        self.last_cmd = null;
+    }
+    self.last_cmd = try self.allocator.dupe(u8, ctx.args.buf);
+}
+
+fn re_run_cmd(self: *Self) !void {
+    return if (self.last_cmd) |cmd|
+        self.run_cmd(.{ .args = .{ .buf = cmd } })
+    else
+        tp.exit("no command to re-run");
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -234,8 +265,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     };
     if (self.vt.process_exited) {
         if (keypress == input.key.enter) {
-            self.vt.process_exited = false;
-            self.restart() catch |e|
+            self.re_run_cmd() catch |e|
                 std.log.err("terminal_view: restart failed: {}", .{e});
             tui.need_render(@src());
             return true;
@@ -267,6 +297,10 @@ pub fn unfocus(self: *Self) void {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    if (self.last_cmd) |cmd| {
+        self.allocator.free(cmd);
+        self.last_cmd = null;
+    }
     if (global_vt) |*vt| if (vt.process_exited) {
         vt.deinit(allocator);
         global_vt = null;
@@ -375,29 +409,20 @@ fn show_exit_message(self: *Self, code: u8) void {
     w.writeAll("[process exited") catch {};
     if (code != 0)
         w.print(" with code {d}", .{code}) catch {};
-    w.writeAll("]\x1b[0m\r\n") catch {};
+    w.writeAll("]") catch {};
     // Re-run prompt
     const cmd_argv = self.vt.vt.cmd.argv;
     if (cmd_argv.len > 0) {
-        w.writeAll("\x1b[0m\x1b[2mPress enter to re-run '") catch {};
+        w.writeAll(" Press enter to re-run '") catch {};
         _ = argv.write(w, cmd_argv) catch {};
-        w.writeAll("'\x1b[0m\r\n") catch {};
+        w.writeAll("' or escape to close") catch {};
+    } else {
+        w.writeAll(" Press esc to close") catch {};
     }
+    w.writeAll("\x1b[0m\r\n") catch {};
     var parser: pty.Parser = .{ .buf = .init(self.allocator) };
     defer parser.buf.deinit();
     _ = self.vt.vt.processOutput(&parser, msg.written()) catch {};
-}
-
-fn restart(self: *Self) !void {
-    // Kill the old pty actor if still alive
-    if (self.vt.pty_pid) |pid| {
-        pid.send(.{"quit"}) catch {};
-        pid.deinit();
-        self.vt.pty_pid = null;
-    }
-    // Re-spawn the child process and a fresh pty actor
-    try self.vt.vt.spawn();
-    self.vt.pty_pid = try pty.spawn(self.allocator, &self.vt.vt);
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
@@ -508,6 +533,17 @@ const Vt = struct {
     }
 };
 var global_vt: ?Vt = null;
+
+pub fn is_vt_running() bool {
+    return if (global_vt) |vt| !vt.process_exited else false;
+}
+
+pub fn get_running_cmd(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    const cmd_argv = if (global_vt) |vt| vt.vt.cmd.argv else &.{};
+    if (cmd_argv.len > 0) {
+        _ = argv.write(writer, cmd_argv) catch {};
+    }
+}
 
 // Platform-specific pty actor: POSIX uses tp.file_descriptor + SIGCHLD,
 // Windows uses tp.file_stream with IOCP overlapped reads on the ConPTY output pipe.

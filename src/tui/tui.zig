@@ -1516,9 +1516,13 @@ const cmds = struct {
     };
 
     pub fn run_task_in_terminal(self: *Self, ctx: Ctx) Result {
+        var buf: [tp.max_message_size]u8 = undefined;
+        std.log.debug("run_task_in_terminal: {s}", .{if (ctx.args.buf.len > 0) ctx.args.to_json(&buf) catch "(error)" else "(none)"});
         const expansion = @import("expansion.zig");
         var task: []const u8 = undefined;
-        if (!try ctx.args.match(.{tp.extract(&task)})) return;
+        var on_exit: @import("config").TerminalOnExit = self.config_.terminal_on_exit;
+        if (!(try ctx.args.match(.{tp.extract(&task)}) or
+            try ctx.args.match(.{ tp.extract(&task), tp.extract(&on_exit) }))) return;
         const args = expansion.expand_cbor(self.allocator, ctx.args.buf) catch |e| switch (e) {
             error.NotFound => return error.Stop,
             else => |e_| return e_,
@@ -1528,8 +1532,7 @@ const cmds = struct {
         if (!try cbor.match(args, .{tp.extract(&cmd)}))
             cmd = task;
         call_add_task(task);
-        var buf: [tp.max_message_size]u8 = undefined;
-        try command.executeName("open_terminal", try command.fmtbuf(&buf, .{cmd}));
+        try command.executeName("open_terminal", try command.fmtbuf(&buf, .{ cmd, on_exit }));
     }
     pub const run_task_in_terminal_meta: Meta = .{
         .description = "Run a task in terminal",

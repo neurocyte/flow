@@ -929,7 +929,7 @@ const cmds = struct {
         else if (self.is_panel_view_showing(terminal_view))
             try self.toggle_panel_view(terminal_view, .toggle)
         else
-            try focus_terminal(self, .{});
+            try open_terminal(self, .{});
     }
     pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
 
@@ -985,20 +985,40 @@ const cmds = struct {
     pub const toggle_terminal_view_meta: Meta = .{ .description = "Toggle terminal" };
 
     pub fn open_terminal(self: *Self, ctx: Ctx) Result {
-        try self.toggle_panel_view_with_args(terminal_view, .enable, ctx);
-    }
-    pub const open_terminal_meta: Meta = .{ .description = "Open terminal", .arguments = &.{.string} };
+        const have_args = ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more });
 
-    pub fn focus_terminal(self: *Self, _: Ctx) Result {
-        if (self.get_panel_view(terminal_view)) |vt| {
+        if (have_args and terminal_view.is_vt_running()) {
+            var msg: std.Io.Writer.Allocating = .init(self.allocator);
+            defer msg.deinit();
+            try msg.writer.writeAll("terminal is already running '");
+            try terminal_view.get_running_cmd(&msg.writer);
+            try msg.writer.writeAll("'");
+            return tp.exit(msg.written());
+        }
+
+        if (terminal_view.is_vt_running()) if (self.get_panel_view(terminal_view)) |vt| {
+            std.log.debug("open_terminal: toggle_focus", .{});
             vt.toggle_focus();
+            return;
+        };
+
+        var buf: [tp.max_message_size]u8 = undefined;
+        std.log.debug("open_terminal: {s}", .{if (ctx.args.buf.len > 0) ctx.args.to_json(&buf) catch "(error)" else "(none)"});
+        if (self.get_panel_view(terminal_view)) |vt| {
+            try vt.run_cmd(ctx);
         } else {
-            try self.toggle_panel_view(terminal_view, .enable);
+            try self.toggle_panel_view_with_args(terminal_view, .enable, ctx);
             if (self.get_panel_view(terminal_view)) |vt|
                 vt.focus();
         }
     }
-    pub const focus_terminal_meta: Meta = .{ .description = "Open terminal" };
+    pub const open_terminal_meta: Meta = .{ .description = "Open terminal" };
+
+    pub fn unfocus_terminal(self: *Self, _: Ctx) Result {
+        if (self.get_panel_view(terminal_view)) |vt|
+            vt.toggle_focus();
+    }
+    pub const unfocus_terminal_meta: Meta = .{};
 
     pub fn close_terminal(self: *Self, _: Ctx) Result {
         if (self.get_panel_view(terminal_view)) |_|
