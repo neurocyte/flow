@@ -293,8 +293,7 @@ pub fn Create(options: type) type {
                 else
                     " ";
                 self.rendered_mini_buffer.clearRetainingCapacity();
-                const writer = self.rendered_mini_buffer.writer(self.allocator);
-                writer.print("{s}  {s}", .{ icon, self.file_path.items }) catch {};
+                self.rendered_mini_buffer.print(self.allocator, "{s}  {s}", .{ icon, self.file_path.items }) catch {};
                 mini_mode.text = self.rendered_mini_buffer.items;
                 mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1) + 3;
             }

@@ -134,7 +134,7 @@ fn append_error(buffer: *Buffer, src: []const u8, context: []const u8, msg_: []c
     defer arena.deinit();
     var sfa = std.heap.stackFallback(4096, arena.allocator());
     var msg = std.array_list.Managed(u8).init(sfa.get());
-    try fmt.format(msg.writer(), "error in {s}: {s}", .{ context, msg_ });
+    try msg.print("error in {s}: {s}", .{ context, msg_ });
     try append(buffer, src, msg.items, .err);
 }
 

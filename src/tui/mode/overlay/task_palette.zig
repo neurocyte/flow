@@ -103,9 +103,9 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
 
         const id = command.get_id(command_name) orelse break :blk;
         if (command.get_icon(id)) |icon|
-            label_.writer(palette.allocator).print("{s} ", .{icon}) catch {};
+            label_.print(palette.allocator, "{s} ", .{icon}) catch {};
         if (command.get_description(id)) |desc|
-            label_.writer(palette.allocator).print("{s}", .{desc}) catch {};
+            label_.print(palette.allocator, "{s}", .{desc}) catch {};
         _ = button.plane.print("{s} ", .{label_.items}) catch {};
 
         const hints = if (tui.input_mode()) |m| m.keybind_hints else @panic("no keybind hints");
