@@ -601,11 +601,11 @@ const CellPos = struct {
 };
 
 pub fn fmtmsg(buf: []u8, value: anytype) []const u8 {
-    var fbs = std.io.fixedBufferStream(buf);
-    cbor.writeValue(fbs.writer(), value) catch |e| switch (e) {
-        error.NoSpaceLeft => std.debug.panic("buffer of size {} not big enough", .{buf.len}),
+    var fbs = std.Io.Writer.fixed(buf);
+    cbor.writeValue(&fbs, value) catch |e| switch (e) {
+        error.WriteFailed => std.debug.panic("buffer of size {} not big enough", .{buf.len}),
     };
-    return buf[0..fbs.pos];
+    return fbs.buffered();
 }
 
 const MouseFlags = packed struct(u8) {

@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const math = std.math;
 const mem = std.mem;
-const io = std.io;
+const io = std.Io;
 const posix = std.posix;
 const fs = std.fs;
 const testing = std.testing;
@@ -13,7 +13,6 @@ const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 
-pub const MemoryAccessor = std.debug.MemoryAccessor;
 pub const FixedBufferReader = std.debug.FixedBufferReader.zig;
 pub const Dwarf = std.debug.Dwarf;
 pub const Pdb = std.debug.Pdb;
@@ -219,13 +218,13 @@ pub fn dumpHex(bytes: []const u8) void {
 
 /// Prints a hexadecimal view of the bytes, unbuffered, returning any error that occurs.
 pub fn dumpHexFallible(bytes: []const u8) !void {
-    const stderr = std.io.getStdErr();
-    const ttyconf = std.io.tty.detectConfig(stderr);
+    const stderr = std.fs.File.stderr();
+    const ttyconf = std.Io.tty.detectConfig(stderr);
     const writer = stderr.writer();
     try dumpHexInternal(bytes, ttyconf, writer);
 }
 
-fn dumpHexInternal(bytes: []const u8, ttyconf: std.io.tty.Config, writer: anytype) !void {
+fn dumpHexInternal(bytes: []const u8, ttyconf: std.Io.tty.Config, writer: anytype) !void {
     var chunks = mem.window(u8, bytes, 16, 16);
     while (chunks.next()) |window| {
         // 1. Print the address.
@@ -736,8 +735,6 @@ pub const StackIterator = struct {
     first_address: ?usize,
     // Last known value of the frame pointer register.
     fp: usize,
-    ma: MemoryAccessor = MemoryAccessor.init,
-
     // When SelfInfo and a register context is available, this iterator can unwind
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer),
     // using DWARF and MachO unwind info.
@@ -788,7 +785,6 @@ pub const StackIterator = struct {
     }
 
     pub fn deinit(it: *StackIterator) void {
-        it.ma.deinit();
         if (have_ucontext and it.unwind_state != null) it.unwind_state.?.dwarf_context.deinit();
     }
 
@@ -859,7 +855,6 @@ pub const StackIterator = struct {
                         unwind_state.debug_info.allocator,
                         module.base_address,
                         &unwind_state.dwarf_context,
-                        &it.ma,
                         unwind_info,
                         module.eh_frame,
                     )) |return_address| {
@@ -878,7 +873,6 @@ pub const StackIterator = struct {
                 di,
                 module.base_address,
                 &unwind_state.dwarf_context,
-                &it.ma,
                 null,
             );
         } else return error.MissingDebugInfo;
@@ -914,7 +908,7 @@ pub const StackIterator = struct {
 
         // Sanity check.
         if (fp == 0 or !mem.isAligned(fp, @alignOf(usize))) return null;
-        const new_fp = math.add(usize, it.ma.load(usize, fp) orelse return null, fp_bias) catch
+        const new_fp = math.add(usize, @as(*usize, @ptrFromInt(fp)).*, fp_bias) catch
             return null;
 
         // Sanity check: the stack grows down thus all the parent frames must be
@@ -922,8 +916,7 @@ pub const StackIterator = struct {
         // A zero frame pointer often signals this is the last frame, that case
         // is gracefully handled by the next call to next_internal.
         if (new_fp != 0 and new_fp < it.fp) return null;
-        const new_pc = it.ma.load(usize, math.add(usize, fp, pc_offset) catch return null) orelse
-            return null;
+        const new_pc = @as(*usize, @ptrFromInt(math.add(usize, fp, pc_offset) catch return null)).*;
 
         it.fp = new_fp;
 
@@ -1573,10 +1566,10 @@ test "manage resources correctly" {
     // self-hosted debug info is still too buggy
     if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
 
-    const writer = std.io.null_writer;
+    const writer = std.Io.null_writer;
     var di = try SelfInfo.open(testing.allocator);
     defer di.deinit();
-    try printSourceAtAddress(&di, writer, showMyTrace(), io.tty.detectConfig(std.io.getStdErr()));
+    try printSourceAtAddress(&di, writer, showMyTrace(), io.tty.detectConfig(std.fs.File.stderr()));
 }
 
 noinline fn showMyTrace() usize {
@@ -1642,7 +1635,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         pub fn dump(t: @This()) void {
             if (!enabled) return;
 
-            const tty_config = io.tty.detectConfig(std.io.getStdErr());
+            const tty_config = io.tty.detectConfig(std.fs.File.stderr());
             const stderr = io.getStdErr().writer();
             const end = @min(t.index, size);
             const debug_info = getSelfDebugInfo() catch |err| {
@@ -1737,7 +1730,6 @@ pub inline fn inValgrind() bool {
 
 test {
     _ = &Dwarf;
-    _ = &MemoryAccessor;
     _ = &FixedBufferReader;
     _ = &Pdb;
     _ = &SelfInfo;
