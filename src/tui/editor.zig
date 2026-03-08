@@ -41,7 +41,7 @@ const double_click_time_ms = 350;
 const syntax_full_reparse_time_limit = 0; // ms (0 = always use incremental)
 const syntax_full_reparse_error_threshold = 3; // number of tree-sitter errors that trigger a full reparse
 
-const bracket_search_radius = if (builtin.mode == std.builtin.OptimizeMode.Debug) 8_192 else 65_536;
+pub const bracket_search_radius = if (builtin.mode == std.builtin.OptimizeMode.Debug) 8_192 else 65_536;
 
 pub const max_matches = if (builtin.mode == std.builtin.OptimizeMode.Debug) 10_000 else 100_000;
 pub const max_match_lines = 15;
