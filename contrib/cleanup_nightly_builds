@@ -1,0 +1,49 @@
+#!/bin/bash
+set -e
+
+REPO=neurocyte/flow-nightly
+KEEP=7
+
+if [ -n "$1" ]; then
+    TEAARGS="--login $1"
+else
+    TEAARGS="--login codeberg"
+fi
+
+RELEASES="$(
+    page=1
+    while :; do
+        data=$(tea api $TEAARGS "repos/${REPO}/releases?page=${page}&limit=50")
+        [ "$(echo "$data" | jq length)" = 0 ] && break
+        echo "$data"
+        page=$((page + 1))
+    done | jq -s 'add | sort_by(.id)|reverse'
+)"
+
+echo latest:
+echo "$RELEASES" | jq -r '.[0:1] | .[] | "\(.name // .tag_name)\t\(.assets | length)"'
+
+echo
+echo to keep:
+echo "$RELEASES" | jq -r ".[1:${KEEP}] | .[] | \"\(.name // .tag_name)\t\(.assets | length)\""
+
+echo
+echo to clean-up:
+REMOVE="$(echo "$RELEASES" | jq -r ".[${KEEP}:]")"
+echo "$REMOVE" | jq -r '.[] | select((.assets | length) > 3) | "\(.name // .tag_name)\t\(.assets | length)"'
+
+echo
+echo running clean-up...
+echo
+
+echo "$REMOVE" |
+    jq -r '.[] | select((.assets | length) > 3) | "\(.id) \(.tag_name) \(.assets | length) \(.name)"' |
+    while read -r release_id release_tag asset_count release_name; do
+        echo
+        echo "cleaning up $asset_count assets from release $release_tag - $release_name"
+        echo "$REMOVE" | jq -r ".[] | select(.id == $release_id) | .assets | .[] | \"\(.id) \(.name)\" " |
+            while read -r asset_id asset_name; do
+                echo -n "  $asset_name  "
+                tea api $TEAARGS -X DELETE "/repos/${REPO}/releases/${release_id}/assets/${asset_id}" || true
+            done
+    done
