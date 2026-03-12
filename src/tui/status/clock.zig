@@ -84,11 +84,10 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     const dt = now.time();
 
     var buf: [64]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    const writer = fbs.writer();
-    std.fmt.format(writer, "{d:0>2}:{d:0>2}", .{ dt.hour, dt.minute }) catch {};
+    var writer = std.Io.Writer.fixed(&buf);
+    writer.print("{d:0>2}:{d:0>2}", .{ dt.hour, dt.minute }) catch {};
 
-    const value_str = fbs.getWritten();
+    const value_str = writer.buffered();
     for (value_str, 0..) |_, i| _ = self.plane.putstr(fonts.get_digit_ascii(value_str[i .. i + 1], self.style orelse .ascii)) catch {};
     return false;
 }

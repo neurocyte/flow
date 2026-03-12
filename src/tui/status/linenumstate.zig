@@ -98,8 +98,7 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
 }
 
 fn format(self: *Self) void {
-    var fbs = std.io.fixedBufferStream(&self.buf);
-    const writer = fbs.writer();
+    var fbs = std.Io.Writer.fixed(&self.buf);
     const eol_mode = switch (self.eol_mode) {
         .lf => "",
         .crlf => " ␍␊",
@@ -108,56 +107,55 @@ fn format(self: *Self) void {
         .spaces, .auto => "",
         .tabs => " ⭾ ",
     };
-    writer.print("{s}{s} ", .{ eol_mode, indent_mode }) catch {};
+    fbs.print("{s}{s} ", .{ eol_mode, indent_mode }) catch {};
 
     (blk: switch (self.mode orelse .default) {
-        .default => writer.print("Ln {f}, Col {f} ", .{
+        .default => fbs.print("Ln {f}, Col {f} ", .{
             digits_fmt(self, self.line + 1),
             digits_fmt(self, self.column + 1),
         }),
-        .compact => writer.print(" {f}:{f} ", .{
+        .compact => fbs.print(" {f}:{f} ", .{
             digits_fmt(self, self.line + 1),
             digits_fmt(self, self.column + 1),
         }),
-        .total => writer.print(" {f}:{f}/{f} ", .{
+        .total => fbs.print(" {f}:{f}/{f} ", .{
             digits_fmt(self, self.line + 1),
             digits_fmt(self, self.column + 1),
             digits_fmt(self, self.lines),
         }),
         .percent => {
             if (self.line == 0)
-                writer.print(" Top", .{}) catch {}
+                fbs.print(" Top", .{}) catch {}
             else if (self.line >= self.lines -| 1)
-                writer.print(" Bot", .{}) catch {}
+                fbs.print(" Bot", .{}) catch {}
             else {
                 const percent = (self.line * 1000) / (self.lines * 10);
-                writer.print(" {f}%", .{digits_fmt(self, percent)}) catch {};
+                fbs.print(" {f}%", .{digits_fmt(self, percent)}) catch {};
             }
             continue :blk .compact;
         },
     }) catch {};
-    self.rendered = @ptrCast(fbs.getWritten());
+    self.rendered = @ptrCast(fbs.buffered());
     self.buf[self.rendered.len] = 0;
 }
 
 pub fn digits_fmt(self_: *Self, value: usize) struct {
     self: *Self,
     value: usize,
-    pub fn format(ctx: @This(), writer: anytype) std.Io.Writer.Error!void {
+    pub fn format(ctx: @This(), _: anytype) std.Io.Writer.Error!void {
         const self = ctx.self;
         const width = self.padding orelse 0;
         var buf: [64]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer_ = fbs.writer();
-        std.fmt.format(writer_, "{d}", .{ctx.value}) catch return error.WriteFailed;
-        const value_str = fbs.getWritten();
+        var fbs = std.Io.Writer.fixed(&buf);
+        fbs.print("{d}", .{ctx.value}) catch return error.WriteFailed;
+        const value_str = fbs.buffered();
 
         const char: []const u8 = switch (self.leader orelse .space) {
             .space => " ",
             .zero => "0",
         };
-        for (0..(@max(value_str.len, width) - value_str.len)) |_| try writer.writeAll(fonts.get_digit_ascii(char, self.style orelse .ascii));
-        for (value_str, 0..) |_, i| try writer.writeAll(fonts.get_digit_ascii(value_str[i .. i + 1], self.style orelse .ascii));
+        for (0..(@max(value_str.len, width) - value_str.len)) |_| try fbs.writeAll(fonts.get_digit_ascii(char, self.style orelse .ascii));
+        for (value_str, 0..) |_, i| try fbs.writeAll(fonts.get_digit_ascii(value_str[i .. i + 1], self.style orelse .ascii));
     }
 } {
     return .{ .self = self_, .value = value };

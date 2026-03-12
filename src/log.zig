@@ -176,12 +176,12 @@ pub const Logger = struct {
                     //
                 } else {
                     var failed = false;
-                    msg_fmt.writer(std.heap.c_allocator).print("{f}", .{msg_}) catch {
+                    msg_fmt.print(std.heap.c_allocator, "{f}", .{msg_}) catch {
                         failed = true;
                     };
                     if (failed) {
                         msg_fmt.clearRetainingCapacity();
-                        msg_fmt.writer(std.heap.c_allocator).print("{f}", .{std.ascii.hexEscape(msg_.buf, .lower)}) catch {};
+                        msg_fmt.print(std.heap.c_allocator, "{f}", .{std.ascii.hexEscape(msg_.buf, .lower)}) catch {};
                     }
                     msg__ = msg_fmt.items;
                     tp.trace(tp.channel.debug, .{ "log_err_fmt", msg__.len, msg__[0..@min(msg__.len, 128)] });

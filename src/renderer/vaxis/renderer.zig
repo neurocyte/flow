@@ -186,7 +186,7 @@ fn handle_crash(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque
     unreachable;
 }
 
-fn handleSegfaultPosixNoAbort(stderr: *std.io.Writer, sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) void {
+fn handleSegfaultPosixNoAbort(stderr: *std.Io.Writer, sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) void {
     const debug = @import("std/debug.zig");
     debug.resetSegfaultHandler();
     const addr = switch (builtin.os.tag) {

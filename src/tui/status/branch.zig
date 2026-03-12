@@ -113,21 +113,20 @@ fn process_vcs_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
 
 fn format(self: *Self, buf: []u8) []const u8 {
     const branch = self.status.branch orelse return "";
-    var fbs = std.io.fixedBufferStream(buf);
-    const writer = fbs.writer();
-    writer.print("   {s}{s}", .{ branch_symbol, branch }) catch {};
+    var fbs = std.Io.Writer.fixed(buf);
+    fbs.print("   {s}{s}", .{ branch_symbol, branch }) catch {};
     if (self.status.ahead) |ahead| if (ahead.len > 1 and ahead[1] != '0')
-        writer.print(" {s}{s}", .{ ahead_symbol, ahead[1..] }) catch {};
+        fbs.print(" {s}{s}", .{ ahead_symbol, ahead[1..] }) catch {};
     if (self.status.behind) |behind| if (behind.len > 1 and behind[1] != '0')
-        writer.print(" {s}{s}", .{ behind_symbol, behind[1..] }) catch {};
+        fbs.print(" {s}{s}", .{ behind_symbol, behind[1..] }) catch {};
     if (self.status.stash) |stash| if (stash.len > 0 and stash[0] != '0')
-        writer.print(" {s}{s}", .{ stash_symbol, stash }) catch {};
+        fbs.print(" {s}{s}", .{ stash_symbol, stash }) catch {};
     if (self.status.changed > 0)
-        writer.print(" {s}{d}", .{ changed_symbol, self.status.changed }) catch {};
+        fbs.print(" {s}{d}", .{ changed_symbol, self.status.changed }) catch {};
     if (self.status.untracked > 0)
-        writer.print(" {s}{d}", .{ untracked_symbol, self.status.untracked }) catch {};
-    writer.print("   ", .{}) catch {};
-    return fbs.getWritten();
+        fbs.print(" {s}{d}", .{ untracked_symbol, self.status.untracked }) catch {};
+    fbs.print("   ", .{}) catch {};
+    return fbs.buffered();
 }
 
 pub fn layout(self: *Self, btn: *ButtonType) Widget.Layout {

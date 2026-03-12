@@ -10,8 +10,6 @@ stdin_behavior: std.process.Child.StdIo,
 const Self = @This();
 const module_name = @typeName(Self);
 pub const max_chunk_size = tp.subprocess.max_chunk_size;
-pub const Writer = std.io.Writer(*Self, Error, write);
-pub const BufferedWriter = std.io.BufferedWriter(max_chunk_size, Writer);
 pub const Error = error{ OutOfMemory, Exit, ThespianSpawnFailed, Closed };
 
 pub const FindF = fn (allocator: std.mem.Allocator, query: []const u8, tag: [:0]const u8) Error!Self;
@@ -59,14 +57,6 @@ pub fn input(self: *const Self, bytes: []const u8) !void {
 
 pub fn close(self: *Self) void {
     self.deinit();
-}
-
-pub fn writer(self: *Self) Writer {
-    return .{ .context = self };
-}
-
-pub fn bufferedWriter(self: *Self) BufferedWriter {
-    return .{ .unbuffered_writer = self.writer() };
 }
 
 const Process = struct {

@@ -99,9 +99,8 @@ pub fn utf8_sanitize(allocator: std.mem.Allocator, input: []const u8) error{
     UnexpectedSecondSurrogateHalf,
 }![]u8 {
     var output: std.ArrayListUnmanaged(u8) = .{};
-    const writer = output.writer(allocator);
     var buf: [4]u8 = undefined;
-    for (input) |byte| try writer.writeAll(try raw_byte_to_utf8(byte, &buf));
+    for (input) |byte| try output.appendSlice(allocator, try raw_byte_to_utf8(byte, &buf));
     return output.toOwnedSlice(allocator);
 }
 
@@ -117,7 +116,7 @@ fn utf8_write_transform_T(comptime View: anytype, comptime field: uucode.FieldEn
     var it = view.iterator();
     while (it.nextCodepoint()) |cp| {
         const cp_ = switch (field) {
-            .simple_uppercase_mapping, .simple_lowercase_mapping => uucode.get(field, cp) orelse cp,
+            .simple_uppercase_mapping, .simple_lowercase_mapping => uucode.get(field, cp),
             .case_folding_simple => uucode.get(field, cp),
             else => @compileError(@tagName(field) ++ " is not a unicode transformation"),
         };

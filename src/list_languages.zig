@@ -13,7 +13,7 @@ const checkmark_width = if (builtin.os.tag != .windows) 2 else 3;
 const success_mark = if (builtin.os.tag != .windows) "✓ " else "[y]";
 const fail_mark = if (builtin.os.tag != .windows) "✘ " else "[n]";
 
-pub fn list(allocator: std.mem.Allocator, writer: *std.io.Writer, tty_config: std.io.tty.Config) !void {
+pub fn list(allocator: std.mem.Allocator, writer: *std.Io.Writer, tty_config: std.Io.tty.Config) !void {
     var max_language_len: usize = 0;
     var max_langserver_len: usize = 0;
     var max_formatter_len: usize = 0;
@@ -69,7 +69,7 @@ fn args_string_length(args_: ?[]const []const u8) usize {
     return len;
 }
 
-fn write_checkmark(writer: anytype, success: bool, tty_config: std.io.tty.Config) !void {
+fn write_checkmark(writer: anytype, success: bool, tty_config: std.Io.tty.Config) !void {
     try tty_config.setColor(writer, if (success) .green else .red);
     if (success) try writer.writeAll(success_mark) else try writer.writeAll(fail_mark);
 }
@@ -79,7 +79,7 @@ fn write_segmented(
     args_: ?[]const []const u8,
     sep: []const u8,
     pad: ?usize,
-    tty_config: std.io.tty.Config,
+    tty_config: std.Io.tty.Config,
 ) !void {
     const args = args_ orelse return;
     var len: usize = 0;
