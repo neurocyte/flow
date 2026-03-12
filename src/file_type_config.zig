@@ -167,13 +167,12 @@ pub fn guess_file_type(file_path: ?[]const u8, content: []const u8) ?@This() {
 }
 
 fn guess(file_path: ?[]const u8, content: []const u8) ?@This() {
-    if (guess_first_line(content)) |ft| return ft;
     for (get_all_names()) |file_type_name| {
         const file_type = get(file_type_name) catch unreachable orelse unreachable;
         if (file_path) |fp| if (syntax.FileType.match_file_type(file_type.extensions orelse continue, fp))
             return file_type;
     }
-    return null;
+    return guess_first_line(content);
 }
 
 fn guess_first_line(content: []const u8) ?@This() {
