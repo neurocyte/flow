@@ -385,10 +385,20 @@ fn get_git() ?[]const u8 {
 
 pub fn blame(context_: usize, file_path: []const u8) !void {
     const tag = @src().fn_name;
+    const dir_path = std.fs.path.dirname(file_path) orelse ".";
+    const basename = std.fs.path.basename(file_path);
+
     var arg: std.Io.Writer.Allocating = .init(allocator);
+    var arg2: std.Io.Writer.Allocating = .init(allocator);
     defer arg.deinit();
-    try arg.writer.print("{s}", .{file_path});
+    defer arg2.deinit();
+
+    try arg.writer.print("{s}", .{basename});
+    try arg2.writer.print("{s}", .{dir_path});
+
     try git(context_, .{
+        "-C",
+        arg2.written(),
         "blame",
         "--incremental",
         "HEAD",
