@@ -2365,6 +2365,7 @@ pub fn render_file_vcs_item_cbor(self: *renderer.Plane, file_item_cbor: []const 
 
 pub fn render_symbol(
     self: *renderer.Plane,
+    indent: u8,
     symbol: []const u8,
     icon: []const u8,
     color: u24,
@@ -2398,6 +2399,9 @@ pub fn render_symbol(
     const icon_width = render_file_icon(self, icon, color);
 
     self.set_style(style_symbol);
+
+    for (0..indent) |_| _ = self.print(" ", .{}) catch {};
+
     _ = self.print("{s}", .{symbol}) catch {};
 
     self.set_style(style_detail);

@@ -1206,6 +1206,7 @@ const cmds = struct {
             .integer, // selectionRange.end.col
             .boolean, // deprecated
             .string, //detail
+            .integer, //depth
         },
     };
 

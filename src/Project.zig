@@ -1417,7 +1417,7 @@ fn send_symbol_items(to: tp.pid_ref, file_path: []const u8, items: []const u8) (
     var node_count: usize = 0;
     while (len > 0) : (len -= 1) {
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidSymbolInformationArray;
-        node_count += try send_symbol_information(to, file_path, item, "");
+        node_count += try send_symbol_information(to, file_path, item, "", 0);
     }
     return to.send(.{ "cmd", "add_document_symbol_done", .{file_path} }) catch |e| {
         std.log.err("send add_document_symbol_done failed: {t}", .{e});
@@ -1484,7 +1484,7 @@ pub const SymbolInformationError = error{
     InvalidSymbolInformationField,
     InvalidTargetURI,
 } || LocationLinkError || cbor.Error;
-fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const u8, parent_name: []const u8) SymbolInformationError!usize {
+fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const u8, parent_name: []const u8, depth: u8) SymbolInformationError!usize {
     var name: []const u8 = "";
     var detail: ?[]const u8 = "";
     var kind: usize = 0;
@@ -1537,7 +1537,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
             var descendant: []const u8 = "";
             while (len_ > 0) : (len_ -= 1) {
                 if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&descendant)))) return error.InvalidSymbolInformationField;
-                descendant_count += try send_symbol_information(to, file_path, descendant, name);
+                descendant_count += try send_symbol_information(to, file_path, descendant, name, depth + 1);
             }
         } else if (std.mem.eql(u8, field_name, "location")) {} else if (std.mem.eql(u8, field_name, "location")) {
             var location_: []const u8 = undefined;
@@ -1569,6 +1569,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
                 selectionRange.end.character,
                 deprecated,
                 detail,
+                depth,
             } }) catch |e| {
                 std.log.err("send add_document_symbol failed: {t}", .{e});
                 return 0;
