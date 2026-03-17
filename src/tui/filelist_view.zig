@@ -111,12 +111,20 @@ pub fn walk(self: *Self, walk_ctx: *anyopaque, f: Widget.WalkFn) bool {
     return self.menu.container_widget.walk(walk_ctx, f) or f(walk_ctx, Widget.to(self));
 }
 
+fn entry_less_than(_: void, a: Entry, b: Entry) bool {
+    const path_order = std.mem.order(u8, a.path, b.path);
+    if (path_order != .eq) return path_order == .lt;
+    if (a.begin_line != b.begin_line) return a.begin_line < b.begin_line;
+    return a.begin_pos < b.begin_pos;
+}
+
 pub fn add_item(self: *Self, entry_: Entry) !void {
     const idx = self.entries.items.len;
     const entry = (try self.entries.addOne(self.allocator));
     entry.* = entry_;
     entry.path = try self.allocator.dupe(u8, entry_.path);
     entry.lines = try self.allocator.dupe(u8, entry_.lines);
+    std.mem.sort(Entry, self.entries.items, {}, entry_less_than);
     var label: std.Io.Writer.Allocating = .init(self.allocator);
     defer label.deinit();
     cbor.writeValue(&label.writer, idx) catch return;
