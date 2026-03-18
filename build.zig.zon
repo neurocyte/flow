@@ -6,8 +6,8 @@
 
     .dependencies = .{
         .syntax = .{
-            .url = "git+https://github.com/neurocyte/flow-syntax?ref=master#2d2d8dd88d06e82fa58e0066373f3891edfb6dd4",
-            .hash = "flow_syntax-0.7.2-X8jOoeFTAQC672CaogV8C-wVQyyWTlYnVNKpRzAOiZUY",
+            .url = "git+https://github.com/neurocyte/flow-syntax?ref=master#2b6cd9fe39e05ac5765879dd8edb5a13ce83d3b0",
+            .hash = "flow_syntax-0.7.2-X8jOoeFTAQAGFrZu7z5IYI1HeCeOcNfKRksEk9TxiHA9",
         },
         .flags = .{
             .url = "git+https://github.com/neurocyte/flags?ref=main#984b27948da3e4e40a253f76c85b51ec1a9ada11",
