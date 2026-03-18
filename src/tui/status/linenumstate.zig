@@ -28,6 +28,7 @@ padding: ?usize,
 leader: ?Leader,
 style: ?DigitStyle,
 mode: ?Mode,
+col0: ?bool,
 
 const Leader = enum {
     space,
@@ -45,15 +46,16 @@ const Self = @This();
 const ButtonType = Button.Options(Self).ButtonType;
 
 pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) @import("widget.zig").CreateError!Widget {
-    const padding: ?usize, const leader: ?Leader, const style: ?DigitStyle, const mode: ?Mode = if (arg) |fmt| blk: {
+    const padding: ?usize, const leader: ?Leader, const style: ?DigitStyle, const mode: ?Mode, const col0: ?bool = if (arg) |fmt| blk: {
         var it = std.mem.splitScalar(u8, fmt, ',');
         break :blk .{
             if (it.next()) |size| std.fmt.parseInt(usize, size, 10) catch null else null,
             if (it.next()) |leader| std.meta.stringToEnum(Leader, leader) orelse null else null,
             if (it.next()) |style| std.meta.stringToEnum(DigitStyle, style) orelse null else null,
             if (it.next()) |mode| std.meta.stringToEnum(Mode, mode) orelse null else null,
+            if (it.next()) |col0| std.mem.eql(u8, col0, "true") else null,
         };
-    } else .{ null, null, null, null };
+    } else .{ null, null, null, null, null };
 
     return Button.create_widget(Self, allocator, parent, .{
         .ctx = .{
@@ -61,6 +63,7 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
             .leader = leader,
             .style = style,
             .mode = mode,
+            .col0 = col0,
         },
         .label = "",
         .on_click = on_click,
@@ -110,18 +113,19 @@ fn format(self: *Self) void {
     };
     writer.print("{s}{s} ", .{ eol_mode, indent_mode }) catch {};
 
+    const displayColumn = if (self.col0 orelse false) self.column else self.column + 1;
     (blk: switch (self.mode orelse .default) {
         .default => writer.print("Ln {f}, Col {f} ", .{
             digits_fmt(self, self.line + 1),
-            digits_fmt(self, self.column + 1),
+            digits_fmt(self, displayColumn),
         }),
         .compact => writer.print(" {f}:{f} ", .{
             digits_fmt(self, self.line + 1),
-            digits_fmt(self, self.column + 1),
+            digits_fmt(self, displayColumn),
         }),
         .total => writer.print(" {f}:{f}/{f} ", .{
             digits_fmt(self, self.line + 1),
-            digits_fmt(self, self.column + 1),
+            digits_fmt(self, displayColumn),
             digits_fmt(self, self.lines),
         }),
         .percent => {
