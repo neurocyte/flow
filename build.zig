@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
 
     var version: std.ArrayList(u8) = .empty;
     defer version.deinit(b.allocator);
-    gen_version(b, version.writer(b.allocator)) catch |e| {
+    gen_version(b, &version) catch |e| {
         if (b.release_mode != .off)
             std.debug.panic("gen_version failed: {any}", .{e});
         version.clearAndFree(b.allocator);
@@ -274,7 +274,7 @@ pub fn build_exe(
 
     var version_info: std.ArrayList(u8) = .empty;
     defer version_info.deinit(b.allocator);
-    gen_version_info(b, target, version_info.writer(b.allocator), optimize) catch |e| {
+    gen_version_info(b, target, &version_info, optimize) catch |e| {
         if (b.release_mode != .off)
             std.debug.panic("gen_version failed: {any}", .{e});
         version_info.clearAndFree(b.allocator);
@@ -815,7 +815,7 @@ pub fn build_exe(
 fn gen_version_info(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    writer: anytype,
+    out: *std.ArrayList(u8),
     optimize: std.builtin.OptimizeMode,
 ) !void {
     var code: u8 = 0;
@@ -835,7 +835,7 @@ fn gen_version_info(
     const tracking_remote_ = if (tracking_remote_name.len > 0) blk: {
         var remote_config_path: std.ArrayList(u8) = .empty;
         defer remote_config_path.deinit(b.allocator);
-        try remote_config_path.writer(b.allocator).print("remote.{s}.url", .{tracking_remote_name});
+        try remote_config_path.print(b.allocator, "remote.{s}.url", .{tracking_remote_name});
         break :blk b.runAllowFail(&[_][]const u8{ "git", "config", remote_config_path.items }, &code, .Ignore) catch "(remote not found)";
     } else "";
     const remote_ = b.runAllowFail(&[_][]const u8{ "git", "config", "remote.origin.url" }, &code, .Ignore) catch "(origin not found)";
@@ -854,7 +854,7 @@ fn gen_version_info(
     const diff = std.mem.trimRight(u8, diff_, "\r\n ");
     const target_triple = try target.result.zigTriple(b.allocator);
 
-    try writer.print("Flow Control: a programmer's text editor\n\nversion: {s}{s}\ncommitted: {s}\ntarget: {s}\n", .{
+    try out.print(b.allocator, "Flow Control: a programmer's text editor\n\nversion: {s}{s}\ncommitted: {s}\ntarget: {s}\n", .{
         version,
         if (diff.len > 0) "-dirty" else "",
         date,
@@ -862,21 +862,21 @@ fn gen_version_info(
     });
 
     if (branch.len > 0) if (tracking_branch.len > 0)
-        try writer.print("branch: {s} tracking {s} at {s}\n", .{ branch, tracking_branch, tracking_remote })
+        try out.print(b.allocator, "branch: {s} tracking {s} at {s}\n", .{ branch, tracking_branch, tracking_remote })
     else
-        try writer.print("branch: {s} at {s}\n", .{ branch, remote });
+        try out.print(b.allocator, "branch: {s} at {s}\n", .{ branch, remote });
 
-    try writer.print("built-with: zig {s} ({t})\n", .{ builtin.zig_version_string, builtin.zig_backend });
-    try writer.print("build-mode: {t}\n", .{optimize});
+    try out.print(b.allocator, "built-with: zig {s} ({t})\n", .{ builtin.zig_version_string, builtin.zig_backend });
+    try out.print(b.allocator, "build-mode: {t}\n", .{optimize});
 
     if (log.len > 0)
-        try writer.print("\nbranched off {s} @ {s} with the following diverging commits:\n{s}\n", .{ tracking_branch, describe_base_commit, log });
+        try out.print(b.allocator, "\nbranched off {s} @ {s} with the following diverging commits:\n{s}\n", .{ tracking_branch, describe_base_commit, log });
 
     if (diff.len > 0)
-        try writer.print("\nwith the following uncommited changes:\n\n{s}\n", .{diff});
+        try out.print(b.allocator, "\nwith the following uncommited changes:\n\n{s}\n", .{diff});
 }
 
-fn gen_version(b: *std.Build, writer: anytype) !void {
+fn gen_version(b: *std.Build, out: *std.ArrayList(u8)) !void {
     var code: u8 = 0;
 
     const describe = try b.runAllowFail(&[_][]const u8{ "git", "describe", "--always", "--tags" }, &code, .Ignore);
@@ -884,5 +884,5 @@ fn gen_version(b: *std.Build, writer: anytype) !void {
     const diff = std.mem.trimRight(u8, diff_, "\r\n ");
     const version = std.mem.trimRight(u8, describe, "\r\n ");
 
-    try writer.print("{s}{s}", .{ version, if (diff.len > 0) "-dirty" else "" });
+    try out.print(b.allocator, "{s}{s}", .{ version, if (diff.len > 0) "-dirty" else "" });
 }

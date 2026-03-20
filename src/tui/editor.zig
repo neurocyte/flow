@@ -266,7 +266,7 @@ pub const TriggerSymbol = struct {
     char: u8,
     command: command.ID,
 
-    pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+    pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try cbor.writeArrayHeader(writer, 2);
         try cbor.writeValue(writer, self.char);
         try cbor.writeValue(writer, command.get_name(self.command));
@@ -5853,9 +5853,10 @@ pub const Editor = struct {
         var rg = try find_f(self.allocator, query, "A");
         defer rg.deinit();
         if (write_buffer) {
-            var rg_buffer = rg.bufferedWriter();
-            try root.store(rg_buffer.writer());
-            try rg_buffer.flush();
+            var output: std.Io.Writer.Allocating = .init(self.allocator);
+            defer output.deinit();
+            try root.store_node(&output.writer, .lf);
+            try rg.input(output.writer.buffered());
         }
     }
 
@@ -5950,17 +5951,16 @@ pub const Editor = struct {
                 if (fdr.matches.items.len == 0)
                     return;
                 var buf: [max_match_batch * @sizeOf(Match)]u8 = undefined;
-                var stream = std.io.fixedBufferStream(&buf);
-                const writer = stream.writer();
-                try cbor.writeArrayHeader(writer, 4);
-                try cbor.writeValue(writer, "A");
-                try cbor.writeValue(writer, "batch");
-                try cbor.writeValue(writer, fdr.token);
-                try cbor.writeArrayHeader(writer, fdr.matches.items.len);
+                var stream = std.Io.Writer.fixed(&buf);
+                try cbor.writeArrayHeader(&stream, 4);
+                try cbor.writeValue(&stream, "A");
+                try cbor.writeValue(&stream, "batch");
+                try cbor.writeValue(&stream, fdr.token);
+                try cbor.writeArrayHeader(&stream, fdr.matches.items.len);
                 for (fdr.matches.items) |m_| if (m_) |m| {
-                    try cbor.writeArray(writer, .{ m.begin.row, m.begin.col, m.end.row, m.end.col });
+                    try cbor.writeArray(&stream, .{ m.begin.row, m.begin.col, m.end.row, m.end.col });
                 };
-                try fdr.parent.send_raw(.{ .buf = stream.getWritten() });
+                try fdr.parent.send_raw(.{ .buf = stream.buffered() });
                 fdr.matches.clearRetainingCapacity();
             }
         };

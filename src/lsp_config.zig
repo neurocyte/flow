@@ -9,7 +9,9 @@ fn get_project(project: []const u8, lsp_name: []const u8) ?[]const u8 {
     defer allocator.free(file_name);
     const file: std.fs.File = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
     defer file.close();
-    return file.readToEndAlloc(allocator, std.math.maxInt(usize)) catch return null;
+    var buf: [4096]u8 = undefined;
+    var r = file.reader(&buf);
+    return r.interface.allocRemaining(allocator, .unlimited) catch return null;
 }
 
 fn get_global(lsp_name: []const u8) ?[]const u8 {
@@ -17,7 +19,9 @@ fn get_global(lsp_name: []const u8) ?[]const u8 {
     defer allocator.free(file_name);
     const file: std.fs.File = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
     defer file.close();
-    return file.readToEndAlloc(allocator, std.math.maxInt(usize)) catch return null;
+    var buf: [4096]u8 = undefined;
+    var r = file.reader(&buf);
+    return r.interface.allocRemaining(allocator, .unlimited) catch return null;
 }
 
 pub fn get_config_file_path(project: ?[]const u8, lsp_name: []const u8, scope: Scope, mode: Mode) ![]u8 {

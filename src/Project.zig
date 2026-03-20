@@ -2350,7 +2350,7 @@ fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project
 
     const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
     const initializationOptions: struct {
-        pub fn cborEncode(ctx: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+        pub fn cborEncode(ctx: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
             if (ctx.language_server_options.len == 0) {
                 try cbor.writeValue(writer, null);
                 return;
@@ -2728,24 +2728,22 @@ fn send_lsp_triggerCharacters(to: tp.pid_ref, project_path: []const u8, language
     };
 }
 
-fn fmt_lsp_name_func(bytes: []const u8) std.fmt.Formatter([]const u8, format_lsp_name_func) {
-    return .{ .data = bytes };
-}
-
-fn format_lsp_name_func(
-    bytes: []const u8,
-    writer: *std.Io.Writer,
-) std.Io.Writer.Error!void {
-    var iter: []const u8 = bytes;
-    var len = cbor.decodeArrayHeader(&iter) catch return;
-    var first: bool = true;
-    while (len > 0) : (len -= 1) {
-        var value: []const u8 = undefined;
-        if (!(cbor.matchValue(&iter, cbor.extract(&value)) catch return))
-            return;
-        if (first) first = false else try writer.writeAll(" ");
-        try writer.writeAll(value);
+fn fmt_lsp_name_func(bytes: []const u8) struct {
+    data: []const u8,
+    pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        var iter: []const u8 = self.data;
+        var len = cbor.decodeArrayHeader(&iter) catch return;
+        var first: bool = true;
+        while (len > 0) : (len -= 1) {
+            var value: []const u8 = undefined;
+            if (!(cbor.matchValue(&iter, cbor.extract(&value)) catch return))
+                return;
+            if (first) first = false else try writer.writeAll(" ");
+            try writer.writeAll(value);
+        }
     }
+} {
+    return .{ .data = bytes };
 }
 
 const eol = '\n';

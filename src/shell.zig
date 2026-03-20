@@ -9,8 +9,6 @@ stdin_behavior: std.process.Child.StdIo,
 const Self = @This();
 const module_name = @typeName(Self);
 pub const max_chunk_size = tp.subprocess.max_chunk_size;
-pub const Writer = std.io.Writer(*Self, Error, write);
-pub const BufferedWriter = std.io.BufferedWriter(max_chunk_size, Writer);
 pub const Error = error{
     InvalidShellArg0,
     OutOfMemory,
@@ -86,14 +84,6 @@ pub fn input(self: *const Self, bytes: []const u8) !void {
 
 pub fn close(self: *Self) void {
     self.deinit();
-}
-
-pub fn writer(self: *Self) Writer {
-    return .{ .context = self };
-}
-
-pub fn bufferedWriter(self: *Self) BufferedWriter {
-    return .{ .unbuffered_writer = self.writer() };
 }
 
 pub fn log_handler(context: usize, parent: tp.pid_ref, arg0: []const u8, output: []const u8) void {

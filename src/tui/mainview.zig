@@ -770,7 +770,7 @@ const cmds = struct {
         defer name.deinit(self.allocator);
         while (!found_unique) {
             name.clearRetainingCapacity();
-            try name.writer(self.allocator).print("Untitled-{d}", .{n});
+            try name.print(self.allocator, "Untitled-{d}", .{n});
             if (self.buffer_manager.get_buffer_for_file(name.items)) |_| {
                 n += 1;
             } else {
@@ -1409,14 +1409,13 @@ const cmds = struct {
             fn exit(context: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
                 const buffer_ref: Buffer.Ref = @enumFromInt(context);
                 var buf: [256]u8 = undefined;
-                var stream = std.io.fixedBufferStream(&buf);
-                const writer = stream.writer();
+                var stream = std.Io.Writer.fixed(&buf);
                 if (exit_code > 0) {
-                    writer.print("\n'{s}' terminated {s} exitcode: {d}\n", .{ arg0, err_msg, exit_code }) catch {};
+                    stream.print("\n'{s}' terminated {s} exitcode: {d}\n", .{ arg0, err_msg, exit_code }) catch {};
                 } else {
-                    writer.print("\n'{s}' exited\n", .{arg0}) catch {};
+                    stream.print("\n'{s}' exited\n", .{arg0}) catch {};
                 }
-                parent.send(.{ "cmd", "shell_execute_stream_output", .{ buffer_ref, stream.getWritten() } }) catch {};
+                parent.send(.{ "cmd", "shell_execute_stream_output", .{ buffer_ref, stream.buffered() } }) catch {};
                 parent.send(.{ "cmd", "shell_execute_stream_output_complete", .{buffer_ref} }) catch {};
             }
         };

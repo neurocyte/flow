@@ -534,7 +534,9 @@ const Shaders = struct {
                     .{ file_path, @errorName(e) },
                 );
                 defer file.close();
-                break :blk file.readToEndAlloc(arena.allocator(), std.math.maxInt(usize)) catch |e| std.debug.panic(
+                var read_buf: [4096]u8 = undefined;
+                var r = file.reader(&read_buf);
+                break :blk r.interface.allocRemaining(arena.allocator(), .unlimited) catch |e| std.debug.panic(
                     "read --shader '{s}' failed with {s}",
                     .{ file_path, @errorName(e) },
                 );

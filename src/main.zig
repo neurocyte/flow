@@ -156,7 +156,7 @@ pub fn main() anyerror!void {
         return std.fs.File.stdout().writeAll(version_info);
 
     if (args.list_languages) {
-        const tty_config = std.io.tty.detectConfig(std.fs.File.stdout());
+        const tty_config = std.Io.tty.detectConfig(std.fs.File.stdout());
         return list_languages.list(a, stdout, tty_config);
     }
 
@@ -542,7 +542,9 @@ fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]
 fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
     var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
     defer file.close();
-    const content = try file.readToEndAlloc(allocator, 64 * 1024);
+    var read_buf: [4096]u8 = undefined;
+    var r = file.reader(&read_buf);
+    const content = try r.interface.allocRemaining(allocator, .limited(64 * 1024));
     defer allocator.free(content);
     return parse_text_config_file(T, allocator, conf, bufs_, file_name, content);
 }
@@ -581,7 +583,9 @@ pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, b
 fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
     var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
     defer file.close();
-    const json = try file.readToEndAlloc(allocator, 64 * 1024);
+    var read_buf: [4096]u8 = undefined;
+    var r = file.reader(&read_buf);
+    const json = try r.interface.allocRemaining(allocator, .limited(64 * 1024));
     defer allocator.free(json);
     const cbor_buf: []u8 = try allocator.alloc(u8, json.len);
     var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
@@ -854,7 +858,9 @@ pub fn read_keybind_namespace(allocator: std.mem.Allocator, namespace_name: []co
     const file_name = get_keybind_namespace_file_name(namespace_name) catch return null;
     var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
     defer file.close();
-    return file.readToEndAlloc(allocator, 64 * 1024) catch null;
+    var read_buf: [4096]u8 = undefined;
+    var r = file.reader(&read_buf);
+    return r.interface.allocRemaining(allocator, .limited(64 * 1024)) catch null;
 }
 
 pub fn write_keybind_namespace(namespace_name: []const u8, content: []const u8) !void {
@@ -882,7 +888,9 @@ pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const
     const file_name = get_theme_file_name(theme_name) catch return null;
     var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
     defer file.close();
-    return file.readToEndAlloc(allocator, 64 * 1024) catch null;
+    var read_buf: [4096]u8 = undefined;
+    var r = file.reader(&read_buf);
+    return r.interface.allocRemaining(allocator, .limited(64 * 1024)) catch null;
 }
 
 pub fn write_theme(theme_name: []const u8, content: []const u8) !void {
