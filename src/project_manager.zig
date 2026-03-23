@@ -429,13 +429,16 @@ const Process = struct {
                 project.walk_tree_done(self.parent.ref()) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "rev_parse", tp.more })) {
             const request: *Project.VcsIdRequest = @ptrFromInt(context);
-            request.project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-rev-parse", e);
+            if (self.project_from_ref(request.project)) |project|
+                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-rev-parse", e);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "cat_file", tp.more })) {
             const request: *Project.VcsContentRequest = @ptrFromInt(context);
-            request.project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-cat-file", e);
+            if (self.project_from_ref(request.project)) |project|
+                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-cat-file", e);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), "blame", tp.more })) {
             const request: *Project.GitBlameRequest = @ptrFromInt(context);
-            request.project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-blame", e);
+            if (self.project_from_ref(request.project)) |project|
+                project.process_git_response(self.parent.ref(), m) catch |e| self.logger.err("git-blame", e);
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), tp.more })) {
             const project: *Project = @ptrFromInt(context);
             project.process_git(self.parent.ref(), m) catch {};
@@ -940,6 +943,13 @@ const Process = struct {
             }
         }.less_fn;
         std.mem.sort(RecentProject, recent_projects.items, {}, less_fn);
+    }
+
+    fn project_from_ref(self: *const Process, project_ref: usize) ?*Project {
+        var iter = self.projects.valueIterator();
+        while (iter.next()) |project| if (@intFromPtr(project.*) == project_ref)
+            return project.*;
+        return null;
     }
 };
 
