@@ -2423,6 +2423,7 @@ pub fn render_file_vcs_item_cbor(self: *renderer.Plane, file_item_cbor: []const 
 
 pub fn render_symbol(
     self: *renderer.Plane,
+    indent: u8,
     symbol: []const u8,
     icon: []const u8,
     color: u24,
@@ -2456,6 +2457,9 @@ pub fn render_symbol(
     const icon_width = render_file_icon(self, icon, color);
 
     self.set_style(style_symbol);
+
+    for (0..indent) |_| _ = self.print(" ", .{}) catch {};
+
     _ = self.print("{s}", .{symbol}) catch {};
 
     self.set_style(style_detail);
@@ -2473,7 +2477,7 @@ pub fn render_symbol(
     while (len > 0) : (len -= 1) {
         if (cbor.matchValue(&iter, cbor.extract(&index)) catch break) {
             const col = egc_chunk_width(symbol[0..@min(symbol.len, index)], 0, 1);
-            render_match_cell(self, 0, col + 2 + icon_width, theme_) catch break;
+            render_match_cell(self, 0, col + 2 + icon_width + indent, theme_) catch break;
         } else break;
     }
     return false;

@@ -209,6 +209,7 @@ pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widge
     };
     return tui.render_symbol(
         &button.plane,
+        0,
         values.label,
         icon_,
         color,

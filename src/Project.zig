@@ -1059,7 +1059,6 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     const handler: struct {
         from: tp.pid,
         name: []const u8,
-        project: *Self,
 
         pub fn deinit(self_: *@This()) void {
             std.heap.c_allocator.free(self_.name);
@@ -1084,7 +1083,6 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     } = .{
         .from = from.clone(),
         .name = try std.heap.c_allocator.dupe(u8, self.name),
-        .project = self,
     };
 
     lsp.send_request(self.allocator, method, .{
@@ -1157,7 +1155,6 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
     const handler: struct {
         from: tp.pid,
         name: []const u8,
-        project: *Self,
 
         pub fn deinit(self_: *@This()) void {
             std.heap.c_allocator.free(self_.name);
@@ -1170,13 +1167,12 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
                 return;
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&locations) })) {
                 const count = try send_reference_list("REF", self_.from.ref(), locations, self_.name);
-                self_.project.logger_lsp.print("found {d} references", .{count});
+                std.log.info("found {d} references", .{count});
             }
         }
     } = .{
         .from = from.clone(),
         .name = try std.heap.c_allocator.dupe(u8, self.name),
-        .project = self,
     };
 
     lsp.send_request(self.allocator, "textDocument/references", .{
@@ -1417,7 +1413,7 @@ fn send_symbol_items(to: tp.pid_ref, file_path: []const u8, items: []const u8) (
     var node_count: usize = 0;
     while (len > 0) : (len -= 1) {
         if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&item)))) return error.InvalidSymbolInformationArray;
-        node_count += try send_symbol_information(to, file_path, item, "");
+        node_count += try send_symbol_information(to, file_path, item, "", 0);
     }
     return to.send(.{ "cmd", "add_document_symbol_done", .{file_path} }) catch |e| {
         std.log.err("send add_document_symbol_done failed: {t}", .{e});
@@ -1484,7 +1480,7 @@ pub const SymbolInformationError = error{
     InvalidSymbolInformationField,
     InvalidTargetURI,
 } || LocationLinkError || cbor.Error;
-fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const u8, parent_name: []const u8) SymbolInformationError!usize {
+fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const u8, parent_name: []const u8, depth: u8) SymbolInformationError!usize {
     var name: []const u8 = "";
     var detail: ?[]const u8 = "";
     var kind: usize = 0;
@@ -1537,7 +1533,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
             var descendant: []const u8 = "";
             while (len_ > 0) : (len_ -= 1) {
                 if (!(try cbor.matchValue(&iter, cbor.extract_cbor(&descendant)))) return error.InvalidSymbolInformationField;
-                descendant_count += try send_symbol_information(to, file_path, descendant, name);
+                descendant_count += try send_symbol_information(to, file_path, descendant, name, depth + 1);
             }
         } else if (std.mem.eql(u8, field_name, "location")) {} else if (std.mem.eql(u8, field_name, "location")) {
             var location_: []const u8 = undefined;
@@ -1569,6 +1565,7 @@ fn send_symbol_information(to: tp.pid_ref, file_path: []const u8, item: []const 
                 selectionRange.end.character,
                 deprecated,
                 detail,
+                depth,
             } }) catch |e| {
                 std.log.err("send add_document_symbol failed: {t}", .{e});
                 return 0;
@@ -2313,7 +2310,6 @@ fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project
         from: tp.pid,
         language_server: []const u8,
         lsp: LSP,
-        project: *Self,
         project_path: []const u8,
 
         pub fn deinit(self_: *@This()) void {
@@ -2326,7 +2322,7 @@ fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project
         pub fn receive(self_: @This(), response: tp.message) !void {
             self_.lsp.send_notification("initialized", .{}) catch return error.LspFailed;
             if (self_.lsp.pid.expired()) return error.LspFailed;
-            self_.project.logger_lsp.print("initialized LSP: {f}", .{fmt_lsp_name_func(self_.language_server)});
+            std.log.info("initialized LSP: {f}", .{fmt_lsp_name_func(self_.language_server)});
 
             var result: []const u8 = undefined;
             if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
@@ -2343,7 +2339,6 @@ fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project
             .allocator = lsp.allocator,
             .pid = lsp.pid.clone(),
         },
-        .project = self,
         .project_path = try std.heap.c_allocator.dupe(u8, project_path),
     };
 
@@ -2928,7 +2923,7 @@ pub fn request_vcs_id(self: *Self, file_path: []const u8) error{OutOfMemory}!voi
     const request = try self.allocator.create(VcsIdRequest);
     request.* = .{
         .allocator = self.allocator,
-        .project = self,
+        .project = @intFromPtr(self),
         .file_path = try self.allocator.dupe(u8, file_path),
     };
     git.rev_parse(@intFromPtr(request), "HEAD", file_path) catch |e|
@@ -2937,7 +2932,7 @@ pub fn request_vcs_id(self: *Self, file_path: []const u8) error{OutOfMemory}!voi
 
 pub const VcsIdRequest = struct {
     allocator: std.mem.Allocator,
-    project: *Self,
+    project: usize,
     file_path: []const u8,
 
     pub fn deinit(self: *@This()) void {
@@ -2950,7 +2945,7 @@ pub fn request_vcs_content(self: *Self, file_path: []const u8, vcs_id: []const u
     const request = try self.allocator.create(VcsContentRequest);
     request.* = .{
         .allocator = self.allocator,
-        .project = self,
+        .project = @intFromPtr(self),
         .file_path = try self.allocator.dupe(u8, file_path),
         .vcs_id = try self.allocator.dupe(u8, vcs_id),
     };
@@ -2960,7 +2955,7 @@ pub fn request_vcs_content(self: *Self, file_path: []const u8, vcs_id: []const u
 
 pub const VcsContentRequest = struct {
     allocator: std.mem.Allocator,
-    project: *Self,
+    project: usize,
     file_path: []const u8,
     vcs_id: []const u8,
 
@@ -3006,7 +3001,7 @@ pub fn request_vcs_blame(self: *Self, file_path: []const u8) error{OutOfMemory}!
     const request = try self.allocator.create(GitBlameRequest);
     request.* = .{
         .allocator = self.allocator,
-        .project = self,
+        .project = @intFromPtr(self),
         .file_path = try self.allocator.dupe(u8, file_path),
     };
     git.blame(@intFromPtr(request), file_path) catch |e|
@@ -3015,7 +3010,7 @@ pub fn request_vcs_blame(self: *Self, file_path: []const u8) error{OutOfMemory}!
 
 pub const GitBlameRequest = struct {
     allocator: std.mem.Allocator,
-    project: *Self,
+    project: usize,
     file_path: []const u8,
 
     pub fn deinit(self: *@This()) void {

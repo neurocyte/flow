@@ -45,7 +45,7 @@ pub fn load_entries(palette: *Type) !usize {
     while (iter.len > 0) {
         var cbor_item: []const u8 = undefined;
         if (!try cbor.matchValue(&iter, cbor.extract_cbor(&cbor_item))) return error.BadCompletion;
-        const label_, _, _, const sel = get_values(cbor_item);
+        const label_, _, _, const sel, _ = get_values(cbor_item);
         const label_len_ = tui.egc_chunk_width(label_, 0, 1);
         (try palette.entries.addOne(palette.allocator)).* = .{ .cbor = cbor_item, .label = label_, .range = sel };
 
@@ -89,11 +89,12 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&item_cbor)) catch false)) return false;
     if (!(cbor.matchValue(&iter, cbor.extract_cbor(&matches_cbor)) catch false)) return false;
 
-    const label_, const container, const kind, _ = get_values(item_cbor);
+    const label_, const container, const kind, _, const indent = get_values(item_cbor);
     const icon_: []const u8 = kind.icon();
     const color: u24 = 0x0;
     return tui.render_symbol(
         &button.plane,
+        indent,
         label_,
         icon_,
         color,
@@ -110,10 +111,11 @@ pub fn on_render_menu(_: *Type, button: *Type.ButtonType, theme: *const Widget.T
     );
 }
 
-fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, SymbolKind, ed.Selection } {
+fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, SymbolKind, ed.Selection, u8 } {
     var label_: []const u8 = "";
     var container: []const u8 = "";
     var kind: u8 = 0;
+    var depth: u8 = 0;
     var range: ed.Selection = .{};
     _ = cbor.match(item_cbor, .{
         cbor.any, // file_path
@@ -131,8 +133,9 @@ fn get_values(item_cbor: []const u8) struct { []const u8, []const u8, SymbolKind
         cbor.any, // selectionRange.end.col
         cbor.any, // deprecated
         cbor.any, // detail
+        cbor.extract(&depth), // number of ancestors
     }) catch false;
-    return .{ label_, container, @enumFromInt(kind), range };
+    return .{ label_, container, @enumFromInt(kind), range, depth };
 }
 
 fn find_closest(palette: *Type) ?usize {
@@ -140,7 +143,7 @@ fn find_closest(palette: *Type) ?usize {
     const cursor = editor.get_primary().cursor;
     var previous: usize = 0;
     for (palette.entries.items, 0..) |entry, idx| {
-        _, _, _, const sel = get_values(entry.cbor);
+        _, _, _, const sel, _ = get_values(entry.cbor);
         if (cursor.row < sel.begin.row) return previous + 1;
         previous = idx;
     }
@@ -151,7 +154,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
     const self = menu.*.opts.ctx;
     const editor = tui.get_active_editor() orelse return;
     editor.clear_matches();
-    _, _, _, const sel = get_values(button.opts.label);
+    _, _, _, const sel, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     switch (self.activate) {
         .normal => tp.self_pid().send(.{ "cmd", "goto_line_and_column", .{
@@ -169,7 +172,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     const button = button_ orelse return cancel(palette);
-    _, _, _, const sel = get_values(button.opts.label);
+    _, _, _, const sel, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "focus_on_range", .{ sel.begin.row, sel.begin.col, sel.end.row, sel.end.col } }) catch {};
 }
 

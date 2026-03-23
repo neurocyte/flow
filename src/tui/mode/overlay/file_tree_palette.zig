@@ -125,6 +125,7 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     } else if (try cbor.match(m.buf, .{ "PRJ", "path_done", tp.any, tp.any, tp.any })) {
         const pending = palette.value.pending_node;
         palette.value.pending_node = null;
+        if (pending) |p| if (p.children) |*children| sort_children(children);
         palette.entries.clearRetainingCapacity();
         if (palette.value.root_node) |root| try build_visible_list(palette, root, 0);
         palette.longest_hint = max_entry_overhead(palette);
@@ -136,6 +137,16 @@ fn receive_project_manager(palette: *Type, _: tp.pid_ref, m: tp.message) Message
     }
 
     return true;
+}
+
+fn sort_children(children: *std.ArrayList(Node)) void {
+    const less_fn = struct {
+        fn less_fn(_: void, lhs: Node, rhs: Node) bool {
+            if (lhs.type_ != rhs.type_) return lhs.type_ == .folder;
+            return std.mem.lessThan(u8, lhs.name, rhs.name);
+        }
+    }.less_fn;
+    std.mem.sort(Node, children.items, {}, less_fn);
 }
 
 fn append_pending_child(palette: *Type, file_name: []const u8, node_type: NodeType, icon_: []const u8, color_: u24) !void {
