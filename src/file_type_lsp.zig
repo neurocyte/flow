@@ -216,7 +216,10 @@ pub const verilog = .{
     .formatter = .{ "verible-verilog-format", "-" },
 };
 
-pub const toml = .{};
+pub const toml = .{
+    .language_server = .{ "tombi", "lsp" },
+    .formatter = .{ "tombi", "format" },
+};
 
 pub const typescript = .{
     .language_server = .{ "typescript-language-server", "--stdio" },
