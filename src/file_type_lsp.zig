@@ -183,7 +183,9 @@ pub const python = .{
 
 pub const regex = .{};
 
-pub const rpmspec = .{};
+pub const rpmspec = .{
+    .language_server = .{ "python3", "-mrpm_spec_language_server", "--stdio" },
+};
 
 pub const rst = .{
     .language_server = .{"esbonio"},
@@ -233,7 +235,10 @@ pub const xml = .{
     .formatter = .{ "xmllint", "--format", "-" },
 };
 
-pub const yaml = .{};
+pub const yaml = .{
+    .language_server = .{ "yaml-language-server", "--stdio" },
+    .formatter = .{ "prettier", "--parser", "yaml" },
+};
 
 pub const zig = .{
     .language_server = .{"zls"},
