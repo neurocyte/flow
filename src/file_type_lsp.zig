@@ -116,7 +116,7 @@ pub const make = .{};
 
 pub const markdown = .{
     .language_server = .{ "marksman", "server" },
-    .formatter = .{ "prettier", "--parser", "markdown" },
+    .formatter = .{ "prettier", "--parser", "markdown", "--prose-wrap", "always", "--print-width", "{{reflow_width}}" },
 };
 
 pub const @"markdown-inline" = .{};
