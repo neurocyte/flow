@@ -4,10 +4,11 @@ const win32 = @import("win32").everything;
 const win32ext = @import("win32ext.zig");
 
 const dwrite = @import("dwrite.zig");
-const GlyphIndexCache = @import("GlyphIndexCache.zig");
+const GlyphIndexCache = @import("../gui/GlyphIndexCache.zig");
 const TextRenderer = @import("DwriteRenderer.zig");
 
-const XY = @import("xy.zig").XY;
+const XY = @import("../gui/xy.zig").XY;
+const gui_cell = @import("../gui/Cell.zig");
 
 pub const Font = TextRenderer.Font;
 pub const Fonts = TextRenderer.Fonts;
@@ -31,21 +32,9 @@ const global = struct {
     var background: Rgba8 = .{ .r = 19, .g = 19, .b = 19, .a = 255 };
 };
 
-pub const Color = Rgba8;
-const Rgba8 = packed struct(u32) {
-    a: u8,
-    b: u8,
-    g: u8,
-    r: u8,
-    pub fn initRgb(r: u8, g: u8, b: u8) Color {
-        return .{ .r = r, .g = g, .b = b, .a = 255 };
-    }
-    pub fn initRgba(r: u8, g: u8, b: u8, a: u8) Color {
-        return .{ .r = r, .g = g, .b = b, .a = a };
-    }
-};
-
-pub const Cell = shader.Cell;
+pub const Color = gui_cell.Rgba8;
+const Rgba8 = gui_cell.Rgba8;
+pub const Cell = gui_cell.Cell;
 
 // types shared with the shader
 pub const shader = struct {
@@ -54,11 +43,7 @@ pub const shader = struct {
         col_count: u32,
         row_count: u32,
     };
-    pub const Cell = extern struct {
-        glyph_index: u32,
-        background: Rgba8,
-        foreground: Rgba8,
-    };
+    pub const Cell = gui_cell.Cell;
 };
 
 const swap_chain_flags: u32 = @intFromEnum(win32.DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);

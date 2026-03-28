@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 
 const optimize_deps = .ReleaseFast;
 
+pub const Renderer = enum { terminal, gui, d3d11 };
+
 pub fn build(b: *std.Build) void {
     const all_targets = b.option(bool, "all_targets", "Build all known good targets during release builds (default: no)") orelse false;
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
@@ -10,7 +12,7 @@ pub fn build(b: *std.Build) void {
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
     const use_llvm = b.option(bool, "use_llvm", "Enable llvm backend (default: none)");
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
-    const gui = b.option(bool, "gui", "Standalone GUI mode") orelse false;
+    const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (TUI, default), d3d11 (GPU on Windows via DirectWrite), gui (GPU on Linux/macOS/Windows via wio+sokol_gfx)") orelse .terminal;
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     const run_step = b.step("run", "Run the app");
@@ -47,7 +49,7 @@ pub fn build(b: *std.Build) void {
         strip,
         use_llvm,
         pie,
-        gui,
+        renderer,
         version.items,
         all_targets,
         test_filters,
@@ -65,7 +67,7 @@ fn build_development(
     strip: ?bool,
     use_llvm: ?bool,
     pie: ?bool,
-    gui: bool,
+    renderer: Renderer,
     version: []const u8,
     _: bool, // all_targets
     test_filters: []const []const u8,
@@ -87,7 +89,7 @@ fn build_development(
         strip orelse false,
         use_llvm,
         pie,
-        gui,
+        renderer,
         version,
         test_filters,
     );
@@ -104,7 +106,7 @@ fn build_release(
     _: ?bool, //release builds control strip
     use_llvm: ?bool,
     pie: ?bool,
-    _: bool, //gui
+    _: Renderer, //renderer
     version: []const u8,
     all_targets: bool,
     test_filters: []const []const u8,
@@ -171,7 +173,7 @@ fn build_release(
             true, // strip release builds
             use_llvm,
             pie,
-            false, //gui
+            .terminal,
             version,
             test_filters,
         );
@@ -190,7 +192,7 @@ fn build_release(
             false, // don't strip debug builds
             use_llvm,
             pie,
-            false, //gui
+            .terminal,
             version,
             test_filters,
         );
@@ -210,7 +212,7 @@ fn build_release(
                 true, // strip release builds
                 use_llvm,
                 pie,
-                true, //gui
+                .d3d11,
                 version,
                 test_filters,
             );
@@ -229,7 +231,7 @@ fn build_release(
                 false, // don't strip debug builds
                 use_llvm,
                 pie,
-                true, //gui
+                .d3d11,
                 version,
                 test_filters,
             );
@@ -251,7 +253,7 @@ pub fn build_exe(
     strip: bool,
     use_llvm: ?bool,
     pie: ?bool,
-    gui: bool,
+    renderer: Renderer,
     version: []const u8,
     test_filters: []const []const u8,
 ) void {
@@ -259,7 +261,7 @@ pub fn build_exe(
     options.addOption(bool, "enable_tracy", tracy_enabled);
     options.addOption(bool, "use_tree_sitter", use_tree_sitter);
     options.addOption(bool, "strip", strip);
-    options.addOption(bool, "gui", gui);
+    options.addOption(bool, "gui", renderer != .terminal);
 
     const options_mod = options.createModule();
 
@@ -489,8 +491,9 @@ pub fn build_exe(
     });
 
     const renderer_mod = blk: {
-        if (gui) switch (target.result.os.tag) {
-            .windows => {
+        switch (renderer) {
+            .terminal => break :blk tui_renderer_mod,
+            .d3d11 => {
                 const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
                 const win32_mod = win32_dep.module("win32");
                 const gui_mod = b.createModule(.{
@@ -526,12 +529,11 @@ pub fn build_exe(
                 });
                 break :blk mod;
             },
-            else => |tag| {
-                std.log.err("OS '{t}' does not support -Dgui mode", .{tag});
+            .gui => {
+                std.log.err("-Drenderer=gui is not yet implemented", .{});
                 std.process.exit(0xff);
             },
-        };
-        break :blk tui_renderer_mod;
+        }
     };
 
     const keybind_mod = b.createModule(.{
@@ -681,7 +683,7 @@ pub fn build_exe(
         },
     });
 
-    const exe_name = if (gui) "flow-gui" else "flow";
+    const exe_name = if (renderer != .terminal) "flow-gui" else "flow";
 
     const exe = b.addExecutable(.{
         .name = exe_name,
@@ -727,7 +729,7 @@ pub fn build_exe(
         exe.addWin32ResourceFile(.{
             .file = b.path("src/win32/flow.rc"),
         });
-        if (gui) {
+        if (renderer != .terminal) {
             exe.subsystem = .Windows;
         }
     }
