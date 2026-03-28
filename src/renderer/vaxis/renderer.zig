@@ -627,6 +627,9 @@ fn filter_mods(key_: vaxis.Key) vaxis.Key {
         .shift = key_.mods.shift,
         .alt = key_.mods.alt,
         .ctrl = key_.mods.ctrl,
+        .super = key_.mods.super,
+        .hyper = key_.mods.hyper,
+        .meta = key_.mods.meta,
     };
     return key__;
 }
