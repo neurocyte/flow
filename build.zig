@@ -554,18 +554,29 @@ pub fn build_exe(
                 const gui_glyph_cache_mod = b.createModule(.{ .root_source_file = b.path("src/gui/GlyphIndexCache.zig") });
                 const gui_xterm_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xterm.zig") });
 
-                const stub_rasterizer_mod = b.createModule(.{
-                    .root_source_file = b.path("src/gui/rasterizer/stub.zig"),
+                const tt_dep = b.lazyDependency("TrueType", .{
+                    .target = target,
+                    .optimize = optimize_deps,
+                }) orelse break :blk tui_renderer_mod;
+
+                const truetype_rasterizer_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/rasterizer/truetype.zig"),
+                    .target = target,
                     .imports = &.{
+                        .{ .name = "TrueType", .module = tt_dep.module("TrueType") },
                         .{ .name = "xy", .module = gui_xy_mod },
                     },
                 });
+                if (target.result.os.tag == .linux) {
+                    truetype_rasterizer_mod.linkSystemLibrary("fontconfig", .{});
+                    truetype_rasterizer_mod.link_libc = true;
+                }
 
                 const gpu_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/gpu/gpu.zig"),
                     .imports = &.{
                         .{ .name = "sokol", .module = sokol_mod },
-                        .{ .name = "rasterizer", .module = stub_rasterizer_mod },
+                        .{ .name = "rasterizer", .module = truetype_rasterizer_mod },
                         .{ .name = "xy", .module = gui_xy_mod },
                         .{ .name = "Cell", .module = gui_cell_mod },
                         .{ .name = "GlyphIndexCache", .module = gui_glyph_cache_mod },

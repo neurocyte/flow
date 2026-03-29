@@ -50,6 +50,10 @@
             .path = "../flow-deps/sokol-zig",
             .lazy = true,
         },
+        .TrueType = .{
+            .path = "../flow-deps/TrueType",
+            .lazy = true,
+        },
         .diffz = .{
             .url = "git+https://github.com/ziglibs/diffz.git#fbdf690b87db6b1142bbce6d4906f90b09ce60bb",
             .hash = "diffz-0.0.1-G2tlIezMAQBwGNGDs7Hn_N25dWSjEzgR_FAx9GFAvCuZ",
