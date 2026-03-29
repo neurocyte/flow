@@ -72,7 +72,10 @@ fn build_development(
     _: bool, // all_targets
     test_filters: []const []const u8,
 ) void {
-    const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (builtin.os.tag == .linux and !tracy_enabled) .musl else null } });
+    // The gui renderer links system GL/X11 libraries which are not available
+    // via the musl sysroot, so use the native ABI when building it.
+    const force_musl = builtin.os.tag == .linux and !tracy_enabled and renderer != .gui;
+    const target = b.standardTargetOptions(.{ .default_target = .{ .abi = if (force_musl) .musl else null } });
     const optimize = b.standardOptimizeOption(.{});
 
     return build_exe(
@@ -530,8 +533,71 @@ pub fn build_exe(
                 break :blk mod;
             },
             .gui => {
-                std.log.err("-Drenderer=gui is not yet implemented", .{});
-                std.process.exit(0xff);
+                const wio_dep = b.lazyDependency("wio", .{
+                    .target = target,
+                    .optimize = optimize_deps,
+                    .enable_opengl = true,
+                }) orelse break :blk tui_renderer_mod;
+                const sokol_dep = b.lazyDependency("sokol", .{
+                    .target = target,
+                    .optimize = optimize_deps,
+                    .gl = true,
+                    // Requires system packages: libgl-dev libx11-dev libxi-dev
+                    //   libxcursor-dev libasound2-dev  (Debian/Ubuntu)
+                }) orelse break :blk tui_renderer_mod;
+
+                const wio_mod = wio_dep.module("wio");
+                const sokol_mod = sokol_dep.module("sokol");
+
+                const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
+                const gui_cell_mod = b.createModule(.{ .root_source_file = b.path("src/gui/Cell.zig") });
+                const gui_glyph_cache_mod = b.createModule(.{ .root_source_file = b.path("src/gui/GlyphIndexCache.zig") });
+                const gui_xterm_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xterm.zig") });
+
+                const stub_rasterizer_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/rasterizer/stub.zig"),
+                    .imports = &.{
+                        .{ .name = "xy", .module = gui_xy_mod },
+                    },
+                });
+
+                const gpu_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/gpu/gpu.zig"),
+                    .imports = &.{
+                        .{ .name = "sokol", .module = sokol_mod },
+                        .{ .name = "rasterizer", .module = stub_rasterizer_mod },
+                        .{ .name = "xy", .module = gui_xy_mod },
+                        .{ .name = "Cell", .module = gui_cell_mod },
+                        .{ .name = "GlyphIndexCache", .module = gui_glyph_cache_mod },
+                    },
+                });
+
+                const app_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/wio/app.zig"),
+                    .imports = &.{
+                        .{ .name = "wio", .module = wio_mod },
+                        .{ .name = "sokol", .module = sokol_mod },
+                        .{ .name = "gpu", .module = gpu_mod },
+                        .{ .name = "thespian", .module = thespian_mod },
+                        .{ .name = "cbor", .module = cbor_mod },
+                        .{ .name = "vaxis", .module = vaxis_mod },
+                        .{ .name = "xterm", .module = gui_xterm_mod },
+                    },
+                });
+
+                const mod = b.createModule(.{
+                    .root_source_file = b.path("src/renderer/gui/renderer.zig"),
+                    .imports = &.{
+                        .{ .name = "theme", .module = themes_dep.module("theme") },
+                        .{ .name = "cbor", .module = cbor_mod },
+                        .{ .name = "thespian", .module = thespian_mod },
+                        .{ .name = "input", .module = input_mod },
+                        .{ .name = "app", .module = app_mod },
+                        .{ .name = "tuirenderer", .module = tui_renderer_mod },
+                        .{ .name = "vaxis", .module = vaxis_mod },
+                    },
+                });
+                break :blk mod;
             },
         }
     };
