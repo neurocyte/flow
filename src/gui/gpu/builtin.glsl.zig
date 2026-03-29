@@ -17,7 +17,7 @@ pub const FsParams = extern struct {
 };
 
 const vs_src =
-    \\#version 410
+    \\#version 330 core
     \\void main() {
     \\    int id = gl_VertexID;
     \\    float x = 2.0 * (float(id & 1) - 0.5);
@@ -27,7 +27,7 @@ const vs_src =
 ;
 
 const fs_src =
-    \\#version 410
+    \\#version 330 core
     \\uniform int cell_size_x;
     \\uniform int cell_size_y;
     \\uniform int col_count;

@@ -12,14 +12,16 @@ const XY = @import("xy").XY;
 const builtin_shader = @import("builtin.glsl.zig");
 
 pub const Font = Rasterizer.Font;
+pub const GlyphKind = Rasterizer.GlyphKind;
 pub const Cell = gui_cell.Cell;
 pub const Color = gui_cell.Rgba8;
 const Rgba8 = gui_cell.Rgba8;
 
 const log = std.log.scoped(.gpu);
 
-// Maximum glyph atlas dimension (matching D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION)
-const max_atlas_dim: u16 = 16384;
+// Maximum glyph atlas dimension.  4096 is universally supported and gives
+// 65536+ glyph slots at typical cell sizes — far more than needed in practice.
+const max_atlas_dim: u16 = 4096;
 
 fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
     return .{
@@ -121,6 +123,8 @@ pub const WindowState = struct {
     // Glyph index cache
     glyph_cache_cell_size: ?XY(u16) = null,
     glyph_index_cache: ?GlyphIndexCache = null,
+    // Set when the CPU atlas shadow was updated; cleared after GPU upload.
+    glyph_atlas_dirty: bool = false,
 
     pub fn init() WindowState {
         std.debug.assert(global.init_called);
@@ -269,15 +273,10 @@ pub const WindowState = struct {
                     @memcpy(region_buf[dst_off .. dst_off + glyph_w], staging_buf[src_off .. src_off + glyph_w]);
                 }
 
-                // Upload to atlas via a temporary full-atlas image data struct.
-                // sokol's updateImage uploads the whole mip0 slice.  We use a
-                // trick: create a temporary single-cell-sized image, upload it,
-                // then… actually, sokol doesn't expose sub-rect uploads.
-                //
-                // Workaround: upload the WHOLE atlas with only the new cell
-                // updated.  For M2 this is acceptable; a smarter approach
-                // (ping-pong or persistent mapped buffer) can be added later.
-                uploadGlyphAtlasCell(state, atlas_x, atlas_y, glyph_w, glyph_h, region_buf);
+                // Write into the CPU-side atlas shadow.  The GPU upload is
+                // deferred to paint() so it happens at most once per frame.
+                blitAtlasCpu(state, atlas_x, atlas_y, glyph_w, glyph_h, region_buf);
+                state.glyph_atlas_dirty = true;
 
                 return reserved.index;
             },
@@ -286,15 +285,13 @@ pub const WindowState = struct {
     }
 };
 
-// Upload one cell's pixels into the glyph atlas.
-// Because sokol only supports full-image updates via sg.updateImage, we
-// maintain a CPU-side copy of the atlas and re-upload it each time.
-// (M2 budget approach — acceptable for the stub rasterizer that always
-//  produces blank glyphs anyway.)
+// CPU-side shadow copy of the glyph atlas (R8, row-major).
+// Kept alive for the process lifetime; resized when the atlas image grows.
 var atlas_cpu: ?[]u8 = null;
 var atlas_cpu_size: XY(u16) = .{ .x = 0, .y = 0 };
 
-fn uploadGlyphAtlasCell(
+// Blit one glyph cell into the CPU-side atlas shadow.
+fn blitAtlasCpu(
     state: *const WindowState,
     x: u16,
     y: u16,
@@ -305,7 +302,6 @@ fn uploadGlyphAtlasCell(
     const asz = state.glyph_image_size;
     const total: usize = @as(usize, asz.x) * @as(usize, asz.y);
 
-    // Resize cpu shadow if needed
     if (!atlas_cpu_size.eql(asz)) {
         if (atlas_cpu) |old| std.heap.page_allocator.free(old);
         atlas_cpu = std.heap.page_allocator.alloc(u8, total) catch |e| oom(e);
@@ -313,18 +309,25 @@ fn uploadGlyphAtlasCell(
         atlas_cpu_size = asz;
     }
 
-    // Blit the cell into the cpu shadow
     const buf = atlas_cpu.?;
     for (0..h) |row_i| {
         const src_off = row_i * w;
         const dst_off = (@as(usize, y) + row_i) * asz.x + x;
         @memcpy(buf[dst_off .. dst_off + w], pixels[src_off .. src_off + w]);
     }
+}
 
-    // Re-upload the full atlas
+// Upload the CPU shadow to the GPU.  Called once per frame if dirty.
+// Must be called outside a sokol render pass.
+fn flushGlyphAtlas(state: *WindowState) void {
+    const asz = state.glyph_image_size;
+    const total: usize = @as(usize, asz.x) * @as(usize, asz.y);
+    const buf = atlas_cpu orelse return;
+
     var img_data: sg.ImageData = .{};
     img_data.mip_levels[0] = .{ .ptr = buf.ptr, .size = total };
     sg.updateImage(state.glyph_image, img_data);
+    state.glyph_atlas_dirty = false;
 }
 
 pub fn paint(
@@ -372,6 +375,9 @@ pub fn paint(
             };
         }
     }
+
+    // Upload glyph atlas to GPU if any new glyphs were rasterized this frame.
+    if (state.glyph_atlas_dirty) flushGlyphAtlas(state);
 
     // Upload cell texture
     var cell_data: sg.ImageData = .{};

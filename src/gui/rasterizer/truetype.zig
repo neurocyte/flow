@@ -88,10 +88,9 @@ pub fn render(
 
     if (dims.width == 0 or dims.height == 0) return;
 
-    const buf_w: i32 = switch (kind) {
-        .single => @intCast(font.cell_size.x),
-        .left, .right => @as(i32, @intCast(font.cell_size.x)) * 2,
-    };
+    // Always use 2*cell_w as the row stride so it matches the staging buffer
+    // width allocated by generateGlyph (which always allocates 2*cell_w wide).
+    const buf_w: i32 = @as(i32, @intCast(font.cell_size.x)) * 2;
     const buf_h: i32 = @intCast(font.cell_size.y);
 
     const x_offset: i32 = switch (kind) {
