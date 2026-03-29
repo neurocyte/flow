@@ -520,6 +520,7 @@
             ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["alt+f9", "panel_next_widget_style"],
+            ["ctrl+shift+j", "toggle_maximize_panel"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
             ["ctrl+u", "mini_mode_reset"],
