@@ -36,12 +36,12 @@ const fs_src =
     \\uniform usampler2D cell_tex_cell_smp;
     \\out vec4 frag_color;
     \\
-    \\vec4 unpack_rgba(uint packed) {
+    \\vec4 unpack_rgba(uint v) {
     \\    return vec4(
-    \\        float((packed >> 24u) & 255u) / 255.0,
-    \\        float((packed >> 16u) & 255u) / 255.0,
-    \\        float((packed >>  8u) & 255u) / 255.0,
-    \\        float( packed         & 255u) / 255.0
+    \\        float((v >> 24u) & 255u) / 255.0,
+    \\        float((v >> 16u) & 255u) / 255.0,
+    \\        float((v >>  8u) & 255u) / 255.0,
+    \\        float( v         & 255u) / 255.0
     \\    );
     \\}
     \\
