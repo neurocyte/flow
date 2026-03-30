@@ -296,7 +296,6 @@ fn wioLoop() void {
 
     var held_buttons = input_translate.ButtonSet{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
-    var text_input_active: bool = false;
     var running = true;
 
     while (running) {
@@ -335,17 +334,17 @@ fn wioLoop() void {
                             yoff,
                         }) catch {};
                     } else {
-                        const cp = input_translate.codepointFromButton(btn, mods);
-                        const deferred_to_char = text_input_active and !mods.ctrl and !mods.alt and cp >= 0x20 and cp <= 0x7e;
-                        if (cp != 0 and !deferred_to_char) sendKey(1, cp, cp, mods);
+                        const base_cp = input_translate.codepointFromButton(btn, .{});
+                        const shifted_cp = input_translate.codepointFromButton(btn, .{ .shift = true });
+                        if (base_cp != 0) sendKey(1, base_cp, shifted_cp, mods);
                     }
                 },
                 .button_repeat => |btn| {
                     const mods = input_translate.Mods.fromButtons(held_buttons);
                     if (input_translate.mouseButtonId(btn) == null) {
-                        const cp = input_translate.codepointFromButton(btn, mods);
-                        const deferred_to_char = text_input_active and !mods.ctrl and !mods.alt and cp >= 0x20 and cp <= 0x7e;
-                        if (cp != 0 and !deferred_to_char) sendKey(2, cp, cp, mods);
+                        const base_cp = input_translate.codepointFromButton(btn, .{});
+                        const shifted_cp = input_translate.codepointFromButton(btn, .{ .shift = true });
+                        if (base_cp != 0) sendKey(2, base_cp, shifted_cp, mods);
                     }
                 },
                 .button_release => |btn| {
@@ -368,13 +367,19 @@ fn wioLoop() void {
                             yoff,
                         }) catch {};
                     } else {
-                        const cp = input_translate.codepointFromButton(btn, mods);
-                        if (cp != 0) sendKey(3, cp, cp, mods);
+                        const base_cp = input_translate.codepointFromButton(btn, .{});
+                        const shifted_cp = input_translate.codepointFromButton(btn, .{ .shift = true });
+                        if (base_cp != 0) sendKey(3, base_cp, shifted_cp, mods);
                     }
                 },
                 .char => |cp| {
-                    const mods = input_translate.Mods.fromButtons(held_buttons);
-                    sendKey(1, cp, cp, mods);
+                    // Only handle non-ASCII IME-composed codepoints here.
+                    // ASCII keys are fully handled by .button_press with correct
+                    // base/shifted codepoints, avoiding double-firing on X11.
+                    if (cp > 0x7f) {
+                        const mods = input_translate.Mods.fromButtons(held_buttons);
+                        sendKey(1, cp, cp, mods);
+                    }
                 },
                 .mouse => |pos| {
                     mouse_pos = pos;
@@ -394,14 +399,8 @@ fn wioLoop() void {
                     const row_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.y)), wio_font.cell_size.y));
                     tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, col_cell, row_cell, @as(i32, 0), @as(i32, 0) }) catch {};
                 },
-                .focused => {
-                    text_input_active = true;
-                    window.enableTextInput(.{});
-                },
-                .unfocused => {
-                    text_input_active = false;
-                    window.disableTextInput();
-                },
+                .focused => window.enableTextInput(.{}),
+                .unfocused => window.disableTextInput(),
                 else => {},
             }
         }
@@ -512,8 +511,11 @@ fn sendResize(
 
 fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, mods: input_translate.Mods) void {
     var text_buf: [4]u8 = undefined;
-    const text_len = if (codepoint >= 0x20 and codepoint < 0x7f)
-        std.unicode.utf8Encode(codepoint, &text_buf) catch 0
+    // Text is the character that would be typed: empty when ctrl/alt active,
+    // shifted_codepoint when shift is held, otherwise codepoint.
+    const text_cp: u21 = if (mods.shift) shifted_codepoint else codepoint;
+    const text_len: usize = if (!mods.ctrl and !mods.alt and text_cp >= 0x20 and text_cp != 0x7f)
+        std.unicode.utf8Encode(text_cp, &text_buf) catch 0
     else
         0;
     tui_pid.send(.{
