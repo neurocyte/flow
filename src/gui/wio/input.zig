@@ -165,3 +165,11 @@ pub fn mouseButtonId(b: wio.Button) ?u8 {
         else => null,
     };
 }
+
+pub fn heldMouseButtonId(held: ButtonSet) ?u8 {
+    const mouse_buttons = [_]wio.Button{ .mouse_left, .mouse_right, .mouse_middle, .mouse_back, .mouse_forward };
+    for (mouse_buttons) |btn| {
+        if (held.has(btn)) return mouseButtonId(btn);
+    }
+    return null;
+}

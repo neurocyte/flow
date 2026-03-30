@@ -310,11 +310,11 @@ fn wioLoop() void {
                     const row_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(pos.y)), wio_font.cell_size.y));
                     const xoff: i32 = @intCast(@mod(@as(i32, @intCast(pos.x)), wio_font.cell_size.x));
                     const yoff: i32 = @intCast(@mod(@as(i32, @intCast(pos.y)), wio_font.cell_size.y));
-                    tui_pid.send(.{
-                        "RDR",    "M",
-                        col_cell, row_cell,
-                        xoff,     yoff,
-                    }) catch {};
+                    if (input_translate.heldMouseButtonId(held_buttons)) |mb_id| {
+                        tui_pid.send(.{ "RDR", "D", mb_id, col_cell, row_cell, xoff, yoff }) catch {};
+                    } else {
+                        tui_pid.send(.{ "RDR", "M", col_cell, row_cell, xoff, yoff }) catch {};
+                    }
                 },
                 .scroll_vertical => |dy| {
                     const btn_id: u8 = if (dy < 0) 64 else 65; // up / down scroll
