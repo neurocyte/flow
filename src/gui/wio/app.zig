@@ -296,6 +296,7 @@ fn wioLoop() void {
 
     var held_buttons = input_translate.ButtonSet{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
+    var text_input_active: bool = false;
     var running = true;
 
     while (running) {
@@ -335,14 +336,16 @@ fn wioLoop() void {
                         }) catch {};
                     } else {
                         const cp = input_translate.codepointFromButton(btn, mods);
-                        if (cp != 0) sendKey(1, cp, cp, mods);
+                        const deferred_to_char = text_input_active and !mods.ctrl and !mods.alt and cp >= 0x20 and cp <= 0x7e;
+                        if (cp != 0 and !deferred_to_char) sendKey(1, cp, cp, mods);
                     }
                 },
                 .button_repeat => |btn| {
                     const mods = input_translate.Mods.fromButtons(held_buttons);
                     if (input_translate.mouseButtonId(btn) == null) {
                         const cp = input_translate.codepointFromButton(btn, mods);
-                        if (cp != 0) sendKey(2, cp, cp, mods);
+                        const deferred_to_char = text_input_active and !mods.ctrl and !mods.alt and cp >= 0x20 and cp <= 0x7e;
+                        if (cp != 0 and !deferred_to_char) sendKey(2, cp, cp, mods);
                     }
                 },
                 .button_release => |btn| {
@@ -391,8 +394,14 @@ fn wioLoop() void {
                     const row_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.y)), wio_font.cell_size.y));
                     tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, col_cell, row_cell, @as(i32, 0), @as(i32, 0) }) catch {};
                 },
-                .focused => window.enableTextInput(.{}),
-                .unfocused => window.disableTextInput(),
+                .focused => {
+                    text_input_active = true;
+                    window.enableTextInput(.{});
+                },
+                .unfocused => {
+                    text_input_active = false;
+                    window.disableTextInput();
+                },
                 else => {},
             }
         }
