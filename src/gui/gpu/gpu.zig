@@ -20,7 +20,7 @@ const Rgba8 = gui_cell.Rgba8;
 const log = std.log.scoped(.gpu);
 
 // Maximum glyph atlas dimension.  4096 is universally supported and gives
-// 65536+ glyph slots at typical cell sizes — far more than needed in practice.
+// 65536+ glyph slots at typical cell sizes - far more than needed in practice.
 const max_atlas_dim: u16 = 4096;
 
 fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
@@ -339,8 +339,8 @@ pub fn paint(
     top: u16,
     cells: []const Cell,
 ) void {
-    const shader_col_count: u16 = @intCast(@divTrunc(client_size.x + font.cell_size.x - 1, font.cell_size.x));
-    const shader_row_count: u16 = @intCast(@divTrunc(client_size.y + font.cell_size.y - 1, font.cell_size.y));
+    const shader_col_count: u16 = @intCast(@divTrunc(client_size.x, font.cell_size.x));
+    const shader_row_count: u16 = @intCast(@divTrunc(client_size.y, font.cell_size.y));
 
     const copy_col_count: u16 = @min(col_count, shader_col_count);
     const blank_glyph_index = state.generateGlyph(font, ' ', .single);
@@ -422,6 +422,7 @@ pub fn paint(
         .cell_size_y = font.cell_size.y,
         .col_count = shader_col_count,
         .row_count = shader_row_count,
+        .viewport_height = @intCast(client_size.y),
     };
     sg.applyUniforms(0, .{
         .ptr = &fs_params,

@@ -14,6 +14,7 @@ pub const FsParams = extern struct {
     cell_size_y: i32,
     col_count: i32,
     row_count: i32,
+    viewport_height: i32,
 };
 
 const vs_src =
@@ -32,6 +33,7 @@ const fs_src =
     \\uniform int cell_size_y;
     \\uniform int col_count;
     \\uniform int row_count;
+    \\uniform int viewport_height;
     \\uniform sampler2D glyph_tex_glyph_smp;
     \\uniform usampler2D cell_tex_cell_smp;
     \\out vec4 frag_color;
@@ -47,10 +49,8 @@ const fs_src =
     \\
     \\void main() {
     \\    // Convert gl_FragCoord (bottom-left origin) to top-left origin.
-    \\    // row_count * cell_size_y >= viewport height (we ceil the division),
-    \\    // so this formula maps the top screen pixel to row 0.
     \\    int px = int(gl_FragCoord.x);
-    \\    int py = row_count * cell_size_y - 1 - int(gl_FragCoord.y);
+    \\    int py = viewport_height - 1 - int(gl_FragCoord.y);
     \\    int col = px / cell_size_x;
     \\    int row = py / cell_size_y;
     \\
@@ -99,6 +99,7 @@ pub fn shaderDesc(backend: sg.Backend) sg.ShaderDesc {
             desc.uniform_blocks[0].glsl_uniforms[1] = .{ .type = .INT, .glsl_name = "cell_size_y" };
             desc.uniform_blocks[0].glsl_uniforms[2] = .{ .type = .INT, .glsl_name = "col_count" };
             desc.uniform_blocks[0].glsl_uniforms[3] = .{ .type = .INT, .glsl_name = "row_count" };
+            desc.uniform_blocks[0].glsl_uniforms[4] = .{ .type = .INT, .glsl_name = "viewport_height" };
 
             // Glyph atlas texture: R8 → sample_type = FLOAT
             desc.views[0].texture = .{
