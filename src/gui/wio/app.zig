@@ -25,6 +25,8 @@ const log = std.log.scoped(.wio_app);
 const ScreenSnapshot = struct {
     cells: []gpu.Cell,
     codepoints: []u21,
+    // vaxis char.width per cell: 1=normal, 2=double-wide start, 0=continuation
+    widths: []u8,
     width: u16,
     height: u16,
 };
@@ -66,9 +68,14 @@ pub fn updateScreen(vx_screen: *const vaxis.Screen) void {
         allocator.free(new_cells);
         return;
     };
+    const new_widths = allocator.alloc(u8, cell_count) catch {
+        allocator.free(new_cells);
+        allocator.free(new_codepoints);
+        return;
+    };
 
     // Convert vaxis cells → gpu.Cell (colours only; glyph indices filled on GPU thread).
-    for (vx_screen.buf[0..cell_count], new_cells, new_codepoints) |*vc, *gc, *cp| {
+    for (vx_screen.buf[0..cell_count], new_cells, new_codepoints, new_widths) |*vc, *gc, *cp, *wt| {
         gc.* = .{
             .glyph_index = 0,
             .background = colorFromVaxis(vc.style.bg),
@@ -80,6 +87,7 @@ pub fn updateScreen(vx_screen: *const vaxis.Screen) void {
             const seq_len = std.unicode.utf8ByteSequenceLength(g[0]) catch break :blk ' ';
             break :blk std.unicode.utf8Decode(g[0..@min(seq_len, g.len)]) catch ' ';
         } else ' ';
+        wt.* = vc.char.width;
     }
 
     screen_mutex.lock();
@@ -89,10 +97,12 @@ pub fn updateScreen(vx_screen: *const vaxis.Screen) void {
     if (screen_snap) |old| {
         allocator.free(old.cells);
         allocator.free(old.codepoints);
+        allocator.free(old.widths);
     }
     screen_snap = .{
         .cells = new_cells,
         .codepoints = new_codepoints,
+        .widths = new_widths,
         .width = vx_screen.width,
         .height = vx_screen.height,
     };
@@ -329,18 +339,31 @@ fn wioLoop() void {
                 defer {
                     allocator.free(s.cells);
                     allocator.free(s.codepoints);
+                    allocator.free(s.widths);
                 }
 
                 state.size = .{ .x = win_size.width, .y = win_size.height };
                 const font = wio_font;
 
-                // Regenerate glyph indices using the GPU state
+                // Regenerate glyph indices using the GPU state.
+                // For double-wide characters vaxis emits width=2 for the left
+                // cell and width=0 (continuation) for the right cell.  The
+                // right cell has no codepoint of its own; we reuse the one
+                // from the preceding wide-start cell.
                 const cells_with_glyphs = allocator.alloc(gpu.Cell, s.cells.len) catch continue;
                 defer allocator.free(cells_with_glyphs);
                 @memcpy(cells_with_glyphs, s.cells);
 
-                for (cells_with_glyphs, s.codepoints) |*cell, cp| {
-                    cell.glyph_index = state.generateGlyph(font, cp, .single);
+                var prev_cp: u21 = ' ';
+                for (cells_with_glyphs, s.codepoints, s.widths) |*cell, cp, w| {
+                    const kind: gpu.GlyphKind = switch (w) {
+                        2 => .left,
+                        0 => .right,
+                        else => .single,
+                    };
+                    const glyph_cp = if (w == 0) prev_cp else cp;
+                    cell.glyph_index = state.generateGlyph(font, glyph_cp, kind);
+                    if (w != 0) prev_cp = cp;
                 }
 
                 gpu.paint(
