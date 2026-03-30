@@ -325,6 +325,18 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         }
     }
 
+    {
+        var text: []const u8 = undefined;
+        if (try cbor.match(msg, .{
+            cbor.any,
+            "system_clipboard",
+            cbor.extract(&text),
+        })) {
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
+            return;
+        }
+    }
+
     return error.UnexpectedRendererEvent;
 }
 
@@ -335,7 +347,7 @@ pub fn set_sgr_pixel_mode_support(self: *Self, enable: bool) void {
 
 pub fn set_terminal_title(self: *Self, text: []const u8) void {
     _ = self;
-    _ = text;
+    app.setWindowTitle(text);
 }
 
 pub fn set_terminal_style(self: *Self, style_: Style) void {
@@ -398,23 +410,26 @@ pub fn request_windows_clipboard(self: *Self) void {
 
 pub fn request_mouse_cursor(self: *Self, shape: MouseCursorShape, push_or_pop: bool) void {
     _ = self;
-    _ = shape;
     _ = push_or_pop;
+    app.setMouseCursor(shape);
 }
 
 pub fn request_mouse_cursor_text(self: *Self, push_or_pop: bool) void {
     _ = self;
     _ = push_or_pop;
+    app.setMouseCursor(.text);
 }
 
 pub fn request_mouse_cursor_pointer(self: *Self, push_or_pop: bool) void {
     _ = self;
     _ = push_or_pop;
+    app.setMouseCursor(.pointer);
 }
 
 pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
     _ = self;
     _ = push_or_pop;
+    app.setMouseCursor(.default);
 }
 
 pub fn cursor_enable(self: *Self, y: i32, x: i32, shape: CursorShape) !void {
@@ -440,11 +455,10 @@ pub fn show_multi_cursor_yx(self: *Self, y: i32, x: i32) !void {
 
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
     _ = self;
-    _ = text;
-    // TODO: implement
+    app.setClipboard(text);
 }
 
 pub fn request_system_clipboard(self: *Self) void {
     _ = self;
-    // TODO: implement
+    app.requestClipboard();
 }

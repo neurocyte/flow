@@ -42,6 +42,26 @@ var font_name_len: usize = 0;
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
 
+// Window title (written from TUI thread, applied by wio thread)
+var title_mutex: std.Thread.Mutex = .{};
+var title_buf: [512]u8 = undefined;
+var title_len: usize = 0;
+var title_dirty: std.atomic.Value(bool) = .init(false);
+
+// Clipboard write (heap-allocated, transferred to wio thread)
+var clipboard_mutex: std.Thread.Mutex = .{};
+var clipboard_write: ?[]u8 = null;
+
+// Clipboard read request
+var clipboard_read_pending: std.atomic.Value(bool) = .init(false);
+
+// Mouse cursor (stored as wio.Cursor tag value)
+var pending_cursor: std.atomic.Value(u8) = .init(@intFromEnum(wio.Cursor.arrow));
+var cursor_dirty: std.atomic.Value(bool) = .init(false);
+
+// Window attention request
+var attention_pending: std.atomic.Value(bool) = .init(false);
+
 // Current font — written and read only from the wio thread (after gpu.init).
 var wio_font: gpu.Font = .{ .cell_size = .{ .x = 8, .y = 16 } };
 
@@ -134,6 +154,53 @@ pub fn setFontFace(name: []const u8) void {
     font_name_len = copy_len;
     font_dirty.store(true, .release);
     requestRender();
+}
+
+pub fn setWindowTitle(title: []const u8) void {
+    title_mutex.lock();
+    defer title_mutex.unlock();
+    const copy_len = @min(title.len, title_buf.len);
+    @memcpy(title_buf[0..copy_len], title[0..copy_len]);
+    title_len = copy_len;
+    title_dirty.store(true, .release);
+    wio.cancelWait();
+}
+
+pub fn setClipboard(text: []const u8) void {
+    const allocator = gpa.allocator();
+    const copy = allocator.dupe(u8, text) catch return;
+    clipboard_mutex.lock();
+    defer clipboard_mutex.unlock();
+    if (clipboard_write) |old| allocator.free(old);
+    clipboard_write = copy;
+    wio.cancelWait();
+}
+
+pub fn requestClipboard() void {
+    clipboard_read_pending.store(true, .release);
+    wio.cancelWait();
+}
+
+pub fn setMouseCursor(shape: vaxis.Mouse.Shape) void {
+    const cursor: wio.Cursor = switch (shape) {
+        .default => .arrow,
+        .text => .text,
+        .pointer => .hand,
+        .help => .arrow,
+        .progress => .arrow_busy,
+        .wait => .busy,
+        .@"ew-resize" => .size_ew,
+        .@"ns-resize" => .size_ns,
+        .cell => .crosshair,
+    };
+    pending_cursor.store(@intFromEnum(cursor), .release);
+    cursor_dirty.store(true, .release);
+    wio.cancelWait();
+}
+
+pub fn requestAttention() void {
+    attention_pending.store(true, .release);
+    wio.cancelWait();
 }
 
 // ── Internal helpers (wio thread only) ────────────────────────────────────
@@ -324,8 +391,40 @@ fn wioLoop() void {
                     const row_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.y)), wio_font.cell_size.y));
                     tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, col_cell, row_cell, @as(i32, 0), @as(i32, 0) }) catch {};
                 },
+                .focused => window.enableTextInput(.{}),
+                .unfocused => window.disableTextInput(),
                 else => {},
             }
+        }
+
+        // Apply pending cross-thread requests from the TUI thread.
+        if (title_dirty.swap(false, .acq_rel)) {
+            title_mutex.lock();
+            const t = title_buf[0..title_len];
+            title_mutex.unlock();
+            window.setTitle(t);
+        }
+        {
+            clipboard_mutex.lock();
+            const pending = clipboard_write;
+            clipboard_write = null;
+            clipboard_mutex.unlock();
+            if (pending) |text| {
+                defer allocator.free(text);
+                window.setClipboardText(text);
+            }
+        }
+        if (clipboard_read_pending.swap(false, .acq_rel)) {
+            if (window.getClipboardText(allocator)) |text| {
+                defer allocator.free(text);
+                tui_pid.send(.{ "RDR", "system_clipboard", text }) catch {};
+            }
+        }
+        if (cursor_dirty.swap(false, .acq_rel)) {
+            window.setCursor(@enumFromInt(pending_cursor.load(.acquire)));
+        }
+        if (attention_pending.swap(false, .acq_rel)) {
+            window.requestAttention();
         }
 
         // Paint if the tui pushed new screen data.
