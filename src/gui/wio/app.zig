@@ -335,7 +335,7 @@ fn wioLoop() void {
                         }) catch {};
                     } else {
                         const base_cp = input_translate.codepointFromButton(btn, .{});
-                        const shifted_cp = input_translate.codepointFromButton(btn, .{ .shift = true });
+                        const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
                         if (base_cp != 0) sendKey(1, base_cp, shifted_cp, mods);
                     }
                 },
@@ -343,7 +343,7 @@ fn wioLoop() void {
                     const mods = input_translate.Mods.fromButtons(held_buttons);
                     if (input_translate.mouseButtonId(btn) == null) {
                         const base_cp = input_translate.codepointFromButton(btn, .{});
-                        const shifted_cp = input_translate.codepointFromButton(btn, .{ .shift = true });
+                        const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
                         if (base_cp != 0) sendKey(2, base_cp, shifted_cp, mods);
                     }
                 },
@@ -368,7 +368,7 @@ fn wioLoop() void {
                         }) catch {};
                     } else {
                         const base_cp = input_translate.codepointFromButton(btn, .{});
-                        const shifted_cp = input_translate.codepointFromButton(btn, .{ .shift = true });
+                        const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
                         if (base_cp != 0) sendKey(3, base_cp, shifted_cp, mods);
                     }
                 },
