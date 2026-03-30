@@ -40,6 +40,7 @@ var font_size_px: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
 var font_dirty: std.atomic.Value(bool) = .init(true);
+var stop_requested: std.atomic.Value(bool) = .init(false);
 
 // Current font — written and read only from the wio thread (after gpu.init).
 var wio_font: gpu.Font = .{ .cell_size = .{ .x = 8, .y = 16 } };
@@ -49,12 +50,12 @@ var wio_font: gpu.Font = .{ .cell_size = .{ .x = 8, .y = 16 } };
 pub fn start() !std.Thread {
     tui_pid = thespian.self_pid().clone();
     font_name_len = 0;
+    stop_requested.store(false, .release);
     return std.Thread.spawn(.{}, wioLoop, .{});
 }
 
 pub fn stop() void {
-    // The wio thread will stop when the window's .close event arrives.
-    // We can't easily interrupt wio.wait() from outside without cancelWait.
+    stop_requested.store(true, .release);
     wio.cancelWait();
 }
 
@@ -232,6 +233,7 @@ fn wioLoop() void {
 
     while (running) {
         wio.wait(.{});
+        if (stop_requested.load(.acquire)) break;
 
         // Reload font if settings changed (font_dirty set by TUI thread).
         maybeReloadFont(win_size, &state, &cell_width, &cell_height);
