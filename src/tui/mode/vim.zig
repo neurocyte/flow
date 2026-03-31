@@ -220,6 +220,42 @@ const cmds_ = struct {
     }
     pub const select_around_braces_meta: Meta = .{ .description = "Select around {}" };
 
+    pub fn select_inside_single_quotes(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_single_quotes_textobject, ed.metrics);
+    }
+    pub const select_inside_single_quotes_meta: Meta = .{ .description = "Select inside ''" };
+
+    pub fn select_around_single_quotes(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_single_quotes_textobject, ed.metrics);
+    }
+    pub const select_around_single_quotes_meta: Meta = .{ .description = "Select around ''" };
+
+    pub fn select_inside_double_quotes(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_double_quotes_textobject, ed.metrics);
+    }
+    pub const select_inside_double_quotes_meta: Meta = .{ .description = "Select inside \"\"" };
+
+    pub fn select_around_double_quotes(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_double_quotes_textobject, ed.metrics);
+    }
+    pub const select_around_double_quotes_meta: Meta = .{ .description = "Select around \"\"" };
+
     pub fn cut_inside_word(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -300,6 +336,46 @@ const cmds_ = struct {
     }
     pub const cut_around_braces_meta: Meta = .{ .description = "Cut around {}" };
 
+    pub fn cut_inside_single_quotes(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_single_quotes_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_inside_single_quotes_meta: Meta = .{ .description = "Cut inside ''" };
+
+    pub fn cut_around_single_quotes(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_single_quotes_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_around_single_quotes_meta: Meta = .{ .description = "Cut around ''" };
+
+    pub fn cut_inside_double_quotes(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_double_quotes_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_inside_double_quotes_meta: Meta = .{ .description = "Cut inside \"\"" };
+
+    pub fn cut_around_double_quotes(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_double_quotes_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_around_double_quotes_meta: Meta = .{ .description = "Cut around \"\"" };
+
     pub fn copy_inside_word(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -379,6 +455,46 @@ const cmds_ = struct {
         try ed.copy_internal_vim(ctx);
     }
     pub const copy_around_braces_meta: Meta = .{ .description = "Copy around {}" };
+
+    pub fn copy_inside_single_quotes(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_single_quotes_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_inside_single_quotes_meta: Meta = .{ .description = "Copy inside ''" };
+
+    pub fn copy_around_single_quotes(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_single_quotes_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_around_single_quotes_meta: Meta = .{ .description = "Copy around ''" };
+
+    pub fn copy_inside_double_quotes(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_double_quotes_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_inside_double_quotes_meta: Meta = .{ .description = "Copy inside \"\"" };
+
+    pub fn copy_around_double_quotes(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_double_quotes_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_around_double_quotes_meta: Meta = .{ .description = "Copy around \"\"" };
 };
 
 fn is_tab_or_space(c: []const u8) bool {
@@ -444,56 +560,94 @@ fn select_word_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Me
 }
 
 fn select_inside_parentheses_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-    return try select_bracket_textobject(root, cursel, metrics, "(", ")", .inside);
+    return try select_scope_textobject(root, cursel, metrics, "(", ")", .inside);
 }
 
 fn select_around_parentheses_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-    return try select_bracket_textobject(root, cursel, metrics, "(", ")", .around);
+    return try select_scope_textobject(root, cursel, metrics, "(", ")", .around);
 }
 
 fn select_inside_square_brackets_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-    return try select_bracket_textobject(root, cursel, metrics, "[", "]", .inside);
+    return try select_scope_textobject(root, cursel, metrics, "[", "]", .inside);
 }
 
 fn select_around_square_brackets_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-    return try select_bracket_textobject(root, cursel, metrics, "[", "]", .around);
+    return try select_scope_textobject(root, cursel, metrics, "[", "]", .around);
 }
 
 fn select_inside_braces_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-    return try select_bracket_textobject(root, cursel, metrics, "{", "}", .inside);
+    return try select_scope_textobject(root, cursel, metrics, "{", "}", .inside);
 }
 
 fn select_around_braces_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
-    return try select_bracket_textobject(root, cursel, metrics, "{", "}", .around);
+    return try select_scope_textobject(root, cursel, metrics, "{", "}", .around);
 }
 
-fn select_bracket_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics, opening_char: []const u8, closing_char: []const u8, scope: enum { inside, around }) !void {
+fn select_inside_single_quotes_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_scope_textobject(root, cursel, metrics, "'", "'", .inside);
+}
+
+fn select_around_single_quotes_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_scope_textobject(root, cursel, metrics, "'", "'", .around);
+}
+
+fn select_inside_double_quotes_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_scope_textobject(root, cursel, metrics, "\"", "\"", .inside);
+}
+
+fn select_around_double_quotes_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_scope_textobject(root, cursel, metrics, "\"", "\"", .around);
+}
+
+fn select_scope_textobject(
+    root: Buffer.Root,
+    cursel: *CurSel,
+    metrics: Buffer.Metrics,
+    opening_char: []const u8,
+    closing_char: []const u8,
+    scope: enum { inside, around },
+) !void {
     const current = cursel.cursor;
     var prev = cursel.cursor;
     var next = cursel.cursor;
 
-    const bracket_egc, _, _ = root.egc_at(current.row, current.col, metrics) catch {
-        return error.Stop;
-    };
-    if (std.mem.eql(u8, bracket_egc, opening_char)) {
-        const closing_row, const closing_col = try Editor.match_bracket(root, current, metrics);
-
-        prev = current;
-        next.row = closing_row;
-        next.col = closing_col;
-    } else if (std.mem.eql(u8, bracket_egc, closing_char)) {
-        const opening_row, const opening_col = try Editor.match_bracket(root, current, metrics);
-
-        prev.row = opening_row;
-        prev.col = opening_col;
-        next = current;
-    } else {
-        const opening_pos, const closing_pos = find_bracket_pair(root, cursel, metrics, .left, opening_char) catch try find_bracket_pair(root, cursel, metrics, .right, opening_char);
+    if (std.mem.eql(u8, opening_char, closing_char)) {
+        const opening_pos, const closing_pos =
+            try Editor.find_quote_pair(root, current, metrics, opening_char);
 
         prev.row = opening_pos[0];
         prev.col = opening_pos[1];
         next.row = closing_pos[0];
         next.col = closing_pos[1];
+    } else {
+        const bracket_egc, _, _ = root.egc_at(current.row, current.col, metrics) catch {
+            return error.Stop;
+        };
+
+        if (std.mem.eql(u8, bracket_egc, opening_char)) {
+            const closing_row, const closing_col =
+                try Editor.match_bracket(root, current, metrics);
+
+            prev = current;
+            next.row = closing_row;
+            next.col = closing_col;
+        } else if (std.mem.eql(u8, bracket_egc, closing_char)) {
+            const opening_row, const opening_col =
+                try Editor.match_bracket(root, current, metrics);
+
+            prev.row = opening_row;
+            prev.col = opening_col;
+            next = current;
+        } else {
+            const pair = find_bracket_pair(root, cursel, metrics, .left, opening_char) catch blk: {
+                break :blk try find_bracket_pair(root, cursel, metrics, .right, opening_char);
+            };
+
+            prev.row = pair[0][0];
+            prev.col = pair[0][1];
+            next.row = pair[1][0];
+            next.col = pair[1][1];
+        }
     }
 
     prev.move_right(root, metrics) catch {};
