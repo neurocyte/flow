@@ -882,7 +882,10 @@ pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const
     const file_name = get_theme_file_name(theme_name) catch return null;
     var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
     defer file.close();
-    return file.readToEndAlloc(allocator, 64 * 1024) catch null;
+    return file.readToEndAlloc(allocator, 512 * 1024) catch |e| {
+        std.log.err("Error reading theme file: {t}", .{e});
+        return null;
+    };
 }
 
 pub fn write_theme(theme_name: []const u8, content: []const u8) !void {
@@ -895,15 +898,15 @@ pub fn write_theme(theme_name: []const u8, content: []const u8) !void {
 pub fn list_themes(allocator: std.mem.Allocator) ![]const []const u8 {
     var dir = try std.fs.openDirAbsolute(try get_theme_directory(), .{ .iterate = true });
     defer dir.close();
-    var result = std.ArrayList([]const u8).init(allocator);
+    var result: std.ArrayList([]const u8) = .empty;
     var iter = dir.iterateAssumeFirstIteration();
     while (try iter.next()) |entry| {
         switch (entry.kind) {
-            .file, .sym_link => try result.append(try allocator.dupe(u8, std.fs.path.stem(entry.name))),
+            .file, .sym_link => try result.append(allocator, try allocator.dupe(u8, std.fs.path.stem(entry.name))),
             else => continue,
         }
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 pub fn get_config_dir() ConfigDirError![]const u8 {
