@@ -3969,6 +3969,126 @@ pub const Editor = struct {
     }
     pub const goto_bracket_meta: Meta = .{ .description = "Goto matching bracket" };
 
+    const QuoteRole = enum { opening, closing };
+
+    fn row_start_cursor(root: Buffer.Root, cursor: Cursor, metrics: Buffer.Metrics) Cursor {
+        var c = cursor;
+
+        while (true) {
+            var prev = c;
+            prev.move_left(root, metrics) catch break;
+            if (prev.row != c.row) break;
+            c = prev;
+        }
+
+        return c;
+    }
+
+    fn quote_is_escaped(root: Buffer.Root, quote_cursor: Cursor, metrics: Buffer.Metrics) bool {
+        var cursor = quote_cursor;
+        var backslashes: usize = 0;
+
+        while (true) {
+            var prev = cursor;
+            prev.move_left(root, metrics) catch break;
+            if (prev.row != cursor.row) break;
+
+            const egc, _, _ = root.egc_at(prev.row, prev.col, metrics) catch break;
+            if (!std.mem.eql(u8, egc, "\\")) break;
+
+            backslashes += 1;
+            cursor = prev;
+        }
+
+        return (backslashes % 2) == 1;
+    }
+
+    fn find_unescaped_quote(
+        root: Buffer.Root,
+        start: Cursor,
+        metrics: Buffer.Metrics,
+        direction: enum { left, right },
+        quote: []const u8,
+    ) error{Stop}!Cursor {
+        var cursor = start;
+        var i: usize = 0;
+
+        while (i < bracket_search_radius) : (i += 1) {
+            switch (direction) {
+                .left => cursor.move_left(root, metrics) catch return error.Stop,
+                .right => cursor.move_right(root, metrics) catch return error.Stop,
+            }
+
+            const egc, _, _ = root.egc_at(cursor.row, cursor.col, metrics) catch {
+                return error.Stop;
+            };
+
+            if (!std.mem.eql(u8, egc, quote)) continue;
+            if (quote_is_escaped(root, cursor, metrics)) continue;
+
+            return cursor;
+        }
+
+        return error.Stop;
+    }
+
+    fn quote_role_on_row(
+        root: Buffer.Root,
+        quote_cursor: Cursor,
+        metrics: Buffer.Metrics,
+        quote: []const u8,
+    ) error{Stop}!QuoteRole {
+        var cursor = row_start_cursor(root, .{ .row = quote_cursor.row, .col = 0 }, metrics);
+        var opening = true;
+
+        while (cursor.row == quote_cursor.row and cursor.col <= quote_cursor.col) {
+            const egc, _, _ = root.egc_at(cursor.row, cursor.col, metrics) catch {
+                return error.Stop;
+            };
+
+            if (std.mem.eql(u8, egc, quote) and !quote_is_escaped(root, cursor, metrics)) {
+                if (cursor.col == quote_cursor.col) {
+                    return if (opening) .opening else .closing;
+                }
+                opening = !opening;
+            }
+
+            cursor.move_right(root, metrics) catch break;
+        }
+
+        return error.Stop;
+    }
+
+    pub fn find_quote_pair(
+        root: Buffer.Root,
+        original_cursor: Cursor,
+        metrics: Buffer.Metrics,
+        quote: []const u8,
+    ) error{Stop}!struct { struct { usize, usize }, struct { usize, usize } } {
+
+        // Find nearest quote (prefer rightward)
+        const anchor =
+            find_unescaped_quote(root, original_cursor, metrics, .right, quote) catch find_unescaped_quote(root, original_cursor, metrics, .left, quote) catch return error.Stop;
+
+        const role = try quote_role_on_row(root, anchor, metrics, quote);
+
+        const other = switch (role) {
+            .opening => try find_unescaped_quote(root, anchor, metrics, .right, quote),
+            .closing => try find_unescaped_quote(root, anchor, metrics, .left, quote),
+        };
+
+        return switch (role) {
+            .opening => .{
+                .{ anchor.row, anchor.col },
+                .{ other.row, other.col },
+            },
+            .closing => .{
+                .{ other.row, other.col },
+                .{ anchor.row, anchor.col },
+            },
+        };
+    }
+
     pub fn move_or_select_to_char_right(self: *Self, ctx: Context) Result {
         const selected = if (self.get_primary().selection) |_| true else false;
         if (selected) try self.select_to_char_right(ctx) else try self.move_to_char_right(ctx);
