@@ -232,6 +232,11 @@ pub const typst = .{
 
 pub const uxntal = .{};
 
+pub const v = .{
+    .language_server = .{"v-analyzer"},
+    .formatter = .{ "v", "fmt", "-" },
+};
+
 pub const vim = .{};
 
 pub const xml = .{
