@@ -49,14 +49,29 @@ pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
     const scale = tt.scaleForPixelHeight(@floatFromInt(size_px));
     const vm = tt.verticalMetrics();
 
-    const ascent_px: i32 = @intFromFloat(@round(@as(f32, @floatFromInt(vm.ascent)) * scale));
-    const descent_px: i32 = @intFromFloat(@round(@as(f32, @floatFromInt(vm.descent)) * scale));
-    const cell_h: u16 = @intCast(@max(ascent_px - descent_px, 1));
+    // Use the full block glyph (U+2588) to derive exact cell dimensions.
+    // Its rasterized bbox defines exactly how many pixels tall a full-height
+    // character is, and where the baseline sits within the cell.  Using font
+    // metrics (vm.ascent/vm.descent) produces a cell_h that may differ from
+    // the glyph because the font bbox can diverge from nominal metrics.
+    const full_block_glyph = tt.codepointGlyphIndex('█');
+    const block_bbox = tt.glyphBitmapBox(full_block_glyph, scale, scale);
+    const has_block = full_block_glyph != .notdef and block_bbox.y1 > block_bbox.y0;
+    const ascent_px: i32 = if (has_block)
+        -@as(i32, block_bbox.y0)
+    else
+        @as(i32, @intFromFloat(@ceil(@as(f32, @floatFromInt(vm.ascent)) * scale)));
+    const cell_h: u16 = @as(u16, if (has_block)
+        @intCast(@max(block_bbox.y1 - block_bbox.y0, 1))
+    else blk: {
+        const d: i32 = @intFromFloat(@floor(@as(f32, @floatFromInt(vm.descent)) * scale));
+        break :blk @intCast(@max(ascent_px - d, 1));
+    }) -| 1;
 
     const m_glyph = tt.codepointGlyphIndex('M');
     const m_hmetrics = tt.glyphHMetrics(m_glyph);
     const cell_w_f: f32 = @as(f32, @floatFromInt(m_hmetrics.advance_width)) * scale;
-    const cell_w: u16 = @intFromFloat(@ceil(cell_w_f));
+    const cell_w: u16 = @as(u16, @intFromFloat(@ceil(cell_w_f))) -| 1;
 
     try self.font_data.append(self.allocator, data);
 
