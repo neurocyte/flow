@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tp = @import("thespian");
+const root = @import("soft_root").root;
 
 const Plane = @import("renderer").Plane;
 const EventHandler = @import("EventHandler");
@@ -9,7 +10,6 @@ const tui = @import("tui.zig");
 pub const Box = @import("Box.zig");
 pub const Pos = struct { y: i32 = 0, x: i32 = 0 };
 pub const Theme = @import("theme");
-pub const themes = @import("themes").themes;
 pub const scopes = @import("themes").scopes;
 pub const Type = @import("config").WidgetType;
 pub const StyleTag = @import("config").WidgetStyle;
@@ -41,6 +41,114 @@ pub const Layout = union(enum) {
         };
     }
 };
+
+pub const ThemeInfo = struct {
+    name: []const u8,
+    storage: ?std.json.Parsed(Theme) = null,
+
+    pub fn get(self: *@This(), allocator: std.mem.Allocator) ?Theme {
+        if (load_theme_file(allocator, self.name) catch null) |parsed_theme| {
+            self.storage = parsed_theme;
+            return self.storage.?.value;
+        }
+
+        for (static_themes) |theme_| {
+            if (std.mem.eql(u8, theme_.name, self.name))
+                return theme_;
+        }
+        return null;
+    }
+
+    fn load_theme_file(allocator: std.mem.Allocator, theme_name: []const u8) !?std.json.Parsed(Theme) {
+        return load_theme_file_internal(allocator, theme_name) catch |e| {
+            std.log.err("Error loading theme '{s}' from file: {t}", .{ theme_name, e });
+            return e;
+        };
+    }
+    fn load_theme_file_internal(allocator: std.mem.Allocator, theme_name: []const u8) !?std.json.Parsed(Theme) {
+        const json_str = root.read_theme(allocator, theme_name) orelse return null;
+        defer allocator.free(json_str);
+        return try std.json.parseFromSlice(Theme, allocator, json_str, .{ .allocate = .alloc_always });
+    }
+};
+
+var themes_: ?std.StringHashMap(*ThemeInfo) = null;
+var theme_names_: ?[]const []const u8 = null;
+const static_themes = @import("themes").themes;
+
+fn get_themes(allocator: std.mem.Allocator) *std.StringHashMap(*ThemeInfo) {
+    if (themes_) |*themes__| return themes__;
+
+    const theme_files = root.list_themes(allocator) catch @panic("OOM get_themes");
+    var themes: std.StringHashMap(*ThemeInfo) = .init(allocator);
+    defer allocator.free(theme_files);
+    for (theme_files) |file| {
+        const theme_info = allocator.create(ThemeInfo) catch @panic("OOM get_themes");
+        theme_info.* = .{
+            .name = file,
+        };
+        themes.put(theme_info.name, theme_info) catch @panic("OOM get_themes");
+    }
+
+    for (static_themes) |theme_| if (!themes.contains(theme_.name)) {
+        const theme_info = allocator.create(ThemeInfo) catch @panic("OOM get_themes");
+        theme_info.* = .{
+            .name = theme_.name,
+        };
+        themes.put(theme_info.name, theme_info) catch @panic("OOM get_themes");
+    };
+    themes_ = themes;
+    return &themes_.?;
+}
+
+fn get_theme_names() []const []const u8 {
+    if (theme_names_) |names_| return names_;
+    const themes = themes_ orelse return &.{};
+    var i = get_themes(themes.allocator).iterator();
+    var names: std.ArrayList([]const u8) = .empty;
+    while (i.next()) |theme_| names.append(themes.allocator, theme_.value_ptr.*.name) catch @panic("OOM get_theme_names");
+    std.mem.sort([]const u8, names.items, {}, struct {
+        fn cmp(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return std.mem.order(u8, lhs, rhs) == .lt;
+        }
+    }.cmp);
+    theme_names_ = names.toOwnedSlice(themes.allocator) catch @panic("OOM get_theme_names");
+    return theme_names_.?;
+}
+
+pub fn get_theme_by_name(allocator: std.mem.Allocator, name_: []const u8) ?Theme {
+    const themes = get_themes(allocator);
+    const theme = themes.get(name_) orelse return null;
+    return theme.get(allocator);
+}
+
+pub fn get_next_theme_by_name(name_: []const u8) []const u8 {
+    const theme_names = get_theme_names();
+    var next = false;
+    for (theme_names) |theme_name| {
+        if (next)
+            return theme_name;
+        if (std.mem.eql(u8, theme_name, name_))
+            next = true;
+    }
+    return theme_names[0];
+}
+
+pub fn get_prev_theme_by_name(name_: []const u8) []const u8 {
+    const theme_names = get_theme_names();
+    const last = theme_names[theme_names.len - 1];
+    var prev: ?[]const u8 = null;
+    for (theme_names) |theme_name| {
+        if (std.mem.eql(u8, theme_name, name_))
+            return prev orelse last;
+        prev = theme_name;
+    }
+    return last;
+}
+
+pub fn list_themes() []const []const u8 {
+    return get_theme_names();
+}
 
 pub const VTable = struct {
     deinit: *const fn (ctx: *anyopaque, allocator: Allocator) void,
