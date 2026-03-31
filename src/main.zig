@@ -882,7 +882,10 @@ pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const
     const file_name = get_theme_file_name(theme_name) catch return null;
     var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
     defer file.close();
-    return file.readToEndAlloc(allocator, 64 * 1024) catch null;
+    return file.readToEndAlloc(allocator, 512 * 1024) catch |e| {
+        std.log.err("Error reading theme file: {t}", .{e});
+        return null;
+    };
 }
 
 pub fn write_theme(theme_name: []const u8, content: []const u8) !void {
