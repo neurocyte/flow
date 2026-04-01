@@ -61,17 +61,17 @@ pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
         -@as(i32, block_bbox.y0)
     else
         @as(i32, @intFromFloat(@ceil(@as(f32, @floatFromInt(vm.ascent)) * scale)));
-    const cell_h: u16 = @as(u16, if (has_block)
+    const cell_h: u16 = if (has_block)
         @intCast(@max(block_bbox.y1 - block_bbox.y0, 1))
     else blk: {
         const d: i32 = @intFromFloat(@floor(@as(f32, @floatFromInt(vm.descent)) * scale));
         break :blk @intCast(@max(ascent_px - d, 1));
-    }) -| 1;
+    };
 
     const m_glyph = tt.codepointGlyphIndex('M');
     const m_hmetrics = tt.glyphHMetrics(m_glyph);
     const cell_w_f: f32 = @as(f32, @floatFromInt(m_hmetrics.advance_width)) * scale;
-    const cell_w: u16 = @as(u16, @intFromFloat(@ceil(cell_w_f))) -| 1;
+    const cell_w: u16 = @max(1, @as(u16, @intFromFloat(@ceil(cell_w_f))));
 
     try self.font_data.append(self.allocator, data);
 
