@@ -403,12 +403,12 @@ fn wioLoop() void {
                 .scroll_vertical => |dy| {
                     const btn_id: u8 = if (dy < 0) 64 else 65; // up / down scroll
                     const cp = pixelToCellPos(mouse_pos);
-                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, @as(i32, 0), @as(i32, 0) }) catch {};
+                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
                 },
                 .scroll_horizontal => |dx| {
                     const btn_id: u8 = if (dx < 0) 66 else 67; // left / right scroll
                     const cp = pixelToCellPos(mouse_pos);
-                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, @as(i32, 0), @as(i32, 0) }) catch {};
+                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
                 },
                 .focused => window.enableTextInput(.{}),
                 .unfocused => window.disableTextInput(),
