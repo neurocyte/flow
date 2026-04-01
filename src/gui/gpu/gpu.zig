@@ -213,6 +213,9 @@ pub const WindowState = struct {
                 c.deinit(global.glyph_cache_arena.allocator());
                 _ = global.glyph_cache_arena.reset(.retain_capacity);
                 state.glyph_index_cache = null;
+                // cell_buf was allocated from the arena; clear it so the next
+                // resize doesn't memcpy from the now-freed memory.
+                state.cell_buf = .{};
             }
         }
 
