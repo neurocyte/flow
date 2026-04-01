@@ -381,7 +381,36 @@ pub fn reset_fontface(self: *Self) void {
 }
 
 pub fn get_fontfaces(self: *Self) void {
-    _ = self;
+    const font_finder = @import("rasterizer").font_finder;
+    const dispatch = self.dispatch_event orelse return;
+
+    // Report the current font first.
+    if (self.fmtmsg(.{ "fontface", "current", app.getFontName() })) |msg|
+        dispatch(self.handler_ctx, msg)
+    else |_| {}
+
+    // Enumerate all available monospace fonts and report each one.
+    const names = font_finder.listFonts(self.allocator) catch {
+        // If enumeration fails, still close the palette with "done".
+        if (self.fmtmsg(.{ "fontface", "done" })) |msg|
+            dispatch(self.handler_ctx, msg)
+        else |_| {}
+        return;
+    };
+    defer {
+        for (names) |n| self.allocator.free(n);
+        self.allocator.free(names);
+    }
+
+    for (names) |name| {
+        if (self.fmtmsg(.{ "fontface", name })) |msg|
+            dispatch(self.handler_ctx, msg)
+        else |_| {}
+    }
+
+    if (self.fmtmsg(.{ "fontface", "done" })) |msg|
+        dispatch(self.handler_ctx, msg)
+    else |_| {}
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {

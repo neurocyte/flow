@@ -202,6 +202,10 @@ pub fn setMouseCursor(shape: vaxis.Mouse.Shape) void {
     wio.cancelWait();
 }
 
+pub fn getFontName() []const u8 {
+    return if (font_name_len > 0) font_name_buf[0..font_name_len] else "monospace";
+}
+
 pub fn requestAttention() void {
     attention_pending.store(true, .release);
     wio.cancelWait();

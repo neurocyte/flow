@@ -1,7 +1,7 @@
 const std = @import("std");
 const TrueType = @import("TrueType");
 const XY = @import("xy").XY;
-const font_finder = @import("font_finder.zig");
+pub const font_finder = @import("font_finder.zig");
 
 const Self = @This();
 

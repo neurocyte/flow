@@ -606,6 +606,7 @@ pub fn build_exe(
                         .{ .name = "app", .module = app_mod },
                         .{ .name = "tuirenderer", .module = tui_renderer_mod },
                         .{ .name = "vaxis", .module = vaxis_mod },
+                        .{ .name = "rasterizer", .module = truetype_rasterizer_mod },
                     },
                 });
                 break :blk mod;
