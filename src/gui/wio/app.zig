@@ -42,6 +42,10 @@ var font_name_len: usize = 0;
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
 
+// HiDPI scale factor (logical → physical pixels). Updated from wio .scale events.
+// Only read/written on the wio thread after initialisation.
+var dpi_scale: f32 = 1.0;
+
 // Window title (written from TUI thread, applied by wio thread)
 var title_mutex: std.Thread.Mutex = .{};
 var title_buf: [512]u8 = undefined;
@@ -213,8 +217,11 @@ const CellPos = struct {
 };
 
 fn pixelToCellPos(pos: wio.Position) CellPos {
-    const x: i32 = @intCast(pos.x);
-    const y: i32 = @intCast(pos.y);
+    // Mouse positions are in logical pixels; cell_size is in physical pixels.
+    // Scale up to physical before dividing so that col/row and sub-cell offsets
+    // are all expressed in physical pixels, matching the GPU coordinate space.
+    const x: i32 = @intFromFloat(@as(f32, @floatFromInt(pos.x)) * dpi_scale);
+    const y: i32 = @intFromFloat(@as(f32, @floatFromInt(pos.y)) * dpi_scale);
     const cw: i32 = wio_font.cell_size.x;
     const ch: i32 = wio_font.cell_size.y;
     return .{
@@ -228,7 +235,8 @@ fn pixelToCellPos(pos: wio.Position) CellPos {
 // Reload wio_font from current settings.  Called only from the wio thread.
 fn reloadFont() void {
     const name = if (font_name_len > 0) font_name_buf[0..font_name_len] else "monospace";
-    wio_font = gpu.loadFont(name, font_size_px) catch return;
+    const size_physical: u16 = @intFromFloat(@round(@as(f32, @floatFromInt(font_size_px)) * dpi_scale));
+    wio_font = gpu.loadFont(name, @max(size_physical, 4)) catch return;
 }
 
 // Check dirty flag and reload if needed.
@@ -298,19 +306,28 @@ fn wioLoop() void {
     };
     defer gpu.deinit();
 
-    // Load the initial font on the wio thread (gpu.init must be done first).
-    reloadFont();
-
     var state = gpu.WindowState.init();
     defer state.deinit();
 
-    // Current window size in pixels (updated by size_physical events)
+    // Current window sizes (updated by size_* events).
     var win_size: wio.Size = .{ .width = 1280, .height = 720 };
     // Cell grid dimensions (updated on resize)
     var cell_width: u16 = 80;
     var cell_height: u16 = 24;
 
+    // Drain the initial wio events (scale + size_*) that are queued synchronously
+    // during createWindow.  This ensures dpi_scale and win_size are correct before
+    // the first reloadFont / sendResize, avoiding a brief render at the wrong scale.
+    while (window.getEvent()) |event| {
+        switch (event) {
+            .scale => |s| dpi_scale = s,
+            .size_physical => |sz| win_size = sz,
+            else => {},
+        }
+    }
+
     // Notify the tui that the window is ready
+    reloadFont();
     sendResize(win_size, &state, &cell_width, &cell_height);
     tui_pid.send(.{ "RDR", "WindowCreated", @as(usize, 0) }) catch {};
 
@@ -329,6 +346,10 @@ fn wioLoop() void {
             switch (event) {
                 .close => {
                     running = false;
+                },
+                .scale => |s| {
+                    dpi_scale = s;
+                    font_dirty.store(true, .release);
                 },
                 .size_physical => |sz| {
                     win_size = sz;
