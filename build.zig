@@ -593,6 +593,8 @@ pub fn build_exe(
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "vaxis", .module = vaxis_mod },
                         .{ .name = "xterm", .module = gui_xterm_mod },
+                        .{ .name = "soft_root", .module = soft_root_mod },
+                        .{ .name = "gui_config", .module = gui_config_mod },
                     },
                 });
 

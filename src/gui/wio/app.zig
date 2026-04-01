@@ -17,6 +17,8 @@ const cbor = @import("cbor");
 const vaxis = @import("vaxis");
 
 const input_translate = @import("input.zig");
+const root = @import("soft_root").root;
+const gui_config = @import("gui_config");
 
 const log = std.log.scoped(.wio_app);
 
@@ -41,6 +43,9 @@ var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
+
+var config_arena_instance: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+const config_arena = config_arena_instance.allocator();
 
 // HiDPI scale factor (logical → physical pixels). Updated from wio .scale events.
 // Only read/written on the wio thread after initialisation.
@@ -75,6 +80,7 @@ pub fn start() !std.Thread {
     tui_pid = thespian.self_pid().clone();
     font_name_len = 0;
     stop_requested.store(false, .release);
+    loadConfig();
     return std.Thread.spawn(.{}, wioLoop, .{});
 }
 
@@ -143,6 +149,7 @@ pub fn requestRender() void {
 
 pub fn setFontSize(size_px: f32) void {
     font_size_px = @intFromFloat(@max(4, size_px));
+    saveConfig();
     font_dirty.store(true, .release);
     requestRender();
 }
@@ -152,10 +159,29 @@ pub fn adjustFontSize(delta: f32) void {
     setFontSize(new);
 }
 
+pub fn resetFontSize() void {
+    const default = comptime blk: {
+        const field = std.meta.fieldInfo(gui_config, .fontsize);
+        const ptr: *const field.type = @ptrCast(@alignCast(field.default_value_ptr.?));
+        break :blk ptr.*;
+    };
+    setFontSize(@floatFromInt(default));
+}
+
+pub fn resetFontFace() void {
+    const default = comptime blk: {
+        const field = std.meta.fieldInfo(gui_config, .fontface);
+        const ptr: *const field.type = @ptrCast(@alignCast(field.default_value_ptr.?));
+        break :blk ptr.*;
+    };
+    setFontFace(default);
+}
+
 pub fn setFontFace(name: []const u8) void {
     const copy_len = @min(name.len, font_name_buf.len);
     @memcpy(font_name_buf[0..copy_len], name[0..copy_len]);
     font_name_len = copy_len;
+    saveConfig();
     font_dirty.store(true, .release);
     requestRender();
 }
@@ -204,6 +230,25 @@ pub fn setMouseCursor(shape: vaxis.Mouse.Shape) void {
 
 pub fn getFontName() []const u8 {
     return if (font_name_len > 0) font_name_buf[0..font_name_len] else "monospace";
+}
+
+pub fn loadConfig() void {
+    const conf, _ = root.read_config(gui_config, config_arena);
+    root.write_config(conf, config_arena) catch
+        log.err("failed to write gui config file", .{});
+    font_size_px = conf.fontsize;
+    const name = conf.fontface;
+    const copy_len = @min(name.len, font_name_buf.len);
+    @memcpy(font_name_buf[0..copy_len], name[0..copy_len]);
+    font_name_len = copy_len;
+}
+
+fn saveConfig() void {
+    var conf, _ = root.read_config(gui_config, config_arena);
+    conf.fontsize = @truncate(font_size_px);
+    conf.fontface = getFontName();
+    root.write_config(conf, config_arena) catch
+        log.err("failed to write gui config file", .{});
 }
 
 pub fn requestAttention() void {

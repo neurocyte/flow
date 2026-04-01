@@ -367,7 +367,7 @@ pub fn set_fontsize(self: *Self, fontsize: f32) void {
 
 pub fn reset_fontsize(self: *Self) void {
     _ = self;
-    app.setFontSize(16);
+    app.resetFontSize();
 }
 
 pub fn set_fontface(self: *Self, fontface: []const u8) void {
@@ -377,7 +377,7 @@ pub fn set_fontface(self: *Self, fontface: []const u8) void {
 
 pub fn reset_fontface(self: *Self) void {
     _ = self;
-    app.setFontFace("monospace");
+    app.resetFontFace();
 }
 
 pub fn get_fontfaces(self: *Self) void {
