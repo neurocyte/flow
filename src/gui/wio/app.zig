@@ -399,6 +399,12 @@ fn wioLoop() void {
                     const row_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.y)), wio_font.cell_size.y));
                     tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, col_cell, row_cell, @as(i32, 0), @as(i32, 0) }) catch {};
                 },
+                .scroll_horizontal => |dx| {
+                    const btn_id: u8 = if (dx < 0) 66 else 67; // left / right scroll
+                    const col_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.x)), wio_font.cell_size.x));
+                    const row_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.y)), wio_font.cell_size.y));
+                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, col_cell, row_cell, @as(i32, 0), @as(i32, 0) }) catch {};
+                },
                 .focused => window.enableTextInput(.{}),
                 .unfocused => window.disableTextInput(),
                 else => {},
