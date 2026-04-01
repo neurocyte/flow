@@ -205,6 +205,26 @@ pub fn requestAttention() void {
 
 // ── Internal helpers (wio thread only) ────────────────────────────────────
 
+const CellPos = struct {
+    col: i32,
+    row: i32,
+    xoff: i32,
+    yoff: i32,
+};
+
+fn pixelToCellPos(pos: wio.Position) CellPos {
+    const x: i32 = @intCast(pos.x);
+    const y: i32 = @intCast(pos.y);
+    const cw: i32 = wio_font.cell_size.x;
+    const ch: i32 = wio_font.cell_size.y;
+    return .{
+        .col = @divTrunc(x, cw),
+        .row = @divTrunc(y, ch),
+        .xoff = @mod(x, cw),
+        .yoff = @mod(y, ch),
+    };
+}
+
 // Reload wio_font from current settings.  Called only from the wio thread.
 fn reloadFont() void {
     const name = if (font_name_len > 0) font_name_buf[0..font_name_len] else "monospace";
@@ -318,20 +338,15 @@ fn wioLoop() void {
                     held_buttons.press(btn);
                     const mods = input_translate.Mods.fromButtons(held_buttons);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
-                        const col: i32 = @intCast(mouse_pos.x);
-                        const row: i32 = @intCast(mouse_pos.y);
-                        const col_cell: i32 = @intCast(@divTrunc(col, wio_font.cell_size.x));
-                        const row_cell: i32 = @intCast(@divTrunc(row, wio_font.cell_size.y));
-                        const xoff: i32 = @intCast(@mod(col, wio_font.cell_size.x));
-                        const yoff: i32 = @intCast(@mod(row, wio_font.cell_size.y));
+                        const cp = pixelToCellPos(mouse_pos);
                         tui_pid.send(.{
                             "RDR", "B",
                             @as(u8, 1), // press
                             mb_id,
-                            col_cell,
-                            row_cell,
-                            xoff,
-                            yoff,
+                            cp.col,
+                            cp.row,
+                            cp.xoff,
+                            cp.yoff,
                         }) catch {};
                     } else {
                         const base_cp = input_translate.codepointFromButton(btn, .{});
@@ -351,20 +366,15 @@ fn wioLoop() void {
                     held_buttons.release(btn);
                     const mods = input_translate.Mods.fromButtons(held_buttons);
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
-                        const col: i32 = @intCast(mouse_pos.x);
-                        const row: i32 = @intCast(mouse_pos.y);
-                        const col_cell: i32 = @intCast(@divTrunc(col, wio_font.cell_size.x));
-                        const row_cell: i32 = @intCast(@divTrunc(row, wio_font.cell_size.y));
-                        const xoff: i32 = @intCast(@mod(col, wio_font.cell_size.x));
-                        const yoff: i32 = @intCast(@mod(row, wio_font.cell_size.y));
+                        const cp = pixelToCellPos(mouse_pos);
                         tui_pid.send(.{
                             "RDR", "B",
                             @as(u8, 3), // release
                             mb_id,
-                            col_cell,
-                            row_cell,
-                            xoff,
-                            yoff,
+                            cp.col,
+                            cp.row,
+                            cp.xoff,
+                            cp.yoff,
                         }) catch {};
                     } else {
                         const base_cp = input_translate.codepointFromButton(btn, .{});
@@ -383,27 +393,22 @@ fn wioLoop() void {
                 },
                 .mouse => |pos| {
                     mouse_pos = pos;
-                    const col_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(pos.x)), wio_font.cell_size.x));
-                    const row_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(pos.y)), wio_font.cell_size.y));
-                    const xoff: i32 = @intCast(@mod(@as(i32, @intCast(pos.x)), wio_font.cell_size.x));
-                    const yoff: i32 = @intCast(@mod(@as(i32, @intCast(pos.y)), wio_font.cell_size.y));
+                    const cp = pixelToCellPos(pos);
                     if (input_translate.heldMouseButtonId(held_buttons)) |mb_id| {
-                        tui_pid.send(.{ "RDR", "D", mb_id, col_cell, row_cell, xoff, yoff }) catch {};
+                        tui_pid.send(.{ "RDR", "D", mb_id, cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
                     } else {
-                        tui_pid.send(.{ "RDR", "M", col_cell, row_cell, xoff, yoff }) catch {};
+                        tui_pid.send(.{ "RDR", "M", cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
                     }
                 },
                 .scroll_vertical => |dy| {
                     const btn_id: u8 = if (dy < 0) 64 else 65; // up / down scroll
-                    const col_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.x)), wio_font.cell_size.x));
-                    const row_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.y)), wio_font.cell_size.y));
-                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, col_cell, row_cell, @as(i32, 0), @as(i32, 0) }) catch {};
+                    const cp = pixelToCellPos(mouse_pos);
+                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, @as(i32, 0), @as(i32, 0) }) catch {};
                 },
                 .scroll_horizontal => |dx| {
                     const btn_id: u8 = if (dx < 0) 66 else 67; // left / right scroll
-                    const col_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.x)), wio_font.cell_size.x));
-                    const row_cell: i32 = @intCast(@divTrunc(@as(i32, @intCast(mouse_pos.y)), wio_font.cell_size.y));
-                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, col_cell, row_cell, @as(i32, 0), @as(i32, 0) }) catch {};
+                    const cp = pixelToCellPos(mouse_pos);
+                    tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, @as(i32, 0), @as(i32, 0) }) catch {};
                 },
                 .focused => window.enableTextInput(.{}),
                 .unfocused => window.disableTextInput(),
