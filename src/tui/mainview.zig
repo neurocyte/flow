@@ -559,7 +559,15 @@ const cmds = struct {
         const view = self.get_view_for_file(f);
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
+        const basename = std.fs.path.basename(f);
+        var is_excluded = false;
+        for (tui.config().restore_last_cursor_position_exclusions) |exclusion| if (std.mem.eql(u8, basename, exclusion)) {
+            is_excluded = true;
+            break;
+        };
+
         if (tui.config().restore_last_cursor_position and
+            !is_excluded and
             view == null and
             !have_editor_metadata and
             line == null and
