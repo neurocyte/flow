@@ -34,6 +34,7 @@ const filelist_view = @import("filelist_view.zig");
 const info_view = @import("info_view.zig");
 const input_view = @import("inputview.zig");
 const keybind_view = @import("keybindview.zig");
+const terminal_view = @import("terminal_view.zig");
 
 const Self = @This();
 const Commands = command.Collection(cmds);
@@ -58,6 +59,7 @@ buffer_manager: Buffer.Manager,
 find_in_files_state: enum { init, adding, done } = .done,
 file_list_type: FileListType = .find_in_files,
 panel_height: ?usize = null,
+panel_maximized: bool = false,
 symbols: std.ArrayListUnmanaged(u8) = .empty,
 symbols_complete: bool = true,
 closing_project: bool = false,
@@ -124,6 +126,7 @@ pub fn create(allocator: std.mem.Allocator) CreateError!Widget {
 
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.close_all_panel_views();
+    terminal_view.shutdown(allocator);
     self.commands.deinit();
     self.widgets.deinit(allocator);
     self.symbols.deinit(allocator);
@@ -258,6 +261,10 @@ pub fn handle_resize(self: *Self, pos: Box) void {
     if (self.panel_height) |h| if (h >= self.box().h) {
         self.panel_height = null;
     };
+    if (self.panel_maximized) {
+        if (self.panels) |panels|
+            panels.layout_ = .{ .static = self.box().h -| 1 };
+    }
     self.widgets.handle_resize(pos);
     self.floating_views.resize(pos);
 }
@@ -279,6 +286,7 @@ fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
     };
     const h = self.plane.dim_y();
     self.panel_height = @max(1, h - @min(h, y + 1));
+    self.panel_maximized = false;
     panels.layout_ = .{ .static = self.panel_height.? };
     if (self.panel_height == 1) {
         self.panel_height = null;
@@ -290,7 +298,13 @@ pub fn get_panel_height(self: *Self) usize {
     return self.panel_height orelse self.box().h / 5;
 }
 
-fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, disable }) !void {
+pub const PanelToggleMode = enum { toggle, enable, disable };
+
+fn toggle_panel_view(self: *Self, view: anytype, mode: PanelToggleMode) !void {
+    return self.toggle_panel_view_with_args(view, mode, .{});
+}
+
+fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode, ctx: command.Context) !void {
     if (self.panels) |panels| {
         if (self.get_panel(@typeName(view))) |w| {
             if (mode != .enable) {
@@ -302,12 +316,12 @@ fn toggle_panel_view(self: *Self, view: anytype, mode: enum { toggle, enable, di
             }
         } else {
             if (mode != .disable)
-                try panels.add(try view.create(self.allocator, self.widgets.plane));
+                try panels.add(try view.create(self.allocator, self.widgets.plane, ctx));
         }
     } else if (mode != .disable) {
         const panels = try WidgetList.createH(self.allocator, self.widgets.plane, "panel", .{ .static = self.get_panel_height() });
         try self.widgets.add(panels.widget());
-        try panels.add(try view.create(self.allocator, self.widgets.plane));
+        try panels.add(try view.create(self.allocator, self.widgets.plane, ctx));
         self.panels = panels;
     }
     tui.resize();
@@ -475,6 +489,7 @@ const cmds = struct {
         {
             self.closing_project = true;
             defer self.closing_project = false;
+            terminal_view.shutdown(self.allocator);
             try close_splits(self, .{});
             try self.close_all_editors();
             self.delete_all_buffers();
@@ -559,7 +574,15 @@ const cmds = struct {
         const view = self.get_view_for_file(f);
         const have_editor_metadata = if (self.buffer_manager.get_buffer_for_file(f)) |_| true else false;
 
+        const basename = std.fs.path.basename(f);
+        var is_excluded = false;
+        for (tui.config().restore_last_cursor_position_exclusions) |exclusion| if (std.mem.eql(u8, basename, exclusion)) {
+            is_excluded = true;
+            break;
+        };
+
         if (tui.config().restore_last_cursor_position and
+            !is_excluded and
             view == null and
             !have_editor_metadata and
             line == null and
@@ -911,10 +934,28 @@ const cmds = struct {
             try self.toggle_panel_view(keybind_view, .toggle)
         else if (self.is_panel_view_showing(input_view))
             try self.toggle_panel_view(input_view, .toggle)
+        else if (self.is_panel_view_showing(terminal_view))
+            try self.toggle_panel_view(terminal_view, .toggle)
         else
-            try self.toggle_panel_view(logview, .toggle);
+            try open_terminal(self, .{});
     }
     pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
+
+    pub fn toggle_maximize_panel(self: *Self, _: Ctx) Result {
+        const panels = self.panels orelse return;
+        const max_h = self.box().h -| 1;
+        if (self.panel_maximized) {
+            // Restore previous height
+            self.panel_maximized = false;
+            panels.layout_ = .{ .static = self.get_panel_height() };
+        } else {
+            // Maximize: fill screen minus status bar
+            self.panel_maximized = true;
+            panels.layout_ = .{ .static = max_h };
+        }
+        tui.resize();
+    }
+    pub const toggle_maximize_panel_meta: Meta = .{ .description = "Toggle maximize panel" };
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, .toggle);
@@ -945,6 +986,53 @@ const cmds = struct {
         try self.toggle_panel_view(@import("inspector_view.zig"), .enable);
     }
     pub const show_inspector_view_meta: Meta = .{};
+
+    pub fn toggle_terminal_view(self: *Self, _: Ctx) Result {
+        try self.toggle_panel_view(terminal_view, .toggle);
+    }
+    pub const toggle_terminal_view_meta: Meta = .{ .description = "Toggle terminal" };
+
+    pub fn open_terminal(self: *Self, ctx: Ctx) Result {
+        const have_args = ctx.args.buf.len > 0 and try ctx.args.match(.{ tp.string, tp.more });
+
+        if (have_args and terminal_view.is_vt_running()) {
+            var msg: std.Io.Writer.Allocating = .init(self.allocator);
+            defer msg.deinit();
+            try msg.writer.writeAll("terminal is already running '");
+            try terminal_view.get_running_cmd(&msg.writer);
+            try msg.writer.writeAll("'");
+            return tp.exit(msg.written());
+        }
+
+        if (terminal_view.is_vt_running()) if (self.get_panel_view(terminal_view)) |vt| {
+            std.log.debug("open_terminal: toggle_focus", .{});
+            vt.toggle_focus();
+            return;
+        };
+
+        var buf: [tp.max_message_size]u8 = undefined;
+        std.log.debug("open_terminal: {s}", .{if (ctx.args.buf.len > 0) ctx.args.to_json(&buf) catch "(error)" else "(none)"});
+        if (self.get_panel_view(terminal_view)) |vt| {
+            try vt.run_cmd(ctx);
+        } else {
+            try self.toggle_panel_view_with_args(terminal_view, .enable, ctx);
+            if (self.get_panel_view(terminal_view)) |vt|
+                vt.focus();
+        }
+    }
+    pub const open_terminal_meta: Meta = .{ .description = "Open terminal" };
+
+    pub fn unfocus_terminal(self: *Self, _: Ctx) Result {
+        if (self.get_panel_view(terminal_view)) |vt|
+            vt.toggle_focus();
+    }
+    pub const unfocus_terminal_meta: Meta = .{};
+
+    pub fn close_terminal(self: *Self, _: Ctx) Result {
+        if (self.get_panel_view(terminal_view)) |_|
+            try self.toggle_panel_view(terminal_view, .disable);
+    }
+    pub const close_terminal_meta: Meta = .{ .description = "Close terminal" };
 
     pub fn close_find_in_files_results(self: *Self, _: Ctx) Result {
         if (self.file_list_type == .find_in_files)
@@ -1522,6 +1610,22 @@ const cmds = struct {
     }
     pub const move_tab_previous_meta: Meta = .{ .description = "Move tab to previous position" };
 
+    pub fn move_tab_next_or_scroll_terminal_down(self: *Self, _: Ctx) Result {
+        if (self.is_panel_view_showing(terminal_view))
+            try command.executeName("terminal_scroll_down", .{})
+        else
+            _ = try self.widgets_widget.msg(.{"move_tab_next"});
+    }
+    pub const move_tab_next_or_scroll_terminal_down_meta: Meta = .{ .description = "Move tab next or scroll terminal down" };
+
+    pub fn move_tab_previous_or_scroll_terminal_up(self: *Self, _: Ctx) Result {
+        if (self.is_panel_view_showing(terminal_view))
+            try command.executeName("terminal_scroll_up", .{})
+        else
+            _ = try self.widgets_widget.msg(.{"move_tab_previous"});
+    }
+    pub const move_tab_previous_or_scroll_terminal_up_meta: Meta = .{ .description = "Move tab previous or scroll terminal up" };
+
     pub fn place_next_tab(self: *Self, ctx: Ctx) Result {
         var pos: enum { before, after } = undefined;
         var buffer_ref: Buffer.Ref = undefined;
@@ -1780,6 +1884,7 @@ pub fn focus_view_by_widget(self: *Self, w: Widget) tui.FocusAction {
 }
 
 pub fn focus_view(self: *Self, n: usize) !void {
+    tui.clear_keyboard_focus();
     if (n == self.active_view) return;
     if (n > self.views.widgets.items.len) return;
     if (n == self.views.widgets.items.len)

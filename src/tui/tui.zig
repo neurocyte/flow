@@ -53,8 +53,10 @@ delayed_init_input_mode: ?Mode = null,
 input_mode_outer_: ?Mode = null,
 input_listeners_: EventHandler.List,
 keyboard_focus: ?Widget = null,
+keyboard_focus_outer: ?Widget = null,
 mini_mode_: ?MiniMode = null,
 hover_focus: ?Widget = null,
+terminal_focus: bool = true,
 last_hover_x: c_int = -1,
 last_hover_y: c_int = -1,
 commands: Commands = undefined,
@@ -514,15 +516,19 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
 
     if (try m.match(.{"focus_in"})) {
+        self.terminal_focus = true;
         std.log.debug("focus_in", .{});
+        need_render(@src());
         return;
     }
 
     if (try m.match(.{"focus_out"})) {
+        self.terminal_focus = false;
         std.log.debug("focus_out", .{});
         self.clear_hover_focus(@src()) catch {};
         self.last_hover_x = -1;
         self.last_hover_y = -1;
+        need_render(@src());
         return;
     }
 
@@ -829,22 +835,54 @@ pub const FocusAction = enum { same, changed, notfound };
 
 pub fn set_focus_by_widget(w: Widget) FocusAction {
     const mv = mainview() orelse return .notfound;
+    clear_keyboard_focus();
     return mv.focus_view_by_widget(w);
 }
 
 pub fn set_focus_by_mouse_event() FocusAction {
     const self = current();
     const mv = mainview() orelse return .notfound;
-    return mv.focus_view_by_widget(self.hover_focus orelse return .notfound);
+    const hover_focus = self.hover_focus orelse return .notfound;
+    const keyboard_focus = if (self.keyboard_focus) |prev| prev.ptr else null;
+    if (hover_focus.ptr == keyboard_focus) return .same;
+    clear_keyboard_focus();
+    switch (mv.focus_view_by_widget(hover_focus)) {
+        .notfound => {},
+        else => |action| return action,
+    }
+    hover_focus.focus();
+    return .changed;
+}
+
+pub fn is_keyboard_focused() bool {
+    const self = current();
+    return self.keyboard_focus != null;
+}
+
+pub fn set_keyboard_focus(w: Widget) void {
+    const self = current();
+    if (self.keyboard_focus) |prev| prev.unfocus();
+    self.keyboard_focus = w;
+}
+
+pub fn release_keyboard_focus(w: Widget) void {
+    const self = current();
+    if (self.keyboard_focus) |cur| if (cur.ptr == w.ptr) {
+        self.keyboard_focus = null;
+    };
+}
+
+pub fn clear_keyboard_focus() void {
+    const self = current();
+    if (self.keyboard_focus) |prev| prev.unfocus();
+    self.keyboard_focus = null;
 }
 
 fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
     const frame = tracy.initZone(@src(), .{ .name = "tui widgets" });
     defer frame.deinit();
     tp.trace(tp.channel.widget, m);
-    return if (self.keyboard_focus) |w|
-        w.send(from, m)
-    else if (self.mainview_) |mv|
+    return if (self.mainview_) |mv|
         mv.send(from, m)
     else
         false;
@@ -853,10 +891,6 @@ fn send_widgets(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
 fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners_.send(from, m) catch {};
-    if (self.keyboard_focus) |w| {
-        _ = try w.send(from, m);
-        return;
-    }
     if (try self.update_hover(y, x)) |w|
         _ = try w.send(from, m);
 }
@@ -864,10 +898,6 @@ fn send_mouse(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) 
 fn send_mouse_drag(self: *Self, y: c_int, x: c_int, from: tp.pid_ref, m: tp.message) tp.result {
     tp.trace(tp.channel.input, m);
     _ = self.input_listeners_.send(from, m) catch {};
-    if (self.keyboard_focus) |w| {
-        _ = try w.send(from, m);
-        return;
-    }
     _ = try self.update_hover(y, x);
     if (self.drag_source) |w| _ = try w.send(from, m);
 }
@@ -920,10 +950,12 @@ pub fn save_config() (root.ConfigDirError || root.ConfigWriteError)!void {
 
 pub fn is_mainview_focused() bool {
     const self = current();
-    return self.mini_mode_ == null and self.input_mode_outer_ == null;
+    return self.mini_mode_ == null and self.input_mode_outer_ == null and !is_keyboard_focused() and self.terminal_focus;
 }
 
 fn enter_overlay_mode(self: *Self, mode: type) command.Result {
+    self.keyboard_focus_outer = self.keyboard_focus;
+    clear_keyboard_focus();
     command.executeName("disable_fast_scroll", .{}) catch {};
     command.executeName("disable_alt_scroll", .{}) catch {};
     command.executeName("disable_jump_mode", .{}) catch {};
@@ -1471,6 +1503,30 @@ const cmds = struct {
         .arguments = &.{.string},
     };
 
+    pub fn run_task_in_terminal(self: *Self, ctx: Ctx) Result {
+        var buf: [tp.max_message_size]u8 = undefined;
+        std.log.debug("run_task_in_terminal: {s}", .{if (ctx.args.buf.len > 0) ctx.args.to_json(&buf) catch "(error)" else "(none)"});
+        const expansion = @import("expansion.zig");
+        var task: []const u8 = undefined;
+        var on_exit: @import("config").TerminalOnExit = self.config_.terminal_on_exit;
+        if (!(try ctx.args.match(.{tp.extract(&task)}) or
+            try ctx.args.match(.{ tp.extract(&task), tp.extract(&on_exit) }))) return;
+        const args = expansion.expand_cbor(self.allocator, ctx.args.buf) catch |e| switch (e) {
+            error.NotFound => return error.Stop,
+            else => |e_| return e_,
+        };
+        defer self.allocator.free(args);
+        var cmd: []const u8 = undefined;
+        if (!try cbor.match(args, .{tp.extract(&cmd)}))
+            cmd = task;
+        call_add_task(task);
+        try command.executeName("open_terminal", try command.fmtbuf(&buf, .{ cmd, on_exit }));
+    }
+    pub const run_task_in_terminal_meta: Meta = .{
+        .description = "Run a task in terminal",
+        .arguments = &.{.string},
+    };
+
     pub fn delete_task(_: *Self, ctx: Ctx) Result {
         var task: []const u8 = undefined;
         if (!try ctx.args.match(.{tp.extract(&task)}))
@@ -1495,6 +1551,8 @@ const cmds = struct {
         if (self.input_mode_) |*mode| mode.deinit();
         self.input_mode_ = self.input_mode_outer_;
         self.input_mode_outer_ = null;
+        if (self.keyboard_focus_outer) |widget| if (self.is_live_widget_ptr(widget))
+            widget.focus();
         refresh_hover(@src());
     }
     pub const exit_overlay_mode_meta: Meta = .{};
@@ -2599,4 +2657,9 @@ pub fn alt_scroll() bool {
 pub fn jump_mode() bool {
     const self = current();
     return self.jump_mode_;
+}
+
+pub fn terminal_has_focus() bool {
+    const self = current();
+    return self.terminal_focus;
 }

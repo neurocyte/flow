@@ -23,7 +23,9 @@
             ["ctrl+6", "focus_split", 5],
             ["ctrl+7", "focus_split", 6],
             ["ctrl+8", "focus_split", 7],
+            ["ctrl+`", "open_terminal"],
             ["ctrl+j", "toggle_panel"],
+            ["ctrl+shift+j", "toggle_maximize_panel"],
             ["ctrl+q", "quit"],
             ["ctrl+w", "close_split"],
             ["ctrl+o", "open_file"],
@@ -61,8 +63,8 @@
             ["ctrl+shift+tab", "previous_tab"],
             ["ctrl+page_down", "next_tab"],
             ["ctrl+page_up", "previous_tab"],
-            ["ctrl+shift+page_down", "move_tab_next"],
-            ["ctrl+shift+page_up", "move_tab_previous"],
+            ["ctrl+shift+page_down", "move_tab_next_or_scroll_terminal_down"],
+            ["ctrl+shift+page_up", "move_tab_previous_or_scroll_terminal_up"],
             ["ctrl+k e", "switch_buffers"],
             ["alt+shift+v", "clipboard_history"],
             ["ctrl+0", "reset_fontsize"],
@@ -351,6 +353,7 @@
             ["alt+f9", "overlay_next_widget_style"],
             ["alt+!", "add_task"],
             ["ctrl+j", "toggle_panel"],
+            ["ctrl+shift+j", "toggle_maximize_panel"],
             ["ctrl+q", "quit"],
             ["ctrl+w", "close_file"],
             ["ctrl+shift+f", "find_in_files"],
@@ -519,6 +522,7 @@
             ["shift+f1", "scroll_keybind_hints"],
             ["ctrl+alt+?", "scroll_keybind_hints"],
             ["alt+f9", "panel_next_widget_style"],
+            ["ctrl+shift+j", "toggle_maximize_panel"],
             ["ctrl+q", "quit"],
             ["ctrl+v", "system_paste"],
             ["ctrl+u", "mini_mode_reset"],
@@ -582,6 +586,31 @@
             ["escape", "mini_mode_cancel"],
             ["enter", "mini_mode_select"],
             ["backspace", "mini_mode_delete_backwards"]
+        ]
+    },
+    "terminal": {
+        "on_match_failure": "nothing",
+        "press": [
+            ["ctrl+1", "focus_split", 0],
+            ["ctrl+2", "focus_split", 1],
+            ["ctrl+3", "focus_split", 2],
+            ["ctrl+4", "focus_split", 3],
+            ["ctrl+5", "focus_split", 4],
+            ["ctrl+6", "focus_split", 5],
+            ["ctrl+7", "focus_split", 6],
+            ["ctrl+8", "focus_split", 7],
+            ["ctrl+`", "unfocus_terminal"],
+            ["ctrl+j", "toggle_panel"],
+            ["ctrl+shift+page_down", "terminal_scroll_down"],
+            ["ctrl+shift+page_up", "terminal_scroll_up"],
+            ["ctrl+shift+j", "toggle_maximize_panel"],
+            ["ctrl+shift+p", "open_command_palette"],
+            ["alt+shift+p", "open_command_palette"],
+            ["alt+x", "open_command_palette"],
+            ["alt+!", "run_task"],
+            ["alt+f9", "panel_next_widget_style"],
+            ["ctrl+shift+q", "quit_without_saving"],
+            ["ctrl+alt+shift+r", "restart"]
         ]
     }
 }

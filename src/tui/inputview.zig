@@ -10,6 +10,7 @@ const cbor = @import("cbor");
 const Plane = @import("renderer").Plane;
 const EventHandler = @import("EventHandler");
 const input = @import("input");
+const command = @import("command");
 
 const tui = @import("tui.zig");
 const Widget = @import("Widget.zig");
@@ -33,7 +34,7 @@ const Entry = struct {
 };
 const Buffer = ArrayList(Entry);
 
-pub fn create(allocator: Allocator, parent: Plane) !Widget {
+pub fn create(allocator: Allocator, parent: Plane, _: command.Context) !Widget {
     var n = try Plane.init(&(Widget.Box{}).opts_vscroll(@typeName(Self)), parent);
     errdefer n.deinit();
     const container = try WidgetList.createHStyled(allocator, parent, "panel_frame", .dynamic, widget_type);

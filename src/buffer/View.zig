@@ -109,8 +109,8 @@ fn clamp_row(self: *Self, cursor: *const Cursor, abs: bool, bottom_offset: usize
     }
     if (cursor.row < self.row) {
         self.row = 0;
-    } else if (cursor.row > self.row + self.rows - bottom_min_border_distance) {
-        self.row = cursor.row + bottom_min_border_distance - self.rows;
+    } else if (cursor.row > self.row + self.rows -| bottom_min_border_distance) {
+        self.row = cursor.row + bottom_min_border_distance -| self.rows;
     }
 }
 

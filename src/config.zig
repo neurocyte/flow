@@ -12,6 +12,8 @@ gutter_width_minimum: usize = 4,
 gutter_width_maximum: usize = 8,
 enable_terminal_cursor: bool = true,
 enable_terminal_color_scheme: bool = false,
+terminal_scrollback_size: u16 = 500,
+terminal_on_exit: TerminalOnExit = .hold_on_error,
 enable_sgr_pixel_mode_support: bool = true,
 enable_modal_dim: bool = true,
 highlight_current_line: bool = true,
@@ -34,6 +36,7 @@ idle_actions: []const IdleAction = &default_actions,
 idle_commands: ?[]const []const u8 = null, // a list of simple commands
 enable_format_on_save: bool = false,
 restore_last_cursor_position: bool = true,
+restore_last_cursor_position_exclusions: []const []const u8 = &.{"COMMIT_EDITMSG"},
 follow_cursor_on_buffer_switch: bool = false, //scroll cursor into view on buffer switch
 default_cursor: CursorShape = .default,
 modes_can_change_cursor: bool = true,
@@ -246,4 +249,10 @@ pub const Alignment = enum {
 pub const AgeFormat = enum {
     short,
     long,
+};
+
+pub const TerminalOnExit = enum {
+    hold_on_error,
+    close,
+    hold,
 };

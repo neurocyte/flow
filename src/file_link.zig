@@ -43,6 +43,11 @@ pub fn parse(link: []const u8) error{InvalidFileLink}!Dest {
                     file.path = link;
                     break :blk null;
                 };
+            } else if (line_.len > 5 and std.mem.eql(u8, "line ", line_[0..5])) {
+                file.line = std.fmt.parseInt(usize, line_[5..], 10) catch blk: {
+                    file.path = link;
+                    break :blk null;
+                };
             } else {
                 file.line = std.fmt.parseInt(usize, line_, 10) catch blk: {
                     file.path = link;

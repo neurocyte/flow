@@ -485,7 +485,7 @@ const BindingSet = struct {
     deinit_command: ?Command = null,
 
     const KeySyntax = enum { flow, vim };
-    const OnMatchFailure = enum { insert, ignore };
+    const OnMatchFailure = enum { insert, ignore, nothing };
 
     fn load(allocator: std.mem.Allocator, namespace_name: []const u8, config_section: []const u8, mode_bindings: std.json.Value, fallback: ?*const BindingSet, namespace: *Namespace) (error{ OutOfMemory, WriteFailed } || parse_flow.ParseError || parse_vim.ParseError || std.json.ParseFromValueError)!@This() {
         var self: @This() = .{ .name = undefined, .config_section = config_section, .selection_style = undefined };
@@ -667,7 +667,7 @@ const BindingSet = struct {
         }
     }
 
-    fn receive(self: *const @This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
+    pub fn receive(self: *const @This(), _: tp.pid_ref, m: tp.message) error{Exit}!bool {
         var event: input.Event = 0;
         var keypress: input.Key = 0;
         var keypress_shifted: input.Key = 0;
@@ -696,6 +696,7 @@ const BindingSet = struct {
                 }
 
                 for (binding.commands) |*cmd| try cmd.execute();
+                return true;
             }
         } else if (try m.match(.{"F"})) {
             self.flush() catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -786,6 +787,7 @@ const BindingSet = struct {
                 else
                     log_keyhints_message(),
                 .ignore => log_keyhints_message(),
+                .nothing => {},
             }
             globals.current_sequence.clearRetainingCapacity();
             globals.current_sequence_egc.clearRetainingCapacity();
