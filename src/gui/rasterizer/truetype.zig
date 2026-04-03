@@ -523,7 +523,7 @@ fn renderExtendedBlocks(
             fillRect(buf, buf_w, buf_h, mid_x, 0, x1, ch - qh);
             fillRect(buf, buf_w, buf_h, x0, ch - qh, x1, ch);
         },
-        0x1CDDC => { // 𜷀 SW corner: left-half + bottom-quarter
+        0x1CDC0 => { // 𜷀 SW corner: left-half + bottom-quarter
             fillRect(buf, buf_w, buf_h, x0, 0, mid_x, ch - qh);
             fillRect(buf, buf_w, buf_h, x0, ch - qh, x1, ch);
         },
