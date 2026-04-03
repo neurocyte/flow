@@ -29,6 +29,7 @@ pub const root = struct {
 
     pub const read_theme = if (@hasDecl(hard_root, "read_theme")) hard_root.read_theme else dummy.read_theme;
     pub const write_theme = if (@hasDecl(hard_root, "write_theme")) hard_root.write_theme else dummy.write_theme;
+    pub const list_themes = if (@hasDecl(hard_root, "list_themes")) hard_root.list_themes else dummy.list_themes;
     pub const get_theme_file_name = if (@hasDecl(hard_root, "get_theme_file_name")) hard_root.get_theme_file_name else dummy.get_theme_file_name;
 
     pub const exit = if (@hasDecl(hard_root, "exit")) hard_root.exit else dummy.exit;
@@ -109,6 +110,10 @@ const dummy = struct {
     pub fn write_theme(_: []const u8, _: []const u8) !void {
         @panic("dummy write_theme call");
     }
+    pub fn list_themes(_: std.mem.Allocator) ![]const []const u8 {
+        @panic("dummy list_themes call");
+    }
+
     pub fn get_theme_file_name(_: []const u8) ![]const u8 {
         @panic("dummy get_theme_file_name call");
     }

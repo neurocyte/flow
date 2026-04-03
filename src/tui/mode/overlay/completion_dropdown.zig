@@ -87,8 +87,9 @@ pub fn load_entries(self: *Type) !usize {
 
     const less_fn = struct {
         fn less_fn(_: void, lhs: Entry, rhs: Entry) bool {
-            const lhs_str = if (lhs.sort_text.len > 0) lhs.sort_text else lhs.label;
-            const rhs_str = if (rhs.sort_text.len > 0) rhs.sort_text else rhs.label;
+            const sort_text_equal = std.mem.eql(u8, lhs.sort_text, rhs.sort_text);
+            const lhs_str = if (!sort_text_equal and lhs.sort_text.len > 0) lhs.sort_text else lhs.label;
+            const rhs_str = if (!sort_text_equal and rhs.sort_text.len > 0) rhs.sort_text else rhs.label;
             return std.mem.order(u8, lhs_str, rhs_str) == .lt;
         }
     }.less_fn;

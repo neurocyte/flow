@@ -116,7 +116,7 @@ pub const make = .{};
 
 pub const markdown = .{
     .language_server = .{ "marksman", "server" },
-    .formatter = .{ "prettier", "--parser", "markdown" },
+    .formatter = .{ "prettier", "--parser", "markdown", "--prose-wrap", "always", "--print-width", "{{reflow_width}}" },
 };
 
 pub const @"markdown-inline" = .{};
@@ -183,7 +183,9 @@ pub const python = .{
 
 pub const regex = .{};
 
-pub const rpmspec = .{};
+pub const rpmspec = .{
+    .language_server = .{ "python3", "-mrpm_spec_language_server", "--stdio" },
+};
 
 pub const rst = .{
     .language_server = .{"esbonio"},
@@ -214,7 +216,10 @@ pub const verilog = .{
     .formatter = .{ "verible-verilog-format", "-" },
 };
 
-pub const toml = .{};
+pub const toml = .{
+    .language_server = .{ "tombi", "lsp" },
+    .formatter = .{ "tombi", "format" },
+};
 
 pub const typescript = .{
     .language_server = .{ "typescript-language-server", "--stdio" },
@@ -227,13 +232,21 @@ pub const typst = .{
 
 pub const uxntal = .{};
 
+pub const v = .{
+    .language_server = .{"v-analyzer"},
+    .formatter = .{ "v", "fmt", "-" },
+};
+
 pub const vim = .{};
 
 pub const xml = .{
     .formatter = .{ "xmllint", "--format", "-" },
 };
 
-pub const yaml = .{};
+pub const yaml = .{
+    .language_server = .{ "yaml-language-server", "--stdio" },
+    .formatter = .{ "prettier", "--parser", "yaml" },
+};
 
 pub const zig = .{
     .language_server = .{"zls"},

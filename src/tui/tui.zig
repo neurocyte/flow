@@ -64,9 +64,7 @@ logger: log.Logger,
 drag_source: ?Widget = null,
 drag_button: input.MouseType = 0,
 dark_theme: Widget.Theme,
-dark_parsed_theme: ?std.json.Parsed(Widget.Theme),
 light_theme: Widget.Theme,
-light_parsed_theme: ?std.json.Parsed(Widget.Theme),
 idle_frame_count: usize = 0,
 unrendered_input_events_count: usize = 0,
 init_timer: ?tp.timeout,
@@ -162,9 +160,9 @@ fn init(allocator: Allocator) InitError!*Self {
     if (@hasDecl(renderer, "install_crash_handler") and conf.start_debugger_on_crash)
         renderer.jit_debugger_enabled = true;
 
-    const dark_theme, const dark_parsed_theme = get_theme_by_name(allocator, conf.theme) orelse get_theme_by_name(allocator, "dark_modern") orelse return error.UnknownTheme;
+    const dark_theme = Widget.get_theme_by_name(allocator, conf.theme) orelse Widget.get_theme_by_name(allocator, "dark_modern") orelse return error.UnknownTheme;
     conf.theme = dark_theme.name;
-    const light_theme, const light_parsed_theme = get_theme_by_name(allocator, conf.light_theme) orelse get_theme_by_name(allocator, "default-light") orelse return error.UnknownTheme;
+    const light_theme = Widget.get_theme_by_name(allocator, conf.light_theme) orelse Widget.get_theme_by_name(allocator, "default-light") orelse return error.UnknownTheme;
     conf.light_theme = light_theme.name;
     if (build_options.gui) conf.enable_terminal_cursor = false;
 
@@ -205,8 +203,6 @@ fn init(allocator: Allocator) InitError!*Self {
         .query_cache_ = try syntax.QueryCache.create(allocator, .{}),
         .dark_theme = dark_theme,
         .light_theme = light_theme,
-        .dark_parsed_theme = dark_parsed_theme,
-        .light_parsed_theme = light_parsed_theme,
     };
     instance_ = self;
     defer instance_ = null;
@@ -1019,21 +1015,13 @@ fn refresh_input_mode(self: *Self) command.Result {
 }
 
 fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }) !void {
-    const theme_, const parsed_theme = get_theme_by_name(self.allocator, name) orelse {
+    const theme_ = Widget.get_theme_by_name(self.allocator, name) orelse {
         self.logger.print("theme not found: {s}", .{name});
         return;
     };
     switch (self.color_scheme) {
-        .dark => {
-            if (self.dark_parsed_theme) |p| p.deinit();
-            self.dark_parsed_theme = parsed_theme;
-            self.dark_theme = theme_;
-        },
-        .light => {
-            if (self.light_parsed_theme) |p| p.deinit();
-            self.light_parsed_theme = parsed_theme;
-            self.light_theme = theme_;
-        },
+        .dark => self.dark_theme = theme_,
+        .light => self.light_theme = theme_,
     }
     self.set_terminal_style(&theme_);
     self.logger.print("theme: {s}", .{theme_.description});
@@ -1173,13 +1161,13 @@ const cmds = struct {
     pub const set_theme_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn theme_next(self: *Self, _: Ctx) Result {
-        const name = get_next_theme_by_name(self.current_theme().name);
+        const name = Widget.get_next_theme_by_name(self.current_theme().name);
         return self.set_theme_by_name(name, .store);
     }
     pub const theme_next_meta: Meta = .{ .description = "Next color theme" };
 
     pub fn theme_prev(self: *Self, _: Ctx) Result {
-        const name = get_prev_theme_by_name(self.current_theme().name);
+        const name = Widget.get_prev_theme_by_name(self.current_theme().name);
         return self.set_theme_by_name(name, .store);
     }
     pub const theme_prev_meta: Meta = .{ .description = "Previous color theme" };
@@ -2078,40 +2066,6 @@ pub fn theme() *const Widget.Theme {
     return current().current_theme();
 }
 
-pub fn get_theme_by_name(allocator: std.mem.Allocator, name: []const u8) ?struct { Widget.Theme, ?std.json.Parsed(Widget.Theme) } {
-    if (load_theme_file(allocator, name) catch null) |parsed_theme| {
-        std.log.info("loaded theme from file: {s}", .{name});
-        return .{ parsed_theme.value, parsed_theme };
-    }
-
-    for (Widget.themes) |theme_| {
-        if (std.mem.eql(u8, theme_.name, name))
-            return .{ theme_, null };
-    }
-    return null;
-}
-
-fn get_next_theme_by_name(name: []const u8) []const u8 {
-    var next = false;
-    for (Widget.themes) |theme_| {
-        if (next)
-            return theme_.name;
-        if (std.mem.eql(u8, theme_.name, name))
-            next = true;
-    }
-    return Widget.themes[0].name;
-}
-
-fn get_prev_theme_by_name(name: []const u8) []const u8 {
-    var prev: ?Widget.Theme = null;
-    for (Widget.themes) |theme_| {
-        if (std.mem.eql(u8, theme_.name, name))
-            return (prev orelse Widget.themes[Widget.themes.len - 1]).name;
-        prev = theme_;
-    }
-    return Widget.themes[Widget.themes.len - 1].name;
-}
-
 pub fn find_scope_style(theme_: *const Widget.Theme, scope: []const u8) ?Widget.Theme.Token {
     return if (find_scope_fallback(scope)) |tm_scope|
         scope_to_theme_token(theme_, tm_scope) orelse
@@ -2498,19 +2452,6 @@ fn get_or_create_theme_file(self: *Self, allocator: std.mem.Allocator) ![]const 
         );
     }
     return try root.get_theme_file_name(theme_name);
-}
-
-fn load_theme_file(allocator: std.mem.Allocator, theme_name: []const u8) !?std.json.Parsed(Widget.Theme) {
-    return load_theme_file_internal(allocator, theme_name) catch |e| {
-        std.log.err("loaded theme from file failed: {}", .{e});
-        return e;
-    };
-}
-fn load_theme_file_internal(allocator: std.mem.Allocator, theme_name: []const u8) !?std.json.Parsed(Widget.Theme) {
-    _ = std.json.Scanner;
-    const json_str = root.read_theme(allocator, theme_name) orelse return null;
-    defer allocator.free(json_str);
-    return try std.json.parseFromSlice(Widget.Theme, allocator, json_str, .{ .allocate = .alloc_always });
 }
 
 pub const WidgetType = @import("config").WidgetType;
