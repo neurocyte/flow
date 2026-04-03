@@ -168,6 +168,7 @@ fn renderBlockElement(
     cw: i32,
     ch: i32,
 ) bool {
+    if (true) return false;
     if (cp < 0x2580 or cp > 0x259F) return false;
 
     const x1 = x0 + cw;
@@ -255,6 +256,42 @@ fn renderBlockElement(
     return true;
 }
 
+/// Draw the stroke×stroke corner area for a rounded box-drawing corner (╭╮╯╰).
+/// ╭╮╯╰ are identical to ┌┐└┘ in structure (L-shaped strokes meeting at center)
+/// but with the sharp outer corner vertex rounded off by a circular clip.
+///
+/// Fills pixels in [x_start..x_end, y_start..y_end] where distance from
+/// (corner_fx, corner_fy) is >= r_clip.  r_clip = max(0, stroke/2 - 0.5):
+///   stroke=1 → r_clip=0 → all pixels filled (no visible rounding, ≡ sharp corner)
+///   stroke=2 → r_clip=0.5 → clips the one diagonal corner pixel
+///   stroke=3 → r_clip=1.0 → removes a 2-pixel notch, etc.
+fn drawRoundedCornerArea(
+    buf: []u8,
+    buf_w: i32,
+    x_start: i32,
+    y_start: i32,
+    x_end: i32,
+    y_end: i32,
+    corner_fx: f32,
+    corner_fy: f32,
+    r_clip: f32,
+) void {
+    const r2 = r_clip * r_clip;
+    var cy: i32 = y_start;
+    while (cy < y_end) : (cy += 1) {
+        const dy: f32 = @as(f32, @floatFromInt(cy)) + 0.5 - corner_fy;
+        var cx: i32 = x_start;
+        while (cx < x_end) : (cx += 1) {
+            const dx: f32 = @as(f32, @floatFromInt(cx)) + 0.5 - corner_fx;
+            if (dx * dx + dy * dy >= r2) {
+                const idx = cy * buf_w + cx;
+                if (idx >= 0 and idx < @as(i32, @intCast(buf.len)))
+                    buf[@intCast(idx)] = 255;
+            }
+        }
+    }
+}
+
 /// Render a box-drawing character (U+2500–U+257F) geometrically.
 fn renderBoxDrawing(
     cp: u21,
@@ -269,30 +306,33 @@ fn renderBoxDrawing(
 
     const x1 = x0 + cw;
 
-    // Single-line stroke thickness: ~1/8 of cell, minimum 1 pixel
-    const lh: i32 = @max(1, @divTrunc(ch, 8));
-    const lw: i32 = @max(1, @divTrunc(cw, 8));
+    // Single-line stroke thickness: base on cell width so horizontal and vertical
+    // strokes appear equally thick (cells are typically ~2× taller than wide, so
+    // using ch/8 would make horizontal strokes twice as thick as vertical ones).
+    const stroke: i32 = @max(1, @divTrunc(cw, 8));
 
     // Single-line center positions
-    const hy0: i32 = @divTrunc(ch - lh, 2);
-    const hy1: i32 = hy0 + lh;
-    const vx0: i32 = x0 + @divTrunc(cw - lw, 2);
-    const vx1: i32 = vx0 + lw;
+    const hy0: i32 = @divTrunc(ch - stroke, 2);
+    const hy1: i32 = hy0 + stroke;
+    const vx0: i32 = x0 + @divTrunc(cw - stroke, 2);
+    const vx1: i32 = vx0 + stroke;
 
     // Double-line: two strokes offset from center by doff each side.
-    // doff is chosen so the two strokes fit symmetrically without overlap.
-    const doff_h: i32 = @max(lh + 1, @divTrunc(ch, 6));
-    const doff_w: i32 = @max(lw + 1, @divTrunc(cw, 6));
+    // Use cw-based spacing for both so horizontal and vertical double lines
+    // appear with the same visual gap regardless of cell aspect ratio.
+    const doff: i32 = @max(stroke + 1, @divTrunc(cw, 4));
+    const doff_h: i32 = doff;
+    const doff_w: i32 = doff;
     // Horizontal double strokes (top = closer to top of cell):
     const dhy0t: i32 = @divTrunc(ch, 2) - doff_h;
-    const dhy1t: i32 = dhy0t + lh;
-    const dhy0b: i32 = @divTrunc(ch, 2) + doff_h - lh;
-    const dhy1b: i32 = dhy0b + lh;
+    const dhy1t: i32 = dhy0t + stroke;
+    const dhy0b: i32 = @divTrunc(ch, 2) + doff_h - stroke;
+    const dhy1b: i32 = dhy0b + stroke;
     // Vertical double strokes (left = closer to left of cell):
     const dvx0l: i32 = x0 + @divTrunc(cw, 2) - doff_w;
-    const dvx1l: i32 = dvx0l + lw;
-    const dvx0r: i32 = x0 + @divTrunc(cw, 2) + doff_w - lw;
-    const dvx1r: i32 = dvx0r + lw;
+    const dvx1l: i32 = dvx0l + stroke;
+    const dvx0r: i32 = x0 + @divTrunc(cw, 2) + doff_w - stroke;
+    const dvx1r: i32 = dvx0r + stroke;
 
     switch (cp) {
         // ─ light horizontal
@@ -442,23 +482,33 @@ fn renderBoxDrawing(
             fillRect(buf, buf_w, buf_h, dvx0l, 0, dvx1l, hy1); // left double vert ↑
             fillRect(buf, buf_w, buf_h, dvx0r, 0, dvx1r, hy1); // right double vert ↑
         },
-        // ╭ round down+right = ┌, ╮ round down+left = ┐
-        // ╯ round up+left = ┘,  ╰ round up+right = └
-        0x256D => {
-            fillRect(buf, buf_w, buf_h, vx0, hy0, x1, hy1);
-            fillRect(buf, buf_w, buf_h, vx0, hy0, vx1, ch);
+        // ╭╮╯╰ rounded corners: same L-shape as ┌┐└┘ but with the outer
+        // corner vertex clipped by a circle.  The corner area (vx0..vx1, hy0..hy1)
+        // is drawn pixel-by-pixel; everything else uses fillRect.
+        // r_clip = max(0, stroke/2 - 0.5): no rounding for 1px, small notch for 2px+.
+        0x256D => { // ╭ NW: down+right
+            const r_clip: f32 = @max(0.0, @as(f32, @floatFromInt(stroke)) * 0.5 - 0.5);
+            fillRect(buf, buf_w, buf_h, vx1, hy0, x1, hy1); // horizontal right of corner
+            fillRect(buf, buf_w, buf_h, vx0, hy1, vx1, ch); // vertical below corner
+            drawRoundedCornerArea(buf, buf_w, vx0, hy0, vx1, hy1, @floatFromInt(vx0), @floatFromInt(hy0), r_clip);
         },
-        0x256E => {
-            fillRect(buf, buf_w, buf_h, x0, hy0, vx1, hy1);
-            fillRect(buf, buf_w, buf_h, vx0, hy0, vx1, ch);
+        0x256E => { // ╮ NE: down+left
+            const r_clip: f32 = @max(0.0, @as(f32, @floatFromInt(stroke)) * 0.5 - 0.5);
+            fillRect(buf, buf_w, buf_h, x0, hy0, vx0, hy1); // horizontal left of corner
+            fillRect(buf, buf_w, buf_h, vx0, hy1, vx1, ch); // vertical below corner
+            drawRoundedCornerArea(buf, buf_w, vx0, hy0, vx1, hy1, @floatFromInt(vx1), @floatFromInt(hy0), r_clip);
         },
-        0x256F => {
-            fillRect(buf, buf_w, buf_h, x0, hy0, vx1, hy1);
-            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, hy1);
+        0x256F => { // ╯ SE: up+left
+            const r_clip: f32 = @max(0.0, @as(f32, @floatFromInt(stroke)) * 0.5 - 0.5);
+            fillRect(buf, buf_w, buf_h, x0, hy0, vx0, hy1); // horizontal left of corner
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, hy0); // vertical above corner
+            drawRoundedCornerArea(buf, buf_w, vx0, hy0, vx1, hy1, @floatFromInt(vx1), @floatFromInt(hy1), r_clip);
         },
-        0x2570 => {
-            fillRect(buf, buf_w, buf_h, vx0, hy0, x1, hy1);
-            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, hy1);
+        0x2570 => { // ╰ SW: up+right
+            const r_clip: f32 = @max(0.0, @as(f32, @floatFromInt(stroke)) * 0.5 - 0.5);
+            fillRect(buf, buf_w, buf_h, vx1, hy0, x1, hy1); // horizontal right of corner
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, hy0); // vertical above corner
+            drawRoundedCornerArea(buf, buf_w, vx0, hy0, vx1, hy1, @floatFromInt(vx0), @floatFromInt(hy1), r_clip);
         },
         else => return false,
     }
