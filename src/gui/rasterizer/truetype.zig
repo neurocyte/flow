@@ -101,11 +101,13 @@ pub fn render(
     const cw: i32 = @intCast(font.cell_size.x);
     const ch: i32 = @intCast(font.cell_size.y);
 
-    // Block element characters (U+2580–U+259F) are rasterized geometrically
-    // rather than through the TrueType anti-aliasing path.  Anti-aliased edges
-    // produce partial-alpha pixels at cell boundaries, creating visible seams
-    // between adjacent cells when fg ≠ bg.
+    // Block element characters, box-drawing, and related Unicode symbols are
+    // rasterized geometrically rather than through the TrueType anti-aliasing path.
+    // Anti-aliased edges produce partial-alpha pixels at cell boundaries, creating
+    // visible seams between adjacent cells when fg ≠ bg.
     if (renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return;
+    if (renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return;
+    if (renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return;
 
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     defer arena.deinit();
@@ -220,6 +222,312 @@ fn renderBlockElement(
         },
         0x2594 => fillRect(buf, buf_w, buf_h, x0, 0, x1, @divTrunc(ch, 8)), // ▔ upper 1/8
         0x2595 => fillRect(buf, buf_w, buf_h, x1 - @divTrunc(cw, 8), 0, x1, ch), // ▕ right 1/8
+        0x2596 => fillRect(buf, buf_w, buf_h, x0, half_h, mid_x, ch), // ▖ lower-left quadrant
+        0x2597 => fillRect(buf, buf_w, buf_h, mid_x, half_h, x1, ch), // ▗ lower-right quadrant
+        0x2598 => fillRect(buf, buf_w, buf_h, x0, 0, mid_x, half_h), // ▘ upper-left quadrant
+        0x2599 => { // ▙ upper-left + lower-left + lower-right
+            fillRect(buf, buf_w, buf_h, x0, 0, mid_x, ch);
+            fillRect(buf, buf_w, buf_h, mid_x, half_h, x1, ch);
+        },
+        0x259A => { // ▚ upper-left + lower-right (diagonal)
+            fillRect(buf, buf_w, buf_h, x0, 0, mid_x, half_h);
+            fillRect(buf, buf_w, buf_h, mid_x, half_h, x1, ch);
+        },
+        0x259B => { // ▛ upper-left + upper-right + lower-left
+            fillRect(buf, buf_w, buf_h, x0, 0, x1, half_h);
+            fillRect(buf, buf_w, buf_h, x0, half_h, mid_x, ch);
+        },
+        0x259C => { // ▜ upper-left + upper-right + lower-right
+            fillRect(buf, buf_w, buf_h, x0, 0, x1, half_h);
+            fillRect(buf, buf_w, buf_h, mid_x, half_h, x1, ch);
+        },
+        0x259D => fillRect(buf, buf_w, buf_h, mid_x, 0, x1, half_h), // ▝ upper-right quadrant
+        0x259E => { // ▞ upper-right + lower-left (diagonal)
+            fillRect(buf, buf_w, buf_h, mid_x, 0, x1, half_h);
+            fillRect(buf, buf_w, buf_h, x0, half_h, mid_x, ch);
+        },
+        0x259F => { // ▟ upper-right + lower-left + lower-right
+            fillRect(buf, buf_w, buf_h, mid_x, 0, x1, half_h);
+            fillRect(buf, buf_w, buf_h, x0, half_h, x1, ch);
+        },
+        else => return false,
+    }
+    return true;
+}
+
+/// Render a box-drawing character (U+2500–U+257F) geometrically.
+fn renderBoxDrawing(
+    cp: u21,
+    buf: []u8,
+    buf_w: i32,
+    buf_h: i32,
+    x0: i32,
+    cw: i32,
+    ch: i32,
+) bool {
+    if (cp < 0x2500 or cp > 0x257F) return false;
+
+    const x1 = x0 + cw;
+
+    // Single-line stroke thickness: ~1/8 of cell, minimum 1 pixel
+    const lh: i32 = @max(1, @divTrunc(ch, 8));
+    const lw: i32 = @max(1, @divTrunc(cw, 8));
+
+    // Single-line center positions
+    const hy0: i32 = @divTrunc(ch - lh, 2);
+    const hy1: i32 = hy0 + lh;
+    const vx0: i32 = x0 + @divTrunc(cw - lw, 2);
+    const vx1: i32 = vx0 + lw;
+
+    // Double-line: two strokes offset from center by doff each side.
+    // doff is chosen so the two strokes fit symmetrically without overlap.
+    const doff_h: i32 = @max(lh + 1, @divTrunc(ch, 6));
+    const doff_w: i32 = @max(lw + 1, @divTrunc(cw, 6));
+    // Horizontal double strokes (top = closer to top of cell):
+    const dhy0t: i32 = @divTrunc(ch, 2) - doff_h;
+    const dhy1t: i32 = dhy0t + lh;
+    const dhy0b: i32 = @divTrunc(ch, 2) + doff_h - lh;
+    const dhy1b: i32 = dhy0b + lh;
+    // Vertical double strokes (left = closer to left of cell):
+    const dvx0l: i32 = x0 + @divTrunc(cw, 2) - doff_w;
+    const dvx1l: i32 = dvx0l + lw;
+    const dvx0r: i32 = x0 + @divTrunc(cw, 2) + doff_w - lw;
+    const dvx1r: i32 = dvx0r + lw;
+
+    switch (cp) {
+        // ─ light horizontal
+        0x2500 => fillRect(buf, buf_w, buf_h, x0, hy0, x1, hy1),
+        // │ light vertical
+        0x2502 => fillRect(buf, buf_w, buf_h, vx0, 0, vx1, ch),
+        // ┌ down+right (NW corner)
+        0x250C => {
+            fillRect(buf, buf_w, buf_h, vx0, hy0, x1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, hy0, vx1, ch);
+        },
+        // ┐ down+left (NE corner)
+        0x2510 => {
+            fillRect(buf, buf_w, buf_h, x0, hy0, vx1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, hy0, vx1, ch);
+        },
+        // └ up+right (SW corner)
+        0x2514 => {
+            fillRect(buf, buf_w, buf_h, vx0, hy0, x1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, hy1);
+        },
+        // ┘ up+left (SE corner)
+        0x2518 => {
+            fillRect(buf, buf_w, buf_h, x0, hy0, vx1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, hy1);
+        },
+        // ├ vertical + right
+        0x251C => {
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, ch);
+            fillRect(buf, buf_w, buf_h, vx0, hy0, x1, hy1);
+        },
+        // ┤ vertical + left
+        0x2524 => {
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, ch);
+            fillRect(buf, buf_w, buf_h, x0, hy0, vx1, hy1);
+        },
+        // ┬ horizontal + down
+        0x252C => {
+            fillRect(buf, buf_w, buf_h, x0, hy0, x1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, hy0, vx1, ch);
+        },
+        // ┴ horizontal + up
+        0x2534 => {
+            fillRect(buf, buf_w, buf_h, x0, hy0, x1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, hy1);
+        },
+        // ┼ cross
+        0x253C => {
+            fillRect(buf, buf_w, buf_h, x0, hy0, x1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, ch);
+        },
+        // ═ double horizontal
+        0x2550 => {
+            fillRect(buf, buf_w, buf_h, x0, dhy0t, x1, dhy1t);
+            fillRect(buf, buf_w, buf_h, x0, dhy0b, x1, dhy1b);
+        },
+        // ║ double vertical
+        0x2551 => {
+            fillRect(buf, buf_w, buf_h, dvx0l, 0, dvx1l, ch);
+            fillRect(buf, buf_w, buf_h, dvx0r, 0, dvx1r, ch);
+        },
+        // ╔ double NW corner (down+right)
+        0x2554 => {
+            fillRect(buf, buf_w, buf_h, dvx0l, dhy0t, x1, dhy1t); // outer horiz →
+            fillRect(buf, buf_w, buf_h, dvx0r, dhy0b, x1, dhy1b); // inner horiz →
+            fillRect(buf, buf_w, buf_h, dvx0l, dhy0t, dvx1l, ch); // outer vert ↓
+            fillRect(buf, buf_w, buf_h, dvx0r, dhy0b, dvx1r, ch); // inner vert ↓
+        },
+        // ╗ double NE corner (down+left)
+        0x2557 => {
+            fillRect(buf, buf_w, buf_h, x0, dhy0t, dvx1r, dhy1t); // outer horiz ←
+            fillRect(buf, buf_w, buf_h, x0, dhy0b, dvx1l, dhy1b); // inner horiz ←
+            fillRect(buf, buf_w, buf_h, dvx0r, dhy0t, dvx1r, ch); // outer vert ↓
+            fillRect(buf, buf_w, buf_h, dvx0l, dhy0b, dvx1l, ch); // inner vert ↓
+        },
+        // ╚ double SW corner (up+right)
+        0x255A => {
+            fillRect(buf, buf_w, buf_h, dvx0l, dhy0t, x1, dhy1t); // outer horiz →
+            fillRect(buf, buf_w, buf_h, dvx0r, dhy0b, x1, dhy1b); // inner horiz →
+            fillRect(buf, buf_w, buf_h, dvx0l, 0, dvx1l, dhy1t); // outer vert ↑
+            fillRect(buf, buf_w, buf_h, dvx0r, 0, dvx1r, dhy1b); // inner vert ↑
+        },
+        // ╝ double SE corner (up+left)
+        0x255D => {
+            fillRect(buf, buf_w, buf_h, x0, dhy0t, dvx1r, dhy1t); // outer horiz ←
+            fillRect(buf, buf_w, buf_h, x0, dhy0b, dvx1l, dhy1b); // inner horiz ←
+            fillRect(buf, buf_w, buf_h, dvx0r, 0, dvx1r, dhy1t); // outer vert ↑
+            fillRect(buf, buf_w, buf_h, dvx0l, 0, dvx1l, dhy1b); // inner vert ↑
+        },
+        // ╞ single vert + double right
+        0x255E => {
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, ch);
+            fillRect(buf, buf_w, buf_h, vx0, dhy0t, x1, dhy1t);
+            fillRect(buf, buf_w, buf_h, vx0, dhy0b, x1, dhy1b);
+        },
+        // ╡ single vert + double left
+        0x2561 => {
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, ch);
+            fillRect(buf, buf_w, buf_h, x0, dhy0t, vx1, dhy1t);
+            fillRect(buf, buf_w, buf_h, x0, dhy0b, vx1, dhy1b);
+        },
+        // ╒ down single, right double
+        0x2552 => {
+            fillRect(buf, buf_w, buf_h, vx0, dhy0t, vx1, ch); // single vert ↓
+            fillRect(buf, buf_w, buf_h, vx0, dhy0t, x1, dhy1t); // outer horiz →
+            fillRect(buf, buf_w, buf_h, vx0, dhy0b, x1, dhy1b); // inner horiz →
+        },
+        // ╕ down single, left double
+        0x2555 => {
+            fillRect(buf, buf_w, buf_h, vx0, dhy0t, vx1, ch); // single vert ↓
+            fillRect(buf, buf_w, buf_h, x0, dhy0t, vx1, dhy1t); // outer horiz ←
+            fillRect(buf, buf_w, buf_h, x0, dhy0b, vx1, dhy1b); // inner horiz ←
+        },
+        // ╘ up single, right double
+        0x2558 => {
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, dhy1b); // single vert ↑
+            fillRect(buf, buf_w, buf_h, vx0, dhy0t, x1, dhy1t); // outer horiz →
+            fillRect(buf, buf_w, buf_h, vx0, dhy0b, x1, dhy1b); // inner horiz →
+        },
+        // ╛ up single, left double
+        0x255B => {
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, dhy1b); // single vert ↑
+            fillRect(buf, buf_w, buf_h, x0, dhy0t, vx1, dhy1t); // outer horiz ←
+            fillRect(buf, buf_w, buf_h, x0, dhy0b, vx1, dhy1b); // inner horiz ←
+        },
+        // ╓ down double, right single
+        0x2553 => {
+            fillRect(buf, buf_w, buf_h, dvx0l, hy0, x1, hy1); // single horiz →
+            fillRect(buf, buf_w, buf_h, dvx0l, hy0, dvx1l, ch); // left double vert ↓
+            fillRect(buf, buf_w, buf_h, dvx0r, hy0, dvx1r, ch); // right double vert ↓
+        },
+        // ╖ down double, left single
+        0x2556 => {
+            fillRect(buf, buf_w, buf_h, x0, hy0, dvx1r, hy1); // single horiz ←
+            fillRect(buf, buf_w, buf_h, dvx0l, hy0, dvx1l, ch); // left double vert ↓
+            fillRect(buf, buf_w, buf_h, dvx0r, hy0, dvx1r, ch); // right double vert ↓
+        },
+        // ╙ up double, right single
+        0x2559 => {
+            fillRect(buf, buf_w, buf_h, dvx0l, hy0, x1, hy1); // single horiz →
+            fillRect(buf, buf_w, buf_h, dvx0l, 0, dvx1l, hy1); // left double vert ↑
+            fillRect(buf, buf_w, buf_h, dvx0r, 0, dvx1r, hy1); // right double vert ↑
+        },
+        // ╜ up double, left single
+        0x255C => {
+            fillRect(buf, buf_w, buf_h, x0, hy0, dvx1r, hy1); // single horiz ←
+            fillRect(buf, buf_w, buf_h, dvx0l, 0, dvx1l, hy1); // left double vert ↑
+            fillRect(buf, buf_w, buf_h, dvx0r, 0, dvx1r, hy1); // right double vert ↑
+        },
+        // ╭ round down+right = ┌, ╮ round down+left = ┐
+        // ╯ round up+left = ┘,  ╰ round up+right = └
+        0x256D => {
+            fillRect(buf, buf_w, buf_h, vx0, hy0, x1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, hy0, vx1, ch);
+        },
+        0x256E => {
+            fillRect(buf, buf_w, buf_h, x0, hy0, vx1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, hy0, vx1, ch);
+        },
+        0x256F => {
+            fillRect(buf, buf_w, buf_h, x0, hy0, vx1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, hy1);
+        },
+        0x2570 => {
+            fillRect(buf, buf_w, buf_h, vx0, hy0, x1, hy1);
+            fillRect(buf, buf_w, buf_h, vx0, 0, vx1, hy1);
+        },
+        else => return false,
+    }
+    return true;
+}
+
+/// Render extended block characters: U+1FB82 (upper quarter block), and the
+/// specific sextant/octant corner characters used by WidgetStyle thick-box borders.
+/// Each character is rendered with the geometric shape that tiles correctly with
+/// its adjacent border characters (▌, ▐, ▀, ▄, 🮂, ▂).
+fn renderExtendedBlocks(
+    cp: u21,
+    buf: []u8,
+    buf_w: i32,
+    buf_h: i32,
+    x0: i32,
+    cw: i32,
+    ch: i32,
+) bool {
+    const x1 = x0 + cw;
+    const mid_x = x0 + @divTrunc(cw, 2);
+    const qh = @divTrunc(ch, 4); // quarter height (for octant thick-box)
+    const th = @divTrunc(ch, 3); // third height (for sextant thick-box)
+
+    switch (cp) {
+        // 🮂 U+1FB82 upper one-quarter block (north edge of octant thick-box)
+        0x1FB82 => fillRect(buf, buf_w, buf_h, x0, 0, x1, qh),
+
+        // Sextant thick-box characters (WidgetStyle "thick box (sextant)")
+        // .n = 🬂, .s = 🬭, .nw = 🬕, .ne = 🬨, .sw = 🬲, .se = 🬷
+        // Edges connect to ▌ (left half) and ▐ (right half) for left/right walls.
+        0x1FB02 => fillRect(buf, buf_w, buf_h, x0, 0, x1, th), // 🬂 top third (N edge)
+        0x1FB2D => fillRect(buf, buf_w, buf_h, x0, ch - th, x1, ch), // 🬭 bottom third (S edge)
+        0x1FB15 => { // 🬕 NW corner: left-half + top-third
+            fillRect(buf, buf_w, buf_h, x0, 0, x1, th);
+            fillRect(buf, buf_w, buf_h, x0, th, mid_x, ch);
+        },
+        0x1FB28 => { // 🬨 NE corner: right-half + top-third
+            fillRect(buf, buf_w, buf_h, x0, 0, x1, th);
+            fillRect(buf, buf_w, buf_h, mid_x, th, x1, ch);
+        },
+        0x1FB32 => { // 🬲 SW corner: left-half + bottom-third
+            fillRect(buf, buf_w, buf_h, x0, 0, mid_x, ch - th);
+            fillRect(buf, buf_w, buf_h, x0, ch - th, x1, ch);
+        },
+        0x1FB37 => { // 🬷 SE corner: right-half + bottom-third
+            fillRect(buf, buf_w, buf_h, mid_x, 0, x1, ch - th);
+            fillRect(buf, buf_w, buf_h, x0, ch - th, x1, ch);
+        },
+
+        // Octant thick-box corner characters (WidgetStyle "thick box (octant)")
+        // .n = 🮂 (qh), .s = ▂ (qh), .w = ▌ (half), .e = ▐ (half)
+        0x1CD4A => { // 𜵊 NW corner: left-half + top-quarter
+            fillRect(buf, buf_w, buf_h, x0, 0, x1, qh);
+            fillRect(buf, buf_w, buf_h, x0, qh, mid_x, ch);
+        },
+        0x1CD98 => { // 𜶘 NE corner: right-half + top-quarter
+            fillRect(buf, buf_w, buf_h, x0, 0, x1, qh);
+            fillRect(buf, buf_w, buf_h, mid_x, qh, x1, ch);
+        },
+        0x1CDD5 => { // 𜷕 SE corner: right-half + bottom-quarter
+            fillRect(buf, buf_w, buf_h, mid_x, 0, x1, ch - qh);
+            fillRect(buf, buf_w, buf_h, x0, ch - qh, x1, ch);
+        },
+        0x1CDDC => { // 𜷀 SW corner: left-half + bottom-quarter
+            fillRect(buf, buf_w, buf_h, x0, 0, mid_x, ch - qh);
+            fillRect(buf, buf_w, buf_h, x0, ch - qh, x1, ch);
+        },
+
         else => return false,
     }
     return true;
