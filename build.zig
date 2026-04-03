@@ -559,24 +559,58 @@ pub fn build_exe(
                     .optimize = optimize_deps,
                 }) orelse break :blk tui_renderer_mod;
 
+                const geometric_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/rasterizer/geometric.zig"),
+                });
+
+                const font_finder_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/rasterizer/font_finder.zig"),
+                    .target = target,
+                });
+                if (target.result.os.tag == .linux) {
+                    font_finder_mod.linkSystemLibrary("fontconfig", .{});
+                    font_finder_mod.link_libc = true;
+                }
+
                 const truetype_rasterizer_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/rasterizer/truetype.zig"),
                     .target = target,
                     .imports = &.{
                         .{ .name = "TrueType", .module = tt_dep.module("TrueType") },
                         .{ .name = "xy", .module = gui_xy_mod },
+                        .{ .name = "geometric", .module = geometric_mod },
+                        .{ .name = "font_finder", .module = font_finder_mod },
                     },
                 });
-                if (target.result.os.tag == .linux) {
-                    truetype_rasterizer_mod.linkSystemLibrary("fontconfig", .{});
-                    truetype_rasterizer_mod.link_libc = true;
-                }
+
+                const freetype_rasterizer_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/rasterizer/freetype.zig"),
+                    .target = target,
+                    .imports = &.{
+                        .{ .name = "xy", .module = gui_xy_mod },
+                        .{ .name = "geometric", .module = geometric_mod },
+                        .{ .name = "font_finder", .module = font_finder_mod },
+                    },
+                });
+                freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
+                freetype_rasterizer_mod.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
+                freetype_rasterizer_mod.link_libc = true;
+
+                const combined_rasterizer_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/rasterizer/combined.zig"),
+                    .imports = &.{
+                        .{ .name = "tt_rasterizer", .module = truetype_rasterizer_mod },
+                        .{ .name = "ft_rasterizer", .module = freetype_rasterizer_mod },
+                        .{ .name = "xy", .module = gui_xy_mod },
+                        .{ .name = "gui_config", .module = gui_config_mod },
+                    },
+                });
 
                 const gpu_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/gpu/gpu.zig"),
                     .imports = &.{
                         .{ .name = "sokol", .module = sokol_mod },
-                        .{ .name = "rasterizer", .module = truetype_rasterizer_mod },
+                        .{ .name = "rasterizer", .module = combined_rasterizer_mod },
                         .{ .name = "xy", .module = gui_xy_mod },
                         .{ .name = "Cell", .module = gui_cell_mod },
                         .{ .name = "GlyphIndexCache", .module = gui_glyph_cache_mod },
@@ -608,7 +642,7 @@ pub fn build_exe(
                         .{ .name = "app", .module = app_mod },
                         .{ .name = "tuirenderer", .module = tui_renderer_mod },
                         .{ .name = "vaxis", .module = vaxis_mod },
-                        .{ .name = "rasterizer", .module = truetype_rasterizer_mod },
+                        .{ .name = "rasterizer", .module = combined_rasterizer_mod },
                     },
                 });
                 break :blk mod;

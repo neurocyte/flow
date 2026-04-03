@@ -13,6 +13,7 @@ const builtin_shader = @import("builtin.glsl.zig");
 
 pub const Font = Rasterizer.Font;
 pub const GlyphKind = Rasterizer.GlyphKind;
+pub const RasterizerBackend = Rasterizer.Backend;
 pub const Cell = gui_cell.Cell;
 pub const Color = gui_cell.Rgba8;
 const Rgba8 = gui_cell.Rgba8;
@@ -97,6 +98,14 @@ pub fn deinit() void {
 
 pub fn loadFont(name: []const u8, size_px: u16) !Font {
     return global.rasterizer.loadFont(name, size_px);
+}
+
+pub fn setRasterizerBackend(backend: RasterizerBackend) void {
+    global.rasterizer.setBackend(backend);
+}
+
+pub fn setFontWeight(font: *Font, w: u8) void {
+    Rasterizer.setFontWeight(font, w);
 }
 
 pub fn setBackground(color: Rgba8) void {

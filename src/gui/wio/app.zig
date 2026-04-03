@@ -41,6 +41,8 @@ var tui_pid: thespian.pid = undefined;
 var font_size_px: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
+var font_weight: u8 = 0;
+var font_backend: gpu.RasterizerBackend = .freetype;
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
 
@@ -72,7 +74,7 @@ var cursor_dirty: std.atomic.Value(bool) = .init(false);
 var attention_pending: std.atomic.Value(bool) = .init(false);
 
 // Current font — written and read only from the wio thread (after gpu.init).
-var wio_font: gpu.Font = .{ .cell_size = .{ .x = 8, .y = 16 } };
+var wio_font: gpu.Font = .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } };
 
 // ── Public API (called from tui thread) ───────────────────────────────────
 
@@ -186,6 +188,28 @@ pub fn setFontFace(name: []const u8) void {
     requestRender();
 }
 
+pub fn setFontWeight(weight: u8) void {
+    font_weight = weight;
+    saveConfig();
+    font_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn getFontWeight() u8 {
+    return font_weight;
+}
+
+pub fn setRasterizerBackend(backend: gpu.RasterizerBackend) void {
+    font_backend = backend;
+    saveConfig();
+    font_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn getRasterizerBackend() gpu.RasterizerBackend {
+    return font_backend;
+}
+
 pub fn setWindowTitle(title: []const u8) void {
     title_mutex.lock();
     defer title_mutex.unlock();
@@ -237,6 +261,8 @@ pub fn loadConfig() void {
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
     font_size_px = conf.fontsize;
+    font_weight = conf.fontweight;
+    font_backend = conf.fontbackend;
     const name = conf.fontface;
     const copy_len = @min(name.len, font_name_buf.len);
     @memcpy(font_name_buf[0..copy_len], name[0..copy_len]);
@@ -246,6 +272,8 @@ pub fn loadConfig() void {
 fn saveConfig() void {
     var conf, _ = root.read_config(gui_config, config_arena);
     conf.fontsize = @truncate(font_size_px);
+    conf.fontweight = font_weight;
+    conf.fontbackend = font_backend;
     conf.fontface = getFontName();
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
@@ -285,7 +313,10 @@ fn pixelToCellPos(pos: wio.Position) CellPos {
 fn reloadFont() void {
     const name = if (font_name_len > 0) font_name_buf[0..font_name_len] else "monospace";
     const size_physical: u16 = @intFromFloat(@round(@as(f32, @floatFromInt(font_size_px)) * dpi_scale));
-    wio_font = gpu.loadFont(name, @max(size_physical, 4)) catch return;
+    gpu.setRasterizerBackend(font_backend);
+    var f = gpu.loadFont(name, @max(size_physical, 4)) catch return;
+    gpu.setFontWeight(&f, font_weight);
+    wio_font = f;
 }
 
 // Check dirty flag and reload if needed.
