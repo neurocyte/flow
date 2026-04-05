@@ -3007,14 +3007,14 @@ pub const Editor = struct {
         self.update_animation_step(dest);
     }
 
-    fn scroll_up(self: *Self) void {
+    fn scroll_up_internal(self: *Self) void {
         const scroll_step_vertical = tui.config().scroll_step_vertical;
         var dest_row = self.scroll_dest;
         dest_row = if (dest_row > scroll_step_vertical) dest_row - scroll_step_vertical else 0;
         self.update_scroll_dest_abs(dest_row);
     }
 
-    fn scroll_down(self: *Self) void {
+    fn scroll_down_internal(self: *Self) void {
         const scroll_step_vertical = tui.config().scroll_step_vertical;
         var dest_row = self.scroll_dest;
         dest_row += scroll_step_vertical;
@@ -3040,7 +3040,7 @@ pub const Editor = struct {
         else if (tui.fast_scroll())
             self.scroll_pageup()
         else
-            self.scroll_up();
+            self.scroll_up_internal();
     }
 
     pub fn mouse_scroll_down(self: *Self) void {
@@ -3049,7 +3049,7 @@ pub const Editor = struct {
         else if (tui.fast_scroll())
             self.scroll_pagedown()
         else
-            self.scroll_down();
+            self.scroll_down_internal();
     }
 
     pub fn scroll_to(self: *Self, row: usize) void {
@@ -4541,6 +4541,16 @@ pub const Editor = struct {
         try self.update_buf(root);
     }
     pub const unindent_meta: Meta = .{ .description = "Unindent current line", .arguments = &.{.integer} };
+
+    pub fn scroll_up(self: *Self, _: Context) Result {
+        self.scroll_up_internal();
+    }
+    pub const scroll_up_meta: Meta = .{ .description = "Scroll up" };
+
+    pub fn scroll_down(self: *Self, _: Context) Result {
+        self.scroll_down_internal();
+    }
+    pub const scroll_down_meta: Meta = .{ .description = "Scroll down" };
 
     pub fn move_scroll_up(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
