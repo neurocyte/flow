@@ -4427,15 +4427,15 @@ pub const Editor = struct {
     }
     pub const move_scroll_down_meta: Meta = .{ .description = "Move and scroll down", .arguments = &.{.integer} };
 
-    pub fn move_scroll_left(self: *Self, _: Context) Result {
+    pub fn scroll_left(self: *Self, _: Context) Result {
         self.view.move_left(tui.config().scroll_step_horizontal) catch {};
     }
-    pub const move_scroll_left_meta: Meta = .{ .description = "Scroll left" };
+    pub const scroll_left_meta: Meta = .{ .description = "Scroll left" };
 
-    pub fn move_scroll_right(self: *Self, _: Context) Result {
+    pub fn scroll_right(self: *Self, _: Context) Result {
         self.view.move_right(tui.config().scroll_step_horizontal) catch {};
     }
-    pub const move_scroll_right_meta: Meta = .{ .description = "Scroll right" };
+    pub const scroll_right_meta: Meta = .{ .description = "Scroll right" };
 
     pub fn mouse_scroll_left(self: *Self) void {
         const scroll_step_horizontal = tui.config().scroll_step_horizontal;
