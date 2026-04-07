@@ -5,7 +5,7 @@ const win32 = @import("win32").everything;
 const win32ext = @import("win32ext.zig");
 
 const dwrite = @import("dwrite.zig");
-const XY = @import("../gui/xy.zig").XY;
+const XY = @import("xy").XY;
 
 pub const Font = dwrite.Font;
 pub const Fonts = dwrite.Fonts;

@@ -506,6 +506,10 @@ pub fn build_exe(
             .d3d11 => {
                 const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
                 const win32_mod = win32_dep.module("win32");
+                const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
+                const gui_cell_mod = b.createModule(.{ .root_source_file = b.path("src/gui/Cell.zig") });
+                const gui_glyph_cache_mod = b.createModule(.{ .root_source_file = b.path("src/gui/GlyphIndexCache.zig") });
+                const gui_xterm_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xterm.zig") });
                 const gui_mod = b.createModule(.{
                     .root_source_file = b.path("src/win32/gui.zig"),
                     .imports = &.{
@@ -519,6 +523,10 @@ pub fn build_exe(
                         .{ .name = "color", .module = color_mod },
                         .{ .name = "gui_config", .module = gui_config_mod },
                         .{ .name = "tracy", .module = tracy_mod },
+                        .{ .name = "xy", .module = gui_xy_mod },
+                        .{ .name = "Cell", .module = gui_cell_mod },
+                        .{ .name = "GlyphIndexCache", .module = gui_glyph_cache_mod },
+                        .{ .name = "xterm", .module = gui_xterm_mod },
                     },
                 });
                 gui_mod.addIncludePath(b.path("src/win32"));

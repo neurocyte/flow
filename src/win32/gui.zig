@@ -18,10 +18,10 @@ const input = @import("input");
 const windowmsg = @import("windowmsg.zig");
 
 const render = @import("d3d11.zig");
-const xterm = @import("../gui/xterm.zig");
+const xterm = @import("xterm");
 
 const FontFace = @import("FontFace.zig");
-const XY = @import("../gui/xy.zig").XY;
+const XY = @import("xy").XY;
 
 const WM_APP_EXIT = win32.WM_APP + 1;
 const WM_APP_SET_BACKGROUND = win32.WM_APP + 2;

@@ -4,11 +4,11 @@ const win32 = @import("win32").everything;
 const win32ext = @import("win32ext.zig");
 
 const dwrite = @import("dwrite.zig");
-const GlyphIndexCache = @import("../gui/GlyphIndexCache.zig");
+const GlyphIndexCache = @import("GlyphIndexCache");
 const TextRenderer = @import("DwriteRenderer.zig");
 
-const XY = @import("../gui/xy.zig").XY;
-const gui_cell = @import("../gui/Cell.zig");
+const XY = @import("xy").XY;
+const gui_cell = @import("Cell");
 
 pub const Font = TextRenderer.Font;
 pub const Fonts = TextRenderer.Fonts;

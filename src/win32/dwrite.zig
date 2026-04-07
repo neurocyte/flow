@@ -2,7 +2,7 @@ const std = @import("std");
 const win32 = @import("win32").everything;
 
 const FontFace = @import("FontFace.zig");
-const XY = @import("xy.zig").XY;
+const XY = @import("xy").XY;
 
 const global = struct {
     var init_called: bool = false;
