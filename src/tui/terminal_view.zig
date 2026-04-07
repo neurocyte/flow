@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const build_options = @import("build_options");
 const Allocator = std.mem.Allocator;
 
 const tp = @import("thespian");
@@ -74,6 +73,8 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
 pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     var env = try std.process.getEnvMap(self.allocator);
     errdefer env.deinit();
+    if (env.get("TERM") == null)
+        try env.put("TERM", "xterm-256color");
 
     var cmd_arg: []const u8 = "";
     var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
