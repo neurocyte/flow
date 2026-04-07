@@ -534,8 +534,14 @@ fn wioLoop() void {
                     const cp = pixelToCellPos(mouse_pos);
                     tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
                 },
-                .focused => window.enableTextInput(.{}),
-                .unfocused => window.disableTextInput(),
+                .focused => {
+                    window.enableTextInput(.{});
+                    tui_pid.send(.{"focus_in"}) catch {};
+                },
+                .unfocused => {
+                    window.disableTextInput();
+                    tui_pid.send(.{"focus_out"}) catch {};
+                },
                 else => {},
             }
         }
