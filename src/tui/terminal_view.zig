@@ -87,6 +87,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
 
     var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
     defer argv_list.deinit(self.allocator);
+    var have_cmd = false;
     if (argv_msg) |msg| {
         var iter = msg.buf;
         var len = try cbor.decodeArrayHeader(&iter);
@@ -94,6 +95,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
             var arg: []const u8 = undefined;
             if (try cbor.matchValue(&iter, cbor.extract(&arg)))
                 try argv_list.append(self.allocator, arg);
+            have_cmd = true;
         }
     } else {
         const default_shell = if (builtin.os.tag == .windows)
@@ -110,7 +112,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     const rows: u16 = @intCast(@max(24, self.plane.dim_y()));
 
     if (global_vt) |*vt| {
-        if (!vt.process_exited) {
+        if (!vt.process_exited and have_cmd) {
             var msg: std.Io.Writer.Allocating = .init(self.allocator);
             defer msg.deinit();
             try msg.writer.writeAll("terminal is already running '");
@@ -118,10 +120,9 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
             try msg.writer.writeAll("'");
             return tp.exit(msg.written());
         }
-        vt.deinit(self.allocator);
-        global_vt = null;
+    } else {
+        try Vt.init(self.allocator, argv_list.items, env, rows, cols, on_exit);
     }
-    try Vt.init(self.allocator, argv_list.items, env, rows, cols, on_exit);
     self.vt = &global_vt.?;
 
     if (self.last_cmd) |cmd| {
