@@ -114,17 +114,21 @@ fn build_release(
     all_targets: bool,
     test_filters: []const []const u8,
 ) void {
-    const targets: []const std.Target.Query = if (all_targets) &.{
-        .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
-        .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl },
-        .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
-        .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .musleabihf },
-        .{ .cpu_arch = .x86_64, .os_tag = .macos },
-        .{ .cpu_arch = .aarch64, .os_tag = .macos },
-        .{ .cpu_arch = .x86_64, .os_tag = .windows },
-        .{ .cpu_arch = .aarch64, .os_tag = .windows },
-        .{ .cpu_arch = .x86_64, .os_tag = .freebsd },
-        .{ .cpu_arch = .aarch64, .os_tag = .freebsd },
+    const targets: []const struct { std.Target.Query, Renderer } = if (all_targets) &.{
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl }, .terminal },
+        // .{ .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = null }, .gui },
+        .{ .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl }, .terminal },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl }, .terminal },
+        // .{ .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = null }, .gui },
+        .{ .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .musleabihf }, .terminal },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .macos }, .terminal },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .macos }, .terminal },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .windows }, .terminal },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .windows }, .d3d11 },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .terminal },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .d3d11 },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .freebsd }, .terminal },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .freebsd }, .terminal },
     } else blk: {
         const maybe_triple = b.option(
             []const u8,
@@ -133,8 +137,18 @@ fn build_release(
         );
         const triple = maybe_triple orelse {
             const native_target = b.resolveTargetQuery(.{}).result;
-            break :blk &.{
-                .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag },
+            break :blk switch (native_target.os.tag) {
+                .linux => &.{
+                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag, .abi = .musl }, .terminal },
+                    // .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag, .abi = null }, .gui },
+                },
+                .windows => &.{
+                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
+                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .d3d11 },
+                },
+                else => &.{
+                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
+                },
             };
         };
         const selected_target = std.Build.parseTargetQuery(.{
@@ -142,8 +156,18 @@ fn build_release(
         }) catch |err| switch (err) {
             error.ParseFailed => @panic("unknown target"),
         };
-        break :blk &.{
-            .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi },
+        break :blk switch (selected_target.os_tag.?) {
+            .linux => &.{
+                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .musl }, .terminal },
+                // .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = .gnu }, .gui },
+            },
+            .windows => &.{
+                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
+                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .d3d11 },
+            },
+            else => &.{
+                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
+            },
         };
     };
     const optimize = b.standardOptimizeOption(.{});
@@ -155,8 +179,9 @@ fn build_release(
     b.getInstallStep().dependOn(&b.addInstallFile(version_file, "version").step);
 
     for (targets) |t| {
-        const target = b.resolveTargetQuery(t);
-        var triple = std.mem.splitScalar(u8, t.zigTriple(b.allocator) catch unreachable, '-');
+        const renderer = t.@"1";
+        const target = b.resolveTargetQuery(t.@"0");
+        var triple = std.mem.splitScalar(u8, t.@"0".zigTriple(b.allocator) catch unreachable, '-');
         const arch = triple.next() orelse unreachable;
         const os = triple.next() orelse unreachable;
         const target_path = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch }) catch unreachable;
@@ -176,7 +201,7 @@ fn build_release(
             true, // strip release builds
             use_llvm,
             pie,
-            .terminal,
+            renderer,
             version,
             test_filters,
         );
@@ -195,50 +220,10 @@ fn build_release(
             false, // don't strip debug builds
             use_llvm,
             pie,
-            .terminal,
+            renderer,
             version,
             test_filters,
         );
-
-        if (t.os_tag == .windows) {
-            build_exe(
-                b,
-                run_step,
-                check_step,
-                test_step,
-                lint_step,
-                target,
-                optimize_release,
-                .{ .dest_dir = .{ .override = .{ .custom = target_path } } },
-                tracy_enabled,
-                use_tree_sitter,
-                true, // strip release builds
-                use_llvm,
-                pie,
-                .d3d11,
-                version,
-                test_filters,
-            );
-
-            build_exe(
-                b,
-                run_step,
-                check_step,
-                test_step,
-                lint_step,
-                target,
-                optimize_debug,
-                .{ .dest_dir = .{ .override = .{ .custom = target_path_debug } } },
-                tracy_enabled,
-                use_tree_sitter,
-                false, // don't strip debug builds
-                use_llvm,
-                pie,
-                .d3d11,
-                version,
-                test_filters,
-            );
-        }
     }
 }
 
