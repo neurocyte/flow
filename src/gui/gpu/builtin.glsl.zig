@@ -15,6 +15,14 @@ pub const FsParams = extern struct {
     col_count: i32,
     row_count: i32,
     viewport_height: i32,
+    // Primary cursor (position + appearance)
+    cursor_col: i32,
+    cursor_row: i32,
+    cursor_shape: i32, // 0=block, 1=beam, 2=underline
+    cursor_vis: i32, // 0=hidden, 1=visible
+    cursor_color: [4]f32, // RGBA normalized [0,1]
+    // Secondary cursor colour (positions encoded in ShaderCell._pad)
+    sec_cursor_color: [4]f32, // RGBA normalized [0,1]
 };
 
 const vs_src =
@@ -34,6 +42,12 @@ const fs_src =
     \\uniform int col_count;
     \\uniform int row_count;
     \\uniform int viewport_height;
+    \\uniform int cursor_col;
+    \\uniform int cursor_row;
+    \\uniform int cursor_shape;
+    \\uniform int cursor_vis;
+    \\uniform vec4 cursor_color;
+    \\uniform vec4 sec_cursor_color;
     \\uniform sampler2D glyph_tex_glyph_smp;
     \\uniform usampler2D cell_tex_cell_smp;
     \\out vec4 frag_color;
@@ -59,7 +73,7 @@ const fs_src =
     \\        return;
     \\    }
     \\
-    \\    // Fetch cell: texel = (glyph_index, bg_packed, fg_packed, 0)
+    \\    // Fetch cell: texel = (glyph_index, bg_packed, fg_packed, cursor_flag)
     \\    uvec4 cell = texelFetch(cell_tex_cell_smp, ivec2(col, row), 0);
     \\    vec4 bg = unpack_rgba(cell.g);
     \\    vec4 fg = unpack_rgba(cell.b);
@@ -78,9 +92,31 @@ const fs_src =
     \\                              gr * cell_size_y + cell_px_y);
     \\    float glyph_alpha = texelFetch(glyph_tex_glyph_smp, atlas_coord, 0).r;
     \\
-    \\    // Blend fg over bg
-    \\    vec3 color = mix(bg.rgb, fg.rgb, fg.a * glyph_alpha);
-    \\    frag_color = vec4(color, 1.0);
+    \\    // Cursor detection
+    \\    bool is_primary   = (cursor_vis != 0) && (col == cursor_col) && (row == cursor_row);
+    \\    bool is_secondary = (cell.a != 0u);
+    \\
+    \\    vec3 final_bg = bg.rgb;
+    \\    vec3 final_fg = fg.rgb;
+    \\
+    \\    if (is_primary || is_secondary) {
+    \\        vec4 cur = is_primary ? cursor_color : sec_cursor_color;
+    \\        int shape = cursor_shape;
+    \\
+    \\        if (shape == 1) {
+    \\            // Beam: 2px vertical bar at left edge of cell
+    \\            if (cell_px_x < 2) { frag_color = vec4(cur.rgb, 1.0); return; }
+    \\        } else if (shape == 2) {
+    \\            // Underline: 2px horizontal bar at bottom of cell
+    \\            if (cell_px_y >= cell_size_y - 2) { frag_color = vec4(cur.rgb, 1.0); return; }
+    \\        } else {
+    \\            // Block: cursor colour as bg, inverted for glyph contrast
+    \\            final_bg = cur.rgb;
+    \\            final_fg = vec3(1.0) - cur.rgb;
+    \\        }
+    \\    }
+    \\
+    \\    frag_color = vec4(mix(final_bg, final_fg, fg.a * glyph_alpha), 1.0);
     \\}
 ;
 
@@ -91,7 +127,7 @@ pub fn shaderDesc(backend: sg.Backend) sg.ShaderDesc {
             desc.vertex_func.source = vs_src;
             desc.fragment_func.source = fs_src;
 
-            // Fragment uniform block: 4 individual INT uniforms
+            // Fragment uniform block: individual uniforms (GLCORE uses glUniform* calls)
             desc.uniform_blocks[0].stage = .FRAGMENT;
             desc.uniform_blocks[0].size = @sizeOf(FsParams);
             desc.uniform_blocks[0].layout = .NATIVE;
@@ -100,6 +136,12 @@ pub fn shaderDesc(backend: sg.Backend) sg.ShaderDesc {
             desc.uniform_blocks[0].glsl_uniforms[2] = .{ .type = .INT, .glsl_name = "col_count" };
             desc.uniform_blocks[0].glsl_uniforms[3] = .{ .type = .INT, .glsl_name = "row_count" };
             desc.uniform_blocks[0].glsl_uniforms[4] = .{ .type = .INT, .glsl_name = "viewport_height" };
+            desc.uniform_blocks[0].glsl_uniforms[5] = .{ .type = .INT, .glsl_name = "cursor_col" };
+            desc.uniform_blocks[0].glsl_uniforms[6] = .{ .type = .INT, .glsl_name = "cursor_row" };
+            desc.uniform_blocks[0].glsl_uniforms[7] = .{ .type = .INT, .glsl_name = "cursor_shape" };
+            desc.uniform_blocks[0].glsl_uniforms[8] = .{ .type = .INT, .glsl_name = "cursor_vis" };
+            desc.uniform_blocks[0].glsl_uniforms[9] = .{ .type = .FLOAT4, .glsl_name = "cursor_color" };
+            desc.uniform_blocks[0].glsl_uniforms[10] = .{ .type = .FLOAT4, .glsl_name = "sec_cursor_color" };
 
             // Glyph atlas texture: R8 → sample_type = FLOAT
             desc.views[0].texture = .{

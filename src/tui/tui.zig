@@ -2190,7 +2190,6 @@ pub fn is_cursor_beam() bool {
 }
 
 pub fn has_native_cursor() bool {
-    if (build_options.gui) return false;
     return current().config_.enable_terminal_cursor;
 }
 

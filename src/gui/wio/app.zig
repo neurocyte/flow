@@ -22,6 +22,12 @@ const gui_config = @import("gui_config");
 
 const log = std.log.scoped(.wio_app);
 
+// Re-export cursor types so renderer.zig (which imports 'app' but not 'gpu')
+// can use them without a direct dependency on the gpu module.
+pub const CursorInfo = gpu.CursorInfo;
+pub const CursorShape = gpu.CursorShape;
+pub const GpuColor = gpu.Color;
+
 // ── Shared state (protected by screen_mutex) ──────────────────────────────
 
 const ScreenSnapshot = struct {
@@ -31,6 +37,9 @@ const ScreenSnapshot = struct {
     widths: []u8,
     width: u16,
     height: u16,
+    // Cursor state (set by renderer thread, consumed by wio thread)
+    cursor: gpu.CursorInfo,
+    secondary_cursors: []gpu.CursorInfo, // heap-allocated, freed with snapshot
 };
 
 var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
@@ -92,7 +101,11 @@ pub fn stop() void {
 }
 
 /// Called from the tui thread to push a new screen to the GPU thread.
-pub fn updateScreen(vx_screen: *const vaxis.Screen) void {
+pub fn updateScreen(
+    vx_screen: *const vaxis.Screen,
+    cursor: gpu.CursorInfo,
+    secondary_cursors: []const gpu.CursorInfo,
+) void {
     const allocator = gpa.allocator();
     const cell_count: usize = @as(usize, vx_screen.width) * @as(usize, vx_screen.height);
 
@@ -106,6 +119,13 @@ pub fn updateScreen(vx_screen: *const vaxis.Screen) void {
         allocator.free(new_codepoints);
         return;
     };
+    const new_sec = allocator.alloc(gpu.CursorInfo, secondary_cursors.len) catch {
+        allocator.free(new_cells);
+        allocator.free(new_codepoints);
+        allocator.free(new_widths);
+        return;
+    };
+    @memcpy(new_sec, secondary_cursors);
 
     // Convert vaxis cells → gpu.Cell (colours only; glyph indices filled on GPU thread).
     for (vx_screen.buf[0..cell_count], new_cells, new_codepoints, new_widths) |*vc, *gc, *cp, *wt| {
@@ -131,6 +151,7 @@ pub fn updateScreen(vx_screen: *const vaxis.Screen) void {
         allocator.free(old.cells);
         allocator.free(old.codepoints);
         allocator.free(old.widths);
+        allocator.free(old.secondary_cursors);
     }
     screen_snap = .{
         .cells = new_cells,
@@ -138,6 +159,8 @@ pub fn updateScreen(vx_screen: *const vaxis.Screen) void {
         .widths = new_widths,
         .width = vx_screen.width,
         .height = vx_screen.height,
+        .cursor = cursor,
+        .secondary_cursors = new_sec,
     };
 
     screen_pending.store(true, .release);
@@ -561,6 +584,7 @@ fn wioLoop() void {
                     allocator.free(s.cells);
                     allocator.free(s.codepoints);
                     allocator.free(s.widths);
+                    allocator.free(s.secondary_cursors);
                 }
 
                 state.size = .{ .x = win_size.width, .y = win_size.height };
@@ -595,6 +619,8 @@ fn wioLoop() void {
                     s.width,
                     0,
                     cells_with_glyphs,
+                    s.cursor,
+                    s.secondary_cursors,
                 );
                 sg.commit();
                 window.swapBuffers();

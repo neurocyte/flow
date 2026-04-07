@@ -56,6 +56,11 @@ dispatch_event: ?*const fn (ctx: *anyopaque, cbor_msg: []const u8) void = null,
 thread: ?std.Thread = null,
 window_ready: bool = false,
 
+cursor_info: app.CursorInfo = .{},
+cursor_color: app.GpuColor = app.GpuColor.initRgb(255, 255, 255),
+secondary_cursors: std.ArrayListUnmanaged(app.CursorInfo) = .{},
+secondary_color: app.GpuColor = app.GpuColor.initRgb(255, 255, 255),
+
 const global = struct {
     var init_called: bool = false;
 };
@@ -92,6 +97,7 @@ pub fn init(
         .dispatch_initialized = dispatch_initialized,
     };
     result.vx.caps.unicode = .unicode;
+    result.vx.caps.multi_cursor = true;
     result.vx.screen.width_method = .unicode;
     return result;
 }
@@ -101,6 +107,7 @@ pub fn deinit(self: *Self) void {
     var drop: std.Io.Writer.Discarding = .init(&.{});
     self.vx.deinit(self.allocator, &drop.writer);
     self.event_buffer.deinit();
+    self.secondary_cursors.deinit(self.allocator);
 }
 
 pub fn run(self: *Self) Error!void {
@@ -123,7 +130,7 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
 
 pub fn render(self: *Self) error{}!void {
     if (!self.window_ready) return;
-    app.updateScreen(&self.vx.screen);
+    app.updateScreen(&self.vx.screen, self.cursor_info, self.secondary_cursors.items);
 }
 
 pub fn sigwinch(self: *Self) !void {
@@ -414,13 +421,11 @@ pub fn get_fontfaces(self: *Self) void {
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {
-    _ = self;
-    _ = color;
+    self.cursor_color = themeColorToGpu(color);
 }
 
 pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
-    _ = self;
-    _ = color;
+    self.secondary_color = themeColorToGpu(color);
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
@@ -462,24 +467,48 @@ pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
 }
 
 pub fn cursor_enable(self: *Self, y: i32, x: i32, shape: CursorShape) !void {
-    _ = self;
-    _ = y;
-    _ = x;
-    _ = shape;
+    self.cursor_info = .{
+        .vis = true,
+        .row = if (y < 0) 0 else @intCast(y),
+        .col = if (x < 0) 0 else @intCast(x),
+        .shape = vaxisCursorShape(shape),
+        .color = self.cursor_color,
+    };
 }
 
 pub fn cursor_disable(self: *Self) void {
-    _ = self;
+    self.cursor_info.vis = false;
 }
 
 pub fn clear_all_multi_cursors(self: *Self) !void {
-    _ = self;
+    self.secondary_cursors.clearRetainingCapacity();
 }
 
 pub fn show_multi_cursor_yx(self: *Self, y: i32, x: i32) !void {
-    _ = self;
-    _ = y;
-    _ = x;
+    try self.secondary_cursors.append(self.allocator, .{
+        .vis = true,
+        .row = if (y < 0) 0 else @intCast(y),
+        .col = if (x < 0) 0 else @intCast(x),
+        .shape = self.cursor_info.shape,
+        .color = self.secondary_color,
+    });
+}
+
+fn themeColorToGpu(color: Color) app.GpuColor {
+    return .{
+        .r = @truncate(color.color >> 16),
+        .g = @truncate(color.color >> 8),
+        .b = @truncate(color.color),
+        .a = color.alpha,
+    };
+}
+
+fn vaxisCursorShape(shape: CursorShape) app.CursorShape {
+    return switch (shape) {
+        .default, .block, .block_blink => .block,
+        .beam, .beam_blink => .beam,
+        .underline, .underline_blink => .underline,
+    };
 }
 
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {

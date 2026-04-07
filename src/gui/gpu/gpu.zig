@@ -18,6 +18,16 @@ pub const Cell = gui_cell.Cell;
 pub const Color = gui_cell.Rgba8;
 const Rgba8 = gui_cell.Rgba8;
 
+pub const CursorShape = enum(i32) { block = 0, beam = 1, underline = 2 };
+
+pub const CursorInfo = struct {
+    vis: bool = false,
+    row: u16 = 0,
+    col: u16 = 0,
+    shape: CursorShape = .block,
+    color: Color = Color.initRgb(255, 255, 255),
+};
+
 const log = std.log.scoped(.gpu);
 
 // Maximum glyph atlas dimension.  4096 is universally supported and gives
@@ -350,6 +360,8 @@ pub fn paint(
     col_count: u16,
     top: u16,
     cells: []const Cell,
+    cursor: CursorInfo,
+    secondary_cursors: []const CursorInfo,
 ) void {
     const shader_col_count: u16 = @intCast(@divTrunc(client_size.x, font.cell_size.x));
     const shader_row_count: u16 = @intCast(@divTrunc(client_size.y, font.cell_size.y));
@@ -386,6 +398,13 @@ pub fn paint(
                 .fg = @bitCast(global.background),
             };
         }
+    }
+
+    // Mark secondary cursor cells in the _pad field (read by fragment shader).
+    for (secondary_cursors) |sc| {
+        if (!sc.vis) continue;
+        if (sc.row >= shader_row_count or sc.col >= shader_col_count) continue;
+        shader_cells[@as(usize, sc.row) * shader_col_count + sc.col]._pad = 1;
     }
 
     // Upload glyph atlas to GPU if any new glyphs were rasterized this frame.
@@ -429,12 +448,23 @@ pub fn paint(
     bindings.samplers[1] = global.cell_sampler;
     sg.applyBindings(bindings);
 
+    const sec_color: Color = if (secondary_cursors.len > 0)
+        secondary_cursors[0].color
+    else
+        Color.initRgb(255, 255, 255);
+
     const fs_params = builtin_shader.FsParams{
         .cell_size_x = font.cell_size.x,
         .cell_size_y = font.cell_size.y,
         .col_count = shader_col_count,
         .row_count = shader_row_count,
         .viewport_height = @intCast(client_size.y),
+        .cursor_col = cursor.col,
+        .cursor_row = cursor.row,
+        .cursor_shape = @intFromEnum(cursor.shape),
+        .cursor_vis = if (cursor.vis) 1 else 0,
+        .cursor_color = colorToVec4(cursor.color),
+        .sec_cursor_color = colorToVec4(sec_color),
     };
     sg.applyUniforms(0, .{
         .ptr = &fs_params,
@@ -444,6 +474,15 @@ pub fn paint(
     sg.draw(0, 4, 1);
     sg.endPass();
     // Note: caller (app.zig) calls sg.commit() and window.swapBuffers()
+}
+
+fn colorToVec4(c: Color) [4]f32 {
+    return .{
+        @as(f32, @floatFromInt(c.r)) / 255.0,
+        @as(f32, @floatFromInt(c.g)) / 255.0,
+        @as(f32, @floatFromInt(c.b)) / 255.0,
+        @as(f32, @floatFromInt(c.a)) / 255.0,
+    };
 }
 
 fn oom(e: error{OutOfMemory}) noreturn {
