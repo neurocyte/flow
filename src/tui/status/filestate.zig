@@ -117,7 +117,7 @@ fn render_mini_mode(plane: *Plane, theme: *const Widget.Theme) void {
     _ = plane.putstr_unicode(mini_mode.text) catch {};
     if (mini_mode.cursor) |cursor| {
         const pos: c_int = @intCast(cursor);
-        if (tui.config().enable_terminal_cursor) {
+        if (tui.has_native_cursor()) {
             const y, const x = plane.rel_yx_to_abs(0, pos + 1);
             tui.rdr().cursor_enable(y, x, tui.get_cursor_shape()) catch {};
         } else {

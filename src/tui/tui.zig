@@ -164,7 +164,6 @@ fn init(allocator: Allocator) InitError!*Self {
     conf.theme = dark_theme.name;
     const light_theme = Widget.get_theme_by_name(allocator, conf.light_theme) orelse Widget.get_theme_by_name(allocator, "default-light") orelse return error.UnknownTheme;
     conf.light_theme = light_theme.name;
-    if (build_options.gui) conf.enable_terminal_cursor = false;
 
     const frame_rate: usize = @intCast(tp.env.get().num("frame-rate"));
     if (frame_rate != 0)
@@ -659,7 +658,7 @@ fn render(self: *Self) void {
         defer frame.deinit();
         self.rdr_.stdplane().erase();
         const theme_ = self.current_theme();
-        if (self.config_.enable_terminal_cursor) {
+        if (has_native_cursor()) {
             self.rdr_.cursor_disable();
             if (self.rdr_.vx.caps.multi_cursor) self.rdr_.clear_all_multi_cursors() catch {};
             self.rdr_.set_terminal_cursor_color(theme_.editor_cursor.bg.?);
@@ -2188,6 +2187,11 @@ pub fn is_cursor_beam() bool {
         .beam, .beam_blink => true,
         else => false,
     };
+}
+
+pub fn has_native_cursor() bool {
+    if (build_options.gui) return false;
+    return current().config_.enable_terminal_cursor;
 }
 
 pub fn get_selection_style() @import("Buffer").Selection.Style {

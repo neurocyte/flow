@@ -51,7 +51,7 @@ pub fn Options(context: type) type {
             }
             if (self.cursor) |cursor| {
                 const pos: c_int = @intCast(cursor);
-                if (tui.config().enable_terminal_cursor) {
+                if (tui.has_native_cursor()) {
                     const y, const x = self.plane.rel_yx_to_abs(0, pos + self.opts.padding + self.icon_width);
                     tui.rdr().cursor_enable(y, x, tui.get_cursor_shape()) catch {};
                 } else {

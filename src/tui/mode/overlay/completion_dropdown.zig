@@ -200,7 +200,7 @@ pub fn on_render_menu(self: *Type, button: *Type.ButtonType, theme: *const Widge
     const icon_: []const u8 = values.kind.icon();
     const color: u24 = 0x0;
 
-    if (tui.config().enable_terminal_cursor) blk: {
+    if (tui.has_native_cursor()) blk: {
         const cursor = self.value.editor.get_primary_abs() orelse break :blk;
         tui.rdr().cursor_enable(@intCast(cursor.row), @intCast(cursor.col), tui.get_cursor_shape()) catch {};
     }

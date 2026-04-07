@@ -376,7 +376,7 @@ pub const Editor = struct {
     animation_lag: f64,
     animation_last_time: i64,
 
-    enable_terminal_cursor: bool,
+    software_rendered_cursor: bool,
     render_whitespace: WhitespaceMode,
     indent_size: usize,
     tab_width: usize,
@@ -639,7 +639,7 @@ pub const Editor = struct {
             .animation_frame_rate = frame_rate,
             .animation_last_time = time.microTimestamp(),
             .enable_format_on_save = tui.config().enable_format_on_save,
-            .enable_terminal_cursor = tui.config().enable_terminal_cursor,
+            .software_rendered_cursor = !tui.has_native_cursor(),
             .render_whitespace = tui.config().whitespace_mode,
         };
         self.add_default_symbol_triggers();
@@ -1307,7 +1307,7 @@ pub const Editor = struct {
     fn render_cursors(self: *Self, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
         const frame = tracy.initZone(@src(), .{ .name = "editor render cursors" });
         defer frame.deinit();
-        if (focused and tui.config().enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor)
+        if (focused and !self.software_rendered_cursor and tui.rdr().vx.caps.multi_cursor)
             tui.rdr().clear_all_multi_cursors() catch {};
         for (self.cursels.items[0 .. self.cursels.items.len - 1]) |*cursel_| if (cursel_.*) |*cursel| {
             const cursor = cursel.cursor;
@@ -1332,7 +1332,7 @@ pub const Editor = struct {
 
         const focused = focused_ or self.cursor_focus_override;
 
-        if (focused and self.enable_terminal_cursor) {
+        if (focused and !self.software_rendered_cursor) {
             if (screen_pos) |pos| {
                 self.render_term_cursor(pos, cursor_shape);
             } else if (tui.is_mainview_focused() and tui.rdr().vx.caps.multi_cursor and self.has_secondary_cursors()) {
@@ -1345,7 +1345,7 @@ pub const Editor = struct {
     fn render_cursor_secondary(self: *Self, cursor: *const Cursor, theme: *const Widget.Theme, cell_map: CellMap, focused: bool) !void {
         const pos = self.screen_cursor(cursor) orelse return;
         set_cell_map_cursor(cell_map, pos.row, pos.col);
-        if (focused and self.enable_terminal_cursor and tui.rdr().vx.caps.multi_cursor)
+        if (focused and !self.software_rendered_cursor and tui.rdr().vx.caps.multi_cursor)
             self.render_term_cursor_secondary(pos)
         else
             self.render_soft_cursor(pos, theme.editor_cursor_secondary);
