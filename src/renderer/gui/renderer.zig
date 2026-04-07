@@ -61,6 +61,15 @@ cursor_color: app.GpuColor = app.GpuColor.initRgb(255, 255, 255),
 secondary_cursors: std.ArrayListUnmanaged(app.CursorInfo) = .{},
 secondary_color: app.GpuColor = app.GpuColor.initRgb(255, 255, 255),
 
+cursor_blink: bool = false,
+blink_on: bool = true,
+blink_epoch: i64 = 0,
+blink_period_us: i64 = 500_000,
+blink_idle_us: i64 = 15_000_000,
+blink_last_change: i64 = 0,
+prev_cursor: app.CursorInfo = .{},
+prev_cursor_blink: bool = false,
+
 const global = struct {
     var init_called: bool = false;
 };
@@ -128,9 +137,47 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
     return self.event_buffer.written();
 }
 
-pub fn render(self: *Self) error{}!void {
-    if (!self.window_ready) return;
-    app.updateScreen(&self.vx.screen, self.cursor_info, self.secondary_cursors.items);
+pub fn render(self: *Self) error{}!bool {
+    if (!self.window_ready) return false;
+
+    var cursor = self.cursor_info;
+
+    // Detect changes since the last rendered frame. Reset blink epoch and idle
+    // timer on any meaningful change so the cursor snaps to visible immediately.
+    if (cursor.vis != self.prev_cursor.vis or
+        cursor.row != self.prev_cursor.row or
+        cursor.col != self.prev_cursor.col or
+        cursor.shape != self.prev_cursor.shape or
+        self.cursor_blink != self.prev_cursor_blink)
+    {
+        const now = std.time.microTimestamp();
+        if (cursor.vis) {
+            self.blink_epoch = now;
+            self.blink_on = true;
+        }
+        self.blink_last_change = now;
+    }
+    self.prev_cursor = cursor;
+    self.prev_cursor_blink = self.cursor_blink;
+
+    // Apply blink unless the cursor has been idle for too long.
+    if (cursor.vis and self.cursor_blink) {
+        const now = std.time.microTimestamp();
+        const idle = now - self.blink_last_change;
+        if (idle < self.blink_idle_us) {
+            const elapsed = @mod(now - self.blink_epoch, self.blink_period_us * 2);
+            self.blink_on = elapsed < self.blink_period_us;
+            cursor.vis = self.blink_on;
+        } else {
+            cursor.vis = true; // freeze visible after idle timeout
+        }
+    }
+
+    app.updateScreen(&self.vx.screen, cursor, self.secondary_cursors.items);
+
+    if (!self.cursor_info.vis or !self.cursor_blink) return false;
+    const idle = std.time.microTimestamp() - self.blink_last_change;
+    return idle < self.blink_idle_us;
 }
 
 pub fn sigwinch(self: *Self) !void {
@@ -467,6 +514,7 @@ pub fn request_mouse_cursor_default(self: *Self, push_or_pop: bool) void {
 }
 
 pub fn cursor_enable(self: *Self, y: i32, x: i32, shape: CursorShape) !void {
+    self.cursor_blink = isBlink(shape);
     self.cursor_info = .{
         .vis = true,
         .row = if (y < 0) 0 else @intCast(y),
@@ -500,6 +548,13 @@ fn themeColorToGpu(color: Color) app.GpuColor {
         .g = @truncate(color.color >> 8),
         .b = @truncate(color.color),
         .a = color.alpha,
+    };
+}
+
+fn isBlink(shape: CursorShape) bool {
+    return switch (shape) {
+        .default, .block_blink, .beam_blink, .underline_blink => true,
+        else => false,
     };
 }
 

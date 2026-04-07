@@ -681,13 +681,17 @@ fn render(self: *Self) void {
         top_layer_.draw(self.rdr_.stdplane());
     }
 
-    {
+    const renderer_more = ret: {
         const frame = tracy.initZone(@src(), .{ .name = renderer.log_name ++ " render" });
         defer frame.deinit();
-        self.rdr_.render() catch |e| self.logger.err("render", e);
+        const m = self.rdr_.render() catch |e| blk: {
+            self.logger.err("render", e);
+            break :blk false;
+        };
         tracy.frameMark();
         self.unrendered_input_events_count = 0;
-    }
+        break :ret m;
+    };
     self.top_layer_reset();
 
     self.idle_frame_count = if (self.unrendered_input_events_count > 0)
@@ -695,7 +699,7 @@ fn render(self: *Self) void {
     else
         self.idle_frame_count + 1;
 
-    if (more or self.idle_frame_count < idle_frames or self.no_sleep) {
+    if (more or renderer_more or self.idle_frame_count < idle_frames or self.no_sleep) {
         if (!self.frame_clock_running) {
             self.frame_clock.start() catch {};
             self.frame_clock_running = true;
