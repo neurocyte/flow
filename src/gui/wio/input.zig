@@ -158,8 +158,8 @@ pub fn codepointFromButton(b: wio.Button, mods: Mods) u21 {
 }
 
 pub const mouse_button_left: u8 = 0;
-pub const mouse_button_right: u8 = 1;
-pub const mouse_button_middle: u8 = 2;
+pub const mouse_button_middle: u8 = 1;
+pub const mouse_button_right: u8 = 2;
 
 pub fn mouseButtonId(b: wio.Button) ?u8 {
     return switch (b) {
