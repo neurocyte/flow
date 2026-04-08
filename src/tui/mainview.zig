@@ -290,7 +290,6 @@ fn set_panel_height_abs(self: *Self, y: usize) tp.result {
         break :blk self.panels.?;
     };
     const max_h = self.box().h -| 1;
-    std.log.debug("set_panel_height: {?d} {d}", .{ self.panel_height, y });
     self.panel_height = @max(1, @min(max_h, y));
     self.panel_maximized = false;
     panels.layout_ = .{ .static = self.panel_height.? };
