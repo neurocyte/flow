@@ -106,6 +106,10 @@ pub const RGBf = struct {
     const GAMMA = 2.4;
 };
 
+pub fn u24_to_u8s(v: u24) [3]u8 {
+    return .{ @truncate(v >> 16), @truncate(v >> 8), @truncate(v) };
+}
+
 pub fn max_contrast(v: u24, a: u24, b: u24) u24 {
     return RGB.max_contrast(RGB.from_u24(v), RGB.from_u24(a), RGB.from_u24(b)).to_u24();
 }

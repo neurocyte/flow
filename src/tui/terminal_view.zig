@@ -18,7 +18,8 @@ const tui = @import("tui.zig");
 const input = @import("input");
 const keybind = @import("keybind");
 pub const Mode = keybind.Mode;
-const RGB = @import("color").RGB;
+const color = @import("color");
+const RGB = color.RGB;
 
 pub const name = @typeName(Self);
 
@@ -371,14 +372,8 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 
     // Update the terminal's fg/bg color cache from the current theme so that
     // OSC 10/11 colour queries return accurate values.
-    if (theme.editor.fg) |fg| {
-        const c = fg.color;
-        self.vt.vt.fg_color = .{ @truncate(c >> 16), @truncate(c >> 8), @truncate(c) };
-    }
-    if (theme.editor.bg) |bg| {
-        const c = bg.color;
-        self.vt.vt.bg_color = .{ @truncate(c >> 16), @truncate(c >> 8), @truncate(c) };
-    }
+    if (theme.editor.fg) |fg| self.vt.vt.fg_color = color.u24_to_u8s(fg.color);
+    if (theme.editor.bg) |bg| self.vt.vt.bg_color = color.u24_to_u8s(bg.color);
 
     // Blit the terminal's front screen into our vaxis.Window.
     const software_cursor = !tui.has_native_cursor();
