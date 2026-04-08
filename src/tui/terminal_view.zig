@@ -388,6 +388,24 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         std.log.err("terminal_view: draw failed: {}", .{e});
     };
 
+    // Resolve ANSI colour indices 0–15 to theme RGB values
+    {
+        const palette = theme.ansi_palette;
+        const win = self.plane.window;
+        const scr = win.screen;
+        const y_off: usize = @intCast(win.y_off);
+        const x_off: usize = @intCast(win.x_off);
+        for (0..win.height) |row| {
+            const row_base = (y_off + row) * scr.width + x_off;
+            if (row_base >= scr.buf.len) break;
+            const row_end = @min(row_base + win.width, scr.buf.len);
+            for (scr.buf[row_base..row_end]) |*cell| {
+                resolve_color(&cell.style.fg, palette);
+                resolve_color(&cell.style.bg, palette);
+            }
+        }
+    }
+
     if (!software_cursor and self.focused and tui.terminal_has_focus()) {
         const scr = &tui.rdr().vx.screen;
         if (scr.cursor_vis)
@@ -395,6 +413,15 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     }
 
     return false;
+}
+
+fn resolve_color(c: *vaxis.Cell.Color, palette: [16][3]u8) void {
+    switch (c.*) {
+        .index => |idx| if (idx < 16) {
+            c.* = .{ .rgb = palette[idx] };
+        },
+        else => {},
+    }
 }
 
 fn handle_child_exit(self: *Self, code: u8) void {
