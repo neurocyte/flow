@@ -43,15 +43,18 @@
             .lazy = true,
         },
         .wio = .{
-            .path = "../flow-deps/wio",
+            .url = "git+https://github.com/neurocyte/wio?ref=master#6186501162ace8645036e71fdb7ebad76a0dca71",
+            .hash = "wio-0.0.0-8xHrr8XzBQAYPvWczIC0RU40hP-cVH2HR1zcTVfP7r8l",
             .lazy = true,
         },
         .sokol = .{
-            .path = "../flow-deps/sokol-zig",
+            .url = "git+https://github.com/floooh/sokol-zig?ref=master#fa5aa645f6fa9cca1d70bb93a89312b4b7022ac3",
+            .hash = "sokol-0.1.0-pb1HK-HUNgDWWepemJMSKWMTj87v3aTfqnptRonvR9pm",
             .lazy = true,
         },
         .TrueType = .{
-            .path = "../flow-deps/TrueType",
+            .url = "git+https://codeberg.org/andrewrk/TrueType?ref=main#8b5dbf3a3bfbb84190377385f5e609c8788a5450",
+            .hash = "TrueType-0.0.0-Ne-mWLVxAQAvMshfhjrJh3GbRHBLSNtF-zXZ0Zt_bHGP",
             .lazy = true,
         },
         .diffz = .{
