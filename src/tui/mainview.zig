@@ -280,18 +280,37 @@ fn handle_bottom_bar_event(self: *Self, _: tp.pid_ref, m: tp.message) tp.result 
 }
 
 fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
+    const h = @max(1, self.plane.dim_y() -| y);
+    return self.set_panel_height_abs(h);
+}
+
+fn set_panel_height_abs(self: *Self, y: usize) tp.result {
     const panels = self.panels orelse blk: {
         cmds.toggle_panel(self, .{}) catch return;
         break :blk self.panels.?;
     };
-    const h = self.plane.dim_y();
-    self.panel_height = @max(1, h - @min(h, y + 1));
+    const max_h = self.box().h -| 1;
+    std.log.debug("set_panel_height: {?d} {d}", .{ self.panel_height, y });
+    self.panel_height = @max(1, @min(max_h, y));
     self.panel_maximized = false;
     panels.layout_ = .{ .static = self.panel_height.? };
-    if (self.panel_height == 1) {
+    const panel_height = self.panel_height orelse return;
+    if (panel_height == 1) {
         self.panel_height = null;
         command.executeName("toggle_panel", .{}) catch {};
+    } else if (panel_height >= max_h) {
+        self.panel_maximized = true;
+        panels.layout_ = .{ .static = max_h };
+        self.panel_height = null;
     }
+}
+
+fn set_panel_height_rel(self: *Self, y: isize) tp.result {
+    if (self.panels == null and y < 0) return;
+    if (self.panel_maximized and y > 0) return;
+    const panel_h: isize = @intCast(self.get_panel_height());
+    const h = @max(1, panel_h +| y);
+    return self.set_panel_height_abs(h);
 }
 
 pub fn get_panel_height(self: *Self) usize {
@@ -942,7 +961,11 @@ const cmds = struct {
     pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
 
     pub fn toggle_maximize_panel(self: *Self, _: Ctx) Result {
-        const panels = self.panels orelse return;
+        const panels = self.panels orelse blk: {
+            cmds.toggle_panel(self, .{}) catch return;
+            self.panel_maximized = false;
+            break :blk self.panels.?;
+        };
         const max_h = self.box().h -| 1;
         if (self.panel_maximized) {
             // Restore previous height
@@ -956,6 +979,21 @@ const cmds = struct {
         tui.resize();
     }
     pub const toggle_maximize_panel_meta: Meta = .{ .description = "Toggle maximize panel" };
+
+    pub fn grow_panel(self: *Self, ctx: Ctx) Result {
+        var n: usize = 1;
+        _ = try ctx.args.match(.{tp.extract(&n)});
+        return self.set_panel_height_rel(@intCast(n));
+    }
+    pub const grow_panel_meta: Meta = .{ .description = "Make the panel larger" };
+
+    pub fn shrink_panel(self: *Self, ctx: Ctx) Result {
+        var n: usize = 1;
+        _ = try ctx.args.match(.{tp.extract(&n)});
+        const neg_n = 0 - @as(isize, @intCast(n));
+        return self.set_panel_height_rel(neg_n);
+    }
+    pub const shrink_panel_meta: Meta = .{ .description = "Make the panel smaller" };
 
     pub fn toggle_logview(self: *Self, _: Ctx) Result {
         try self.toggle_panel_view(logview, .toggle);
