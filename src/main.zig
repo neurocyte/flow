@@ -83,9 +83,10 @@ pub fn main() anyerror!void {
             .dark = "Use dark color scheme",
             .light = "Use light color scheme",
             .version = "Show build version and exit",
+            .class = "Set window class",
         };
 
-        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds" };
+        pub const formats = .{ .frame_rate = "num", .trace_level = "num", .exec = "cmds", .class = "name" };
 
         pub const switches = .{
             .project = 'p',
@@ -123,6 +124,7 @@ pub fn main() anyerror!void {
         dark: bool,
         light: bool,
         version: bool,
+        class: ?[]const u8,
 
         positional: struct {
             trailing: []const []const u8,
@@ -247,6 +249,7 @@ pub fn main() anyerror!void {
     if (args.frame_rate) |s| env.num_set("frame-rate", @intCast(s));
     env.proc_set("log", log_proc.ref());
     if (args.language) |s| env.str_set("language", s);
+    if (args.class) |s| env.str_set("window-class", s);
 
     var eh = thespian.make_exit_handler({}, print_exit_status);
     const tui_proc = try tui.spawn(a, &ctx, &eh, &env);

@@ -68,6 +68,10 @@ var title_buf: [512]u8 = undefined;
 var title_len: usize = 0;
 var title_dirty: std.atomic.Value(bool) = .init(false);
 
+// Window class / app_id - read on wio thread during window creation
+var window_class_buf: [256]u8 = undefined;
+var window_class_len: usize = 0;
+
 // Clipboard write (heap-allocated, transferred to wio thread)
 var clipboard_mutex: std.Thread.Mutex = .{};
 var clipboard_write: ?[]u8 = null;
@@ -90,8 +94,13 @@ var wio_font: gpu.Font = .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .fr
 pub fn start() !std.Thread {
     tui_pid = thespian.self_pid().clone();
     font_name_len = 0;
+    window_class_len = 0;
     stop_requested.store(false, .release);
     loadConfig();
+    const class = thespian.env.get().str("window-class");
+    const copy_len = @min(class.len, window_class_buf.len);
+    @memcpy(window_class_buf[0..copy_len], class[0..copy_len]);
+    window_class_len = copy_len;
     return std.Thread.spawn(.{}, wioLoop, .{});
 }
 
@@ -380,6 +389,7 @@ fn wioLoop() void {
 
     var window = wio.createWindow(.{
         .title = "flow",
+        .app_id = if (window_class_len > 0) window_class_buf[0..window_class_len] else "flow",
         .size = .{ .width = 1280, .height = 720 },
         .scale = 1.0,
         .opengl = .{
