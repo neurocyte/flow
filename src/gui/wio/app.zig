@@ -406,6 +406,13 @@ fn wioLoop() void {
     defer window.destroy();
 
     window.makeContextCurrent();
+    // Disable EGL vsync throttling so eglSwapBuffers() returns immediately.
+    // Without this, eglSwapBuffers() blocks waiting for a frame callback from
+    // the compositor. Compositors do not send frame callbacks for surfaces on
+    // background virtual desktops, so any paint while the window is hidden
+    // causes eglSwapBuffers() to stall indefinitely, freezing the Wayland
+    // event loop and triggering an "Application Not Responding" dialog.
+    window.swapInterval(0);
 
     sg.setup(.{
         .logger = .{ .func = slog.func },
