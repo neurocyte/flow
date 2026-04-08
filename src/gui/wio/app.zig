@@ -658,7 +658,7 @@ fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, mods: input_transla
     // Text is the character that would be typed: empty when ctrl/alt active,
     // shifted_codepoint when shift is held, otherwise codepoint.
     const text_cp: u21 = if (mods.shift) shifted_codepoint else codepoint;
-    const text_len: usize = if (!mods.ctrl and !mods.alt and text_cp >= 0x20 and text_cp != 0x7f)
+    const text_len: usize = if (!mods.ctrl and !mods.alt and text_cp >= 0x20 and text_cp != 0x7f and text_cp < 0xE000)
         std.unicode.utf8Encode(text_cp, &text_buf) catch 0
     else
         0;
