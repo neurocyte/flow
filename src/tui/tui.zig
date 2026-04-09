@@ -113,7 +113,7 @@ pub const ClipboardEntry = struct {
 };
 
 const keepalive = std.time.us_per_day * 365; // one year
-const idle_frames = 0;
+const idle_frames = 2;
 const mouse_idle_time_milliseconds = 3000;
 
 const init_delay = 1; // ms
