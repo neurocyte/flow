@@ -58,7 +58,7 @@ pub const KeyEvent = struct {
 };
 
 // Map a wio.Button to the primary codepoint for that key
-pub fn codepointFromButton(b: wio.Button, mods: Mods) u21 {
+pub fn codepointFromButton(b: wio.Button, mods: Mods) ?u21 {
     return switch (b) {
         .a => if (mods.shiftOnly()) 'A' else 'a',
         .b => if (mods.shiftOnly()) 'B' else 'b',
@@ -153,13 +153,39 @@ pub fn codepointFromButton(b: wio.Button, mods: Mods) u21 {
         .kp_plus => vaxis.Key.kp_add,
         .kp_enter => vaxis.Key.kp_enter,
         .kp_equals => vaxis.Key.kp_equal,
-        else => 0,
+        else => null,
     };
 }
 
 pub const mouse_button_left: u8 = 0;
 pub const mouse_button_middle: u8 = 1;
 pub const mouse_button_right: u8 = 2;
+
+// Map modifier wio.Button values to kitty protocol codepoints (vaxis.Key.*).
+// Returns 0 for non-modifier buttons.
+pub fn modifierCodepoint(b: wio.Button) ?u21 {
+    return switch (b) {
+        .left_shift => vaxis.Key.left_shift,
+        .left_control => vaxis.Key.left_control,
+        .left_alt => vaxis.Key.left_alt,
+        .left_gui => vaxis.Key.left_super,
+        .right_shift => vaxis.Key.right_shift,
+        .right_control => vaxis.Key.right_control,
+        .right_alt => vaxis.Key.right_alt,
+        .right_gui => vaxis.Key.right_super,
+        .caps_lock => vaxis.Key.caps_lock,
+        .num_lock => vaxis.Key.num_lock,
+        .scroll_lock => vaxis.Key.scroll_lock,
+        else => null,
+    };
+}
+
+// All buttons that contribute to modifier state, for unfocus cleanup.
+pub const modifier_buttons = [_]wio.Button{
+    .left_shift,  .left_control,  .left_alt,    .left_gui,
+    .right_shift, .right_control, .right_alt,   .right_gui,
+    .caps_lock,   .num_lock,      .scroll_lock,
+};
 
 pub fn mouseButtonId(b: wio.Button) ?u8 {
     return switch (b) {

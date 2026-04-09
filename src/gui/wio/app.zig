@@ -490,17 +490,22 @@ fn wioLoop() void {
                             cp.yoff,
                         }) catch {};
                     } else {
-                        const base_cp = input_translate.codepointFromButton(btn, .{});
-                        const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                        if (base_cp != 0) sendKey(1, base_cp, shifted_cp, mods);
+                        if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
+                            const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
+                            sendKey(1, base_cp, shifted_cp orelse base_cp, mods);
+                        } else {
+                            if (input_translate.modifierCodepoint(btn)) |mod_cp|
+                                sendKey(1, mod_cp, mod_cp, mods);
+                        }
                     }
                 },
                 .button_repeat => |btn| {
                     const mods = input_translate.Mods.fromButtons(held_buttons);
                     if (input_translate.mouseButtonId(btn) == null) {
-                        const base_cp = input_translate.codepointFromButton(btn, .{});
-                        const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                        if (base_cp != 0) sendKey(2, base_cp, shifted_cp, mods);
+                        if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
+                            const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
+                            sendKey(2, base_cp, shifted_cp orelse base_cp, mods);
+                        }
                     }
                 },
                 .button_release => |btn| {
@@ -518,9 +523,12 @@ fn wioLoop() void {
                             cp.yoff,
                         }) catch {};
                     } else {
-                        const base_cp = input_translate.codepointFromButton(btn, .{});
-                        const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                        if (base_cp != 0) sendKey(3, base_cp, shifted_cp, mods);
+                        if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
+                            const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
+                            sendKey(3, base_cp, shifted_cp orelse base_cp, mods);
+                        } else if (input_translate.modifierCodepoint(btn)) |mod_cp| {
+                            sendKey(3, mod_cp, mod_cp, mods);
+                        }
                     }
                 },
                 .char => |cp| {
@@ -557,6 +565,18 @@ fn wioLoop() void {
                 },
                 .unfocused => {
                     window.disableTextInput();
+                    // Synthesize release events for any modifier keys still held so the TUI
+                    // doesn't see them as stuck. Release in order so mods reflects reality after
+                    // each release.
+                    for (input_translate.modifier_buttons) |mod_btn| {
+                        if (held_buttons.has(mod_btn)) {
+                            held_buttons.release(mod_btn);
+                            const mods = input_translate.Mods.fromButtons(held_buttons);
+                            if (input_translate.modifierCodepoint(mod_btn)) |mod_cp|
+                                sendKey(3, mod_cp, mod_cp, mods);
+                        }
+                    }
+                    held_buttons = .{};
                     tui_pid.send(.{"focus_out"}) catch {};
                 },
                 else => {},
