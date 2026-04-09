@@ -93,6 +93,7 @@ pub fn Create(options: type) type {
                 .match_count = 0,
             };
             try self.commands.init(self);
+            errdefer self.commands.deinit();
             self.mode.event_handler = EventHandler.to_owned(self);
             self.mode.name = options.name;
             if (self.menu.scrollbar) |scrollbar| scrollbar.style_factory = scrollbar_style;
