@@ -137,8 +137,8 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
     return self.event_buffer.written();
 }
 
-pub fn render(self: *Self) error{}!bool {
-    if (!self.window_ready) return false;
+pub fn render(self: *Self) error{}!?i64 {
+    if (!self.window_ready) return null;
 
     var cursor = self.cursor_info;
 
@@ -175,9 +175,12 @@ pub fn render(self: *Self) error{}!bool {
 
     app.updateScreen(&self.vx.screen, cursor, self.secondary_cursors.items);
 
-    if (!self.cursor_info.vis or !self.cursor_blink) return false;
-    const idle = std.time.microTimestamp() - self.blink_last_change;
-    return idle < self.blink_idle_us;
+    if (!self.cursor_info.vis or !self.cursor_blink) return null;
+    const now_check = std.time.microTimestamp();
+    if (now_check - self.blink_last_change >= self.blink_idle_us) return null;
+    const elapsed = @mod(now_check - self.blink_epoch, self.blink_period_us * 2);
+    const deadline = now_check + (self.blink_period_us - @mod(elapsed, self.blink_period_us));
+    return deadline;
 }
 
 pub fn sigwinch(self: *Self) !void {

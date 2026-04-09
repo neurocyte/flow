@@ -165,10 +165,10 @@ fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
     return self.event_buffer.written();
 }
 
-pub fn render(self: *Self) error{}!bool {
-    const hwnd = self.hwnd orelse return false;
+pub fn render(self: *Self) error{}!?i64 {
+    const hwnd = self.hwnd orelse return null;
     _ = gui.updateScreen(hwnd, &self.vx.screen);
-    return false;
+    return null;
 }
 pub fn stop(self: *Self) void {
     // this is guaranteed because stop won't be called until after

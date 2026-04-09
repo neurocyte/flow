@@ -75,6 +75,7 @@ render_pending: bool = false,
 keepalive_timer: ?tp.Cancellable = null,
 input_idle_timer: ?tp.Cancellable = null,
 mouse_idle_timer: ?tp.Cancellable = null,
+render_deadline_timer: ?tp.Cancellable = null,
 fontface_: []const u8 = "",
 fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
 input_is_idle: bool = false,
@@ -292,6 +293,11 @@ fn deinit(self: *Self) void {
         t.cancel() catch {};
         t.deinit();
         self.keepalive_timer = null;
+    }
+    if (self.render_deadline_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.render_deadline_timer = null;
     }
     if (self.input_mode_) |*m| {
         m.deinit();
@@ -681,17 +687,24 @@ fn render(self: *Self) void {
         top_layer_.draw(self.rdr_.stdplane());
     }
 
-    const renderer_more = ret: {
+    if (self.render_deadline_timer) |*t| {
+        t.cancel() catch {};
+        t.deinit();
+        self.render_deadline_timer = null;
+    }
+
+    const render_deadline: ?i64 = ret: {
         const frame = tracy.initZone(@src(), .{ .name = renderer.log_name ++ " render" });
         defer frame.deinit();
-        const m = self.rdr_.render() catch |e| blk: {
+        const dl = self.rdr_.render() catch |e| blk: {
             self.logger.err("render", e);
-            break :blk false;
+            break :blk @as(?i64, null);
         };
         tracy.frameMark();
         self.unrendered_input_events_count = 0;
-        break :ret m;
+        break :ret dl;
     };
+
     self.top_layer_reset();
 
     self.idle_frame_count = if (self.unrendered_input_events_count > 0)
@@ -699,13 +712,28 @@ fn render(self: *Self) void {
     else
         self.idle_frame_count + 1;
 
-    if (more or renderer_more or self.idle_frame_count < idle_frames or self.no_sleep) {
+    const deadline_within_frame = if (render_deadline) |dl|
+        dl - std.time.microTimestamp() < @as(i64, @intCast(self.frame_time))
+    else
+        false;
+
+    if (more or deadline_within_frame or self.idle_frame_count < idle_frames or self.no_sleep) {
         if (!self.frame_clock_running) {
             self.frame_clock.start() catch {};
             self.frame_clock_running = true;
             tp.trace(tp.channel.widget, .{ "frame_clock_running", "started", more });
         }
     } else {
+        if (render_deadline) |deadline| {
+            const delay_us: u64 = @intCast(@max(0, deadline - std.time.microTimestamp()));
+            self.render_deadline_timer = tp.self_pid().delay_send_cancellable(
+                self.allocator,
+                "tui.render_deadline",
+                delay_us,
+                .{"render"},
+            ) catch null;
+        }
+
         if (self.frame_clock_running) {
             self.frame_clock.stop() catch {};
             self.frame_clock_running = false;

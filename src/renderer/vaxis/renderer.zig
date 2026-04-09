@@ -219,11 +219,11 @@ pub fn run(self: *Self) Error!void {
     try self.loop.start();
 }
 
-pub fn render(self: *Self) !bool {
-    if (in_panic.load(.acquire)) return false;
+pub fn render(self: *Self) !?i64 {
+    if (in_panic.load(.acquire)) return null;
     try self.vx.render(self.tty.writer());
     try self.tty.writer().flush();
-    return false;
+    return null;
 }
 
 pub fn sigwinch(self: *Self) !void {
