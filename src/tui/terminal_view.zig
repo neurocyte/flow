@@ -401,10 +401,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         }
     }
 
-    if (!software_cursor and self.focused and tui.terminal_has_focus()) {
+    if (!software_cursor and self.focused and tui.terminal_has_focus() and self.vt.vt.mode.cursor) {
         const scr = &tui.rdr().vx.screen;
-        if (scr.cursor_vis)
-            tui.rdr().cursor_enable(@intCast(scr.cursor.row), @intCast(scr.cursor.col), scr.cursor_shape) catch {};
+        tui.rdr().cursor_enable(@intCast(scr.cursor.row), @intCast(scr.cursor.col), scr.cursor_shape) catch {};
     }
 
     return false;
