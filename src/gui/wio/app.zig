@@ -579,7 +579,9 @@ fn wioLoop() void {
                     held_buttons = .{};
                     tui_pid.send(.{"focus_out"}) catch {};
                 },
-                else => {},
+                else => {
+                    std.log.debug("wio unhandled event: {}", .{event});
+                },
             }
         }
 
