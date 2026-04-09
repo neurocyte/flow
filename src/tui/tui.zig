@@ -2202,9 +2202,7 @@ pub fn get_cursor_shape() renderer.CursorShape {
             default_cursor
     else
         default_cursor;
-    const shape = if (build_options.gui and shape_ == .default)
-        .beam
-    else if (self.rdr_.vx.caps.multi_cursor and shape_ == .default)
+    const shape = if (self.rdr_.vx.caps.multi_cursor and shape_ == .default)
         .beam_blink
     else
         shape_;
