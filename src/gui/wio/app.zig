@@ -15,6 +15,7 @@ const gpu = @import("gpu");
 const thespian = @import("thespian");
 const cbor = @import("cbor");
 const vaxis = @import("vaxis");
+const RGBA = @import("color").RGBA;
 
 const input_translate = @import("input.zig");
 const root = @import("soft_root").root;
@@ -26,7 +27,6 @@ const log = std.log.scoped(.wio_app);
 // can use them without a direct dependency on the gpu module.
 pub const CursorInfo = gpu.CursorInfo;
 pub const CursorShape = gpu.CursorShape;
-pub const GpuColor = gpu.Color;
 
 // ── Shared state (protected by screen_mutex) ──────────────────────────────
 
@@ -57,7 +57,7 @@ var stop_requested: std.atomic.Value(bool) = .init(false);
 
 // Background color (written from TUI thread, applied by wio thread on each paint).
 // Stored as packed RGBA u32 to allow atomic reads/writes.
-var background_color: std.atomic.Value(u32) = .init(0x131313ff); // matches gpu.zig default
+var background_color: std.atomic.Value(u32) = .init(RGBA.init(0, 255, 255, 255).to_u32()); // warning yellow, we should never see the default
 var background_dirty: std.atomic.Value(bool) = .init(false);
 
 var config_arena_instance: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -316,7 +316,7 @@ fn saveConfig() void {
         log.err("failed to write gui config file", .{});
 }
 
-pub fn setBackground(color: gpu.Color) void {
+pub fn setBackground(color: RGBA) void {
     const color_u32: u32 = (@as(u32, color.r) << 24) | (@as(u32, color.g) << 16) | (@as(u32, color.b) << 8) | color.a;
     background_color.store(color_u32, .release);
     background_dirty.store(true, .release);
@@ -371,19 +371,11 @@ fn maybeReloadFont(win_size: wio.Size, state: *gpu.WindowState, cell_width: *u16
     }
 }
 
-fn colorFromVaxis(color: vaxis.Cell.Color) gpu.Color {
+fn colorFromVaxis(color: vaxis.Cell.Color) RGBA {
     return switch (color) {
-        .default => gpu.Color.initRgb(0, 0, 0),
-        .index => |idx| blk: {
-            const xterm = @import("xterm");
-            const rgb24 = xterm.colors[idx];
-            break :blk gpu.Color.initRgb(
-                @truncate(rgb24 >> 16),
-                @truncate(rgb24 >> 8),
-                @truncate(rgb24),
-            );
-        },
-        .rgb => |rgb| gpu.Color.initRgb(rgb[0], rgb[1], rgb[2]),
+        .default => .init(0, 0, 0, 255),
+        .index => |idx| .from_u24(@import("xterm").colors[idx]),
+        .rgb => |rgb| .from_u8s(rgb),
     };
 }
 

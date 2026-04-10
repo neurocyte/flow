@@ -3,6 +3,7 @@ pub const log_name = "renderer";
 
 const std = @import("std");
 const cbor = @import("cbor");
+const RGBA = @import("color").RGBA;
 pub const vaxis = @import("vaxis");
 const Style = @import("theme").Style;
 const Color = @import("theme").Color;
@@ -57,9 +58,9 @@ thread: ?std.Thread = null,
 window_ready: bool = false,
 
 cursor_info: app.CursorInfo = .{},
-cursor_color: app.GpuColor = app.GpuColor.initRgb(255, 255, 255),
+cursor_color: RGBA = .init(255, 255, 255, 255),
 secondary_cursors: std.ArrayListUnmanaged(app.CursorInfo) = .{},
-secondary_color: app.GpuColor = app.GpuColor.initRgb(255, 255, 255),
+secondary_color: RGBA = .init(255, 255, 255, 255),
 
 cursor_blink: bool = false,
 blink_on: bool = true,
@@ -545,7 +546,7 @@ pub fn show_multi_cursor_yx(self: *Self, y: i32, x: i32) !void {
     });
 }
 
-fn themeColorToGpu(color: Color) app.GpuColor {
+fn themeColorToGpu(color: Color) RGBA {
     return .{
         .r = @truncate(color.color >> 16),
         .g = @truncate(color.color >> 8),

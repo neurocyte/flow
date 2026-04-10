@@ -106,6 +106,47 @@ pub const RGBf = struct {
     const GAMMA = 2.4;
 };
 
+// Packed RGBA color type used by GPUs
+pub const RGBA = packed struct(u32) {
+    a: u8,
+    b: u8,
+    g: u8,
+    r: u8,
+
+    pub fn init(r: u8, g: u8, b: u8, a: u8) RGBA {
+        return .{ .r = r, .g = g, .b = b, .a = a };
+    }
+
+    pub fn from_RGB(v: RGB) RGBA {
+        return .{ .r = v.r, .g = v.g, .b = v.b, .a = 255 };
+    }
+
+    pub inline fn from_u32(v: u32) RGBA {
+        return @bitCast(v);
+    }
+
+    pub inline fn from_u24(v: u24) RGBA {
+        return from_RGB(RGB.from_u24(v));
+    }
+
+    pub inline fn from_u8s(v: [3]u8) RGBA {
+        return .{ .r = v[0], .g = v[1], .b = v[2], .a = 255 };
+    }
+
+    pub inline fn to_u32(v: RGBA) u32 {
+        return @bitCast(v);
+    }
+
+    pub fn to_vec4(c: RGBA) [4]f32 {
+        return .{
+            @as(f32, @floatFromInt(c.r)) / 255.0,
+            @as(f32, @floatFromInt(c.g)) / 255.0,
+            @as(f32, @floatFromInt(c.b)) / 255.0,
+            @as(f32, @floatFromInt(c.a)) / 255.0,
+        };
+    }
+};
+
 pub fn u24_to_u8s(v: u24) [3]u8 {
     return .{ @truncate(v >> 16), @truncate(v >> 8), @truncate(v) };
 }

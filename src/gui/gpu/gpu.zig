@@ -7,16 +7,14 @@ const std = @import("std");
 const sg = @import("sokol").gfx;
 const Rasterizer = @import("rasterizer");
 const GlyphIndexCache = @import("GlyphIndexCache");
-const gui_cell = @import("Cell");
 const XY = @import("xy").XY;
 const builtin_shader = @import("builtin.glsl.zig");
 
 pub const Font = Rasterizer.Font;
 pub const GlyphKind = Rasterizer.GlyphKind;
 pub const RasterizerBackend = Rasterizer.Backend;
-pub const Cell = gui_cell.Cell;
-pub const Color = gui_cell.Rgba8;
-const Rgba8 = gui_cell.Rgba8;
+pub const Cell = @import("cell").Cell;
+pub const RGBA = @import("color").RGBA;
 
 pub const CursorShape = enum(i32) { block = 0, beam = 1, underline = 2 };
 
@@ -25,7 +23,7 @@ pub const CursorInfo = struct {
     row: u16 = 0,
     col: u16 = 0,
     shape: CursorShape = .block,
-    color: Color = Color.initRgb(255, 255, 255),
+    color: RGBA = .init(255, 255, 255, 255),
 };
 
 const log = std.log.scoped(.gpu);
@@ -44,7 +42,7 @@ fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
 // Shader cell layout for the RGBA32UI cell texture.
 // Each texel encodes one terminal cell:
 //   .r = glyph_index  (u32)
-//   .g = bg packed    (Rgba8 bit-cast to u32: r<<24|g<<16|b<<8|a)
+//   .g = bg packed    (RGBA bit-cast to u32: r<<24|g<<16|b<<8|a)
 //   .b = fg packed    (same)
 //   .a = 0 (reserved)
 const ShaderCell = extern struct {
@@ -61,7 +59,7 @@ const global = struct {
     var glyph_sampler: sg.Sampler = .{};
     var cell_sampler: sg.Sampler = .{};
     var glyph_cache_arena: std.heap.ArenaAllocator = undefined;
-    var background: Rgba8 = .{ .r = 19, .g = 19, .b = 19, .a = 255 };
+    var background: RGBA = .init(0, 255, 255, 255); // default is warning yellow
 };
 
 pub fn init(allocator: std.mem.Allocator) !void {
@@ -118,7 +116,7 @@ pub fn setFontWeight(font: *Font, w: u8) void {
     Rasterizer.setFontWeight(font, w);
 }
 
-pub fn setBackground(color: Rgba8) void {
+pub fn setBackground(color: RGBA) void {
     global.background = color;
 }
 
@@ -387,15 +385,15 @@ pub fn paint(
             const src = cells[src_row_offset + ci];
             shader_cells[dst_row_offset + ci] = .{
                 .glyph_index = src.glyph_index,
-                .bg = @bitCast(src.background),
-                .fg = @bitCast(src.foreground),
+                .bg = src.background.to_u32(),
+                .fg = src.foreground.to_u32(),
             };
         }
         for (copy_len..shader_col_count) |ci| {
             shader_cells[dst_row_offset + ci] = .{
                 .glyph_index = blank_glyph_index,
-                .bg = @bitCast(global.background),
-                .fg = @bitCast(global.background),
+                .bg = global.background.to_u32(),
+                .fg = global.background.to_u32(),
             };
         }
     }
@@ -448,10 +446,10 @@ pub fn paint(
     bindings.samplers[1] = global.cell_sampler;
     sg.applyBindings(bindings);
 
-    const sec_color: Color = if (secondary_cursors.len > 0)
+    const sec_color: RGBA = if (secondary_cursors.len > 0)
         secondary_cursors[0].color
     else
-        Color.initRgb(255, 255, 255);
+        .init(255, 255, 255, 255);
 
     const fs_params = builtin_shader.FsParams{
         .cell_size_x = font.cell_size.x,
@@ -463,8 +461,8 @@ pub fn paint(
         .cursor_row = cursor.row,
         .cursor_shape = @intFromEnum(cursor.shape),
         .cursor_vis = if (cursor.vis) 1 else 0,
-        .cursor_color = colorToVec4(cursor.color),
-        .sec_cursor_color = colorToVec4(sec_color),
+        .cursor_color = cursor.color.to_vec4(),
+        .sec_cursor_color = sec_color.to_vec4(),
     };
     sg.applyUniforms(0, .{
         .ptr = &fs_params,
@@ -474,15 +472,6 @@ pub fn paint(
     sg.draw(0, 4, 1);
     sg.endPass();
     // Note: caller (app.zig) calls sg.commit() and window.swapBuffers()
-}
-
-fn colorToVec4(c: Color) [4]f32 {
-    return .{
-        @as(f32, @floatFromInt(c.r)) / 255.0,
-        @as(f32, @floatFromInt(c.g)) / 255.0,
-        @as(f32, @floatFromInt(c.b)) / 255.0,
-        @as(f32, @floatFromInt(c.a)) / 255.0,
-    };
 }
 
 fn oom(e: error{OutOfMemory}) noreturn {

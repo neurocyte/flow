@@ -492,7 +492,12 @@ pub fn build_exe(
                 const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
                 const win32_mod = win32_dep.module("win32");
                 const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
-                const gui_cell_mod = b.createModule(.{ .root_source_file = b.path("src/gui/Cell.zig") });
+                const gui_cell_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/cell.zig"),
+                    .imports = &.{
+                        .{ .name = "color", .module = color_mod },
+                    },
+                });
                 const gui_glyph_cache_mod = b.createModule(.{ .root_source_file = b.path("src/gui/GlyphIndexCache.zig") });
                 const gui_xterm_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xterm.zig") });
                 const gui_mod = b.createModule(.{
@@ -509,7 +514,7 @@ pub fn build_exe(
                         .{ .name = "gui_config", .module = gui_config_mod },
                         .{ .name = "tracy", .module = tracy_mod },
                         .{ .name = "xy", .module = gui_xy_mod },
-                        .{ .name = "Cell", .module = gui_cell_mod },
+                        .{ .name = "cell", .module = gui_cell_mod },
                         .{ .name = "GlyphIndexCache", .module = gui_glyph_cache_mod },
                         .{ .name = "xterm", .module = gui_xterm_mod },
                     },
@@ -550,7 +555,12 @@ pub fn build_exe(
                 const sokol_mod = sokol_dep.module("sokol");
 
                 const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
-                const gui_cell_mod = b.createModule(.{ .root_source_file = b.path("src/gui/Cell.zig") });
+                const gui_cell_mod = b.createModule(.{
+                    .root_source_file = b.path("src/gui/cell.zig"),
+                    .imports = &.{
+                        .{ .name = "color", .module = color_mod },
+                    },
+                });
                 const gui_glyph_cache_mod = b.createModule(.{ .root_source_file = b.path("src/gui/GlyphIndexCache.zig") });
                 const gui_xterm_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xterm.zig") });
 
@@ -609,10 +619,11 @@ pub fn build_exe(
                 const gpu_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/gpu/gpu.zig"),
                     .imports = &.{
+                        .{ .name = "color", .module = color_mod },
                         .{ .name = "sokol", .module = sokol_mod },
                         .{ .name = "rasterizer", .module = combined_rasterizer_mod },
                         .{ .name = "xy", .module = gui_xy_mod },
-                        .{ .name = "Cell", .module = gui_cell_mod },
+                        .{ .name = "cell", .module = gui_cell_mod },
                         .{ .name = "GlyphIndexCache", .module = gui_glyph_cache_mod },
                     },
                 });
@@ -620,6 +631,7 @@ pub fn build_exe(
                 const app_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/wio/app.zig"),
                     .imports = &.{
+                        .{ .name = "color", .module = color_mod },
                         .{ .name = "wio", .module = wio_mod },
                         .{ .name = "sokol", .module = sokol_mod },
                         .{ .name = "gpu", .module = gpu_mod },
@@ -635,6 +647,7 @@ pub fn build_exe(
                 const mod = b.createModule(.{
                     .root_source_file = b.path("src/renderer/gui/renderer.zig"),
                     .imports = &.{
+                        .{ .name = "color", .module = color_mod },
                         .{ .name = "theme", .module = themes_dep.module("theme") },
                         .{ .name = "cbor", .module = cbor_mod },
                         .{ .name = "thespian", .module = thespian_mod },
