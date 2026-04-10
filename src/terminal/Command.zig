@@ -60,6 +60,14 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
         self.pty.tty.close();
         if (self.pty.pty.handle > 2) self.pty.pty.close();
 
+        // Close all fds > 2 so the child cannot access the parent's
+        // terminal or other inherited file descriptors.
+        const rlim = try posix.getrlimit(.NOFILE);
+        var fd: posix.fd_t = 3;
+        while (fd < @as(posix.fd_t, @intCast(rlim.cur))) : (fd += 1) {
+            safe_close(fd);
+        }
+
         if (self.working_directory) |wd| {
             try std.posix.chdir(wd);
         }
@@ -71,6 +79,17 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
     // we are the parent
     self.pid = @intCast(pid);
+}
+
+fn safe_close(fd: posix.fd_t) void {
+    if (builtin.os.tag == .windows) {
+        return std.os.windows.CloseHandle(fd);
+    }
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        _ = std.os.wasi.fd_close(fd);
+        return;
+    }
+    _ = std.c.close(fd);
 }
 
 pub fn kill(self: *Command) void {
