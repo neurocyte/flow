@@ -537,6 +537,10 @@ const Vt = struct {
             &self.write_buf,
         );
 
+        const theme = tui.active_theme();
+        if (theme.editor.fg) |fg| self.vt.fg_color = color.u24_to_u8s(fg.color);
+        if (theme.editor.bg) |bg| self.vt.bg_color = color.u24_to_u8s(bg.color);
+
         try self.vt.spawn();
         self.pty_pid = try pty.spawn(allocator, &self.vt);
     }
