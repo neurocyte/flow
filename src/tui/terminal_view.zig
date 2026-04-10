@@ -76,6 +76,12 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
     errdefer env.deinit();
     if (env.get("TERM") == null)
         try env.put("TERM", "xterm-256color");
+    try env.put("COLORTERM", "truecolor");
+    // COLORFGBG tells apps whether the terminal background is dark or light
+    try env.put("COLORFGBG", switch (tui.active_color_scheme()) {
+        .dark => "15;0",
+        .light => "0;15",
+    });
 
     var cmd_arg: []const u8 = "";
     var on_exit: TerminalOnExit = tui.config().terminal_on_exit;
