@@ -379,6 +379,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         })) {
             self.window_ready = true;
             self.dispatch_initialized(self.handler_ctx);
+            if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{"capability_detection_complete"}));
             return;
         }
     }
