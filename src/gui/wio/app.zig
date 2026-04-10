@@ -145,8 +145,8 @@ pub fn updateScreen(
     for (vx_screen.buf[0..cell_count], new_cells, new_codepoints, new_widths) |*vc, *gc, *cp, *wt| {
         gc.* = .{
             .glyph_index = 0,
-            .background = colorFromVaxis(vc.style.bg),
-            .foreground = colorFromVaxis(vc.style.fg),
+            .background = colorFromVaxis(if (vc.style.reverse) vc.style.fg else vc.style.bg),
+            .foreground = colorFromVaxis(if (vc.style.reverse) vc.style.bg else vc.style.fg),
         };
         // Decode first codepoint from the grapheme cluster.
         const g = vc.char.grapheme;
