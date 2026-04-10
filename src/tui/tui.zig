@@ -85,7 +85,7 @@ query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
 clipboard: ?std.ArrayList(ClipboardEntry) = null,
 clipboard_current_group_number: usize = 0,
-color_scheme: enum { dark, light } = .dark,
+color_scheme: ColorScheme = .dark,
 color_scheme_locked: bool = false,
 hint_mode: HintMode = .prefix,
 last_palette: ?LastPalette = null,
@@ -96,6 +96,8 @@ alt_scroll_: bool = false,
 jump_mode_: bool = false,
 
 auto_run_timer: ?tp.Cancellable = null,
+
+pub const ColorScheme = enum { dark, light };
 
 const HintMode = enum { none, prefix, all };
 
@@ -1068,14 +1070,14 @@ fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }
     }
 }
 
-fn force_color_scheme(self: *Self, color_scheme: @TypeOf(self.color_scheme)) void {
+fn force_color_scheme(self: *Self, color_scheme: ColorScheme) void {
     self.color_scheme = color_scheme;
     self.color_scheme_locked = true;
     self.set_terminal_style(self.current_theme());
     self.logger.print("color scheme: {t} ({s})", .{ self.color_scheme, self.current_theme().name });
 }
 
-fn set_color_scheme(self: *Self, color_scheme: @TypeOf(self.color_scheme)) void {
+fn set_color_scheme(self: *Self, color_scheme: ColorScheme) void {
     if (self.color_scheme_locked) return;
     self.color_scheme = color_scheme;
     self.set_terminal_style(self.current_theme());
@@ -1929,6 +1931,10 @@ pub fn query_cache() *syntax.QueryCache {
 
 pub fn config() *const @import("config") {
     return &current().config_;
+}
+
+pub fn active_color_scheme() ColorScheme {
+    return current().color_scheme;
 }
 
 pub fn get_tab_width() usize {
