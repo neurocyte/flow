@@ -120,6 +120,10 @@ pub fn setBackground(color: RGBA) void {
     global.background = color;
 }
 
+pub fn getBackground() RGBA {
+    return global.background;
+}
+
 // ── WindowState ────────────────────────────────────────────────────────────
 
 pub const WindowState = struct {

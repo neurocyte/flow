@@ -373,7 +373,7 @@ fn maybeReloadFont(win_size: wio.Size, state: *gpu.WindowState, cell_width: *u16
 
 fn colorFromVaxis(color: vaxis.Cell.Color) RGBA {
     return switch (color) {
-        .default => .init(0, 0, 0, 255),
+        .default => gpu.getBackground(),
         .index => |idx| .from_u24(@import("xterm").colors[idx]),
         .rgb => |rgb| .from_u8s(rgb),
     };
