@@ -463,6 +463,7 @@ pub fn paint(
         .cursor_vis = if (cursor.vis) 1 else 0,
         .cursor_color = cursor.color.to_vec4(),
         .sec_cursor_color = sec_color.to_vec4(),
+        .bg_color = global.background.to_vec4(),
     };
     sg.applyUniforms(0, .{
         .ptr = &fs_params,

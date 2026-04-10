@@ -23,6 +23,8 @@ pub const FsParams = extern struct {
     cursor_color: [4]f32, // RGBA normalized [0,1]
     // Secondary cursor colour (positions encoded in ShaderCell._pad)
     sec_cursor_color: [4]f32, // RGBA normalized [0,1]
+    // Background fill for border area outside the cell grid
+    bg_color: [4]f32, // RGBA normalized [0,1]
 };
 
 const vs_src =
@@ -48,6 +50,7 @@ const fs_src =
     \\uniform int cursor_vis;
     \\uniform vec4 cursor_color;
     \\uniform vec4 sec_cursor_color;
+    \\uniform vec4 bg_color;
     \\uniform sampler2D glyph_tex_glyph_smp;
     \\uniform usampler2D cell_tex_cell_smp;
     \\out vec4 frag_color;
@@ -69,7 +72,7 @@ const fs_src =
     \\    int row = py / cell_size_y;
     \\
     \\    if (col >= col_count || row >= row_count || row < 0 || col < 0) {
-    \\        frag_color = vec4(0.0, 0.0, 0.0, 1.0);
+    \\        frag_color = vec4(bg_color.rgb, 1.0);
     \\        return;
     \\    }
     \\
@@ -142,6 +145,7 @@ pub fn shaderDesc(backend: sg.Backend) sg.ShaderDesc {
             desc.uniform_blocks[0].glsl_uniforms[8] = .{ .type = .INT, .glsl_name = "cursor_vis" };
             desc.uniform_blocks[0].glsl_uniforms[9] = .{ .type = .FLOAT4, .glsl_name = "cursor_color" };
             desc.uniform_blocks[0].glsl_uniforms[10] = .{ .type = .FLOAT4, .glsl_name = "sec_cursor_color" };
+            desc.uniform_blocks[0].glsl_uniforms[11] = .{ .type = .FLOAT4, .glsl_name = "bg_color" };
 
             // Glyph atlas texture: R8 → sample_type = FLOAT
             desc.views[0].texture = .{
