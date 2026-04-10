@@ -409,7 +409,7 @@ pub fn set_terminal_title(self: *Self, text: []const u8) void {
 
 pub fn set_terminal_style(self: *Self, style_: Style) void {
     _ = self;
-    _ = style_;
+    if (style_.bg) |bg| app.setBackground(themeColorToGpu(bg));
 }
 
 pub fn adjust_fontsize(self: *Self, amount: f32) void {

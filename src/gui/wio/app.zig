@@ -55,6 +55,11 @@ var font_backend: gpu.RasterizerBackend = .freetype;
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
 
+// Background color (written from TUI thread, applied by wio thread on each paint).
+// Stored as packed RGBA u32 to allow atomic reads/writes.
+var background_color: std.atomic.Value(u32) = .init(0x131313ff); // matches gpu.zig default
+var background_dirty: std.atomic.Value(bool) = .init(false);
+
 var config_arena_instance: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const config_arena = config_arena_instance.allocator();
 
@@ -309,6 +314,13 @@ fn saveConfig() void {
     conf.fontface = getFontName();
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
+}
+
+pub fn setBackground(color: gpu.Color) void {
+    const color_u32: u32 = (@as(u32, color.r) << 24) | (@as(u32, color.g) << 16) | (@as(u32, color.b) << 8) | color.a;
+    background_color.store(color_u32, .release);
+    background_dirty.store(true, .release);
+    wio.cancelWait();
 }
 
 pub fn requestAttention() void {
@@ -634,6 +646,16 @@ fn wioLoop() void {
 
                 state.size = .{ .x = win_size.width, .y = win_size.height };
                 const font = wio_font;
+
+                if (background_dirty.swap(false, .acq_rel)) {
+                    const color_u32 = background_color.load(.acquire);
+                    gpu.setBackground(.{
+                        .r = @truncate(color_u32 >> 24),
+                        .g = @truncate(color_u32 >> 16),
+                        .b = @truncate(color_u32 >> 8),
+                        .a = @truncate(color_u32),
+                    });
+                }
 
                 // Regenerate glyph indices using the GPU state.
                 // For double-wide characters vaxis emits width=2 for the left
