@@ -1933,6 +1933,10 @@ pub fn config() *const @import("config") {
     return &current().config_;
 }
 
+pub fn active_theme() *const Widget.Theme {
+    return current().current_theme();
+}
+
 pub fn active_color_scheme() ColorScheme {
     return current().color_scheme;
 }
