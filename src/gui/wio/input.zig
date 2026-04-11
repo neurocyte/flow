@@ -14,7 +14,7 @@ pub fn fromWioModifiers(modifiers: wio.Modifiers) Mods {
         .shift = modifiers.shift,
         .alt = modifiers.alt,
         .ctrl = modifiers.control,
-        .super = modifiers.super,
+        .super = modifiers.gui,
     };
 }
 
