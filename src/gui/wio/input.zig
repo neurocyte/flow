@@ -7,29 +7,20 @@ const vaxis = @import("vaxis");
 
 // Modifiers bitmask (matches vaxis.Key.Modifiers packed struct layout used
 // by the rest of Flow's input handling).
-pub const Mods = packed struct(u8) {
-    shift: bool = false,
-    alt: bool = false,
-    ctrl: bool = false,
-    super: bool = false,
-    hyper: bool = false,
-    meta: bool = false,
-    _pad: u2 = 0,
+pub const Mods = vaxis.Key.Modifiers;
 
-    pub fn fromButtons(pressed: ButtonSet) Mods {
-        return .{
-            .shift = pressed.has(.left_shift) or pressed.has(.right_shift),
-            .alt = pressed.has(.left_alt) or pressed.has(.right_alt),
-            .ctrl = pressed.has(.left_control) or pressed.has(.right_control),
-            .super = pressed.has(.left_gui) or pressed.has(.right_gui),
-        };
-    }
+pub fn fromWioModifiers(modifiers: wio.Modifiers) Mods {
+    return .{
+        .shift = modifiers.shift,
+        .alt = modifiers.alt,
+        .ctrl = modifiers.control,
+        .super = modifiers.super,
+    };
+}
 
-    /// True only when shift is the sole active modifier.
-    pub fn shiftOnly(self: Mods) bool {
-        return self.shift and !self.alt and !self.ctrl and !self.super and !self.hyper and !self.meta;
-    }
-};
+pub fn isShifted(mods: Mods) bool {
+    return mods.shift and !mods.alt and !mods.ctrl and !mods.super and !mods.hyper and !mods.meta;
+}
 
 // Simple set of currently held buttons (for modifier tracking)
 pub const ButtonSet = struct {
@@ -60,58 +51,58 @@ pub const KeyEvent = struct {
 // Map a wio.Button to the primary codepoint for that key
 pub fn codepointFromButton(b: wio.Button, mods: Mods) ?u21 {
     return switch (b) {
-        .a => if (mods.shiftOnly()) 'A' else 'a',
-        .b => if (mods.shiftOnly()) 'B' else 'b',
-        .c => if (mods.shiftOnly()) 'C' else 'c',
-        .d => if (mods.shiftOnly()) 'D' else 'd',
-        .e => if (mods.shiftOnly()) 'E' else 'e',
-        .f => if (mods.shiftOnly()) 'F' else 'f',
-        .g => if (mods.shiftOnly()) 'G' else 'g',
-        .h => if (mods.shiftOnly()) 'H' else 'h',
-        .i => if (mods.shiftOnly()) 'I' else 'i',
-        .j => if (mods.shiftOnly()) 'J' else 'j',
-        .k => if (mods.shiftOnly()) 'K' else 'k',
-        .l => if (mods.shiftOnly()) 'L' else 'l',
-        .m => if (mods.shiftOnly()) 'M' else 'm',
-        .n => if (mods.shiftOnly()) 'N' else 'n',
-        .o => if (mods.shiftOnly()) 'O' else 'o',
-        .p => if (mods.shiftOnly()) 'P' else 'p',
-        .q => if (mods.shiftOnly()) 'Q' else 'q',
-        .r => if (mods.shiftOnly()) 'R' else 'r',
-        .s => if (mods.shiftOnly()) 'S' else 's',
-        .t => if (mods.shiftOnly()) 'T' else 't',
-        .u => if (mods.shiftOnly()) 'U' else 'u',
-        .v => if (mods.shiftOnly()) 'V' else 'v',
-        .w => if (mods.shiftOnly()) 'W' else 'w',
-        .x => if (mods.shiftOnly()) 'X' else 'x',
-        .y => if (mods.shiftOnly()) 'Y' else 'y',
-        .z => if (mods.shiftOnly()) 'Z' else 'z',
-        .@"0" => if (mods.shiftOnly()) ')' else '0',
-        .@"1" => if (mods.shiftOnly()) '!' else '1',
-        .@"2" => if (mods.shiftOnly()) '@' else '2',
-        .@"3" => if (mods.shiftOnly()) '#' else '3',
-        .@"4" => if (mods.shiftOnly()) '$' else '4',
-        .@"5" => if (mods.shiftOnly()) '%' else '5',
-        .@"6" => if (mods.shiftOnly()) '^' else '6',
-        .@"7" => if (mods.shiftOnly()) '&' else '7',
-        .@"8" => if (mods.shiftOnly()) '*' else '8',
-        .@"9" => if (mods.shiftOnly()) '(' else '9',
+        .a => if (isShifted(mods)) 'A' else 'a',
+        .b => if (isShifted(mods)) 'B' else 'b',
+        .c => if (isShifted(mods)) 'C' else 'c',
+        .d => if (isShifted(mods)) 'D' else 'd',
+        .e => if (isShifted(mods)) 'E' else 'e',
+        .f => if (isShifted(mods)) 'F' else 'f',
+        .g => if (isShifted(mods)) 'G' else 'g',
+        .h => if (isShifted(mods)) 'H' else 'h',
+        .i => if (isShifted(mods)) 'I' else 'i',
+        .j => if (isShifted(mods)) 'J' else 'j',
+        .k => if (isShifted(mods)) 'K' else 'k',
+        .l => if (isShifted(mods)) 'L' else 'l',
+        .m => if (isShifted(mods)) 'M' else 'm',
+        .n => if (isShifted(mods)) 'N' else 'n',
+        .o => if (isShifted(mods)) 'O' else 'o',
+        .p => if (isShifted(mods)) 'P' else 'p',
+        .q => if (isShifted(mods)) 'Q' else 'q',
+        .r => if (isShifted(mods)) 'R' else 'r',
+        .s => if (isShifted(mods)) 'S' else 's',
+        .t => if (isShifted(mods)) 'T' else 't',
+        .u => if (isShifted(mods)) 'U' else 'u',
+        .v => if (isShifted(mods)) 'V' else 'v',
+        .w => if (isShifted(mods)) 'W' else 'w',
+        .x => if (isShifted(mods)) 'X' else 'x',
+        .y => if (isShifted(mods)) 'Y' else 'y',
+        .z => if (isShifted(mods)) 'Z' else 'z',
+        .@"0" => if (isShifted(mods)) ')' else '0',
+        .@"1" => if (isShifted(mods)) '!' else '1',
+        .@"2" => if (isShifted(mods)) '@' else '2',
+        .@"3" => if (isShifted(mods)) '#' else '3',
+        .@"4" => if (isShifted(mods)) '$' else '4',
+        .@"5" => if (isShifted(mods)) '%' else '5',
+        .@"6" => if (isShifted(mods)) '^' else '6',
+        .@"7" => if (isShifted(mods)) '&' else '7',
+        .@"8" => if (isShifted(mods)) '*' else '8',
+        .@"9" => if (isShifted(mods)) '(' else '9',
         .space => vaxis.Key.space,
         .enter => vaxis.Key.enter,
         .tab => vaxis.Key.tab,
         .backspace => vaxis.Key.backspace,
         .escape => vaxis.Key.escape,
-        .minus => if (mods.shiftOnly()) '_' else '-',
-        .equals => if (mods.shiftOnly()) '+' else '=',
-        .left_bracket => if (mods.shiftOnly()) '{' else '[',
-        .right_bracket => if (mods.shiftOnly()) '}' else ']',
-        .backslash => if (mods.shiftOnly()) '|' else '\\',
-        .semicolon => if (mods.shiftOnly()) ':' else ';',
-        .apostrophe => if (mods.shiftOnly()) '"' else '\'',
-        .grave => if (mods.shiftOnly()) '~' else '`',
-        .comma => if (mods.shiftOnly()) '<' else ',',
-        .dot => if (mods.shiftOnly()) '>' else '.',
-        .slash => if (mods.shiftOnly()) '?' else '/',
+        .minus => if (isShifted(mods)) '_' else '-',
+        .equals => if (isShifted(mods)) '+' else '=',
+        .left_bracket => if (isShifted(mods)) '{' else '[',
+        .right_bracket => if (isShifted(mods)) '}' else ']',
+        .backslash => if (isShifted(mods)) '|' else '\\',
+        .semicolon => if (isShifted(mods)) ':' else ';',
+        .apostrophe => if (isShifted(mods)) '"' else '\'',
+        .grave => if (isShifted(mods)) '~' else '`',
+        .comma => if (isShifted(mods)) '<' else ',',
+        .dot => if (isShifted(mods)) '>' else '.',
+        .slash => if (isShifted(mods)) '?' else '/',
         // Navigation and function keys: kitty protocol codepoints (vaxis.Key).
         .up => vaxis.Key.up,
         .down => vaxis.Key.down,

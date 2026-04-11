@@ -23,6 +23,10 @@ const gui_config = @import("gui_config");
 
 const log = std.log.scoped(.wio_app);
 
+const press: u8 = 1;
+const repeat: u8 = 2;
+const release: u8 = 3;
+
 // Re-export cursor types so renderer.zig (which imports 'app' but not 'gpu')
 // can use them without a direct dependency on the gpu module.
 pub const CursorInfo = gpu.CursorInfo;
@@ -47,6 +51,7 @@ var screen_mutex: std.Thread.Mutex = .{};
 var screen_pending: std.atomic.Value(bool) = .init(false);
 var screen_snap: ?ScreenSnapshot = null;
 var tui_pid: thespian.pid = undefined;
+var last_mods: input_translate.Mods = .{};
 var font_size_px: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
@@ -481,7 +486,7 @@ fn wioLoop() void {
                 },
                 .button_press => |btn| {
                     held_buttons.press(btn);
-                    const mods = input_translate.Mods.fromButtons(held_buttons);
+                    const mods = syncModifiers();
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         const cp = pixelToCellPos(mouse_pos);
                         tui_pid.send(.{
@@ -496,15 +501,15 @@ fn wioLoop() void {
                     } else {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
-                            sendKey(1, base_cp, shifted_cp orelse base_cp, mods);
+                            sendKey(press, base_cp, shifted_cp orelse base_cp, mods);
                         } else {
                             if (input_translate.modifierCodepoint(btn)) |mod_cp|
-                                sendKey(1, mod_cp, mod_cp, mods);
+                                sendKey(press, mod_cp, mod_cp, mods);
                         }
                     }
                 },
                 .button_repeat => |btn| {
-                    const mods = input_translate.Mods.fromButtons(held_buttons);
+                    const mods = syncModifiers();
                     if (input_translate.mouseButtonId(btn) == null) {
                         if (input_translate.codepointFromButton(btn, .{})) |base_cp| {
                             const shifted_cp = if (mods.shift) input_translate.codepointFromButton(btn, .{ .shift = true }) else base_cp;
@@ -514,7 +519,7 @@ fn wioLoop() void {
                 },
                 .button_release => |btn| {
                     held_buttons.release(btn);
-                    const mods = input_translate.Mods.fromButtons(held_buttons);
+                    const mods = syncModifiers();
                     if (input_translate.mouseButtonId(btn)) |mb_id| {
                         const cp = pixelToCellPos(mouse_pos);
                         tui_pid.send(.{
@@ -540,8 +545,8 @@ fn wioLoop() void {
                     // ASCII keys are fully handled by .button_press with correct
                     // base/shifted codepoints, avoiding double-firing on X11.
                     if (cp > 0x7f) {
-                        const mods = input_translate.Mods.fromButtons(held_buttons);
-                        sendKey(1, cp, cp, mods);
+                        const mods = syncModifiers();
+                        sendKey(press, cp, cp, mods);
                     }
                 },
                 .mouse => |pos| {
@@ -564,23 +569,12 @@ fn wioLoop() void {
                     tui_pid.send(.{ "RDR", "B", @as(u8, 1), btn_id, cp.col, cp.row, cp.xoff, cp.yoff }) catch {};
                 },
                 .focused => {
+                    _ = syncModifiers();
                     window.enableTextInput(.{});
                     tui_pid.send(.{"focus_in"}) catch {};
                 },
                 .unfocused => {
                     window.disableTextInput();
-                    // Synthesize release events for any modifier keys still held so the TUI
-                    // doesn't see them as stuck. Release in order so mods reflects reality after
-                    // each release.
-                    for (input_translate.modifier_buttons) |mod_btn| {
-                        if (held_buttons.has(mod_btn)) {
-                            held_buttons.release(mod_btn);
-                            const mods = input_translate.Mods.fromButtons(held_buttons);
-                            if (input_translate.modifierCodepoint(mod_btn)) |mod_cp|
-                                sendKey(3, mod_cp, mod_cp, mods);
-                        }
-                    }
-                    held_buttons = .{};
                     tui_pid.send(.{"focus_out"}) catch {};
                 },
                 else => {
@@ -721,4 +715,28 @@ fn sendKey(kind: u8, codepoint: u21, shifted_codepoint: u21, mods: input_transla
         @as(u21, shifted_codepoint), text_buf[0..text_len],
         @as(u8, @bitCast(mods)),
     }) catch {};
+}
+
+fn syncModifiers() input_translate.Mods {
+    const mods = input_translate.fromWioModifiers(wio.getModifiers());
+    // Synthesize release events for any modifier keys no
+    // longer held so they don't appear stuck.
+    if (mods.shift != last_mods.shift) {
+        last_mods.shift = mods.shift;
+        sendKey(if (last_mods.shift) press else release, vaxis.Key.left_shift, vaxis.Key.left_shift, last_mods);
+    }
+    if (mods.alt != last_mods.alt) {
+        last_mods.alt = mods.alt;
+        sendKey(if (last_mods.alt) press else release, vaxis.Key.left_alt, vaxis.Key.left_alt, last_mods);
+    }
+    if (mods.ctrl != last_mods.ctrl) {
+        last_mods.ctrl = mods.ctrl;
+        sendKey(if (last_mods.ctrl) press else release, vaxis.Key.left_control, vaxis.Key.left_control, last_mods);
+    }
+    if (mods.super != last_mods.super) {
+        last_mods.super = mods.super;
+        sendKey(if (last_mods.super) press else release, vaxis.Key.left_super, vaxis.Key.left_super, last_mods);
+    }
+    last_mods = mods;
+    return mods;
 }
