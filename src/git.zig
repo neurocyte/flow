@@ -32,11 +32,18 @@ pub fn current_branch(context_: usize) Error!void {
 }
 
 pub fn workspace_files(context: usize) Error!void {
-    return git_line_output(
-        context,
-        @src().fn_name,
-        .{ "ls-files", "--cached", "--others", "--exclude-standard" },
-    );
+    return if (is_file(".gitmodules"))
+        git_line_output(
+            context,
+            @src().fn_name,
+            .{ "ls-files", "--cached", "--exclude-standard", "--recurse-submodules" },
+        )
+    else
+        git_line_output(
+            context,
+            @src().fn_name,
+            .{ "ls-files", "--cached", "--others", "--exclude-standard" },
+        );
 }
 
 pub fn workspace_ignored_files(context: usize) Error!void {
@@ -409,6 +416,14 @@ pub fn blame(context_: usize, file_path: []const u8) !void {
             parent.send(.{ module_name, context, tag, output }) catch {};
         }
     }.result, exit_null(tag));
+}
+
+fn is_file(rel_path: []const u8) bool {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch return false;
+    var file = std.fs.openFileAbsolute(abs_path, .{ .mode = .read_only }) catch return false;
+    defer file.close();
+    return true;
 }
 
 const module_name = @typeName(@This());
