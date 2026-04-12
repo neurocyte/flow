@@ -172,6 +172,10 @@ pub fn ucs32_to_utf8(ucs32: []const u32, utf8: []u8) error{ Utf8CannotEncodeSurr
     return @intCast(try unicode.utf8Encode(@intCast(ucs32[0]), utf8));
 }
 
+pub fn ucs32_to_utf8_scalar(ucs32: u32, utf8: []u8) error{ Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }!usize {
+    return @intCast(try unicode.utf8Encode(@intCast(ucs32), utf8));
+}
+
 pub const utils = struct {
     pub fn key_id_string(k: Key) []const u8 {
         return switch (k) {
