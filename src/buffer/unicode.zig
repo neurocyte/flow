@@ -44,6 +44,7 @@ pub const char_pairs = [_]struct { []const u8, []const u8 }{
     .{ "`", "`" },
     .{ "(", ")" },
     .{ "[", "]" },
+    .{ "<", ">" },
     .{ "{", "}" },
     .{ "‘", "’" },
     .{ "“", "”" },
@@ -56,6 +57,7 @@ pub const char_pairs = [_]struct { []const u8, []const u8 }{
 pub const open_close_pairs = [_]struct { []const u8, []const u8 }{
     .{ "(", ")" },
     .{ "[", "]" },
+    .{ "<", ">" },
     .{ "{", "}" },
     .{ "‘", "’" },
     .{ "“", "”" },
