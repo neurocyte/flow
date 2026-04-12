@@ -187,10 +187,36 @@ fn prepare_resize_menu(self: *Self, _: *MenuType, _: Widget.Box) Widget.Box {
 }
 
 fn prepare_resize(self: *Self) Widget.Box {
+    const screen = tui.screen();
+    const padding = tui.get_widget_style(widget_type).padding;
     const w = self.menu_width();
-    const x = self.menu_pos_x();
     const h = self.menu.menu.widgets.items.len;
-    return .{ .y = 0, .x = x, .w = w, .h = h };
+    return switch (tui.config().palette_placement) {
+        .top_center => .{
+            .y = 0,
+            .x = self.menu_pos_x(),
+            .w = w,
+            .h = h,
+        },
+        .top_left => .{
+            .y = 0,
+            .x = 0,
+            .w = w,
+            .h = h,
+        },
+        .top_right => .{
+            .y = 0,
+            .x = if (screen.w > (w - padding.right)) (screen.w - w - padding.right) else 0,
+            .w = w,
+            .h = h,
+        },
+        .center => .{
+            .y = if (screen.h > h) (screen.h - h) / 2 else 0,
+            .x = self.menu_pos_x(),
+            .w = w,
+            .h = h,
+        },
+    };
 }
 
 fn do_resize(self: *Self) void {
