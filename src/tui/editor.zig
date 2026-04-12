@@ -1673,23 +1673,15 @@ pub const Editor = struct {
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
 
-                if (sel.end.row < ctx.self.view.row) return;
-                if (sel.begin.row > ctx.self.view.row + ctx.self.view.rows) return;
-                if (sel.begin.row < ctx.self.view.row) sel.begin.row = ctx.self.view.row;
-                if (sel.end.row > ctx.self.view.row + ctx.self.view.rows) sel.end.row = ctx.self.view.row + ctx.self.view.rows;
-
-                if (sel.end.col < ctx.self.view.col) return;
-                if (sel.begin.col > ctx.self.view.col + ctx.self.view.cols) return;
-                if (sel.begin.col < ctx.self.view.col) sel.begin.col = ctx.self.view.col;
-                if (sel.end.col > ctx.self.view.col + ctx.self.view.cols) sel.end.col = ctx.self.view.col + ctx.self.view.cols;
+                ctx.clamp_to_view(&sel.begin);
+                ctx.clamp_to_view(&sel.end);
 
                 for (sel.begin.row..sel.end.row + 1) |row| {
-                    const begin_col = if (row == sel.begin.row) sel.begin.col else 0;
+                    const begin_col = if (row == sel.begin.row) sel.begin.col else ctx.self.view.col;
                     const end_col = if (row == sel.end.row) sel.end.col else ctx.self.view.col + ctx.self.view.cols;
-                    const y = @max(ctx.self.view.row, row) - ctx.self.view.row;
-                    const x = @max(ctx.self.view.col, begin_col) - ctx.self.view.col;
-                    const end_x = @max(ctx.self.view.col, end_col) - ctx.self.view.col;
-                    if (x >= end_x) return;
+                    const y = row - ctx.self.view.row;
+                    const x = begin_col - ctx.self.view.col;
+                    const end_x = end_col - ctx.self.view.col;
                     for (x..end_x) |x_|
                         try ctx.render_cell(y, x_, style);
                 }
@@ -1700,6 +1692,19 @@ pub const Editor = struct {
                 _ = ctx.self.plane.at_cursor_cell(&cell) catch return;
                 cell.set_style(style);
                 _ = ctx.self.plane.putc(&cell) catch {};
+            }
+            fn clamp_to_view(ctx: *const @This(), cursor: *Cursor) void {
+                const row_off: u32 = @intCast(ctx.self.view.row);
+                const col_off: u32 = @intCast(ctx.self.view.col);
+                if (cursor.row < row_off) {
+                    cursor.row = row_off;
+                    cursor.col = col_off;
+                }
+                if (cursor.row >= row_off + ctx.self.view.rows) {
+                    cursor.row = row_off + ctx.self.view.rows;
+                    cursor.col = col_off + ctx.self.view.cols;
+                }
+                cursor.col = std.math.clamp(cursor.col, col_off, col_off + ctx.self.view.cols);
             }
         };
         var ctx: Ctx = .{
