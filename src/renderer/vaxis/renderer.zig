@@ -429,20 +429,24 @@ fn handle_bracketed_paste_input(self: *Self, cbor_msg: []const u8) !bool {
     var keypress: input.Key = undefined;
     var egc_: input.Key = undefined;
     var mods: usize = undefined;
+    var text: []const u8 = undefined;
     const writer = &self.bracketed_paste_buffer.writer;
-    if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.string, cbor.extract(&mods) })) {
+    if (try cbor.match(cbor_msg, .{ "I", cbor.number, cbor.extract(&keypress), cbor.extract(&egc_), cbor.extract(&text), cbor.extract(&mods) })) {
         switch (keypress) {
             106 => if (mods == 4) try writer.writeAll("\n") else try writer.writeAll("j"),
             input.key.enter => try writer.writeAll("\n"),
             input.key.tab => try writer.writeAll("\t"),
-            else => if (!input.is_non_input_key(keypress)) {
-                var buf: [6]u8 = undefined;
-                const bytes = try input.ucs32_to_utf8(&[_]u32{egc_}, &buf);
-                try writer.writeAll(buf[0..bytes]);
-            } else {
-                var buf: [6]u8 = undefined;
-                const bytes = try input.ucs32_to_utf8(&[_]u32{egc_}, &buf);
-                self.logger.print("unexpected codepoint in paste: {d} {s}", .{ keypress, buf[0..bytes] });
+            else => {
+                if (keypress == vaxis.Key.multicodepoint) {
+                    try writer.writeAll(text);
+                } else if (!input.is_non_input_key(keypress)) {
+                    var buf: [6]u8 = undefined;
+                    const bytes = try input.ucs32_to_utf8_scalar(egc_, &buf);
+                    try writer.writeAll(buf[0..bytes]);
+                } else {
+                    var buf: [1024]u8 = undefined;
+                    self.logger.print("unexpected codepoint in paste event: {s}", .{cbor.toJson(cbor_msg, &buf) catch "cbor.toJson failed"});
+                }
             },
         }
         return true;
