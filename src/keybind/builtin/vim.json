@@ -88,6 +88,8 @@
             ["di]", "cut_inside_square_brackets"],
             ["di{", "cut_inside_braces"],
             ["di}", "cut_inside_braces"],
+            ["di'", "cut_inside_single_quotes"],
+            ["di\"", "cut_inside_double_quotes"],
 
             ["daw", "cut_around_word"],
             ["da(", "cut_around_parentheses"],
@@ -96,6 +98,8 @@
             ["da]", "cut_around_square_brackets"],
             ["da{", "cut_around_braces"],
             ["da}", "cut_around_braces"],
+            ["da'", "cut_around_single_quotes"],
+            ["da\"", "cut_around_double_quotes"],
 
             ["cc", ["enter_mode", "insert"], ["cut_internal_vim"]],
             ["C", ["enter_mode", "insert"], ["cut_to_end_vim"]],
@@ -110,6 +114,8 @@
             ["ci]", ["enter_mode", "insert"], ["cut_inside_square_brackets"]],
             ["ci{", ["enter_mode", "insert"], ["cut_inside_braces"]],
             ["ci}", ["enter_mode", "insert"], ["cut_inside_braces"]],
+            ["ci'", ["enter_mode", "insert"], ["cut_inside_single_quotes"]],
+            ["ci\"", ["enter_mode", "insert"], ["cut_inside_double_quotes"]],
 
             ["caw", ["enter_mode", "insert"], ["cut_around_word"]],
             ["ca(", ["enter_mode", "insert"], ["cut_around_parentheses"]],
@@ -118,6 +124,8 @@
             ["ca]", ["enter_mode", "insert"], ["cut_around_square_brackets"]],
             ["ca{", ["enter_mode", "insert"], ["cut_around_braces"]],
             ["ca}", ["enter_mode", "insert"], ["cut_around_braces"]],
+            ["ca'", ["enter_mode", "insert"], ["cut_around_single_quotes"]],
+            ["ca\"", ["enter_mode", "insert"], ["cut_around_double_quotes"]],
 
             ["yy", ["copy_line_internal_vim"], ["cancel"]],
 
@@ -128,6 +136,8 @@
             ["yi]", ["copy_inside_square_brackets"], ["cancel"]],
             ["yi{", ["copy_inside_braces"], ["cancel"]],
             ["yi}", ["copy_inside_braces"], ["cancel"]],
+            ["yi'", ["copy_inside_single_quotes"], ["cancel"]],
+            ["yi\"", ["copy_inside_double_quotes"], ["cancel"]],
 
             ["yaw", ["copy_around_word"], ["cancel"]],
             ["ya(", ["copy_around_parentheses"], ["cancel"]],
@@ -136,6 +146,8 @@
             ["ya]", ["copy_around_square_brackets"], ["cancel"]],
             ["ya{", ["copy_around_braces"], ["cancel"]],
             ["ya}", ["copy_around_braces"], ["cancel"]],
+            ["ya'", ["copy_around_single_quotes"], ["cancel"]],
+            ["ya\"", ["copy_around_double_quotes"], ["cancel"]],
 
             ["<C-u>", "move_scroll_half_page_up_vim"],
             ["<C-d>", "move_scroll_half_page_down_vim"],
@@ -214,6 +226,8 @@
             ["i]", "select_inside_square_brackets"],
             ["i{", "select_inside_braces"],
             ["i}", "select_inside_braces"],
+            ["i'", "select_inside_single_quotes"],
+            ["i\"", "select_inside_double_quotes"],
 
             ["aw", "select_around_word"],
             ["a(", "select_around_parentheses"],
@@ -222,6 +236,8 @@
             ["a]", "select_around_square_brackets"],
             ["a{", "select_around_braces"],
             ["a}", "select_around_braces"],
+            ["a'", "select_around_single_quotes"],
+            ["a\"", "select_around_double_quotes"],
 
             ["^", "smart_move_begin"],
             ["$", "select_end"],
