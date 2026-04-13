@@ -433,8 +433,8 @@ const cmds_ = struct {
     pub fn surround_add(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
-        var root = ed.buf_root() catch return;
-        root = try ed.with_cursels_mut_once_arg(root, surround_cursel_add, ed.allocator, ctx);
+        const b = try ed.buf_for_update();
+        const root = try ed.with_cursels_mut_once_arg(b.root, surround_cursel_add, ed.allocator, ctx);
         try ed.update_buf(root);
         ed.clamp();
         ed.need_render();
@@ -492,8 +492,8 @@ const cmds_ = struct {
     pub fn replace_with_character_helix(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
-        var root = ed.buf_root() catch return;
-        root = try ed.with_cursels_mut_once_arg(root, replace_cursel_with_character, ed.allocator, ctx);
+        const b = try ed.buf_for_update();
+        const root = try ed.with_cursels_mut_once_arg(b.root, replace_cursel_with_character, ed.allocator, ctx);
         try ed.update_buf(root);
         ed.clamp();
         ed.need_render();
