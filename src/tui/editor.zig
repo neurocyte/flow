@@ -1673,23 +1673,15 @@ pub const Editor = struct {
                 const style_ = style_cache_lookup(ctx.theme, ctx.cache, scope, id);
                 const style = if (style_) |sty| sty.style else return;
 
-                if (sel.end.row < ctx.self.view.row) return;
-                if (sel.begin.row > ctx.self.view.row + ctx.self.view.rows) return;
-                if (sel.begin.row < ctx.self.view.row) sel.begin.row = ctx.self.view.row;
-                if (sel.end.row > ctx.self.view.row + ctx.self.view.rows) sel.end.row = ctx.self.view.row + ctx.self.view.rows;
-
-                if (sel.end.col < ctx.self.view.col) return;
-                if (sel.begin.col > ctx.self.view.col + ctx.self.view.cols) return;
-                if (sel.begin.col < ctx.self.view.col) sel.begin.col = ctx.self.view.col;
-                if (sel.end.col > ctx.self.view.col + ctx.self.view.cols) sel.end.col = ctx.self.view.col + ctx.self.view.cols;
+                ctx.clamp_to_view(&sel.begin);
+                ctx.clamp_to_view(&sel.end);
 
                 for (sel.begin.row..sel.end.row + 1) |row| {
-                    const begin_col = if (row == sel.begin.row) sel.begin.col else 0;
+                    const begin_col = if (row == sel.begin.row) sel.begin.col else ctx.self.view.col;
                     const end_col = if (row == sel.end.row) sel.end.col else ctx.self.view.col + ctx.self.view.cols;
-                    const y = @max(ctx.self.view.row, row) - ctx.self.view.row;
-                    const x = @max(ctx.self.view.col, begin_col) - ctx.self.view.col;
-                    const end_x = @max(ctx.self.view.col, end_col) - ctx.self.view.col;
-                    if (x >= end_x) return;
+                    const y = row - ctx.self.view.row;
+                    const x = begin_col - ctx.self.view.col;
+                    const end_x = end_col - ctx.self.view.col;
                     for (x..end_x) |x_|
                         try ctx.render_cell(y, x_, style);
                 }
@@ -1700,6 +1692,19 @@ pub const Editor = struct {
                 _ = ctx.self.plane.at_cursor_cell(&cell) catch return;
                 cell.set_style(style);
                 _ = ctx.self.plane.putc(&cell) catch {};
+            }
+            fn clamp_to_view(ctx: *const @This(), cursor: *Cursor) void {
+                const row_off: u32 = @intCast(ctx.self.view.row);
+                const col_off: u32 = @intCast(ctx.self.view.col);
+                if (cursor.row < row_off) {
+                    cursor.row = row_off;
+                    cursor.col = col_off;
+                }
+                if (cursor.row >= row_off + ctx.self.view.rows) {
+                    cursor.row = row_off + ctx.self.view.rows;
+                    cursor.col = col_off + ctx.self.view.cols;
+                }
+                cursor.col = std.math.clamp(cursor.col, col_off, col_off + ctx.self.view.cols);
             }
         };
         var ctx: Ctx = .{
@@ -3002,17 +3007,15 @@ pub const Editor = struct {
         self.update_animation_step(dest);
     }
 
-    fn scroll_up(self: *Self) void {
-        const scroll_step_vertical = tui.config().scroll_step_vertical;
+    fn scroll_up_internal(self: *Self, count: usize) void {
         var dest_row = self.scroll_dest;
-        dest_row = if (dest_row > scroll_step_vertical) dest_row - scroll_step_vertical else 0;
+        dest_row -|= count;
         self.update_scroll_dest_abs(dest_row);
     }
 
-    fn scroll_down(self: *Self) void {
-        const scroll_step_vertical = tui.config().scroll_step_vertical;
+    fn scroll_down_internal(self: *Self, count: usize) void {
         var dest_row = self.scroll_dest;
-        dest_row += scroll_step_vertical;
+        dest_row += count;
         self.update_scroll_dest_abs(dest_row);
     }
 
@@ -3035,7 +3038,7 @@ pub const Editor = struct {
         else if (tui.fast_scroll())
             self.scroll_pageup()
         else
-            self.scroll_up();
+            self.scroll_up_internal(tui.config().scroll_step_vertical);
     }
 
     pub fn mouse_scroll_down(self: *Self) void {
@@ -3044,7 +3047,7 @@ pub const Editor = struct {
         else if (tui.fast_scroll())
             self.scroll_pagedown()
         else
-            self.scroll_down();
+            self.scroll_down_internal(tui.config().scroll_step_vertical);
     }
 
     pub fn scroll_to(self: *Self, row: usize) void {
@@ -3969,6 +3972,132 @@ pub const Editor = struct {
     }
     pub const goto_bracket_meta: Meta = .{ .description = "Goto matching bracket" };
 
+    const QuoteRole = enum { opening, closing };
+
+    fn row_start_cursor(root: Buffer.Root, cursor: Cursor, metrics: Buffer.Metrics) Cursor {
+        var c = cursor;
+
+        while (true) {
+            var prev = c;
+            prev.move_left(root, metrics) catch break;
+            if (prev.row != c.row) break;
+            c = prev;
+        }
+
+        return c;
+    }
+
+    fn quote_is_escaped(root: Buffer.Root, quote_cursor: Cursor, metrics: Buffer.Metrics) bool {
+        var cursor = quote_cursor;
+        var backslashes: usize = 0;
+
+        while (true) {
+            var prev = cursor;
+            prev.move_left(root, metrics) catch break;
+            if (prev.row != cursor.row) break;
+
+            const egc, _, _ = root.egc_at(prev.row, prev.col, metrics) catch break;
+            if (!std.mem.eql(u8, egc, "\\")) break;
+
+            backslashes += 1;
+            cursor = prev;
+        }
+
+        return (backslashes % 2) == 1;
+    }
+
+    fn find_unescaped_quote(
+        root: Buffer.Root,
+        start: Cursor,
+        metrics: Buffer.Metrics,
+        direction: enum { left, right },
+        quote: []const u8,
+    ) error{Stop}!Cursor {
+        var cursor = start;
+        var i: usize = 0;
+
+        while (i < bracket_search_radius) : (i += 1) {
+            switch (direction) {
+                .left => cursor.move_left(root, metrics) catch return error.Stop,
+                .right => cursor.move_right(root, metrics) catch return error.Stop,
+            }
+
+            const egc, _, _ = root.egc_at(cursor.row, cursor.col, metrics) catch {
+                return error.Stop;
+            };
+
+            if (!std.mem.eql(u8, egc, quote)) continue;
+            if (quote_is_escaped(root, cursor, metrics)) continue;
+
+            return cursor;
+        }
+
+        return error.Stop;
+    }
+
+    fn quote_role_on_row(
+        root: Buffer.Root,
+        quote_cursor: Cursor,
+        metrics: Buffer.Metrics,
+        quote: []const u8,
+    ) error{Stop}!QuoteRole {
+        var cursor = row_start_cursor(root, .{ .row = quote_cursor.row, .col = 0 }, metrics);
+        var opening = true;
+
+        while (cursor.row == quote_cursor.row and cursor.col <= quote_cursor.col) {
+            const egc, _, _ = root.egc_at(cursor.row, cursor.col, metrics) catch {
+                return error.Stop;
+            };
+
+            if (std.mem.eql(u8, egc, quote) and !quote_is_escaped(root, cursor, metrics)) {
+                if (cursor.col == quote_cursor.col) {
+                    return if (opening) .opening else .closing;
+                }
+                opening = !opening;
+            }
+
+            cursor.move_right(root, metrics) catch break;
+        }
+
+        return error.Stop;
+    }
+
+    pub fn find_quote_pair(
+        root: Buffer.Root,
+        original_cursor: Cursor,
+        metrics: Buffer.Metrics,
+        quote: []const u8,
+    ) error{Stop}!struct { struct { usize, usize }, struct { usize, usize } } {
+
+        // If the cursor is already on a quote, use it directly as the anchor.
+        // Otherwise find the nearest quote, preferring rightward.
+        const cursor_egc, _, _ = root.egc_at(original_cursor.row, original_cursor.col, metrics) catch return error.Stop;
+        const anchor = if (std.mem.eql(u8, cursor_egc, quote))
+            original_cursor
+        else
+            find_unescaped_quote(root, original_cursor, metrics, .right, quote) catch
+                find_unescaped_quote(root, original_cursor, metrics, .left, quote) catch
+                return error.Stop;
+
+        const role = try quote_role_on_row(root, anchor, metrics, quote);
+
+        const other = switch (role) {
+            .opening => try find_unescaped_quote(root, anchor, metrics, .right, quote),
+            .closing => try find_unescaped_quote(root, anchor, metrics, .left, quote),
+        };
+
+        return switch (role) {
+            .opening => .{
+                .{ anchor.row, anchor.col },
+                .{ other.row, other.col },
+            },
+            .closing => .{
+                .{ other.row, other.col },
+                .{ anchor.row, anchor.col },
+            },
+        };
+    }
+
     pub fn move_or_select_to_char_right(self: *Self, ctx: Context) Result {
         const selected = if (self.get_primary().selection) |_| true else false;
         if (selected) try self.select_to_char_right(ctx) else try self.move_to_char_right(ctx);
@@ -4411,6 +4540,20 @@ pub const Editor = struct {
     }
     pub const unindent_meta: Meta = .{ .description = "Unindent current line", .arguments = &.{.integer} };
 
+    pub fn scroll_up(self: *Self, ctx: Context) Result {
+        var count: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&count)}) catch false;
+        self.scroll_up_internal(count);
+    }
+    pub const scroll_up_meta: Meta = .{ .description = "Scroll up", .arguments = &.{.integer} };
+
+    pub fn scroll_down(self: *Self, ctx: Context) Result {
+        var count: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&count)}) catch false;
+        self.scroll_down_internal(count);
+    }
+    pub const scroll_down_meta: Meta = .{ .description = "Scroll down", .arguments = &.{.integer} };
+
     pub fn move_scroll_up(self: *Self, ctx: Context) Result {
         const root = try self.buf_root();
         self.with_cursors_const_repeat(root, move_cursor_up, ctx) catch {};
@@ -4427,15 +4570,19 @@ pub const Editor = struct {
     }
     pub const move_scroll_down_meta: Meta = .{ .description = "Move and scroll down", .arguments = &.{.integer} };
 
-    pub fn move_scroll_left(self: *Self, _: Context) Result {
-        self.view.move_left(tui.config().scroll_step_horizontal) catch {};
+    pub fn scroll_left(self: *Self, ctx: Context) Result {
+        var count: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&count)}) catch false;
+        self.view.move_left(count) catch {};
     }
-    pub const move_scroll_left_meta: Meta = .{ .description = "Scroll left" };
+    pub const scroll_left_meta: Meta = .{ .description = "Scroll left", .arguments = &.{.integer} };
 
-    pub fn move_scroll_right(self: *Self, _: Context) Result {
-        self.view.move_right(tui.config().scroll_step_horizontal) catch {};
+    pub fn scroll_right(self: *Self, ctx: Context) Result {
+        var count: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&count)}) catch false;
+        self.view.move_right(count) catch {};
     }
-    pub const move_scroll_right_meta: Meta = .{ .description = "Scroll right" };
+    pub const scroll_right_meta: Meta = .{ .description = "Scroll right", .arguments = &.{.integer} };
 
     pub fn mouse_scroll_left(self: *Self) void {
         const scroll_step_horizontal = tui.config().scroll_step_horizontal;
@@ -7110,25 +7257,41 @@ pub const Editor = struct {
         .arguments = &.{.integer},
     };
 
-    fn to_upper_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+    fn get_selection_or_select_word(self: *Self, root: Buffer.Root, cursel: *CurSel) error{Stop}!*Selection {
+        if (cursel.selection) |*sel| {
+            return sel;
+        } else {
+            var sel = cursel.enable_selection(root, self.metrics);
+            try move_cursor_word_begin(root, &sel.begin, self.metrics);
+            try move_cursor_word_end(root, &sel.end, self.metrics);
+            return sel;
+        }
+    }
+
+    fn transform_cursel(
+        comptime transform: fn (std.mem.Allocator, []const u8) Buffer.unicode.TransformError![]u8,
+        self: *Self,
+        root_: Buffer.Root,
+        cursel: *CurSel,
+        allocator: Allocator,
+    ) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
-        const sel = if (cursel.selection) |*sel| sel else ret: {
-            var sel = cursel.enable_selection(root, self.metrics);
-            move_cursor_word_begin(root, &sel.begin, self.metrics) catch return error.Stop;
-            move_cursor_word_end(root, &sel.end, self.metrics) catch return error.Stop;
-            break :ret sel;
-        };
+        const sel = try self.get_selection_or_select_word(root, cursel);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
         const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(cut_text);
-        const ucased = Buffer.unicode.to_upper(sfa_allocator, cut_text) catch return error.Stop;
-        defer sfa_allocator.free(ucased);
+        const transformed = transform(sfa_allocator, cut_text) catch return error.Stop;
+        defer sfa_allocator.free(transformed);
         root = try self.delete_selection(root, cursel, allocator);
-        root = self.insert(root, cursel, ucased, allocator) catch return error.Stop;
+        root = self.insert(root, cursel, transformed, allocator) catch return error.Stop;
         cursel.* = saved;
         return root;
+    }
+
+    fn to_upper_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        return transform_cursel(Buffer.unicode.to_upper, self, root_, cursel, allocator);
     }
 
     pub fn to_upper(self: *Self, _: Context) Result {
@@ -7139,25 +7302,8 @@ pub const Editor = struct {
     }
     pub const to_upper_meta: Meta = .{ .description = "Convert selection or word to upper case" };
 
-    fn to_lower_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, buffer_allocator: Allocator) error{Stop}!Buffer.Root {
-        var root = root_;
-        const saved = cursel.*;
-        const sel = if (cursel.selection) |*sel| sel else ret: {
-            var sel = cursel.enable_selection(root, self.metrics);
-            move_cursor_word_begin(root, &sel.begin, self.metrics) catch return error.Stop;
-            move_cursor_word_end(root, &sel.end, self.metrics) catch return error.Stop;
-            break :ret sel;
-        };
-        var sfa = std.heap.stackFallback(4096, self.allocator);
-        const sfa_allocator = sfa.get();
-        const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
-        defer sfa_allocator.free(cut_text);
-        const ucased = Buffer.unicode.to_lower(sfa_allocator, cut_text) catch return error.Stop;
-        defer sfa_allocator.free(ucased);
-        root = try self.delete_selection(root, cursel, buffer_allocator);
-        root = self.insert(root, cursel, ucased, buffer_allocator) catch return error.Stop;
-        cursel.* = saved;
-        return root;
+    fn to_lower_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        return transform_cursel(Buffer.unicode.to_lower, self, root_, cursel, allocator);
     }
 
     pub fn to_lower(self: *Self, _: Context) Result {
@@ -7198,6 +7344,18 @@ pub const Editor = struct {
         self.clamp();
     }
     pub const switch_case_meta: Meta = .{ .description = "Switch the case of selection or character at cursor" };
+
+    fn toggle_case_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
+        return transform_cursel(Buffer.unicode.toggle_case, self, root_, cursel, allocator);
+    }
+
+    pub fn toggle_case(self: *Self, _: Context) Result {
+        const b = try self.buf_for_update();
+        const root = try self.with_cursels_mut_once(b.root, toggle_case_cursel, b.allocator);
+        try self.update_buf(root);
+        self.clamp();
+    }
+    pub const toggle_case_meta: Meta = .{ .description = "Toggle the case of each character in selection or character at cursor" };
 
     pub fn forced_mark_clean(self: *Self, _: Context) Result {
         if (self.buffer) |b| {

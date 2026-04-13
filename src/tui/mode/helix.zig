@@ -430,6 +430,17 @@ const cmds_ = struct {
     }
     pub const select_textobject_inner_meta: Meta = .{ .description = "select inside object helix" };
 
+    pub fn surround_add(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const b = try ed.buf_for_update();
+        const root = try ed.with_cursels_mut_once_arg(b.root, surround_cursel_add, ed.allocator, ctx);
+        try ed.update_buf(root);
+        ed.clamp();
+        ed.need_render();
+    }
+    pub const surround_add_meta: Meta = .{ .description = "surround add" };
+
     pub fn select_textobject_around(_: *void, ctx: Ctx) Result {
         var action: []const u8 = "";
 
@@ -481,8 +492,8 @@ const cmds_ = struct {
     pub fn replace_with_character_helix(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
-        var root = ed.buf_root() catch return;
-        root = try ed.with_cursels_mut_once_arg(root, replace_cursel_with_character, ed.allocator, ctx);
+        const b = try ed.buf_for_update();
+        const root = try ed.with_cursels_mut_once_arg(b.root, replace_cursel_with_character, ed.allocator, ctx);
         try ed.update_buf(root);
         ed.clamp();
         ed.need_render();
@@ -863,6 +874,50 @@ fn replace_cursel_with_character(ed: *Editor, root: Buffer.Root, cursel: *CurSel
     for (0..sel_length) |i|
         @memcpy(replacement[i * egc.len .. (i + 1) * egc.len], egc);
     return insert_replace_selection(ed, root, cursel, replacement, allocator) catch return error.Stop;
+}
+
+fn find_open_close_pair(bracket: []const u8) struct { left: []const u8, right: []const u8 } {
+    for (Buffer.unicode.open_close_pairs) |pair| {
+        if (std.mem.eql(u8, bracket, pair[0]) or std.mem.eql(u8, bracket, pair[1])) {
+            return .{ .left = pair[0], .right = pair[1] };
+        }
+    }
+    return .{ .left = bracket, .right = bracket };
+}
+
+fn surround_cursel_add(ed: *Editor, root: Buffer.Root, cursel: *CurSel, allocator: Allocator, ctx: command.Context) error{Stop}!Buffer.Root {
+    var encloser: []const u8 = undefined;
+    if (!(ctx.args.match(.{tp.extract(&encloser)}) catch return error.Stop))
+        return error.Stop;
+
+    const enclose_pair = find_open_close_pair(encloser);
+    var root_: Buffer.Root = root;
+    cursel.check_selection(root, ed.metrics);
+
+    const sel = cursel.enable_selection(root_, ed.metrics);
+    var begin = sel.begin;
+    var end = sel.end;
+    if (sel.is_reversed()) {
+        end = sel.begin;
+        begin = sel.end;
+    }
+    if (begin.row == end.row and end.col == begin.col) {
+        end.move_right(root_, ed.metrics) catch {};
+    }
+    _, _, root_ = root_.insert_chars(end.row, end.col, enclose_pair.right, allocator, ed.metrics) catch return error.Stop;
+    _, _, root_ = root_.insert_chars(begin.row, begin.col, enclose_pair.left, allocator, ed.metrics) catch return error.Stop;
+
+    if (begin.row == end.row) {
+        try end.move_right(root_, ed.metrics); // for left-bracket column shift on same row
+    }
+    try end.move_right(root_, ed.metrics); // skip past right bracket
+    cursel.selection = Selection{ .begin = begin, .end = end };
+    ed.nudge_insert(.{ .begin = begin, .end = end }, cursel, encloser.len * 2);
+
+    if (end.right_of(begin)) {
+        try cursel.*.cursor.move_right(root_, ed.metrics);
+    }
+    return root_;
 }
 
 fn move_noop(_: Buffer.Root, _: *Cursor, _: Buffer.Metrics) error{Stop}!void {}

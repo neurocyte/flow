@@ -87,6 +87,8 @@ hint_window_style: WidgetStyle = .thick_boxed,
 info_box_style: WidgetStyle = .bar_left_spacious,
 info_box_width_limit: usize = 80,
 
+palette_placement: PalettePlacement = .top_center,
+
 centered_view: bool = false,
 centered_view_width: usize = 145,
 centered_view_min_screen_width: usize = 145,
@@ -255,4 +257,11 @@ pub const TerminalOnExit = enum {
     hold_on_error,
     close,
     hold,
+};
+
+pub const PalettePlacement = enum {
+    top_center,
+    top_left,
+    top_right,
+    center,
 };
