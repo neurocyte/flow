@@ -907,8 +907,10 @@ fn surround_cursel_add(ed: *Editor, root: Buffer.Root, cursel: *CurSel, allocato
     _, _, root_ = root_.insert_chars(end.row, end.col, enclose_pair.right, allocator, ed.metrics) catch return error.Stop;
     _, _, root_ = root_.insert_chars(begin.row, begin.col, enclose_pair.left, allocator, ed.metrics) catch return error.Stop;
 
-    try end.move_right(root_, ed.metrics);
-    try end.move_right(root_, ed.metrics);
+    if (begin.row == end.row) {
+        try end.move_right(root_, ed.metrics); // for left-bracket column shift on same row
+    }
+    try end.move_right(root_, ed.metrics); // skip past right bracket
     cursel.selection = Selection{ .begin = begin, .end = end };
     ed.nudge_insert(.{ .begin = begin, .end = end }, cursel, encloser.len * 2);
 
