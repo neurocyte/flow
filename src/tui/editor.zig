@@ -4071,9 +4071,15 @@ pub const Editor = struct {
         quote: []const u8,
     ) error{Stop}!struct { struct { usize, usize }, struct { usize, usize } } {
 
-        // Find nearest quote (prefer rightward)
-        const anchor =
-            find_unescaped_quote(root, original_cursor, metrics, .right, quote) catch find_unescaped_quote(root, original_cursor, metrics, .left, quote) catch return error.Stop;
+        // If the cursor is already on a quote, use it directly as the anchor.
+        // Otherwise find the nearest quote, preferring rightward.
+        const cursor_egc, _, _ = root.egc_at(original_cursor.row, original_cursor.col, metrics) catch return error.Stop;
+        const anchor = if (std.mem.eql(u8, cursor_egc, quote))
+            original_cursor
+        else
+            find_unescaped_quote(root, original_cursor, metrics, .right, quote) catch
+                find_unescaped_quote(root, original_cursor, metrics, .left, quote) catch
+                return error.Stop;
 
         const role = try quote_role_on_row(root, anchor, metrics, quote);
 
