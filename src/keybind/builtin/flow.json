@@ -150,6 +150,7 @@
             ["alt+l", "to_lower"],
             ["alt+q", "reflow"],
             ["alt+c", "switch_case"],
+            ["ctrl+k c", "toggle_case"],
             ["ctrl+_", "underline"],
             ["ctrl+=", "underline_with_char", "=", "solid"],
             ["ctrl+plus", "underline_with_char", "="],
