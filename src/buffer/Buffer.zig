@@ -52,6 +52,7 @@ file_exists: bool = true,
 file_eol_mode: EolMode = .lf,
 last_save_eol_mode: EolMode = .lf,
 file_utf8_sanitized: bool = false,
+detected_indent_size: ?usize = null,
 hidden: bool = false,
 ephemeral: bool = false,
 auto_save: bool = false,
@@ -1395,7 +1396,45 @@ pub fn load(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_
     leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = false } };
     if (leaves.len != cur_leaf + 1)
         return error.Unexpected;
+
+    self_.detected_indent_size = detect_indent_size(leaves[0..@min(leaves.len, 1000)]);
+
     return Node.merge_in_place(leaves, self.allocator);
+}
+
+fn detect_indent_size(leaves: []const Node) ?usize {
+    // frequency of each leading-space count (up to 16 spaces).
+    const max_spaces = 16;
+    var freq = std.mem.zeroes([max_spaces + 1]u32);
+    for (leaves) |leaf_node| {
+        const line = leaf_node.leaf.buf;
+        if (line.len == 0) continue;
+        if (line[0] == '\t') return 0;
+        var spaces: usize = 0;
+        for (line) |c| {
+            if (c == ' ') spaces += 1 else break;
+        }
+        if (spaces == 0 or spaces > max_spaces) continue;
+        freq[spaces] += 1;
+    }
+
+    // find the 3 most frequently occurring indent levels
+    var top = [3]usize{ 0, 0, 0 };
+    for (1..freq.len) |n| {
+        if (freq[n] > freq[top[2]]) {
+            top[2] = n;
+            if (freq[top[2]] > freq[top[1]]) std.mem.swap(usize, &top[1], &top[2]);
+            if (freq[top[1]] > freq[top[0]]) std.mem.swap(usize, &top[0], &top[1]);
+        }
+    }
+
+    // GCD of the top indent levels gives the base indent unit
+    var gcd: usize = 0;
+    for (top) |n| {
+        if (n == 0) continue;
+        gcd = if (gcd == 0) n else std.math.gcd(gcd, n);
+    }
+    return if (gcd > 0) gcd else null;
 }
 
 pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError!Root {

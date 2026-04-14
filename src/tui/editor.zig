@@ -831,6 +831,13 @@ pub const Editor = struct {
     }
 
     fn detect_indent_mode(self: *Self, content: []const u8) void {
+        if (self.buffer) |buf| {
+            if (buf.detected_indent_size) |detected_indent_size| {
+                self.indent_size = detected_indent_size;
+                self.indent_mode = .spaces;
+                return;
+            }
+        }
         var it = std.mem.splitScalar(u8, content, '\n');
         while (it.next()) |line| {
             if (line.len == 0) continue;
@@ -842,7 +849,6 @@ pub const Editor = struct {
         }
         self.indent_size = tui.config().indent_size;
         self.indent_mode = .spaces;
-        return;
     }
 
     fn refresh_tab_width(self: *Self) void {
