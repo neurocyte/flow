@@ -52,6 +52,7 @@ file_exists: bool = true,
 file_eol_mode: EolMode = .lf,
 last_save_eol_mode: EolMode = .lf,
 file_utf8_sanitized: bool = false,
+detected_indent_size: ?usize = null,
 hidden: bool = false,
 ephemeral: bool = false,
 auto_save: bool = false,
@@ -1395,7 +1396,45 @@ pub fn load(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_
     leaves[cur_leaf] = .{ .leaf = .{ .buf = line, .bol = true, .eol = false } };
     if (leaves.len != cur_leaf + 1)
         return error.Unexpected;
+
+    self_.detected_indent_size = detect_indent_size(leaves[0..@min(leaves.len, 1000)]);
+
     return Node.merge_in_place(leaves, self.allocator);
+}
+
+fn detect_indent_size(leaves: []const Node) ?usize {
+    // frequency of each leading-space count (up to 16 spaces).
+    const max_spaces = 16;
+    var freq = std.mem.zeroes([max_spaces + 1]u32);
+    for (leaves) |leaf_node| {
+        const line = leaf_node.leaf.buf;
+        if (line.len == 0) continue;
+        if (line[0] == '\t') return 0;
+        var spaces: usize = 0;
+        for (line) |c| {
+            if (c == ' ') spaces += 1 else break;
+        }
+        if (spaces == 0 or spaces > max_spaces) continue;
+        freq[spaces] += 1;
+    }
+
+    // find the 3 most frequently occurring indent levels
+    var top = [3]usize{ 0, 0, 0 };
+    for (1..freq.len) |n| {
+        if (freq[n] > freq[top[2]]) {
+            top[2] = n;
+            if (freq[top[2]] > freq[top[1]]) std.mem.swap(usize, &top[1], &top[2]);
+            if (freq[top[1]] > freq[top[0]]) std.mem.swap(usize, &top[0], &top[1]);
+        }
+    }
+
+    // GCD of the top indent levels gives the base indent unit
+    var gcd: usize = 0;
+    for (top) |n| {
+        if (n == 0) continue;
+        gcd = if (gcd == 0) n else std.math.gcd(gcd, n);
+    }
+    return if (gcd > 0) gcd else null;
 }
 
 pub fn load_from_string(self: *const Self, s: []const u8, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError!Root {
@@ -1610,14 +1649,37 @@ pub fn store_to_existing_file_const(self: *const Self, file_path_: []const u8) S
         file_path = link;
     }
 
-    var atomic = blk: {
-        var write_buffer: [4096]u8 = undefined;
-        const stat = cwd().statFile(file_path) catch
-            break :blk try cwd().atomicFile(file_path, .{ .write_buffer = &write_buffer });
-        break :blk try cwd().atomicFile(file_path, .{ .mode = stat.mode, .write_buffer = &write_buffer });
+    var write_buffer: [4096]u8 = undefined;
+
+    if (builtin.os.tag == .windows) {
+        // windows uses ACLs for ownership so we preserve mode only
+        var atomic = blk: {
+            const stat = cwd().statFile(file_path) catch
+                break :blk try cwd().atomicFile(file_path, .{ .write_buffer = &write_buffer });
+            break :blk try cwd().atomicFile(file_path, .{ .mode = stat.mode, .write_buffer = &write_buffer });
+        };
+        defer atomic.deinit();
+        try self.store_to_file_const(&atomic.file_writer.interface);
+        return atomic.finish();
+    }
+
+    // use fstat to get uid/gid, which std.fs.File.Stat omits.
+    const orig_stat: ?std.posix.Stat = blk: {
+        const f = cwd().openFile(file_path, .{}) catch break :blk null;
+        defer f.close();
+        break :blk std.posix.fstat(f.handle) catch null;
     };
+    const mode: std.fs.File.Mode = if (orig_stat) |s| s.mode else std.fs.File.default_mode;
+    var atomic = try cwd().atomicFile(file_path, .{ .mode = mode, .write_buffer = &write_buffer });
     defer atomic.deinit();
     try self.store_to_file_const(&atomic.file_writer.interface);
+    // fchmod bypasses the process umask preserving the exact original mode
+    // fchown restores original owner/group
+    // EPERM is silently ignored when we lack sufficient privileges
+    if (orig_stat) |s| {
+        atomic.file_writer.file.chmod(s.mode) catch {};
+        std.posix.fchown(atomic.file_writer.file.handle, s.uid, s.gid) catch {};
+    }
     try atomic.finish();
 }
 

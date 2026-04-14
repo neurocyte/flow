@@ -262,6 +262,7 @@ inline fn render_line_highlight(self: *Self, pos: usize, theme: *const Widget.Th
 }
 
 inline fn render_diff_symbols(self: *Self, diff_symbols: *[]Diff, pos: usize, linenum_: usize, theme: *const Widget.Theme) void {
+    if (!tui.config().gutter_diffs) return;
     const linenum = linenum_ - 1;
     if (diff_symbols.len == 0) return;
     while ((diff_symbols.*)[0].line < linenum) {

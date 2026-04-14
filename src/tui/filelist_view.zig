@@ -197,7 +197,34 @@ fn handle_render_menu(self: *Self, button: *ButtonType, theme: *const Widget.The
         .Warning => button.plane.set_style(style_warning),
         .Error => button.plane.set_style(style_error),
     }
-    _ = button.plane.print("{f}", .{std.ascii.hexEscape(entry.lines, .lower)}) catch {};
+    const tab_width = tui.config().tab_width;
+    const show_tabs_visual = switch (tui.config().whitespace_mode) {
+        .tabs, .external, .visible, .full => true,
+        else => false,
+    };
+    var codepoints = (std.unicode.Utf8View.init(entry.lines) catch std.unicode.Utf8View.initUnchecked(entry.lines)).iterator();
+    while (codepoints.nextCodepointSlice()) |codepoint| {
+        const cp = std.unicode.utf8Decode(codepoint) catch {
+            for (codepoint) |b| _ = button.plane.print("\\x{x:0>2}", .{b}) catch {};
+            continue;
+        };
+        switch (cp) {
+            '\t' => {
+                const col: usize = @intCast(button.plane.cursor_x());
+                const spaces = tab_width - (col % tab_width);
+                if (show_tabs_visual) {
+                    button.plane.set_style(.{ .fg = theme.editor_whitespace.fg, .bg = style_label.bg });
+                    for (0..spaces) |i|
+                        _ = button.plane.putstr(if (i < spaces - 1) editor.whitespace.char.tab_begin else editor.whitespace.char.tab_end) catch {};
+                    button.plane.set_style(style_label);
+                } else {
+                    for (0..spaces) |_| _ = button.plane.putstr(" ") catch {};
+                }
+            },
+            0x00...0x08, 0x0a...0x1f, 0x7f => _ = button.plane.print("\\x{x:0>2}", .{cp}) catch {},
+            else => _ = button.plane.putstr(codepoint) catch {},
+        }
+    }
     return false;
 }
 

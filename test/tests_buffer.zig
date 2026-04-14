@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Buffer = @import("Buffer");
 
 const ArrayList = std.ArrayList;
@@ -97,6 +98,39 @@ test "buffer.store_to_file_and_clean" {
     const output = try local.read_file(a, "test/tests_buffer_output.txt");
     defer a.free(output);
     try std.testing.expectEqualStrings(input, output);
+}
+
+test "buffer.store_to_file_and_clean preserves file mode" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const tmp_path = "test/tmp_mode_test.txt";
+    {
+        const f = try std.fs.cwd().createFile(tmp_path, .{});
+        defer f.close();
+        try f.writeAll("hello\n");
+        try f.chmod(0o644);
+    }
+    defer std.fs.cwd().deleteFile(tmp_path) catch {};
+
+    // Set a umask that would strip group/other read bits (0o644 -> 0o600 without the fix)
+    // to verify that fchmod bypasses the process umask on save.
+    const prev_umask = if (comptime builtin.os.tag == .linux)
+        std.os.linux.syscall1(.umask, 0o077)
+    else
+        @as(usize, 0);
+    defer if (comptime builtin.os.tag == .linux) {
+        _ = std.os.linux.syscall1(.umask, prev_umask);
+    };
+
+    const buffer = try Buffer.create(a);
+    defer buffer.deinit();
+    try buffer.load_from_file_and_update(tmp_path);
+    try buffer.store_to_file_and_clean(tmp_path);
+
+    const f = try std.fs.cwd().openFile(tmp_path, .{});
+    defer f.close();
+    const stat = try std.posix.fstat(f.handle);
+    try std.testing.expectEqual(@as(std.posix.mode_t, 0o644), stat.mode & 0o777);
 }
 
 fn get_line(buf: *const Buffer, line: usize) ![]const u8 {

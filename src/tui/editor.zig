@@ -831,6 +831,13 @@ pub const Editor = struct {
     }
 
     fn detect_indent_mode(self: *Self, content: []const u8) void {
+        if (self.buffer) |buf| {
+            if (buf.detected_indent_size) |detected_indent_size| {
+                self.indent_size = detected_indent_size;
+                self.indent_mode = .spaces;
+                return;
+            }
+        }
         var it = std.mem.splitScalar(u8, content, '\n');
         while (it.next()) |line| {
             if (line.len == 0) continue;
@@ -842,7 +849,6 @@ pub const Editor = struct {
         }
         self.indent_size = tui.config().indent_size;
         self.indent_mode = .spaces;
-        return;
     }
 
     fn refresh_tab_width(self: *Self) void {
@@ -4232,11 +4238,25 @@ pub const Editor = struct {
     fn pull_cursel_up(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
+        errdefer cursel.* = saved;
         const sel = cursel.expand_selection_to_line(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
-        const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
-        defer sfa_allocator.free(cut_text);
+        const cut_text_raw = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
+        defer sfa_allocator.free(cut_text_raw);
+
+        const is_last_no_nl = sel.end.row == cursel.cursor.row;
+
+        var cut_text_buf: ?[]u8 = null;
+        defer if (cut_text_buf) |t| sfa_allocator.free(t);
+        const cut_text: []const u8 = if (is_last_no_nl) blk: {
+            const buf = sfa_allocator.alloc(u8, cut_text_raw.len + 1) catch return error.Stop;
+            cut_text_buf = buf;
+            @memcpy(buf[0..cut_text_raw.len], cut_text_raw);
+            buf[cut_text_raw.len] = '\n';
+            break :blk buf;
+        } else cut_text_raw;
+
         root = try self.delete_selection(root, cursel, allocator);
         try cursel.cursor.move_up(root, self.metrics);
         root = self.insert(root, cursel, cut_text, allocator) catch return error.Stop;
@@ -4245,6 +4265,17 @@ pub const Editor = struct {
         if (cursel.selection) |*sel_| {
             try sel_.begin.move_up(root, self.metrics);
             try sel_.end.move_up(root, self.metrics);
+        }
+
+        if (is_last_no_nl) {
+            const last_content_row = root.lines() - 2;
+            var del_begin: Cursor = .{ .row = last_content_row, .col = 0 };
+            del_begin.move_end(root, self.metrics);
+            var tmp: CurSel = .{
+                .cursor = del_begin,
+                .selection = .{ .begin = del_begin, .end = .{ .row = last_content_row + 1, .col = 0 } },
+            };
+            root = try self.delete_selection(root, &tmp, allocator);
         }
         return root;
     }
@@ -4260,14 +4291,35 @@ pub const Editor = struct {
     fn pull_cursel_down(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
         var root = root_;
         const saved = cursel.*;
+        errdefer cursel.* = saved;
+        const cursor_row_before = cursel.cursor.row;
+        const lines_before = root.lines();
         const sel = cursel.expand_selection_to_line(root, self.metrics);
         var sfa = std.heap.stackFallback(4096, self.allocator);
         const sfa_allocator = sfa.get();
-        const cut_text = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
+        const cut_text = if (sel.empty())
+            &.{}
+        else
+            copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(cut_text);
         root = try self.delete_selection(root, cursel, allocator);
-        try cursel.cursor.move_down(root, self.metrics);
-        root = self.insert(root, cursel, cut_text, allocator) catch return error.Stop;
+        const moved_down = blk: {
+            cursel.cursor.move_down(root, self.metrics) catch break :blk false;
+            break :blk true;
+        };
+        if (moved_down) {
+            root = self.insert(root, cursel, cut_text, allocator) catch return error.Stop;
+        } else {
+            if (cursor_row_before >= lines_before - 1) return error.Stop;
+            cursel.cursor.move_end(root, self.metrics);
+            root = self.insert(root, cursel, "\n", allocator) catch return error.Stop;
+            const cut_no_nl = if (std.mem.endsWith(u8, cut_text, "\n"))
+                cut_text[0 .. cut_text.len - 1]
+            else
+                cut_text;
+            if (cut_no_nl.len > 0)
+                root = self.insert(root, cursel, cut_no_nl, allocator) catch return error.Stop;
+        }
         cursel.* = saved;
         try cursel.cursor.move_down(root, self.metrics);
         if (cursel.selection) |*sel_| {
