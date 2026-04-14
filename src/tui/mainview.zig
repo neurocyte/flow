@@ -1048,6 +1048,13 @@ const cmds = struct {
     }
     pub const toggle_inline_diagnostics_meta: Meta = .{ .description = "Toggle display of diagnostics inline" };
 
+    pub fn toggle_gutter_diffs(_: *Self, _: Ctx) Result {
+        const config = tui.config_mut();
+        config.gutter_diffs = !config.gutter_diffs;
+        try tui.save_config();
+    }
+    pub const toggle_gutter_diffs_meta: Meta = .{ .description = "Toggle gutter diff markers" };
+
     pub fn goto_next_file_or_diagnostic(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(filelist_view)) {
             switch (self.file_list_type) {
