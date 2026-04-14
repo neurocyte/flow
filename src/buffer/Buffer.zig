@@ -1610,14 +1610,37 @@ pub fn store_to_existing_file_const(self: *const Self, file_path_: []const u8) S
         file_path = link;
     }
 
-    var atomic = blk: {
-        var write_buffer: [4096]u8 = undefined;
-        const stat = cwd().statFile(file_path) catch
-            break :blk try cwd().atomicFile(file_path, .{ .write_buffer = &write_buffer });
-        break :blk try cwd().atomicFile(file_path, .{ .mode = stat.mode, .write_buffer = &write_buffer });
+    var write_buffer: [4096]u8 = undefined;
+
+    if (builtin.os.tag == .windows) {
+        // windows uses ACLs for ownership so we preserve mode only
+        var atomic = blk: {
+            const stat = cwd().statFile(file_path) catch
+                break :blk try cwd().atomicFile(file_path, .{ .write_buffer = &write_buffer });
+            break :blk try cwd().atomicFile(file_path, .{ .mode = stat.mode, .write_buffer = &write_buffer });
+        };
+        defer atomic.deinit();
+        try self.store_to_file_const(&atomic.file_writer.interface);
+        return atomic.finish();
+    }
+
+    // use fstat to get uid/gid, which std.fs.File.Stat omits.
+    const orig_stat: ?std.posix.Stat = blk: {
+        const f = cwd().openFile(file_path, .{}) catch break :blk null;
+        defer f.close();
+        break :blk std.posix.fstat(f.handle) catch null;
     };
+    const mode: std.fs.File.Mode = if (orig_stat) |s| s.mode else std.fs.File.default_mode;
+    var atomic = try cwd().atomicFile(file_path, .{ .mode = mode, .write_buffer = &write_buffer });
     defer atomic.deinit();
     try self.store_to_file_const(&atomic.file_writer.interface);
+    // fchmod bypasses the process umask preserving the exact original mode
+    // fchown restores original owner/group
+    // EPERM is silently ignored when we lack sufficient privileges
+    if (orig_stat) |s| {
+        atomic.file_writer.file.chmod(s.mode) catch {};
+        std.posix.fchown(atomic.file_writer.file.handle, s.uid, s.gid) catch {};
+    }
     try atomic.finish();
 }
 
