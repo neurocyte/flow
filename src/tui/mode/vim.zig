@@ -274,6 +274,24 @@ const cmds_ = struct {
     }
     pub const select_around_double_quotes_meta: Meta = .{ .description = "Select around \"\"" };
 
+    pub fn select_inside_backticks(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_backticks_textobject, ed.metrics);
+    }
+    pub const select_inside_backticks_meta: Meta = .{ .description = "Select inside ``" };
+
+    pub fn select_around_backticks(_: *void, _: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_backticks_textobject, ed.metrics);
+    }
+    pub const select_around_backticks_meta: Meta = .{ .description = "Select around ``" };
+
     pub fn cut_inside_word(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -414,6 +432,26 @@ const cmds_ = struct {
     }
     pub const cut_around_double_quotes_meta: Meta = .{ .description = "Cut around \"\"" };
 
+    pub fn cut_inside_backticks(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_backticks_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_inside_backticks_meta: Meta = .{ .description = "Cut inside ``" };
+
+    pub fn cut_around_backticks(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_backticks_textobject, ed.metrics);
+        try ed.cut_internal_vim(ctx);
+    }
+    pub const cut_around_backticks_meta: Meta = .{ .description = "Cut around ``" };
+
     pub fn copy_inside_word(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
@@ -553,6 +591,26 @@ const cmds_ = struct {
         try ed.copy_internal_vim(ctx);
     }
     pub const copy_around_double_quotes_meta: Meta = .{ .description = "Copy around \"\"" };
+
+    pub fn copy_inside_backticks(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_inside_backticks_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_inside_backticks_meta: Meta = .{ .description = "Copy inside ``" };
+
+    pub fn copy_around_backticks(_: *void, ctx: Ctx) Result {
+        const mv = tui.mainview() orelse return;
+        const ed = mv.get_active_editor() orelse return;
+        const root = ed.buf_root() catch return;
+
+        try ed.with_cursels_const(root, select_around_backticks_textobject, ed.metrics);
+        try ed.copy_internal_vim(ctx);
+    }
+    pub const copy_around_backticks_meta: Meta = .{ .description = "Copy around ``" };
 };
 
 fn is_tab_or_space(c: []const u8) bool {
@@ -663,6 +721,14 @@ fn select_inside_double_quotes_textobject(root: Buffer.Root, cursel: *CurSel, me
 
 fn select_around_double_quotes_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
     return try select_scope_textobject(root, cursel, metrics, "\"", "\"", .around);
+}
+
+fn select_inside_backticks_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_scope_textobject(root, cursel, metrics, "`", "`", .inside);
+}
+
+fn select_around_backticks_textobject(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
+    return try select_scope_textobject(root, cursel, metrics, "`", "`", .around);
 }
 
 fn select_scope_textobject(
