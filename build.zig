@@ -474,6 +474,13 @@ pub fn build_exe(
         },
     });
 
+    const Terminal_mod = b.createModule(.{
+        .root_source_file = b.path("src/terminal/Terminal.zig"),
+        .imports = &.{
+            .{ .name = "vaxis", .module = vaxis_mod },
+        },
+    });
+
     const input_mod = b.createModule(.{
         .root_source_file = b.path("src/renderer/vaxis/input.zig"),
         .imports = &.{
@@ -686,6 +693,7 @@ pub fn build_exe(
             .{ .name = "snippet", .module = snippet_mod },
             .{ .name = "lsp_types", .module = lsp_types_mod },
             .{ .name = "time_fmt", .module = time_fmt_mod },
+            .{ .name = "Terminal", .module = Terminal_mod },
         },
     });
 

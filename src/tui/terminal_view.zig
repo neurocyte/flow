@@ -26,7 +26,7 @@ pub const name = @typeName(Self);
 const Self = @This();
 const widget_type: Widget.Type = .panel;
 
-const Terminal = vaxis.widgets.Terminal;
+const Terminal = @import("Terminal");
 const TerminalOnExit = config.TerminalOnExit;
 
 allocator: Allocator,

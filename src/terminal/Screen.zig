@@ -1,6 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const vaxis = @import("../../main.zig");
+const vaxis = @import("vaxis");
 
 const ansi = @import("ansi.zig");
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const vaxis = @import("../../main.zig");
+const vaxis = @import("vaxis");
 
 pub fn encode(
     writer: *std.Io.Writer,

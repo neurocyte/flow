@@ -3,7 +3,7 @@ const Pty = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
-const Winsize = @import("../../main.zig").Winsize;
+const Winsize = @import("vaxis").Winsize;
 
 const posix = std.posix;
 

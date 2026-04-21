@@ -5,7 +5,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ansi = @import("ansi.zig");
 pub const Parser = @import("Parser.zig");
-const vaxis = @import("../../main.zig");
+const vaxis = @import("vaxis");
 
 // Platform-specific pty/command implementations
 const is_windows = builtin.os.tag == .windows;

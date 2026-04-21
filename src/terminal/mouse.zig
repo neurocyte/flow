@@ -1,5 +1,5 @@
 const std = @import("std");
-const vaxis = @import("../../main.zig");
+const vaxis = @import("vaxis");
 
 /// Encode a mouse event and write it to the pty.
 ///

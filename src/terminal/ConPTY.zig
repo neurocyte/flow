@@ -4,7 +4,7 @@ const ConPTY = @This();
 
 const std = @import("std");
 const windows = std.os.windows;
-const Winsize = @import("../../main.zig").Winsize;
+const Winsize = @import("vaxis").Winsize;
 
 // ConPTY API types and functions - not yet in Zig stdlib so declared as extern.
 // Available since Windows 1809 (build 17763).
