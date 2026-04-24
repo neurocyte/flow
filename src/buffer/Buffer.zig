@@ -1409,7 +1409,7 @@ fn detect_indent_size(leaves: []const Node) ?usize {
     for (leaves) |leaf_node| {
         const line = leaf_node.leaf.buf;
         if (line.len == 0) continue;
-        if (line[0] == '\t') return 0;
+        if (line[0] == '\t') return null;
         var spaces: usize = 0;
         for (line) |c| {
             if (c == ' ') spaces += 1 else break;
