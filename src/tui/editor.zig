@@ -4188,6 +4188,30 @@ pub const Editor = struct {
     }
     pub const add_cursor_next_match_meta: Meta = .{ .description = "Add cursor at next highlighted match", .arguments = &.{.integer} };
 
+    pub fn add_cursor_prev_match(self: *Self, ctx: Context) Result {
+        try self.send_editor_jump_source();
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            if (self.matches.items.len == 0) {
+                const root = self.buf_root() catch return;
+                self.with_cursors_const_once(root, move_cursor_word_begin) catch {};
+                try self.with_selections_const_once(root, move_cursor_word_end);
+            } else if (self.get_prev_match(self.get_primary().cursor)) |match| {
+                if (self.get_primary().selection) |_|
+                    try self.push_cursor();
+                const primary = self.get_primary();
+                const root = self.buf_root() catch return;
+                primary.selection = match.to_selection();
+                match.has_selection = true;
+                primary.cursor.move_to(root, match.end.row, match.end.col, self.metrics) catch return;
+            }
+        }
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const add_cursor_prev_match_meta: Meta = .{ .description = "Add cursor at previous highlighted match", .arguments = &.{.integer} };
+
     pub fn add_cursor_all_matches(self: *Self, _: Context) Result {
         if (self.matches.items.len == 0) return;
         try self.send_editor_jump_source();
