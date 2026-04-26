@@ -7407,7 +7407,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const toggle_case_meta: Meta = .{ .description = "Toggle the case of each character in selection or character at cursor" };
+    pub const toggle_case_meta: Meta = .{ .description = "Toggle the case of each character in selection or word" };
 
     pub fn forced_mark_clean(self: *Self, _: Context) Result {
         if (self.buffer) |b| {
