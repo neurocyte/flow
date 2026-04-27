@@ -110,6 +110,7 @@
             ["ctrl+f", "find"],
             ["ctrl+g", "goto"],
             ["ctrl+d", "add_cursor_next_match"],
+            ["alt+d", "add_cursor_prev_match"],
             ["ctrl+a", "select_all"],
             ["ctrl+i", "insert_chars", "\t"],
             ["ctrl+/", "toggle_comment"],
