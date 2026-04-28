@@ -16,7 +16,7 @@ const STARTUPINFOEXW = extern struct {
 
 argv: []const []const u8,
 working_directory: ?[]const u8,
-env_map: *const std.process.EnvMap,
+env_map: *const std.process.Environ.Map,
 
 // Set after spawn()
 process_handle: ?windows.HANDLE = null,

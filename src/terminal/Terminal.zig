@@ -86,16 +86,17 @@ pub const InputEvent = union(enum) {
     mouse: vaxis.Mouse,
 };
 
+io: std.Io,
 allocator: std.mem.Allocator,
 scrollback_size: u16,
 
 pty: Pty,
-pty_writer: std.fs.File.Writer,
+pty_writer: std.Io.File.Writer,
 cmd: Command,
 
 /// the screen we draw from
 front_screen: Screen,
-front_mutex: std.Thread.Mutex = .{},
+front_mutex: std.Io.Mutex = .init,
 
 /// the back screens
 back_screen: *Screen = undefined,
@@ -103,7 +104,7 @@ back_screen_pri: Screen,
 back_screen_alt: Screen,
 // only applies to primary screen
 scroll_offset: usize = 0,
-back_mutex: std.Thread.Mutex = .{},
+back_mutex: std.Io.Mutex = .init,
 // dirty is protected by back_mutex. Only access this field when you hold that mutex
 dirty: bool = false,
 
@@ -136,14 +137,15 @@ last_printed: []const u8 = "",
 /// Scratch buffer for decoding OSC 52 base64 clipboard data.
 osc52_buf: std.ArrayListUnmanaged(u8) = .empty,
 
-event_queue: Queue = .{},
+event_queue: Queue,
 
 /// initialize a Terminal. This sets the size of the underlying pty and allocates the sizes of the
 /// screen
 pub fn init(
+    io: std.Io,
     allocator: std.mem.Allocator,
     argv: []const []const u8,
-    env: *const std.process.EnvMap,
+    env: *const std.process.Environ.Map,
     opts: Options,
     write_buf: []u8,
 ) !Terminal {
@@ -166,7 +168,7 @@ pub fn init(
         try p.setSize(opts.winsize);
         break :blk p;
     };
-    errdefer pty.deinit();
+    errdefer pty.deinit(io);
 
     const cmd: Command = if (is_windows) .{
         .argv = argv_owned,
@@ -184,18 +186,20 @@ pub fn init(
         try tabs.append(allocator, col);
     }
     return .{
+        .io = io,
         .allocator = allocator,
         .pty = pty,
         .pty_writer = if (is_windows)
             pty.inputFile().writerStreaming(write_buf)
         else
-            pty.pty.writerStreaming(write_buf),
+            pty.pty.writerStreaming(io, write_buf),
         .cmd = cmd,
         .scrollback_size = opts.scrollback_size,
         .front_screen = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .back_screen_pri = try Screen.initScrollback(allocator, opts.winsize.cols, opts.winsize.rows, opts.scrollback_size),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .tab_stops = tabs,
+        .event_queue = .init(io),
     };
 }
 
@@ -205,7 +209,7 @@ pub fn deinit(self: *Terminal) void {
     // cmd.wait() is called by the pty read loop after it sees EIO/EOF
     for (self.cmd.argv) |a| self.allocator.free(a);
     self.allocator.free(self.cmd.argv);
-    self.pty.deinit();
+    self.pty.deinit(self.io);
     self.front_screen.deinit(self.allocator);
     self.back_screen_pri.deinit(self.allocator);
     self.back_screen_alt.deinit(self.allocator);
@@ -227,19 +231,22 @@ pub fn spawn(self: *Terminal) !void {
     if (self.cmd.working_directory) |pwd| {
         try self.working_directory.appendSlice(self.allocator, pwd);
     } else {
-        const pwd = std.fs.cwd();
-        var buffer: [std.fs.max_path_bytes]u8 = undefined;
-        const out_path = try std.os.getFdPath(pwd.fd, &buffer);
-        try self.working_directory.appendSlice(self.allocator, out_path);
+        const pwd = std.Io.Dir.cwd();
+        var buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const len = try pwd.realPath(self.io, &buffer);
+        try self.working_directory.appendSlice(self.allocator, buffer[0..len]);
     }
 
     if (!is_windows) {
         // Set the pty master fd to non-blocking so reads return EAGAIN
         // when no data is available rather than blocking.
         const posix = std.posix;
-        var flags: std.c.O = @bitCast(@as(u32, @intCast(try posix.fcntl(self.pty.pty.handle, posix.F.GETFL, 0))));
-        flags.NONBLOCK = true;
-        _ = try posix.fcntl(self.pty.pty.handle, posix.F.SETFL, @intCast(@as(u32, @bitCast(flags))));
+        const cur_flags = std.c.fcntl(self.pty.pty.handle, @as(c_int, posix.F.GETFL));
+        if (cur_flags >= 0) {
+            var flags: std.c.O = @bitCast(@as(u32, @intCast(cur_flags)));
+            flags.NONBLOCK = true;
+            _ = std.c.fcntl(self.pty.pty.handle, @as(c_int, posix.F.SETFL), @as(u32, @bitCast(flags)));
+        }
     }
 }
 
@@ -252,8 +259,8 @@ pub fn resize(self: *Terminal, ws: Winsize) !void {
         ws.rows == self.front_screen.height)
         return;
 
-    self.back_mutex.lock();
-    defer self.back_mutex.unlock();
+    self.back_mutex.lockUncancelable(self.io);
+    defer self.back_mutex.unlock(self.io);
 
     self.front_screen.deinit(self.allocator);
     self.front_screen = try Screen.init(self.allocator, ws.cols, ws.rows);
@@ -283,7 +290,7 @@ pub fn draw(
     const default_fg: vaxis.Cell.Color = .{ .rgb = self.app_fg_color orelse self.fg_color };
     const default_bg: vaxis.Cell.Color = .{ .rgb = self.app_bg_color orelse self.bg_color };
     if (self.back_mutex.tryLock()) {
-        defer self.back_mutex.unlock();
+        defer self.back_mutex.unlock(self.io);
         // We keep this as a separate condition so we don't deadlock by obtaining the lock but not
         // having sync
         if (!self.mode.sync) {
@@ -350,8 +357,8 @@ pub fn scroll(self: *Terminal, delta: i32) bool {
         self.scroll_offset -| @as(usize, @intCast(-delta));
     if (new_offset == self.scroll_offset) return false;
     self.scroll_offset = new_offset;
-    self.back_mutex.lock();
-    defer self.back_mutex.unlock();
+    self.back_mutex.lockUncancelable(self.io);
+    defer self.back_mutex.unlock(self.io);
     for (self.back_screen_pri.buf) |*cell| cell.dirty = true;
     return true;
 }
@@ -360,13 +367,13 @@ pub fn scroll(self: *Terminal, delta: i32) bool {
 pub fn scrollToBottom(self: *Terminal) void {
     if (self.scroll_offset == 0) return;
     self.scroll_offset = 0;
-    self.back_mutex.lock();
-    defer self.back_mutex.unlock();
+    self.back_mutex.lockUncancelable(self.io);
+    defer self.back_mutex.unlock(self.io);
     for (self.back_screen_pri.buf) |*cell| cell.dirty = true;
 }
 
-pub fn tryEvent(self: *Terminal) ?Event {
-    return self.event_queue.tryPop();
+pub fn tryEvent(self: *Terminal) !?Event {
+    return try self.event_queue.tryPop();
 }
 
 pub fn update(self: *Terminal, event: InputEvent) !void {
@@ -417,6 +424,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
     ReadFailed,
     WriteFailed,
     OutOfMemory,
+    Canceled,
 }!enum { exited, running } {
     var fixed_reader: std.Io.Reader = .fixed(data);
     const reader: *std.Io.Reader = &fixed_reader;
@@ -428,10 +436,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
             error.OutOfMemory,
             => |e_| return e_,
         };
-        self.back_mutex.lock();
-        defer self.back_mutex.unlock();
+        try self.back_mutex.lock(self.io);
+        defer self.back_mutex.unlock(self.io);
 
-        if (!self.dirty and self.event_queue.tryPush(.redraw))
+        if (!self.dirty and try self.event_queue.tryPush(.redraw))
             self.dirty = true;
 
         switch (event) {
@@ -888,7 +896,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     0 => {
                         self.title.clearRetainingCapacity();
                         try self.title.appendSlice(self.allocator, osc[semicolon + 1 ..]);
-                        self.event_queue.push(.{ .title_change = self.title.items });
+                        try self.event_queue.push(.{ .title_change = self.title.items });
                     },
                     7 => {
                         // OSC 7 ; <scheme> <hostname> <path>
@@ -926,7 +934,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             } else enc[i];
                             try self.working_directory.append(self.allocator, b);
                         }
-                        self.event_queue.push(.{ .pwd_change = self.working_directory.items });
+                        try self.event_queue.push(.{ .pwd_change = self.working_directory.items });
                     },
                     // OSC 9 ; 4 ; <state> ; <progress>
                     // Progress notification. Silently ignored; we have no progress UI.
@@ -944,7 +952,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             );
                         } else {
                             self.app_fg_color = parseOscRgb(val);
-                            self.event_queue.push(.{ .color_change = .{
+                            try self.event_queue.push(.{ .color_change = .{
                                 .fg = self.app_fg_color,
                                 .bg = self.app_bg_color,
                                 .cursor = self.app_cursor_color,
@@ -964,7 +972,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             );
                         } else {
                             self.app_bg_color = parseOscRgb(val);
-                            self.event_queue.push(.{ .color_change = .{
+                            try self.event_queue.push(.{ .color_change = .{
                                 .fg = self.app_fg_color,
                                 .bg = self.app_bg_color,
                                 .cursor = self.app_cursor_color,
@@ -985,7 +993,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             }
                         } else {
                             self.app_cursor_color = parseOscRgb(val);
-                            self.event_queue.push(.{ .color_change = .{
+                            try self.event_queue.push(.{ .color_change = .{
                                 .fg = self.app_fg_color,
                                 .bg = self.app_bg_color,
                                 .cursor = self.app_cursor_color,
@@ -994,11 +1002,11 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     },
                     // OSC 52 - clipboard access
                     // Format: 52;<targets>;<base64data|?>
-                    52 => self.handleOsc52(osc[semicolon + 1 ..]),
+                    52 => try self.handleOsc52(osc[semicolon + 1 ..]),
                     // OSC 110/111/112 - reset fg/bg/cursor colour to default
                     110 => {
                         self.app_fg_color = null;
-                        self.event_queue.push(.{ .color_change = .{
+                        try self.event_queue.push(.{ .color_change = .{
                             .fg = null,
                             .bg = self.app_bg_color,
                             .cursor = self.app_cursor_color,
@@ -1006,7 +1014,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     },
                     111 => {
                         self.app_bg_color = null;
-                        self.event_queue.push(.{ .color_change = .{
+                        try self.event_queue.push(.{ .color_change = .{
                             .fg = self.app_fg_color,
                             .bg = null,
                             .cursor = self.app_cursor_color,
@@ -1014,7 +1022,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     },
                     112 => {
                         self.app_cursor_color = null;
-                        self.event_queue.push(.{ .color_change = .{
+                        try self.event_queue.push(.{ .color_change = .{
                             .fg = self.app_fg_color,
                             .bg = self.app_bg_color,
                             .cursor = null,
@@ -1034,7 +1042,7 @@ inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
         .NUL, .SOH, .STX => {},
         .EOT => {},
         .ENQ => {},
-        .BEL => self.event_queue.push(.bell),
+        .BEL => try self.event_queue.push(.bell),
         .BS => self.back_screen.cursorLeft(1),
         .HT => self.horizontalTab(1),
         .LF, .VT, .FF => try self.back_screen.index(),
@@ -1141,19 +1149,19 @@ fn parseOscRgb(spec: []const u8) ?[3]u8 {
 }
 
 /// Handle OSC 52 clipboard read/write from the terminal application.
-fn handleOsc52(self: *Terminal, rest: []const u8) void {
+fn handleOsc52(self: *Terminal, rest: []const u8) !void {
     // rest is "<targets>;<base64data|?>"
     const second_semi = std.mem.indexOfScalar(u8, rest, ';') orelse return;
     const data = rest[second_semi + 1 ..];
     if (std.mem.eql(u8, data, "?")) {
-        self.event_queue.push(.osc_paste_request);
+        try self.event_queue.push(.osc_paste_request);
     } else {
         const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(data) catch return;
         self.osc52_buf.clearRetainingCapacity();
         self.osc52_buf.ensureTotalCapacity(self.allocator, decoded_len) catch return;
         self.osc52_buf.items.len = decoded_len;
         std.base64.standard.Decoder.decode(self.osc52_buf.items, data) catch return;
-        self.event_queue.push(.{ .osc_copy = self.osc52_buf.items });
+        try self.event_queue.push(.{ .osc_copy = self.osc52_buf.items });
     }
 }
 

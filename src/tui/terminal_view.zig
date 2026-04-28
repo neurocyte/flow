@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const root = @import("root");
 const Allocator = std.mem.Allocator;
 
 const tp = @import("thespian");
@@ -72,7 +73,8 @@ pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget
 }
 
 pub fn run_cmd(self: *Self, ctx: command.Context) !void {
-    var env = try std.process.getEnvMap(self.allocator);
+    const init = root.get_init();
+    var env = try init.environ_map.clone(self.allocator);
     errdefer env.deinit();
     if (env.get("TERM") == null)
         try env.put("TERM", "xterm-256color");
@@ -129,7 +131,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
             return tp.exit(msg.written());
         }
     } else {
-        try Vt.init(self.allocator, argv_list.items, env, rows, cols, on_exit);
+        try Vt.init(init.io, self.allocator, argv_list.items, env, rows, cols, on_exit);
     }
     self.vt = &global_vt.?;
 
@@ -329,7 +331,7 @@ pub fn shutdown(allocator: Allocator) void {
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     // Drain the vt event queue.
-    while (self.vt.vt.tryEvent()) |event| {
+    while (self.vt.vt.tryEvent() catch null) |event| {
         switch (event) {
             .exited => |code| {
                 self.vt.process_exited = true;
@@ -499,7 +501,7 @@ const cmds = struct {
 
 const Vt = struct {
     vt: Terminal,
-    env: std.process.EnvMap,
+    env: std.process.Environ.Map,
     write_buf: [4096]u8,
     pty_pid: ?tp.pid = null,
     cwd: std.ArrayListUnmanaged(u8) = .empty,
@@ -511,7 +513,7 @@ const Vt = struct {
     process_exited: bool = false,
     on_exit: TerminalOnExit,
 
-    fn init(allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.EnvMap, rows: u16, cols: u16, on_exit: TerminalOnExit) !void {
+    fn init(io: std.Io, allocator: std.mem.Allocator, cmd_argv: []const []const u8, env: std.process.Environ.Map, rows: u16, cols: u16, on_exit: TerminalOnExit) !void {
         const home = env.get("HOME") orelse "/tmp";
 
         global_vt = .{
@@ -523,6 +525,7 @@ const Vt = struct {
         };
         const self = &global_vt.?;
         self.vt = try Terminal.init(
+            io,
             allocator,
             cmd_argv,
             &env,
@@ -612,19 +615,22 @@ const pty_posix = struct {
             .fd = undefined,
             .pty_fd = vt.ptyFd(),
             .parser = .{ .buf = try .initCapacity(allocator, 128) },
-            .receiver = Receiver.init(pty_receive, self),
+            .receiver = Receiver.init(pty_receive, dtor, self),
             .parent = tp.self_pid().clone(),
         };
         return tp.spawn_link(allocator, self, start, "pty_actor");
     }
 
-    fn deinit(self: *@This()) void {
-        std.log.debug("terminal: pty actor deinit (pid={?})", .{self.vt.cmd.pid});
-        if (self.sigchld) |s| s.deinit();
+    fn dtor(self: *@This()) void {
         self.fd.deinit();
         self.parser.buf.deinit();
         self.parent.deinit();
         self.allocator.destroy(self);
+    }
+
+    fn deinit(self: *@This()) void {
+        std.log.debug("terminal: pty actor deinit (pid={?})", .{self.vt.cmd.pid});
+        if (self.sigchld) |s| s.deinit();
     }
 
     fn start(self: *@This()) tp.result {
@@ -637,7 +643,7 @@ const pty_posix = struct {
             std.log.debug("terminal: pty initial wait_read failed: {}", .{e});
             return tp.exit_error(e, @errorReturnTrace());
         };
-        self.sigchld = tp.signal.init(std.posix.SIG.CHLD, tp.message.fmt(.{"sigchld"})) catch |e| {
+        self.sigchld = tp.signal.init(@intFromEnum(std.posix.SIG.CHLD), tp.message.fmt(.{"sigchld"})) catch |e| {
             std.log.debug("terminal: SIGCHLD signal init failed: {}", .{e});
             return tp.exit_error(e, @errorReturnTrace());
         };
@@ -671,20 +677,20 @@ const pty_posix = struct {
             // Treat it the same as EIO: reap the child and signal exit.
             const code = self.vt.cmd.wait();
             std.log.debug("terminal: read_error from fd (err={d}), process exited with code={d}", .{ self.err_code, code });
-            self.vt.event_queue.push(.{ .exited = code });
+            self.vt.event_queue.push(.{ .exited = code }) catch {};
             self.parent.send(.{ "terminal_view", "output" }) catch {};
             return tp.exit_normal();
         } else if (try m.match(.{"sigchld"})) {
             // SIGCHLD fires when any child exits. Check if it's our child.
             if (self.vt.cmd.try_wait()) |code| {
                 std.log.debug("terminal: child exited (SIGCHLD) with code={d}", .{code});
-                self.vt.event_queue.push(.{ .exited = code });
+                self.vt.event_queue.push(.{ .exited = code }) catch {};
                 self.parent.send(.{ "terminal_view", "output" }) catch {};
                 return tp.exit_normal();
             }
             // Not our child (or already reaped) - re-arm the signal and continue.
             if (self.sigchld) |s| s.deinit();
-            self.sigchld = tp.signal.init(std.posix.SIG.CHLD, tp.message.fmt(.{"sigchld"})) catch null;
+            self.sigchld = tp.signal.init(@intFromEnum(std.posix.SIG.CHLD), tp.message.fmt(.{"sigchld"})) catch null;
         } else if (try m.match(.{"quit"})) {
             std.log.debug("terminal: pty exiting: received quit", .{});
             return tp.exit_normal();
@@ -707,7 +713,7 @@ const pty_posix = struct {
                     // try_wait check here is just an extra safety net.
                     if (self.vt.cmd.try_wait()) |code| {
                         std.log.debug("terminal: child exited (detected via try_wait) with code={d}", .{code});
-                        self.vt.event_queue.push(.{ .exited = code });
+                        self.vt.event_queue.push(.{ .exited = code }) catch {};
                         self.parent.send(.{ "terminal_view", "output" }) catch {};
                         return error.InputOutput;
                     }
@@ -716,21 +722,17 @@ const pty_posix = struct {
                 error.InputOutput => {
                     const code = self.vt.cmd.wait();
                     std.log.debug("terminal: read EIO, process exited with code={d}", .{code});
-                    self.vt.event_queue.push(.{ .exited = code });
+                    self.vt.event_queue.push(.{ .exited = code }) catch {};
                     self.parent.send(.{ "terminal_view", "output" }) catch {};
                     return error.InputOutput;
                 },
                 error.SystemResources,
                 error.IsDir,
-                error.OperationAborted,
-                error.BrokenPipe,
                 error.ConnectionResetByPeer,
-                error.ConnectionTimedOut,
                 error.NotOpenForReading,
-                error.SocketNotConnected,
+                error.SocketUnconnected,
                 error.Canceled,
                 error.AccessDenied,
-                error.ProcessNotFound,
                 error.LockViolation,
                 error.Unexpected,
                 => {
@@ -741,7 +743,7 @@ const pty_posix = struct {
             if (n == 0) {
                 const code = self.vt.cmd.wait();
                 std.log.debug("terminal: read returned 0 bytes (EOF), process exited with code={d}", .{code});
-                self.vt.event_queue.push(.{ .exited = code });
+                self.vt.event_queue.push(.{ .exited = code }) catch {};
                 self.parent.send(.{ "terminal_view", "output" }) catch {};
                 return error.Terminated;
             }
@@ -752,6 +754,7 @@ const pty_posix = struct {
                 error.WriteFailed,
                 error.ReadFailed,
                 error.OutOfMemory,
+                error.Canceled,
                 => {
                     std.log.debug("terminal: processOutput error: {} (pid={?})", .{ e, self.vt.cmd.pid });
                     return error.Unexpected;
@@ -770,7 +773,7 @@ const pty_posix = struct {
         // so we must detect it here rather than waiting forever.
         if (self.vt.cmd.try_wait()) |code| {
             std.log.debug("terminal: child exited (pre-wait_read check) with code={d}", .{code});
-            self.vt.event_queue.push(.{ .exited = code });
+            self.vt.event_queue.push(.{ .exited = code }) catch {};
             self.parent.send(.{ "terminal_view", "output" }) catch {};
             return error.InputOutput;
         }
@@ -818,14 +821,13 @@ const pty_windows = struct {
             .allocator = allocator,
             .vt = vt,
             .parser = .{ .buf = try .initCapacity(allocator, 128) },
-            .receiver = Receiver.init(pty_receive, self),
+            .receiver = Receiver.init(pty_receive, dtor, self),
             .parent = tp.self_pid().clone(),
         };
         return tp.spawn_link(allocator, self, start, "pty_actor");
     }
 
-    fn deinit(self: *@This()) void {
-        std.log.debug("terminal: pty actor (windows) deinit", .{});
+    fn dtor(self: *@This()) void {
         if (self.wait_handle) |wh| {
             _ = UnregisterWait(wh);
             self.wait_handle = null;
@@ -834,6 +836,10 @@ const pty_windows = struct {
         self.parser.buf.deinit();
         self.parent.deinit();
         self.allocator.destroy(self);
+    }
+
+    fn deinit(_: *@This()) void {
+        std.log.debug("terminal: pty actor (windows) deinit", .{});
     }
 
     fn start(self: *@This()) tp.result {
@@ -898,7 +904,7 @@ const pty_windows = struct {
             if (self.stream) |s| s.cancel() catch {};
             const code = self.vt.cmd.wait();
             std.log.debug("terminal: child exited (process wait), code={d}", .{code});
-            self.vt.event_queue.push(.{ .exited = code });
+            self.vt.event_queue.push(.{ .exited = code }) catch {};
             self.parent.send(.{ "terminal_view", "output" }) catch {};
             return tp.exit_normal();
         } else if (try m.match(.{ "stream", "pty_out", "read_complete", tp.extract(&bytes) })) {
@@ -920,7 +926,7 @@ const pty_windows = struct {
         } else if (try m.match(.{ "stream", "pty_out", "read_error", tp.extract(&err_code), tp.extract(&err_msg) })) {
             std.log.debug("terminal: ConPTY stream error: {d} {s}", .{ err_code, err_msg });
             const code = self.vt.cmd.wait();
-            self.vt.event_queue.push(.{ .exited = code });
+            self.vt.event_queue.push(.{ .exited = code }) catch {};
             self.parent.send(.{ "terminal_view", "output" }) catch {};
             return tp.exit_normal();
         } else if (try m.match(.{"quit"})) {

@@ -14,9 +14,17 @@ working_directory: ?[]const u8,
 // Set after spawn()
 pid: ?std.posix.pid_t = null,
 
-env_map: *const std.process.EnvMap,
+env_map: *const std.process.Environ.Map,
 
 pty: Pty,
+
+// execvpe searches PATH and accepts an explicit environment block.
+// It is available on Linux (glibc) and macOS/BSD libc.
+extern "c" fn execvpe(
+    file: [*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
+) c_int;
 
 pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
@@ -29,10 +37,12 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
 
     const envp = try createEnvironFromMap(arena, self.env_map);
 
-    const pid = try std.posix.fork();
+    const fork_ret = std.c.fork();
+    if (fork_ret < 0) return error.ForkFailed;
+    const pid: posix.pid_t = @intCast(fork_ret);
     if (pid == 0) {
         // we are the child
-        _ = std.posix.setsid() catch {};
+        _ = std.c.setsid();
 
         // set the controlling terminal
         // Linux takes a pointer-sized arg (non-zero = steal); macOS/FreeBSD take a plain int 0.
@@ -50,31 +60,32 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
             },
             else => 0,
         };
-        if (posix.system.ioctl(self.pty.tty.handle, TIOCSCTTY, tiocsctty_arg) != 0) return error.IoctlError;
+        if (posix.system.ioctl(self.pty.tty.handle, TIOCSCTTY, tiocsctty_arg) != 0) std.c.exit(1);
 
         // set up io
-        try posix.dup2(self.pty.tty.handle, std.posix.STDIN_FILENO);
-        try posix.dup2(self.pty.tty.handle, std.posix.STDOUT_FILENO);
-        try posix.dup2(self.pty.tty.handle, std.posix.STDERR_FILENO);
+        _ = std.c.dup2(self.pty.tty.handle, posix.STDIN_FILENO);
+        _ = std.c.dup2(self.pty.tty.handle, posix.STDOUT_FILENO);
+        _ = std.c.dup2(self.pty.tty.handle, posix.STDERR_FILENO);
 
-        self.pty.tty.close();
-        if (self.pty.pty.handle > 2) self.pty.pty.close();
+        _ = std.c.close(self.pty.tty.handle);
+        if (self.pty.pty.handle > 2) _ = std.c.close(self.pty.pty.handle);
 
         // Close all fds > 2 so the child cannot access the parent's
         // terminal or other inherited file descriptors.
-        const rlim = try posix.getrlimit(.NOFILE);
+        const rlim = posix.getrlimit(.NOFILE) catch posix.rlimit{ .cur = 1024, .max = 1024 };
         var fd: posix.fd_t = 3;
         while (fd < @as(posix.fd_t, @intCast(rlim.cur))) : (fd += 1) {
             safe_close(fd);
         }
 
         if (self.working_directory) |wd| {
-            try std.posix.chdir(wd);
+            const wd_z = arena.dupeZ(u8, wd) catch std.c.exit(1);
+            _ = std.c.chdir(wd_z.ptr);
         }
 
         // exec
-        const err = std.posix.execvpeZ(argv_buf.ptr[0].?, argv_buf.ptr, envp);
-        _ = err catch {};
+        _ = execvpe(argv_buf.ptr[0].?, argv_buf.ptr, @ptrCast(envp.ptr));
+        std.c.exit(127);
     }
 
     // we are the parent
@@ -101,13 +112,15 @@ pub fn kill(self: *Command) void {
 /// exit code. Returns null if the child is still running. Safe to call repeatedly.
 pub fn try_wait(self: *Command) ?u8 {
     const pid = self.pid orelse return null;
-    const result = std.posix.waitpid(pid, std.posix.W.NOHANG);
-    if (result.pid == 0) return null; // still running
+    var status: c_int = 0;
+    const wpid = std.c.waitpid(pid, &status, @intCast(posix.W.NOHANG));
+    if (wpid == 0) return null; // still running
     self.pid = null;
-    if (std.posix.W.IFEXITED(result.status))
-        return std.posix.W.EXITSTATUS(result.status);
-    if (std.posix.W.IFSIGNALED(result.status))
-        return @truncate(std.posix.W.TERMSIG(result.status));
+    const us: u32 = @bitCast(status);
+    if (posix.W.IFEXITED(us))
+        return posix.W.EXITSTATUS(us);
+    if (posix.W.IFSIGNALED(us))
+        return @truncate(@intFromEnum(posix.W.TERMSIG(us)));
     return 0;
 }
 
@@ -118,10 +131,12 @@ pub fn wait(self: *Command) u8 {
     const pid = self.pid orelse return 0;
     self.pid = null;
     while (true) {
-        const result = std.posix.waitpid(pid, std.posix.W.NOHANG);
-        if (result.pid != 0) {
-            if (std.posix.W.IFEXITED(result.status))
-                return std.posix.W.EXITSTATUS(result.status);
+        var status: c_int = 0;
+        const wpid = std.c.waitpid(pid, &status, @intCast(posix.W.NOHANG));
+        if (wpid != 0) {
+            const us: u32 = @bitCast(status);
+            if (posix.W.IFEXITED(us))
+                return posix.W.EXITSTATUS(us);
             return 0;
         }
         // pid == 0 means not yet exited — yield and retry
@@ -133,7 +148,7 @@ pub fn wait(self: *Command) u8 {
 /// hash map plus options.
 fn createEnvironFromMap(
     arena: std.mem.Allocator,
-    map: *const std.process.EnvMap,
+    map: *const std.process.Environ.Map,
 ) ![:null]?[*:0]u8 {
     const envp_count: usize = map.count();
 

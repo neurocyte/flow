@@ -721,7 +721,7 @@ fn render(self: *Self) void {
         self.idle_frame_count + 1;
 
     const deadline_within_frame = if (render_deadline) |dl|
-        dl - std.time.microTimestamp() < @as(i64, @intCast(self.frame_time))
+        dl - root.get_now().toMicroseconds() < @as(i64, @intCast(self.frame_time))
     else
         false;
 
@@ -733,7 +733,7 @@ fn render(self: *Self) void {
         }
     } else {
         if (render_deadline) |deadline| {
-            const delay_us: u64 = @intCast(@max(0, deadline - std.time.microTimestamp()));
+            const delay_us: u64 = @intCast(@max(0, deadline - root.get_now().toMicroseconds()));
             self.render_deadline_timer = tp.self_pid().delay_send_cancellable(
                 self.allocator,
                 "tui.render_deadline",

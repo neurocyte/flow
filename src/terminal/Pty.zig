@@ -7,8 +7,8 @@ const Winsize = @import("vaxis").Winsize;
 
 const posix = std.posix;
 
-pty: std.fs.File,
-tty: std.fs.File,
+pty: std.Io.File,
+tty: std.Io.File,
 
 /// opens a new tty/pty pair
 pub fn init() !Pty {
@@ -21,9 +21,9 @@ pub fn init() !Pty {
 }
 
 /// closes the tty and pty
-pub fn deinit(self: Pty) void {
-    self.pty.close();
-    self.tty.close();
+pub fn deinit(self: Pty, io: std.Io) void {
+    self.pty.close(io);
+    self.tty.close(io);
 }
 
 /// sets the size of the pty
@@ -46,8 +46,8 @@ pub fn setSize(self: Pty, ws: Winsize) !void {
 
 /// Linux: uses /dev/ptmx with Linux-specific TIOCSPTLCK/IOCGPTN ioctls
 fn openPtyLinux() !Pty {
-    const p = try posix.open("/dev/ptmx", .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
-    errdefer posix.close(p);
+    const p = try posix.openat(posix.AT.FDCWD, "/dev/ptmx", .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
+    errdefer _ = std.c.close(p);
 
     // unlockpt: clear the lock flag
     var n: c_uint = 0;
@@ -61,11 +61,11 @@ fn openPtyLinux() !Pty {
     const sname = try std.fmt.bufPrint(&buf, "/dev/pts/{d}", .{n});
     std.log.debug("pts: {s}", .{sname});
 
-    const t = try posix.open(sname, .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
+    const t = try posix.openat(posix.AT.FDCWD, sname, .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
 
     return .{
-        .pty = .{ .handle = p },
-        .tty = .{ .handle = t },
+        .pty = .{ .handle = p, .flags = .{ .nonblocking = false } },
+        .tty = .{ .handle = t, .flags = .{ .nonblocking = false } },
     };
 }
 
@@ -73,7 +73,7 @@ fn openPtyLinux() !Pty {
 fn openPtyMacos() !Pty {
     const p = posix_openpt(posix.O{ .ACCMODE = .RDWR, .NOCTTY = true });
     if (p < 0) return error.OpenPtyFailed;
-    errdefer posix.close(p);
+    errdefer _ = std.c.close(p);
 
     if (grantpt(p) != 0) return error.GrantPtFailed;
     if (unlockpt(p) != 0) return error.UnlockPtFailed;
@@ -83,11 +83,11 @@ fn openPtyMacos() !Pty {
     const sname = std.mem.sliceTo(sname_ptr, 0);
     std.log.debug("pts: {s}", .{sname});
 
-    const t = try posix.open(sname, .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
+    const t = try posix.openat(posix.AT.FDCWD, sname, .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
 
     return .{
-        .pty = .{ .handle = p },
-        .tty = .{ .handle = t },
+        .pty = .{ .handle = p, .flags = .{ .nonblocking = false } },
+        .tty = .{ .handle = t, .flags = .{ .nonblocking = false } },
     };
 }
 
@@ -95,7 +95,7 @@ fn openPtyMacos() !Pty {
 fn openPtyBsd() !Pty {
     const p = posix_openpt(posix.O{ .ACCMODE = .RDWR, .NOCTTY = true });
     if (p < 0) return error.OpenPtyFailed;
-    errdefer posix.close(p);
+    errdefer _ = std.c.close(p);
 
     if (grantpt(p) != 0) return error.GrantPtFailed;
     if (unlockpt(p) != 0) return error.UnlockPtFailed;
@@ -105,11 +105,11 @@ fn openPtyBsd() !Pty {
     const sname = std.mem.sliceTo(&sname_buf, 0);
     std.log.debug("pts: {s}", .{sname});
 
-    const t = try posix.open(sname, .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
+    const t = try posix.openat(posix.AT.FDCWD, sname, .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0);
 
     return .{
-        .pty = .{ .handle = p },
-        .tty = .{ .handle = t },
+        .pty = .{ .handle = p, .flags = .{ .nonblocking = false } },
+        .tty = .{ .handle = t, .flags = .{ .nonblocking = false } },
     };
 }
 
