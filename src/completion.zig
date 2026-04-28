@@ -15,7 +15,7 @@ pub fn send(
 
 fn RequestContext(T: type) type {
     return struct {
-        receiver: ReceiverT,
+        receiver: Receiver,
         ctx: T,
         to: tp.pid,
         request: tp.message,
@@ -23,28 +23,30 @@ fn RequestContext(T: type) type {
         a: std.mem.Allocator,
 
         const Self = @This();
-        const ReceiverT = tp.Receiver(*@This());
+        const Receiver = tp.Receiver(*@This());
 
         fn send(a: std.mem.Allocator, to: tp.pid_ref, ctx: T, request: tp.message) (OutOfMemoryError || SpawnError)!void {
             const self = try a.create(@This());
             self.* = .{
-                .receiver = undefined,
                 .ctx = if (@hasDecl(T, "clone")) ctx.clone() else ctx,
                 .to = to.clone(),
                 .request = try request.clone(std.heap.c_allocator),
                 .response = null,
                 .a = a,
+                .receiver = .init(receive_, dtor, self),
             };
-            self.receiver = ReceiverT.init(receive_, self);
             const proc = try tp.spawn_link(a, self, start, @typeName(@This()));
             defer proc.deinit();
         }
 
-        fn deinit(self: *@This()) void {
-            if (@hasDecl(T, "deinit")) self.ctx.deinit();
+        fn dtor(self: *@This()) void {
             std.heap.c_allocator.free(self.request.buf);
             self.to.deinit();
             self.a.destroy(self);
+        }
+
+        fn deinit(self: *@This()) void {
+            if (@hasDecl(T, "deinit")) self.ctx.deinit();
         }
 
         fn start(self: *@This()) tp.result {

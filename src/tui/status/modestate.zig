@@ -26,7 +26,7 @@ const ButtonType = Button.Options(Style).ButtonType;
 pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler, arg: ?[]const u8) CreateError!Widget {
     const style_ = if (arg) |str_style| std.meta.stringToEnum(Style, str_style) orelse default_style else default_style;
     return Button.create_widget(Style, allocator, parent, .{
-        .ctx = if (builtin.os.tag != .windows and std.posix.geteuid() == 0) switch (style_) {
+        .ctx = if (builtin.os.tag != .windows and std.c.geteuid() == 0) switch (style_) {
             .fancy => .fancy_root,
             .plain => .plain_root,
             else => style_,

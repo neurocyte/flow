@@ -176,13 +176,9 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
 /// Allows the caller to freely write to stderr until `unlockStdErr` is called.
 ///
 /// During the lock, any `std.Progress` information is cleared from the terminal.
-pub fn lockStdErr() void {
-    std.Progress.lockStdErr();
-}
+pub fn lockStdErr() void {}
 
-pub fn unlockStdErr() void {
-    std.Progress.unlockStdErr();
-}
+pub fn unlockStdErr() void {}
 
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
@@ -319,20 +315,17 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     }
 }
 
-pub const have_ucontext = posix.ucontext_t != void;
+pub const have_ucontext = std.debug.cpu_context.Native != noreturn;
 
 /// Platform-specific thread state. This contains register state, and on some platforms
 /// information about the stack. This is not safe to trivially copy, because some platforms
 /// use internal pointers within this structure. To make a copy, use `copyContext`.
-pub const ThreadContext = blk: {
-    if (native_os == .windows) {
-        break :blk windows.CONTEXT;
-    } else if (have_ucontext) {
-        break :blk posix.ucontext_t;
-    } else {
-        break :blk void;
-    }
-};
+pub const ThreadContext = if (native_os == .windows)
+    windows.CONTEXT
+else if (have_ucontext)
+    std.debug.cpu_context.Native
+else
+    void;
 
 /// Copies one context to another, updating any internal pointers
 pub fn copyContext(source: *const ThreadContext, dest: *ThreadContext) void {
@@ -343,96 +336,27 @@ pub fn copyContext(source: *const ThreadContext, dest: *ThreadContext) void {
 
 /// Updates any internal pointers in the context to reflect its current location
 pub fn relocateContext(context: *ThreadContext) void {
-    return switch (native_os) {
-        .macos => {
-            context.mcontext = &context.__mcontext_data;
-        },
-        else => {},
-    };
+    _ = context;
 }
 
-pub const have_getcontext = @TypeOf(posix.system.getcontext) != void;
+pub const have_getcontext = false;
 
-/// Capture the current context. The register values in the context will reflect the
-/// state after the platform `getcontext` function returns.
-///
-/// It is valid to call this if the platform doesn't have context capturing support,
-/// in that case false will be returned.
+/// Capture the current context. In Zig 0.16, getcontext is no longer available via posix.
+/// Returns false to indicate context capturing is not supported this way.
 pub inline fn getContext(context: *ThreadContext) bool {
     if (native_os == .windows) {
         context.* = std.mem.zeroes(windows.CONTEXT);
         windows.ntdll.RtlCaptureContext(context);
         return true;
     }
-
-    const result = have_getcontext and posix.system.getcontext(context) == 0;
-    if (native_os == .macos) {
-        assert(context.mcsize == @sizeOf(std.c.mcontext_t));
-
-        // On aarch64-macos, the system getcontext doesn't write anything into the pc
-        // register slot, it only writes lr. This makes the context consistent with
-        // other aarch64 getcontext implementations which write the current lr
-        // (where getcontext will return to) into both the lr and pc slot of the context.
-        if (native_arch == .aarch64) context.mcontext.ss.pc = context.mcontext.ss.lr;
-    }
-
-    return result;
+    return false;
 }
 
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
-/// TODO multithreaded awareness
-pub fn dumpStackTraceFromBase(stderr: *io.Writer, context: *ThreadContext) void {
-    nosuspend {
-        if (builtin.target.cpu.arch.isWasm()) {
-            if (native_os == .wasi) {
-                stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
-            }
-            return;
-        }
-        if (builtin.strip_debug_info) {
-            stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
-            return;
-        }
-        const debug_info = getSelfDebugInfo() catch |err| {
-            stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
-            return;
-        };
-        const tty_config = io.tty.detectConfig(fs.File.stderr());
-        if (native_os == .windows) {
-            // On x86_64 and aarch64, the stack will be unwound using RtlVirtualUnwind using the context
-            // provided by the exception handler. On x86, RtlVirtualUnwind doesn't exist. Instead, a new backtrace
-            // will be captured and frames prior to the exception will be filtered.
-            // The caveat is that RtlCaptureStackBackTrace does not include the KiUserExceptionDispatcher frame,
-            // which is where the IP in `context` points to, so it can't be used as start_addr.
-            // Instead, start_addr is recovered from the stack.
-            const start_addr = if (builtin.cpu.arch == .x86) @as(*const usize, @ptrFromInt(context.getRegs().bp + 4)).* else null;
-            writeStackTraceWindows(stderr, debug_info, tty_config, context, start_addr) catch return;
-            return;
-        }
-
-        var it = StackIterator.initWithContext(null, debug_info, context) catch return;
-        defer it.deinit();
-
-        // DWARF unwinding on aarch64-macos is not complete so we need to get pc address from mcontext
-        const pc_addr = if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
-            context.mcontext.ss.pc
-        else
-            it.unwind_state.?.dwarf_context.pc;
-        printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
-
-        while (it.next()) |return_address| {
-            printLastUnwindError(&it, debug_info, stderr, tty_config);
-
-            // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
-            // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
-            // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
-            // condition on the subsequent iteration and return `null` thus terminating the loop.
-            // same behaviour for x86-windows-msvc
-            const address = if (return_address == 0) return_address else return_address - 1;
-            printSourceAtAddress(debug_info, stderr, address, tty_config) catch return;
-        } else printLastUnwindError(&it, debug_info, stderr, tty_config);
-    }
+pub fn dumpStackTraceFromBase(stderr: *std.Io.Writer, context: *const std.debug.cpu_context.Native) void {
+    _ = stderr;
+    std.debug.dumpCurrentStackTrace(.{ .context = context });
 }
 
 /// Returns a slice with the same pointer as addresses, with a potentially smaller len.
@@ -628,7 +552,7 @@ pub fn defaultPanic(
             }
             @trap();
         },
-        .cuda, .amdhsa => std.posix.abort(),
+        .cuda, .amdhsa => std.std.c.abort(),
         .plan9 => {
             var status: [std.os.plan9.ERRMAX]u8 = undefined;
             const len = @min(msg.len, status.len - 1);
@@ -658,12 +582,12 @@ pub fn defaultPanic(
 
                 const stderr = io.getStdErr().writer();
                 if (builtin.single_threaded) {
-                    stderr.print("panic: ", .{}) catch posix.abort();
+                    stderr.print("panic: ", .{}) catch std.c.abort();
                 } else {
                     const current_thread_id = std.Thread.getCurrentId();
-                    stderr.print("thread {} panic: ", .{current_thread_id}) catch posix.abort();
+                    stderr.print("thread {} panic: ", .{current_thread_id}) catch std.c.abort();
                 }
-                stderr.print("{s}\n", .{msg}) catch posix.abort();
+                stderr.print("{s}\n", .{msg}) catch std.c.abort();
 
                 if (@errorReturnTrace()) |t| dumpStackTrace(t.*);
                 dumpCurrentStackTrace(first_trace_addr orelse @returnAddress());
@@ -682,7 +606,7 @@ pub fn defaultPanic(
         else => {}, // Panicked while printing the recursive panic message.
     };
 
-    posix.abort();
+    std.c.abort();
 }
 
 /// Must be called only after adding 1 to `panicking`. There are three callsites.
@@ -693,8 +617,7 @@ fn waitForOtherThreadToFinishPanicking() void {
         if (builtin.single_threaded) unreachable;
 
         // Sleep forever without hammering the CPU
-        var futex = std.atomic.Value(u32).init(0);
-        while (true) std.Thread.Futex.wait(&futex, 0);
+        while (true) std.Thread.yield() catch {};
         unreachable;
     }
 }
@@ -769,7 +692,7 @@ pub const StackIterator = struct {
         };
     }
 
-    pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t) !StackIterator {
+    pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *std.debug.cpu_context.Native) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
         if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
@@ -1396,7 +1319,7 @@ pub fn resetSegfaultHandler() void {
     updateSegfaultHandler(&act);
 }
 
-pub fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
+pub fn handleSegfaultPosix(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     // Reset to the default handler so that if a segfault happens in this handler it will crash
     // the process. Also when this handler returns, the original instruction will be repeated
     // and the resulting segfault will crash the process rather than continually dump stack traces.
@@ -1407,7 +1330,7 @@ pub fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*an
         .freebsd, .macos => @intFromPtr(info.addr),
         .netbsd => @intFromPtr(info.info.reason.fault.addr),
         .openbsd => @intFromPtr(info.data.fault.addr),
-        .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
+        .illumos => @intFromPtr(info.reason.fault.addr),
         else => unreachable,
     };
 
@@ -1422,8 +1345,8 @@ pub fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*an
                 defer unlockStdErr();
 
                 var buf: [4096]u8 = undefined;
-                var stderr = fs.File.stderr().writer(&buf);
-                defer stderr.interface.flush() catch {};
+                var stderr = std.Io.File.stderr().writer(std.Options.debug_io, &buf);
+                defer stderr.flush() catch {};
 
                 dumpSegfaultInfoPosix(&stderr.interface, sig, code, addr, ctx_ptr);
             }
@@ -1432,8 +1355,8 @@ pub fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*an
         },
         else => {
             var buf: [4096]u8 = undefined;
-            var stderr = fs.File.stderr().writer(&buf);
-            defer stderr.interface.flush() catch {};
+            var stderr = std.Io.File.stderr().writer(std.Options.debug_io, &buf);
+            defer stderr.flush() catch {};
 
             // panic mutex already locked
             dumpSegfaultInfoPosix(&stderr.interface, sig, code, addr, ctx_ptr);
@@ -1443,10 +1366,10 @@ pub fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*an
     // We cannot allow the signal handler to return because when it runs the original instruction
     // again, the memory may be mapped and undefined behavior would occur rather than repeating
     // the segfault. So we simply abort here.
-    posix.abort();
+    std.c.abort();
 }
 
-pub fn dumpSegfaultInfoPosix(stderr: *io.Writer, sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
+pub fn dumpSegfaultInfoPosix(stderr: *std.Io.Writer, sig: posix.SIG, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
     _ = switch (sig) {
         posix.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
             // x86_64 doesn't have a full 64-bit virtual address space.
@@ -1462,8 +1385,9 @@ pub fn dumpSegfaultInfoPosix(stderr: *io.Writer, sig: i32, code: i32, addr: usiz
         posix.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
         posix.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
         posix.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),
-        else => unreachable,
-    } catch posix.abort();
+        posix.SIG.ABRT => stderr.print("Abort signal received\n", .{}),
+        else => stderr.print("Signal {} received at address 0x{x}\n", .{ @intFromEnum(sig), addr }),
+    } catch std.c.abort();
 
     switch (native_arch) {
         .x86,
@@ -1475,26 +1399,9 @@ pub fn dumpSegfaultInfoPosix(stderr: *io.Writer, sig: i32, code: i32, addr: usiz
         .aarch64,
         .aarch64_be,
         => {
-            // Some kernels don't align `ctx_ptr` properly. Handle this defensively.
-            const ctx: *align(1) posix.ucontext_t = @ptrCast(ctx_ptr);
-            var new_ctx: posix.ucontext_t = ctx.*;
-            if (builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) {
-                // The kernel incorrectly writes the contents of `__mcontext_data` right after `mcontext`,
-                // rather than after the 8 bytes of padding that are supposed to sit between the two. Copy the
-                // contents to the right place so that the `mcontext` pointer will be correct after the
-                // `relocateContext` call below.
-                new_ctx.__mcontext_data = @as(*align(1) extern struct {
-                    onstack: c_int,
-                    sigmask: std.c.sigset_t,
-                    stack: std.c.stack_t,
-                    link: ?*std.c.ucontext_t,
-                    mcsize: u64,
-                    mcontext: *std.c.mcontext_t,
-                    __mcontext_data: std.c.mcontext_t align(@sizeOf(usize)), // Disable padding after `mcontext`.
-                }, @ptrCast(ctx)).__mcontext_data;
+            if (std.debug.cpu_context.fromPosixSignalContext(ctx_ptr)) |ctx| {
+                dumpStackTraceFromBase(stderr, &ctx);
             }
-            relocateContext(&new_ctx);
-            dumpStackTraceFromBase(stderr, &new_ctx);
         },
         else => {},
     }
@@ -1538,7 +1445,7 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label:
         },
         else => {},
     };
-    posix.abort();
+    std.c.abort();
 }
 
 fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) void {
@@ -1548,7 +1455,7 @@ fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[
         1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
         2 => stderr.print("Illegal instruction at address 0x{x}\n", .{info.ContextRecord.getRegs().ip}),
         else => unreachable,
-    } catch posix.abort();
+    } catch std.c.abort();
 
     dumpStackTraceFromBase(info.ContextRecord);
 }

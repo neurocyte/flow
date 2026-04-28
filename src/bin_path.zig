@@ -1,4 +1,5 @@
 const std = @import("std");
+const root = @import("root");
 const builtin = @import("builtin");
 
 pub const find_binary_in_path = switch (builtin.os.tag) {
@@ -7,37 +8,29 @@ pub const find_binary_in_path = switch (builtin.os.tag) {
 };
 
 fn find_binary_in_path_posix(allocator: std.mem.Allocator, binary_name: []const u8) std.mem.Allocator.Error!?[:0]const u8 {
-    const bin_paths = std.process.getEnvVarOwned(allocator, "PATH") catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.EnvironmentVariableNotFound, error.InvalidWtf8 => &.{},
-    };
-    defer allocator.free(bin_paths);
+    const bin_paths = root.get_init().environ_map.get("PATH") orelse &.{};
     var bin_path_iterator = std.mem.splitScalar(u8, bin_paths, std.fs.path.delimiter);
     while (bin_path_iterator.next()) |bin_path| {
         const resolved_binary_path = try std.fs.path.resolve(allocator, &.{ bin_path, binary_name });
         defer allocator.free(resolved_binary_path);
-        std.posix.access(resolved_binary_path, std.posix.X_OK) catch continue;
-        return try allocator.dupeZ(u8, resolved_binary_path);
+        const resolved_binary_pathZ = try allocator.dupeZ(u8, resolved_binary_path);
+        errdefer allocator.free(resolved_binary_pathZ);
+        const rc = std.posix.system.access(resolved_binary_pathZ, std.posix.X_OK);
+        if (rc == -1) continue;
+        return resolved_binary_pathZ;
     }
     return null;
 }
 
 fn find_binary_in_path_windows(allocator: std.mem.Allocator, binary_name_: []const u8) std.mem.Allocator.Error!?[:0]const u8 {
-    const bin_paths = std.process.getEnvVarOwned(allocator, "PATH") catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.EnvironmentVariableNotFound, error.InvalidWtf8 => &.{},
-    };
-    defer allocator.free(bin_paths);
-    const bin_extensions = std.process.getEnvVarOwned(allocator, "PATHEXT") catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.EnvironmentVariableNotFound, error.InvalidWtf8 => &.{},
-    };
-    defer allocator.free(bin_extensions);
+    const io = root.get_init().io;
+    const bin_paths = root.get_init().environ_map.get("PATH") orelse &.{};
+    const bin_extensions = root.get_init().environ_map.get("PATHEXT") orelse &.{};
     var bin_path_iterator = std.mem.splitScalar(u8, bin_paths, std.fs.path.delimiter);
     while (bin_path_iterator.next()) |bin_path| {
         if (!std.fs.path.isAbsolute(bin_path)) continue;
-        var dir = std.fs.openDirAbsolute(bin_path, .{}) catch continue;
-        defer dir.close();
+        var dir = std.Io.Dir.openDirAbsolute(io, bin_path, .{}) catch continue;
+        defer dir.close(io);
         var bin_extensions_iterator = std.mem.splitScalar(u8, bin_extensions, ';');
         while (bin_extensions_iterator.next()) |bin_extension| {
             var path: std.ArrayList(u8) = .empty;
@@ -45,7 +38,7 @@ fn find_binary_in_path_windows(allocator: std.mem.Allocator, binary_name_: []con
             try path.appendSlice(allocator, bin_extension);
             const binary_name = try path.toOwnedSlice(allocator);
             defer allocator.free(binary_name);
-            _ = dir.statFile(binary_name) catch continue;
+            _ = dir.statFile(io, binary_name, .{}) catch continue;
             const resolved_binary_path = try std.fs.path.join(allocator, &[_][]const u8{ bin_path, binary_name });
             defer allocator.free(resolved_binary_path);
             return try allocator.dupeZ(u8, resolved_binary_path);
@@ -54,18 +47,22 @@ fn find_binary_in_path_windows(allocator: std.mem.Allocator, binary_name_: []con
     return null;
 }
 
-fn is_absolute_binary_path_executable(binary_path: []const u8) bool {
-    switch (builtin.os.tag) {
-        .windows => _ = std.fs.cwd().statFile(binary_path) catch return false,
-        else => std.posix.access(binary_path, std.posix.X_OK) catch return false,
-    }
-    return true;
+fn is_absolute_binary_path_executable(binary_path: [:0]const u8) bool {
+    return switch (builtin.os.tag) {
+        .windows => blk: {
+            _ = std.Io.Dir.cwd().statFile(root.get_init().io, binary_path, .{}) catch break :blk false;
+            break :blk true;
+        },
+        else => std.posix.system.access(binary_path, std.posix.X_OK) == 0,
+    };
 }
 
 pub fn can_execute(allocator: std.mem.Allocator, binary_name: []const u8) bool {
+    const binary_nameZ = allocator.dupeZ(u8, binary_name) catch @panic("OOM in can_execute");
+    defer allocator.free(binary_nameZ);
     for (binary_name) |char| if (std.fs.path.isSep(char))
-        return is_absolute_binary_path_executable(binary_name);
-    const resolved_binary_path = find_binary_in_path(allocator, binary_name) catch return false;
+        return is_absolute_binary_path_executable(binary_nameZ);
+    const resolved_binary_path = find_binary_in_path(allocator, binary_nameZ) catch return false;
     defer if (resolved_binary_path) |path| allocator.free(path);
     return resolved_binary_path != null;
 }

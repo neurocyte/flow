@@ -5,19 +5,33 @@ pub fn get(project: []const u8, lsp_name: []const u8) ?[]const u8 {
 }
 
 fn get_project(project: []const u8, lsp_name: []const u8) ?[]const u8 {
+    const io = root.get_init().io;
     const file_name = get_config_file_path(project, lsp_name, .project, .no_create) catch return null;
     defer allocator.free(file_name);
-    const file: std.fs.File = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
-    defer file.close();
-    return file.readToEndAlloc(allocator, std.math.maxInt(usize)) catch return null;
+    var file = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch return null;
+    defer file.close(io);
+    const stat = file.stat(io) catch return null;
+    const buf = allocator.alloc(u8, @intCast(stat.size)) catch return null;
+    const size = file.readPositionalAll(io, buf, 0) catch {
+        allocator.free(buf);
+        return null;
+    };
+    return buf[0..size];
 }
 
 fn get_global(lsp_name: []const u8) ?[]const u8 {
+    const io = root.get_init().io;
     const file_name = get_config_file_path(&.{}, lsp_name, .global, .no_create) catch return null;
     defer allocator.free(file_name);
-    const file: std.fs.File = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
-    defer file.close();
-    return file.readToEndAlloc(allocator, std.math.maxInt(usize)) catch return null;
+    var file = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch return null;
+    defer file.close(io);
+    const stat = file.stat(io) catch return null;
+    const buf = allocator.alloc(u8, @intCast(stat.size)) catch return null;
+    const size = file.readPositionalAll(io, buf, 0) catch {
+        allocator.free(buf);
+        return null;
+    };
+    return buf[0..size];
 }
 
 pub fn get_config_file_path(project: ?[]const u8, lsp_name: []const u8, scope: Scope, mode: Mode) ![]u8 {
@@ -39,7 +53,7 @@ fn get_config_dir_path(project: ?[]const u8, scope: Scope, mode: Mode) ![]u8 {
         .project => {
             try writer.writeAll("project");
             try writer.writeByte(std.fs.path.sep);
-            if (mode == .mk_parents) std.fs.makeDirAbsolute(stream.written()) catch |e| switch (e) {
+            if (mode == .mk_parents) std.Io.Dir.createDirAbsolute(root.get_init().io, stream.written(), .default_dir) catch |e| switch (e) {
                 error.PathAlreadyExists => {},
                 else => return e,
             };
@@ -60,7 +74,7 @@ fn get_config_dir_path(project: ?[]const u8, scope: Scope, mode: Mode) ![]u8 {
             try writer.writeByte(std.fs.path.sep);
         },
     }
-    if (mode == .mk_parents) std.fs.makeDirAbsolute(stream.written()) catch |e| switch (e) {
+    if (mode == .mk_parents) std.Io.Dir.createDirAbsolute(root.get_init().io, stream.written(), .default_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
         else => return e,
     };

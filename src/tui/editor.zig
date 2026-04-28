@@ -266,7 +266,7 @@ pub const TriggerSymbol = struct {
     char: u8,
     command: command.ID,
 
-    pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+    pub fn cborEncode(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try cbor.writeArrayHeader(writer, 2);
         try cbor.writeValue(writer, self.char);
         try cbor.writeValue(writer, command.get_name(self.command));
@@ -637,7 +637,7 @@ pub const Editor = struct {
             .handlers = EventHandler.List.init(allocator),
             .animation_lag = get_animation_max_lag(),
             .animation_frame_rate = frame_rate,
-            .animation_last_time = time.microTimestamp(),
+            .animation_last_time = root_mod.get_now().toMicroseconds(),
             .enable_format_on_save = tui.config().enable_format_on_save,
             .software_rendered_cursor = !tui.has_native_cursor(),
             .render_whitespace = tui.config().whitespace_mode,
@@ -1013,7 +1013,6 @@ pub const Editor = struct {
                     self.logger.print("nothing to undo", .{});
                     return;
                 },
-                else => return e,
             };
             try self.restore_undo_meta(meta);
             try self.send_editor_jump_destination();
@@ -1029,7 +1028,6 @@ pub const Editor = struct {
                     self.logger.print("nothing to redo", .{});
                     return;
                 },
-                else => return e,
             };
             try self.restore_redo_meta(meta);
             try self.send_editor_jump_destination();
@@ -1568,9 +1566,10 @@ pub const Editor = struct {
 
             var age_buf: [32]u8 = undefined;
             var age_stream: std.Io.Writer = .fixed(&age_buf);
+            const now = root_mod.get_now();
             switch (tui.config().inline_vcs_blame_age) {
-                .short => age_stream.print(" ({f})", .{@import("time_fmt").age_short(commit.@"author-time")}) catch {},
-                .long => age_stream.print(", {f}", .{@import("time_fmt").age_long(commit.@"author-time")}) catch {},
+                .short => age_stream.print(" ({f})", .{@import("time_fmt").age_short(commit.@"author-time", now)}) catch {},
+                .long => age_stream.print(", {f}", .{@import("time_fmt").age_long(commit.@"author-time", now)}) catch {},
             }
             const age = age_stream.buffered();
 
@@ -2969,7 +2968,7 @@ pub const Editor = struct {
     }
 
     fn update_animation_lag(self: *Self) void {
-        const ts = time.microTimestamp();
+        const ts = root_mod.get_now().toMicroseconds();
         const tdiff = ts - self.animation_last_time;
         const lag: f64 = @as(f64, @floatFromInt(tdiff)) / time.us_per_s;
         self.animation_lag = @max(@min(lag, get_animation_max_lag()), get_animation_min_lag());
@@ -4188,6 +4187,30 @@ pub const Editor = struct {
     }
     pub const add_cursor_next_match_meta: Meta = .{ .description = "Add cursor at next highlighted match", .arguments = &.{.integer} };
 
+    pub fn add_cursor_prev_match(self: *Self, ctx: Context) Result {
+        try self.send_editor_jump_source();
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            if (self.matches.items.len == 0) {
+                const root = self.buf_root() catch return;
+                self.with_cursors_const_once(root, move_cursor_word_begin) catch {};
+                try self.with_selections_const_once(root, move_cursor_word_end);
+            } else if (self.get_prev_match(self.get_primary().cursor)) |match| {
+                if (self.get_primary().selection) |_|
+                    try self.push_cursor();
+                const primary = self.get_primary();
+                const root = self.buf_root() catch return;
+                primary.selection = match.to_selection();
+                match.has_selection = true;
+                primary.cursor.move_to(root, match.end.row, match.end.col, self.metrics) catch return;
+            }
+        }
+        self.clamp();
+        try self.send_editor_jump_destination();
+    }
+    pub const add_cursor_prev_match_meta: Meta = .{ .description = "Add cursor at previous highlighted match", .arguments = &.{.integer} };
+
     pub fn add_cursor_all_matches(self: *Self, _: Context) Result {
         if (self.matches.items.len == 0) return;
         try self.send_editor_jump_source();
@@ -4492,15 +4515,17 @@ pub const Editor = struct {
     }
     pub const toggle_comment_meta: Meta = .{ .description = "Toggle comment" };
 
-    fn indent_cursor(self: *Self, root: Buffer.Root, cursor: Cursor, no_blank_line: bool, allocator: Allocator) error{Stop}!Buffer.Root {
+    fn indent_cursor(self: *Self, root_: Buffer.Root, cursor: Cursor, no_blank_line: bool, allocator: Allocator) error{Stop}!Buffer.Root {
         const space = "                                ";
         var cursel: CurSel = .{};
         cursel.cursor = cursor;
+        var root = root_;
         try move_cursor_begin(root, &cursel.cursor, self.metrics);
         if (no_blank_line and (root.line_width(cursel.cursor.row, self.metrics) catch 0 == 0))
             return root;
         switch (self.indent_mode) {
             .spaces, .auto => {
+                root = try self.expand_tabs(root, cursel.cursor.row, allocator);
                 const cols = self.indent_size - find_first_non_ws(root, cursel.cursor.row, self.metrics) % self.indent_size;
                 return self.insert(root, &cursel, space[0..cols], allocator) catch return error.Stop;
             },
@@ -4539,8 +4564,38 @@ pub const Editor = struct {
     }
     pub const indent_meta: Meta = .{ .description = "Indent current line (or pop tabstop)", .arguments = &.{.integer} };
 
-    fn unindent_cursor(self: *Self, root: Buffer.Root, cursor: *Cursor, cursor_protect: ?*Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
-        var newroot = root;
+    fn expand_tabs(self: *Self, root_: Buffer.Root, row: usize, allocator: Allocator) error{Stop}!Buffer.Root {
+        var col: usize = 0;
+        var root = root_;
+        var tab_width = self.tab_width;
+        while (true) {
+            const cursor: Cursor = .{ .row = row, .col = col };
+            const egc, _, _ = cursor.egc_at(root, self.metrics) catch return root;
+            if (egc[0] == ' ') {
+                col += 1;
+                tab_width -= 1;
+                if (tab_width == 0)
+                    tab_width = self.tab_width;
+                continue;
+            }
+            if (egc[0] != '\t') return root;
+
+            var cursel: CurSel = .{
+                .cursor = cursor,
+                .selection = .{
+                    .begin = cursor,
+                    .end = .{ .row = row, .col = col + tab_width },
+                },
+            };
+            const space = "                                ";
+            root = self.insert(root, &cursel, space[0..tab_width], allocator) catch return root;
+            col += tab_width;
+            tab_width = self.tab_width;
+        }
+    }
+
+    fn unindent_cursor(self: *Self, root_: Buffer.Root, cursor: *Cursor, cursor_protect: ?*Cursor, allocator: Allocator) error{Stop}!Buffer.Root {
+        var root = root_;
         var cursel: CurSel = .{};
         cursel.cursor = cursor.*;
         const first = find_first_non_ws(root, cursel.cursor.row, self.metrics);
@@ -4555,12 +4610,14 @@ pub const Editor = struct {
             cp.col = first + 1;
             saved = true;
         };
-        newroot = try self.delete_selection(root, &cursel, allocator);
+        if (self.indent_mode == .spaces)
+            root = try self.expand_tabs(root, cursel.cursor.row, allocator);
+        root = try self.delete_selection(root, &cursel, allocator);
         if (cursor_protect) |cp| if (saved) {
             try cp.move_to(root, cp.row, first - cols, self.metrics);
-            cp.clamp_to_buffer(newroot, self.metrics);
+            cp.clamp_to_buffer(root, self.metrics);
         };
-        return newroot;
+        return root;
     }
 
     fn unindent_cursel(self: *Self, root_: Buffer.Root, cursel: *CurSel, allocator: Allocator) error{Stop}!Buffer.Root {
@@ -4799,6 +4856,76 @@ pub const Editor = struct {
         try self.send_editor_jump_destination();
     }
     pub const move_buffer_end_meta: Meta = .{ .description = "Move cursor to end of file" };
+
+    fn move_cursor_to_next_empty_line(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        var seen_popd = false;
+        while (true) {
+            const line_width = root.line_width(cursor.row, metrics) catch return;
+            if (line_width > 0)
+                seen_popd = true
+            else if (seen_popd)
+                return;
+            cursor.move_down(root, metrics) catch |e| switch (e) {
+                error.Stop => {
+                    cursor.move_end(root, metrics);
+                    return;
+                },
+            };
+        }
+    }
+
+    fn move_cursor_to_prev_empty_line(root: Buffer.Root, cursor: *Cursor, metrics: Buffer.Metrics) !void {
+        var seen_popd = false;
+        while (true) {
+            const line_width = root.line_width(cursor.row, metrics) catch return;
+            if (line_width > 0)
+                seen_popd = true
+            else if (seen_popd)
+                return;
+            cursor.move_up(root, metrics) catch |e| switch (e) {
+                error.Stop => {
+                    cursor.move_begin();
+                    return;
+                },
+            };
+        }
+    }
+
+    pub fn move_par_end(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const_repeat(root, move_cursor_to_next_empty_line, ctx) catch {};
+        self.clamp();
+    }
+    pub const move_par_end_meta: Meta = .{ .description = "Move to end of paragraph", .arguments = &.{.integer} };
+
+    pub fn move_par_begin(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const_repeat(root, move_cursor_to_prev_empty_line, ctx) catch {};
+        self.clamp();
+    }
+    pub const move_par_begin_meta: Meta = .{ .description = "Move to beginning of paragraph", .arguments = &.{.integer} };
+
+    pub fn select_par_end(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_selections_const_repeat(root, move_cursor_to_next_empty_line, ctx) catch {};
+        self.clamp();
+    }
+    pub const select_par_end_meta: Meta = .{ .description = "Select to end of paragraph", .arguments = &.{.integer} };
+
+    pub fn select_par_begin(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_selections_const_repeat(root, move_cursor_to_prev_empty_line, ctx) catch {};
+        self.clamp();
+    }
+    pub const select_par_begin_meta: Meta = .{ .description = "Select to beginning of paragraph", .arguments = &.{.integer} };
+
+    pub fn select_par(self: *Self, ctx: Context) Result {
+        const root = try self.buf_root();
+        self.with_cursors_const_once(root, move_cursor_to_prev_empty_line) catch {};
+        self.with_selections_const_repeat(root, move_cursor_to_next_empty_line, ctx) catch {};
+        self.clamp();
+    }
+    pub const select_par_meta: Meta = .{ .description = "Select paragraph", .arguments = &.{.integer} };
 
     pub fn cancel(self: *Self, _: Context) Result {
         self.clear_info_box();
@@ -5714,7 +5841,7 @@ pub const Editor = struct {
             return;
         var kind: enum { full, incremental, none } = .none;
         var edit_count: usize = 0;
-        const start_time = std.time.milliTimestamp();
+        const start_time = root_mod.get_now().toMilliseconds();
         if (self.syntax) |syn| {
             if (self.syntax_no_render) {
                 const frame = tracy.initZone(@src(), .{ .name = "editor reset syntax" });
@@ -5792,7 +5919,7 @@ pub const Editor = struct {
                 }
             }
         }
-        const end_time = std.time.milliTimestamp();
+        const end_time = root_mod.get_now().toMilliseconds();
         if (kind == .full or kind == .incremental) {
             const update_time = end_time - start_time;
             self.syntax_incremental_reparse = end_time - start_time > syntax_full_reparse_time_limit;
@@ -7162,7 +7289,7 @@ pub const Editor = struct {
         var buf: [1024]u8 = undefined;
         const json = try cmd.to_json(&buf);
         std.log.debug("filter: start {s}", .{json});
-        var sp = try tp.subprocess.init(self.allocator, cmd, "filter", .Pipe);
+        var sp = try tp.subprocess.init(root_mod.get_init().io, self.allocator, cmd, "filter", .pipe);
         defer {
             sp.close() catch {};
             sp.deinit();
@@ -7407,7 +7534,7 @@ pub const Editor = struct {
         try self.update_buf(root);
         self.clamp();
     }
-    pub const toggle_case_meta: Meta = .{ .description = "Toggle the case of each character in selection or character at cursor" };
+    pub const toggle_case_meta: Meta = .{ .description = "Toggle the case of each character in selection or word" };
 
     pub fn forced_mark_clean(self: *Self, _: Context) Result {
         if (self.buffer) |b| {
@@ -7714,7 +7841,7 @@ pub const EditorWidget = struct {
             else => return,
         })(self, y, x, ypx, xpx);
         self.last_btn = btn;
-        self.last_btn_time_ms = time.milliTimestamp();
+        self.last_btn_time_ms = root_mod.get_now().toMilliseconds();
         return ret;
     }
 
@@ -7742,7 +7869,7 @@ pub const EditorWidget = struct {
             self.last_btn_x = x_;
         }
         if (self.last_btn == input.mouse.BUTTON1) {
-            const click_time_ms = time.milliTimestamp() - self.last_btn_time_ms;
+            const click_time_ms = root_mod.get_now().toMilliseconds() - self.last_btn_time_ms;
             if (click_time_ms <= double_click_time_ms and
                 self.last_btn_y == y_ and
                 self.last_btn_x == x_)

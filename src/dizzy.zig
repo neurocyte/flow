@@ -112,8 +112,8 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) ![]D
     const frame = tracy.initZone(@src(), .{ .name = "diff" });
     defer frame.deinit();
 
-    var dizzy_edits = std.ArrayListUnmanaged(dizzy.Edit){};
-    var scratch = std.ArrayListUnmanaged(u32){};
+    var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
+    var scratch: std.ArrayList(u32) = .empty;
     var diffs: std.ArrayList(Diff) = .empty;
     errdefer diffs.deinit(allocator);
 
@@ -173,15 +173,15 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) ![]D
 }
 
 pub fn get_edits(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) ![]Edit {
-    var arena_ = std.heap.ArenaAllocator.init(allocator);
+    var arena_: std.heap.ArenaAllocator = .init(allocator);
     defer arena_.deinit();
     const arena = arena_.allocator();
     const frame = tracy.initZone(@src(), .{ .name = "diff" });
     defer frame.deinit();
 
-    var dizzy_edits = std.ArrayListUnmanaged(dizzy.Edit){};
-    var scratch = std.ArrayListUnmanaged(u32){};
-    var edits = std.ArrayList(Edit).init(allocator);
+    var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
+    var scratch: std.ArrayList(u32) = .empty;
+    var edits: std.ArrayList(Edit) = .init(allocator);
 
     const scratch_len = 4 * (dst.len + src.len) + 2;
     try scratch.ensureTotalCapacity(arena, scratch_len);
@@ -239,8 +239,8 @@ fn scan_char(chars: []const u8, lines: *usize, char: u8, last_offset: ?*usize) v
 pub fn assert_edits_valid(allocator: std.mem.Allocator, dst: []const u8, src: []const u8, edits: []Edit) void {
     const frame = tracy.initZone(@src(), .{ .name = "diff validate" });
     defer frame.deinit();
-    var result = std.ArrayListUnmanaged(u8){};
-    var tmp = std.ArrayListUnmanaged(u8){};
+    var result: std.ArrayList(u8) = .empty;
+    var tmp: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
     defer tmp.deinit(allocator);
     result.appendSlice(allocator, src) catch @panic("assert_edits_valid OOM");

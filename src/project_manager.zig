@@ -15,7 +15,7 @@ pid: tp.pid_ref,
 
 const Self = @This();
 const module_name = @typeName(Self);
-const request_timeout = std.time.ns_per_s * 5;
+const request_timeout: std.Io.Timeout = .{ .duration = .{ .raw = .fromSeconds(5), .clock = .awake } };
 
 pub const FilePos = Project.FilePos;
 
@@ -26,7 +26,7 @@ pub const ProjectError = error{NoProject};
 const SpawnError = (OutOfMemoryError || error{ThespianSpawnFailed});
 const OutOfMemoryError = error{OutOfMemory};
 const FileSystemError = error{FileSystem};
-const SetCwdError = if (builtin.os.tag == .windows) error{UnrecognizedVolume} else error{};
+const SetCwdError = error{ OperationUnsupported, UnrecognizedVolume };
 const CallError = tp.CallError;
 const ProjectManagerError = (SpawnError || error{ ProjectManagerFailed, InvalidProjectDirectory });
 
@@ -59,34 +59,40 @@ pub fn shutdown() void {
     pid.send(.{"shutdown"}) catch {};
 }
 
-pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSystemError || std.fs.File.OpenError || SetCwdError)!?[]const u8 {
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const project_directory = std.fs.cwd().realpath(rel_project_directory, &path_buf) catch "(none)";
+pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSystemError || std.Io.File.OpenError || SetCwdError)!?[]const u8 {
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const io = root.get_init().io;
+    const len = std.Io.Dir.cwd().realPathFile(io, rel_project_directory, &path_buf) catch {
+        return get_project_state("(none)");
+    };
+    const project_directory = path_buf[0..len];
     const current_project = tp.env.get().str("project");
     if (std.mem.eql(u8, current_project, project_directory)) return get_project_state(project_directory);
     if (!root.is_directory(project_directory)) return error.InvalidProjectDirectory;
-    var dir = try std.fs.openDirAbsolute(project_directory, .{});
-    try dir.setAsCwd();
-    dir.close();
+    var dir = try std.Io.Dir.openDirAbsolute(io, project_directory, .{});
+    try std.process.setCurrentDir(io, dir);
+    dir.close(io);
     tp.env.get().str_set("project", project_directory);
     try send(.{ "open", project_directory });
     return get_project_state(project_directory);
 }
 
 const project_state_allocator = std.heap.c_allocator;
-var project_state_mutex: std.Thread.Mutex = .{};
+var project_state_mutex: std.Io.Mutex = .init;
 var project_state: ProjectStateMap = .empty;
 const ProjectStateMap = std.StringHashMapUnmanaged(std.array_list.Managed(u8));
 
 fn get_project_state(project_directory: []const u8) ?[]const u8 {
-    project_state_mutex.lock();
-    defer project_state_mutex.unlock();
+    const io = root.get_init().io;
+    project_state_mutex.lockUncancelable(io);
+    defer project_state_mutex.unlock(io);
     return if (project_state.get(project_directory)) |state| state.items else null;
 }
 
 pub fn store_state(project_directory: []const u8, state: std.array_list.Managed(u8)) error{OutOfMemory}!void {
-    project_state_mutex.lock();
-    defer project_state_mutex.unlock();
+    const io = root.get_init().io;
+    project_state_mutex.lockUncancelable(io);
+    defer project_state_mutex.unlock(io);
     if (project_state.fetchRemove(project_directory)) |old_state| old_state.value.deinit();
     try project_state.put(project_state_allocator, try project_state_allocator.dupe(u8, project_directory), state);
 }
@@ -98,10 +104,11 @@ pub fn close(project_directory: []const u8) (ProjectManagerError || error{CloseC
 }
 
 pub fn request_n_most_recent_file(allocator: std.mem.Allocator, n: usize) (CallError || ProjectError || cbor.Error)!?[]const u8 {
+    const io = root.get_init().io;
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    const rsp = try (try get()).pid.call(allocator, request_timeout, .{ "request_n_most_recent_file", project, n });
+    const rsp = try (try get()).pid.call(io, allocator, request_timeout, .{ "request_n_most_recent_file", project, n });
     defer allocator.free(rsp.buf);
     var file_path: []const u8 = undefined;
     return if (try cbor.match(rsp.buf, .{tp.extract(&file_path)})) try allocator.dupe(u8, file_path) else null;
@@ -159,10 +166,11 @@ pub fn request_path_files(max: usize, path: []const u8) (ProjectManagerError || 
 }
 
 pub fn request_tasks(allocator: std.mem.Allocator) (ProjectError || CallError)!tp.message {
+    const io = root.get_init().io;
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return (try get()).pid.call(allocator, request_timeout, .{ "request_tasks", project });
+    return (try get()).pid.call(io, allocator, request_timeout, .{ "request_tasks", project });
 }
 
 pub fn request_vcs_status() (ProjectManagerError || ProjectError)!void {
@@ -353,13 +361,13 @@ const Process = struct {
             .allocator = allocator,
             .parent = tp.self_pid().clone(),
             .logger = log.logger(module_name),
-            .receiver = Receiver.init(Process.receive, self),
+            .receiver = .init(receive, dtor, self),
             .projects = .empty,
         };
         return tp.spawn_link(self.allocator, self, Process.start, module_name);
     }
 
-    fn deinit(self: *Process) void {
+    fn dtor(self: *Process) void {
         var i = self.projects.iterator();
         while (i.next()) |p| {
             self.allocator.free(p.key_ptr.*);
@@ -378,7 +386,6 @@ const Process = struct {
     }
 
     fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
-        errdefer self.deinit();
         return self.receive_safe(from, m) catch |e| switch (e) {
             error.ExitNormal => tp.exit_normal(),
             error.ClientFailed => {
@@ -540,9 +547,9 @@ const Process = struct {
         }
     }
 
-    fn open(self: *Process, project_directory: []const u8) (SpawnError || std.fs.Dir.OpenError)!void {
+    fn open(self: *Process, project_directory: []const u8) (SpawnError || std.Io.Dir.OpenError)!void {
         if (self.projects.get(project_directory)) |project| {
-            project.last_used = std.time.nanoTimestamp();
+            project.last_used = @as(i128, root.get_now().toNanoseconds());
             self.logger.print("switched to: {s}", .{project_directory});
         } else {
             self.logger.print("opening: {s}", .{project_directory});
@@ -636,23 +643,23 @@ const Process = struct {
 
     fn query_recent_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        const start_time = std.time.milliTimestamp();
+        const start_time = root.get_now().toMilliseconds();
         const matched = try project.query_recent_files(from, max, query);
-        const query_time = std.time.milliTimestamp() - start_time;
+        const query_time = root.get_now().toMilliseconds() - start_time;
         if (query_time > 250)
             self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
     }
 
     fn query_new_or_modified_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, query: []const u8) (ProjectError || Project.RequestError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        const start_time = std.time.milliTimestamp();
+        const start_time = root.get_now().toMilliseconds();
         const matched = try project.query_new_or_modified_files(from, max, query);
-        const query_time = std.time.milliTimestamp() - start_time;
+        const query_time = root.get_now().toMilliseconds() - start_time;
         if (query_time > 250)
             self.logger.print("query \"{s}\" matched {d}/{d} in {d} ms", .{ query, matched, project.files.items.len, query_time });
     }
 
-    fn request_path_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, path: []const u8) (ProjectError || SpawnError || std.fs.Dir.OpenError)!void {
+    fn request_path_files(self: *Process, from: tp.pid_ref, project_directory: []const u8, max: usize, path: []const u8) (ProjectError || SpawnError || std.Io.Dir.OpenError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
         var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(self.allocator);
@@ -845,11 +852,12 @@ const Process = struct {
         self.logger.print("saving: {s}", .{project.name});
         const file_name = try get_project_state_file_path(self.allocator, project);
         defer self.allocator.free(file_name);
-        var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
-        defer file.close();
+        const io = root.get_init().io;
+        var file = try std.Io.Dir.createFileAbsolute(io, file_name, .{});
+        defer file.close(io);
         var buffer: [4096]u8 = undefined;
-        var writer = file.writer(&buffer);
-        defer writer.interface.flush() catch {};
+        var writer = file.writer(io, &buffer);
+        defer writer.flush() catch {};
         try project.write_state(&writer.interface);
     }
 
@@ -857,15 +865,16 @@ const Process = struct {
         tp.trace(tp.channel.debug, .{ "restore_project", project.name });
         const file_name = try get_project_state_file_path(self.allocator, project);
         defer self.allocator.free(file_name);
-        var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch |e| switch (e) {
+        const io = root.get_init().io;
+        var file = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch |e| switch (e) {
             error.FileNotFound => return,
             else => return e,
         };
-        defer file.close();
-        const stat = try file.stat();
+        defer file.close(io);
+        const stat = try file.stat(io);
         var buffer = try self.allocator.alloc(u8, @intCast(stat.size));
         defer self.allocator.free(buffer);
-        const size = try file.readAll(buffer);
+        const size = try file.readPositionalAll(io, buffer, 0);
         try project.restore_state(buffer[0..size]);
     }
 
@@ -878,7 +887,7 @@ const Process = struct {
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write("projects");
         _ = try writer.writeByte(std.fs.path.sep);
-        std.fs.makeDirAbsolute(stream.written()) catch |e| switch (e) {
+        std.Io.Dir.createDirAbsolute(root.get_init().io, stream.written(), .default_dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
             else => return e,
         };
@@ -901,10 +910,11 @@ const Process = struct {
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write("projects");
 
-        var dir = try std.fs.cwd().openDir(path.written(), .{ .iterate = true });
-        defer dir.close();
+        const io = root.get_init().io;
+        var dir = try std.Io.Dir.cwd().openDir(io, path.written(), .{ .iterate = true });
+        defer dir.close(io);
         var iter = dir.iterate();
-        while (try iter.next()) |entry| {
+        while (try iter.next(io)) |entry| {
             if (entry.kind != .file) continue;
             try self.read_project_name(path.written(), entry.name, recent_projects);
         }
@@ -923,17 +933,18 @@ const Process = struct {
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write(file_path);
 
-        var file = try std.fs.openFileAbsolute(path.written(), .{ .mode = .read_only });
-        defer file.close();
-        const stat = try file.stat();
+        const io = root.get_init().io;
+        var file = try std.Io.Dir.openFileAbsolute(io, path.written(), .{ .mode = .read_only });
+        defer file.close(io);
+        const stat = try file.stat(io);
         const buffer = try self.allocator.alloc(u8, @intCast(stat.size));
         defer self.allocator.free(buffer);
-        _ = try file.readAll(buffer);
+        _ = try file.readPositionalAll(io, buffer, 0);
 
         var iter: []const u8 = buffer;
         var name: []const u8 = undefined;
         if (cbor.matchValue(&iter, tp.extract(&name)) catch return)
-            (try recent_projects.addOne(self.allocator)).* = .{ .name = try self.allocator.dupe(u8, name), .last_used = stat.mtime };
+            (try recent_projects.addOne(self.allocator)).* = .{ .name = try self.allocator.dupe(u8, name), .last_used = @as(i128, stat.mtime.nanoseconds) };
     }
 
     fn sort_projects_by_last_used(_: *Process, recent_projects: *std.ArrayList(RecentProject)) void {
@@ -953,19 +964,19 @@ const Process = struct {
     }
 };
 
-fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_: *Project, max_: usize, path_: []const u8) (SpawnError || std.fs.Dir.OpenError)!void {
+fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_: *Project, max_: usize, path_: []const u8) (SpawnError || std.Io.Dir.OpenError)!void {
     return struct {
         allocator: std.mem.Allocator,
         project_name: []const u8,
         path: []const u8,
         parent: tp.pid,
         max: usize,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
 
         const path_files = @This();
         const Receiver = tp.Receiver(*path_files);
 
-        fn spawn_link(allocator: std.mem.Allocator, parent: tp.pid_ref, project: *Project, max: usize, path: []const u8) (SpawnError || std.fs.Dir.OpenError)!void {
+        fn spawn_link(allocator: std.mem.Allocator, parent: tp.pid_ref, project: *Project, max: usize, path: []const u8) (SpawnError || std.Io.Dir.OpenError)!void {
             const self = try allocator.create(path_files);
             errdefer allocator.destroy(self);
             self.* = .{
@@ -977,7 +988,7 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
                     std.fs.path.join(allocator, &[_][]const u8{ project.name, path }),
                 .parent = parent.clone(),
                 .max = max,
-                .dir = try std.fs.cwd().openDir(self.path, .{ .iterate = true }),
+                .dir = try std.Io.Dir.cwd().openDir(root.get_init().io, self.path, .{ .iterate = true }),
             };
             const pid = try tp.spawn_link(allocator, self, path_files.start, module_name ++ ".path_files");
             pid.deinit();
@@ -993,17 +1004,18 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
         }
 
         fn deinit(self: *path_files) void {
-            self.dir.close();
+            self.dir.close(root.get_init().io);
             self.allocator.free(self.path);
             self.allocator.free(self.project_name);
             self.parent.deinit();
         }
 
         fn iterate(self: *path_files) !void {
+            const io = root.get_init().io;
             var count: usize = 0;
             var iter = self.dir.iterateAssumeFirstIteration();
             errdefer |e| self.parent.send(.{ "PRJ", "path_error", self.project_name, self.path, e }) catch {};
-            while (try iter.next()) |entry| {
+            while (try iter.next(io)) |entry| {
                 const event_type = switch (entry.kind) {
                     .directory => "DIR",
                     .sym_link => "LINK",
@@ -1072,8 +1084,8 @@ pub fn abbreviate_home(buf: []u8, path: []const u8) []const u8 {
     const a = std.heap.c_allocator;
     if (builtin.os.tag == .windows) return path;
     if (!std.fs.path.isAbsolute(path)) return path;
-    const homedir = std.posix.getenv("HOME") orelse return path;
-    const homerelpath = std.fs.path.relative(a, homedir, path) catch return path;
+    const homedir = root.get_init().environ_map.get("HOME") orelse return path;
+    const homerelpath = std.fs.path.relative(a, "/", root.get_init().environ_map, homedir, path) catch return path;
     defer a.free(homerelpath);
     if (homerelpath.len == 0) {
         return "~";
@@ -1093,7 +1105,7 @@ pub fn expand_home(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), file_p
     if (builtin.os.tag == .windows) return file_path;
     if (file_path.len > 0 and file_path[0] == '~') {
         if (file_path.len > 1 and file_path[1] != std.fs.path.sep) return file_path;
-        const homedir = std.posix.getenv("HOME") orelse return file_path;
+        const homedir = root.get_init().environ_map.get("HOME") orelse return file_path;
         buf.appendSlice(allocator, homedir) catch return file_path;
         buf.append(allocator, std.fs.path.sep) catch return file_path;
         buf.appendSlice(allocator, file_path[2..]) catch return file_path;

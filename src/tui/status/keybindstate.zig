@@ -28,13 +28,12 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
 
 pub fn layout(_: *Self) Widget.Layout {
     var buf: [256]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    const writer = fbs.writer();
+    var writer: std.Io.Writer = .fixed(&buf);
     writer.print(" ", .{}) catch {};
     if (keybind.current_integer_argument()) |integer_argument|
         writer.print("{}", .{integer_argument}) catch {};
     writer.print("{f} ", .{keybind.current_key_event_sequence_fmt()}) catch {};
-    const len = fbs.getWritten().len;
+    const len = writer.buffered().len;
     return .{ .static = if (len > 0) len else 0 };
 }
 

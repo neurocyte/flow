@@ -1,5 +1,6 @@
 const eql = @import("std").mem.eql;
 const time = @import("std").time;
+const root = @import("soft_root").root;
 const Allocator = @import("std").mem.Allocator;
 const ArrayList = @import("std").ArrayList;
 const Writer = @import("std").Io.Writer;
@@ -92,7 +93,7 @@ fn output_tdiff(self: *Self, tdiff: i64) !void {
 }
 
 fn append(self: *Self, json: []const u8) !void {
-    const ts = time.microTimestamp();
+    const ts = root.get_now().toMicroseconds();
     const tdiff = if (self.buffer.getLastOrNull()) |last| ret: {
         if (eql(u8, json, last.json)) {
             self.last_count += 1;

@@ -367,7 +367,7 @@ pub const TabBar = struct {
         defer self.allocator.free(buffers);
         const existing_tabs = self.tabs;
         defer self.allocator.free(existing_tabs);
-        var result: std.ArrayListUnmanaged(TabBarTab) = .{};
+        var result: std.ArrayList(TabBarTab) = .empty;
         errdefer result.deinit(self.allocator);
 
         // add existing tabs in original order if they still exist
@@ -400,7 +400,7 @@ pub const TabBar = struct {
         return false;
     }
 
-    fn place_new_tab(self: *Self, result: *std.ArrayListUnmanaged(TabBarTab), buffer: *Buffer) !void {
+    fn place_new_tab(self: *Self, result: *std.ArrayList(TabBarTab), buffer: *Buffer) !void {
         const buffer_ref = buffer.to_ref();
         const tab = try Tab.create(self, buffer_ref, &self.tab_style);
         const pos = switch (self.place_next) {
@@ -522,7 +522,7 @@ pub const TabBar = struct {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const mv = tui.mainview() orelse return;
 
-        var tabs: std.ArrayListUnmanaged(TabBarTab) = .fromOwnedSlice(self.tabs);
+        var tabs: std.ArrayList(TabBarTab) = .fromOwnedSlice(self.tabs);
         defer self.tabs = tabs.toOwnedSlice(self.allocator) catch @panic("OOM move_tab_to");
 
         const old_view = tabs.items[src_idx].view;
@@ -557,7 +557,7 @@ pub const TabBar = struct {
         const buffer_manager = tui.get_buffer_manager() orelse @panic("tabs no buffer manager");
         const mv = tui.mainview() orelse return;
 
-        var tabs: std.ArrayListUnmanaged(TabBarTab) = .fromOwnedSlice(self.tabs);
+        var tabs: std.ArrayList(TabBarTab) = .fromOwnedSlice(self.tabs);
         defer self.tabs = tabs.toOwnedSlice(self.allocator) catch @panic("OOM move_tab_to_view");
 
         const old_view = tabs.items[src_idx].view;
@@ -640,7 +640,7 @@ pub const TabBar = struct {
         self.allocator.free(self.tabs);
         self.tabs = &.{};
 
-        var result: std.ArrayListUnmanaged(TabBarTab) = .{};
+        var result: std.ArrayList(TabBarTab) = .empty;
         errdefer result.deinit(self.allocator);
 
         var count = cbor.decodeArrayHeader(&iter2) catch return error.MatchTabArrayFailed;

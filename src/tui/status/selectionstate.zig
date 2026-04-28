@@ -51,31 +51,30 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
 }
 
 fn format(self: *Self) void {
-    var fbs = std.io.fixedBufferStream(&self.buf);
-    const writer = fbs.writer();
-    _ = writer.write(" ") catch {};
+    var writer: std.Io.Writer = .fixed(&self.buf);
+    writer.writeAll(" ") catch {};
     if (self.matches > 1) {
-        std.fmt.format(writer, "({d} matches)", .{self.matches}) catch {};
+        writer.print("({d} matches)", .{self.matches}) catch {};
         if (self.selection) |_|
-            _ = writer.write(" ") catch {};
+            writer.writeAll(" ") catch {};
     }
     if (self.cursels > 1) {
-        std.fmt.format(writer, "({d} cursors)", .{self.cursels}) catch {};
+        writer.print("({d} cursors)", .{self.cursels}) catch {};
         if (self.selection) |_|
-            _ = writer.write(" ") catch {};
+            writer.writeAll(" ") catch {};
     }
     if (self.selection) |sel_| {
         var sel = sel_;
         sel.normalize();
         const lines = sel.end.row - sel.begin.row;
         if (lines == 0) {
-            std.fmt.format(writer, "({d} columns selected)", .{sel.end.col - sel.begin.col}) catch {};
+            writer.print("({d} columns selected)", .{sel.end.col - sel.begin.col}) catch {};
         } else {
-            std.fmt.format(writer, "({d} lines selected)", .{if (sel.end.col == 0) lines else lines + 1}) catch {};
+            writer.print("({d} lines selected)", .{if (sel.end.col == 0) lines else lines + 1}) catch {};
         }
     }
-    _ = writer.write(" ") catch {};
-    self.rendered = @ptrCast(fbs.getWritten());
+    writer.writeAll(" ") catch {};
+    self.rendered = @ptrCast(writer.buffered());
     self.buf[self.rendered.len] = 0;
 }
 

@@ -118,7 +118,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Widget) !Widget {
         .home_style = home_style,
         .home_style_bufs = home_style_bufs,
     };
-    if (builtin.os.tag != .windows and std.posix.geteuid() == 0) {
+    if (builtin.os.tag != .windows and std.c.geteuid() == 0) {
         self.root_mode = true;
     }
     self.commands.init_unregistered(self);
@@ -173,17 +173,16 @@ fn add_menu_command(self: *Self, command_name: []const u8, description: []const 
     const label_len = description.len + hint.len;
     var buf: [64]u8 = undefined;
     {
-        var fis = std.io.fixedBufferStream(&buf);
-        const writer = fis.writer();
+        var fis: std.Io.Writer = .fixed(&buf);
         const leader = if (hint.len > 0) "." else " ";
-        _ = try writer.write(description);
-        _ = try writer.write(" ");
-        _ = try writer.write(leader);
-        _ = try writer.write(leader);
+        try fis.writeAll(description);
+        try fis.writeAll(" ");
+        try fis.writeAll(leader);
+        try fis.writeAll(leader);
         for (0..(self.max_desc_len - label_len - 5)) |_|
-            _ = try writer.write(leader);
-        try writer.print(" :{s}", .{hint});
-        const label = fis.getWritten();
+            try fis.writeAll(leader);
+        try fis.print(" :{s}", .{hint});
+        const label = fis.buffered();
         const padding = tui.get_widget_style(widget_type).padding;
         self.menu_label_max = @max(self.menu_label_max, label.len);
         self.menu_w = self.menu_label_max + 2 + padding.left + padding.right;
@@ -239,16 +238,15 @@ fn menu_on_render(self: *Self, button: *ButtonType, theme: *const Widget.Theme, 
     const label_len = description.len + hint.len;
     var buf: [64]u8 = undefined;
     const leader = blk: {
-        var fis = std.io.fixedBufferStream(&buf);
-        const writer = fis.writer();
+        var fis: std.Io.Writer = .fixed(&buf);
         const leader = if (hint.len > 0) "." else " ";
-        _ = writer.write(" ") catch return false;
-        _ = writer.write(leader) catch return false;
-        _ = writer.write(leader) catch return false;
+        fis.writeAll(" ") catch return false;
+        fis.writeAll(leader) catch return false;
+        fis.writeAll(leader) catch return false;
         for (0..(self.max_desc_len - label_len - 5)) |_|
-            _ = writer.write(leader) catch return false;
-        writer.print(" ", .{}) catch return false;
-        break :blk fis.getWritten();
+            fis.writeAll(leader) catch return false;
+        fis.print(" ", .{}) catch return false;
+        break :blk fis.buffered();
     };
 
     const style_base = theme.editor;

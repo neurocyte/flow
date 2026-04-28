@@ -1,6 +1,7 @@
 const std = @import("std");
 const tp = @import("thespian");
 const tracy = @import("tracy");
+const root = @import("soft_root").root;
 
 const module_name = @typeName(@This());
 
@@ -16,13 +17,13 @@ pub const Options = struct {
     log_ignored_links: bool = false,
 };
 
-pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: EntryCallBack, done_handler: DoneCallBack, options: Options) (SpawnError || std.fs.Dir.OpenError)!tp.pid {
+pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: EntryCallBack, done_handler: DoneCallBack, options: Options) (SpawnError || std.Io.Dir.OpenError)!tp.pid {
     return struct {
         allocator: std.mem.Allocator,
         root_path: []const u8,
         parent: tp.pid,
         receiver: Receiver,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         walker: FilteredWalker,
         entry_handler: EntryCallBack,
         done_handler: DoneCallBack,
@@ -31,16 +32,17 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
         const tree_walker = @This();
         const Receiver = tp.Receiver(*tree_walker);
 
-        fn spawn_link(allocator: std.mem.Allocator, root_path: []const u8, entry_handler_: EntryCallBack, done_handler_: DoneCallBack, options_: Options) (SpawnError || std.fs.Dir.OpenError)!tp.pid {
+        fn spawn_link(allocator: std.mem.Allocator, root_path: []const u8, entry_handler_: EntryCallBack, done_handler_: DoneCallBack, options_: Options) (SpawnError || std.Io.Dir.OpenError)!tp.pid {
+            const io = root.get_init().io;
             const self = try allocator.create(tree_walker);
             errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
                 .root_path = try allocator.dupe(u8, root_path),
                 .parent = tp.self_pid().clone(),
-                .receiver = .init(tree_walker.receive, self),
-                .dir = try std.fs.cwd().openDir(self.root_path, .{ .iterate = true }),
-                .walker = try .init(self.dir, self.allocator, options_),
+                .receiver = .init(receive, dtor, self),
+                .dir = try std.Io.Dir.cwd().openDir(io, self.root_path, .{ .iterate = true }),
+                .walker = try .init(io, self.dir, self.allocator, options_),
                 .entry_handler = entry_handler_,
                 .done_handler = done_handler_,
                 .options = options_,
@@ -49,22 +51,22 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
         }
 
         fn start(self: *tree_walker) tp.result {
-            errdefer self.deinit();
             const frame = tracy.initZone(@src(), .{ .name = "project scan" });
             defer frame.deinit();
             tp.receive(&self.receiver);
             self.next() catch |e| return tp.exit_error(e, @errorReturnTrace());
         }
 
-        fn deinit(self: *tree_walker) void {
-            self.walker.deinit();
-            self.dir.close();
+        fn dtor(self: *tree_walker) void {
+            const io = root.get_init().io;
+            self.walker.deinit(io);
+            self.dir.close(io);
             self.allocator.free(self.root_path);
             self.parent.deinit();
+            self.allocator.destroy(self);
         }
 
         fn receive(self: *tree_walker, _: tp.pid_ref, m: tp.message) tp.result {
-            errdefer self.deinit();
             const frame = tracy.initZone(@src(), .{ .name = "project scan" });
             defer frame.deinit();
 
@@ -78,15 +80,15 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
         }
 
         fn next(self: *tree_walker) !void {
-            if (try self.walker.next()) |path| {
-                const stat = self.dir.statFile(path) catch {
+            const io = root.get_init().io;
+            if (try self.walker.next(io)) |path| {
+                const stat = self.dir.statFile(io, path, .{}) catch {
                     try self.entry_handler(self.parent.ref(), self.root_path, path, 0, 0);
                     return tp.self_pid().send(.{"next"});
                 };
-                const mtime = stat.mtime;
+                const mtime: i128 = @as(i128, stat.mtime.nanoseconds);
                 const high: i64 = @intCast(mtime >> 64);
                 const low: i64 = @truncate(mtime);
-                std.debug.assert(mtime == (@as(i128, @intCast(high)) << 64) | @as(i128, @intCast(low)));
                 try self.entry_handler(self.parent.ref(), self.root_path, path, high, low);
                 return tp.self_pid().send(.{"next"});
             } else {
@@ -119,57 +121,60 @@ fn is_filtered_dir(dirname: []const u8) bool {
 
 const FilteredWalker = struct {
     allocator: std.mem.Allocator,
-    stack: std.ArrayListUnmanaged(StackItem),
-    name_buffer: std.ArrayListUnmanaged(u8),
+    stack: std.ArrayList(StackItem),
+    name_buffer: std.ArrayList(u8),
     options: Options,
 
     const Path = []const u8;
 
     const StackItem = struct {
-        iter: std.fs.Dir.Iterator,
+        dir: std.Io.Dir,
+        iter: std.Io.Dir.Iterator,
         dirname_len: usize,
         symlink_depth: usize,
     };
 
-    fn init(dir: std.fs.Dir, allocator: std.mem.Allocator, options: Options) !FilteredWalker {
-        var stack: std.ArrayListUnmanaged(FilteredWalker.StackItem) = .{};
+    fn init(io: std.Io, dir: std.Io.Dir, allocator: std.mem.Allocator, options: Options) !FilteredWalker {
+        var stack: std.ArrayList(FilteredWalker.StackItem) = .empty;
         errdefer stack.deinit(allocator);
 
         try stack.append(allocator, .{
+            .dir = dir,
             .iter = dir.iterate(),
             .dirname_len = 0,
             .symlink_depth = options.maximum_symlink_depth,
         });
+        _ = io;
 
         return .{
             .allocator = allocator,
             .stack = stack,
-            .name_buffer = .{},
+            .name_buffer = .empty,
             .options = options,
         };
     }
 
-    fn deinit(self: *FilteredWalker) void {
-        // Close any remaining directories except the initial one (which is always at index 0)
+    fn deinit(self: *FilteredWalker, io: std.Io) void {
+        // Close any remaining directories except the initial one (index 0 is closed by tree_walker)
         if (self.stack.items.len > 1) {
             for (self.stack.items[1..]) |*item| {
-                item.iter.dir.close();
+                item.dir.close(io);
             }
         }
         self.stack.deinit(self.allocator);
         self.name_buffer.deinit(self.allocator);
     }
 
-    fn next(self: *FilteredWalker) OutOfMemoryError!?Path {
+    fn next(self: *FilteredWalker, io: std.Io) OutOfMemoryError!?Path {
         while (self.stack.items.len != 0) {
             var top = &self.stack.items[self.stack.items.len - 1];
             var containing = top;
             var dirname_len = top.dirname_len;
-            if (top.iter.next() catch {
+            if (top.iter.next(io) catch {
                 var item_ = self.stack.pop();
                 if (item_) |*item|
                     if (self.stack.items.len != 0) {
-                        item.iter.dir.close();
+                        item.dir.close(io);
                     };
                 continue;
             }) |base| {
@@ -181,7 +186,7 @@ const FilteredWalker = struct {
                 try self.name_buffer.appendSlice(self.allocator, base.name);
                 switch (base.kind) {
                     .directory => {
-                        _ = try self.next_directory(&base, &top, &containing, top.symlink_depth);
+                        _ = try self.next_directory(io, &base, &top, &containing, top.symlink_depth);
                         continue;
                     },
                     .file => return self.name_buffer.items,
@@ -191,7 +196,7 @@ const FilteredWalker = struct {
                                 std.log.warn("TOO MANY LINKS! ignoring symlink: {s}", .{base.name});
                             continue;
                         }
-                        if (try self.next_sym_link(&base, &top, &containing, top.symlink_depth -| 1)) |file|
+                        if (try self.next_sym_link(io, &base, &top, &containing, top.symlink_depth -| 1)) |file|
                             return file
                         else
                             continue;
@@ -202,23 +207,24 @@ const FilteredWalker = struct {
                 var item_ = self.stack.pop();
                 if (item_) |*item|
                     if (self.stack.items.len != 0) {
-                        item.iter.dir.close();
+                        item.dir.close(io);
                     };
             }
         }
         return null;
     }
 
-    fn next_directory(self: *FilteredWalker, base: *const std.fs.Dir.Entry, top: **StackItem, containing: **StackItem, symlink_depth: usize) !void {
+    fn next_directory(self: *FilteredWalker, io: std.Io, base: *const std.Io.Dir.Entry, top: **StackItem, containing: **StackItem, symlink_depth: usize) !void {
         if (is_filtered_dir(base.name))
             return;
-        var new_dir = top.*.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
+        var new_dir = top.*.dir.openDir(io, base.name, .{ .iterate = true }) catch |err| switch (err) {
             error.NameTooLong => @panic("unexpected error.NameTooLong"), // no path sep in base.name
             else => return,
         };
         {
-            errdefer new_dir.close();
+            errdefer new_dir.close(io);
             try self.stack.append(self.allocator, .{
+                .dir = new_dir,
                 .iter = new_dir.iterateAssumeFirstIteration(),
                 .dirname_len = self.name_buffer.items.len,
                 .symlink_depth = symlink_depth,
@@ -229,12 +235,12 @@ const FilteredWalker = struct {
         return;
     }
 
-    fn next_sym_link(self: *FilteredWalker, base: *const std.fs.Dir.Entry, top: **StackItem, containing: **StackItem, symlink_depth: usize) !?[]const u8 {
-        const st = top.*.iter.dir.statFile(base.name) catch return null;
+    fn next_sym_link(self: *FilteredWalker, io: std.Io, base: *const std.Io.Dir.Entry, top: **StackItem, containing: **StackItem, symlink_depth: usize) !?[]const u8 {
+        const st = top.*.dir.statFile(io, base.name, .{}) catch return null;
         switch (st.kind) {
             .directory => {
                 if (self.options.follow_directory_symlinks)
-                    _ = try self.next_directory(base, top, containing, symlink_depth);
+                    _ = try self.next_directory(io, base, top, containing, symlink_depth);
                 return null;
             },
             .file => return self.name_buffer.items,
@@ -244,7 +250,7 @@ const FilteredWalker = struct {
                         std.log.warn("TOO MANY LINKS! ignoring symlink: {s}", .{base.name});
                     return null;
                 }
-                return try self.next_sym_link(base, top, containing, symlink_depth -| 1);
+                return try self.next_sym_link(io, base, top, containing, symlink_depth -| 1);
             },
             else => return null,
         }

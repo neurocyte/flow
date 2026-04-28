@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const shell = @import("shell");
 const bin_path = @import("bin_path");
+const root = @import("soft_root").root;
 
 pub const Error = error{ OutOfMemory, GitNotFound, GitCallFailed, WriteFailed };
 
@@ -419,10 +420,12 @@ pub fn blame(context_: usize, file_path: []const u8) !void {
 }
 
 fn is_file(rel_path: []const u8) bool {
-    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch return false;
-    var file = std.fs.openFileAbsolute(abs_path, .{ .mode = .read_only }) catch return false;
-    defer file.close();
+    const io = root.get_init().io;
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const len = std.Io.Dir.cwd().realPathFile(io, rel_path, &path_buf) catch return false;
+    const abs_path = path_buf[0..len];
+    const file = std.Io.Dir.openFileAbsolute(io, abs_path, .{}) catch return false;
+    defer file.close(io);
     return true;
 }
 

@@ -3,6 +3,7 @@ const fmt = @import("std").fmt;
 const time = @import("std").time;
 const Allocator = @import("std").mem.Allocator;
 const array_list = @import("std").array_list;
+const root = @import("soft_root").root;
 
 const tp = @import("thespian");
 const cbor = @import("cbor");
@@ -111,7 +112,7 @@ pub fn process_log(m: tp.message) MessageFilter.Error!void {
 }
 
 fn append(buffer: *Buffer, src: []const u8, msg: []const u8, level: Level) !void {
-    const ts = time.microTimestamp();
+    const ts = root.get_now().toMicroseconds();
     const tdiff = if (buffer.getLastOrNull()) |last| ret: {
         if (eql(u8, msg, last.src) and eql(u8, msg, last.msg)) {
             last_count += 1;
@@ -133,10 +134,10 @@ fn append_error(buffer: *Buffer, src: []const u8, context: []const u8, msg_: []c
     const std = @import("std");
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    var sfa = std.heap.stackFallback(4096, arena.allocator());
-    var msg = std.array_list.Managed(u8).init(sfa.get());
-    try fmt.format(msg.writer(), "error in {s}: {s}", .{ context, msg_ });
-    try append(buffer, src, msg.items, .err);
+    var msg: std.Io.Writer.Allocating = .init(arena.allocator());
+    defer msg.deinit();
+    msg.writer.print("error in {s}: {s}", .{ context, msg_ }) catch {};
+    try append(buffer, src, msg.written(), .err);
 }
 
 fn append_json(buffer: *Buffer, src: []const u8, m: tp.message) MessageFilter.Error!void {

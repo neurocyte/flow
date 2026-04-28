@@ -77,7 +77,7 @@ fn sort_by_used_time(palette: *Type) void {
 }
 
 fn update_used_time(palette: *Type, id: command.ID) void {
-    set_used_time(palette, id, std.time.milliTimestamp());
+    set_used_time(palette, id, root.get_now().toMilliseconds());
     write_state(palette) catch {};
 }
 
@@ -91,10 +91,11 @@ fn set_used_time(palette: *Type, id: command.ID, used_time: i64) void {
 fn write_state(palette: *Type) !void {
     var state_file_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const state_file = try std.fmt.bufPrint(&state_file_buffer, "{s}/{s}", .{ try root.get_state_dir(), "commands" });
-    var file = try std.fs.createFileAbsolute(state_file, .{ .truncate = true });
-    defer file.close();
+    const io = root.get_init().io;
+    var file = try std.Io.Dir.createFileAbsolute(io, state_file, .{ .truncate = true });
+    defer file.close(io);
     var buf: [4096]u8 = undefined;
-    var file_writer = file.writer(&buf);
+    var file_writer = file.writer(io, &buf);
     const writer = &file_writer.interface;
     defer writer.flush() catch {};
 
@@ -110,16 +111,17 @@ pub fn restore_state(palette: *Type) !void {
     var state_file_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const state_file = try std.fmt.bufPrint(&state_file_buffer, "{s}/{s}", .{ try root.get_state_dir(), "commands" });
     const a = std.heap.c_allocator;
-    var file = std.fs.openFileAbsolute(state_file, .{ .mode = .read_only }) catch |e| switch (e) {
+    const io = root.get_init().io;
+    var file = std.Io.Dir.openFileAbsolute(io, state_file, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return,
         else => return e,
     };
-    defer file.close();
-    const stat = try file.stat();
-    var buffer = try a.alloc(u8, @intCast(stat.size));
-    defer a.free(buffer);
-    const size = try file.readAll(buffer);
-    const data = buffer[0..size];
+    defer file.close(io);
+    const stat = try file.stat(io);
+    var reader_buf: [4096]u8 = undefined;
+    var r = file.reader(io, &reader_buf);
+    const data = try r.interface.readAlloc(a, @intCast(stat.size));
+    defer a.free(data);
 
     defer sort_by_used_time(palette);
     var name_: []const u8 = undefined;

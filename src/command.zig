@@ -282,26 +282,20 @@ pub fn Collection(comptime Namespace: type) type {
     const cmds = comptime getCommands(Namespace);
     const Target = getTargetType(Namespace);
     const Clsr = Closure(*Target);
-    var fields_var: [cmds.len]std.builtin.Type.StructField = undefined;
+    var field_names: [cmds.len][]const u8 = undefined;
+    var field_types: [cmds.len]type = undefined;
+    var field_attrs: [cmds.len]std.builtin.Type.StructField.Attributes = undefined;
     inline for (cmds, 0..) |cmd, i| {
         @setEvalBranchQuota(10_000);
-        fields_var[i] = .{
-            .name = cmd.name,
-            .type = Clsr,
+        field_names[i] = cmd.name;
+        field_types[i] = Clsr;
+        field_attrs[i] = .{
+            .@"comptime" = false,
+            .@"align" = if (@sizeOf(Clsr) > 0) @alignOf(Clsr) else 0,
             .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = if (@sizeOf(Clsr) > 0) @alignOf(Clsr) else 0,
         };
     }
-    const fields: [cmds.len]std.builtin.Type.StructField = fields_var;
-    const Fields = @Type(.{
-        .@"struct" = .{
-            .is_tuple = false,
-            .layout = .auto,
-            .decls = &.{},
-            .fields = &fields,
-        },
-    });
+    const Fields = @Struct(.auto, null, &field_names, &field_types, &field_attrs);
     return struct {
         fields: Fields,
 

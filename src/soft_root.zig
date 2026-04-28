@@ -8,6 +8,8 @@ pub const root = struct {
     pub const application_title = if (@hasDecl(hard_root, "application_title")) hard_root.application_title else dummy.application_title;
     pub const application_subtext = if (@hasDecl(hard_root, "application_subtext")) hard_root.application_subtext else dummy.application_subtext;
 
+    pub const get_init = if (@hasDecl(hard_root, "get_init")) hard_root.get_init else dummy.get_init;
+    pub const get_now = if (@hasDecl(hard_root, "get_now")) hard_root.get_now else dummy.get_now;
     pub const get_state_dir = if (@hasDecl(hard_root, "get_state_dir")) hard_root.get_state_dir else dummy.get_state_dir;
     pub const get_config_dir = if (@hasDecl(hard_root, "get_config_dir")) hard_root.get_config_dir else dummy.get_config_dir;
     pub const write_config_to_writer = if (@hasDecl(hard_root, "write_config_to_writer")) hard_root.write_config_to_writer else dummy.write_config_to_writer;
@@ -57,6 +59,14 @@ const dummy = struct {
 
     pub const ConfigDirError = error{};
     pub const ConfigWriteError = error{};
+
+    pub fn get_init() std.process.Init {
+        @panic("dummy get_init call");
+    }
+
+    pub fn get_now() std.Io.Timestamp {
+        @panic("dummy get_now call");
+    }
 
     pub fn get_state_dir() ![]const u8 {
         @panic("dummy get_state_dir call");

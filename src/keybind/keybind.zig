@@ -377,7 +377,7 @@ const Command = struct {
     fn load(allocator: std.mem.Allocator, tokens: []const std.json.Value) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!Command {
         if (tokens.len == 0) return error.InvalidFormat;
         var state: enum { command, args } = .command;
-        var args = std.ArrayListUnmanaged(std.json.Value){};
+        var args: std.ArrayList(std.json.Value) = .empty;
         defer args.deinit(allocator);
         var command_: []const u8 = &[_]u8{};
 
@@ -459,19 +459,19 @@ const max_input_buffer_size = 4096;
 var globals: struct {
     namespaces: NamespaceMap = .{},
     current_namespace: ?*const Namespace = null,
-    input_buffer: std.ArrayListUnmanaged(u8) = .{},
+    input_buffer: std.ArrayList(u8) = .empty,
     insert_command: []const u8 = "",
     insert_command_id: ?command.ID = null,
     last_key_event_timestamp_ms: i64 = 0,
-    current_sequence: std.ArrayListUnmanaged(KeyEvent) = .{},
-    current_sequence_egc: std.ArrayListUnmanaged(u8) = .{},
+    current_sequence: std.ArrayList(KeyEvent) = .empty,
+    current_sequence_egc: std.ArrayList(u8) = .empty,
 } = .{};
 const globals_allocator = std.heap.c_allocator;
 
 //A Collection of keybindings
 const BindingSet = struct {
-    press: std.ArrayListUnmanaged(Binding) = .{},
-    release: std.ArrayListUnmanaged(Binding) = .{},
+    press: std.ArrayList(Binding) = .empty,
+    release: std.ArrayList(Binding) = .empty,
     syntax: KeySyntax = .flow,
     on_match_failure: OnMatchFailure = .ignore,
     name: []const u8,
@@ -536,7 +536,7 @@ const BindingSet = struct {
         return self;
     }
 
-    fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayListUnmanaged(Binding), event: input.Event, bindings: []const []const std.json.Value) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!void {
+    fn load_event(self: *BindingSet, allocator: std.mem.Allocator, dest: *std.ArrayList(Binding), event: input.Event, bindings: []const []const std.json.Value) (error{WriteFailed} || parse_flow.ParseError || parse_vim.ParseError)!void {
         _ = event;
         bindings: for (bindings) |entry| {
             if (entry.len < 2) {
@@ -595,7 +595,7 @@ const BindingSet = struct {
 
     fn append_if_not_match(
         allocator: std.mem.Allocator,
-        dest: *std.ArrayListUnmanaged(Binding),
+        dest: *std.ArrayList(Binding),
         new_binding: Binding,
     ) error{OutOfMemory}!void {
         for (dest.items) |*binding| switch (binding.match(new_binding.key_events)) {
@@ -735,7 +735,7 @@ const BindingSet = struct {
             return self.process_key_release_event(key_event);
 
         //clear key history if enough time has passed since last key press
-        const timestamp = std.time.milliTimestamp();
+        const timestamp = root.get_now().toMilliseconds();
         if (globals.last_key_event_timestamp_ms - timestamp > max_key_sequence_time_interval) {
             try self.terminate_sequence(.timeout);
         }
@@ -843,7 +843,7 @@ const BindingSet = struct {
         sequence: []const KeyEvent,
         select_mode: SelectMode,
     ) error{OutOfMemory}![]const Binding {
-        var matches: std.ArrayListUnmanaged(Binding) = .{};
+        var matches: std.ArrayList(Binding) = .empty;
         for (self.press.items) |*binding| switch (binding.match(sequence)) {
             .matched, .match_possible => {
                 if (select(select_mode, binding))
@@ -860,7 +860,7 @@ const BindingSet = struct {
         allocator: std.mem.Allocator,
         select_mode: SelectMode,
     ) error{OutOfMemory}![]const Binding {
-        var matches: std.ArrayListUnmanaged(Binding) = .{};
+        var matches: std.ArrayList(Binding) = .empty;
         for (self.press.items) |*binding| if (select(select_mode, binding)) {
             (try matches.addOne(allocator)).* = binding.*;
         };

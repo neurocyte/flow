@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const diffz = @import("diffz");
 const Buffer = @import("Buffer");
 const tracy = @import("tracy");
+const root = @import("soft_root").root;
 
 const module_name = @typeName(@This());
 
@@ -56,23 +57,20 @@ const Process = struct {
         const self = try allocator.create(Process);
         errdefer allocator.destroy(self);
         self.* = .{
-            .receiver = Receiver.init(Process.receive, self),
+            .receiver = .init(receive, dtor, self),
         };
         return tp.spawn_link(allocator, self, Process.start, module_name);
     }
 
     fn start(self: *Process) tp.result {
-        errdefer self.deinit();
         tp.receive(&self.receiver);
     }
 
-    fn deinit(self: *Process) void {
+    fn dtor(self: *Process) void {
         allocator.destroy(self);
     }
 
-    fn receive(self: *Process, from: tp.pid_ref, m: tp.message) tp.result {
-        errdefer self.deinit();
-
+    fn receive(_: *Process, from: tp.pid_ref, m: tp.message) tp.result {
         var cb: usize = 0;
         var cb_data: usize = 0;
         var text_dst_ptr: usize = 0;
@@ -115,8 +113,8 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) erro
     var diffs: std.ArrayList(Diff) = .empty;
     errdefer diffs.deinit(allocator);
 
-    const dmp = diffz.default;
-    var diff_list = try diffz.diff(&dmp, arena, src, dst, false);
+    var dmp = diffz.initDefault(root.get_init().io, arena);
+    var diff_list = try diffz.diff(&dmp, src, dst, false, .{ .duration = .{ .clock = .real, .raw = .fromSeconds(60) } });
     try diffz.diffCleanupSemanticLossless(arena, &diff_list);
 
     if (diff_list.items.len > 2)

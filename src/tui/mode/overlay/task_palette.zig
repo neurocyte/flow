@@ -99,15 +99,15 @@ pub fn on_render_menu(palette: *Type, button: *Type.ButtonType, theme: *const Wi
     button.plane.set_style(style_label);
     if (entry.command) |command_name| blk: {
         button.plane.set_style(style_hint);
-        var label_: std.ArrayListUnmanaged(u8) = .empty;
-        defer label_.deinit(palette.allocator);
+        var label_: std.Io.Writer.Allocating = .init(palette.allocator);
+        defer label_.deinit();
 
         const id = command.get_id(command_name) orelse break :blk;
         if (command.get_icon(id)) |icon|
-            label_.writer(palette.allocator).print("{s} ", .{icon}) catch {};
+            label_.writer.print("{s} ", .{icon}) catch {};
         if (command.get_description(id)) |desc|
-            label_.writer(palette.allocator).print("{s}", .{desc}) catch {};
-        _ = button.plane.print("{s} ", .{label_.items}) catch {};
+            label_.writer.print("{s}", .{desc}) catch {};
+        _ = button.plane.print("{s} ", .{label_.written()}) catch {};
 
         const hints = if (tui.input_mode()) |m| m.keybind_hints else @panic("no keybind hints");
         if (hints.get(command_name)) |hint|

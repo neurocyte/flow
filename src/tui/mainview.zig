@@ -733,9 +733,9 @@ const cmds = struct {
         const file_name = try file_type_config.get_config_file_path(self.allocator, file_type_name);
         defer self.allocator.free(file_name);
 
-        const file: ?std.fs.File = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch null;
+        const file: ?std.Io.File = std.Io.Dir.openFileAbsolute(root.get_init().io, file_name, .{ .mode = .read_only }) catch null;
         if (file) |f| {
-            f.close();
+            f.close(root.get_init().io);
             return tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
         }
 
@@ -807,18 +807,18 @@ const cmds = struct {
     pub fn create_new_file(self: *Self, _: Ctx) Result {
         var n: usize = 1;
         var found_unique = false;
-        var name: std.ArrayList(u8) = .empty;
-        defer name.deinit(self.allocator);
+        var name: std.Io.Writer.Allocating = .init(self.allocator);
+        defer name.deinit();
         while (!found_unique) {
             name.clearRetainingCapacity();
-            try name.writer(self.allocator).print("Untitled-{d}", .{n});
-            if (self.buffer_manager.get_buffer_for_file(name.items)) |_| {
+            name.writer.print("Untitled-{d}", .{n}) catch {};
+            if (self.buffer_manager.get_buffer_for_file(name.written())) |_| {
                 n += 1;
             } else {
                 found_unique = true;
             }
         }
-        try command.executeName("create_scratch_buffer", command.fmt(.{name.items}));
+        try command.executeName("create_scratch_buffer", command.fmt(.{name.written()}));
         if (tp.env.get().str("language").len == 0)
             try command.executeName("change_file_type", .{});
     }
@@ -1541,14 +1541,13 @@ const cmds = struct {
             fn exit(context: usize, parent: tp.pid_ref, arg0: []const u8, err_msg: []const u8, exit_code: i64) void {
                 const buffer_ref: Buffer.Ref = @enumFromInt(context);
                 var buf: [256]u8 = undefined;
-                var stream = std.io.fixedBufferStream(&buf);
-                const writer = stream.writer();
+                var stream: std.Io.Writer = .fixed(&buf);
                 if (exit_code > 0) {
-                    writer.print("\n'{s}' terminated {s} exitcode: {d}\n", .{ arg0, err_msg, exit_code }) catch {};
+                    stream.print("\n'{s}' terminated {s} exitcode: {d}\n", .{ arg0, err_msg, exit_code }) catch {};
                 } else {
-                    writer.print("\n'{s}' exited\n", .{arg0}) catch {};
+                    stream.print("\n'{s}' exited\n", .{arg0}) catch {};
                 }
-                parent.send(.{ "cmd", "shell_execute_stream_output", .{ buffer_ref, stream.getWritten() } }) catch {};
+                parent.send(.{ "cmd", "shell_execute_stream_output", .{ buffer_ref, stream.buffered() } }) catch {};
                 parent.send(.{ "cmd", "shell_execute_stream_output_complete", .{buffer_ref} }) catch {};
             }
         };
@@ -2038,10 +2037,11 @@ pub const WriteStateError = error{
 
 pub fn write_restore_info(self: *Self) WriteStateError!void {
     const file_name = root.get_restore_file_name() catch return;
-    var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch return;
-    defer file.close();
+    const io = root.get_init().io;
+    var file = std.Io.Dir.createFileAbsolute(io, file_name, .{ .truncate = true }) catch return;
+    defer file.close(io);
     var buf: [32 + 1024]u8 = undefined;
-    var file_writer = file.writer(&buf);
+    var file_writer = file.writer(io, &buf);
     const writer = &file_writer.interface;
 
     try self.write_state(writer);
@@ -2081,13 +2081,15 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
 
 fn read_restore_info(self: *Self) !void {
     const file_name = try root.get_restore_file_name();
-    const file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
-    defer file.close();
-    const stat = try file.stat();
-    var buf = try self.allocator.alloc(u8, @intCast(stat.size));
+    const io = root.get_init().io;
+    const file = try std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only });
+    defer file.close(io);
+    const stat = try file.stat(io);
+    var reader_buf: [4096]u8 = undefined;
+    var r = file.reader(io, &reader_buf);
+    const buf = try r.interface.readAlloc(self.allocator, @intCast(stat.size));
     defer self.allocator.free(buf);
-    const size = try file.readAll(buf);
-    var iter: []const u8 = buf[0..size];
+    var iter: []const u8 = buf;
 
     try self.extract_state(&iter, .with_project);
 }

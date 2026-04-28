@@ -49,35 +49,37 @@ pub fn get_default(allocator: std.mem.Allocator, file_type_name: []const u8) ![]
 }
 
 pub fn get_all_names() []const []const u8 {
-    cache_mutex.lock();
-    defer cache_mutex.unlock();
+    const io = root.get_init().io;
+    cache_mutex.lockUncancelable(io);
+    defer cache_mutex.unlock(io);
     if (cache_list.len == 0)
-        cache_list = load_all(cache_allocator) catch &.{};
+        cache_list = load_all(io, cache_allocator) catch &.{};
     return cache_list;
 }
 
 const cache_allocator = std.heap.c_allocator;
-var cache_mutex: std.Thread.Mutex = .{};
+var cache_mutex: std.Io.Mutex = .init;
 var cache: CacheType = .empty;
 const CacheType = std.StringHashMapUnmanaged(?@This());
 var cache_list: []const []const u8 = &.{};
 
 pub fn get(file_type_name: []const u8) !?@This() {
-    cache_mutex.lock();
-    defer cache_mutex.unlock();
+    const io = root.get_init().io;
+    cache_mutex.lockUncancelable(io);
+    defer cache_mutex.unlock(io);
 
     return if (cache.get(file_type_name)) |self| self else self: {
         const file_type = file_type: {
             const file_name = try get_config_file_path(cache_allocator, file_type_name);
             defer cache_allocator.free(file_name);
 
-            const file: ?std.fs.File = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch null;
+            const file: ?std.Io.File = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch null;
             if (file) |f| {
-                defer f.close();
-                const stat = try f.stat();
+                defer f.close(io);
+                const stat = try f.stat(io);
                 const buf = try cache_allocator.alloc(u8, @intCast(stat.size));
                 defer cache_allocator.free(buf);
-                const size = try f.readAll(buf);
+                const size = try f.readPositionalAll(io, buf, 0);
                 std.debug.assert(size == stat.size);
                 var self: @This() = .{};
                 var bufs_: [][]const u8 = &.{}; // cached, no need to free
@@ -93,7 +95,8 @@ pub fn get(file_type_name: []const u8) !?@This() {
 }
 
 pub fn get_config_file_path(allocator: std.mem.Allocator, file_type: []const u8) ![]u8 {
-    const config_dir_path = try get_config_dir_path(allocator);
+    const io = root.get_init().io;
+    const config_dir_path = try get_config_dir_path(io, allocator);
     var stream: std.Io.Writer.Allocating = .initOwnedSlice(allocator, config_dir_path);
     defer stream.deinit();
     const writer = &stream.writer;
@@ -103,7 +106,7 @@ pub fn get_config_file_path(allocator: std.mem.Allocator, file_type: []const u8)
     return stream.toOwnedSlice();
 }
 
-fn get_config_dir_path(allocator: std.mem.Allocator) ![]u8 {
+fn get_config_dir_path(io: std.Io, allocator: std.mem.Allocator) ![]u8 {
     var stream: std.Io.Writer.Allocating = .init(allocator);
     defer stream.deinit();
     const writer = &stream.writer;
@@ -111,7 +114,7 @@ fn get_config_dir_path(allocator: std.mem.Allocator) ![]u8 {
     _ = try writer.writeByte(std.fs.path.sep);
     _ = try writer.writeAll("file_type");
     _ = try writer.writeByte(std.fs.path.sep);
-    std.fs.makeDirAbsolute(stream.written()) catch |e| switch (e) {
+    std.Io.Dir.createDirAbsolute(io, stream.written(), .default_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
         else => return e,
     };
@@ -120,18 +123,18 @@ fn get_config_dir_path(allocator: std.mem.Allocator) ![]u8 {
 
 const extension = ".conf";
 
-fn load_all(allocator: std.mem.Allocator) ![]const []const u8 {
-    const dir_path = try get_config_dir_path(allocator);
+fn load_all(io: std.Io, allocator: std.mem.Allocator) ![]const []const u8 {
+    const dir_path = try get_config_dir_path(io, allocator);
     defer allocator.free(dir_path);
 
-    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
+    defer dir.close(io);
 
     var names: std.StringHashMapUnmanaged(void) = .empty;
     defer names.deinit(allocator);
 
     var iter = dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, extension)) continue;
         const file_type_name = entry.name[0 .. entry.name.len - extension.len];

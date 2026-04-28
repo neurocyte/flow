@@ -52,7 +52,7 @@ const Process = struct {
             .allocator = self.arena.allocator(),
             .backwards = .empty,
             .forwards = .empty,
-            .receiver = Receiver.init(Process.receive, self),
+            .receiver = .init(receive, dtor, self),
         };
         return tp.spawn_link(self.allocator, self, Process.start, module_name);
     }
@@ -62,7 +62,7 @@ const Process = struct {
         tp.receive(&self.receiver);
     }
 
-    fn deinit(self: *Process) void {
+    fn dtor(self: *Process) void {
         self.clear_backwards();
         self.clear_forwards();
         self.backwards.deinit(self.allocator);
@@ -90,8 +90,6 @@ const Process = struct {
     }
 
     fn receive_safe(self: *Process, from: tp.pid_ref, m: tp.message) !void {
-        errdefer self.deinit();
-
         var c: Cursor = .{};
         var s: Selection = .{};
         var cb: usize = 0;

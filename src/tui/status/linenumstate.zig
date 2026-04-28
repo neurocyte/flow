@@ -101,8 +101,7 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
 }
 
 fn format(self: *Self) void {
-    var fbs = std.io.fixedBufferStream(&self.buf);
-    const writer = fbs.writer();
+    var writer: std.Io.Writer = .fixed(&self.buf);
     const eol_mode = switch (self.eol_mode) {
         .lf => "",
         .crlf => " ␍␊",
@@ -140,7 +139,7 @@ fn format(self: *Self) void {
             continue :blk .compact;
         },
     }) catch {};
-    self.rendered = @ptrCast(fbs.getWritten());
+    self.rendered = @ptrCast(writer.buffered());
     self.buf[self.rendered.len] = 0;
 }
 
@@ -151,10 +150,9 @@ pub fn digits_fmt(self_: *Self, value: usize) struct {
         const self = ctx.self;
         const width = self.padding orelse 0;
         var buf: [64]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        const writer_ = fbs.writer();
-        std.fmt.format(writer_, "{d}", .{ctx.value}) catch return error.WriteFailed;
-        const value_str = fbs.getWritten();
+        var writer_: std.Io.Writer = .fixed(&buf);
+        writer_.print("{d}", .{ctx.value}) catch return error.WriteFailed;
+        const value_str = writer_.buffered();
 
         const char: []const u8 = switch (self.leader orelse .space) {
             .space => " ",

@@ -85,15 +85,15 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
     const tty_buffer = try allocator.alloc(u8, 4096);
     return .{
         .allocator = allocator,
-        .tty = vaxis.Tty.init(tty_buffer) catch |e| {
+        .tty = vaxis.Tty.init(root.get_init().io, tty_buffer) catch |e| {
             var stderr_buffer: [1024]u8 = undefined;
-            var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+            var stderr_writer = std.Io.File.stderr().writer(std.Options.debug_io, &stderr_buffer);
             stderr_writer.interface.print("\n" ++ root.application_name ++ " ERROR: {s}\n", .{@errorName(e)}) catch {};
-            stderr_writer.interface.flush() catch {};
+            stderr_writer.flush() catch {};
             return error.TtyInitError;
         },
         .tty_buffer = tty_buffer,
-        .vx = try vaxis.init(allocator, opts),
+        .vx = try vaxis.init(root.get_init().io, allocator, root.get_init().environ_map, opts),
         .no_alternate = no_alternate,
         .event_buffer = .init(allocator),
         .input_buffer = .init(allocator),
@@ -158,12 +158,12 @@ pub fn install_crash_handler() void {
 
 pub var jit_debugger_enabled: bool = false;
 
-fn handle_crash(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
+fn handle_crash(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     const debug = @import("std/debug.zig");
     debug.lockStdErr();
 
     if (panic_in_progress())
-        std.posix.abort();
+        std.c.abort();
 
     in_panic.store(true, .release);
     const cleanup = panic_cleanup;
@@ -175,18 +175,17 @@ fn handle_crash(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque
     }
     if (builtin.os.tag == .linux and jit_debugger_enabled) {
         var buf: [4096]u8 = undefined;
-        var stderr = std.fs.File.stderr().writer(&buf);
-        defer stderr.interface.flush() catch {};
+        var stderr = std.Io.File.stderr().writer(std.Options.debug_io, &buf);
+        defer stderr.flush() catch {};
         handleSegfaultPosixNoAbort(&stderr.interface, sig, info, ctx_ptr);
-        @import("thespian").sighdl_debugger(sig, @ptrCast(@constCast(info)), ctx_ptr);
-        std.posix.abort();
+        @import("thespian").sighdl_debugger(@as(c_int, @intCast(@intFromEnum(sig))), @ptrCast(@constCast(info)), ctx_ptr);
+        std.c.abort();
     } else {
         debug.handleSegfaultPosix(sig, info, ctx_ptr);
     }
-    unreachable;
 }
 
-fn handleSegfaultPosixNoAbort(stderr: *std.io.Writer, sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) void {
+fn handleSegfaultPosixNoAbort(stderr: *std.Io.Writer, sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) void {
     const debug = @import("std/debug.zig");
     debug.resetSegfaultHandler();
     const addr = switch (builtin.os.tag) {
@@ -194,7 +193,7 @@ fn handleSegfaultPosixNoAbort(stderr: *std.io.Writer, sig: i32, info: *const std
         .freebsd, .macos => @intFromPtr(info.addr),
         .netbsd => @intFromPtr(info.info.reason.fault.addr),
         .openbsd => @intFromPtr(info.data.fault.addr),
-        .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
+        .illumos => @intFromPtr(info.reason.fault.addr),
         else => unreachable,
     };
     const code = if (builtin.os.tag == .netbsd) info.info.code else info.code;
@@ -228,7 +227,7 @@ pub fn render(self: *Self) !?i64 {
 
 pub fn sigwinch(self: *Self) !void {
     if (builtin.os.tag == .windows or self.vx.state.in_band_resize) return;
-    try self.resize(try vaxis.Tty.getWinsize(self.input_fd_blocking()));
+    try self.resize(try self.tty.getWinsize());
 }
 
 fn resize(self: *Self, ws: vaxis.Winsize) error{ TtyWriteError, OutOfMemory, WriteFailed }!void {
@@ -253,8 +252,8 @@ pub fn stdplane(self: *Self) Plane {
     return plane;
 }
 
-pub fn input_fd_blocking(self: Self) i32 {
-    return self.tty.fd;
+pub fn input_fd_blocking(self: Self) std.posix.fd_t {
+    return self.tty.fd.handle;
 }
 
 pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
@@ -363,7 +362,7 @@ pub fn process_renderer_event(self: *Self, msg: []const u8) Error!void {
         },
         .paste_start => try self.handle_bracketed_paste_start(),
         .paste_end => try self.handle_bracketed_paste_end(),
-        .paste => |_| {
+        .paste => {
             if (self.dispatch_event) |f| f(self.handler_ctx, try self.fmtmsg(.{ "system_clipboard", text }));
         },
         .color_report => {},
@@ -499,7 +498,11 @@ pub fn set_terminal_secondary_cursor_color(self: *Self, color: Color) void {
 }
 
 pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) void {
-    self.vx.setTerminalWorkingDirectory(self.tty.writer(), absolute_path) catch {};
+    const hostname = switch (builtin.os.tag) {
+        .windows => null,
+        else => root.get_init().environ_map.get("HOSTNAME"),
+    } orelse null;
+    self.vx.setTerminalWorkingDirectory(self.tty.writer(), absolute_path, hostname) catch {};
 }
 
 pub fn copy_to_system_clipboard(self: *Self, text: []const u8) void {
@@ -534,7 +537,7 @@ pub fn copy_to_windows_clipboard(text: []const u8) !void {
     data[text.len] = 0;
     _ = win32.GlobalUnlock(mem);
 
-    if (win32.OpenClipboard(null) == 0) {
+    if (win32.OpenClipboard(null) == .FALSE) {
         _ = win32.GlobalFree(mem);
         return error.OpenClipBoardFailed;
     }
@@ -547,7 +550,7 @@ pub fn copy_to_windows_clipboard(text: []const u8) !void {
 }
 
 pub fn request_windows_clipboard(allocator: std.mem.Allocator) ![]u8 {
-    if (win32.OpenClipboard(null) == 0)
+    if (win32.OpenClipboard(null) == .FALSE)
         return error.OpenClipBoardFailed;
     defer _ = win32.CloseClipboard();
 

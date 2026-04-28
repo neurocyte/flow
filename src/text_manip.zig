@@ -1,5 +1,5 @@
 const std = @import("std");
-const TextWriter = std.ArrayList(u8).Writer;
+const TextWriter = *std.Io.Writer;
 
 pub fn find_first_non_ws(text: []const u8) ?usize {
     for (text, 0..) |c, i| if (c == ' ' or c == '\t') continue else return i;
@@ -32,18 +32,18 @@ pub fn find_prefix(prefix: []const u8, text: []const u8) ?usize {
 
 fn add_prefix_in_line(prefix: []const u8, text: []const u8, writer: TextWriter, pos: usize) !void {
     if (text.len >= pos and find_first_non_ws(text) != null) {
-        _ = try writer.write(text[0..pos]);
-        _ = try writer.write(prefix);
-        _ = try writer.write(" ");
-        _ = try writer.write(text[pos..]);
+        try writer.writeAll(text[0..pos]);
+        try writer.writeAll(prefix);
+        try writer.writeAll(" ");
+        try writer.writeAll(text[pos..]);
     } else {
-        _ = try writer.write(text);
+        try writer.writeAll(text);
     }
 }
 
 fn remove_prefix_in_line(prefix: []const u8, text: []const u8, writer: TextWriter) !void {
     if (find_prefix(prefix, text)) |pos| {
-        _ = try writer.write(text[0..pos]);
+        try writer.writeAll(text[0..pos]);
         if (text.len > pos + prefix.len) {
             _ = try if (text[pos + prefix.len] == ' ')
                 writer.write(text[pos + 1 + prefix.len ..])
@@ -51,13 +51,14 @@ fn remove_prefix_in_line(prefix: []const u8, text: []const u8, writer: TextWrite
                 writer.write(text[pos + prefix.len ..]);
         }
     } else {
-        _ = try writer.write(text);
+        try writer.writeAll(text);
     }
 }
 
 pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, allocator: std.mem.Allocator) ![]const u8 {
-    var result = try std.ArrayList(u8).initCapacity(allocator, prefix.len + text.len);
-    const writer = result.writer(allocator);
+    var result: std.Io.Writer.Allocating = .init(allocator);
+    defer result.deinit();
+    const writer = &result.writer;
     var pos: usize = 0;
     var prefix_pos: usize = std.math.maxInt(usize);
     var have_prefix = true;
@@ -84,10 +85,10 @@ pub fn toggle_prefix_in_text(prefix: []const u8, text: []const u8, allocator: st
         } else {
             try add_prefix_in_line(prefix, text[pos..next], writer, prefix_pos);
         }
-        _ = try writer.write("\n");
+        try writer.writeAll("\n");
         pos = next + 1;
     }
-    return result.toOwnedSlice(allocator);
+    return result.toOwnedSlice();
 }
 
 pub fn write_string(writer: *std.Io.Writer, string: []const u8, pad: ?usize) !void {

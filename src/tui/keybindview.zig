@@ -1,5 +1,6 @@
 const eql = @import("std").mem.eql;
 const time = @import("std").time;
+const root = @import("soft_root").root;
 const Allocator = @import("std").mem.Allocator;
 const ArrayList = @import("std").ArrayList;
 const Writer = @import("std").Io.Writer;
@@ -120,7 +121,7 @@ fn keybind_match(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!
 }
 
 pub fn append(self: *Self, msg: []const u8) void {
-    const ts = time.microTimestamp();
+    const ts = root.get_now().toMicroseconds();
     const tdiff = if (self.buffer.items.len > 0) ts -| self.buffer.items[self.buffer.items.len - 1].time else 0;
     (self.buffer.addOne(self.allocator) catch return).* = .{
         .time = ts,

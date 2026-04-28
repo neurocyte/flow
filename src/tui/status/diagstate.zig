@@ -52,13 +52,12 @@ pub fn render(self: *Self, btn: *ButtonType, theme: *const Widget.Theme) bool {
 }
 
 fn format(self: *Self) void {
-    var fbs = std.io.fixedBufferStream(&self.buf);
-    const writer = fbs.writer();
-    if (self.errors > 0) std.fmt.format(writer, "  {d}", .{self.errors}) catch {};
-    if (self.warnings > 0) std.fmt.format(writer, "  {d}", .{self.warnings}) catch {};
-    if (self.info > 0) std.fmt.format(writer, "  {d}", .{self.info}) catch {};
-    if (self.hints > 0) std.fmt.format(writer, "  {d}", .{self.hints}) catch {};
-    self.rendered = @ptrCast(fbs.getWritten());
+    var writer: std.Io.Writer = .fixed(&self.buf);
+    if (self.errors > 0) writer.print("  {d}", .{self.errors}) catch {};
+    if (self.warnings > 0) writer.print("  {d}", .{self.warnings}) catch {};
+    if (self.info > 0) writer.print("  {d}", .{self.info}) catch {};
+    if (self.hints > 0) writer.print("  {d}", .{self.hints}) catch {};
+    self.rendered = @ptrCast(writer.buffered());
     self.buf[self.rendered.len] = 0;
 }
 

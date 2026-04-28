@@ -1,7 +1,8 @@
-pub fn age_short(timestamp: i64) struct {
+pub fn age_short(timestamp: i64, now: std.Io.Timestamp) struct {
     timestamp: i64,
+    now: std.Io.Timestamp,
     pub fn format(self: @This(), writer: anytype) std.Io.Writer.Error!void {
-        const age = std.time.timestamp() -| self.timestamp;
+        const age = self.now.toSeconds() -| self.timestamp;
         return if (age < 60)
             writer.writeAll("now")
         else if (age < 3600)
@@ -16,13 +17,14 @@ pub fn age_short(timestamp: i64) struct {
             writer.print("{d}Y", .{@divTrunc(age, 31536000)});
     }
 } {
-    return .{ .timestamp = timestamp };
+    return .{ .timestamp = timestamp, .now = now };
 }
 
-pub fn age_long(timestamp: i64) struct {
+pub fn age_long(timestamp: i64, now: std.Io.Timestamp) struct {
     timestamp: i64,
+    now: std.Io.Timestamp,
     pub fn format(self: @This(), writer: anytype) std.Io.Writer.Error!void {
-        const age = std.time.timestamp() -| self.timestamp;
+        const age = self.now.toSeconds() -| self.timestamp;
         return if (age < 60)
             writer.writeAll("just now")
         else if (age < 3600)
@@ -37,7 +39,7 @@ pub fn age_long(timestamp: i64) struct {
             writer.print("{d} years ago", .{@divTrunc(age, 31536000)});
     }
 } {
-    return .{ .timestamp = timestamp };
+    return .{ .timestamp = timestamp, .now = now };
 }
 
 const std = @import("std");

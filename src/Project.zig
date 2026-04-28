@@ -102,17 +102,18 @@ const Task = struct {
 const State = enum { none, running, done, failed };
 
 pub fn init(allocator: std.mem.Allocator, name: []const u8) OutOfMemoryError!Self {
+    const now = root.get_now();
     return .{
         .allocator = allocator,
         .name = try allocator.dupe(u8, name),
-        .open_time = std.time.milliTimestamp(),
+        .open_time = now.toMilliseconds(),
         .language_servers = std.StringHashMap(*const LSP).init(allocator),
         .file_language_server_name = std.StringHashMap([]const u8).init(allocator),
         .tasks = .empty,
         .logger = log.logger("project"),
         .logger_lsp = log.logger("lsp"),
         .logger_git = log.logger("git"),
-        .last_used = std.time.nanoTimestamp(),
+        .last_used = @as(i128, now.toNanoseconds()),
     };
 }
 
@@ -228,7 +229,7 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
         tp.trace(tp.channel.debug, .{ "restore_state_v1", "file", path_, mtime, row, col });
         const path = project_manager.normalize_file_path_dot_prefix(path_);
         self.longest_file_path = @max(self.longest_file_path, path.len);
-        const stat = std.fs.cwd().statFile(path[0..@min(path.len, std.fs.max_name_bytes)]) catch |e| switch (e) {
+        const stat = std.Io.Dir.cwd().statFile(root.get_init().io, path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
             error.FileNotFound => continue,
             else => {
                 try self.update_mru_internal(path, mtime, row, col);
@@ -299,7 +300,7 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
         tp.trace(tp.channel.debug, .{ "restore_state_v0", "file", path_, mtime, row, col });
         const path = project_manager.normalize_file_path_dot_prefix(path_);
         self.longest_file_path = @max(self.longest_file_path, path.len);
-        const stat = std.fs.cwd().statFile(path[0..@min(path.len, std.fs.max_name_bytes)]) catch |e| switch (e) {
+        const stat = std.Io.Dir.cwd().statFile(root.get_init().io, path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
             error.FileNotFound => continue,
             else => {
                 try self.update_mru_internal(path, mtime, row, col);
@@ -650,8 +651,9 @@ pub fn guess_path_file_type(path: []const u8, file_name: []const u8) struct { []
 pub fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u24 } {
     var buf: [1024]u8 = undefined;
     const content: []const u8 = blk: {
-        const file = std.fs.cwd().openFile(file_path, .{ .mode = .read_only }) catch break :blk &.{};
-        defer file.close();
+        const io = root.get_init().io;
+        const file = std.Io.Dir.cwd().openFile(io, file_path, .{}) catch break :blk &.{};
+        defer file.close(io);
         const size = safe_file_read(file, &buf) catch break :blk &.{};
         break :blk buf[0..size];
     };
@@ -662,24 +664,32 @@ pub fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u
     } else default_ft();
 }
 
-fn safe_file_read(self: std.fs.File, buffer: []u8) (error{FileHandleInvalidForReading} || std.fs.File.ReadError)!usize {
-    if (builtin.os.tag == .windows) {
-        return std.os.windows.ReadFile(self.handle, buffer, null);
-    }
-
-    return safe_posix_read(self.handle, buffer);
+fn safe_file_read(self: std.Io.File, buffer: []u8) (error{ FileHandleInvalidForReading, ProcessNotFound, ConnectionTimedOut } || std.Io.File.ReadStreamingError)!usize {
+    return switch (builtin.os.tag) {
+        .windows => safe_windows_read(self.handle, buffer),
+        else => safe_posix_read(self.handle, buffer),
+    };
 }
 
-fn safe_posix_read(fd: std.posix.fd_t, buf: []u8) (error{FileHandleInvalidForReading} || std.fs.File.ReadError)!usize {
+fn safe_windows_read(handle: std.os.windows.HANDLE, buffer: []u8) (error{ FileHandleInvalidForReading, ProcessNotFound, ConnectionTimedOut } || std.Io.File.ReadStreamingError)!usize {
+    const windows = std.os.windows;
+    const ReadFile = struct {
+        extern "kernel32" fn ReadFile(hFile: windows.HANDLE, lpBuffer: ?[*]u8, nNumberOfBytesToRead: windows.DWORD, lpNumberOfBytesRead: ?*windows.DWORD, lpOverlapped: ?*anyopaque) callconv(.winapi) windows.BOOL;
+    }.ReadFile;
+    var bytes_read: windows.DWORD = 0;
+    const len: windows.DWORD = @intCast(@min(buffer.len, std.math.maxInt(windows.DWORD)));
+    if (ReadFile(handle, buffer.ptr, len, &bytes_read, null) == .FALSE)
+        return windows.unexpectedError(windows.GetLastError());
+    return @intCast(bytes_read);
+}
+
+fn safe_posix_read(fd: std.posix.fd_t, buf: []u8) (error{ FileHandleInvalidForReading, ConnectionTimedOut, ProcessNotFound } || std.Io.File.ReadStreamingError)!usize {
     const native_os = builtin.os.tag;
     const unexpectedErrno = safe_unexpectedErrno;
     const maxInt = std.math.maxInt;
     const system = std.posix.system;
     const errno = std.posix.errno;
     if (buf.len == 0) return 0;
-    if (native_os == .windows) {
-        return std.os.windows.ReadFile(fd, buf, null);
-    }
     if (native_os == .wasi and !builtin.link_libc) {
         const iovec = std.os.posix.iovec;
         const wasi = std.os.wasi;
@@ -700,7 +710,7 @@ fn safe_posix_read(fd: std.posix.fd_t, buf: []u8) (error{FileHandleInvalidForRea
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NOTCAPABLE => return error.AccessDenied,
@@ -729,7 +739,7 @@ fn safe_posix_read(fd: std.posix.fd_t, buf: []u8) (error{FileHandleInvalidForRea
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
@@ -771,7 +781,7 @@ fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     self.logger.print("opened: {s} with {d} files in {d} ms", .{
         self.name,
         self.files.items.len,
-        std.time.milliTimestamp() - self.open_time,
+        root.get_now().toMilliseconds() - self.open_time,
     });
 
     parent.send(.{ "PRJ", "open_done", self.name, self.longest_file_path, self.files.items.len }) catch {};
@@ -779,7 +789,7 @@ fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
 
 pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) OutOfMemoryError!void {
     defer self.sort_files_by_mtime();
-    try self.update_mru_internal(file_path, std.time.nanoTimestamp(), row, col);
+    try self.update_mru_internal(file_path, @as(i128, std.Io.Clock.real.now(root.get_init().io).toNanoseconds()), row, col);
 }
 
 fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usize, col: usize) OutOfMemoryError!void {
@@ -877,7 +887,7 @@ pub fn request_tasks(self: *Self, from: tp.pid_ref) RequestError!void {
 
 pub fn add_task(self: *Self, command: []const u8) OutOfMemoryError!void {
     defer self.sort_tasks_by_mtime();
-    const mtime = std.time.milliTimestamp();
+    const mtime = root.get_now().toMilliseconds();
     for (self.tasks.items) |*task|
         if (std.mem.eql(u8, task.command, command)) {
             tp.trace(tp.channel.debug, .{ "Project", self.name, "add_task", command, task.mtime, "->", mtime });
@@ -929,7 +939,7 @@ pub fn did_change(self: *Self, file_path: []const u8, version: usize, text_dst: 
             self.allocator.free(scratch);
     }
 
-    var dizzy_edits = std.ArrayListUnmanaged(dizzy.Edit){};
+    var dizzy_edits: std.ArrayList(dizzy.Edit) = .empty;
     var edits_cb: std.Io.Writer.Allocating = .init(self.allocator);
     const writer = &edits_cb.writer;
 
@@ -1674,7 +1684,8 @@ fn send_completion_item(to: tp.pid_ref, file_path: []const u8, row: usize, col: 
     const insert = textEdit.insert orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
     const replace = textEdit.replace orelse Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } };
     return to.send(.{
-        "cmd", "add_completion", .{
+        "cmd", "add_completion",
+        .{
             file_path,
             row,
             col,
@@ -2344,7 +2355,7 @@ fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project
 
     const version = if (root.version.len > 0 and root.version[0] == 'v') root.version[1..] else root.version;
     const initializationOptions: struct {
-        pub fn cborEncode(ctx: @This(), writer: *std.Io.Writer) std.io.Writer.Error!void {
+        pub fn cborEncode(ctx: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
             if (ctx.language_server_options.len == 0) {
                 try cbor.writeValue(writer, null);
                 return;
@@ -2722,7 +2733,14 @@ fn send_lsp_triggerCharacters(to: tp.pid_ref, project_path: []const u8, language
     };
 }
 
-fn fmt_lsp_name_func(bytes: []const u8) std.fmt.Formatter([]const u8, format_lsp_name_func) {
+const LspNameFormatter = struct {
+    data: []const u8,
+    pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        return format_lsp_name_func(self.data, writer);
+    }
+};
+
+fn fmt_lsp_name_func(bytes: []const u8) LspNameFormatter {
     return .{ .data = bytes };
 }
 
@@ -2744,16 +2762,17 @@ fn format_lsp_name_func(
 
 const eol = '\n';
 
-pub const GetLineOfFileError = (OutOfMemoryError || std.fs.File.OpenError || std.fs.File.ReadError);
+pub const GetLineOfFileError = (OutOfMemoryError || std.Io.File.OpenError || std.Io.File.ReadStreamingError || std.Io.File.StatError || std.Io.File.ReadPositionalError);
 
 fn get_line_of_file(allocator: std.mem.Allocator, file_path: []const u8, line_: usize) GetLineOfFileError![]const u8 {
+    const io = root.get_init().io;
     const line = line_ + 1;
-    const file = try std.fs.cwd().openFile(file_path, .{ .mode = .read_only });
-    defer file.close();
-    const stat = try file.stat();
+    const file = try std.Io.Dir.cwd().openFile(io, file_path, .{});
+    defer file.close(io);
+    const stat = try file.stat(io);
     var buf = try allocator.alloc(u8, @intCast(stat.size));
     defer allocator.free(buf);
-    const read_size = try file.readAll(buf);
+    const read_size = try file.readPositionalAll(io, buf, 0);
     if (read_size != @as(@TypeOf(read_size), @intCast(stat.size)))
         @panic("get_line_of_file: buffer underrun");
 
@@ -2836,7 +2855,7 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&path) })) {
         self.longest_file_path = @max(self.longest_file_path, path.len);
         const mtime: i128 = blk: {
-            break :blk (std.fs.cwd().statFile(path) catch break :blk 0).mtime;
+            break :blk @as(i128, (std.Io.Dir.cwd().statFile(root.get_init().io, path, .{}) catch break :blk 0).mtime.nanoseconds);
         };
         const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(path);
         (try self.pending.addOne(self.allocator)).* = .{

@@ -11,9 +11,7 @@ const sep = std.fs.path.sep;
 const list_languages = @import("list_languages.zig");
 const file_link = @import("file_link");
 
-const c = @cImport({
-    @cInclude("locale.h");
-});
+const c = @import("c");
 
 const build_options = @import("build_options");
 const log = @import("log");
@@ -42,13 +40,16 @@ fn default_panic(msg: []const u8, _: ?*std.builtin.StackTrace, ret_addr: ?usize)
     return std.debug.defaultPanic(msg, ret_addr);
 }
 
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
+    global_init = init;
+    have_global_init = true;
+    const io = init.io;
+    const a = init.gpa;
+
     if (builtin.os.tag == .linux) {
         // drain stdin so we don't pickup junk from previous application/shell
         _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
     }
-
-    const a = std.heap.c_allocator;
 
     const Flags = struct {
         pub const description =
@@ -131,46 +132,41 @@ pub fn main() anyerror!void {
         },
     };
 
-    const args_alloc = try std.process.argsAlloc(a);
-    defer std.process.argsFree(a, args_alloc);
-
-    var diag: flags.Diagnostics = undefined;
-
-    const args = flags.parse(args_alloc, "flow", Flags, .{
-        .diagnostics = &diag,
-    }) catch |err| {
-        if (err == error.PrintedHelp) exit(0);
-        try diag.printUsage(&flags.ColorScheme.default);
-        exit(1);
-        return err;
-    };
+    const args_alloc = try init.minimal.args.toSlice(init.arena.allocator());
+    const args = flags.parse(io, init.environ_map, args_alloc, "flow", Flags, .{});
 
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_file = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_file = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_file.interface;
     defer stdout.flush() catch {};
     var stderr_buf: [4096]u8 = undefined;
-    var stderr_file = std.fs.File.stderr().writer(&stderr_buf);
+    var stderr_file = std.Io.File.stderr().writer(io, &stderr_buf);
     const stderr = &stderr_file.interface;
     defer stderr.flush() catch {};
 
     if (args.version)
-        return std.fs.File.stdout().writeAll(version_info);
+        return stdout.writeAll(version_info);
 
     if (args.list_languages) {
-        const tty_config = std.io.tty.detectConfig(std.fs.File.stdout());
-        return list_languages.list(a, stdout, tty_config);
+        const NO_COLOR = if (init.environ_map.get("NO_COLOR")) |v| v.len > 0 else false;
+        const CLICOLOR_FORCE = if (init.environ_map.get("CLICOLOR_FORCE")) |v| v.len > 0 else false;
+        const tty: std.Io.Terminal = .{
+            .writer = stdout,
+            .mode = try std.Io.Terminal.Mode.detect(io, std.Io.File.stderr(), NO_COLOR, CLICOLOR_FORCE),
+        };
+        return list_languages.list(a, tty);
     }
 
     if (builtin.os.tag != .windows and @hasDecl(renderer, "install_crash_handler")) {
-        if (std.posix.getenv("JITDEBUG")) |_| renderer.jit_debugger_enabled = true;
+        if (init.environ_map.get("JITDEBUG")) |_| renderer.jit_debugger_enabled = true;
         renderer.install_crash_handler();
     }
 
     if (args.debug_wait) {
         std.debug.print("press return to start", .{});
+        var reader = std.Io.File.stdin().reader(io, &.{});
         var buf: [1]u8 = undefined;
-        _ = try std.fs.File.stdin().read(&buf);
+        _ = try reader.interface.readSliceAll(&buf);
     }
 
     if (c.setlocale(c.LC_ALL, "") == null) {
@@ -394,6 +390,8 @@ pub fn main() anyerror!void {
 var final_exit_status: u8 = 0;
 var want_restart: bool = false;
 var want_restart_with_sudo: bool = false;
+var have_global_init = false;
+var global_init: std.process.Init = undefined;
 
 pub fn print_exit_status(_: void, msg: []const u8) void {
     if (std.mem.eql(u8, msg, "normal")) {
@@ -402,25 +400,15 @@ pub fn print_exit_status(_: void, msg: []const u8) void {
         want_restart = true;
     } else {
         var stderr_buffer: [1024]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+        var stderr_writer = std.Io.File.stderr().writer(global_init.io, &stderr_buffer);
         stderr_writer.interface.print("\n" ++ application_name ++ " ERROR: {s}\n", .{msg}) catch {};
-        stderr_writer.interface.flush() catch {};
+        stderr_writer.flush() catch {};
         final_exit_status = 1;
     }
 }
 
 pub fn set_restart_with_sudo() void {
     want_restart_with_sudo = true;
-}
-
-fn count_args() usize {
-    var args = std.process.args();
-    _ = args.next();
-    var count: usize = 0;
-    while (args.next()) |_| {
-        count += 1;
-    }
-    return count;
 }
 
 fn trace(m: thespian.message.c_buffer_type) callconv(.c) void {
@@ -433,15 +421,15 @@ fn trace_json(json: thespian.message.json_string_view) callconv(.c) void {
 }
 extern fn ___tracy_emit_message(txt: [*]const u8, size: usize, callstack: c_int) void;
 
-var trace_mutex: std.Thread.Mutex = .{};
+var trace_mutex: std.Io.Mutex = .init;
 
 fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.c) void {
-    trace_mutex.lock();
-    defer trace_mutex.unlock();
+    trace_mutex.lockUncancelable(global_init.io);
+    defer trace_mutex.unlock(global_init.io);
 
     const State = struct {
-        file: std.fs.File,
-        file_writer: std.fs.File.Writer,
+        file: std.Io.File,
+        file_writer: std.Io.File.Writer,
         last_time: i64,
         var state: ?@This() = null;
         var trace_buffer: [4096]u8 = undefined;
@@ -463,17 +451,17 @@ fn trace_to_file(m: thespian.message.c_buffer_type) callconv(.c) void {
         var path: std.Io.Writer.Allocating = .init(a);
         defer path.deinit();
         path.writer.print("{s}{c}trace.log", .{ get_state_dir() catch return, sep }) catch return;
-        const file = std.fs.createFileAbsolute(path.written(), .{ .truncate = true }) catch return;
+        const file = std.Io.Dir.createFileAbsolute(global_init.io, path.written(), .{}) catch return;
         State.state = .{
             .file = file,
-            .file_writer = file.writer(&State.trace_buffer),
-            .last_time = std.time.microTimestamp(),
+            .file_writer = file.writer(global_init.io, &State.trace_buffer),
+            .last_time = get_now().toMicroseconds(),
         };
         break :init State.state.?;
     });
     const writer = &state.file_writer.interface;
 
-    const ts = std.time.microTimestamp();
+    const ts = get_now().toMicroseconds();
     State.write_tdiff(writer, ts - state.last_time) catch {};
     state.last_time = ts;
 
@@ -489,21 +477,21 @@ pub fn exit(status: u8) noreturn {
         // drain stdin so we don't leave junk at the next prompt
         _ = std.os.linux.syscall3(.ioctl, @as(usize, @bitCast(@as(isize, std.posix.STDIN_FILENO))), std.os.linux.T.CFLSH, 0);
     }
-    std.posix.exit(status);
+    std.process.exit(status);
 }
 
 pub fn free_config(allocator: std.mem.Allocator, bufs: [][]const u8) void {
     for (bufs) |buf| allocator.free(buf);
 }
 
-var config_mutex: std.Thread.Mutex = .{};
+var config_mutex: std.Io.Mutex = .init;
 
 pub fn exists_config(T: type) bool {
-    config_mutex.lock();
-    defer config_mutex.unlock();
+    config_mutex.lockUncancelable(global_init.io);
+    defer config_mutex.unlock(global_init.io);
     const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return false;
-    var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return false;
-    defer file.close();
+    var file = std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only }) catch return false;
+    defer file.close(global_init.io);
     return true;
 }
 
@@ -519,8 +507,8 @@ fn get_default(T: type) T {
 }
 
 pub fn read_config(T: type, allocator: std.mem.Allocator) struct { T, [][]const u8 } {
-    config_mutex.lock();
-    defer config_mutex.unlock();
+    config_mutex.lockUncancelable(global_init.io);
+    defer config_mutex.unlock(global_init.io);
     var bufs: [][]const u8 = &[_][]const u8{};
     const file_name = get_app_config_file_name(application_name, @typeName(T)) catch return .{ get_default(T), bufs };
     var conf: T = get_default(T);
@@ -543,10 +531,12 @@ fn read_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs: *[][]
 }
 
 fn read_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
-    var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
-    defer file.close();
-    const content = try file.readToEndAlloc(allocator, 64 * 1024);
+    var file = try std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only });
+    defer file.close(global_init.io);
+    const stat = try file.stat(global_init.io);
+    const content = try allocator.alloc(u8, @intCast(stat.size));
     defer allocator.free(content);
+    _ = try file.readPositionalAll(global_init.io, content, 0);
     return parse_text_config_file(T, allocator, conf, bufs_, file_name, content);
 }
 
@@ -582,10 +572,12 @@ pub fn parse_text_config_file(T: type, allocator: std.mem.Allocator, conf: *T, b
 }
 
 fn read_json_config_file(T: type, allocator: std.mem.Allocator, conf: *T, bufs_: *[][]const u8, file_name: []const u8) !void {
-    var file = try std.fs.openFileAbsolute(file_name, .{ .mode = .read_only });
-    defer file.close();
-    const json = try file.readToEndAlloc(allocator, 64 * 1024);
+    var file = try std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only });
+    defer file.close(global_init.io);
+    const stat = try file.stat(global_init.io);
+    const json = try allocator.alloc(u8, @intCast(stat.size));
     defer allocator.free(json);
+    _ = try file.readPositionalAll(global_init.io, json, 0);
     const cbor_buf: []u8 = try allocator.alloc(u8, json.len);
     var bufs = std.ArrayListUnmanaged([]const u8).fromOwnedSlice(bufs_.*);
     bufs.append(allocator, cbor_buf) catch @panic("OOM:read_json_config_file");
@@ -672,17 +664,17 @@ pub const ConfigWriteError = error{ CreateConfigFileFailed, WriteConfigFileFaile
 
 pub fn write_config(data: anytype, allocator: std.mem.Allocator) (ConfigDirError || ConfigWriteError)!void {
     const T = @TypeOf(data);
-    config_mutex.lock();
-    defer config_mutex.unlock();
+    config_mutex.lockUncancelable(global_init.io);
+    defer config_mutex.unlock(global_init.io);
     _ = allocator;
     const file_name = try get_app_config_file_name(application_name, @typeName(T));
-    var file = std.fs.createFileAbsolute(file_name, .{ .truncate = true }) catch |e| {
+    var file = std.Io.Dir.createFileAbsolute(global_init.io, file_name, .{}) catch |e| {
         std.log.err("createFileAbsolute failed with {any} for: {s}", .{ e, file_name });
         return error.CreateConfigFileFailed;
     };
-    defer file.close();
+    defer file.close(global_init.io);
     var buf: [4096]u8 = undefined;
-    var writer = file.writer(&buf);
+    var writer = file.writer(global_init.io, &buf);
 
     try writer.interface.print(
         \\# This file is written by flow when settings are changed interactively. You may
@@ -700,7 +692,7 @@ pub fn write_config(data: anytype, allocator: std.mem.Allocator) (ConfigDirError
         std.log.err("write file failed with {any} for: {s}", .{ e, file_name });
         return error.WriteConfigFileFailed;
     };
-    try writer.interface.flush();
+    writer.flush() catch return error.WriteFailed;
 }
 
 pub fn write_config_to_writer(comptime T: type, data: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -855,24 +847,33 @@ fn config_eql(config_type: type, T: type, a: T, b: T) bool {
 
 pub fn read_keybind_namespace(allocator: std.mem.Allocator, namespace_name: []const u8) ?[]const u8 {
     const file_name = get_keybind_namespace_file_name(namespace_name) catch return null;
-    var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
-    defer file.close();
-    return file.readToEndAlloc(allocator, 64 * 1024) catch null;
+    var file = std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only }) catch return null;
+    defer file.close(global_init.io);
+    const stat = file.stat(global_init.io) catch return null;
+    const buf = allocator.alloc(u8, @intCast(stat.size)) catch return null;
+    const size = file.readPositionalAll(global_init.io, buf, 0) catch {
+        allocator.free(buf);
+        return null;
+    };
+    return buf[0..size];
 }
 
 pub fn write_keybind_namespace(namespace_name: []const u8, content: []const u8) !void {
     const file_name = try get_keybind_namespace_file_name(namespace_name);
-    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
-    defer file.close();
-    return file.writeAll(content);
+    var file = try std.Io.Dir.createFileAbsolute(global_init.io, file_name, .{});
+    defer file.close(global_init.io);
+    var buf: [4096]u8 = undefined;
+    var file_writer = file.writer(global_init.io, &buf);
+    defer file_writer.flush() catch {};
+    try file_writer.interface.writeAll(content);
 }
 
 pub fn list_keybind_namespaces(allocator: std.mem.Allocator) ![]const []const u8 {
-    var dir = try std.fs.openDirAbsolute(try get_keybind_namespaces_directory(), .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.openDirAbsolute(global_init.io, try get_keybind_namespaces_directory(), .{ .iterate = true });
+    defer dir.close(global_init.io);
     var result: std.ArrayList([]const u8) = .empty;
-    var iter = dir.iterateAssumeFirstIteration();
-    while (try iter.next()) |entry| {
+    var iter = dir.iterate();
+    while (try iter.next(global_init.io)) |entry| {
         switch (entry.kind) {
             .file, .sym_link => try result.append(allocator, try allocator.dupe(u8, std.fs.path.stem(entry.name))),
             else => continue,
@@ -883,27 +884,34 @@ pub fn list_keybind_namespaces(allocator: std.mem.Allocator) ![]const []const u8
 
 pub fn read_theme(allocator: std.mem.Allocator, theme_name: []const u8) ?[]const u8 {
     const file_name = get_theme_file_name(theme_name) catch return null;
-    var file = std.fs.openFileAbsolute(file_name, .{ .mode = .read_only }) catch return null;
-    defer file.close();
-    return file.readToEndAlloc(allocator, 512 * 1024) catch |e| {
+    var file = std.Io.Dir.openFileAbsolute(global_init.io, file_name, .{ .mode = .read_only }) catch return null;
+    defer file.close(global_init.io);
+    const stat = file.stat(global_init.io) catch return null;
+    const buf = allocator.alloc(u8, @intCast(stat.size)) catch return null;
+    const size = file.readPositionalAll(global_init.io, buf, 0) catch |e| {
         std.log.err("Error reading theme file: {t}", .{e});
+        allocator.free(buf);
         return null;
     };
+    return buf[0..size];
 }
 
 pub fn write_theme(theme_name: []const u8, content: []const u8) !void {
     const file_name = try get_theme_file_name(theme_name);
-    var file = try std.fs.createFileAbsolute(file_name, .{ .truncate = true });
-    defer file.close();
-    return file.writeAll(content);
+    var file = try std.Io.Dir.createFileAbsolute(global_init.io, file_name, .{});
+    defer file.close(global_init.io);
+    var buf: [4096]u8 = undefined;
+    var file_writer = file.writer(global_init.io, &buf);
+    defer file_writer.flush() catch {};
+    try file_writer.interface.writeAll(content);
 }
 
 pub fn list_themes(allocator: std.mem.Allocator) ![]const []const u8 {
-    var dir = try std.fs.openDirAbsolute(try get_theme_directory(), .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.openDirAbsolute(global_init.io, try get_theme_directory(), .{ .iterate = true });
+    defer dir.close(global_init.io);
     var result: std.ArrayList([]const u8) = .empty;
-    var iter = dir.iterateAssumeFirstIteration();
-    while (try iter.next()) |entry| {
+    var iter = dir.iterate();
+    while (try iter.next(global_init.io)) |entry| {
         switch (entry.kind) {
             .file, .sym_link => try result.append(allocator, try allocator.dupe(u8, std.fs.path.stem(entry.name))),
             else => continue,
@@ -930,32 +938,29 @@ fn make_dir_error(path: []const u8, err: anytype) @TypeOf(err) {
 }
 
 fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
-    const a = std.heap.c_allocator;
     const local = struct {
         var config_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var config_dir: ?[]const u8 = null;
     };
+    const io = get_init().io;
+    const environ = get_init().environ_map;
     const config_dir = if (local.config_dir) |dir|
         dir
-    else if (std.process.getEnvVarOwned(a, "FLOW_CONFIG_DIR") catch null) |dir| ret: {
-        defer a.free(dir);
+    else if (environ.get("FLOW_CONFIG_DIR")) |dir| ret: {
         break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}", .{dir});
-    } else if (std.process.getEnvVarOwned(a, "XDG_CONFIG_HOME") catch null) |xdg| ret: {
-        defer a.free(xdg);
+    } else if (environ.get("XDG_CONFIG_HOME")) |xdg| ret: {
         break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
-    } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
-        defer a.free(home);
+    } else if (environ.get("HOME")) |home| ret: {
         const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}.config", .{ home, sep });
-        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+        std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
             else => return make_dir_error(dir, error.MakeHomeConfigDirFailed),
         };
         break :ret try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}.config{c}{s}", .{ home, sep, sep, appname });
     } else if (builtin.os.tag == .windows) ret: {
-        if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
-            defer a.free(appdata);
+        if (environ.get("APPDATA")) |appdata| {
             const dir = try std.fmt.bufPrint(&local.config_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
-            std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+            std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
                 error.PathAlreadyExists => {},
                 else => return make_dir_error(dir, error.MakeAppConfigDirFailed),
             };
@@ -964,16 +969,16 @@ fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
     } else return error.AppConfigDirUnavailable;
 
     local.config_dir = config_dir;
-    std.fs.makeDirAbsolute(config_dir) catch |e| switch (e) {
+    std.Io.Dir.createDirAbsolute(io, config_dir, .default_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
         else => return make_dir_error(config_dir, error.MakeConfigDirFailed),
     };
 
     var keybind_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&keybind_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, keybind_dir })) catch {};
+    std.Io.Dir.createDirAbsolute(io, try std.fmt.bufPrint(&keybind_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, keybind_dir }), .default_dir) catch {};
 
     var theme_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
-    std.fs.makeDirAbsolute(try std.fmt.bufPrint(&theme_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, theme_dir })) catch {};
+    std.Io.Dir.createDirAbsolute(io, try std.fmt.bufPrint(&theme_dir_buffer, "{s}{c}{s}", .{ config_dir, sep, theme_dir }), .default_dir) catch {};
 
     return config_dir;
 }
@@ -983,29 +988,27 @@ pub fn get_cache_dir() ![]const u8 {
 }
 
 fn get_app_cache_dir(appname: []const u8) ![]const u8 {
-    const a = std.heap.c_allocator;
     const local = struct {
         var cache_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var cache_dir: ?[]const u8 = null;
     };
+    const io = get_init().io;
+    const environ = get_init().environ_map;
     const cache_dir = if (local.cache_dir) |dir|
         dir
-    else if (std.process.getEnvVarOwned(a, "XDG_CACHE_HOME") catch null) |xdg| ret: {
-        defer a.free(xdg);
+    else if (environ.get("XDG_CACHE_HOME")) |xdg| ret: {
         break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
-    } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
-        defer a.free(home);
+    } else if (environ.get("HOME")) |home| ret: {
         const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}.cache", .{ home, sep });
-        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+        std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
             else => return make_dir_error(dir, e),
         };
         break :ret try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}.cache{c}{s}", .{ home, sep, sep, appname });
     } else if (builtin.os.tag == .windows) ret: {
-        if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
-            defer a.free(appdata);
+        if (environ.get("APPDATA")) |appdata| {
             const dir = try std.fmt.bufPrint(&local.cache_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
-            std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+            std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
                 error.PathAlreadyExists => {},
                 else => return make_dir_error(dir, e),
             };
@@ -1014,11 +1017,20 @@ fn get_app_cache_dir(appname: []const u8) ![]const u8 {
     } else return error.AppCacheDirUnavailable;
 
     local.cache_dir = cache_dir;
-    std.fs.makeDirAbsolute(cache_dir) catch |e| switch (e) {
+    std.Io.Dir.createDirAbsolute(io, cache_dir, .default_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
         else => return make_dir_error(cache_dir, e),
     };
     return cache_dir;
+}
+
+pub fn get_init() std.process.Init {
+    if (!have_global_init) @panic("pre-init io call");
+    return global_init;
+}
+
+pub fn get_now() std.Io.Timestamp {
+    return std.Io.Clock.real.now(get_init().io);
 }
 
 pub fn get_state_dir() ![]const u8 {
@@ -1026,34 +1038,32 @@ pub fn get_state_dir() ![]const u8 {
 }
 
 fn get_app_state_dir(appname: []const u8) ![]const u8 {
-    const a = std.heap.c_allocator;
     const local = struct {
         var state_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var state_dir: ?[]const u8 = null;
     };
+    const io = get_init().io;
+    const environ = get_init().environ_map;
     const state_dir = if (local.state_dir) |dir|
         dir
-    else if (std.process.getEnvVarOwned(a, "XDG_STATE_HOME") catch null) |xdg| ret: {
-        defer a.free(xdg);
+    else if (environ.get("XDG_STATE_HOME")) |xdg| ret: {
         break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}{s}", .{ xdg, sep, appname });
-    } else if (std.process.getEnvVarOwned(a, "HOME") catch null) |home| ret: {
-        defer a.free(home);
+    } else if (environ.get("HOME")) |home| ret: {
         var dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local", .{ home, sep });
-        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+        std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
             else => return make_dir_error(dir, e),
         };
         dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local{c}state", .{ home, sep, sep });
-        std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+        std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
             else => return make_dir_error(dir, e),
         };
         break :ret try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}.local{c}state{c}{s}", .{ home, sep, sep, sep, appname });
     } else if (builtin.os.tag == .windows) ret: {
-        if (std.process.getEnvVarOwned(a, "APPDATA") catch null) |appdata| {
-            defer a.free(appdata);
+        if (environ.get("APPDATA")) |appdata| {
             const dir = try std.fmt.bufPrint(&local.state_dir_buffer, "{s}{c}{s}", .{ appdata, sep, appname });
-            std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
+            std.Io.Dir.createDirAbsolute(io, dir, .default_dir) catch |e| switch (e) {
                 error.PathAlreadyExists => {},
                 else => return make_dir_error(dir, e),
             };
@@ -1062,7 +1072,7 @@ fn get_app_state_dir(appname: []const u8) ![]const u8 {
     } else return error.AppCacheDirUnavailable;
 
     local.state_dir = state_dir;
-    std.fs.makeDirAbsolute(state_dir) catch |e| switch (e) {
+    std.Io.Dir.createDirAbsolute(io, state_dir, .default_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
         else => return make_dir_error(state_dir, e),
     };
@@ -1104,9 +1114,7 @@ fn get_keybind_namespaces_directory() ![]const u8 {
     const local = struct {
         var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
-    const a = std.heap.c_allocator;
-    if (std.process.getEnvVarOwned(a, "FLOW_KEYS_DIR") catch null) |dir| {
-        defer a.free(dir);
+    if (get_init().environ_map.get("FLOW_KEYS_DIR")) |dir| {
         return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
     }
     return try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, keybind_dir });
@@ -1126,9 +1134,7 @@ fn get_theme_directory() ![]const u8 {
     const local = struct {
         var dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
     };
-    const a = std.heap.c_allocator;
-    if (std.process.getEnvVarOwned(a, "FLOW_THEMES_DIR") catch null) |dir| {
-        defer a.free(dir);
+    if (get_init().environ_map.get("FLOW_THEMES_DIR")) |dir| {
         return try std.fmt.bufPrint(&local.dir_buffer, "{s}", .{dir});
     }
     return try std.fmt.bufPrint(&local.dir_buffer, "{s}{c}{s}", .{ try get_app_config_dir(application_name), sep, theme_dir });
@@ -1143,24 +1149,25 @@ pub fn get_theme_file_name(theme_name: []const u8) ![]const u8 {
 }
 
 fn resolve_executable(executable: [:0]const u8) [:0]const u8 {
-    return bin_path.resolve_executable(std.heap.c_allocator, executable);
+    return bin_path.resolve_executable(get_init().gpa, executable);
 }
 
 fn restart() noreturn {
     if (builtin.os.tag == .windows) return restart_win32();
-    const executable = resolve_executable(std.mem.span(std.os.argv[0]));
+    const executable = resolve_executable(std.mem.span(get_init().minimal.args.vector[0]));
     const argv = [_]?[*:0]const u8{
         executable,
         "--restore-session",
         null,
     };
-    const ret = std.c.execve(executable, @ptrCast(&argv), @ptrCast(std.os.environ));
+    const ret = std.c.execve(executable, @ptrCast(&argv), @ptrCast(get_init().minimal.environ.block.slice.ptr));
     restart_failed(ret);
 }
 
 fn restart_with_sudo() noreturn {
+    if (builtin.os.tag == .windows) return restart_win32();
     const sudo_executable = resolve_executable("sudo");
-    const flow_executable = resolve_executable(std.mem.span(std.os.argv[0]));
+    const flow_executable = resolve_executable(std.mem.span(get_init().minimal.args.vector[0]));
     const argv = [_]?[*:0]const u8{
         sudo_executable,
         "--preserve-env",
@@ -1168,13 +1175,19 @@ fn restart_with_sudo() noreturn {
         "--restore-session",
         null,
     };
-    const ret = std.c.execve(sudo_executable, @ptrCast(&argv), @ptrCast(std.os.environ));
+    const ret = std.c.execve(sudo_executable, @ptrCast(&argv), @ptrCast(get_init().minimal.environ.block.slice.ptr));
     restart_failed(ret);
 }
 
 fn restart_win32() noreturn {
+    const argv0 = blk: {
+        const a = std.heap.c_allocator;
+        var iter = std.process.Args.Iterator.initAllocator(get_init().minimal.args, a) catch break :blk "flow";
+        break :blk iter.next() orelse "flow";
+    };
+
     if (!build_options.gui) return restart_manual();
-    const executable = resolve_executable(std.mem.span(std.os.argv[0]));
+    const executable = resolve_executable(argv0);
     const argv = [_][]const u8{
         executable,
         "--restore-session",
@@ -1191,9 +1204,16 @@ fn restart_win32() noreturn {
 }
 
 fn restart_manual() noreturn {
-    const executable = resolve_executable(std.mem.span(std.os.argv[0]));
+    const argv0 =
+        if (builtin.os.tag == .windows) blk: {
+            const a = std.heap.c_allocator;
+            var iter = std.process.Args.Iterator.initAllocator(get_init().minimal.args, a) catch break :blk "flow";
+            break :blk iter.next() orelse "flow";
+        } else std.mem.span(get_init().minimal.args.vector[0]);
+    const executable = resolve_executable(argv0);
+
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    var stderr_writer = std.Io.File.stderr().writer(global_init.io, &stderr_buffer);
     stderr_writer.interface.print(
         \\
         \\ Manual restart required. Run:
@@ -1202,13 +1222,13 @@ fn restart_manual() noreturn {
         \\
         \\
     , .{executable}) catch {};
-    stderr_writer.interface.flush() catch {};
+    stderr_writer.flush() catch {};
     exit(234);
 }
 
 fn restart_failed(ret: c_int) noreturn {
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    var stderr_writer = std.Io.File.stderr().writer(global_init.io, &stderr_buffer);
     stderr_writer.interface.print("\nRestart failed: E{t}\n", .{std.posix.errno(ret)}) catch {};
     stderr_writer.interface.print(
         \\
@@ -1216,24 +1236,26 @@ fn restart_failed(ret: c_int) noreturn {
         \\ > {s} --restore-session
         \\
         \\
-    , .{resolve_executable(std.mem.span(std.os.argv[0]))}) catch {};
-    stderr_writer.interface.flush() catch {};
+    , .{resolve_executable(std.mem.span(get_init().minimal.args.vector[0]))}) catch {};
+    stderr_writer.flush() catch {};
     exit(234);
 }
 
 pub fn is_directory(rel_path: []const u8) bool {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch return false;
-    var dir = std.fs.openDirAbsolute(abs_path, .{}) catch return false;
-    dir.close();
+    const len = std.Io.Dir.cwd().realPathFile(global_init.io, rel_path, &path_buf) catch return false;
+    const abs_path = path_buf[0..len];
+    var dir = std.Io.Dir.openDirAbsolute(global_init.io, abs_path, .{}) catch return false;
+    dir.close(global_init.io);
     return true;
 }
 
 pub fn is_file(rel_path: []const u8) bool {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const abs_path = std.fs.cwd().realpath(rel_path, &path_buf) catch return false;
-    var file = std.fs.openFileAbsolute(abs_path, .{ .mode = .read_only }) catch return false;
-    defer file.close();
+    const len = std.Io.Dir.cwd().realPathFile(global_init.io, rel_path, &path_buf) catch return false;
+    const abs_path = path_buf[0..len];
+    var file = std.Io.Dir.openFileAbsolute(global_init.io, abs_path, .{ .mode = .read_only }) catch return false;
+    defer file.close(global_init.io);
     return true;
 }
 

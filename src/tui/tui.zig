@@ -77,7 +77,7 @@ input_idle_timer: ?tp.Cancellable = null,
 mouse_idle_timer: ?tp.Cancellable = null,
 render_deadline_timer: ?tp.Cancellable = null,
 fontface_: []const u8 = "",
-fontfaces_: std.ArrayListUnmanaged([]const u8) = .{},
+fontfaces_: std.ArrayList([]const u8) = .empty,
 input_is_idle: bool = false,
 enable_input_idle_timer: bool = true,
 enable_mouse_idle_timer: bool = false,
@@ -194,7 +194,7 @@ fn init(allocator: Allocator) InitError!*Self {
         .frame_time = frame_time,
         .frame_clock = frame_clock,
         .frame_clock_running = true,
-        .receiver = Receiver.init(receive, self),
+        .receiver = .init(receive, dtor, self),
         .message_filters_ = MessageFilter.List.init(allocator),
         .input_listeners_ = EventHandler.List.init(allocator),
         .logger = log.logger("tui"),
@@ -202,7 +202,7 @@ fn init(allocator: Allocator) InitError!*Self {
             .{"init"},
         )),
         .no_sleep = tp.env.get().is("no-sleep"),
-        .query_cache_ = try syntax.QueryCache.create(allocator, .{}),
+        .query_cache_ = try syntax.QueryCache.create(root.get_init().io, allocator, .{}),
         .dark_theme = dark_theme,
         .light_theme = light_theme,
     };
@@ -275,6 +275,10 @@ fn init_delayed(self: *Self) command.Result {
     self.start_auto_run_timer();
 }
 
+fn dtor(self: *Self) void {
+    self.allocator.destroy(self);
+}
+
 fn deinit(self: *Self) void {
     if (self.auto_run_timer) |*t| {
         t.cancel() catch {};
@@ -324,12 +328,11 @@ fn deinit(self: *Self) void {
     self.query_cache_.deinit();
     root.free_config(self.allocator, self.config_bufs);
     self.clipboard_deinit();
-    self.allocator.destroy(self);
 }
 
 fn listen_sigwinch(self: *Self) error{ThespianSignalInitFailed}!void {
     if (self.sigwinch_signal) |old| old.deinit();
-    self.sigwinch_signal = try tp.signal.init(std.posix.SIG.WINCH, tp.message.fmt(.{"sigwinch"}));
+    self.sigwinch_signal = try tp.signal.init(@intFromEnum(std.posix.SIG.WINCH), tp.message.fmt(.{"sigwinch"}));
 }
 
 fn handle_input_idle(self: *Self) void {
@@ -541,7 +544,10 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     if (try m.match(.{ "exit", tp.more })) {
         if (try m.match(.{ tp.string, "normal" }) or
-            try m.match(.{ tp.string, "timeout_error", 125, "Operation aborted." }) or
+            try m.match(.{ tp.string, "timeout_error", 125, "Operation aborted." }) or //linux
+            try m.match(.{ tp.string, "timeout_error", 995, tp.more }) or // windows -> "The I/O operation has been aborted because of either a thread exit or an application request."
+            try m.match(.{ tp.string, "timeout_error", 89, "Operation aborted." }) or //macos
+            try m.match(.{ tp.string, "timeout_error", 85, "Operation aborted." }) or //freebsd
             try m.match(.{ tp.string, "DEADSEND", tp.more }) or
             try m.match(.{ tp.string, "error.LspFailed", tp.more }) or
             try m.match(.{ tp.string, "error.NoLsp", tp.more }))
@@ -643,7 +649,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
 fn render(self: *Self) void {
     defer self.frames_rendered_ += 1;
-    const current_time = std.time.microTimestamp();
+    const current_time = root.get_now().toMicroseconds();
     if (current_time < self.frame_last_time) { // clock moved backwards
         self.frame_last_time = current_time;
         return;

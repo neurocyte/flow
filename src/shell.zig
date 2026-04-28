@@ -1,10 +1,11 @@
 const std = @import("std");
+const root = @import("soft_root").root;
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
 
 pid: ?tp.pid,
-stdin_behavior: std.process.Child.StdIo,
+stdin_behavior: tp.subprocess.StdIo,
 
 const Self = @This();
 const module_name = @typeName(Self);
@@ -45,19 +46,19 @@ pub const Handlers = struct {
 };
 
 pub fn execute(allocator: std.mem.Allocator, argv: tp.message, handlers: Handlers) Error!void {
-    const stdin_behavior = .Close;
+    const stdin_behavior = .close;
     var pid = try Process.create(allocator, argv, stdin_behavior, handlers);
     pid.deinit();
 }
 
 pub fn execute_pipe(allocator: std.mem.Allocator, argv: tp.message, output_handler: ?OutputHandler, exit_handler: ?ExitHandler) Error!Self {
-    const stdin_behavior = .Pipe;
+    const stdin_behavior = .pipe;
     return .{ .pid = try Process.create(allocator, argv, stdin_behavior, output_handler, exit_handler), .stdin_behavior = stdin_behavior };
 }
 
 pub fn deinit(self: *Self) void {
     if (self.pid) |pid| {
-        if (self.stdin_behavior == .Pipe)
+        if (self.stdin_behavior == .pipe)
             pid.send(.{"close"}) catch {};
         self.pid = null;
         pid.deinit();
@@ -70,7 +71,7 @@ pub fn write(self: *Self, bytes: []const u8) !usize {
 }
 
 pub fn input(self: *const Self, bytes: []const u8) !void {
-    const pid = self.pid orelse return error.Closed;
+    const pid = self.pid orelse return error.closed;
     var remaining = bytes;
     while (remaining.len > 0)
         remaining = loop: {
@@ -151,14 +152,14 @@ const Process = struct {
     sp: ?tp.subprocess = null,
     parent: tp.pid,
     logger: log.Logger,
-    stdin_behavior: std.process.Child.StdIo,
+    stdin_behavior: tp.subprocess.StdIo,
     handlers: Handlers,
     stdout_line_buffer: std.ArrayListUnmanaged(u8) = .empty,
     stderr_line_buffer: std.ArrayListUnmanaged(u8) = .empty,
 
     const Receiver = tp.Receiver(*Process);
 
-    pub fn create(allocator: std.mem.Allocator, argv_: tp.message, stdin_behavior: std.process.Child.StdIo, handlers: Handlers) Error!tp.pid {
+    pub fn create(allocator: std.mem.Allocator, argv_: tp.message, stdin_behavior: tp.subprocess.StdIo, handlers: Handlers) Error!tp.pid {
         var arg0: []const u8 = "";
         const argv = if (try argv_.match(.{tp.extract(&arg0)}))
             try parse_arg0_to_argv(allocator, &arg0)
@@ -173,7 +174,7 @@ const Process = struct {
             .allocator = allocator,
             .argv = argv,
             .arg0 = try allocator.dupeZ(u8, arg0),
-            .receiver = Receiver.init(receive, self),
+            .receiver = .init(receive, dtor, self),
             .parent = tp.self_pid().clone(),
             .logger = log.logger(@typeName(Self)),
             .stdin_behavior = stdin_behavior,
@@ -182,7 +183,7 @@ const Process = struct {
         return tp.spawn_link(self.allocator, self, Process.start, self.arg0);
     }
 
-    fn deinit(self: *Process) void {
+    fn dtor(self: *Process) void {
         if (self.sp) |*sp| {
             defer self.sp = null;
             sp.deinit();
@@ -207,22 +208,20 @@ const Process = struct {
     }
 
     fn start(self: *Process) tp.result {
-        errdefer self.deinit();
         _ = tp.set_trap(true);
         var buf: [1024]u8 = undefined;
         const json = self.argv.to_json(&buf) catch |e| return tp.exit_error(e, @errorReturnTrace());
         if (self.handlers.log_execute)
             self.logger.print("execute {s}", .{json});
-        self.sp = tp.subprocess.init(self.allocator, self.argv, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.sp = tp.subprocess.init(root.get_init().io, self.allocator, self.argv, module_name, self.stdin_behavior) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
     }
 
     fn receive(self: *Process, _: tp.pid_ref, m: tp.message) tp.result {
-        errdefer self.deinit();
         var bytes: []const u8 = "";
 
         if (try m.match(.{ "input", tp.extract(&bytes) })) {
-            const sp = self.sp orelse return tp.exit_error(error.Closed, null);
+            const sp = self.sp orelse return tp.exit_error(error.closed, null);
             try sp.send(bytes);
         } else if (try m.match(.{"close"})) {
             self.close();

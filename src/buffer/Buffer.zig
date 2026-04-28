@@ -1,12 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const root_module = @import("root");
 const cbor = @import("cbor");
 const TypedInt = @import("TypedInt");
 pub const VcsBlame = @import("VcsBlame");
 const file_type_config = @import("file_type_config");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const cwd = std.fs.cwd;
+const cwd = std.Io.Dir.cwd;
 
 const Self = @This();
 
@@ -329,7 +330,7 @@ const Node = union(enum) {
     pub fn is_balanced(self: *const Node) bool {
         return switch (self.*) {
             .node => |*n| n.is_balanced(),
-            .leaf => |_| true,
+            .leaf => true,
         };
     }
 
@@ -1221,6 +1222,7 @@ const Node = union(enum) {
 };
 
 pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
+    const now_ms = root_module.get_now().toMilliseconds();
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     const arena_a = if (builtin.is_test) allocator else std.heap.page_allocator;
@@ -1229,8 +1231,8 @@ pub fn create(allocator: Allocator) error{OutOfMemory}!*Self {
         .allocator = self.arena.allocator(),
         .external_allocator = allocator,
         .root = try Node.new(self.allocator, &empty_leaf, &empty_leaf),
-        .mtime = std.time.milliTimestamp(),
-        .utime = std.time.milliTimestamp(),
+        .mtime = now_ms,
+        .utime = now_ms,
     };
     return self;
 }
@@ -1334,7 +1336,7 @@ pub fn parse_vcs_blame(self: *Self) VcsBlame.Error!void {
 }
 
 pub fn update_last_used_time(self: *Self) void {
-    self.utime = std.time.milliTimestamp();
+    self.utime = root_module.get_now().toMilliseconds();
 }
 
 fn new_file(self: *const Self, file_exists: *bool) error{OutOfMemory}!Root {
@@ -1350,6 +1352,7 @@ pub const LoadError =
         ExpectedSecondSurrogateHalf,
         UnexpectedSecondSurrogateHalf,
         Unexpected,
+        WriteFailed,
     } || std.Io.Reader.Error;
 
 pub fn load(self: *const Self, reader: *std.Io.Reader, eol_mode: *EolMode, utf8_sanitized: *bool) LoadError!Root {
@@ -1409,7 +1412,7 @@ fn detect_indent_size(leaves: []const Node) ?usize {
     for (leaves) |leaf_node| {
         const line = leaf_node.leaf.buf;
         if (line.len == 0) continue;
-        if (line[0] == '\t') return 0;
+        if (line[0] == '\t') return null;
         var spaces: usize = 0;
         for (line) |c| {
             if (c == ' ') spaces += 1 else break;
@@ -1448,14 +1451,14 @@ pub fn load_from_string_and_update(self: *Self, file_path: []const u8, s: []cons
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
     self.file_exists = false;
-    self.mtime = std.time.milliTimestamp();
+    self.mtime = root_module.get_now().toMilliseconds();
 }
 
 pub fn reset_from_string_and_update(self: *Self, s: []const u8) LoadError!void {
     self.root = try self.load_from_string(s, &self.file_eol_mode, &self.file_utf8_sanitized);
     self.last_save = self.root;
     self.last_save_eol_mode = self.file_eol_mode;
-    self.mtime = std.time.milliTimestamp();
+    self.mtime = root_module.get_now().toMilliseconds();
 }
 
 pub const LoadFromFileError = error{
@@ -1500,6 +1503,8 @@ pub const LoadFromFileError = error{
     ProcessNotFound,
     Canceled,
     PermissionDenied,
+    ReadOnlyFileSystem,
+    FileLocksUnsupported,
 } || LoadError;
 
 pub fn load_from_file(
@@ -1509,15 +1514,16 @@ pub fn load_from_file(
     eol_mode: *EolMode,
     utf8_sanitized: *bool,
 ) LoadFromFileError!Root {
-    const file = cwd().openFile(file_path, .{ .mode = .read_only }) catch |e| switch (e) {
+    const io = root_module.get_init().io;
+    const file = cwd().openFile(io, file_path, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return self.new_file(file_exists),
         else => return e,
     };
 
     file_exists.* = true;
-    defer file.close();
+    defer file.close(io);
     var read_buf: [4096]u8 = undefined;
-    var file_reader = file.reader(&read_buf);
+    var file_reader = file.reader(io, &read_buf);
     return self.load(&file_reader.interface, eol_mode, utf8_sanitized);
 }
 
@@ -1532,7 +1538,7 @@ pub fn load_from_file_and_update(self: *Self, file_path: []const u8) LoadFromFil
     self.file_eol_mode = eol_mode;
     self.file_utf8_sanitized = utf8_sanitized;
     self.last_save_eol_mode = eol_mode;
-    self.mtime = std.time.milliTimestamp();
+    self.mtime = root_module.get_now().toMilliseconds();
 }
 
 pub fn reset_to_last_saved(self: *Self) void {
@@ -1540,7 +1546,7 @@ pub fn reset_to_last_saved(self: *Self) void {
         self.store_undo(&[_]u8{}) catch {};
         self.root = last_save;
         self.file_eol_mode = self.last_save_eol_mode;
-        self.mtime = std.time.milliTimestamp();
+        self.mtime = root_module.get_now().toMilliseconds();
     }
 }
 
@@ -1606,7 +1612,12 @@ pub const StoreToFileError = error{
     DeviceBusy,
     DiskQuota,
     FileBusy,
+    Canceled,
+    CrossDevice,
+    DirNotEmpty,
     FileLocksNotSupported,
+    HardwareFailure,
+    FileLocksUnsupported,
     FileNotFound,
     FileTooBig,
     InputOutput,
@@ -1642,55 +1653,60 @@ pub const StoreToFileError = error{
 };
 
 pub fn store_to_existing_file_const(self: *const Self, file_path_: []const u8) StoreToFileError!void {
+    const io = root_module.get_init().io;
     var file_path = file_path_;
-    var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var link: [std.Io.Dir.max_path_bytes]u8 = undefined;
     if (retain_symlinks) blk: {
-        const link = cwd().readLink(file_path, &link_buf) catch break :blk;
-        file_path = link;
+        const size = cwd().readLink(io, file_path, &link) catch break :blk;
+        file_path = link[0..size];
     }
 
     var write_buffer: [4096]u8 = undefined;
 
     if (builtin.os.tag == .windows) {
         // windows uses ACLs for ownership so we preserve mode only
-        var atomic = blk: {
-            const stat = cwd().statFile(file_path) catch
-                break :blk try cwd().atomicFile(file_path, .{ .write_buffer = &write_buffer });
-            break :blk try cwd().atomicFile(file_path, .{ .mode = stat.mode, .write_buffer = &write_buffer });
-        };
-        defer atomic.deinit();
-        try self.store_to_file_const(&atomic.file_writer.interface);
-        return atomic.finish();
+        var atomic = try cwd().createFileAtomic(io, file_path, .{ .replace = true });
+        defer atomic.deinit(io);
+        var writer = atomic.file.writer(io, &write_buffer);
+        try self.store_to_file_const(&writer.interface);
+        writer.flush() catch {};
+        return atomic.replace(io);
     }
 
     // use fstat to get uid/gid, which std.fs.File.Stat omits.
-    const orig_stat: ?std.posix.Stat = blk: {
-        const f = cwd().openFile(file_path, .{}) catch break :blk null;
-        defer f.close();
-        break :blk std.posix.fstat(f.handle) catch null;
+    const orig_stat: ?std.Io.File.Stat = blk: {
+        const f = cwd().openFile(io, file_path, .{}) catch break :blk null;
+        defer f.close(io);
+        break :blk f.stat(io) catch null;
     };
-    const mode: std.fs.File.Mode = if (orig_stat) |s| s.mode else std.fs.File.default_mode;
-    var atomic = try cwd().atomicFile(file_path, .{ .mode = mode, .write_buffer = &write_buffer });
-    defer atomic.deinit();
-    try self.store_to_file_const(&atomic.file_writer.interface);
-    // fchmod bypasses the process umask preserving the exact original mode
+    var atomic = try cwd().createFileAtomic(io, file_path, .{ .replace = true });
+    defer atomic.deinit(io);
+    var writer = atomic.file.writer(io, &write_buffer);
+    try self.store_to_file_const(&writer.interface);
+    writer.flush() catch {};
+    // fchmod/setPermissions bypasses the process umask preserving the exact original mode
     // fchown restores original owner/group
     // EPERM is silently ignored when we lack sufficient privileges
     if (orig_stat) |s| {
-        atomic.file_writer.file.chmod(s.mode) catch {};
-        std.posix.fchown(atomic.file_writer.file.handle, s.uid, s.gid) catch {};
+        atomic.file.setPermissions(io, s.permissions) catch {};
     }
-    try atomic.finish();
+    try atomic.replace(io);
 }
 
 pub fn store_to_new_file_const(self: *const Self, file_path: []const u8) StoreToFileError!void {
-    if (std.fs.path.dirname(file_path)) |dir_name|
-        try cwd().makePath(dir_name);
-    const file = try cwd().createFile(file_path, .{ .read = true, .truncate = true });
-    defer file.close();
+    const io = root_module.get_init().io;
+    if (std.fs.path.dirname(file_path)) |dir_name| {
+        std.Io.Dir.createDirAbsolute(io, dir_name, .default_dir) catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => {},
+        };
+    }
+    const file = try cwd().createFile(io, file_path, .{ .truncate = true });
+    defer file.close(io);
     var write_buffer: [4096]u8 = undefined;
-    var writer = file.writer(&write_buffer);
+    var writer = file.writer(io, &write_buffer);
     try self.store_to_file_const(&writer.interface);
+    writer.flush() catch {};
 }
 
 pub fn store_to_file_and_clean(self: *Self, file_path: []const u8) StoreToFileError!void {
@@ -1755,7 +1771,7 @@ pub fn version(self: *const Self) usize {
 
 pub fn update(self: *Self, root: Root) void {
     self.root = root;
-    self.mtime = std.time.milliTimestamp();
+    self.mtime = root_module.get_now().toMilliseconds();
 }
 
 pub fn store_undo(self: *Self, meta: []const u8) error{OutOfMemory}!void {
@@ -1816,7 +1832,7 @@ pub fn undo(self: *Self) error{Stop}![]const u8 {
     self.push_redo(node);
     self.root = node.root;
     self.file_eol_mode = node.file_eol_mode;
-    self.mtime = std.time.milliTimestamp();
+    self.mtime = root_module.get_now().toMilliseconds();
     return node.meta;
 }
 
@@ -1831,7 +1847,7 @@ pub fn redo(self: *Self) error{Stop}![]const u8 {
         if (head.next_redo == null)
             self.redo_head = null;
     }
-    self.mtime = std.time.milliTimestamp();
+    self.mtime = root_module.get_now().toMilliseconds();
     return node.meta;
 }
 

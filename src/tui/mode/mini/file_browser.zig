@@ -293,8 +293,10 @@ pub fn Create(options: type) type {
                 else
                     " ";
                 self.rendered_mini_buffer.clearRetainingCapacity();
-                const writer = self.rendered_mini_buffer.writer(self.allocator);
-                writer.print("{s}  {s}", .{ icon, self.file_path.items }) catch {};
+                var buf: [512]u8 = undefined;
+                var fbs: std.Io.Writer = .fixed(&buf);
+                fbs.print("{s}  {s}", .{ icon, self.file_path.items }) catch {};
+                self.rendered_mini_buffer.appendSlice(self.allocator, fbs.buffered()) catch {};
                 mini_mode.text = self.rendered_mini_buffer.items;
                 mini_mode.cursor = tui.egc_chunk_width(self.file_path.items, 0, 1) + 3;
             }

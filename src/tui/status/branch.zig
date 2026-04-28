@@ -113,8 +113,7 @@ fn process_vcs_status(self: *Self, m: tp.message) MessageFilter.Error!bool {
 
 fn format(self: *Self, buf: []u8) []const u8 {
     const branch = self.status.branch orelse return "";
-    var fbs = std.io.fixedBufferStream(buf);
-    const writer = fbs.writer();
+    var writer: std.Io.Writer = .fixed(buf);
     writer.print("   {s}{s}", .{ branch_symbol, branch }) catch {};
     if (self.status.ahead) |ahead| if (ahead.len > 1 and ahead[1] != '0')
         writer.print(" {s}{s}", .{ ahead_symbol, ahead[1..] }) catch {};
@@ -127,7 +126,7 @@ fn format(self: *Self, buf: []u8) []const u8 {
     if (self.status.untracked > 0)
         writer.print(" {s}{d}", .{ untracked_symbol, self.status.untracked }) catch {};
     writer.print("   ", .{}) catch {};
-    return fbs.getWritten();
+    return writer.buffered();
 }
 
 pub fn layout(self: *Self, btn: *ButtonType) Widget.Layout {
