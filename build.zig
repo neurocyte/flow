@@ -594,6 +594,7 @@ pub fn build_exe(
                     .root_source_file = b.path("src/gui/rasterizer/truetype.zig"),
                     .target = target,
                     .imports = &.{
+                        .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "TrueType", .module = tt_dep.module("TrueType") },
                         .{ .name = "xy", .module = gui_xy_mod },
                         .{ .name = "geometric", .module = geometric_mod },
@@ -655,6 +656,7 @@ pub fn build_exe(
                 const mod = b.createModule(.{
                     .root_source_file = b.path("src/renderer/gui/renderer.zig"),
                     .imports = &.{
+                        .{ .name = "soft_root", .module = soft_root_mod },
                         .{ .name = "color", .module = color_mod },
                         .{ .name = "theme", .module = themes_dep.module("theme") },
                         .{ .name = "cbor", .module = cbor_mod },
@@ -882,6 +884,15 @@ pub fn build_exe(
         if (renderer != .terminal) {
             exe.subsystem = .Windows;
         }
+    }
+
+    if (renderer == .gui and target.result.os.tag == .linux) {
+        exe.root_module.linkSystemLibrary("wayland-client", .{});
+        exe.root_module.linkSystemLibrary("xkbcommon", .{});
+        exe.root_module.linkSystemLibrary("libdecor-0", .{});
+        exe.root_module.linkSystemLibrary("wayland-egl", .{});
+        exe.root_module.linkSystemLibrary("EGL", .{});
+        exe.root_module.link_libc = true;
     }
 
     const exe_install = b.addInstallArtifact(exe, exe_install_options);

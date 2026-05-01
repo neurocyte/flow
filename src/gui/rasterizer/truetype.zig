@@ -3,6 +3,7 @@ const TrueType = @import("TrueType");
 const XY = @import("xy").XY;
 pub const font_finder = @import("font_finder");
 const geometric = @import("geometric");
+const root = @import("soft_root").root;
 
 const Self = @This();
 
@@ -45,7 +46,13 @@ pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
     const path = try font_finder.findFont(self.allocator, name);
     defer self.allocator.free(path);
 
-    const data = try std.fs.cwd().readFileAlloc(self.allocator, path, 64 * 1024 * 1024);
+    const io = root.get_io();
+    const f = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer f.close(io);
+    const stat = try f.stat(io);
+    var read_buf: [4096]u8 = undefined;
+    var reader = f.reader(io, &read_buf);
+    const data = try reader.interface.readAlloc(self.allocator, @intCast(stat.size));
     errdefer self.allocator.free(data);
 
     const tt = try TrueType.load(data);
@@ -119,7 +126,7 @@ pub fn render(
 
     const tt = font.tt orelse return;
 
-    var pixels = std.ArrayListUnmanaged(u8){};
+    var pixels = std.ArrayList(u8).empty;
 
     const glyph = tt.codepointGlyphIndex(codepoint);
     const dims = tt.glyphBitmap(alloc, &pixels, glyph, font.scale, font.scale) catch return;

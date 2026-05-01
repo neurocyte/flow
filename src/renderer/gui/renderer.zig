@@ -15,6 +15,7 @@ pub const Plane = @import("tuirenderer").Plane;
 pub const Layer = @import("tuirenderer").Layer;
 const input = @import("input");
 const app = @import("app");
+const root = @import("soft_root").root;
 
 pub const Cell = @import("tuirenderer").Cell;
 pub const StyleBits = @import("tuirenderer").style;
@@ -59,7 +60,7 @@ window_ready: bool = false,
 
 cursor_info: app.CursorInfo = .{},
 cursor_color: RGBA = .init(255, 255, 255, 255),
-secondary_cursors: std.ArrayListUnmanaged(app.CursorInfo) = .{},
+secondary_cursors: std.ArrayList(app.CursorInfo) = .empty,
 secondary_color: RGBA = .init(255, 255, 255, 255),
 
 cursor_blink: bool = false,
@@ -101,7 +102,7 @@ pub fn init(
     };
     var result: Self = .{
         .allocator = allocator,
-        .vx = try vaxis.init(allocator, opts),
+        .vx = try vaxis.init(root.get_io(), allocator, root.get_init().environ_map, opts),
         .event_buffer = .init(allocator),
         .handler_ctx = handler_ctx,
         .dispatch_initialized = dispatch_initialized,
@@ -151,7 +152,7 @@ pub fn render(self: *Self) error{}!?i64 {
         cursor.shape != self.prev_cursor.shape or
         self.cursor_blink != self.prev_cursor_blink)
     {
-        const now = std.time.microTimestamp();
+        const now = root.get_now().toMicroseconds();
         if (cursor.vis) {
             self.blink_epoch = now;
             self.blink_on = true;
@@ -163,7 +164,7 @@ pub fn render(self: *Self) error{}!?i64 {
 
     // Apply blink unless the cursor has been idle for too long.
     if (cursor.vis and self.cursor_blink) {
-        const now = std.time.microTimestamp();
+        const now = root.get_now().toMicroseconds();
         const idle = now - self.blink_last_change;
         if (idle < self.blink_idle_us) {
             const elapsed = @mod(now - self.blink_epoch, self.blink_period_us * 2);
@@ -177,7 +178,7 @@ pub fn render(self: *Self) error{}!?i64 {
     app.updateScreen(&self.vx.screen, cursor, self.secondary_cursors.items);
 
     if (!self.cursor_info.vis or !self.cursor_blink) return null;
-    const now_check = std.time.microTimestamp();
+    const now_check = root.get_now().toMicroseconds();
     if (now_check - self.blink_last_change >= self.blink_idle_us) return null;
     const elapsed = @mod(now_check - self.blink_epoch, self.blink_period_us * 2);
     const deadline = now_check + (self.blink_period_us - @mod(elapsed, self.blink_period_us));

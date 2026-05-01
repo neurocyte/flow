@@ -46,8 +46,7 @@ const ScreenSnapshot = struct {
     secondary_cursors: []gpu.CursorInfo, // heap-allocated, freed with snapshot
 };
 
-var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
-var screen_mutex: std.Thread.Mutex = .{};
+var screen_mutex: std.Io.Mutex = .init;
 var screen_pending: std.atomic.Value(bool) = .init(false);
 var screen_snap: ?ScreenSnapshot = null;
 var tui_pid: thespian.pid = undefined;
@@ -73,7 +72,7 @@ const config_arena = config_arena_instance.allocator();
 var dpi_scale: f32 = 1.0;
 
 // Window title (written from TUI thread, applied by wio thread)
-var title_mutex: std.Thread.Mutex = .{};
+var title_mutex: std.Io.Mutex = .init;
 var title_buf: [512]u8 = undefined;
 var title_len: usize = 0;
 var title_dirty: std.atomic.Value(bool) = .init(false);
@@ -83,7 +82,7 @@ var window_class_buf: [256]u8 = undefined;
 var window_class_len: usize = 0;
 
 // Clipboard write (heap-allocated, transferred to wio thread)
-var clipboard_mutex: std.Thread.Mutex = .{};
+var clipboard_mutex: std.Io.Mutex = .init;
 var clipboard_write: ?[]u8 = null;
 
 // Clipboard read request
@@ -125,7 +124,7 @@ pub fn updateScreen(
     cursor: gpu.CursorInfo,
     secondary_cursors: []const gpu.CursorInfo,
 ) void {
-    const allocator = gpa.allocator();
+    const allocator = root.get_init().gpa;
     const cell_count: usize = @as(usize, vx_screen.width) * @as(usize, vx_screen.height);
 
     const new_cells = allocator.alloc(gpu.Cell, cell_count) catch return;
@@ -162,8 +161,9 @@ pub fn updateScreen(
         wt.* = vc.char.width;
     }
 
-    screen_mutex.lock();
-    defer screen_mutex.unlock();
+    const io = root.get_io();
+    screen_mutex.lockUncancelable(io);
+    defer screen_mutex.unlock(io);
 
     // Free the previous snapshot
     if (screen_snap) |old| {
@@ -253,8 +253,9 @@ pub fn getRasterizerBackend() gpu.RasterizerBackend {
 }
 
 pub fn setWindowTitle(title: []const u8) void {
-    title_mutex.lock();
-    defer title_mutex.unlock();
+    const io = root.get_io();
+    title_mutex.lockUncancelable(io);
+    defer title_mutex.unlock(io);
     const copy_len = @min(title.len, title_buf.len);
     @memcpy(title_buf[0..copy_len], title[0..copy_len]);
     title_len = copy_len;
@@ -263,10 +264,11 @@ pub fn setWindowTitle(title: []const u8) void {
 }
 
 pub fn setClipboard(text: []const u8) void {
-    const allocator = gpa.allocator();
+    const io = root.get_io();
+    const allocator = root.get_init().gpa;
     const copy = allocator.dupe(u8, text) catch return;
-    clipboard_mutex.lock();
-    defer clipboard_mutex.unlock();
+    clipboard_mutex.lockUncancelable(io);
+    defer clipboard_mutex.unlock(io);
     if (clipboard_write) |old| allocator.free(old);
     clipboard_write = copy;
     wio.cancelWait();
@@ -387,7 +389,8 @@ fn colorFromVaxis(color: vaxis.Cell.Color) RGBA {
 // ── wio main loop (runs on dedicated thread) ──────────────────────────────
 
 fn wioLoop() void {
-    const allocator = gpa.allocator();
+    const io = root.get_io();
+    const allocator = root.get_init().gpa;
 
     wio.init(allocator, .{}) catch |e| {
         log.err("wio.init failed: {s}", .{@errorName(e)});
@@ -585,16 +588,16 @@ fn wioLoop() void {
 
         // Apply pending cross-thread requests from the TUI thread.
         if (title_dirty.swap(false, .acq_rel)) {
-            title_mutex.lock();
+            title_mutex.lockUncancelable(io);
             const t = title_buf[0..title_len];
-            title_mutex.unlock();
+            title_mutex.unlock(io);
             window.setTitle(t);
         }
         {
-            clipboard_mutex.lock();
+            clipboard_mutex.lockUncancelable(io);
             const pending = clipboard_write;
             clipboard_write = null;
-            clipboard_mutex.unlock();
+            clipboard_mutex.unlock(io);
             if (pending) |text| {
                 defer allocator.free(text);
                 window.setClipboardText(text);
@@ -617,10 +620,10 @@ fn wioLoop() void {
         // Take ownership of the snap (set screen_snap = null under the mutex)
         // so the TUI thread cannot free the backing memory while we use it.
         if (screen_pending.swap(false, .acq_rel)) {
-            screen_mutex.lock();
+            screen_mutex.lockUncancelable(io);
             const snap = screen_snap;
             screen_snap = null; // wio thread now owns this allocation
-            screen_mutex.unlock();
+            screen_mutex.unlock(io);
 
             if (snap) |s| {
                 defer {

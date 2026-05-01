@@ -139,7 +139,7 @@ pub const WindowState = struct {
     cell_image: sg.Image = .{},
     cell_view: sg.View = .{},
     cell_image_size: XY(u16) = .{ .x = 0, .y = 0 },
-    cell_buf: std.ArrayListUnmanaged(ShaderCell) = .{},
+    cell_buf: std.ArrayList(ShaderCell) = .empty,
 
     // Glyph index cache
     glyph_cache_cell_size: ?XY(u16) = null,
@@ -236,7 +236,7 @@ pub const WindowState = struct {
                 state.glyph_index_cache = null;
                 // cell_buf was allocated from the arena; clear it so the next
                 // resize doesn't memcpy from the now-freed memory.
-                state.cell_buf = .{};
+                state.cell_buf = .empty;
             }
         }
 
