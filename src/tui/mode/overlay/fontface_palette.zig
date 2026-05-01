@@ -1,6 +1,7 @@
 const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian");
+const command = @import("command");
 
 const Widget = @import("../../Widget.zig");
 const tui = @import("../../tui.zig");
@@ -65,14 +66,14 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
-    const button = button_ orelse return cancel(palette);
+    const button = button_ orelse return cancel(palette, .empty());
     var label_: []const u8 = undefined;
     var iter = button.opts.label;
     if (!(cbor.matchString(&iter, &label_) catch false)) return;
     tp.self_pid().send(.{ "cmd", "set_fontface", .{label_} }) catch |e| palette.logger.err("fontface_palette upated", e);
 }
 
-pub fn cancel(palette: *Type) !void {
+pub fn cancel(palette: *Type, _: command.Context) !void {
     if (previous_fontface) |prev|
         tp.self_pid().send(.{ "cmd", "set_fontface", .{prev} }) catch |e| palette.logger.err("fontface_palette cancel", e);
 }

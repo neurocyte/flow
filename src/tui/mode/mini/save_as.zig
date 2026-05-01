@@ -35,5 +35,5 @@ pub fn select(self: *Type) void {
         if (file_path.len > 0)
             tp.self_pid().send(.{ "cmd", "save_file_as", .{file_path} }) catch {};
     }
-    command.executeName("exit_mini_mode", .{}) catch {};
+    command.executeName("exit_mini_mode", .empty()) catch {};
 }

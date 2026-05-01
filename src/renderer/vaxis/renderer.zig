@@ -85,7 +85,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
     const tty_buffer = try allocator.alloc(u8, 4096);
     return .{
         .allocator = allocator,
-        .tty = vaxis.Tty.init(root.get_init().io, tty_buffer) catch |e| {
+        .tty = vaxis.Tty.init(root.get_io(), tty_buffer) catch |e| {
             var stderr_buffer: [1024]u8 = undefined;
             var stderr_writer = std.Io.File.stderr().writer(std.Options.debug_io, &stderr_buffer);
             stderr_writer.interface.print("\n" ++ root.application_name ++ " ERROR: {s}\n", .{@errorName(e)}) catch {};
@@ -93,7 +93,7 @@ pub fn init(allocator: std.mem.Allocator, handler_ctx: *anyopaque, no_alternate:
             return error.TtyInitError;
         },
         .tty_buffer = tty_buffer,
-        .vx = try vaxis.init(root.get_init().io, allocator, root.get_init().environ_map, opts),
+        .vx = try vaxis.init(root.get_io(), allocator, root.get_init().environ_map, opts),
         .no_alternate = no_alternate,
         .event_buffer = .init(allocator),
         .input_buffer = .init(allocator),

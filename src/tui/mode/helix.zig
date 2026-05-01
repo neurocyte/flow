@@ -31,127 +31,127 @@ const cmds_ = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
-    pub fn w(_: *void, _: Ctx) Result {
-        try cmd("save_file", .{});
+    pub fn w(_: *void, ctx: Ctx) Result {
+        try cmd("save_file", ctx);
     }
     pub const w_meta: Meta = .{ .description = "w (save)" };
 
-    pub fn q(_: *void, _: Ctx) Result {
-        try cmd("quit", .{});
+    pub fn q(_: *void, ctx: Ctx) Result {
+        try cmd("quit", ctx);
     }
     pub const q_meta: Meta = .{ .description = "q (quit)" };
 
-    pub fn qa(_: *void, _: Ctx) Result {
-        try cmd("quit", .{});
+    pub fn qa(_: *void, ctx: Ctx) Result {
+        try cmd("quit", ctx);
     }
     pub const qa_meta: Meta = .{ .description = "qa (close all)" };
 
-    pub fn @"q!"(_: *void, _: Ctx) Result {
-        try cmd("quit_without_saving", .{});
+    pub fn @"q!"(_: *void, ctx: Ctx) Result {
+        try cmd("quit_without_saving", ctx);
     }
     pub const @"q!_meta": Meta = .{ .description = "q! (quit without saving)" };
 
-    pub fn @"qa!"(_: *void, _: Ctx) Result {
-        try cmd("quit_without_saving", .{});
+    pub fn @"qa!"(_: *void, ctx: Ctx) Result {
+        try cmd("quit_without_saving", ctx);
     }
     pub const @"qa!_meta": Meta = .{ .description = "qa! (quit without saving)" };
 
     pub fn wq(_: *void, _: Ctx) Result {
-        try cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
+        try cmd("save_file", .fmt(.{ "then", .{ "quit", .{} } }));
     }
     pub const wq_meta: Meta = .{ .description = "wq (write/save file and quit)" };
 
     pub fn @"x!"(_: *void, _: Ctx) Result {
-        try cmd("save_file", command.fmt(.{ "then", .{ "quit_without_saving", .{} } }));
+        try cmd("save_file", .fmt(.{ "then", .{ "quit_without_saving", .{} } }));
     }
     pub const @"x!_meta": Meta = .{ .description = "x! (write/save file and exit, ignoring other unsaved changes)" };
 
     pub fn x(_: *void, _: Ctx) Result {
-        try cmd("save_file", command.fmt(.{ "then", .{ "quit", .{} } }));
+        try cmd("save_file", .fmt(.{ "then", .{ "quit", .{} } }));
     }
     pub const x_meta: Meta = .{ .description = "x (write/save file and quit)" };
 
-    pub fn wa(_: *void, _: Ctx) Result {
+    pub fn wa(_: *void, ctx: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
-            bm.save_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            bm.save_all(ctx.io) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     pub const wa_meta: Meta = .{ .description = "wa (save all)" };
 
-    pub fn xa(_: *void, _: Ctx) Result {
+    pub fn xa(_: *void, ctx: Ctx) Result {
         if (tui.get_buffer_manager()) |bm| {
-            bm.save_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
-            try cmd("quit", .{});
+            bm.save_all(ctx.io) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            try cmd("quit", .empty_from(ctx));
         }
     }
     pub const xa_meta: Meta = .{ .description = "xa (write all and quit)" };
 
-    pub fn @"xa!"(_: *void, _: Ctx) Result {
+    pub fn @"xa!"(_: *void, ctx: Ctx) Result {
         if (tui.get_buffer_manager()) |bm| {
-            bm.save_all() catch {};
-            try cmd("quit_without_saving", .{});
+            bm.save_all(ctx.io) catch {};
+            try cmd("quit_without_saving", .empty_from(ctx));
         }
     }
     pub const @"xa!_meta": Meta = .{ .description = "xa! (write all and exit, ignoring other unsaved changes)" };
 
-    pub fn wqa(_: *void, _: Ctx) Result {
+    pub fn wqa(_: *void, ctx: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
-            bm.save_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
-        try cmd("quit", .{});
+            bm.save_all(ctx.io) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        try cmd("quit", .empty_from(ctx));
     }
     pub const wqa_meta: Meta = .{ .description = "wqa (write all and quit)" };
 
-    pub fn @"wqa!"(_: *void, _: Ctx) Result {
+    pub fn @"wqa!"(_: *void, ctx: Ctx) Result {
         if (tui.get_buffer_manager()) |bm| {
-            bm.save_all() catch {};
-            try cmd("quit_without_saving", .{});
+            bm.save_all(ctx.io) catch {};
+            try cmd("quit_without_saving", .empty_from(ctx));
         }
     }
     pub const @"wqa!_meta": Meta = .{ .description = "wqa! (write all and exit, ignoring unsaved changes)" };
 
-    pub fn rl(_: *void, _: Ctx) Result {
-        try cmd("reload_file", .{});
+    pub fn rl(_: *void, ctx: Ctx) Result {
+        try cmd("reload_file", .empty_from(ctx));
     }
     pub const rl_meta: Meta = .{ .description = "rl (reload current file)" };
 
-    pub fn rla(_: *void, _: Ctx) Result {
+    pub fn rla(_: *void, ctx: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
-            bm.reload_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            bm.reload_all(ctx.io, ctx.now) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     pub const rla_meta: Meta = .{ .description = "rla (reload all files)" };
 
-    pub fn o(_: *void, _: Ctx) Result {
-        try cmd("open_file", .{});
+    pub fn o(_: *void, ctx: Ctx) Result {
+        try cmd("open_file", .empty_from(ctx));
     }
     pub const o_meta: Meta = .{ .description = "o (open file)" };
 
-    pub fn @"wq!"(_: *void, _: Ctx) Result {
-        cmd("save_file", .{}) catch {};
-        try cmd("quit_without_saving", .{});
+    pub fn @"wq!"(_: *void, ctx: Ctx) Result {
+        cmd("save_file", .empty_from(ctx)) catch {};
+        try cmd("quit_without_saving", .empty_from(ctx));
     }
     pub const @"wq!_meta": Meta = .{ .description = "wq! (write/save file and quit without saving)" };
 
-    pub fn n(_: *void, _: Ctx) Result {
-        try cmd("create_new_file", .{});
+    pub fn n(_: *void, ctx: Ctx) Result {
+        try cmd("create_new_file", .empty_from(ctx));
     }
     pub const n_meta: Meta = .{ .description = "n (Create new buffer/tab)" };
 
-    pub fn bn(_: *void, _: Ctx) Result {
-        try cmd("next_tab", .{});
+    pub fn bn(_: *void, ctx: Ctx) Result {
+        try cmd("next_tab", .empty_from(ctx));
     }
     pub const bn_meta: Meta = .{ .description = "bn (Next buffer/tab)" };
 
-    pub fn bp(_: *void, _: Ctx) Result {
-        try cmd("previous_tab", .{});
+    pub fn bp(_: *void, ctx: Ctx) Result {
+        try cmd("previous_tab", .empty_from(ctx));
     }
     pub const bp_meta: Meta = .{ .description = "bp (Previous buffer/tab)" };
 
-    pub fn bc(_: *void, _: Ctx) Result {
-        try cmd("delete_buffer", .{});
+    pub fn bc(_: *void, ctx: Ctx) Result {
+        try cmd("delete_buffer", .empty_from(ctx));
     }
     pub const bc_meta: Meta = .{ .description = "bc (Close buffer/tab)" };
 
-    pub fn @"bc!"(_: *void, _: Ctx) Result {
-        try cmd("close_file_without_saving", .{});
+    pub fn @"bc!"(_: *void, ctx: Ctx) Result {
+        try cmd("close_file_without_saving", .empty_from(ctx));
     }
     pub const @"bc!_meta": Meta = .{ .description = "bc! (Close buffer/tab, ignoring changes)" };
 
@@ -163,7 +163,7 @@ const cmds_ = struct {
     }
     pub const @"bco!_meta": Meta = .{ .description = "bco! (Close other buffers/tabs, discarding changes)" };
 
-    pub fn bco(_: *void, _: Ctx) Result {
+    pub fn bco(_: *void, ctx: Ctx) Result {
         const logger = log.logger("helix-mode");
         defer logger.deinit();
         const mv = tui.mainview() orelse return;
@@ -172,7 +172,7 @@ const cmds_ = struct {
             const remaining = try bm.close_others(buffer);
             if (remaining > 0) {
                 logger.print("{} unsaved buffer(s) remaining", .{remaining});
-                try cmd("next_tab", .{});
+                try cmd("next_tab", .empty_from(ctx));
             }
         }
     }
@@ -196,7 +196,7 @@ const cmds_ = struct {
     }
     pub const save_selection_meta: Meta = .{ .description = "Save current selection to location history" };
 
-    pub fn split_selection_on_newline(_: *void, _: Ctx) Result {
+    pub fn split_selection_on_newline(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const root = try ed.buf_root();
@@ -205,7 +205,7 @@ const cmds_ = struct {
         for (cursels) |*cursel_| if (cursel_.*) |*cursel| {
             try add_cursors_to_cursel_line_ends_helix(ed, root, cursel);
         };
-        ed.clamp();
+        ed.clamp(ctx.now);
     }
     pub const split_selection_on_newline_meta: Meta = .{ .description = "Add cursor to each line in selection helix" };
 
@@ -214,7 +214,7 @@ const cmds_ = struct {
         const ed = mv.get_active_editor() orelse return;
         const root = ed.buf_root() catch return;
         try ed.with_cursels_const_once_arg(root, &match_bracket, ctx);
-        ed.clamp();
+        ed.clamp(ctx.now);
     }
     pub const match_brackets_meta: Meta = .{ .description = "Goto matching bracket" };
 
@@ -237,7 +237,7 @@ const cmds_ = struct {
             };
         }
 
-        ed.clamp();
+        ed.clamp(ctx.now);
     }
     pub const extend_line_below_meta: Meta = .{ .arguments = &.{.integer}, .description = "Select current line, if already selected, extend to next line" };
 
@@ -301,14 +301,14 @@ const cmds_ = struct {
     }
     pub const extend_next_long_word_end_meta: Meta = .{ .description = "Extend next long word end", .arguments = &.{.integer} };
 
-    pub fn cut_forward_internal_inclusive(_: *void, _: Ctx) Result {
+    pub fn cut_forward_internal_inclusive(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         const b = try ed.buf_for_update();
         tui.clipboard_start_group();
         const root = try ed.cut_to(move_noop, b.root);
-        try ed.update_buf(root);
-        ed.clamp();
+        try ed.update_buf(root, ctx.now);
+        ed.clamp(ctx.now);
     }
     pub const cut_forward_internal_inclusive_meta: Meta = .{ .description = "Cut next character to internal clipboard (inclusive)" };
 
@@ -336,7 +336,7 @@ const cmds_ = struct {
                 cursel.check_selection(root, ed.metrics);
             };
         }
-        ed.clamp();
+        ed.clamp(ctx.now);
     }
     pub const select_right_helix_meta: Meta = .{ .description = "Select right", .arguments = &.{.integer} };
 
@@ -367,7 +367,7 @@ const cmds_ = struct {
                 cursel.check_selection(root, ed.metrics);
             };
         }
-        ed.clamp();
+        ed.clamp(ctx.now);
     }
     pub const select_left_helix_meta: Meta = .{ .description = "Select left", .arguments = &.{.integer} };
 
@@ -426,7 +426,7 @@ const cmds_ = struct {
         } else {
             return;
         }
-        ed.clamp();
+        ed.clamp(ctx.now);
     }
     pub const select_textobject_inner_meta: Meta = .{ .description = "select inside object helix" };
 
@@ -435,8 +435,8 @@ const cmds_ = struct {
         const ed = mv.get_active_editor() orelse return;
         const b = try ed.buf_for_update();
         const root = try ed.with_cursels_mut_once_arg(b.root, surround_cursel_add, ed.allocator, ctx);
-        try ed.update_buf(root);
-        ed.clamp();
+        try ed.update_buf(root, ctx.now);
+        ed.clamp(ctx.now);
         ed.need_render();
     }
     pub const surround_add_meta: Meta = .{ .description = "surround add" };
@@ -456,7 +456,7 @@ const cmds_ = struct {
         } else {
             return;
         }
-        ed.clamp();
+        ed.clamp(ctx.now);
     }
     pub const select_textobject_around_meta: Meta = .{ .description = "select around object helix" };
 
@@ -494,8 +494,8 @@ const cmds_ = struct {
         const ed = mv.get_active_editor() orelse return;
         const b = try ed.buf_for_update();
         const root = try ed.with_cursels_mut_once_arg(b.root, replace_cursel_with_character, ed.allocator, ctx);
-        try ed.update_buf(root);
-        ed.clamp();
+        try ed.update_buf(root, ctx.now);
+        ed.clamp(ctx.now);
         ed.need_render();
     }
     pub const replace_with_character_helix_meta: Meta = .{ .description = "Replace with character" };
@@ -525,12 +525,12 @@ const cmds_ = struct {
     }
     pub const search_selection_meta: Meta = .{};
 
-    pub fn add_next_match_helix(_: *void, _: Ctx) Result {
+    pub fn add_next_match_helix(_: *void, ctx: Ctx) Result {
         const mv = tui.mainview() orelse return;
         const ed = mv.get_active_editor() orelse return;
         if (ed.matches.items.len == 0)
-            try ed.repeat_last_find();
-        try ed.add_cursor_next_match(.{});
+            try ed.repeat_last_find(null, ctx);
+        try ed.add_cursor_next_match(.empty_from(ctx));
     }
     pub const add_next_match_helix_meta: Meta = .{};
 
@@ -539,8 +539,8 @@ const cmds_ = struct {
         const ed = mv.get_active_editor() orelse return;
         const b = try ed.buf_for_update();
         const root = try ed.with_cursels_mut_once_arg(b.root, switch_to_lowercase_cursel, ed.allocator, ctx);
-        try ed.update_buf(root);
-        ed.clamp();
+        try ed.update_buf(root, ctx.now);
+        ed.clamp(ctx.now);
         ed.need_render();
     }
     pub const switch_to_lowercase_meta: Meta = .{ .description = "Switch to lowercase" };
@@ -590,13 +590,13 @@ fn move_to_word(ctx: command.Context, move: Editor.cursor_operator_const) comman
     // NOR mode moves n words selecting the last one
     var repeat: usize = 0;
     _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
-    if (repeat > 1) ed.with_cursors_const_repeat(root, move, command.fmt(.{repeat - 1})) catch {};
+    if (repeat > 1) ed.with_cursors_const_repeat(root, move, .fmt(.{repeat - 1})) catch {};
 
     for (ed.cursels.items) |*cursel_| if (cursel_.*) |*cursel| {
         cursel.selection = null;
     };
-    ed.with_selections_const_repeat(root, move, command.fmt(.{1})) catch {};
-    ed.clamp();
+    ed.with_selections_const_repeat(root, move, .fmt(.{1})) catch {};
+    ed.clamp(ctx.now);
 }
 
 fn extend_to_word(ctx: command.Context, move: Editor.cursor_operator_const) command.Result {
@@ -605,7 +605,7 @@ fn extend_to_word(ctx: command.Context, move: Editor.cursor_operator_const) comm
     const root = try ed.buf_root();
 
     ed.with_selections_const_repeat(root, move, ctx) catch {};
-    ed.clamp();
+    ed.clamp(ctx.now);
 }
 
 fn to_char_helix(ctx: command.Context, move: Editor.cursel_operator_mut_once_arg) command.Result {
@@ -613,7 +613,7 @@ fn to_char_helix(ctx: command.Context, move: Editor.cursel_operator_mut_once_arg
     const ed = mv.get_active_editor() orelse return;
     const root = ed.buf_root() catch return;
     try ed.with_cursels_const_once_arg(root, move, ctx);
-    ed.clamp();
+    ed.clamp(ctx.now);
 }
 
 fn select_inner_word(root: Buffer.Root, cursel: *CurSel, metrics: Buffer.Metrics) !void {
@@ -1259,8 +1259,8 @@ fn paste_helix(ctx: command.Context, do_paste: pasting_function) command.Result 
     };
     ed.logger.print("paste: {d} bytes", .{bytes});
 
-    try ed.update_buf(root);
-    ed.clamp();
+    try ed.update_buf(root, ctx.now);
+    ed.clamp(ctx.now);
     ed.need_render();
 }
 

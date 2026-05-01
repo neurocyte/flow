@@ -56,5 +56,5 @@ pub fn select(self: *Type) void {
         else if (file_path.len > 0)
             tp.self_pid().send(.{ "cmd", cmd_, .{ .file = file_path } }) catch {};
     }
-    command.executeName("exit_mini_mode", .{}) catch {};
+    command.executeName("exit_mini_mode", .empty()) catch {};
 }

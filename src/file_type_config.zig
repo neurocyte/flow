@@ -49,7 +49,7 @@ pub fn get_default(allocator: std.mem.Allocator, file_type_name: []const u8) ![]
 }
 
 pub fn get_all_names() []const []const u8 {
-    const io = root.get_init().io;
+    const io = root.get_io();
     cache_mutex.lockUncancelable(io);
     defer cache_mutex.unlock(io);
     if (cache_list.len == 0)
@@ -64,7 +64,7 @@ const CacheType = std.StringHashMapUnmanaged(?@This());
 var cache_list: []const []const u8 = &.{};
 
 pub fn get(file_type_name: []const u8) !?@This() {
-    const io = root.get_init().io;
+    const io = root.get_io();
     cache_mutex.lockUncancelable(io);
     defer cache_mutex.unlock(io);
 
@@ -95,7 +95,7 @@ pub fn get(file_type_name: []const u8) !?@This() {
 }
 
 pub fn get_config_file_path(allocator: std.mem.Allocator, file_type: []const u8) ![]u8 {
-    const io = root.get_init().io;
+    const io = root.get_io();
     const config_dir_path = try get_config_dir_path(io, allocator);
     var stream: std.Io.Writer.Allocating = .initOwnedSlice(allocator, config_dir_path);
     defer stream.deinit();

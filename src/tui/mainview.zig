@@ -188,10 +188,10 @@ pub fn receive(self: *Self, from_: tp.pid_ref, m: tp.message) error{Exit}!bool {
         }
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.extract(&line), tp.extract(&column) })) {
-        cmds.navigate_complete(self, null, path, goto_args, line, column, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        cmds.navigate_complete(self, null, path, goto_args, line, column, null, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     } else if (try m.match(.{ "navigate_complete", tp.extract(&path), tp.extract(&goto_args), tp.null_, tp.null_ })) {
-        cmds.navigate_complete(self, null, path, goto_args, null, null, null) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        cmds.navigate_complete(self, null, path, goto_args, null, null, null, root.get_now()) catch |e| return tp.exit_error(e, @errorReturnTrace());
         return true;
     } else if (try m.match(.{"focus_out"})) {
         self.process_focus_out() catch |e| return tp.exit_error(e, @errorReturnTrace());
@@ -286,7 +286,7 @@ fn bottom_bar_primary_drag(self: *Self, y: usize) tp.result {
 
 fn set_panel_height_abs(self: *Self, y: usize) tp.result {
     const panels = self.panels orelse blk: {
-        cmds.toggle_panel(self, .{}) catch return;
+        cmds.toggle_panel(self, .empty()) catch return;
         break :blk self.panels.?;
     };
     const max_h = self.box().h -| 1;
@@ -296,7 +296,7 @@ fn set_panel_height_abs(self: *Self, y: usize) tp.result {
     const panel_height = self.panel_height orelse return;
     if (panel_height == 1) {
         self.panel_height = null;
-        command.executeName("toggle_panel", .{}) catch {};
+        command.executeName("toggle_panel", .empty()) catch {};
     } else if (panel_height >= max_h) {
         self.panel_maximized = true;
         panels.layout_ = .{ .static = max_h };
@@ -382,7 +382,7 @@ fn check_all_not_dirty(self: *const Self) command.Result {
         return tp.exit("unsaved changes");
 }
 
-fn open_style_config(self: *Self, Style: type) command.Result {
+fn open_style_config(self: *Self, Style: type, now: std.Io.Timestamp) command.Result {
     const file_name = try root.get_config_file_name(Style);
     const style, const style_bufs: [][]const u8 = if (root.exists_config(Style)) blk: {
         const style, const style_bufs = root.read_config(Style, self.allocator);
@@ -393,7 +393,7 @@ fn open_style_config(self: *Self, Style: type) command.Result {
     defer conf.deinit();
     root.write_config_to_writer(Style, style, &conf.writer) catch {};
     tui.reset_drag_context();
-    try self.create_editor();
+    try self.create_editor(now);
     try command.executeName("open_scratch_buffer", command.fmt(.{
         file_name,
         conf.written(),
@@ -448,7 +448,7 @@ const cmds = struct {
 
     pub fn open_project_cwd(self: *Self, _: Ctx) Result {
         if (try project_manager.open(".")) |state|
-            try self.restore_state(state);
+            try self.restore_state(state, root.get_now());
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
         if (self.bottom_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
     }
@@ -459,7 +459,7 @@ const cmds = struct {
         if (!try ctx.args.match(.{tp.extract(&project_dir)}))
             return;
         if (try project_manager.open(project_dir)) |state|
-            try self.restore_state(state);
+            try self.restore_state(state, root.get_now());
         const project = tp.env.get().str("project");
         tui.rdr().set_terminal_working_directory(project);
         if (self.top_bar) |bar| _ = try bar.msg(.{ "PRJ", "open" });
@@ -508,8 +508,8 @@ const cmds = struct {
             self.closing_project = true;
             defer self.closing_project = false;
             terminal_view.shutdown(self.allocator);
-            try close_splits(self, .{});
-            try self.close_all_editors();
+            try close_splits(self, .empty_from(ctx));
+            try self.close_all_editors(.empty_from(ctx));
             self.delete_all_buffers();
             self.clear_find_in_files_results(.diagnostics);
             if (self.file_list_type == .diagnostics)
@@ -522,7 +522,7 @@ const cmds = struct {
         tui.rdr().set_terminal_working_directory(project);
         if (project_state) |state| {
             logger.print("restoring {d} bytes of project state for: {s}", .{ state.len, project });
-            try self.restore_state(state);
+            try self.restore_state(state, root.get_now());
         } else {
             logger.print("no project state to restore for: {s}", .{project});
         }
@@ -534,7 +534,7 @@ const cmds = struct {
     pub const change_project_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn navigate_split_vertical(self: *Self, ctx: Ctx) Result {
-        try command.executeName("add_split", .{});
+        try command.executeName("add_split", .empty_from(ctx));
         try navigate(self, ctx);
     }
     pub const navigate_split_vertical_meta: Meta = .{ .arguments = &.{.object} };
@@ -581,7 +581,7 @@ const cmds = struct {
         } else return error.InvalidNavigateArgument;
 
         if (tp.env.get().str("project").len == 0) {
-            try open_project_cwd(self, .{});
+            try open_project_cwd(self, .empty_from(ctx));
         }
 
         var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
@@ -634,11 +634,20 @@ const cmds = struct {
             return;
         }
 
-        return cmds.navigate_complete(self, view, f, goto_args, line, column, offset);
+        return cmds.navigate_complete(self, view, f, goto_args, line, column, offset, ctx.now);
     }
     pub const navigate_meta: Meta = .{ .arguments = &.{.object} };
 
-    fn navigate_complete(self: *Self, view: ?usize, f: []const u8, goto_args: []const u8, line: ?i64, column: ?i64, offset: ?i64) Result {
+    fn navigate_complete(
+        self: *Self,
+        view: ?usize,
+        f: []const u8,
+        goto_args: []const u8,
+        line: ?i64,
+        column: ?i64,
+        offset: ?i64,
+        now: std.Io.Timestamp,
+    ) Result {
         if (view) |n| try self.focus_view(n);
 
         const different_file = if (self.get_active_file_path()) |active_file_path| !std.mem.eql(u8, active_file_path, f) else true;
@@ -647,47 +656,47 @@ const cmds = struct {
             if (self.get_active_editor()) |editor| {
                 editor.send_editor_jump_source() catch {};
             }
-            try self.create_editor();
+            try self.create_editor(now);
             try command.executeName("open_buffer_from_file", command.fmt(.{f}));
         }
         if (goto_args.len != 0) {
-            try command.executeName("goto_line_and_column", .{ .args = .{ .buf = goto_args } });
+            try command.executeName("goto_line_and_column", .init(.{ .buf = goto_args }));
         } else if (line) |l| {
             try command.executeName("goto_line", command.fmt(.{l}));
             if (view == null)
-                try command.executeName("scroll_view_center", .{});
+                try command.executeName("scroll_view_center", .empty());
             if (column) |col|
                 try command.executeName("goto_column", command.fmt(.{col}));
         } else if (offset) |o| {
             try command.executeName("goto_byte_offset", command.fmt(.{o}));
             if (view == null)
-                try command.executeName("scroll_view_center", .{});
+                try command.executeName("scroll_view_center", .empty());
         }
         tui.need_render(@src());
         self.location_update_from_editor();
     }
 
-    pub fn open_help(self: *Self, _: Ctx) Result {
+    pub fn open_help(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
-        try self.create_editor();
+        try self.create_editor(ctx.now);
         try command.executeName("open_scratch_buffer", command.fmt(.{ "help", @embedFile("help.md"), "markdown" }));
         tui.need_render(@src());
         self.location_update_from_editor();
     }
     pub const open_help_meta: Meta = .{ .description = "Open help" };
 
-    pub fn open_font_test_text(self: *Self, _: Ctx) Result {
+    pub fn open_font_test_text(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
-        try self.create_editor();
+        try self.create_editor(ctx.now);
         try command.executeName("open_scratch_buffer", command.fmt(.{ "font test", @import("fonts.zig").font_test_text, "text" }));
         tui.need_render(@src());
         self.location_update_from_editor();
     }
     pub const open_font_test_text_meta: Meta = .{ .description = "Open font glyph test text" };
 
-    pub fn open_version_info(self: *Self, _: Ctx) Result {
+    pub fn open_version_info(self: *Self, ctx: Ctx) Result {
         tui.reset_drag_context();
-        try self.create_editor();
+        try self.create_editor(ctx.now);
         try command.executeName("open_scratch_buffer", command.fmt(.{ "version", root.version_info, "gitcommit" }));
         tui.need_render(@src());
         self.location_update_from_editor();
@@ -706,20 +715,18 @@ const cmds = struct {
     }
     pub const open_gui_config_meta: Meta = .{ .description = "Edit gui configuration" };
 
-    pub fn open_tabs_style_config(self: *Self, _: Ctx) Result {
-        try self.open_style_config(@import("status/tabs.zig").Style);
+    pub fn open_tabs_style_config(self: *Self, ctx: Ctx) Result {
+        try self.open_style_config(@import("status/tabs.zig").Style, ctx.now);
     }
     pub const open_tabs_style_config_meta: Meta = .{ .description = "Edit tab style" };
 
-    pub fn open_home_style_config(self: *Self, _: Ctx) Result {
-        try self.open_style_config(@import("home.zig").Style);
+    pub fn open_home_style_config(self: *Self, ctx: Ctx) Result {
+        try self.open_style_config(@import("home.zig").Style, ctx.now);
     }
     pub const open_home_style_config_meta: Meta = .{ .description = "Edit home screen" };
 
-    pub fn change_file_type(_: *Self, _: Ctx) Result {
-        return tui.open_overlay(
-            @import("mode/overlay/file_type_palette.zig").Variant("set_file_type", "Select file type", false).Type,
-        );
+    pub fn change_file_type(_: *Self, ctx: Ctx) Result {
+        return tui.open_overlay(@import("mode/overlay/file_type_palette.zig").Variant("set_file_type", "Select file type", false).Type, ctx);
     }
     pub const change_file_type_meta: Meta = .{ .description = "Change file type" };
 
@@ -728,14 +735,15 @@ const cmds = struct {
         if (!(ctx.args.match(.{tp.extract(&file_type_name)}) catch false))
             return tui.open_overlay(
                 @import("mode/overlay/file_type_palette.zig").Variant("open_file_type_config", "Edit file type", true).Type,
+                .empty_from(ctx),
             );
 
         const file_name = try file_type_config.get_config_file_path(self.allocator, file_type_name);
         defer self.allocator.free(file_name);
 
-        const file: ?std.Io.File = std.Io.Dir.openFileAbsolute(root.get_init().io, file_name, .{ .mode = .read_only }) catch null;
+        const file: ?std.Io.File = std.Io.Dir.openFileAbsolute(root.get_io(), file_name, .{ .mode = .read_only }) catch null;
         if (file) |f| {
-            f.close(root.get_init().io);
+            f.close(root.get_io());
             return tp.self_pid().send(.{ "cmd", "navigate", .{ .file = file_name } });
         }
 
@@ -743,7 +751,7 @@ const cmds = struct {
         defer self.allocator.free(content);
 
         tui.reset_drag_context();
-        try self.create_editor();
+        try self.create_editor(ctx.now);
         try command.executeName("open_scratch_buffer", command.fmt(.{
             file_name,
             content,
@@ -797,14 +805,14 @@ const cmds = struct {
             }
         }
 
-        try self.create_editor();
-        try command.executeName("open_scratch_buffer", .{ .args = args });
+        try self.create_editor(ctx.now);
+        try command.executeName("open_scratch_buffer", .{ .io = ctx.io, .now = ctx.now, .args = args });
         tui.need_render(@src());
         self.location_update_from_editor();
     }
     pub const create_scratch_buffer_meta: Meta = .{ .arguments = &.{ .string, .string, .string } };
 
-    pub fn create_new_file(self: *Self, _: Ctx) Result {
+    pub fn create_new_file(self: *Self, ctx: Ctx) Result {
         var n: usize = 1;
         var found_unique = false;
         var name: std.Io.Writer.Allocating = .init(self.allocator);
@@ -820,7 +828,7 @@ const cmds = struct {
         }
         try command.executeName("create_scratch_buffer", command.fmt(.{name.written()}));
         if (tp.env.get().str("language").len == 0)
-            try command.executeName("change_file_type", .{});
+            try command.executeName("change_file_type", .empty_from(ctx));
     }
     pub const create_new_file_meta: Meta = .{ .description = "New file" };
 
@@ -837,7 +845,7 @@ const cmds = struct {
         if (self.get_editor_for_file(file_path)) |editor| blk: {
             const editor_buffer = editor.buffer orelse break :blk;
             if (buffer == editor_buffer) {
-                try editor.save_file(.{});
+                try editor.save_file(.empty_from(ctx));
                 return;
             }
         }
@@ -849,7 +857,7 @@ const cmds = struct {
             if (!auto_save) logger.print("no changes to save", .{});
             return;
         }
-        try buffer.store_to_file_and_clean(file_path);
+        try buffer.store_to_file_and_clean(root.get_io(), file_path);
     }
     pub const save_buffer_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -861,6 +869,7 @@ const cmds = struct {
         if (self.get_active_editor()) |editor| {
             const buffer = editor.buffer orelse return;
             const content = buffer.store_to_string_cached(buffer.root, buffer.file_eol_mode);
+            const now = root.get_now();
 
             var existing = false;
             if (self.buffer_manager.get_buffer_for_file(file_path)) |new_buffer| {
@@ -872,7 +881,7 @@ const cmds = struct {
                 if (self.get_editor_for_buffer(new_buffer)) |other_editor|
                     other_editor.close_editor() catch {};
             }
-            try self.create_editor();
+            try self.create_editor(ctx.now);
             try command.executeName("open_scratch_buffer", command.fmt(.{
                 file_path,
                 "",
@@ -880,16 +889,16 @@ const cmds = struct {
             }));
             if (self.get_active_editor()) |new_editor| {
                 const new_buffer = new_editor.buffer orelse return;
-                if (existing) new_editor.update_buf(new_buffer.root) catch {}; // store an undo point
-                try new_buffer.reset_from_string_and_update(content);
+                if (existing) new_editor.update_buf(new_buffer.root, now) catch {}; // store an undo point
+                try new_buffer.reset_from_string_and_update(content, now);
                 new_buffer.mark_not_ephemeral();
                 new_buffer.mark_dirty();
-                new_editor.clamp();
-                new_editor.update_buf(new_buffer.root) catch {};
+                new_editor.clamp(ctx.now);
+                new_editor.update_buf(new_buffer.root, now) catch {};
                 tui.need_render(@src());
             }
-            try command.executeName("save_file", .{});
-            try command.executeName("place_next_tab", command.fmt(.{
+            try command.executeName("save_file", .empty_from(ctx));
+            try command.executeName("place_next_tab", .fmt(.{
                 if (buffer.is_ephemeral()) "before" else "after",
                 buffer.to_ref(),
             }));
@@ -910,7 +919,7 @@ const cmds = struct {
         if (buffer.is_dirty())
             return tp.exit("unsaved changes");
         if (self.get_editor_for_buffer(buffer)) |editor|
-            editor.close_file(.{}) catch |e| return e;
+            editor.close_file(.empty_from(ctx)) catch |e| return e;
         self.buffer_manager.delete_buffer(buffer);
         const logger = log.logger("buffer");
         defer logger.deinit();
@@ -927,7 +936,7 @@ const cmds = struct {
         if (buffer.is_dirty())
             return tp.exit("unsaved changes");
         if (self.get_editor_for_buffer(buffer)) |editor| {
-            editor.close_file(.{}) catch |e| return e;
+            editor.close_file(.empty_from(ctx)) catch |e| return e;
             return;
         }
         _ = self.buffer_manager.close_buffer(buffer);
@@ -936,7 +945,7 @@ const cmds = struct {
     pub const close_buffer_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn restore_session(self: *Self, _: Ctx) Result {
-        try self.read_restore_info();
+        try self.read_restore_info(root.get_io(), root.get_now());
         tui.need_render(@src());
     }
     pub const restore_session_meta: Meta = .{};
@@ -1097,9 +1106,9 @@ const cmds = struct {
     }
     pub const add_split_meta: Meta = .{ .description = "Add split view" };
 
-    pub fn close_split(self: *Self, _: Ctx) Result {
+    pub fn close_split(self: *Self, ctx: Ctx) Result {
         if (self.views.widgets.items.len == 1 and self.views.widgets.items[0].widget.dynamic_cast(home) != null)
-            return command.executeName("quit", .{});
+            return command.executeName("quit", .empty_from(ctx));
         self.remove_view(self.active_view);
     }
     pub const close_split_meta: Meta = .{ .description = "Close split view" };
@@ -1292,7 +1301,7 @@ const cmds = struct {
         file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
             self.symbols_complete = true;
-            try tui.open_overlay(@import("mode/overlay/symbol_palette.zig").Type);
+            try tui.open_overlay(@import("mode/overlay/symbol_palette.zig").Type, .empty_from(ctx));
             tui.need_render(@src());
         };
     }
@@ -1355,11 +1364,11 @@ const cmds = struct {
         var file_path_buf: [std.fs.max_path_bytes]u8 = undefined;
         file_path = project_manager.normalize_file_path(file_path, &file_path_buf);
         if (self.get_active_editor()) |editor| if (std.mem.eql(u8, file_path, editor.file_path orelse "")) {
-            const open_completions = try editor.add_completion_done();
+            const open_completions = try editor.add_completion_done(.empty_from(ctx));
             if (open_completions) {
                 switch (tui.config().completion_style) {
-                    .palette => try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type),
-                    .dropdown => try tui.open_overlay(@import("mode/overlay/completion_dropdown.zig").Type),
+                    .palette => try tui.open_overlay(@import("mode/overlay/completion_palette.zig").Type, .empty_from(ctx)),
+                    .dropdown => try tui.open_overlay(@import("mode/overlay/completion_dropdown.zig").Type, .empty_from(ctx)),
                 }
                 tui.need_render(@src());
             }
@@ -1575,7 +1584,7 @@ const cmds = struct {
         var root_ = buffer.root;
         _, _, root_ = try root_.insert_chars(cursor.row, cursor.col, output, self.allocator, metrics);
         buffer.store_undo(&[_]u8{}) catch {};
-        buffer.update(root_);
+        buffer.update(root_, root.get_now());
         tui.need_render(@src());
     }
     pub const shell_execute_stream_output_meta: Meta = .{ .arguments = &.{ .integer, .string } };
@@ -1586,7 +1595,7 @@ const cmds = struct {
             return error.InvalidShellOutputCompleteArgument;
         const buffer = self.buffer_manager.buffer_from_ref(buffer_ref) orelse return;
         if (self.get_editor_for_buffer(buffer)) |editor| {
-            editor.forced_mark_clean(.{}) catch {};
+            editor.forced_mark_clean(.empty_from(ctx)) catch {};
             return;
         }
         buffer.mark_clean();
@@ -1884,12 +1893,12 @@ pub fn walk(self: *Self, ctx: *anyopaque, f: Widget.WalkFn) bool {
     return self.floating_views.walk(ctx, f) or self.widgets.walk(ctx, f) or f(ctx, Widget.to(self));
 }
 
-fn close_all_editors(self: *Self) !void {
+fn close_all_editors(self: *Self, ctx: command.Context) !void {
     for (self.views.widgets.items) |*view| {
         const editor = view.widget.get("editor") orelse continue;
         if (editor.dynamic_cast(ed.EditorWidget)) |p| {
             p.editor.clear_diagnostics();
-            try p.editor.close_file(.{});
+            try p.editor.close_file(ctx);
         }
     }
 }
@@ -1965,11 +1974,11 @@ fn replace_active_view(self: *Self, widget: Widget) !void {
     if (self.views.get_at(n)) |view| view.focus();
 }
 
-fn create_editor(self: *Self) !void {
+fn create_editor(self: *Self, now: std.Io.Timestamp) !void {
     const frame = tracy.initZone(@src(), .{ .name = "create_editor" });
     defer frame.deinit();
-    command.executeName("enter_mode_default", .{}) catch {};
-    var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager);
+    command.executeName("enter_mode_default", .empty()) catch {};
+    var editor_widget = try ed.create(self.allocator, self.plane, &self.buffer_manager, now);
     errdefer editor_widget.deinit(self.allocator);
     const editor = editor_widget.get("editor") orelse @panic("mainview editor not found");
     if (self.top_bar) |*bar| editor.subscribe(EventHandler.to_unowned(bar)) catch @panic("subscribe unsupported");
@@ -2037,7 +2046,7 @@ pub const WriteStateError = error{
 
 pub fn write_restore_info(self: *Self) WriteStateError!void {
     const file_name = root.get_restore_file_name() catch return;
-    const io = root.get_init().io;
+    const io = root.get_io();
     var file = std.Io.Dir.createFileAbsolute(io, file_name, .{ .truncate = true }) catch return;
     defer file.close(io);
     var buf: [32 + 1024]u8 = undefined;
@@ -2079,9 +2088,8 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
     self.lsp_info.write_state(writer) catch return error.WriteFailed;
 }
 
-fn read_restore_info(self: *Self) !void {
+fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp) !void {
     const file_name = try root.get_restore_file_name();
-    const io = root.get_init().io;
     const file = try std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only });
     defer file.close(io);
     const stat = try file.stat(io);
@@ -2091,15 +2099,15 @@ fn read_restore_info(self: *Self) !void {
     defer self.allocator.free(buf);
     var iter: []const u8 = buf;
 
-    try self.extract_state(&iter, .with_project);
+    try self.extract_state(&iter, .with_project, now);
 }
 
-fn restore_state(self: *Self, state: []const u8) !void {
+fn restore_state(self: *Self, state: []const u8, now: std.Io.Timestamp) !void {
     var iter = state;
-    try self.extract_state(&iter, .no_project);
+    try self.extract_state(&iter, .no_project, now);
 }
 
-fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_project }) !void {
+fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_project }, now: std.Io.Timestamp) !void {
     const logger = log.logger("extract_state");
     defer logger.deinit();
     tp.trace(tp.channel.debug, .{ "mainview", "extract" });
@@ -2146,7 +2154,7 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
     logger.print("restored clipboard ({d} bytes)", .{prev_len - iter.len});
 
     prev_len = iter.len;
-    try self.buffer_manager.extract_state(iter);
+    try self.buffer_manager.extract_state(iter, now);
     logger.print("restored buffer manager ({d} bytes)", .{prev_len - iter.len});
 
     prev_len = iter.len;

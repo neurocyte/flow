@@ -32,7 +32,7 @@ pub fn Create(options: type) type {
             errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
-                .ctx = .{ .args = try ctx.args.clone(allocator) },
+                .ctx = .{ .io = ctx.io, .now = ctx.now, .args = try ctx.args.clone(allocator) },
                 .start = if (@hasDecl(options, "ValueType")) ValueType{} else 0,
             };
             self.start = options.start(self);
@@ -109,11 +109,11 @@ pub fn Create(options: type) type {
             }
             pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
-            pub fn mini_mode_cancel(self: *Self, _: Ctx) Result {
+            pub fn mini_mode_cancel(self: *Self, ctx: Ctx) Result {
                 self.input = null;
                 self.update_mini_mode_text();
                 options.cancel(self, self.ctx);
-                command.executeName("exit_mini_mode", .{}) catch {};
+                command.executeName("exit_mini_mode", ctx) catch {};
             }
             pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
@@ -159,9 +159,9 @@ pub fn Create(options: type) type {
             }
             pub const mini_mode_paste_meta: Meta = .{ .arguments = &.{.string} };
 
-            pub fn mini_mode_select(self: *Self, _: Ctx) Result {
+            pub fn mini_mode_select(self: *Self, ctx: Ctx) Result {
                 options.apply(self, self.ctx);
-                command.executeName("exit_mini_mode", .{}) catch {};
+                command.executeName("exit_mini_mode", ctx) catch {};
             }
             pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
         };

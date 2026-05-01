@@ -942,7 +942,7 @@ fn get_app_config_dir(appname: []const u8) ConfigDirError![]const u8 {
         var config_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var config_dir: ?[]const u8 = null;
     };
-    const io = get_init().io;
+    const io = get_io();
     const environ = get_init().environ_map;
     const config_dir = if (local.config_dir) |dir|
         dir
@@ -992,7 +992,7 @@ fn get_app_cache_dir(appname: []const u8) ![]const u8 {
         var cache_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var cache_dir: ?[]const u8 = null;
     };
-    const io = get_init().io;
+    const io = get_io();
     const environ = get_init().environ_map;
     const cache_dir = if (local.cache_dir) |dir|
         dir
@@ -1029,8 +1029,12 @@ pub fn get_init() std.process.Init {
     return global_init;
 }
 
+pub fn get_io() std.Io {
+    return get_init().io;
+}
+
 pub fn get_now() std.Io.Timestamp {
-    return std.Io.Clock.real.now(get_init().io);
+    return std.Io.Clock.real.now(get_io());
 }
 
 pub fn get_state_dir() ![]const u8 {
@@ -1042,7 +1046,7 @@ fn get_app_state_dir(appname: []const u8) ![]const u8 {
         var state_dir_buffer: [std.posix.PATH_MAX]u8 = undefined;
         var state_dir: ?[]const u8 = null;
     };
-    const io = get_init().io;
+    const io = get_io();
     const environ = get_init().environ_map;
     const state_dir = if (local.state_dir) |dir|
         dir
@@ -1192,15 +1196,15 @@ fn restart_win32() noreturn {
         executable,
         "--restore-session",
     };
-    const a = std.heap.c_allocator;
-    var child = std.process.Child.init(&argv, a);
-    child.stdin_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-    child.spawn() catch {
-        std.os.windows.kernel32.ExitProcess(1);
+    _ = std.process.spawn(get_io(), .{
+        .argv = &argv,
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    }) catch {
+        std.os.windows.ntdll.RtlExitUserProcess(1);
     };
-    std.os.windows.kernel32.ExitProcess(0);
+    std.os.windows.ntdll.RtlExitUserProcess(0);
 }
 
 fn restart_manual() noreturn {

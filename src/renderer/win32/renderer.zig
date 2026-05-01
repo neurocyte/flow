@@ -2,6 +2,7 @@ const Self = @This();
 pub const log_name = "renderer";
 
 const std = @import("std");
+const root = @import("soft_root").root;
 const cbor = @import("cbor");
 pub const vaxis = @import("vaxis");
 const Style = @import("theme").Style;
@@ -126,7 +127,7 @@ pub fn init(
     };
     var result: Self = .{
         .allocator = allocator,
-        .vx = try vaxis.init(allocator, opts),
+        .vx = try vaxis.init(root.get_io(), allocator, root.get_init().environ_map, opts),
         .event_buffer = .init(allocator),
         .handler_ctx = handler_ctx,
         .title_buf = .init(allocator),

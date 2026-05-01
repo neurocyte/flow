@@ -229,7 +229,7 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
         tp.trace(tp.channel.debug, .{ "restore_state_v1", "file", path_, mtime, row, col });
         const path = project_manager.normalize_file_path_dot_prefix(path_);
         self.longest_file_path = @max(self.longest_file_path, path.len);
-        const stat = std.Io.Dir.cwd().statFile(root.get_init().io, path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
+        const stat = std.Io.Dir.cwd().statFile(root.get_io(), path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
             error.FileNotFound => continue,
             else => {
                 try self.update_mru_internal(path, mtime, row, col);
@@ -300,7 +300,7 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
         tp.trace(tp.channel.debug, .{ "restore_state_v0", "file", path_, mtime, row, col });
         const path = project_manager.normalize_file_path_dot_prefix(path_);
         self.longest_file_path = @max(self.longest_file_path, path.len);
-        const stat = std.Io.Dir.cwd().statFile(root.get_init().io, path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
+        const stat = std.Io.Dir.cwd().statFile(root.get_io(), path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
             error.FileNotFound => continue,
             else => {
                 try self.update_mru_internal(path, mtime, row, col);
@@ -651,7 +651,7 @@ pub fn guess_path_file_type(path: []const u8, file_name: []const u8) struct { []
 pub fn guess_file_type(file_path: []const u8) struct { []const u8, []const u8, u24 } {
     var buf: [1024]u8 = undefined;
     const content: []const u8 = blk: {
-        const io = root.get_init().io;
+        const io = root.get_io();
         const file = std.Io.Dir.cwd().openFile(io, file_path, .{}) catch break :blk &.{};
         defer file.close(io);
         const size = safe_file_read(file, &buf) catch break :blk &.{};
@@ -789,7 +789,7 @@ fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
 
 pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) OutOfMemoryError!void {
     defer self.sort_files_by_mtime();
-    try self.update_mru_internal(file_path, @as(i128, std.Io.Clock.real.now(root.get_init().io).toNanoseconds()), row, col);
+    try self.update_mru_internal(file_path, @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds()), row, col);
 }
 
 fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usize, col: usize) OutOfMemoryError!void {
@@ -2765,7 +2765,7 @@ const eol = '\n';
 pub const GetLineOfFileError = (OutOfMemoryError || std.Io.File.OpenError || std.Io.File.ReadStreamingError || std.Io.File.StatError || std.Io.File.ReadPositionalError);
 
 fn get_line_of_file(allocator: std.mem.Allocator, file_path: []const u8, line_: usize) GetLineOfFileError![]const u8 {
-    const io = root.get_init().io;
+    const io = root.get_io();
     const line = line_ + 1;
     const file = try std.Io.Dir.cwd().openFile(io, file_path, .{});
     defer file.close(io);
@@ -2855,7 +2855,7 @@ pub fn process_git(self: *Self, parent: tp.pid_ref, m: tp.message) (OutOfMemoryE
     } else if (try m.match(.{ tp.any, tp.any, "workspace_files", tp.extract(&path) })) {
         self.longest_file_path = @max(self.longest_file_path, path.len);
         const mtime: i128 = blk: {
-            break :blk @as(i128, (std.Io.Dir.cwd().statFile(root.get_init().io, path, .{}) catch break :blk 0).mtime.nanoseconds);
+            break :blk @as(i128, (std.Io.Dir.cwd().statFile(root.get_io(), path, .{}) catch break :blk 0).mtime.nanoseconds);
         };
         const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(path);
         (try self.pending.addOne(self.allocator)).* = .{

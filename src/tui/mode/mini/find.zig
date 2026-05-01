@@ -14,6 +14,7 @@ const Allocator = @import("std").mem.Allocator;
 const eql = @import("std").mem.eql;
 const ArrayList = @import("std").ArrayList;
 const Writer = @import("std").Io.Writer;
+const Timestamp = @import("std").Io.Timestamp;
 
 const Self = @This();
 const name = "󱎸 find";
@@ -92,8 +93,9 @@ pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
 
     defer self.update_mini_mode_text();
 
+    const ctx: command.Context = .empty();
     if (try m.match(.{"F"})) {
-        self.flush_input() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.flush_input(ctx.now) catch |e| return tp.exit_error(e, @errorReturnTrace());
     } else if (try m.match(.{ "system_clipboard", tp.extract(&text) })) {
         self.insert_bytes(text) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
@@ -110,7 +112,7 @@ fn insert_bytes(self: *Self, bytes: []const u8) !void {
     try self.input_.appendSlice(self.allocator, bytes);
 }
 
-fn flush_input(self: *Self) !void {
+fn flush_input(self: *Self, now: Timestamp) !void {
     if (self.input_.items.len > 0) {
         if (eql(u8, self.input_.items, self.last_input.items))
             return;
@@ -124,9 +126,9 @@ fn flush_input(self: *Self) !void {
             .auto => self.auto_detect_mode(),
             .exact => .exact,
             .case_folded => .case_folded,
-        });
+        }, .empty());
     } else {
-        self.reset();
+        self.reset(now);
     }
 }
 
@@ -138,20 +140,20 @@ fn auto_detect_mode(self: *Self) Buffer.FindMode {
 }
 
 fn cmd(self: *Self, name_: []const u8, ctx: command.Context) tp.result {
-    self.flush_input() catch {};
+    self.flush_input(ctx.now) catch {};
     return command.executeName(name_, ctx);
 }
 
-fn reset(self: *Self) void {
+fn reset(self: *Self, now: Timestamp) void {
     self.editor.get_primary().selection = null;
     self.editor.get_primary().cursor = self.start_cursor;
-    self.editor.scroll_to(self.start_view.row);
+    self.editor.scroll_to(self.start_view.row, now);
     self.editor.clear_matches();
 }
 
-fn cancel(self: *Self) void {
-    self.reset();
-    command.executeName("exit_mini_mode", .{}) catch {};
+fn cancel(self: *Self, ctx: command.Context) void {
+    self.reset(ctx.now);
+    command.executeName("exit_mini_mode", ctx) catch {};
 }
 
 fn find_history_prev(self: *Self) void {
@@ -198,7 +200,7 @@ const cmds = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
-    pub fn toggle_find_mode(self: *Self, _: Ctx) Result {
+    pub fn toggle_find_mode(self: *Self, ctx: Ctx) Result {
         const new_find_mode: Buffer.FindMode = switch (self.find_mode) {
             .exact => .case_folded,
             .case_folded => .exact,
@@ -210,7 +212,7 @@ const cmds = struct {
         const allocator = self.allocator;
         const query = try allocator.dupe(u8, self.input_.items);
         defer allocator.free(query);
-        self.cancel();
+        self.cancel(ctx);
         command.executeName("find", command.fmt(.{ new_find_mode, query })) catch {};
     }
     pub const toggle_find_mode_meta: Meta = .{ .description = "Toggle find mode" };
@@ -221,14 +223,14 @@ const cmds = struct {
     }
     pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
-    pub fn mini_mode_cancel(self: *Self, _: Ctx) Result {
-        self.cancel();
+    pub fn mini_mode_cancel(self: *Self, ctx: Ctx) Result {
+        self.cancel(ctx);
     }
     pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
-    pub fn mini_mode_select(self: *Self, _: Ctx) Result {
+    pub fn mini_mode_select(self: *Self, ctx: Ctx) Result {
         self.editor.push_find_history(self.input_.items);
-        self.cmd("exit_mini_mode", .{}) catch {};
+        self.cmd("exit_mini_mode", ctx) catch {};
     }
     pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
 

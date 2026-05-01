@@ -409,6 +409,7 @@ pub fn build_exe(
             .{ .name = "thespian", .module = thespian_mod },
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "soft_root", .module = soft_root_mod },
         },
     });
 
@@ -700,6 +701,7 @@ pub fn build_exe(
         tests.root_module.addImport("log", log_mod);
         tests.root_module.addImport("Buffer", Buffer_mod);
         tests.root_module.addImport("config", config_mod);
+        tests.root_module.addImport("soft_root", soft_root_mod);
         // b.installArtifact(tests);
         break :blk b.addRunArtifact(tests);
     };
@@ -823,6 +825,13 @@ pub fn build_exe(
         },
     });
 
+    const c_step = b.addTranslateC(.{
+        .root_source_file = b.path("src/c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const c_mod = c_step.createModule();
+
     const exe_name = if (renderer != .terminal) "flow-gui" else "flow";
 
     const exe = b.addExecutable(.{
@@ -864,12 +873,7 @@ pub fn build_exe(
     exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
     exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
 
-    const c_step = b.addTranslateC(.{
-        .root_source_file = b.path("src/c.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.root_module.addImport("c", c_step.createModule());
+    exe.root_module.addImport("c", c_mod);
 
     if (target.result.os.tag == .windows) {
         exe.root_module.addWin32ResourceFile(.{
@@ -921,6 +925,7 @@ pub fn build_exe(
     check_exe.root_module.addImport("bin_path", bin_path_mod);
     check_exe.root_module.addImport("version", b.createModule(.{ .root_source_file = version_file }));
     check_exe.root_module.addImport("version_info", b.createModule(.{ .root_source_file = version_info_file }));
+    check_exe.root_module.addImport("c", c_mod);
     check_step.dependOn(&check_exe.step);
 
     const tests = b.addTest(.{

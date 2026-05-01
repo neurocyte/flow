@@ -165,7 +165,7 @@ pub fn focus(self: *Self) void {
 pub fn unfocus(self: *Self) void {
     if (self.focused) self.commands.unregister();
     self.focused = false;
-    command.executeName("enter_mode_default", .{}) catch {};
+    command.executeName("enter_mode_default", .empty()) catch {};
     self.menu.selected = null;
 }
 
@@ -304,7 +304,7 @@ fn menu_action(_: **Menu.State(*Self), button: *ButtonType, _: Widget.Pos) void 
     if (!(cbor.matchString(&iter, &command_name) catch false))
         command_name = "";
 
-    command.executeName(command_name, .{}) catch {};
+    command.executeName(command_name, .empty()) catch {};
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
@@ -429,7 +429,7 @@ const cmds = struct {
 
     pub fn save_all(_: *Self, _: Ctx) Result {
         if (tui.get_buffer_manager()) |bm|
-            bm.save_all() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            bm.save_all(root.get_io()) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     pub const save_all_meta: Meta = .{ .description = "Save all changed files" };
 

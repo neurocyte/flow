@@ -69,7 +69,7 @@ const global = struct {
     var screen: vaxis.Screen = .{};
 
     var render_cells_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    var render_cells: std.ArrayListUnmanaged(render.Cell) = .{};
+    var render_cells: std.ArrayList(render.Cell) = .empty;
 };
 const window_style_ex = win32.WINDOW_EX_STYLE{
     .APPWINDOW = 1,
@@ -781,7 +781,7 @@ fn sendKey(
             winkey.vk == @intFromEnum(win32.VK_MENU) or
             winkey.vk == @intFromEnum(win32.VK_RMENU))
         {
-            std.log.debug("dropped AltGr key event: {!t} {t}", .{ std.meta.intToEnum(win32.VIRTUAL_KEY, winkey.vk), kind });
+            std.log.debug("dropped AltGr key event: {?t} {t}", .{ std.enums.fromInt(win32.VIRTUAL_KEY, winkey.vk), kind });
             return;
         }
     }

@@ -12,6 +12,6 @@ pub fn name(_: *Type) []const u8 {
 }
 
 pub fn process_egc(_: *Type, egc: []const u8) command.Result {
-    try command.executeName("underline_with_char", command.fmt(.{ egc, "solid" }));
-    try command.executeName("exit_mini_mode", .{});
+    try command.executeName("underline_with_char", .fmt(.{ egc, "solid" }));
+    try command.executeName("exit_mini_mode", .empty());
 }

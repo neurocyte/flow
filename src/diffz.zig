@@ -113,7 +113,7 @@ pub fn diff(allocator: std.mem.Allocator, dst: []const u8, src: []const u8) erro
     var diffs: std.ArrayList(Diff) = .empty;
     errdefer diffs.deinit(allocator);
 
-    var dmp = diffz.initDefault(root.get_init().io, arena);
+    var dmp = diffz.initDefault(root.get_io(), arena);
     var diff_list = try diffz.diff(&dmp, src, dst, false, .{ .duration = .{ .clock = .real, .raw = .fromSeconds(60) } });
     try diffz.diffCleanupSemanticLossless(arena, &diff_list);
 

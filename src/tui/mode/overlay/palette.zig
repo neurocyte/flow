@@ -78,7 +78,7 @@ pub fn Create(options: type) type {
         pub const Pos = Widget.Pos;
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
-            return create_with_args(allocator, .{});
+            return create_with_args(allocator, .empty());
         }
 
         pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui.Mode {
@@ -323,7 +323,7 @@ pub fn Create(options: type) type {
         }
 
         fn mouse_palette_menu_cancel(self: *Self, _: *ModalBackground.State(*Self)) void {
-            self.cmd("palette_menu_cancel", .{}) catch {};
+            self.cmd("palette_menu_cancel", .empty()) catch {};
         }
 
         pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
@@ -577,7 +577,7 @@ pub fn Create(options: type) type {
             }
             pub const palette_menu_top_meta: Meta = .{};
 
-            pub fn palette_menu_delete_item(self: *Self, _: Ctx) Result {
+            pub fn palette_menu_delete_item(self: *Self, ctx: Ctx) Result {
                 if (@hasDecl(options, "delete_item")) {
                     const button = self.menu.get_selected() orelse return;
                     const refresh = options.delete_item(self.menu, button);
@@ -589,7 +589,7 @@ pub fn Create(options: type) type {
                                 self.initial_selected = self.menu.selected;
                             try self.start_query(0);
                         } else {
-                            return palette_menu_cancel(self, .{});
+                            return palette_menu_cancel(self, ctx);
                         }
                     }
                 }
@@ -623,9 +623,9 @@ pub fn Create(options: type) type {
             }
             pub const palette_menu_activate_quick_meta: Meta = .{};
 
-            pub fn palette_menu_cancel(self: *Self, _: Ctx) Result {
-                if (@hasDecl(options, "cancel")) try options.cancel(self);
-                try self.cmd("exit_overlay_mode", .{});
+            pub fn palette_menu_cancel(self: *Self, ctx: Ctx) Result {
+                if (@hasDecl(options, "cancel")) try options.cancel(self, ctx);
+                try self.cmd("exit_overlay_mode", .empty_from(ctx));
             }
             pub const palette_menu_cancel_meta: Meta = .{};
 

@@ -360,14 +360,15 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
         values.textEdit_newText
     else
         values.label;
-    self.value.editor.insert_completion(sel, text, values.insertTextFormat) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    const ctx: command.Context = .empty();
+    self.value.editor.insert_completion(sel, text, values.insertTextFormat, ctx.now) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| self.logger.err(module_name, e);
 }
 
 pub fn updated(self: *Type, button_: ?*Type.ButtonType) !void {
-    const button = button_ orelse return cancel(self);
+    const button = button_ orelse return cancel(self, .empty());
     const mv = tui.mainview() orelse return;
     const values = get_values(button.opts.label);
     switch (tui.config().completion_info_mode) {
@@ -428,7 +429,7 @@ fn show_info_box(self: *Type, button: *Type.ButtonType, values: Values) !void {
     });
 }
 
-pub fn cancel(_: *Type) !void {
+pub fn cancel(_: *Type, _: command.Context) !void {
     const editor = tui.get_active_editor() orelse return;
     editor.cancel_all_matches();
     const mv = tui.mainview() orelse return;

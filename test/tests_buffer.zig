@@ -38,13 +38,15 @@ fn get_big_doc(eol_mode: *Buffer.EolMode) !*Buffer {
         try doc.writer.print("this is line {d}\n", .{line_num});
     }
 
-    var buf = try Buffer.create(a);
+    const now = std.Io.Clock.real.now(std.testing.io);
+    var buf = try Buffer.create(a, now);
     var sanitized: bool = false;
-    buf.update(try buf.load_from_string(doc.written(), eol_mode, &sanitized));
+    buf.update(try buf.load_from_string(doc.written(), eol_mode, &sanitized), now);
     return buf;
 }
 
 test "buffer" {
+    const now = std.Io.Clock.real.now(std.testing.io);
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -61,12 +63,12 @@ test "buffer" {
     ;
     var eol_mode: Buffer.EolMode = .lf;
     var sanitized: bool = false;
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
     const root = try buffer.load_from_string(doc, &eol_mode, &sanitized);
 
     try std.testing.expect(root.is_balanced());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const result: []const u8 = buffer.store_to_string_cached(buffer.root, eol_mode);
     try std.testing.expectEqualDeep(result, doc);
@@ -75,27 +77,30 @@ test "buffer" {
 }
 
 test "buffer.store_to_file_and_clean" {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const now = std.Io.Clock.real.now(std.testing.io);
     const local = struct {
-        fn read_file(allocator: std.mem.Allocator, file_path: []const u8) ![]const u8 {
-            const file = try std.fs.cwd().openFile(file_path, .{ .mode = .read_only });
-            defer file.close();
-            const stat = try file.stat();
+        fn read_file(allocator: std.mem.Allocator, file_path: []const u8, _io: std.Io) ![]const u8 {
+            const file = try std.Io.Dir.cwd().openFile(_io, file_path, .{ .mode = .read_only });
+            defer file.close(_io);
+            const stat = try file.stat(_io);
             const buf = try allocator.alloc(u8, @intCast(stat.size));
             errdefer allocator.free(buf);
-            const read_size = try file.readAll(buf);
-            try std.testing.expectEqual(read_size, stat.size);
+            var read_buf: [4096]u8 = undefined;
+            var reader = file.reader(_io, &read_buf);
+            try reader.interface.readSliceAll(buf);
             return buf;
         }
     };
 
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    try buffer.load_from_file_and_update("test/tests_buffer_input.txt");
-    try buffer.store_to_file_and_clean("test/tests_buffer_output.txt");
+    try buffer.load_from_file_and_update(io, "test/tests_buffer_input.txt", now);
+    try buffer.store_to_file_and_clean(io, "test/tests_buffer_output.txt");
 
-    const input = try local.read_file(a, "test/tests_buffer_input.txt");
+    const input = try local.read_file(a, "test/tests_buffer_input.txt", io);
     defer a.free(input);
-    const output = try local.read_file(a, "test/tests_buffer_output.txt");
+    const output = try local.read_file(a, "test/tests_buffer_output.txt", io);
     defer a.free(output);
     try std.testing.expectEqualStrings(input, output);
 }
@@ -103,14 +108,19 @@ test "buffer.store_to_file_and_clean" {
 test "buffer.store_to_file_and_clean preserves file mode" {
     if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
 
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const now = std.Io.Clock.real.now(std.testing.io);
     const tmp_path = "test/tmp_mode_test.txt";
     {
-        const f = try std.fs.cwd().createFile(tmp_path, .{});
-        defer f.close();
-        try f.writeAll("hello\n");
-        try f.chmod(0o644);
+        const f = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
+        defer f.close(io);
+        var write_buf: [4096]u8 = undefined;
+        var writer = f.writer(io, &write_buf);
+        try writer.interface.writeAll("hello\n");
+        try writer.interface.flush();
+        try f.setPermissions(io, std.Io.File.Permissions.fromMode(0o644));
     }
-    defer std.fs.cwd().deleteFile(tmp_path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(io, tmp_path) catch {};
 
     // Set a umask that would strip group/other read bits (0o644 -> 0o600 without the fix)
     // to verify that fchmod bypasses the process umask on save.
@@ -122,15 +132,16 @@ test "buffer.store_to_file_and_clean preserves file mode" {
         _ = std.os.linux.syscall1(.umask, prev_umask);
     };
 
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    try buffer.load_from_file_and_update(tmp_path);
-    try buffer.store_to_file_and_clean(tmp_path);
+    try buffer.load_from_file_and_update(io, tmp_path, now);
+    try buffer.store_to_file_and_clean(io, tmp_path);
 
-    const f = try std.fs.cwd().openFile(tmp_path, .{});
-    defer f.close();
-    const stat = try std.posix.fstat(f.handle);
-    try std.testing.expectEqual(@as(std.posix.mode_t, 0o644), stat.mode & 0o777);
+    const f = try std.Io.Dir.cwd().openFile(io, tmp_path, .{});
+    defer f.close(io);
+    const stat = try f.stat(io);
+    const mode = @intFromEnum(stat.permissions);
+    try std.testing.expectEqual(@as(std.posix.mode_t, 0o644), mode & 0o777);
 }
 
 fn get_line(buf: *const Buffer, line: usize) ![]const u8 {
@@ -165,6 +176,7 @@ test "walk_from_line" {
 }
 
 test "line_len" {
+    const now = std.Io.Clock.real.now(std.testing.io);
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -181,15 +193,16 @@ test "line_len" {
     ;
     var eol_mode: Buffer.EolMode = .lf;
     var sanitized: bool = false;
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
 
     try std.testing.expectEqual(try buffer.root.line_width(0, metrics()), 8);
     try std.testing.expectEqual(try buffer.root.line_width(1, metrics()), 5);
 }
 
 test "get_byte_pos" {
+    const now = std.Io.Clock.real.now(std.testing.io);
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -206,9 +219,9 @@ test "get_byte_pos" {
     ;
     var eol_mode: Buffer.EolMode = .lf;
     var sanitized: bool = false;
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
 
     try std.testing.expectEqual(0, try buffer.root.get_byte_pos(.{ .row = 0, .col = 0 }, metrics(), eol_mode));
     try std.testing.expectEqual(9, try buffer.root.get_byte_pos(.{ .row = 1, .col = 0 }, metrics(), eol_mode));
@@ -227,6 +240,7 @@ test "get_byte_pos" {
 }
 
 test "delete_bytes" {
+    const now = std.Io.Clock.real.now(std.testing.io);
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -243,25 +257,25 @@ test "delete_bytes" {
     ;
     var eol_mode: Buffer.EolMode = .lf;
     var sanitized: bool = false;
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
 
-    buffer.update(try buffer.root.delete_bytes(3, try buffer.root.line_width(3, metrics()) - 1, 1, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(3, try buffer.root.line_width(3, metrics()) - 1, 1, buffer.allocator, metrics()), now);
     const line3 = try get_line(buffer, 3);
     defer a.free(line3);
     try std.testing.expect(std.mem.eql(u8, line3, "us"));
 
-    buffer.update(try buffer.root.delete_bytes(3, 0, 7, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(3, 0, 7, buffer.allocator, metrics()), now);
     const line3_1 = try get_line(buffer, 3);
     defer a.free(line3_1);
     try std.testing.expect(std.mem.eql(u8, line3_1, "your"));
 
     try std.testing.expect(buffer.root.is_balanced());
-    buffer.update(try buffer.root.rebalance(buffer.allocator, buffer.allocator));
+    buffer.update(try buffer.root.rebalance(buffer.allocator, buffer.allocator), now);
     try std.testing.expect(buffer.root.is_balanced());
 
-    buffer.update(try buffer.root.delete_bytes(0, try buffer.root.line_width(0, metrics()) - 1, 2, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(0, try buffer.root.line_width(0, metrics()) - 1, 2, buffer.allocator, metrics()), now);
     const line0 = try get_line(buffer, 0);
     defer a.free(line0);
     try std.testing.expect(std.mem.eql(u8, line0, "All youropes"));
@@ -274,6 +288,7 @@ fn check_line(buffer: *const Buffer, line_no: usize, expect: []const u8) !void {
 }
 
 test "delete_bytes2" {
+    const now = std.Io.Clock.real.now(std.testing.io);
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -290,11 +305,11 @@ test "delete_bytes2" {
     ;
     var eol_mode: Buffer.EolMode = .lf;
     var sanitized: bool = false;
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
 
-    buffer.update(try buffer.root.delete_bytes(2, try buffer.root.line_width(2, metrics()) - 3, 6, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(2, try buffer.root.line_width(2, metrics()) - 3, 6, buffer.allocator, metrics()), now);
 
     try check_line(buffer, 2, "are belong!");
     try check_line(buffer, 3, "All your");
@@ -302,6 +317,7 @@ test "delete_bytes2" {
 }
 
 test "delete_bytes_with_tab_issue83" {
+    const now = std.Io.Clock.real.now(std.testing.io);
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -314,9 +330,9 @@ test "delete_bytes_with_tab_issue83" {
     ;
     var eol_mode: Buffer.EolMode = .lf;
     var sanitized: bool = false;
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
 
     const len = blk: {
         const line2 = try get_line(buffer, 2);
@@ -330,76 +346,77 @@ test "delete_bytes_with_tab_issue83" {
             line4.len + 1;
     };
 
-    buffer.update(try buffer.root.delete_bytes(2, 0, len, buffer.allocator, metrics()));
+    buffer.update(try buffer.root.delete_bytes(2, 0, len, buffer.allocator, metrics()), now);
 
     try check_line(buffer, 2, "ropes");
 }
 
 test "insert_chars" {
+    const now = std.Io.Clock.real.now(std.testing.io);
     const doc: []const u8 =
         \\B
     ;
     var eol_mode: Buffer.EolMode = .lf;
     var sanitized: bool = false;
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
 
     const line0 = try get_line(buffer, 0);
     defer a.free(line0);
     try std.testing.expect(std.mem.eql(u8, line0, "B"));
 
     _, _, var root = try buffer.root.insert_chars(0, 0, "1", buffer.allocator, metrics());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const line1 = try get_line(buffer, 0);
     defer a.free(line1);
     try std.testing.expect(std.mem.eql(u8, line1, "1B"));
 
     _, _, root = try root.insert_chars(0, 1, "2", buffer.allocator, metrics());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const line2 = try get_line(buffer, 0);
     defer a.free(line2);
     try std.testing.expect(std.mem.eql(u8, line2, "12B"));
 
     _, _, root = try root.insert_chars(0, 2, "3", buffer.allocator, metrics());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const line3 = try get_line(buffer, 0);
     defer a.free(line3);
     try std.testing.expect(std.mem.eql(u8, line3, "123B"));
 
     _, _, root = try root.insert_chars(0, 3, "4", buffer.allocator, metrics());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const line4 = try get_line(buffer, 0);
     defer a.free(line4);
     try std.testing.expect(std.mem.eql(u8, line4, "1234B"));
 
     _, _, root = try root.insert_chars(0, 4, "5", buffer.allocator, metrics());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const line5 = try get_line(buffer, 0);
     defer a.free(line5);
     try std.testing.expect(std.mem.eql(u8, line5, "12345B"));
 
     _, _, root = try root.insert_chars(0, 5, "6", buffer.allocator, metrics());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const line6 = try get_line(buffer, 0);
     defer a.free(line6);
     try std.testing.expect(std.mem.eql(u8, line6, "123456B"));
 
     _, _, root = try root.insert_chars(0, 6, "7", buffer.allocator, metrics());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const line7 = try get_line(buffer, 0);
     defer a.free(line7);
     try std.testing.expect(std.mem.eql(u8, line7, "1234567B"));
 
     const line, const col, root = try buffer.root.insert_chars(0, 7, "8\n9", buffer.allocator, metrics());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const line8 = try get_line(buffer, 0);
     defer a.free(line8);
@@ -412,6 +429,7 @@ test "insert_chars" {
 }
 
 test "get_from_pos" {
+    const now = std.Io.Clock.real.now(std.testing.io);
     var eol_mode: Buffer.EolMode = .lf;
     const buffer = try get_big_doc(&eol_mode);
     defer buffer.deinit();
@@ -432,13 +450,14 @@ test "get_from_pos" {
     try std.testing.expectEqualDeep(result2[0 .. line1.len - 5], line1[5..]);
 
     _, _, const root = try buffer.root.insert_chars(1, 3, " ", buffer.allocator, metrics());
-    buffer.update(root);
+    buffer.update(root, now);
 
     const result3 = buffer.root.get_from_pos(.{ .row = 1, .col = 5 }, &result_buf, metrics());
     try std.testing.expectEqualDeep(result3[0 .. line1.len - 4], line1[4..]);
 }
 
 test "byte_offset_to_line_and_col" {
+    const now = std.Io.Clock.real.now(std.testing.io);
     const doc: []const u8 =
         \\All your
         \\ropes
@@ -455,9 +474,9 @@ test "byte_offset_to_line_and_col" {
     ;
     var eol_mode: Buffer.EolMode = .lf;
     var sanitized: bool = false;
-    const buffer = try Buffer.create(a);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
 
     try std.testing.expectEqual(Buffer.Cursor{ .row = 0, .col = 0 }, buffer.root.byte_offset_to_line_and_col(0, metrics(), eol_mode));
     try std.testing.expectEqual(Buffer.Cursor{ .row = 0, .col = 8 }, buffer.root.byte_offset_to_line_and_col(8, metrics(), eol_mode));

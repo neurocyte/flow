@@ -9,6 +9,7 @@ pub const root = struct {
     pub const application_subtext = if (@hasDecl(hard_root, "application_subtext")) hard_root.application_subtext else dummy.application_subtext;
 
     pub const get_init = if (@hasDecl(hard_root, "get_init")) hard_root.get_init else dummy.get_init;
+    pub const get_io = if (@hasDecl(hard_root, "get_io")) hard_root.get_io else dummy.get_io;
     pub const get_now = if (@hasDecl(hard_root, "get_now")) hard_root.get_now else dummy.get_now;
     pub const get_state_dir = if (@hasDecl(hard_root, "get_state_dir")) hard_root.get_state_dir else dummy.get_state_dir;
     pub const get_config_dir = if (@hasDecl(hard_root, "get_config_dir")) hard_root.get_config_dir else dummy.get_config_dir;
@@ -64,7 +65,15 @@ const dummy = struct {
         @panic("dummy get_init call");
     }
 
+    pub fn get_io() std.Io {
+        if (@import("builtin").is_test)
+            return std.Io.Threaded.global_single_threaded.io();
+        @panic("dummy get_io call");
+    }
+
     pub fn get_now() std.Io.Timestamp {
+        if (@import("builtin").is_test)
+            return std.Io.Timestamp.now(std.Io.Threaded.global_single_threaded.io(), .real);
         @panic("dummy get_now call");
     }
 

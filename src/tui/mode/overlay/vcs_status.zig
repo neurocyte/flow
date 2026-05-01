@@ -336,8 +336,8 @@ const cmds = struct {
     }
     pub const palette_menu_activate_quick_meta: Meta = .{};
 
-    pub fn palette_menu_cancel(self: *Self, _: Ctx) Result {
-        try self.cmd("exit_overlay_mode", .{});
+    pub fn palette_menu_cancel(self: *Self, ctx: Ctx) Result {
+        try self.cmd("exit_overlay_mode", ctx);
     }
     pub const palette_menu_cancel_meta: Meta = .{};
 

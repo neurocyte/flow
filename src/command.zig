@@ -2,6 +2,7 @@ const std = @import("std");
 const tp = @import("thespian");
 const log = @import("log");
 const cbor = @import("cbor");
+const root = @import("soft_root").root;
 
 pub var log_execute: bool = false;
 pub var context_check: ?*const fn () void = null;
@@ -12,11 +13,37 @@ pub const ID_unknown = std.math.maxInt(ID);
 pub const Result = anyerror!void;
 pub const Context = struct {
     args: tp.message = .{},
+    io: std.Io,
+    now: std.Io.Timestamp,
+
+    pub fn init(args: tp.message) @This() {
+        const io = root.get_io();
+        return .{
+            .args = args,
+            .io = io,
+            .now = std.Io.Clock.real.now(io),
+        };
+    }
+
+    pub fn empty() @This() {
+        const io = root.get_io();
+        return .{
+            .io = io,
+            .now = std.Io.Clock.real.now(io),
+        };
+    }
+
+    pub fn empty_from(ctx: @This()) @This() {
+        return .{
+            .io = ctx.io,
+            .now = ctx.now,
+        };
+    }
 
     pub fn fmt(value: anytype) Context {
         context_buffer.clearRetainingCapacity();
         cbor.writeValue(&context_buffer.writer, value) catch @panic("command.Context.fmt failed");
-        return .{ .args = .{ .buf = context_buffer.written() } };
+        return init(.{ .buf = context_buffer.written() });
     }
 
     fn fmtbuf(buf: []u8, value: anytype) error{CommandContextBufferNoSpaceLeft}!Context {
@@ -24,7 +51,7 @@ pub const Context = struct {
         cbor.writeValue(&writer, value) catch |e| return switch (e) {
             error.WriteFailed => error.CommandContextBufferNoSpaceLeft,
         };
-        return .{ .args = .{ .buf = writer.buffered() } };
+        return init(.{ .buf = writer.buffered() });
     }
 };
 

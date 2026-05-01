@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const win32 = @import("win32").everything;
 const win32ext = @import("win32ext.zig");
+const root = @import("soft_root").root;
 
 const dwrite = @import("dwrite.zig");
 const GlyphIndexCache = @import("GlyphIndexCache");
@@ -514,12 +515,19 @@ const Shaders = struct {
         defer arena.deinit();
         const shader_source: []const u8 = blk: {
             if (maybe_file_path) |file_path| {
-                var file = std.fs.cwd().openFileZ(file_path, .{}) catch |e| std.debug.panic(
+                const io = root.get_io();
+                const file = std.Io.Dir.cwd().openFile(io, file_path, .{}) catch |e| std.debug.panic(
                     "failed to open --shader '{s}' with {s}",
                     .{ file_path, @errorName(e) },
                 );
-                defer file.close();
-                break :blk file.readToEndAlloc(arena.allocator(), std.math.maxInt(usize)) catch |e| std.debug.panic(
+                defer file.close(io);
+                const stat = file.stat(io) catch |e| std.debug.panic(
+                    "failed to stat --shader '{s}' with {s}",
+                    .{ file_path, @errorName(e) },
+                );
+                var read_buf: [4096]u8 = undefined;
+                var reader = file.reader(io, &read_buf);
+                break :blk reader.interface.readAlloc(arena.allocator(), @intCast(stat.size)) catch |e| std.debug.panic(
                     "read --shader '{s}' failed with {s}",
                     .{ file_path, @errorName(e) },
                 );

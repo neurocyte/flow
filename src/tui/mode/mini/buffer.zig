@@ -2,7 +2,6 @@ const std = @import("std");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 const log = @import("log");
-const root = @import("soft_root").root;
 
 const input = @import("input");
 const keybind = @import("keybind");
@@ -77,8 +76,8 @@ pub fn Create(options: type) type {
             }
             pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
-            pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
-                command.executeName("exit_mini_mode", .{}) catch {};
+            pub fn mini_mode_cancel(_: *Self, ctx: Ctx) Result {
+                command.executeName("exit_mini_mode", ctx) catch {};
             }
             pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 

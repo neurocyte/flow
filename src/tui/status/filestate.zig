@@ -67,11 +67,11 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
 }
 
 fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
-    command.executeName("open_recent", .{}) catch {};
+    command.executeName("open_recent", .empty()) catch {};
 }
 
 fn on_click2(_: *Self, _: *ButtonType, _: Widget.Pos) void {
-    command.executeName("close_file", .{}) catch {};
+    command.executeName("close_file", .empty()) catch {};
 }
 
 fn on_click3(self: *Self, _: *ButtonType, _: Widget.Pos) void {

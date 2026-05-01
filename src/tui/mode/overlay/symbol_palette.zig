@@ -171,13 +171,13 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
-    const button = button_ orelse return cancel(palette);
+    const button = button_ orelse return cancel(palette, .empty());
     _, _, _, const sel, _ = get_values(button.opts.label);
     tp.self_pid().send(.{ "cmd", "focus_on_range", .{ sel.begin.row, sel.begin.col, sel.end.row, sel.end.col } }) catch {};
 }
 
-pub fn cancel(palette: *Type) !void {
+pub fn cancel(palette: *Type, ctx: command.Context) !void {
     const editor = tui.get_active_editor() orelse return;
     editor.clear_matches();
-    editor.update_scroll_dest_abs(palette.value.view.row);
+    editor.update_scroll_dest_abs(palette.value.view.row, ctx.now);
 }

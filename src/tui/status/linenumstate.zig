@@ -75,7 +75,7 @@ pub fn create(allocator: Allocator, parent: Plane, event_handler: ?EventHandler,
 }
 
 fn on_click(_: *Self, _: *ButtonType, _: Widget.Pos) void {
-    command.executeName("goto", .{}) catch {};
+    command.executeName("goto", .empty()) catch {};
 }
 
 pub fn layout(self: *Self, btn: *ButtonType) Widget.Layout {

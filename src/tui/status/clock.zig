@@ -36,7 +36,7 @@ pub fn create(allocator: std.mem.Allocator, parent: Plane, event_handler: ?Event
         .allocator = allocator,
         .plane = try Plane.init(&(Widget.Box{}).opts(@typeName(Self)), parent),
         .on_event = event_handler,
-        .tz = zeit.local(allocator, root.get_init().io, env) catch |e| {
+        .tz = zeit.local(allocator, root.get_io(), env) catch |e| {
             std.log.err("clock: zeit.local failed with {any}", .{e});
             return error.WidgetInitFailed;
         },
@@ -80,7 +80,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
     self.plane.fill(" ");
     self.plane.home();
 
-    const now = zeit.instant(root.get_init().io, .{ .timezone = &self.tz }) catch return false;
+    const now = zeit.instant(root.get_io(), .{ .timezone = &self.tz }) catch return false;
     const dt = now.time();
 
     var buf: [64]u8 = undefined;
@@ -107,7 +107,7 @@ fn update_tick_timer(self: *Self, event: enum { init, ticked }) void {
         t.deinit();
         self.tick_timer = null;
     }
-    const current = zeit.instant(root.get_init().io, .{ .timezone = &self.tz }) catch return;
+    const current = zeit.instant(root.get_io(), .{ .timezone = &self.tz }) catch return;
     var next = current.time();
     next.minute += 1;
     next.second = 0;

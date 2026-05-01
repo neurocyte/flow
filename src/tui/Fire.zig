@@ -35,7 +35,7 @@ pub fn init(allocator: std.mem.Allocator, plane: Plane) !Fire {
         .plane = plane,
         .prng = std.Random.DefaultPrng.init(blk: {
             var seed: u64 = undefined;
-            std.Io.random(root.get_init().io, std.mem.asBytes(&seed));
+            std.Io.random(root.get_io(), std.mem.asBytes(&seed));
             break :blk seed;
         }),
         .FIRE_H = FIRE_H,

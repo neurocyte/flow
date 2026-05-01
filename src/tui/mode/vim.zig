@@ -28,23 +28,23 @@ const cmds_ = struct {
     const Meta = command.Metadata;
     const Result = command.Result;
 
-    pub fn w(_: *void, _: Ctx) Result {
-        try cmd("save_file", .{});
+    pub fn w(_: *void, ctx: Ctx) Result {
+        try cmd("save_file", ctx);
     }
     pub const w_meta: Meta = .{ .description = "w (write file)" };
 
-    pub fn q(_: *void, _: Ctx) Result {
-        try cmd("quit", .{});
+    pub fn q(_: *void, ctx: Ctx) Result {
+        try cmd("quit", ctx);
     }
     pub const q_meta: Meta = .{ .description = "q (quit)" };
 
-    pub fn @"q!"(_: *void, _: Ctx) Result {
-        try cmd("quit_without_saving", .{});
+    pub fn @"q!"(_: *void, ctx: Ctx) Result {
+        try cmd("quit_without_saving", ctx);
     }
     pub const @"q!_meta": Meta = .{ .description = "q! (quit without saving)" };
 
-    pub fn @"qa!"(_: *void, _: Ctx) Result {
-        try cmd("quit_without_saving", .{});
+    pub fn @"qa!"(_: *void, ctx: Ctx) Result {
+        try cmd("quit_without_saving", ctx);
     }
     pub const @"qa!_meta": Meta = .{ .description = "qa! (quit without saving anything)" };
 
@@ -53,47 +53,47 @@ const cmds_ = struct {
     }
     pub const wq_meta: Meta = .{ .description = "wq (write file and quit)" };
 
-    pub fn @"wq!"(_: *void, _: Ctx) Result {
-        cmd("save_file", .{}) catch {};
-        try cmd("quit_without_saving", .{});
+    pub fn @"wq!"(_: *void, ctx: Ctx) Result {
+        cmd("save_file", ctx) catch {};
+        try cmd("quit_without_saving", .empty_from(ctx));
     }
     pub const @"wq!_meta": Meta = .{ .description = "wq! (write file and quit without saving)" };
 
-    pub fn @"e!"(_: *void, _: Ctx) Result {
-        try cmd("reload_file", .{});
+    pub fn @"e!"(_: *void, ctx: Ctx) Result {
+        try cmd("reload_file", ctx);
     }
     pub const @"e!_meta": Meta = .{ .description = "e! (force reload current file)" };
 
-    pub fn bd(_: *void, _: Ctx) Result {
-        try cmd("close_file", .{});
+    pub fn bd(_: *void, ctx: Ctx) Result {
+        try cmd("close_file", ctx);
     }
     pub const bd_meta: Meta = .{ .description = "bd (Close file)" };
 
-    pub fn bw(_: *void, _: Ctx) Result {
-        try cmd("delete_buffer", .{});
+    pub fn bw(_: *void, ctx: Ctx) Result {
+        try cmd("delete_buffer", ctx);
     }
     pub const bw_meta: Meta = .{ .description = "bw (Delete buffer)" };
 
-    pub fn bnext(_: *void, _: Ctx) Result {
-        try cmd("next_tab", .{});
+    pub fn bnext(_: *void, ctx: Ctx) Result {
+        try cmd("next_tab", ctx);
     }
     pub const bnext_meta: Meta = .{ .description = "bnext (Next buffer/tab)" };
 
-    pub fn bprevious(_: *void, _: Ctx) Result {
-        try cmd("next_tab", .{});
+    pub fn bprevious(_: *void, ctx: Ctx) Result {
+        try cmd("next_tab", ctx);
     }
     pub const bprevious_meta: Meta = .{ .description = "bprevious (Previous buffer/tab)" };
 
-    pub fn ls(_: *void, _: Ctx) Result {
-        try cmd("switch_buffers", .{});
+    pub fn ls(_: *void, ctx: Ctx) Result {
+        try cmd("switch_buffers", ctx);
     }
     pub const ls_meta: Meta = .{ .description = "ls (List/switch buffers)" };
 
-    pub fn move_begin_or_add_integer_argument_zero(_: *void, _: Ctx) Result {
+    pub fn move_begin_or_add_integer_argument_zero(_: *void, ctx: Ctx) Result {
         return if (@import("keybind").current_integer_argument()) |_|
-            command.executeName("add_integer_argument_digit", command.fmt(.{0}))
+            command.executeName("add_integer_argument_digit", .fmt(.{0}))
         else
-            command.executeName("move_begin", .{});
+            command.executeName("move_begin", .empty_from(ctx));
     }
     pub const move_begin_or_add_integer_argument_zero_meta: Meta = .{ .description = "Move cursor to beginning of line (vim)" };
 

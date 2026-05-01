@@ -359,13 +359,13 @@ const Command = struct {
                 return;
             }
         }
-        try command.execute(id, self.command, .{ .args = .{ .buf = buf[0..self.args.len] } });
+        try command.execute(id, self.command, .init(.{ .buf = buf[0..self.args.len] }));
     }
 
     fn execute_const(self: *const @This()) void {
         var buf: [2048]u8 = undefined;
         @memcpy(buf[0..self.args.len], self.args);
-        command.executeName(self.command, .{ .args = .{ .buf = buf[0..self.args.len] } }) catch |e|
+        command.executeName(self.command, .init(.{ .buf = buf[0..self.args.len] })) catch |e|
             log.err("ERROR: {s} {s}", .{ self.command, @errorName(e) });
     }
 

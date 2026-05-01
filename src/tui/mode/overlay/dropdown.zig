@@ -59,7 +59,7 @@ pub fn Create(options: type) type {
         pub const Pos = Widget.Pos;
 
         pub fn create(allocator: std.mem.Allocator) !tui.Mode {
-            return create_with_args(allocator, .{});
+            return create_with_args(allocator, .empty());
         }
 
         pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui.Mode {
@@ -487,9 +487,9 @@ pub fn Create(options: type) type {
             }
             pub const palette_menu_activate_meta: Meta = .{};
 
-            pub fn palette_menu_cancel(self: *Self, _: Ctx) Result {
-                if (@hasDecl(options, "cancel")) try options.cancel(self);
-                try self.cmd("exit_overlay_mode", .{});
+            pub fn palette_menu_cancel(self: *Self, ctx: Ctx) Result {
+                if (@hasDecl(options, "cancel")) try options.cancel(self, ctx);
+                try self.cmd("exit_overlay_mode", ctx);
             }
             pub const palette_menu_cancel_meta: Meta = .{};
 

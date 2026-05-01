@@ -22,5 +22,5 @@ pub fn process_egc(self: *Type, egc: []const u8) command.Result {
     if ((self.ctx.args.match(.{tp.extract(&action)}) catch false)) {
         try command.executeName(action, command.fmt(.{egc}));
     }
-    try command.executeName("exit_mini_mode", .{});
+    try command.executeName("exit_mini_mode", .empty());
 }

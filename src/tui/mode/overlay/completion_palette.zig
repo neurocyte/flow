@@ -147,14 +147,15 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
         values.textEdit_newText
     else
         values.label;
-    editor.insert_completion_at_cursor(text, values.insertTextFormat) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
+    const ctx: command.Context = .empty();
+    editor.insert_completion_at_cursor(text, values.insertTextFormat, ctx.now) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
     const mv = tui.mainview() orelse return;
     mv.cancel_info_content() catch {};
     tp.self_pid().send(.{ "cmd", "exit_overlay_mode" }) catch |e| menu.*.opts.ctx.logger.err(module_name, e);
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
-    const button = button_ orelse return cancel(palette);
+    const button = button_ orelse return cancel(palette, .empty());
     const values = get_values(button.opts.label);
     const editor = tui.get_active_editor() orelse return error.NotFound;
     editor.get_primary().selection = get_query_selection(editor, values);
@@ -173,7 +174,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     try mv.set_info_content(values.documentation, .append);
 }
 
-pub fn cancel(palette: *Type) !void {
+pub fn cancel(palette: *Type, _: command.Context) !void {
     const editor = tui.get_active_editor() orelse return;
     editor.get_primary().selection = palette.value.start.selection;
     const mv = tui.mainview() orelse return;

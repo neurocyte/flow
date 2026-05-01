@@ -48,7 +48,7 @@ const MenuType = Menu.Options(*Self).MenuType;
 const ButtonType = MenuType.ButtonType;
 
 pub fn create(allocator: std.mem.Allocator) !tui.Mode {
-    return create_with_args(allocator, .{});
+    return create_with_args(allocator, .empty());
 }
 
 pub fn create_with_args(allocator: std.mem.Allocator, ctx: command.Context) !tui.Mode {
@@ -126,7 +126,7 @@ fn save(self: *Self) void {
     cbor.writeArrayHeader(writer, self.restore_info.items.len) catch return;
     for (self.restore_info.items) |item| cbor.writeValue(writer, item) catch return;
 
-    tui.set_last_palette(.open_recent, .{ .args = .{ .buf = data.written() } });
+    tui.set_last_palette(.open_recent, .init(.{ .buf = data.written() }));
 }
 
 fn restore(self: *Self, ctx: command.Context) !void {
@@ -484,9 +484,9 @@ const cmds = struct {
     }
     pub const palette_menu_activate_quick_meta: Meta = .{};
 
-    pub fn palette_menu_cancel(self: *Self, _: Ctx) Result {
+    pub fn palette_menu_cancel(self: *Self, ctx: Ctx) Result {
         self.save();
-        try self.cmd("exit_overlay_mode", .{});
+        try self.cmd("exit_overlay_mode", .empty_from(ctx));
     }
     pub const palette_menu_cancel_meta: Meta = .{};
 

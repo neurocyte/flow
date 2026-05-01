@@ -235,7 +235,7 @@ const Process = struct {
         self.write_log("### terminated LSP process ###\n", .{});
         if (self.log_file) |file| {
             if (self.log_file_writer) |*writer| writer.interface.flush() catch {};
-            file.close(root.get_init().io);
+            file.close(root.get_io());
         }
         if (self.log_file_path) |file_path| self.allocator.free(file_path);
     }
@@ -274,14 +274,14 @@ const Process = struct {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ " start" });
         defer frame.deinit();
         _ = tp.set_trap(true);
-        self.sp = tp.subprocess.init(root.get_init().io, self.allocator, self.cmd, self.sp_tag, .pipe) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.sp = tp.subprocess.init(root.get_io(), self.allocator, self.cmd, self.sp_tag, .pipe) catch |e| return tp.exit_error(e, @errorReturnTrace());
         tp.receive(&self.receiver);
 
         var log_file_path: std.Io.Writer.Allocating = .init(self.allocator);
         defer log_file_path.deinit();
         const state_dir = root.get_state_dir() catch |e| return tp.exit_error(e, @errorReturnTrace());
         log_file_path.writer.print("{s}{c}lsp-{s}.log", .{ state_dir, std.fs.path.sep, self.tag }) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        const io = root.get_init().io;
+        const io = root.get_io();
         self.log_file = std.Io.Dir.cwd().createFile(io, log_file_path.written(), .{ .truncate = true }) catch |e| return tp.exit_error(e, @errorReturnTrace());
         self.log_file_path = log_file_path.toOwnedSlice() catch null;
         if (self.log_file) |log_file| self.log_file_writer = log_file.writer(io, &self.log_file_writer_buf);

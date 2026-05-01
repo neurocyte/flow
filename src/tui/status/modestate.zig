@@ -124,14 +124,14 @@ fn render_logo(ctx: *Style, self: *ButtonType, theme: *const Widget.Theme, style
 
 fn on_click(_: *Style, _: *ButtonType, _: Widget.Pos) void {
     if (is_mini_mode()) {
-        command.executeName("exit_mini_mode", .{}) catch {};
+        command.executeName("exit_mini_mode", .empty()) catch {};
     } else if (is_overlay_mode()) {
-        command.executeName("exit_overlay_mode", .{}) catch {};
+        command.executeName("exit_overlay_mode", .empty()) catch {};
     } else {
-        command.executeName("open_command_palette", .{}) catch {};
+        command.executeName("open_command_palette", .empty()) catch {};
     }
 }
 
 fn toggle_panel(_: *Style, _: *ButtonType, _: Widget.Pos) void {
-    command.executeName("toggle_panel", .{}) catch {};
+    command.executeName("toggle_panel", .empty()) catch {};
 }

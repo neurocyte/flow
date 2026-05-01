@@ -345,10 +345,10 @@ fn primary_click(self: *Self, y_: i32) error{Exit}!bool {
     var line = self.view_top + 1;
     line += @intCast(y);
     if (line > self.lines) line = self.lines;
-    try command.executeName("goto_line", command.fmt(.{line}));
-    try command.executeName("goto_column", command.fmt(.{1}));
-    try command.executeName("select_end", .{});
-    try command.executeName("select_right", .{});
+    try command.executeName("goto_line", .fmt(.{line}));
+    try command.executeName("goto_column", .fmt(.{1}));
+    try command.executeName("select_end", .empty());
+    try command.executeName("select_right", .empty());
     return true;
 }
 
@@ -360,22 +360,22 @@ fn primary_drag(self: *Self, y_: i32) error{Exit}!bool {
 }
 
 fn secondary_click(_: *Self) error{Exit}!bool {
-    try command.executeName("gutter_mode_next", .{});
+    try command.executeName("gutter_mode_next", .empty());
     return true;
 }
 
 fn middle_click(_: *Self) error{Exit}!bool {
-    try command.executeName("gutter_style_next", .{});
+    try command.executeName("gutter_style_next", .empty());
     return true;
 }
 
 fn mouse_click_button4(self: *Self) error{Exit}!bool {
-    self.editor.mouse_scroll_up();
+    self.editor.mouse_scroll_up(root.get_now());
     return true;
 }
 
 fn mouse_click_button5(self: *Self) error{Exit}!bool {
-    self.editor.mouse_scroll_down();
+    self.editor.mouse_scroll_down(root.get_now());
     return true;
 }
 

@@ -91,7 +91,7 @@ fn set_used_time(palette: *Type, id: command.ID, used_time: i64) void {
 fn write_state(palette: *Type) !void {
     var state_file_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const state_file = try std.fmt.bufPrint(&state_file_buffer, "{s}/{s}", .{ try root.get_state_dir(), "commands" });
-    const io = root.get_init().io;
+    const io = root.get_io();
     var file = try std.Io.Dir.createFileAbsolute(io, state_file, .{ .truncate = true });
     defer file.close(io);
     var buf: [4096]u8 = undefined;
@@ -111,7 +111,7 @@ pub fn restore_state(palette: *Type) !void {
     var state_file_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const state_file = try std.fmt.bufPrint(&state_file_buffer, "{s}/{s}", .{ try root.get_state_dir(), "commands" });
     const a = std.heap.c_allocator;
-    const io = root.get_init().io;
+    const io = root.get_io();
     var file = std.Io.Dir.openFileAbsolute(io, state_file, .{ .mode = .read_only }) catch |e| switch (e) {
         error.FileNotFound => return,
         else => return e,

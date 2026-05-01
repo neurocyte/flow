@@ -61,7 +61,7 @@ pub fn shutdown() void {
 
 pub fn open(rel_project_directory: []const u8) (ProjectManagerError || FileSystemError || std.Io.File.OpenError || SetCwdError)!?[]const u8 {
     var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const io = root.get_init().io;
+    const io = root.get_io();
     const len = std.Io.Dir.cwd().realPathFile(io, rel_project_directory, &path_buf) catch {
         return get_project_state("(none)");
     };
@@ -83,14 +83,14 @@ var project_state: ProjectStateMap = .empty;
 const ProjectStateMap = std.StringHashMapUnmanaged(std.array_list.Managed(u8));
 
 fn get_project_state(project_directory: []const u8) ?[]const u8 {
-    const io = root.get_init().io;
+    const io = root.get_io();
     project_state_mutex.lockUncancelable(io);
     defer project_state_mutex.unlock(io);
     return if (project_state.get(project_directory)) |state| state.items else null;
 }
 
 pub fn store_state(project_directory: []const u8, state: std.array_list.Managed(u8)) error{OutOfMemory}!void {
-    const io = root.get_init().io;
+    const io = root.get_io();
     project_state_mutex.lockUncancelable(io);
     defer project_state_mutex.unlock(io);
     if (project_state.fetchRemove(project_directory)) |old_state| old_state.value.deinit();
@@ -104,7 +104,7 @@ pub fn close(project_directory: []const u8) (ProjectManagerError || error{CloseC
 }
 
 pub fn request_n_most_recent_file(allocator: std.mem.Allocator, n: usize) (CallError || ProjectError || cbor.Error)!?[]const u8 {
-    const io = root.get_init().io;
+    const io = root.get_io();
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
@@ -166,7 +166,7 @@ pub fn request_path_files(max: usize, path: []const u8) (ProjectManagerError || 
 }
 
 pub fn request_tasks(allocator: std.mem.Allocator) (ProjectError || CallError)!tp.message {
-    const io = root.get_init().io;
+    const io = root.get_io();
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
@@ -852,7 +852,7 @@ const Process = struct {
         self.logger.print("saving: {s}", .{project.name});
         const file_name = try get_project_state_file_path(self.allocator, project);
         defer self.allocator.free(file_name);
-        const io = root.get_init().io;
+        const io = root.get_io();
         var file = try std.Io.Dir.createFileAbsolute(io, file_name, .{});
         defer file.close(io);
         var buffer: [4096]u8 = undefined;
@@ -865,7 +865,7 @@ const Process = struct {
         tp.trace(tp.channel.debug, .{ "restore_project", project.name });
         const file_name = try get_project_state_file_path(self.allocator, project);
         defer self.allocator.free(file_name);
-        const io = root.get_init().io;
+        const io = root.get_io();
         var file = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch |e| switch (e) {
             error.FileNotFound => return,
             else => return e,
@@ -887,7 +887,7 @@ const Process = struct {
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write("projects");
         _ = try writer.writeByte(std.fs.path.sep);
-        std.Io.Dir.createDirAbsolute(root.get_init().io, stream.written(), .default_dir) catch |e| switch (e) {
+        std.Io.Dir.createDirAbsolute(root.get_io(), stream.written(), .default_dir) catch |e| switch (e) {
             error.PathAlreadyExists => {},
             else => return e,
         };
@@ -910,7 +910,7 @@ const Process = struct {
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write("projects");
 
-        const io = root.get_init().io;
+        const io = root.get_io();
         var dir = try std.Io.Dir.cwd().openDir(io, path.written(), .{ .iterate = true });
         defer dir.close(io);
         var iter = dir.iterate();
@@ -933,7 +933,7 @@ const Process = struct {
         _ = try writer.writeByte(std.fs.path.sep);
         _ = try writer.write(file_path);
 
-        const io = root.get_init().io;
+        const io = root.get_io();
         var file = try std.Io.Dir.openFileAbsolute(io, path.written(), .{ .mode = .read_only });
         defer file.close(io);
         const stat = try file.stat(io);
@@ -988,7 +988,7 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
                     std.fs.path.join(allocator, &[_][]const u8{ project.name, path }),
                 .parent = parent.clone(),
                 .max = max,
-                .dir = try std.Io.Dir.cwd().openDir(root.get_init().io, self.path, .{ .iterate = true }),
+                .dir = try std.Io.Dir.cwd().openDir(root.get_io(), self.path, .{ .iterate = true }),
             };
             const pid = try tp.spawn_link(allocator, self, path_files.start, module_name ++ ".path_files");
             pid.deinit();
@@ -1004,14 +1004,14 @@ fn request_path_files_async(a_: std.mem.Allocator, parent_: tp.pid_ref, project_
         }
 
         fn deinit(self: *path_files) void {
-            self.dir.close(root.get_init().io);
+            self.dir.close(root.get_io());
             self.allocator.free(self.path);
             self.allocator.free(self.project_name);
             self.parent.deinit();
         }
 
         fn iterate(self: *path_files) !void {
-            const io = root.get_init().io;
+            const io = root.get_io();
             var count: usize = 0;
             var iter = self.dir.iterateAssumeFirstIteration();
             errdefer |e| self.parent.send(.{ "PRJ", "path_error", self.project_name, self.path, e }) catch {};

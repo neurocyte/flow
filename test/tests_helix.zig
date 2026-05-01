@@ -87,9 +87,10 @@ var eol_mode: Buffer.EolMode = .lf;
 var sanitized: bool = false;
 
 test "words_movement" {
-    const buffer = try Buffer.create(a);
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
     const root: Buffer.Root = buffer.root;
     var the_cursor = Cursor{ .row = 1, .col = 1, .target = 0 };
 
@@ -126,9 +127,10 @@ test "words_movement" {
 }
 
 test "edge_word_movements" {
-    const buffer = try Buffer.create(a);
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
     const root: Buffer.Root = buffer.root;
     var cursor = Cursor{ .row = 1, .col = 1, .target = 0 };
     cursor.col = 0;
@@ -146,9 +148,10 @@ test "edge_word_movements" {
 }
 
 test "long_words_movement" {
-    const buffer = try Buffer.create(a);
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
     const root: Buffer.Root = buffer.root;
     var the_cursor = Cursor{ .row = 1, .col = 1, .target = 0 };
 
@@ -176,9 +179,10 @@ test "long_words_movement" {
 }
 
 test "to_char_right_beyond_eol" {
-    const buffer = try Buffer.create(a);
+    const now = std.Io.Clock.real.now(std.testing.io);
+    const buffer = try Buffer.create(a, now);
     defer buffer.deinit();
-    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized));
+    buffer.update(try buffer.load_from_string(doc, &eol_mode, &sanitized), now);
     const root: Buffer.Root = buffer.root;
     var the_cursor = Cursor{ .row = 1, .col = 1, .target = 0 };
 

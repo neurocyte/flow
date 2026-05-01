@@ -33,7 +33,7 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
         const Receiver = tp.Receiver(*tree_walker);
 
         fn spawn_link(allocator: std.mem.Allocator, root_path: []const u8, entry_handler_: EntryCallBack, done_handler_: DoneCallBack, options_: Options) (SpawnError || std.Io.Dir.OpenError)!tp.pid {
-            const io = root.get_init().io;
+            const io = root.get_io();
             const self = try allocator.create(tree_walker);
             errdefer allocator.destroy(self);
             self.* = .{
@@ -58,7 +58,7 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
         }
 
         fn dtor(self: *tree_walker) void {
-            const io = root.get_init().io;
+            const io = root.get_io();
             self.walker.deinit(io);
             self.dir.close(io);
             self.allocator.free(self.root_path);
@@ -80,7 +80,7 @@ pub fn start(a_: std.mem.Allocator, root_path_: []const u8, entry_handler: Entry
         }
 
         fn next(self: *tree_walker) !void {
-            const io = root.get_init().io;
+            const io = root.get_io();
             if (try self.walker.next(io)) |path| {
                 const stat = self.dir.statFile(io, path, .{}) catch {
                     try self.entry_handler(self.parent.ref(), self.root_path, path, 0, 0);

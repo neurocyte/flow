@@ -49,7 +49,7 @@ pub fn receive(_: *Self, _: tp.pid_ref, _: tp.message) error{Exit}!bool {
 
 fn execute_operation(_: *Self, ctx: command.Context) command.Result {
     try command.executeName("replace_with_character_helix", ctx);
-    try command.executeName("exit_mini_mode", .{});
+    try command.executeName("exit_mini_mode", .empty_from(ctx));
 }
 
 const cmds = struct {
@@ -80,8 +80,8 @@ const cmds = struct {
     }
     pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
-    pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
-        command.executeName("exit_mini_mode", .{}) catch {};
+    pub fn mini_mode_cancel(_: *Self, ctx: Ctx) Result {
+        command.executeName("exit_mini_mode", ctx) catch {};
     }
     pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel replace" };
 };

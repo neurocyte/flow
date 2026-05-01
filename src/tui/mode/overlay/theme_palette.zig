@@ -1,6 +1,7 @@
 const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian");
+const command = @import("command");
 
 const Widget = @import("../../Widget.zig");
 const tui = @import("../../tui.zig");
@@ -95,7 +96,7 @@ fn select(menu: **Type.MenuType, button: *Type.ButtonType, _: Type.Pos) void {
 }
 
 pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
-    const button = button_ orelse return cancel(palette);
+    const button = button_ orelse return cancel(palette, .empty());
     var description_: []const u8 = undefined;
     var name_: []const u8 = undefined;
     var iter = button.opts.label;
@@ -104,7 +105,7 @@ pub fn updated(palette: *Type, button_: ?*Type.ButtonType) !void {
     tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| palette.logger.err("theme_palette upated", e);
 }
 
-pub fn cancel(palette: *Type) !void {
+pub fn cancel(palette: *Type, _: command.Context) !void {
     if (get_previous_theme(palette)) |name_| if (!std.mem.eql(u8, name_, tui.theme().name)) {
         tp.self_pid().send(.{ "cmd", "set_theme", .{name_} }) catch |e| palette.logger.err("theme_palette cancel", e);
         clear_previous_theme(palette);

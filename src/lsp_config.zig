@@ -5,7 +5,7 @@ pub fn get(project: []const u8, lsp_name: []const u8) ?[]const u8 {
 }
 
 fn get_project(project: []const u8, lsp_name: []const u8) ?[]const u8 {
-    const io = root.get_init().io;
+    const io = root.get_io();
     const file_name = get_config_file_path(project, lsp_name, .project, .no_create) catch return null;
     defer allocator.free(file_name);
     var file = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch return null;
@@ -20,7 +20,7 @@ fn get_project(project: []const u8, lsp_name: []const u8) ?[]const u8 {
 }
 
 fn get_global(lsp_name: []const u8) ?[]const u8 {
-    const io = root.get_init().io;
+    const io = root.get_io();
     const file_name = get_config_file_path(&.{}, lsp_name, .global, .no_create) catch return null;
     defer allocator.free(file_name);
     var file = std.Io.Dir.openFileAbsolute(io, file_name, .{ .mode = .read_only }) catch return null;
@@ -53,7 +53,7 @@ fn get_config_dir_path(project: ?[]const u8, scope: Scope, mode: Mode) ![]u8 {
         .project => {
             try writer.writeAll("project");
             try writer.writeByte(std.fs.path.sep);
-            if (mode == .mk_parents) std.Io.Dir.createDirAbsolute(root.get_init().io, stream.written(), .default_dir) catch |e| switch (e) {
+            if (mode == .mk_parents) std.Io.Dir.createDirAbsolute(root.get_io(), stream.written(), .default_dir) catch |e| switch (e) {
                 error.PathAlreadyExists => {},
                 else => return e,
             };
@@ -74,7 +74,7 @@ fn get_config_dir_path(project: ?[]const u8, scope: Scope, mode: Mode) ![]u8 {
             try writer.writeByte(std.fs.path.sep);
         },
     }
-    if (mode == .mk_parents) std.Io.Dir.createDirAbsolute(root.get_init().io, stream.written(), .default_dir) catch |e| switch (e) {
+    if (mode == .mk_parents) std.Io.Dir.createDirAbsolute(root.get_io(), stream.written(), .default_dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
         else => return e,
     };

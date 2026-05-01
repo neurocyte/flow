@@ -67,6 +67,6 @@ pub fn name(self: *Type) []const u8 {
 }
 
 pub fn process_egc(self: *Type, egc: []const u8) command.Result {
-    try command.executeName(self.value.operation_command, command.fmt(.{egc}));
-    try command.executeName("exit_mini_mode", .{});
+    try command.executeName(self.value.operation_command, .fmt(.{egc}));
+    try command.executeName("exit_mini_mode", .empty());
 }

@@ -168,7 +168,7 @@ pub fn listen(self: *Self, _: tp.pid_ref, m: tp.message) tp.result {
 
 pub fn receive(self: *Self, _: tp.pid_ref, m: tp.message) error{Exit}!bool {
     if (try m.match(.{ "B", input.event.press, @intFromEnum(input.mouse.BUTTON1), tp.any, tp.any, tp.any, tp.any, tp.any })) {
-        command.executeName("toggle_inputview", .{}) catch {};
+        command.executeName("toggle_inputview", .empty()) catch {};
         return true;
     }
     if (try m.match(.{ "H", tp.extract(&self.hover) })) {

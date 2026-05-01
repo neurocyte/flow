@@ -420,7 +420,7 @@ pub fn blame(context_: usize, file_path: []const u8) !void {
 }
 
 fn is_file(rel_path: []const u8) bool {
-    const io = root.get_init().io;
+    const io = root.get_io();
     var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const len = std.Io.Dir.cwd().realPathFile(io, rel_path, &path_buf) catch return false;
     const abs_path = path_buf[0..len];

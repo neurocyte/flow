@@ -40,33 +40,33 @@ pub fn delete_buffer(self: *Self, buffer_: *Buffer) void {
     } else buffer.deinit();
 }
 
-pub fn open_file(self: *Self, file_path: []const u8) Buffer.LoadFromFileError!*Buffer {
+pub fn open_file(self: *Self, io: std.Io, file_path: []const u8, now: std.Io.Timestamp) Buffer.LoadFromFileError!*Buffer {
     const buffer = if (self.get_buffer(file_path)) |buffer| blk: {
         if (!buffer.ephemeral and buffer.hidden)
-            try buffer.refresh_from_file();
+            try buffer.refresh_from_file(io, now);
         break :blk buffer;
     } else blk: {
-        var buffer = try Buffer.create(self.allocator);
+        var buffer = try Buffer.create(self.allocator, now);
         errdefer buffer.deinit();
-        try buffer.load_from_file_and_update(file_path);
+        try buffer.load_from_file_and_update(io, file_path, now);
         try self.add_buffer(buffer);
         break :blk buffer;
     };
-    buffer.update_last_used_time();
+    buffer.update_last_used_time(now);
     buffer.hidden = false;
     return buffer;
 }
 
-pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8) Buffer.LoadError!*Buffer {
+pub fn open_scratch(self: *Self, file_path: []const u8, content: []const u8, now: std.Io.Timestamp) Buffer.LoadError!*Buffer {
     const buffer = if (self.buffers.get(file_path)) |buffer| buffer else blk: {
-        var buffer = try Buffer.create(self.allocator);
+        var buffer = try Buffer.create(self.allocator, now);
         errdefer buffer.deinit();
-        try buffer.load_from_string_and_update(file_path, content);
+        try buffer.load_from_string_and_update(file_path, content, now);
         buffer.file_exists = true;
         try self.add_buffer(buffer);
         break :blk buffer;
     };
-    buffer.update_last_used_time();
+    buffer.update_last_used_time(now);
     buffer.hidden = false;
     buffer.ephemeral = true;
     return buffer;
@@ -85,16 +85,16 @@ pub fn write_state(self: *const Self, writer: *std.Io.Writer) error{ Stop, OutOf
     }
 }
 
-pub fn extract_state(self: *Self, iter: *[]const u8) !void {
+pub fn extract_state(self: *Self, iter: *[]const u8, now: std.Io.Timestamp) !void {
     var len = try cbor.decodeArrayHeader(iter);
     tp.trace(tp.channel.debug, .{ @typeName(Self), "extract_state", len });
     while (len > 0) : (len -= 1) {
-        var buffer = try Buffer.create(self.allocator);
+        var buffer = try Buffer.create(self.allocator, now);
         errdefer |e| {
             tp.trace(tp.channel.debug, .{ "buffer", "extract", "failed", buffer.get_file_path(), e });
             buffer.deinit();
         }
-        try buffer.extract_state(iter);
+        try buffer.extract_state(iter, now);
         try self.add_buffer(buffer);
         tp.trace(tp.channel.debug, .{ "buffer", "extract", buffer.get_file_path(), buffer.file_type_name });
     }
@@ -163,25 +163,25 @@ pub fn is_buffer_dirty(self: *const Self, file_path: []const u8) bool {
     return if (self.get_buffer(file_path)) |buffer| buffer.is_dirty() else false;
 }
 
-pub fn save_all(self: *const Self) Buffer.StoreToFileError!void {
+pub fn save_all(self: *const Self, io: std.Io) Buffer.StoreToFileError!void {
     var i = self.buffers.iterator();
     while (i.next()) |kv| {
         const buffer = kv.value_ptr.*;
         if (buffer.is_ephemeral())
             buffer.mark_clean()
         else
-            try buffer.store_to_file_and_clean(buffer.get_file_path());
+            try buffer.store_to_file_and_clean(io, buffer.get_file_path());
     }
 }
 
-pub fn reload_all(self: *const Self) Buffer.LoadFromFileError!void {
+pub fn reload_all(self: *const Self, io: std.Io, now: std.Io.Timestamp) Buffer.LoadFromFileError!void {
     var i = self.buffers.iterator();
     while (i.next()) |kv| {
         const buffer = kv.value_ptr.*;
         if (buffer.is_ephemeral())
             buffer.mark_clean()
         else
-            try buffer.refresh_from_file();
+            try buffer.refresh_from_file(io, now);
     }
 }
 

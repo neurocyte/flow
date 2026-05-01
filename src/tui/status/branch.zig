@@ -57,7 +57,7 @@ pub fn ctx_deinit(self: *Self) void {
 fn on_click(self: *Self, _: *ButtonType, _: Widget.Pos) void {
     self.refresh_vcs_status();
     tui.sync_with_vcs() catch {};
-    command.executeName("show_vcs_status", .{}) catch {};
+    command.executeName("show_vcs_status", .empty()) catch {};
 }
 
 fn refresh_vcs_status(self: *Self) void {

@@ -23,7 +23,7 @@ fn find_binary_in_path_posix(allocator: std.mem.Allocator, binary_name: []const 
 }
 
 fn find_binary_in_path_windows(allocator: std.mem.Allocator, binary_name_: []const u8) std.mem.Allocator.Error!?[:0]const u8 {
-    const io = root.get_init().io;
+    const io = root.get_io();
     const bin_paths = root.get_init().environ_map.get("PATH") orelse &.{};
     const bin_extensions = root.get_init().environ_map.get("PATHEXT") orelse &.{};
     var bin_path_iterator = std.mem.splitScalar(u8, bin_paths, std.fs.path.delimiter);
@@ -50,7 +50,7 @@ fn find_binary_in_path_windows(allocator: std.mem.Allocator, binary_name_: []con
 fn is_absolute_binary_path_executable(binary_path: [:0]const u8) bool {
     return switch (builtin.os.tag) {
         .windows => blk: {
-            _ = std.Io.Dir.cwd().statFile(root.get_init().io, binary_path, .{}) catch break :blk false;
+            _ = std.Io.Dir.cwd().statFile(root.get_io(), binary_path, .{}) catch break :blk false;
             break :blk true;
         },
         else => std.posix.system.access(binary_path, std.posix.X_OK) == 0,

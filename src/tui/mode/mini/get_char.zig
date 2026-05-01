@@ -33,7 +33,7 @@ pub fn Create(options: type) type {
             errdefer allocator.destroy(self);
             self.* = .{
                 .allocator = allocator,
-                .ctx = .{ .args = try ctx.args.clone(allocator) },
+                .ctx = .{ .io = ctx.io, .now = ctx.now, .args = try ctx.args.clone(allocator) },
                 .value = if (@hasDecl(options, "start")) options.start(self) else {},
             };
             try self.commands.init(self);
@@ -83,8 +83,8 @@ pub fn Create(options: type) type {
             }
             pub const mini_mode_insert_bytes_meta: Meta = .{ .arguments = &.{.string} };
 
-            pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
-                command.executeName("exit_mini_mode", .{}) catch {};
+            pub fn mini_mode_cancel(_: *Self, ctx: Ctx) Result {
+                command.executeName("exit_mini_mode", ctx) catch {};
             }
             pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
         };

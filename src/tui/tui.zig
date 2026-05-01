@@ -202,7 +202,7 @@ fn init(allocator: Allocator) InitError!*Self {
             .{"init"},
         )),
         .no_sleep = tp.env.get().is("no-sleep"),
-        .query_cache_ = try syntax.QueryCache.create(root.get_init().io, allocator, .{}),
+        .query_cache_ = try syntax.QueryCache.create(root.get_io(), allocator, .{}),
         .dark_theme = dark_theme,
         .light_theme = light_theme,
     };
@@ -238,7 +238,7 @@ fn init(allocator: Allocator) InitError!*Self {
     try save_config();
     try self.init_input_namespace();
     if (tp.env.get().is("restore-session")) {
-        command.executeName("restore_session", .{}) catch |e| self.logger.err("restore_session", e);
+        command.executeName("restore_session", .empty()) catch |e| self.logger.err("restore_session", e);
         self.logger.print("session restored", .{});
     }
     return self;
@@ -255,7 +255,7 @@ fn init_input_namespace(self: *Self) InitError!void {
     };
 }
 
-fn init_delayed(self: *Self) command.Result {
+fn init_delayed(self: *Self, ctx: command.Context) command.Result {
     self.delayed_init_done = true;
     if (self.input_mode_) |_| {
         if (self.delayed_init_input_mode) |delayed_init_input_mode| {
@@ -266,10 +266,10 @@ fn init_delayed(self: *Self) command.Result {
         }
     } else {
         if (self.delayed_init_input_mode) |delayed_init_input_mode| {
-            try enter_input_mode(self, delayed_init_input_mode);
+            try enter_input_mode(self, delayed_init_input_mode, ctx);
             self.delayed_init_input_mode = null;
         } else {
-            try cmds.enter_mode(self, command.Context.fmt(.{keybind.default_mode}));
+            try cmds.enter_mode(self, .fmt(.{keybind.default_mode}));
         }
     }
     self.start_auto_run_timer();
@@ -342,7 +342,7 @@ fn handle_input_idle(self: *Self) void {
     _ = self.send_widgets(tp.self_pid(), m) catch return;
     const idle_cmds = self.config_.idle_commands orelse return;
     for (idle_cmds) |cmd|
-        command.executeName(cmd, .{}) catch |e| self.logger.print_err("idlerun", "idle run command '{s}' failed: {t}", .{ cmd, e });
+        command.executeName(cmd, .empty()) catch |e| self.logger.print_err("idlerun", "idle run command '{s}' failed: {t}", .{ cmd, e });
 }
 
 fn update_input_idle_timer(self: *Self) void {
@@ -379,10 +379,10 @@ fn update_mouse_idle_timer(self: *Self) void {
     self.mouse_idle_timer = tp.self_pid().delay_send_cancellable(self.allocator, "tui.mouse_idle_timer", delay, .{"MOUSE_IDLE"}) catch return;
 }
 
-fn auto_run(self: *Self) void {
+fn auto_run(self: *Self, ctx: command.Context) void {
     const auto_run_cmds = self.config_.auto_run_commands orelse return;
     for (auto_run_cmds) |cmd|
-        command.executeName(cmd, .{}) catch |e| self.logger.print_err("autorun", "auto run command '{s}' failed: {t}", .{ cmd, e });
+        command.executeName(cmd, ctx) catch |e| self.logger.print_err("autorun", "auto run command '{s}' failed: {t}", .{ cmd, e });
     self.start_auto_run_timer();
 }
 
@@ -434,7 +434,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
 
     var cmd: []const u8 = undefined;
     var cmd_id: command.ID = undefined;
-    var ctx: cmds.Ctx = .{};
+    var ctx: cmds.Ctx = .empty();
     if (try m.match(.{ "cmd", tp.extract(&cmd) }))
         return command.executeName(cmd, ctx) catch |e| self.logger.err(cmd, e);
     if (try m.match(.{ "cmd", tp.extract(&cmd_id) }))
@@ -502,7 +502,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{"init"})) {
-        try self.init_delayed();
+        try self.init_delayed(ctx);
         self.render();
         if (self.init_timer) |*timer| {
             timer.deinit();
@@ -561,7 +561,7 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     }
 
     if (try m.match(.{ "PRJ", "recent_projects", tp.more })) // async recent projects request
-        return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent_project.zig").Type, .{ .args = m });
+        return self.enter_overlay_mode_with_args(@import("mode/overlay/open_recent_project.zig").Type, .{ .io = ctx.io, .now = ctx.now, .args = m });
 
     if (try m.match(.{ "PRJ", "vcs_id", tp.more }))
         return if (mainview()) |mv| mv.vcs_id_update(m);
@@ -599,12 +599,12 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
     if (try m.match(.{"AUTO_RUN"})) {
         if (self.auto_run_timer) |*t| t.deinit();
         self.auto_run_timer = null;
-        self.auto_run();
+        self.auto_run(ctx);
         return;
     }
 
     if (try m.match(.{ "fontface", "done" })) {
-        return self.enter_overlay_mode(@import("mode/overlay/fontface_palette.zig").Type);
+        return self.enter_overlay_mode(@import("mode/overlay/fontface_palette.zig").Type, ctx);
     }
 
     var fontface_: []const u8 = undefined;
@@ -992,14 +992,14 @@ pub fn is_mainview_focused() bool {
     return self.mini_mode_ == null and self.input_mode_outer_ == null and !is_keyboard_focused() and self.terminal_focus;
 }
 
-fn enter_overlay_mode(self: *Self, mode: type) command.Result {
+fn enter_overlay_mode(self: *Self, mode: type, ctx: command.Context) command.Result {
     self.keyboard_focus_outer = self.keyboard_focus;
     clear_keyboard_focus();
-    command.executeName("disable_fast_scroll", .{}) catch {};
-    command.executeName("disable_alt_scroll", .{}) catch {};
-    command.executeName("disable_jump_mode", .{}) catch {};
-    if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, .{});
-    if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, .{});
+    command.executeName("disable_fast_scroll", ctx) catch {};
+    command.executeName("disable_alt_scroll", ctx) catch {};
+    command.executeName("disable_jump_mode", ctx) catch {};
+    if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, ctx);
+    if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, ctx);
     const new_mode = try mode.create(self.allocator);
     self.input_mode_outer_ = self.input_mode_;
     self.input_mode_ = new_mode;
@@ -1008,11 +1008,12 @@ fn enter_overlay_mode(self: *Self, mode: type) command.Result {
 }
 
 fn enter_overlay_mode_with_args(self: *Self, mode: type, ctx: command.Context) command.Result {
-    command.executeName("disable_fast_scroll", .{}) catch {};
-    command.executeName("disable_alt_scroll", .{}) catch {};
-    command.executeName("disable_jump_mode", .{}) catch {};
-    if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, .{});
-    if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, .{});
+    const ctx_: command.Context = .empty_from(ctx);
+    command.executeName("disable_fast_scroll", ctx_) catch {};
+    command.executeName("disable_alt_scroll", ctx_) catch {};
+    command.executeName("disable_jump_mode", ctx_) catch {};
+    if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, ctx_);
+    if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, ctx_);
     self.input_mode_outer_ = self.input_mode_;
     self.input_mode_ = try mode.create_with_args(self.allocator, ctx);
     if (self.input_mode_) |*m| m.run_init();
@@ -1023,9 +1024,9 @@ fn get_input_mode(self: *Self, mode_name: []const u8) !Mode {
     return keybind.mode(mode_name, self.allocator, .{});
 }
 
-fn enter_input_mode(self: *Self, new_mode: Mode) command.Result {
-    if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, .{});
-    if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, .{});
+fn enter_input_mode(self: *Self, new_mode: Mode, ctx: command.Context) command.Result {
+    if (self.mini_mode_) |_| try cmds.exit_mini_mode(self, ctx);
+    if (self.input_mode_outer_) |_| try cmds.exit_overlay_mode(self, ctx);
     if (self.input_mode_) |*m| {
         m.deinit();
         self.input_mode_ = null;
@@ -1412,7 +1413,7 @@ const cmds = struct {
             self.delayed_init_input_mode = new_mode;
             return;
         }
-        return self.enter_input_mode(new_mode);
+        return self.enter_input_mode(new_mode, .empty_from(ctx));
     }
     pub const enter_mode_meta: Meta = .{ .arguments = &.{.string} };
 
@@ -1428,32 +1429,32 @@ const cmds = struct {
     pub const switch_mode_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn enter_mode_default(self: *Self, _: Ctx) Result {
-        return enter_mode(self, Ctx.fmt(.{keybind.default_mode}));
+        return enter_mode(self, .fmt(.{keybind.default_mode}));
     }
     pub const enter_mode_default_meta: Meta = .{};
 
-    pub fn open_command_palette(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/command_palette.zig").Type);
+    pub fn open_command_palette(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/command_palette.zig").Type, ctx);
     }
     pub const open_command_palette_meta: Meta = .{ .description = "Command palette" };
 
-    pub fn open_file_tree(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/file_tree_palette.zig").Type);
+    pub fn open_file_tree(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/file_tree_palette.zig").Type, ctx);
     }
     pub const open_file_tree_meta: Meta = .{ .description = "File tree" };
 
-    pub fn insert_command_name(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type);
+    pub fn insert_command_name(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/list_all_commands_palette.zig").Type, ctx);
     }
     pub const insert_command_name_meta: Meta = .{ .description = "Show active keybindings" };
 
-    pub fn find_file(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
+    pub fn find_file(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"), ctx);
     }
     pub const find_file_meta: Meta = .{ .description = "Find file" };
 
-    pub fn open_recent(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"));
+    pub fn open_recent(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/open_recent.zig"), ctx);
     }
     pub const open_recent_meta: Meta = .{ .description = "Open recent" };
 
@@ -1468,8 +1469,8 @@ const cmds = struct {
     }
     pub const last_palette_meta: Meta = .{ .description = "Open last used palette" };
 
-    pub fn show_vcs_status(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/vcs_status.zig"));
+    pub fn show_vcs_status(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/vcs_status.zig"), ctx);
     }
     pub const show_vcs_status_meta: Meta = .{ .description = "Show git status" };
 
@@ -1478,8 +1479,8 @@ const cmds = struct {
     }
     pub const open_recent_project_meta: Meta = .{ .description = "Open project" };
 
-    pub fn switch_buffers(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/buffer_palette.zig").Type);
+    pub fn switch_buffers(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/buffer_palette.zig").Type, ctx);
     }
     pub const switch_buffers_meta: Meta = .{ .description = "Switch buffers" };
 
@@ -1496,7 +1497,7 @@ const cmds = struct {
             }
             pub fn select(self_: *Type) void {
                 tp.self_pid().send(.{ "cmd", "run_task", .{self_.input.items} }) catch {};
-                command.executeName("exit_mini_mode", .{}) catch {};
+                command.executeName("exit_mini_mode", .empty()) catch {};
             }
         }, ctx);
     }
@@ -1534,7 +1535,7 @@ const cmds = struct {
             try command.executeName("create_scratch_buffer", try command.fmtbuf(&buf, .{ buffer_name.written(), "", "conf" }));
             tp.self_pid().send(.{ "cmd", "shell_execute_stream", .{cmd} }) catch |e| self.logger.err("task", e);
         } else {
-            return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type);
+            return self.enter_overlay_mode(@import("mode/overlay/task_palette.zig").Type, .empty_from(ctx));
         }
     }
     pub const run_task_meta: Meta = .{
@@ -1574,8 +1575,8 @@ const cmds = struct {
     }
     pub const delete_task_meta: Meta = .{};
 
-    pub fn change_theme(self: *Self, _: Ctx) Result {
-        return self.enter_overlay_mode(@import("mode/overlay/theme_palette.zig").Type);
+    pub fn change_theme(self: *Self, ctx: Ctx) Result {
+        return self.enter_overlay_mode(@import("mode/overlay/theme_palette.zig").Type, ctx);
     }
     pub const change_theme_meta: Meta = .{ .description = "Change color theme" };
 
@@ -1585,8 +1586,8 @@ const cmds = struct {
     }
     pub const change_fontface_meta: Meta = .{ .description = "Change font" };
 
-    pub fn exit_overlay_mode(self: *Self, _: Ctx) Result {
-        if (self.input_mode_outer_ == null) return enter_mode_default(self, .{});
+    pub fn exit_overlay_mode(self: *Self, ctx: Ctx) Result {
+        if (self.input_mode_outer_ == null) return enter_mode_default(self, ctx);
         if (self.input_mode_) |*mode| mode.deinit();
         self.input_mode_ = self.input_mode_outer_;
         self.input_mode_outer_ = null;
@@ -1687,11 +1688,12 @@ const cmds = struct {
     pub const save_as_meta: Meta = .{ .description = "Save as" };
 
     fn enter_mini_mode(self: *Self, comptime mode: anytype, ctx: Ctx) !void {
-        command.executeName("disable_fast_scroll", .{}) catch {};
-        command.executeName("disable_alt_scroll", .{}) catch {};
-        command.executeName("disable_jump_mode", .{}) catch {};
-        if (self.mini_mode_) |_| try exit_mini_mode(self, .{});
-        if (self.input_mode_outer_) |_| try exit_overlay_mode(self, .{});
+        const ctx_: command.Context = .empty_from(ctx);
+        command.executeName("disable_fast_scroll", ctx_) catch {};
+        command.executeName("disable_alt_scroll", ctx_) catch {};
+        command.executeName("disable_jump_mode", ctx_) catch {};
+        if (self.mini_mode_) |_| try exit_mini_mode(self, ctx_);
+        if (self.input_mode_outer_) |_| try exit_overlay_mode(self, ctx_);
         if (self.input_mode_outer_ != null) @panic("exit_overlay_mode failed");
         const input_mode_, const mini_mode_ = try mode.create(self.allocator, ctx);
         self.input_mode_outer_ = self.input_mode_;
@@ -1786,8 +1788,8 @@ const cmds = struct {
     }
     pub const exit_helix_mode_meta: Meta = .{};
 
-    pub fn clipboard_history(_: *Self, _: Ctx) Result {
-        return try open_overlay(@import("mode/overlay/clipboard_palette.zig").Type);
+    pub fn clipboard_history(_: *Self, ctx: Ctx) Result {
+        return try open_overlay(@import("mode/overlay/clipboard_palette.zig").Type, ctx);
     }
     pub const clipboard_history_meta: Meta = .{ .description = "Paste from clipboard history" };
 
@@ -1927,8 +1929,8 @@ pub fn mini_mode() ?*MiniMode {
     return if (current().mini_mode_) |*p| p else null;
 }
 
-pub fn open_overlay(mode: type) command.Result {
-    return current().enter_overlay_mode(mode);
+pub fn open_overlay(mode: type, ctx: command.Context) command.Result {
+    return current().enter_overlay_mode(mode, ctx);
 }
 
 pub fn query_cache() *syntax.QueryCache {
@@ -2684,7 +2686,7 @@ pub fn set_last_palette(type_: PaletteType, ctx: command.Context) void {
     }
     self.last_palette = .{
         .type_ = type_,
-        .ctx = .{ .args = ctx.args.clone(self.allocator) catch return },
+        .ctx = .{ .io = ctx.io, .now = ctx.now, .args = ctx.args.clone(self.allocator) catch return },
     };
 }
 

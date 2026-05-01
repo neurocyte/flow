@@ -100,21 +100,21 @@ const cmds = struct {
     }
     pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
-    pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
-        command.executeName("close_find_in_files_results", .{}) catch {};
-        command.executeName("exit_mini_mode", .{}) catch {};
+    pub fn mini_mode_cancel(_: *Self, ctx: Ctx) Result {
+        command.executeName("close_find_in_files_results", ctx) catch {};
+        command.executeName("exit_mini_mode", ctx) catch {};
     }
     pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
-    pub fn mini_mode_select(_: *Self, _: Ctx) Result {
-        command.executeName("goto_selected_file", .{}) catch {};
-        return command.executeName("exit_mini_mode", .{});
+    pub fn mini_mode_select(_: *Self, ctx: Ctx) Result {
+        command.executeName("goto_selected_file", ctx) catch {};
+        return command.executeName("exit_mini_mode", ctx);
     }
     pub const mini_mode_select_meta: Meta = .{ .description = "Select" };
 
-    pub fn mini_mode_select_alternate(_: *Self, _: Ctx) Result {
-        command.executeName("goto_selected_file_alternate", .{}) catch {};
-        return command.executeName("exit_mini_mode", .{});
+    pub fn mini_mode_select_alternate(_: *Self, ctx: Ctx) Result {
+        command.executeName("goto_selected_file_alternate", ctx) catch {};
+        return command.executeName("exit_mini_mode", ctx);
     }
     pub const mini_mode_select_alternate_meta: Meta = .{ .description = "Select alternate" };
 

@@ -315,8 +315,8 @@ pub fn Create(options: type) type {
             }
             pub const mini_mode_reset_meta: Meta = .{ .description = "Clear input" };
 
-            pub fn mini_mode_cancel(_: *Self, _: Ctx) Result {
-                command.executeName("exit_mini_mode", .{}) catch {};
+            pub fn mini_mode_cancel(_: *Self, ctx: Ctx) Result {
+                command.executeName("exit_mini_mode", ctx) catch {};
             }
             pub const mini_mode_cancel_meta: Meta = .{ .description = "Cancel input" };
 
