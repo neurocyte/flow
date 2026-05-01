@@ -319,7 +319,7 @@ pub fn get_panel_height(self: *Self) usize {
 pub const PanelToggleMode = enum { toggle, enable, disable };
 
 fn toggle_panel_view(self: *Self, view: anytype, mode: PanelToggleMode) !void {
-    return self.toggle_panel_view_with_args(view, mode, .{});
+    return self.toggle_panel_view_with_args(view, mode, .empty());
 }
 
 fn toggle_panel_view_with_args(self: *Self, view: anytype, mode: PanelToggleMode, ctx: command.Context) !void {
@@ -950,7 +950,7 @@ const cmds = struct {
     }
     pub const restore_session_meta: Meta = .{};
 
-    pub fn toggle_panel(self: *Self, _: Ctx) Result {
+    pub fn toggle_panel(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(logview))
             try self.toggle_panel_view(logview, .toggle)
         else if (self.is_panel_view_showing(info_view))
@@ -964,13 +964,13 @@ const cmds = struct {
         else if (self.is_panel_view_showing(terminal_view))
             try self.toggle_panel_view(terminal_view, .toggle)
         else
-            try open_terminal(self, .{});
+            try open_terminal(self, .empty_from(ctx));
     }
     pub const toggle_panel_meta: Meta = .{ .description = "Toggle panel" };
 
-    pub fn toggle_maximize_panel(self: *Self, _: Ctx) Result {
+    pub fn toggle_maximize_panel(self: *Self, ctx: Ctx) Result {
         const panels = self.panels orelse blk: {
-            cmds.toggle_panel(self, .{}) catch return;
+            cmds.toggle_panel(self, .empty_from(ctx)) catch return;
             self.panel_maximized = false;
             break :blk self.panels.?;
         };
@@ -1662,17 +1662,17 @@ const cmds = struct {
     }
     pub const move_tab_previous_meta: Meta = .{ .description = "Move tab to previous position" };
 
-    pub fn move_tab_next_or_scroll_terminal_down(self: *Self, _: Ctx) Result {
+    pub fn move_tab_next_or_scroll_terminal_down(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(terminal_view))
-            try command.executeName("terminal_scroll_down", .{})
+            try command.executeName("terminal_scroll_down", ctx)
         else
             _ = try self.widgets_widget.msg(.{"move_tab_next"});
     }
     pub const move_tab_next_or_scroll_terminal_down_meta: Meta = .{ .description = "Move tab next or scroll terminal down" };
 
-    pub fn move_tab_previous_or_scroll_terminal_up(self: *Self, _: Ctx) Result {
+    pub fn move_tab_previous_or_scroll_terminal_up(self: *Self, ctx: Ctx) Result {
         if (self.is_panel_view_showing(terminal_view))
-            try command.executeName("terminal_scroll_up", .{})
+            try command.executeName("terminal_scroll_up", ctx)
         else
             _ = try self.widgets_widget.msg(.{"move_tab_previous"});
     }

@@ -144,7 +144,7 @@ pub fn run_cmd(self: *Self, ctx: command.Context) !void {
 
 fn re_run_cmd(self: *Self) !void {
     return if (self.last_cmd) |cmd|
-        self.run_cmd(.{ .args = .{ .buf = cmd } })
+        self.run_cmd(.init(.{ .buf = cmd }))
     else
         tp.exit("no command to re-run");
 }
