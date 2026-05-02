@@ -325,7 +325,7 @@ fn get_existing_language_server(self: *Self, language_server: []const u8) ?*cons
     return null;
 }
 
-fn get_language_server_instance(self: *Self, from: tp.pid_ref, language_server: []const u8, language_server_options: []const u8) StartLspError!*const LSP {
+fn get_language_server_instance(self: *Self, from: tp.pid_ref, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel) StartLspError!*const LSP {
     if (self.get_existing_language_server(language_server)) |lsp| return lsp;
     const lsp = try LSP.open(self.allocator, self.name, .{ .buf = language_server });
     errdefer lsp.deinit();
@@ -335,15 +335,15 @@ fn get_language_server_instance(self: *Self, from: tp.pid_ref, language_server: 
     const basename = if (basename_begin) |begin| self.name[begin + 1 ..] else self.name;
 
     errdefer lsp.deinit();
-    try self.send_lsp_init_request(from, lsp, self.name, basename, uri, language_server, language_server_options);
+    try self.send_lsp_init_request(from, lsp, self.name, basename, uri, language_server, language_server_options, language_server_protocol);
     try self.language_servers.put(try self.allocator.dupe(u8, language_server), lsp);
     return lsp;
 }
 
-fn get_or_start_language_server(self: *Self, from: tp.pid_ref, file_path: []const u8, language_server: []const u8, language_server_options: []const u8) StartLspError!*const LSP {
+fn get_or_start_language_server(self: *Self, from: tp.pid_ref, file_path: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel) StartLspError!*const LSP {
     if (self.file_language_server_name.get(file_path)) |lsp_name|
         return self.get_existing_language_server(lsp_name) orelse error.LspFailed;
-    const lsp = try self.get_language_server_instance(from, language_server, language_server_options);
+    const lsp = try self.get_language_server_instance(from, language_server, language_server_options, language_server_protocol);
     const key = try self.allocator.dupe(u8, file_path);
     const value = try self.allocator.dupe(u8, language_server);
     try self.file_language_server_name.put(key, value);
@@ -910,9 +910,9 @@ pub fn delete_task(self: *Self, command: []const u8) error{}!void {
         };
 }
 
-pub fn did_open(self: *Self, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, version: usize, text: []const u8) StartLspError!void {
+pub fn did_open(self: *Self, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel, version: usize, text: []const u8) StartLspError!void {
     self.update_mru(file_path, 0, 0) catch {};
-    const lsp = try self.get_or_start_language_server(from, file_path, language_server, language_server_options);
+    const lsp = try self.get_or_start_language_server(from, file_path, language_server, language_server_options, language_server_protocol);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
     lsp.send_notification("textDocument/didOpen", .{
@@ -2316,7 +2316,7 @@ pub fn unsupported_lsp_request(self: *Self, from: tp.pid_ref, cbor_id: []const u
     return LSP.send_error_response(self.allocator, from, cbor_id, LSP.ErrorCode.MethodNotFound, method) catch error.LspFailed;
 }
 
-fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8, language_server_options: []const u8) !void {
+fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project_path: []const u8, project_basename: []const u8, project_uri: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel) !void {
     const handler: struct {
         from: tp.pid,
         language_server: []const u8,
@@ -2372,6 +2372,13 @@ fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project
         self: *Self,
         language_server_options: []const u8,
     } = .{ .self = self, .language_server_options = language_server_options };
+
+    try lsp.set_protocol(language_server_protocol);
+
+    if (language_server_protocol == .simple) {
+        try lsp.send_request(self.allocator, "initialize", .{}, handler);
+        return;
+    }
 
     try lsp.send_request(self.allocator, "initialize", .{
         .initializationOptions = initializationOptions,

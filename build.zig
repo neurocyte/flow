@@ -10,7 +10,9 @@ pub fn build(b: *std.Build) void {
     const tracy_enabled = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)") orelse false;
     const use_tree_sitter = b.option(bool, "use_tree_sitter", "Enable tree-sitter (default: yes)") orelse true;
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
-    const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
+    // workaround for arch linux relocation type R_X86_64_PC64 linker issue, revert when we move to zig-0.17-dev - CJ 2026-05-02
+    // const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
+    const use_llvm: ?bool = b.option(bool, "use-llvm", "Enable llvm backend (default: true)") orelse true;
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
     const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (TUI, default), d3d11 (GPU on Windows via DirectWrite), gui (GPU on Linux/macOS/Windows via wio+sokol_gfx)") orelse .terminal;
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};

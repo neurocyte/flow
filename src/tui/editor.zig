@@ -2518,10 +2518,10 @@ pub const Editor = struct {
             if (!match.nudge_delete(nudge)) {
                 self.matches.items[i] = null;
             };
-        for (self.cursels_tabstops.items) |tabstop| for (tabstop) |*cursel|
+        outer: for (self.cursels_tabstops.items) |tabstop| for (tabstop) |*cursel|
             if (!cursel.nudge_delete(nudge)) {
                 self.cancel_all_tabstops();
-                break;
+                break :outer;
             };
     }
 
