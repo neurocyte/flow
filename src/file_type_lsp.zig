@@ -57,6 +57,7 @@ pub const fsharp = .{
 pub const gdscript = .{
     .language_server = .{ "nc", "127.0.0.1", "6005" },
     .formatter = .{ "gdscript-formatter", "--safe", "--use-spaces", "--indent-size", "{{indent_size}}" },
+    .protocol = .simple,
 };
 
 pub const @"git-rebase" = .{};
