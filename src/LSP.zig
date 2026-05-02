@@ -498,7 +498,10 @@ const Process = struct {
         try cbor.writeValue(msg_writer, "method");
         try cbor.writeValue(msg_writer, method);
         try cbor.writeValue(msg_writer, "params");
-        _ = try msg_writer.write(params_cb);
+
+        if (try cbor.match(params_cb, cbor.null_)) {
+            try cbor.writeMapHeader(msg_writer, 0);
+        } else _ = try msg_writer.write(params_cb);
 
         const json = try cbor.toJsonAlloc(self.allocator, request.written());
         defer self.allocator.free(json);
