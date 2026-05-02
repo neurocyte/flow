@@ -3,6 +3,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 const root = @import("soft_root").root;
 const tracy = @import("tracy");
+const ProtocolLevel = @import("file_type_config").ProtocolLevel;
 
 allocator: std.mem.Allocator,
 pid: tp.pid,
@@ -40,6 +41,10 @@ pub fn term(self: *const Self) void {
     self.pid.send(.{"term"}) catch {};
     self.pid.deinit();
     self.allocator.destroy(self);
+}
+
+pub fn set_protocol(self: *const Self, langauge_server_protocol: ProtocolLevel) error{}!void {
+    return self.pid.send(.{ "set_protocol", langauge_server_protocol }) catch {};
 }
 
 pub fn send_request(
@@ -181,6 +186,7 @@ const Process = struct {
     requests: std.StringHashMap(tp.pid),
     state: enum { init, running } = .init,
     init_queue: ?std.ArrayListUnmanaged(struct { tp.pid, []const u8, []const u8, InitQueueType }) = null,
+    protocol: ProtocolLevel = .standard,
 
     const InitQueueType = enum { request, notify };
 
@@ -321,6 +327,7 @@ const Process = struct {
         var cbor_id: []const u8 = "";
         var error_code: ErrorCode = undefined;
         var message: []const u8 = "";
+        var protocol: ProtocolLevel = undefined;
 
         if (try cbor.match(m.buf, .{ "REQ", "initialize", tp.extract(&bytes) })) {
             try self.send_request(from, "initialize", bytes);
@@ -348,6 +355,9 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{"term"})) {
             self.write_log("### LSP terminated ###\n", .{});
             try self.term();
+        } else if (try cbor.match(m.buf, .{ "set_protocol", tp.extract(&protocol) })) {
+            self.write_log("### LSP protcol {t} ###\n", .{protocol});
+            self.protocol = protocol;
         } else if (try cbor.match(m.buf, .{ self.sp_tag, "stdout", tp.extract(&bytes) })) {
             try self.handle_output(bytes);
         } else if (try cbor.match(m.buf, .{ self.sp_tag, "term", "error.FileNotFound", 1 })) {
@@ -481,6 +491,13 @@ const Process = struct {
         return error.ExitNormal;
     }
 
+    fn write_headers(self: *Process, writer: *std.Io.Writer, content_length: usize) !void {
+        switch (self.protocol) {
+            .simple => try writer.print("Content-Length: {d}\r\n\r\n", .{content_length}),
+            .standard => try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length}),
+        }
+    }
+
     fn send_request(self: *Process, from: tp.pid_ref, method: []const u8, params_cb: []const u8) Error!void {
         const sp = if (self.sp) |*sp| sp else return error.Closed;
 
@@ -510,7 +527,7 @@ const Process = struct {
         const writer = &output.writer;
         const terminator = "\r\n";
         const content_length = json.len + terminator.len;
-        try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
+        try self.write_headers(writer, content_length);
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
@@ -545,7 +562,8 @@ const Process = struct {
         const writer = &output.writer;
         const terminator = "\r\n";
         const content_length = json.len + terminator.len;
-        try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
+        try self.write_headers(writer, content_length);
+
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
@@ -579,7 +597,8 @@ const Process = struct {
         const writer = &output.writer;
         const terminator = "\r\n";
         const content_length = json.len + terminator.len;
-        try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
+        try self.write_headers(writer, content_length);
+
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 
@@ -615,7 +634,8 @@ const Process = struct {
         const writer = &output.writer;
         const terminator = "\r\n";
         const content_length = json.len + terminator.len;
-        try writer.print("Content-Length: {d}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", .{content_length});
+        try self.write_headers(writer, content_length);
+
         _ = try writer.write(json);
         _ = try writer.write(terminator);
 

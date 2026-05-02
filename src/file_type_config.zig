@@ -10,6 +10,7 @@ language_server: ?[]const []const u8 = null,
 first_line_matches_prefix: ?[]const u8 = null,
 first_line_matches_content: ?[]const u8 = null,
 first_line_matches: ?[]const u8 = null,
+protocol: ProtocolLevel = .standard,
 
 include_files: []const u8 = "",
 
@@ -21,6 +22,11 @@ pub const default = struct {
 };
 
 pub const folder_icon = "";
+
+pub const ProtocolLevel = enum {
+    standard,
+    simple,
+};
 
 fn from_file_type(file_type: syntax.FileType) @This() {
     const lsp_defaults: LspDefaults = static_file_type_lsp_defaults.get(file_type.name) orelse .{};
@@ -36,6 +42,7 @@ fn from_file_type(file_type: syntax.FileType) @This() {
         .comment = file_type.comment,
         .formatter = lsp_defaults.formatter,
         .language_server = lsp_defaults.language_server,
+        .protocol = lsp_defaults.protocol,
     };
 }
 
@@ -212,6 +219,7 @@ const static_file_type_lsp_defaults = std.StaticStringMap(LspDefaults).initCompt
 const LspDefaults = struct {
     formatter: ?[]const []const u8 = null,
     language_server: ?[]const []const u8 = null,
+    protocol: ProtocolLevel = .standard,
 };
 const ListEntry = struct { []const u8, LspDefaults };
 
@@ -228,6 +236,7 @@ fn load_file_type_lsp_defaults(comptime Namespace: type) []const ListEntry {
                 construct_types[i] = .{ lang, .{
                     .formatter = if (@hasField(@TypeOf(args), "formatter")) vec(args.formatter) else null,
                     .language_server = if (@hasField(@TypeOf(args), "language_server")) vec(args.language_server) else null,
+                    .protocol = if (@hasField(@TypeOf(args), "protocol")) args.protocol else .standard,
                 } };
                 i += 1;
             }
