@@ -2376,7 +2376,9 @@ fn send_lsp_init_request(self: *Self, from: tp.pid_ref, lsp: *const LSP, project
     try lsp.set_protocol(language_server_protocol);
 
     if (language_server_protocol == .simple) {
-        try lsp.send_request(self.allocator, "initialize", .{}, handler);
+        try lsp.send_request(self.allocator, "initialize", .{
+            .rootUri = project_uri,
+        }, handler);
         return;
     }
 

@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
     // workaround for arch linux relocation type R_X86_64_PC64 linker issue, revert when we move to zig-0.17-dev - CJ 2026-05-02
     // const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
-    const use_llvm: ?bool = b.option(bool, "use-llvm", "Enable llvm backend (default: true)") orelse true;
+    const use_llvm: ?bool = if (builtin.os.tag == .linux) true else false;
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
     const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (TUI, default), d3d11 (GPU on Windows via DirectWrite), gui (GPU on Linux/macOS/Windows via wio+sokol_gfx)") orelse .terminal;
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
@@ -109,7 +109,7 @@ fn build_release(
     tracy_enabled: bool,
     use_tree_sitter: bool,
     _: ?bool, //release builds control strip
-    use_llvm: ?bool,
+    _: ?bool, //use_llvm
     pie: ?bool,
     _: Renderer, //renderer
     version: []const u8,
@@ -188,6 +188,7 @@ fn build_release(
         const os = triple.next() orelse unreachable;
         const target_path = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch }) catch unreachable;
         const target_path_debug = std.mem.join(b.allocator, "-", &[_][]const u8{ os, arch, "debug" }) catch unreachable;
+        const use_llvm = if (t.os_tag == .linux) true else null;
 
         build_exe(
             b,
@@ -337,7 +338,7 @@ pub fn build_exe(
         .target = target,
         .optimize = optimize_deps,
         .use_tree_sitter = use_tree_sitter,
-        .@"use-llvm" = use_llvm,
+        .@"use-llvm" = if (builtin.os.tag == .linux) true else false,
     });
     const syntax_mod = syntax_dep.module("syntax");
 
