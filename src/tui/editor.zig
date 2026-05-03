@@ -12,6 +12,7 @@ const syntax = @import("syntax");
 const file_type_config = @import("file_type_config");
 const project_manager = @import("project_manager");
 const root_mod = @import("soft_root").root;
+const file_link = @import("file_link");
 
 const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;
@@ -3108,6 +3109,28 @@ pub const Editor = struct {
 
     pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) error{ Stop, OutOfMemory }![]u8 {
         return copy_selection(try self.buf_root(), sel, text_allocator, self.metrics);
+    }
+
+    /// Returns the file link destination under the cursor, or null if none.
+    /// Caller owns the `path` field in the returned Dest and must free it with `allocator`.
+    pub fn get_file_link_at_cursor(self: *const Self, allocator: Allocator) ?file_link.Dest {
+        const root_ = self.buf_root() catch return null;
+        const cursor = self.get_primary().cursor;
+        const line_w = root_.line_width(cursor.row, self.metrics) catch return null;
+        const line_sel: Selection = .{
+            .begin = .{ .row = cursor.row, .col = 0 },
+            .end = .{ .row = cursor.row, .col = line_w },
+        };
+        const line_text = copy_selection(root_, line_sel, self.allocator, self.metrics) catch return null;
+        defer self.allocator.free(line_text);
+        const byte_offset = root_.get_line_width_to_pos(cursor.row, cursor.col, self.metrics) catch return null;
+        const range = file_link.find_at_point(line_text, byte_offset) orelse return null;
+        var dest = file_link.parse(line_text[range.start..range.end]) catch return null;
+        switch (dest) {
+            .file => |*f| f.path = allocator.dupe(u8, f.path) catch return null,
+            .dir => |*d| d.path = allocator.dupe(u8, d.path) catch return null,
+        }
+        return dest;
     }
 
     fn copy_word_at_cursor(self: *Self, text_allocator: Allocator) ![]const u8 {

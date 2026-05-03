@@ -1586,6 +1586,17 @@ const cmds = struct {
                     return file_link.navigate(tp.self_pid(), &link),
                 else => {},
             }
+        } else if (get_active_editor()) |editor| {
+            if (editor.get_file_link_at_cursor(self.allocator)) |link| {
+                defer switch (link) {
+                    .file => |f| self.allocator.free(f.path),
+                    .dir => |d| self.allocator.free(d.path),
+                };
+                switch (link) {
+                    .file => |file| if (file.exists) return file_link.navigate(tp.self_pid(), &link),
+                    .dir => return file_link.navigate(tp.self_pid(), &link),
+                }
+            }
         }
         return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
     }
