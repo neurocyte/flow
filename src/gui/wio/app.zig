@@ -89,7 +89,7 @@ var clipboard_write: ?[]u8 = null;
 var clipboard_read_pending: std.atomic.Value(bool) = .init(false);
 
 // Mouse cursor (stored as wio.Cursor tag value)
-var pending_cursor: std.atomic.Value(u8) = .init(@intFromEnum(wio.Cursor.arrow));
+var pending_cursor: std.atomic.Value(u8) = .init(@intFromEnum(wio.Cursor.pointer));
 var cursor_dirty: std.atomic.Value(bool) = .init(false);
 
 // Window attention request
@@ -281,15 +281,15 @@ pub fn requestClipboard() void {
 
 pub fn setMouseCursor(shape: vaxis.Mouse.Shape) void {
     const cursor: wio.Cursor = switch (shape) {
-        .default => .arrow,
+        .default => .default,
         .text => .text,
-        .pointer => .hand,
-        .help => .arrow,
-        .progress => .arrow_busy,
-        .wait => .busy,
-        .@"ew-resize" => .size_ew,
-        .@"ns-resize" => .size_ns,
-        .cell => .crosshair,
+        .pointer => .pointer,
+        .help => .help,
+        .progress => .progress,
+        .wait => .wait,
+        .@"ew-resize" => .ew_resize,
+        .@"ns-resize" => .ns_resize,
+        .cell => .cell,
     };
     pending_cursor.store(@intFromEnum(cursor), .release);
     cursor_dirty.store(true, .release);
@@ -392,24 +392,26 @@ fn wioLoop() void {
     const io = root.get_io();
     const allocator = root.get_init().gpa;
 
-    wio.init(allocator, .{}) catch |e| {
+    wio.init(allocator, io, .{}) catch |e| {
         log.err("wio.init failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
         return;
     };
     defer wio.deinit();
 
+    const gl_options: wio.GlOptions = .{
+        .major_version = 3,
+        .minor_version = 3,
+        .profile = .core,
+        .forward_compatible = true,
+    };
+
     var window = wio.createWindow(.{
         .title = "flow",
         .app_id = if (window_class_len > 0) window_class_buf[0..window_class_len] else "flow",
         .size = .{ .width = 1280, .height = 720 },
         .scale = 1.0,
-        .opengl = .{
-            .major_version = 3,
-            .minor_version = 3,
-            .profile = .core,
-            .forward_compatible = true,
-        },
+        .gl_options = gl_options,
     }) catch |e| {
         log.err("wio.createWindow failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
@@ -417,14 +419,20 @@ fn wioLoop() void {
     };
     defer window.destroy();
 
-    window.makeContextCurrent();
+    const context = window.glCreateContext(.{ .options = gl_options }) catch |e| {
+        log.err("wio.glCreateContext failed: {s}", .{@errorName(e)});
+        tui_pid.send(.{"quit"}) catch {};
+        return;
+    };
+    window.glMakeContextCurrent(context);
+
     // Disable EGL vsync throttling so eglSwapBuffers() returns immediately.
     // Without this, eglSwapBuffers() blocks waiting for a frame callback from
     // the compositor. Compositors do not send frame callbacks for surfaces on
     // background virtual desktops, so any paint while the window is hidden
     // causes eglSwapBuffers() to stall indefinitely, freezing the Wayland
     // event loop and triggering an "Application Not Responding" dialog.
-    window.swapInterval(0);
+    window.glSwapInterval(0);
 
     sg.setup(.{
         .logger = .{ .func = slog.func },
@@ -679,7 +687,7 @@ fn wioLoop() void {
                     s.secondary_cursors,
                 );
                 sg.commit();
-                window.swapBuffers();
+                window.glSwapBuffers();
             }
         }
     }
