@@ -147,11 +147,29 @@ const dummy = struct {
         @panic("dummy set_restart_with_sudo call");
     }
 
-    pub fn is_directory(_: []const u8) bool {
-        @panic("dummy is_directory call");
+    pub fn is_directory(path: []const u8) bool {
+        return dummy_stat_check(path, .dir);
     }
-    pub fn is_file(_: []const u8) bool {
-        @panic("dummy is_file call");
+    pub fn is_file(path: []const u8) bool {
+        return dummy_stat_check(path, .file);
+    }
+
+    const StatKind = enum { file, dir };
+
+    fn dummy_stat_check(path: []const u8, kind: StatKind) bool {
+        if (comptime @import("builtin").os.tag != .linux) return false;
+        if (path.len > std.fs.max_path_bytes) return false;
+        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        @memcpy(buf[0..path.len], path);
+        buf[path.len] = 0;
+        const linux = std.os.linux;
+        var sx: linux.Statx = undefined;
+        const rc = linux.statx(linux.AT.FDCWD, buf[0..path.len :0], 0, .{ .TYPE = true }, &sx);
+        if (linux.errno(rc) != .SUCCESS) return false;
+        return switch (kind) {
+            .file => linux.S.ISREG(sx.mode),
+            .dir => linux.S.ISDIR(sx.mode),
+        };
     }
 
     pub fn shorten_path(_: []u8, _: []const u8, _: *usize, _: usize) []const u8 {
