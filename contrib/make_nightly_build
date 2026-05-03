@@ -6,6 +6,7 @@ for arg in "$@"; do
     --no-github) NO_GITHUB=1 ;;
     --no-codeberg) NO_CODEBERG=1 ;;
     --no-flowcontrol) NO_FLOWCONTROL=1 ;;
+    --no-aur) NO_AUR=1 ;;
     --allow-dirty) ALLOW_DIRTY=1 ;;
     esac
 done
@@ -172,4 +173,15 @@ fi
 if [ -z "$NO_GITHUB" ]; then
     echo uploading to github.com
     gh release create "$VERSION" --repo "$repo" --title "$title $VERSION" --notes-file "$release_notes" "$DESTDIR"/*
+fi
+
+if [ -z "$NO_AUR" ]; then
+    echo uploading to arch linux AUR
+    git clone ssh://aur@aur.archlinux.org/flow-control-nightly-bin
+    cd flow-control-nightly-bin
+    PKGVER=${VERSION#v}
+    sed -i "s/^pkgver=.*/pkgver=${PKGVER//-/.}/" PKGBUILD
+    makepkg --printsrcinfo >.SRCINFO
+    git commit -a -m "$title $VERSION"
+    git push
 fi
