@@ -10,6 +10,7 @@ const tracy = @import("tracy");
 const git = @import("git");
 const VcsStatus = @import("VcsStatus");
 const file_type_config = @import("file_type_config");
+const file_link = @import("file_link");
 const builtin = @import("builtin");
 
 const project_manager = @import("project_manager.zig");
@@ -92,6 +93,11 @@ const FileVcsStatus = struct {
 pub const FilePos = struct {
     row: usize = 0,
     col: usize = 0,
+};
+
+pub const SourceLocation = struct {
+    src: file_link.FileSrc,
+    alternative_destination: ?file_link.FileDest = null,
 };
 
 const Task = struct {
@@ -232,12 +238,12 @@ pub fn restore_state_v1(self: *Self, data: []const u8) !void {
         const stat = std.Io.Dir.cwd().statFile(root.get_io(), path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
             error.FileNotFound => continue,
             else => {
-                try self.update_mru_internal(path, mtime, row, col);
+                try self.update_mru_internal(&.{ .src = .{ .path = path, .line = row, .column = col } }, mtime);
                 continue;
             },
         };
         switch (stat.kind) {
-            .sym_link, .file => try self.update_mru_internal(path, mtime, row, col),
+            .sym_link, .file => try self.update_mru_internal(&.{ .src = .{ .path = path, .line = row, .column = col } }, mtime),
             else => {},
         }
     }
@@ -303,12 +309,12 @@ pub fn restore_state_v0(self: *Self, data: []const u8) error{
         const stat = std.Io.Dir.cwd().statFile(root.get_io(), path[0..@min(path.len, std.Io.Dir.max_name_bytes)], .{}) catch |e| switch (e) {
             error.FileNotFound => continue,
             else => {
-                try self.update_mru_internal(path, mtime, row, col);
+                try self.update_mru_internal(&.{ .src = .{ .path = path, .line = row, .column = col } }, mtime);
                 continue;
             },
         };
         switch (stat.kind) {
-            .sym_link, .file => try self.update_mru_internal(path, mtime, row, col),
+            .sym_link, .file => try self.update_mru_internal(&.{ .src = .{ .path = path, .line = row, .column = col } }, mtime),
             else => {},
         }
     }
@@ -759,7 +765,7 @@ fn merge_pending_files(self: *Self) OutOfMemoryError!void {
     self.pending = .empty;
 
     for (existing) |*file| {
-        self.update_mru_internal(file.path, file.mtime, file.pos.row, file.pos.col) catch {};
+        self.update_mru_internal(&.{ .src = .{ .path = file.path, .line = file.pos.row, .column = file.pos.col } }, file.mtime) catch {};
         self.allocator.free(file.path);
     }
 }
@@ -787,36 +793,36 @@ fn loaded(self: *Self, parent: tp.pid_ref) OutOfMemoryError!void {
     parent.send(.{ "PRJ", "open_done", self.name, self.longest_file_path, self.files.items.len }) catch {};
 }
 
-pub fn update_mru(self: *Self, file_path: []const u8, row: usize, col: usize) OutOfMemoryError!void {
+pub fn update_mru(self: *Self, source_location: *const SourceLocation) OutOfMemoryError!void {
     defer self.sort_files_by_mtime();
-    try self.update_mru_internal(file_path, @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds()), row, col);
+    try self.update_mru_internal(source_location, @as(i128, std.Io.Clock.real.now(root.get_io()).toNanoseconds()));
 }
 
-fn update_mru_internal(self: *Self, file_path: []const u8, mtime: i128, row: usize, col: usize) OutOfMemoryError!void {
+fn update_mru_internal(self: *Self, source_location: *const SourceLocation, mtime: i128) OutOfMemoryError!void {
     for (self.files.items) |*file| {
-        if (!std.mem.eql(u8, file.path, file_path)) continue;
+        if (!std.mem.eql(u8, file.path, source_location.src.path)) continue;
         file.mtime = mtime;
-        if (row != 0) {
-            file.pos.row = row;
-            file.pos.col = col;
+        if (source_location.src.line != 0) {
+            file.pos.row = source_location.src.line;
+            file.pos.col = source_location.src.column;
             file.visited = true;
         }
         return;
     }
-    const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(file_path);
-    if (row != 0) {
+    const file_type: []const u8, const file_icon: []const u8, const file_color: u24 = guess_file_type(source_location.src.path);
+    if (source_location.src.line != 0) {
         (try self.files.addOne(self.allocator)).* = .{
-            .path = try self.allocator.dupe(u8, file_path),
+            .path = try self.allocator.dupe(u8, source_location.src.path),
             .type = file_type,
             .icon = file_icon,
             .color = file_color,
             .mtime = mtime,
-            .pos = .{ .row = row, .col = col },
+            .pos = .{ .row = source_location.src.line, .col = source_location.src.column },
             .visited = true,
         };
     } else {
         (try self.files.addOne(self.allocator)).* = .{
-            .path = try self.allocator.dupe(u8, file_path),
+            .path = try self.allocator.dupe(u8, source_location.src.path),
             .type = file_type,
             .icon = file_icon,
             .color = file_color,
@@ -911,7 +917,7 @@ pub fn delete_task(self: *Self, command: []const u8) error{}!void {
 }
 
 pub fn did_open(self: *Self, from: tp.pid_ref, file_path: []const u8, file_type: []const u8, language_server: []const u8, language_server_options: []const u8, language_server_protocol: file_type_config.ProtocolLevel, version: usize, text: []const u8) StartLspError!void {
-    self.update_mru(file_path, 0, 0) catch {};
+    self.update_mru(&.{ .src = .{ .path = file_path, .line = 0, .column = 0 } }) catch {};
     const lsp = try self.get_or_start_language_server(from, file_path, language_server, language_server_options, language_server_protocol);
     const uri = try self.make_URI(file_path);
     defer self.allocator.free(uri);
@@ -1043,34 +1049,41 @@ pub fn did_close(self: *Self, file_path: []const u8) LspError!void {
     }) catch return error.LspFailed;
 }
 
-pub fn goto_definition(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) SendGotoRequestError!void {
-    return self.send_goto_request(from, file_path, row, col, "textDocument/definition");
+pub fn goto_definition(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    return self.send_goto_request(from, args, "textDocument/definition");
 }
 
-pub fn goto_declaration(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) SendGotoRequestError!void {
-    return self.send_goto_request(from, file_path, row, col, "textDocument/declaration");
+pub fn goto_declaration(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    return self.send_goto_request(from, args, "textDocument/declaration");
 }
 
-pub fn goto_implementation(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) SendGotoRequestError!void {
-    return self.send_goto_request(from, file_path, row, col, "textDocument/implementation");
+pub fn goto_implementation(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    return self.send_goto_request(from, args, "textDocument/implementation");
 }
 
-pub fn goto_type_definition(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) SendGotoRequestError!void {
-    return self.send_goto_request(from, file_path, row, col, "textDocument/typeDefinition");
+pub fn goto_type_definition(self: *Self, from: tp.pid_ref, args: *const SourceLocation) SendGotoRequestError!void {
+    return self.send_goto_request(from, args, "textDocument/typeDefinition");
 }
 
 pub const SendGotoRequestError = (error{} || LspError || GetLineOfFileError || cbor.Error);
 
-fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize, method: []const u8) SendGotoRequestError!void {
-    const lsp = try self.get_language_server(file_path);
-    const uri = try self.make_URI(file_path);
+fn send_goto_request(self: *Self, from: tp.pid_ref, args: *const SourceLocation, method: []const u8) SendGotoRequestError!void {
+    const lsp = self.get_language_server(args.src.path) catch |e| switch (e) {
+        error.NoLsp => return if (args.alternative_destination) |*link| navigate_to_alternate_destination(from.ref(), link) else e,
+        error.OutOfMemory => return e,
+        error.WriteFailed => return e,
+        error.LspFailed => return e,
+    };
+    const uri = try self.make_URI(args.src.path);
     defer self.allocator.free(uri);
 
     const handler: struct {
         from: tp.pid,
         name: []const u8,
+        alternative_destination: ?file_link.FileDest = null,
 
         pub fn deinit(self_: *@This()) void {
+            if (self_.alternative_destination) |dest| std.heap.c_allocator.free(dest.path);
             std.heap.c_allocator.free(self_.name);
             self_.from.deinit();
         }
@@ -1085,6 +1098,8 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
                     _ = try send_reference_list("REF", self_.from.ref(), locations, self_.name);
                 }
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.null_ })) {
+                if (self_.alternative_destination) |*link_|
+                    try navigate_to_alternate_destination(self_.from.ref(), link_);
                 return;
             } else if (try cbor.match(response.buf, .{ "child", tp.string, "result", tp.extract_cbor(&link) })) {
                 try navigate_to_location_link(self_.from.ref(), link);
@@ -1093,11 +1108,19 @@ fn send_goto_request(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
     } = .{
         .from = from.clone(),
         .name = try std.heap.c_allocator.dupe(u8, self.name),
+        .alternative_destination = if (args.alternative_destination) |dest| .{
+            .path = try std.heap.c_allocator.dupe(u8, dest.path),
+            .line = dest.line,
+            .column = dest.column,
+            .end_column = dest.end_column,
+            .exists = dest.exists,
+            .offset = dest.offset,
+        } else null,
     };
 
     lsp.send_request(self.allocator, method, .{
         .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
+        .position = .{ .line = args.src.line, .character = args.src.column },
     }, handler) catch return error.LspFailed;
 }
 
@@ -1156,9 +1179,19 @@ fn navigate_to_location_link(from: tp.pid_ref, location_link: []const u8) (error
     }
 }
 
-pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) SendGotoRequestError!void {
-    const lsp = try self.get_language_server(file_path);
-    const uri = try self.make_URI(file_path);
+fn navigate_to_alternate_destination(from: tp.pid_ref, dest: *const file_link.FileDest) error{}!void {
+    from.send(.{ "cmd", "navigate", .{
+        .file = dest.path,
+        .goto = .{ dest.line orelse 1, dest.column orelse 1 },
+    } }) catch |e| {
+        std.log.err("send navigate failed: {t}", .{e});
+        return;
+    };
+}
+
+pub fn references(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) SendGotoRequestError!void {
+    const lsp = try self.get_language_server(source_location.src.path);
+    const uri = try self.make_URI(source_location.src.path);
     defer self.allocator.free(uri);
     self.logger_lsp.print("finding references...", .{});
 
@@ -1187,7 +1220,7 @@ pub fn references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
 
     lsp.send_request(self.allocator, "textDocument/references", .{
         .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
+        .position = .{ .line = source_location.src.line, .character = source_location.src.column },
         .context = .{ .includeDeclaration = true },
     }, handler) catch return error.LspFailed;
 }
@@ -1235,9 +1268,9 @@ fn send_reference(tag: []const u8, to: tp.pid_ref, location_: []const u8, name: 
     };
 }
 
-pub fn highlight_references(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) SendGotoRequestError!void {
-    const lsp = try self.get_language_server(file_path);
-    const uri = try self.make_URI(file_path);
+pub fn highlight_references(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) SendGotoRequestError!void {
+    const lsp = try self.get_language_server(source_location.src.path);
+    const uri = try self.make_URI(source_location.src.path);
     defer self.allocator.free(uri);
 
     const handler: struct {
@@ -1259,12 +1292,12 @@ pub fn highlight_references(self: *Self, from: tp.pid_ref, file_path: []const u8
         }
     } = .{
         .from = from.clone(),
-        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
+        .file_path = try std.heap.c_allocator.dupe(u8, source_location.src.path),
     };
 
     lsp.send_request(self.allocator, "textDocument/documentHighlight", .{
         .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
+        .position = .{ .line = source_location.src.line, .character = source_location.src.column },
         .context = .{ .includeDeclaration = true },
     }, handler) catch return error.LspFailed;
 }
@@ -1342,9 +1375,9 @@ pub const CompletionError = error{
     InvalidTargetURI,
 } || CompletionListError || CompletionItemError || TextEditError || cbor.Error;
 
-pub fn completion(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) LspError!void {
-    const lsp = try self.get_language_server(file_path);
-    const uri = try self.make_URI(file_path);
+pub fn completion(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) LspError!void {
+    const lsp = try self.get_language_server(source_location.src.path);
+    const uri = try self.make_URI(source_location.src.path);
     defer self.allocator.free(uri);
 
     const handler: struct {
@@ -1372,14 +1405,14 @@ pub fn completion(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usi
         }
     } = .{
         .from = from.clone(),
-        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
-        .row = row,
-        .col = col,
+        .file_path = try std.heap.c_allocator.dupe(u8, source_location.src.path),
+        .row = source_location.src.line,
+        .col = source_location.src.column,
     };
 
     lsp.send_request(self.allocator, "textDocument/completion", .{
         .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
+        .position = .{ .line = source_location.src.line, .character = source_location.src.column },
     }, handler) catch return error.LspFailed;
 }
 
@@ -1767,9 +1800,9 @@ const Rename = struct {
     range: Range,
 };
 
-pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) (LspError || GetLineOfFileError)!void {
-    const lsp = try self.get_language_server(file_path);
-    const uri = try self.make_URI(file_path);
+pub fn rename_symbol(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) (LspError || GetLineOfFileError)!void {
+    const lsp = try self.get_language_server(source_location.src.path);
+    const uri = try self.make_URI(source_location.src.path);
     defer self.allocator.free(uri);
 
     const handler: struct {
@@ -1819,12 +1852,12 @@ pub fn rename_symbol(self: *Self, from: tp.pid_ref, file_path: []const u8, row: 
         }
     } = .{
         .from = from.clone(),
-        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
+        .file_path = try std.heap.c_allocator.dupe(u8, source_location.src.path),
     };
 
     lsp.send_request(self.allocator, "textDocument/rename", .{
         .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
+        .position = .{ .line = source_location.src.line, .character = source_location.src.column },
         .newName = "PLACEHOLDER",
     }, handler) catch return error.LspFailed;
 }
@@ -1920,9 +1953,9 @@ fn decode_rename_symbol_item(file_uri: []const u8, iter: *[]const u8, renames: *
     }
 }
 
-pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, col: usize) LspError!void {
-    const lsp = try self.get_language_server(file_path);
-    const uri = try self.make_URI(file_path);
+pub fn hover(self: *Self, from: tp.pid_ref, source_location: *const SourceLocation) LspError!void {
+    const lsp = try self.get_language_server(source_location.src.path);
+    const uri = try self.make_URI(source_location.src.path);
     defer self.allocator.free(uri);
     // self.logger_lsp.print("fetching hover information...", .{});
 
@@ -1947,14 +1980,14 @@ pub fn hover(self: *Self, from: tp.pid_ref, file_path: []const u8, row: usize, c
         }
     } = .{
         .from = from.clone(),
-        .file_path = try std.heap.c_allocator.dupe(u8, file_path),
-        .row = row,
-        .col = col,
+        .file_path = try std.heap.c_allocator.dupe(u8, source_location.src.path),
+        .row = source_location.src.line,
+        .col = source_location.src.column,
     };
 
     lsp.send_request(self.allocator, "textDocument/hover", .{
         .textDocument = .{ .uri = uri },
-        .position = .{ .line = row, .character = col },
+        .position = .{ .line = source_location.src.line, .character = source_location.src.column },
     }, handler) catch return error.LspFailed;
 }
 

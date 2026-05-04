@@ -20,6 +20,12 @@ pub const DirDest = struct {
     path: []const u8,
 };
 
+pub const FileSrc = struct {
+    path: []const u8,
+    line: usize,
+    column: usize,
+};
+
 pub fn parse(link: []const u8) error{InvalidFileLink}!Dest {
     if (link.len == 0) return error.InvalidFileLink;
 

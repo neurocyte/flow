@@ -6770,33 +6770,56 @@ pub const Editor = struct {
     }
     pub const goto_byte_offset_meta: Meta = .{ .arguments = &.{.integer} };
 
-    const PmFunc = fn (file_path: []const u8, row: usize, col: usize) project_manager.Error!void;
+    const PmFunc = fn (source_location: project_manager.SourceLocation) project_manager.Error!void;
 
     fn pm_with_primary_cursor_pos(self: *Self, func: PmFunc) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         const root = self.buf_root() catch return;
         const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
-        return func(file_path, primary.cursor.row, col);
+        return func(.{ .src = .{
+            .path = file_path,
+            .line = primary.cursor.row,
+            .column = col,
+        } });
+    }
+
+    fn pm_with_primary_cursor_pos_alt(self: *Self, func: PmFunc) Result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        const root = self.buf_root() catch return;
+        const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
+
+        const alt_dest: ?file_link.FileDest = if (self.get_file_link_at_cursor(self.allocator)) |link| switch (link) {
+            .file => |file| file,
+            .dir => null,
+        } else null;
+        defer if (alt_dest) |link| self.allocator.free(link.path);
+
+        return func(.{ .src = .{
+            .path = file_path,
+            .line = primary.cursor.row,
+            .column = col,
+        }, .alternative_destination = if (alt_dest) |dest| if (dest.exists) alt_dest else null else null });
     }
 
     pub fn goto_definition(self: *Self, _: Context) Result {
-        return self.pm_with_primary_cursor_pos(project_manager.goto_definition);
+        return self.pm_with_primary_cursor_pos_alt(project_manager.goto_definition);
     }
     pub const goto_definition_meta: Meta = .{ .description = "Language: Goto definition" };
 
     pub fn goto_declaration(self: *Self, _: Context) Result {
-        return self.pm_with_primary_cursor_pos(project_manager.goto_declaration);
+        return self.pm_with_primary_cursor_pos_alt(project_manager.goto_declaration);
     }
     pub const goto_declaration_meta: Meta = .{ .description = "Language: Goto declaration" };
 
     pub fn goto_implementation(self: *Self, _: Context) Result {
-        return self.pm_with_primary_cursor_pos(project_manager.goto_implementation);
+        return self.pm_with_primary_cursor_pos_alt(project_manager.goto_implementation);
     }
     pub const goto_implementation_meta: Meta = .{ .description = "Language: Goto implementation" };
 
     pub fn goto_type_definition(self: *Self, _: Context) Result {
-        return self.pm_with_primary_cursor_pos(project_manager.goto_type_definition);
+        return self.pm_with_primary_cursor_pos_alt(project_manager.goto_type_definition);
     }
     pub const goto_type_definition_meta: Meta = .{ .description = "Language: Goto type definition" };
 
@@ -6941,10 +6964,12 @@ pub const Editor = struct {
     }
 
     pub fn hover_at(self: *Self, row: usize, col: usize) Result {
-        const file_path = self.file_path orelse return;
         const root = self.buf_root() catch return;
-        const pos = root.get_line_width_to_pos(row, col, self.metrics) catch return;
-        return project_manager.hover(file_path, row, pos);
+        return project_manager.hover(.{ .src = .{
+            .path = self.file_path orelse return,
+            .line = row,
+            .column = root.get_line_width_to_pos(row, col, self.metrics) catch return,
+        } });
     }
 
     pub fn add_hover_highlight(self: *Self, match_: Match) void {
