@@ -4375,7 +4375,7 @@ pub const Editor = struct {
         const cut_text_raw = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(cut_text_raw);
 
-        const is_last_no_nl = sel.end.row == cursel.cursor.row;
+        const is_last_no_nl = sel.end.col != 0;
 
         var cut_text_buf: ?[]u8 = null;
         defer if (cut_text_buf) |t| sfa_allocator.free(t);
