@@ -130,17 +130,40 @@ fn is_bracket_link(token: []const u8) bool {
     return has_digit;
 }
 
-/// Colon style: path:N or path:bN  (N is a non-empty decimal integer).
-fn is_colon_link(token: []const u8) bool {
-    if (token.len == 0) return false;
-    var it = std.mem.splitScalar(u8, token, ':');
-    const path_part = it.first();
-    if (path_part.len == 0 or path_part.len == token.len) return false;
-    const after_colon = it.next() orelse return false;
-    const num_str = if (after_colon.len > 0 and after_colon[0] == 'b') after_colon[1..] else after_colon;
-    if (num_str.len == 0) return false;
-    _ = std.fmt.parseInt(usize, num_str, 10) catch return false;
-    return true;
+/// Colon style: path:N[:col[:end_col]] or path:bN.
+/// Returns the byte length of the longest valid colon-link prefix, or 0.
+/// Each numeric segment is consumed only up to its trailing digit; a
+/// non-digit suffix terminates that segment and stops further parsing.
+/// The path part must not contain quote characters.
+fn find_colon_link_end(token: []const u8) usize {
+    if (token.len == 0) return 0;
+    const colon1 = std.mem.indexOfScalar(u8, token, ':') orelse return 0;
+    if (colon1 == 0) return 0;
+    for (token[0..colon1]) |c| switch (c) {
+        '"', '\'', '`' => return 0,
+        else => {},
+    };
+    // First numeric segment (optionally 'b'-prefixed for byte offset).
+    var pos: usize = colon1 + 1;
+    if (pos < token.len and token[pos] == 'b') pos += 1;
+    const n1_start = pos;
+    while (pos < token.len and token[pos] >= '0' and token[pos] <= '9') pos += 1;
+    if (pos == n1_start) return 0;
+    var end = pos;
+    // Optional column — only if the next char is exactly ':'.
+    if (pos >= token.len or token[pos] != ':') return end;
+    pos += 1;
+    const n2_start = pos;
+    while (pos < token.len and token[pos] >= '0' and token[pos] <= '9') pos += 1;
+    if (pos == n2_start) return end;
+    end = pos;
+    // Optional end_column.
+    if (pos >= token.len or token[pos] != ':') return end;
+    pos += 1;
+    const n3_start = pos;
+    while (pos < token.len and token[pos] >= '0' and token[pos] <= '9') pos += 1;
+    if (pos == n3_start) return end;
+    return pos;
 }
 
 fn looks_like_path(token: []const u8) bool {
@@ -150,6 +173,11 @@ fn looks_like_path(token: []const u8) bool {
         '.', '/', '\\' => {},
         else => break,
     } else return false;
+    // Tokens embedding quote characters are not plain paths; they are likely code.
+    for (token) |c| switch (c) {
+        '"', '\'', '`' => return false,
+        else => {},
+    };
     if (token[0] == '.' or token[0] == '/' or token[0] == '~' or token[0] == '\\') return true;
     for (token) |c| switch (c) {
         '.', '/', '\\' => return true,
@@ -167,10 +195,12 @@ fn try_parse_token(line: []const u8, raw_start: usize, raw_end: usize) ?Range {
     if (start >= end) return null;
     // Bracket style keeps the closing ')'.
     if (is_bracket_link(line[start..end])) return .{ .start = start, .end = end };
-    // Colon style: strip any trailing ')' that is punctuation, not bracket notation.
+    // Colon style: strip trailing ')' and re-apply trailing trim (handles e.g. `"path")`).
     var colon_end = end;
     while (colon_end > start and line[colon_end - 1] == ')') colon_end -= 1;
-    if (is_colon_link(line[start..colon_end])) return .{ .start = start, .end = colon_end };
+    while (colon_end > start and is_link_trailing_trim(line[colon_end - 1])) colon_end -= 1;
+    const cl = find_colon_link_end(line[start..colon_end]);
+    if (cl > 0) return .{ .start = start, .end = start + cl };
     // Plain path: no location info so accept if it plausibly looks like a path.
     if (looks_like_path(line[start..colon_end])) return .{ .start = start, .end = colon_end };
     return null;
@@ -191,6 +221,27 @@ fn scan_token_end(line: []const u8, start: usize) usize {
     return pos;
 }
 
+/// Search within a whitespace token for a valid link inside a quote-delimited sub-token.
+fn find_in_quoted(line: []const u8, tok_start: usize, tok_end: usize) ?Range {
+    var pos = tok_start;
+    while (pos < tok_end) {
+        const c = line[pos];
+        if (c == '"' or c == '\'' or c == '`') {
+            const q = c;
+            pos += 1;
+            const sub_start = pos;
+            while (pos < tok_end and line[pos] != q) pos += 1;
+            if (pos > sub_start) {
+                if (try_parse_token(line, sub_start, pos)) |range| return range;
+            }
+            if (pos < tok_end) pos += 1;
+        } else {
+            pos += 1;
+        }
+    }
+    return null;
+}
+
 /// Scan `line` for the first valid file link. Returns its byte range, or null.
 pub fn find_in_line(line: []const u8) ?Range {
     var pos: usize = 0;
@@ -200,6 +251,7 @@ pub fn find_in_line(line: []const u8) ?Range {
         const tok_start = pos;
         pos = scan_token_end(line, pos);
         if (try_parse_token(line, tok_start, pos)) |range| return range;
+        if (find_in_quoted(line, tok_start, pos)) |range| return range;
     }
     return null;
 }
@@ -214,7 +266,8 @@ pub fn find_at_point(line: []const u8, point: usize) ?Range {
         const tok_start = pos;
         pos = scan_token_end(line, pos);
         if (point < tok_start or point >= pos) continue;
-        return try_parse_token(line, tok_start, pos);
+        if (try_parse_token(line, tok_start, pos)) |range| return range;
+        return find_in_quoted(line, tok_start, pos);
     }
     return null;
 }

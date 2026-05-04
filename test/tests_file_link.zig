@@ -99,6 +99,26 @@ test "find_in_line: trailing colon stripped" {
     try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
 }
 
+test "find_in_line: trailing slashes stripped" {
+    const text = "src/main.zig:10:5:/// error: foo";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10:5", text[r.start..r.end]);
+    const dest = try fl.parse(text[r.start..r.end]);
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
+    try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
+}
+
+test "find_in_line: trailing misc stripped" {
+    const text = "src/main.zig:10:5:$@1a!";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10:5", text[r.start..r.end]);
+    const dest = try fl.parse(text[r.start..r.end]);
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
+    try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
+}
+
 test "find_in_line: surrounded by double quotes" {
     const text =
         \\"src/main.zig:10:5"
@@ -121,6 +141,26 @@ test "find_in_line: surrounded by parentheses" {
     try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
 }
 
+test "find_in_line: surrounded by quotes and parentheses" {
+    const text = "(\"src/main.zig:10:5\")";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10:5", text[r.start..r.end]);
+    const dest = try fl.parse(text[r.start..r.end]);
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
+    try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
+}
+
+test "find_in_line: surrounded by parentheses and quotes" {
+    const text = "\"(src/main.zig:10:5)\"";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10:5", text[r.start..r.end]);
+    const dest = try fl.parse(text[r.start..r.end]);
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
+    try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
+}
+
 test "find_in_line: link with trailing comma" {
     const text = "see src/main.zig:10:5, for details";
     const r = fl.find_in_line(text) orelse return error.NotFound;
@@ -129,6 +169,46 @@ test "find_in_line: link with trailing comma" {
     try std.testing.expect(dest == .file);
     try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
     try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
+}
+
+test "find_in_line: link with no trailing colon" {
+    const text = "see src/main.zig:10:5 for details";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10:5", text[r.start..r.end]);
+    const dest = try fl.parse(text[r.start..r.end]);
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
+    try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
+}
+
+test "find_in_line: link with unbalanced parentheses" {
+    const text = "std.testing.expectEqualStrings(\"src/main.zig:10:5\", text[r.start..r.end]);";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10:5", text[r.start..r.end]);
+    const dest = try fl.parse(text[r.start..r.end]);
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
+    try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
+}
+
+test "find_in_line: link with trailing garbage" {
+    const text = "       src/main.zig:10:5␃";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10:5", text[r.start..r.end]);
+    const dest = try fl.parse(text[r.start..r.end]);
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
+    try std.testing.expectEqual(@as(?usize, 5), dest.file.column);
+}
+
+test "find_in_line: link with garbage row segment" {
+    const text = "       src/main.zig:10aa:5␃";
+    const r = fl.find_in_line(text) orelse return error.NotFound;
+    try std.testing.expectEqualStrings("src/main.zig:10", text[r.start..r.end]);
+    const dest = try fl.parse(text[r.start..r.end]);
+    try std.testing.expect(dest == .file);
+    try std.testing.expectEqual(@as(?usize, 10), dest.file.line);
+    try std.testing.expectEqual(@as(?usize, null), dest.file.column);
 }
 
 test "find_in_line: returns first valid link" {
