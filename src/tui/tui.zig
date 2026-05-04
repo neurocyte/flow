@@ -1587,7 +1587,8 @@ const cmds = struct {
                 else => {},
             }
         } else if (get_active_editor()) |editor| {
-            if (editor.get_file_link_at_cursor(self.allocator)) |link| {
+            if (editor.get_file_link_at_cursor(self.allocator, editor.get_primary().cursor)) |result| {
+                const link, _ = result;
                 defer switch (link) {
                     .file => |f| self.allocator.free(f.path),
                     .dir => |d| self.allocator.free(d.path),
