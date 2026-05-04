@@ -2969,6 +2969,11 @@ pub const Editor = struct {
         const root = self.buf_root() catch return;
         const sel = primary.enable_selection(root, self.metrics);
         sel.end.move_abs(root, &self.view, @intCast(y_), @intCast(x_), self.metrics) catch return;
+        if (x < 0) {
+            const overshoot: usize = @intCast(-x);
+            sel.end.col = sel.end.col -| overshoot;
+            sel.end.target = sel.end.col;
+        }
         const initial = self.selection_drag_initial orelse sel.*;
         switch (self.selection_mode) {
             .char => {},
