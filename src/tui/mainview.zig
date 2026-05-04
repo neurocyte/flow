@@ -1957,6 +1957,8 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
             try tabs.write_state(writer);
 
     self.lsp_info.write_state(writer) catch return error.WriteFailed;
+
+    try tui.write_state(writer);
 }
 
 fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp) !void {
@@ -2037,6 +2039,9 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
 
     self.lsp_info.extract_state(iter) catch |e|
         logger.print_err("mainview", "failed to restore LSP info: {}", .{e});
+
+    tui.extract_state(iter) catch |e|
+        logger.print_err("mainview", "failed to restore TUI : {}", .{e});
 
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);

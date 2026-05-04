@@ -2619,3 +2619,18 @@ pub fn jump_mode() bool {
     const self = current();
     return self.jump_mode_;
 }
+
+pub fn write_state(writer: *std.Io.Writer) error{WriteFailed}!void {
+    const self = current();
+    try cbor.writeArrayHeader(writer, 2);
+    try cbor.writeValue(writer, self.color_scheme);
+    try cbor.writeValue(writer, self.color_scheme_locked);
+}
+
+pub fn extract_state(iter: *[]const u8) (error{MatchTuiStateFailed} || cbor.Error)!void {
+    const self = current();
+    if (!try cbor.matchValue(iter, .{
+        cbor.extract(&self.color_scheme),
+        cbor.extract(&self.color_scheme_locked),
+    })) return error.MatchTuiStateFailed;
+}
