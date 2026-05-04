@@ -2503,6 +2503,42 @@ pub const Editor = struct {
         return if (someone_stopped) error.Stop else root;
     }
 
+    const RowOrder = enum { asc, desc };
+
+    fn with_cursels_mut_repeat_by_row(self: *Self, root_: Buffer.Root, move: cursel_operator_mut, allocator: Allocator, ctx: Context, comptime order: RowOrder) error{Stop}!Buffer.Root {
+        var sfa = std.heap.stackFallback(256 * @sizeOf(usize), self.allocator);
+        const sfa_alloc = sfa.get();
+        var indices = std.ArrayList(usize).initCapacity(sfa_alloc, self.cursels.items.len) catch
+            return self.with_cursels_mut_repeat(root_, move, allocator, ctx);
+        defer indices.deinit(sfa_alloc);
+        for (self.cursels.items, 0..) |*cursel_, i| if (cursel_.*) |_| indices.appendAssumeCapacity(i);
+        std.sort.pdq(usize, indices.items, self, struct {
+            fn lessThan(s: *Self, a: usize, b: usize) bool {
+                const row_a = s.cursels.items[a].?.cursor.row;
+                const row_b = s.cursels.items[b].?.cursor.row;
+                return if (order == .asc) row_a < row_b else row_a > row_b;
+            }
+        }.lessThan);
+
+        var root = root_;
+        var someone_stopped = false;
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            for (indices.items) |idx| {
+                if (self.cursels.items[idx]) |*cursel| {
+                    root = self.with_cursel_mut(root, move, cursel, allocator) catch ret: {
+                        someone_stopped = true;
+                        break :ret root;
+                    };
+                }
+            }
+            self.collapse_cursors();
+            if (someone_stopped) break;
+        }
+        return if (someone_stopped) error.Stop else root;
+    }
+
     fn with_cursel_const_once_arg(root: Buffer.Root, move: cursel_operator_mut_once_arg, cursel: *CurSel, ctx: Context, metrics: Buffer.Metrics) error{Stop}!void {
         try move(root, cursel, ctx, metrics);
     }
@@ -4412,7 +4448,7 @@ pub const Editor = struct {
 
     pub fn pull_up(self: *Self, ctx: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut_repeat(b.root, pull_cursel_up, b.allocator, ctx);
+        const root = try self.with_cursels_mut_repeat_by_row(b.root, pull_cursel_up, b.allocator, ctx, .asc);
         try self.update_buf(root, ctx.now);
         self.clamp(ctx.now);
     }
@@ -4461,7 +4497,7 @@ pub const Editor = struct {
 
     pub fn pull_down(self: *Self, ctx: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut_repeat(b.root, pull_cursel_down, b.allocator, ctx);
+        const root = try self.with_cursels_mut_repeat_by_row(b.root, pull_cursel_down, b.allocator, ctx, .desc);
         try self.update_buf(root, ctx.now);
         self.clamp(ctx.now);
     }
