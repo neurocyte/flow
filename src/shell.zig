@@ -320,6 +320,8 @@ pub fn parse_arg0_to_argv(allocator: std.mem.Allocator, arg0: *[]const u8) !tp.m
     for (args.items) |arg|
         try cbor.writeValue(&msg_cb.writer, arg);
 
-    _ = try cbor.match(msg_cb.written(), .{ tp.extract(arg0), tp.more });
-    return .{ .buf = try msg_cb.toOwnedSlice() };
+    // toOwnedSlice may relocate the buffer
+    const msg: tp.message = .{ .buf = try msg_cb.toOwnedSlice() };
+    _ = try cbor.match(msg.buf, .{ tp.extract(arg0), tp.more });
+    return msg;
 }
