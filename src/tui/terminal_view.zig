@@ -1133,7 +1133,7 @@ const pty_windows = struct {
         var wh: windows.HANDLE = undefined;
         // WT_EXECUTEONLYONCE: callback fires once then the wait is auto-unregistered.
         const WT_EXECUTEONLYONCE: windows.ULONG = 0x00000008;
-        if (RegisterWaitForSingleObject(&wh, process_handle, on_child_exit, ctx, windows.INFINITE, WT_EXECUTEONLYONCE) == windows.FALSE) {
+        if (RegisterWaitForSingleObject(&wh, process_handle, on_child_exit, ctx, INFINITE, WT_EXECUTEONLYONCE) == .FALSE) {
             ctx.self_pid.deinit();
             self.allocator.destroy(ctx);
             std.log.debug("terminal: RegisterWaitForSingleObject failed", .{});
@@ -1214,4 +1214,6 @@ const pty_windows = struct {
     extern "kernel32" fn UnregisterWait(
         WaitHandle: windows.HANDLE,
     ) callconv(.winapi) windows.BOOL;
+
+    const INFINITE: windows.DWORD = 0xFFFFFFFF;
 };

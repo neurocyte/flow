@@ -31,7 +31,7 @@ pub fn spawn(self: *CommandWindows, allocator: std.mem.Allocator, conpty: *ConPT
     const cmd_line_w = try buildCommandLine(a, self.argv);
 
     // Build wide environment block
-    const env_block = try std.process.createWindowsEnvBlock(a, self.env_map);
+    const env_block = try self.env_map.createWindowsBlock(a, .{});
 
     // Build wide working directory (if set)
     const cwd_w: ?[:0]u16 = if (self.working_directory) |cwd|
@@ -43,26 +43,22 @@ pub fn spawn(self: *CommandWindows, allocator: std.mem.Allocator, conpty: *ConPT
     si_ex.StartupInfo.cb = @sizeOf(STARTUPINFOEXW);
     si_ex.lpAttributeList = conpty.attrList();
 
-    var pi: windows.PROCESS_INFORMATION = undefined;
-
-    // EXTENDED_STARTUPINFO_PRESENT = 0x00080000
-    // CREATE_UNICODE_ENVIRONMENT   = 0x00000400
-    const flags: windows.DWORD = 0x00080000 | 0x00000400;
+    var pi: windows.PROCESS.INFORMATION = undefined;
 
     const ok = windows.kernel32.CreateProcessW(
         null,
         cmd_line_w.ptr,
         null,
         null,
-        windows.FALSE, // don't inherit handles - ConPTY manages that
-        @bitCast(flags),
-        @as(?*anyopaque, @ptrCast(env_block.ptr)),
+        .FALSE, // don't inherit handles - ConPTY manages that
+        .{ .extended_startupinfo_present = true, .create_unicode_environment = true },
+        env_block.slice.ptr,
         if (cwd_w) |c| c.ptr else null,
         @ptrCast(&si_ex.StartupInfo),
         &pi,
     );
-    if (ok == windows.FALSE) {
-        switch (windows.kernel32.GetLastError()) {
+    if (ok == .FALSE) {
+        switch (windows.GetLastError()) {
             else => |err| return windows.unexpectedError(err),
         }
     }
@@ -76,28 +72,28 @@ pub fn spawn(self: *CommandWindows, allocator: std.mem.Allocator, conpty: *ConPT
 
 pub fn kill(self: *CommandWindows) void {
     if (self.process_handle) |h|
-        windows.TerminateProcess(h, 1) catch {};
+        _ = TerminateProcess(h, 1);
 }
 
 /// Non-blocking check: returns exit code if the process has exited, null if still running.
 pub fn try_wait(self: *CommandWindows) ?u8 {
     const h = self.process_handle orelse return null;
-    // WaitForSingleObjectEx with timeout=0: returns error.WaitTimeOut if still running.
-    windows.WaitForSingleObjectEx(h, 0, false) catch return null;
+    // WaitForSingleObject with timeout=0 returns WAIT_TIMEOUT if still running.
+    if (WaitForSingleObject(h, 0) != WAIT_OBJECT_0) return null;
     return self.reap();
 }
 
 /// Blocking wait: reap the process and return its exit code.
 pub fn wait(self: *CommandWindows) u8 {
     const h = self.process_handle orelse return 0;
-    windows.WaitForSingleObjectEx(h, windows.INFINITE, false) catch {};
+    _ = WaitForSingleObject(h, INFINITE);
     return self.reap();
 }
 
 fn reap(self: *CommandWindows) u8 {
     const h = self.process_handle orelse return 0;
     var exit_code: windows.DWORD = 0;
-    _ = windows.kernel32.GetExitCodeProcess(h, &exit_code);
+    _ = GetExitCodeProcess(h, &exit_code);
     windows.CloseHandle(h);
     if (self.thread_handle) |th| windows.CloseHandle(th);
     self.process_handle = null;
@@ -151,3 +147,21 @@ fn buildCommandLine(allocator: std.mem.Allocator, argv: []const []const u8) ![:0
 
     return std.unicode.wtf8ToWtf16LeAllocZ(allocator, buf.items);
 }
+
+extern "kernel32" fn TerminateProcess(
+    hProcess: windows.HANDLE,
+    uExitCode: windows.UINT,
+) callconv(.winapi) windows.BOOL;
+
+extern "kernel32" fn WaitForSingleObject(
+    hHandle: windows.HANDLE,
+    dwMilliseconds: windows.DWORD,
+) callconv(.winapi) windows.DWORD;
+
+extern "kernel32" fn GetExitCodeProcess(
+    hProcess: windows.HANDLE,
+    lpExitCode: *windows.DWORD,
+) callconv(.winapi) windows.BOOL;
+
+const INFINITE: windows.DWORD = 0xFFFFFFFF;
+const WAIT_OBJECT_0: windows.DWORD = 0;

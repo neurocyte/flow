@@ -190,7 +190,7 @@ pub fn init(
         .allocator = allocator,
         .pty = pty,
         .pty_writer = if (is_windows)
-            pty.inputFile().writerStreaming(write_buf)
+            pty.inputFile().writerStreaming(io, write_buf)
         else
             pty.pty.writerStreaming(io, write_buf),
         .cmd = cmd,

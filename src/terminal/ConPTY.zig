@@ -9,6 +9,7 @@ const Winsize = @import("vaxis").Winsize;
 // ConPTY API types and functions - not yet in Zig stdlib so declared as extern.
 // Available since Windows 1809 (build 17763).
 const HPCON = *anyopaque;
+const HRESULT = c_long;
 
 extern "kernel32" fn CreatePseudoConsole(
     size: COORD,
@@ -16,16 +17,58 @@ extern "kernel32" fn CreatePseudoConsole(
     hOutput: windows.HANDLE,
     dwFlags: windows.DWORD,
     phPC: *HPCON,
-) callconv(.winapi) windows.HRESULT;
+) callconv(.winapi) HRESULT;
 
 extern "kernel32" fn ResizePseudoConsole(
     hPC: HPCON,
     size: COORD,
-) callconv(.winapi) windows.HRESULT;
+) callconv(.winapi) HRESULT;
 
 extern "kernel32" fn ClosePseudoConsole(
     hPC: HPCON,
 ) callconv(.winapi) void;
+
+extern "kernel32" fn CreatePipe(
+    hReadPipe: *windows.HANDLE,
+    hWritePipe: *windows.HANDLE,
+    lpPipeAttributes: ?*windows.SECURITY_ATTRIBUTES,
+    nSize: windows.DWORD,
+) callconv(.winapi) windows.BOOL;
+
+extern "kernel32" fn SetHandleInformation(
+    hObject: windows.HANDLE,
+    dwMask: windows.DWORD,
+    dwFlags: windows.DWORD,
+) callconv(.winapi) windows.BOOL;
+
+extern "kernel32" fn CreateNamedPipeW(
+    lpName: [*:0]const u16,
+    dwOpenMode: windows.DWORD,
+    dwPipeMode: windows.DWORD,
+    nMaxInstances: windows.DWORD,
+    nOutBufferSize: windows.DWORD,
+    nInBufferSize: windows.DWORD,
+    nDefaultTimeOut: windows.DWORD,
+    lpSecurityAttributes: ?*const windows.SECURITY_ATTRIBUTES,
+) callconv(.winapi) windows.HANDLE;
+
+extern "kernel32" fn CreateFileW(
+    lpFileName: [*:0]const u16,
+    dwDesiredAccess: windows.DWORD,
+    dwShareMode: windows.DWORD,
+    lpSecurityAttributes: ?*windows.SECURITY_ATTRIBUTES,
+    dwCreationDisposition: windows.DWORD,
+    dwFlagsAndAttributes: windows.DWORD,
+    hTemplateFile: ?windows.HANDLE,
+) callconv(.winapi) windows.HANDLE;
+
+const HANDLE_FLAG_INHERIT: windows.DWORD = 0x00000001;
+const PIPE_ACCESS_INBOUND: windows.DWORD = 0x00000001;
+const FILE_FLAG_OVERLAPPED: windows.DWORD = 0x40000000;
+const PIPE_TYPE_BYTE: windows.DWORD = 0x00000000;
+const GENERIC_WRITE: windows.DWORD = 0x40000000;
+const OPEN_EXISTING: windows.DWORD = 3;
+const FILE_ATTRIBUTE_NORMAL: windows.DWORD = 0x00000080;
 
 // PROC_THREAD_ATTRIBUTE_LIST helpers
 extern "kernel32" fn InitializeProcThreadAttributeList(
@@ -78,20 +121,22 @@ allocator: std.mem.Allocator,
 pub fn init(allocator: std.mem.Allocator, ws: Winsize) !ConPTY {
     var saAttr = windows.SECURITY_ATTRIBUTES{
         .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
-        .bInheritHandle = windows.TRUE,
+        .bInheritHandle = .TRUE,
         .lpSecurityDescriptor = null,
     };
 
     // Create the input pipe: our write end -> child's stdin via ConPTY
     var pipe_in_read: windows.HANDLE = undefined;
     var pipe_in_write: windows.HANDLE = undefined;
-    try windows.CreatePipe(&pipe_in_read, &pipe_in_write, &saAttr);
+    if (CreatePipe(&pipe_in_read, &pipe_in_write, &saAttr, 0) == .FALSE)
+        return error.CreatePipeFailed;
     errdefer {
         windows.CloseHandle(pipe_in_read);
         windows.CloseHandle(pipe_in_write);
     }
     // Don't inherit our write end - only the child side is inherited via ConPTY
-    try windows.SetHandleInformation(pipe_in_write, windows.HANDLE_FLAG_INHERIT, 0);
+    if (SetHandleInformation(pipe_in_write, HANDLE_FLAG_INHERIT, 0) == .FALSE)
+        return error.SetHandleInformationFailed;
 
     // Create the output pipe: child's stdout via ConPTY -> our read end
     // Use an overlapped (async) pipe so tp.file_stream can do IOCP reads.
@@ -103,7 +148,8 @@ pub fn init(allocator: std.mem.Allocator, ws: Winsize) !ConPTY {
         windows.CloseHandle(pipe_out_write);
     }
     // Don't inherit our read end
-    try windows.SetHandleInformation(pipe_out_read, windows.HANDLE_FLAG_INHERIT, 0);
+    if (SetHandleInformation(pipe_out_read, HANDLE_FLAG_INHERIT, 0) == .FALSE)
+        return error.SetHandleInformationFailed;
 
     // Create the pseudo-console
     const size: COORD = .{
@@ -122,7 +168,7 @@ pub fn init(allocator: std.mem.Allocator, ws: Winsize) !ConPTY {
     const attr_list_buf = try allocator.alloc(u8, attr_list_size);
     errdefer allocator.free(attr_list_buf);
 
-    if (InitializeProcThreadAttributeList(attr_list_buf.ptr, 1, 0, &attr_list_size) == windows.FALSE)
+    if (InitializeProcThreadAttributeList(attr_list_buf.ptr, 1, 0, &attr_list_size) == .FALSE)
         return error.InitProcThreadAttributeListFailed;
     errdefer DeleteProcThreadAttributeList(attr_list_buf.ptr);
 
@@ -134,7 +180,7 @@ pub fn init(allocator: std.mem.Allocator, ws: Winsize) !ConPTY {
         @sizeOf(HPCON),
         null,
         null,
-    ) == windows.FALSE)
+    ) == .FALSE)
         return error.UpdateProcThreadAttributeFailed;
 
     return .{
@@ -157,7 +203,7 @@ pub fn closChildSidePipes(self: *ConPTY) void {
     self.pipe_in_read = windows.INVALID_HANDLE_VALUE;
 }
 
-pub fn deinit(self: *ConPTY) void {
+pub fn deinit(self: *ConPTY, _: std.Io) void {
     ClosePseudoConsole(self.hpc);
     if (self.pipe_out_read != windows.INVALID_HANDLE_VALUE) windows.CloseHandle(self.pipe_out_read);
     if (self.pipe_in_write != windows.INVALID_HANDLE_VALUE) windows.CloseHandle(self.pipe_in_write);
@@ -176,10 +222,10 @@ pub fn setSize(self: *ConPTY, ws: Winsize) !void {
     if (hr != 0) return error.ResizePseudoConsoleFailed;
 }
 
-/// Returns a std.fs.File wrapping the write end of the input pipe,
+/// Returns a std.Io.File wrapping the write end of the input pipe,
 /// suitable for writerStreaming() to produce our pty_writer.
-pub fn inputFile(self: *const ConPTY) std.fs.File {
-    return .{ .handle = self.pipe_in_write };
+pub fn inputFile(self: *const ConPTY) std.Io.File {
+    return .{ .handle = self.pipe_in_write, .flags = .{ .nonblocking = false } };
 }
 
 /// Returns the HANDLE for reading terminal output - transfers ownership
@@ -218,10 +264,10 @@ fn makeAsyncPipe(
         break :blk tmp_bufw[0..len :0];
     };
 
-    const read_handle = windows.kernel32.CreateNamedPipeW(
+    const read_handle = CreateNamedPipeW(
         pipe_path.ptr,
-        windows.PIPE_ACCESS_INBOUND | windows.FILE_FLAG_OVERLAPPED,
-        windows.PIPE_TYPE_BYTE,
+        PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
+        PIPE_TYPE_BYTE,
         1,
         4096,
         4096,
@@ -229,30 +275,31 @@ fn makeAsyncPipe(
         sattr,
     );
     if (read_handle == windows.INVALID_HANDLE_VALUE) {
-        switch (windows.kernel32.GetLastError()) {
+        switch (windows.GetLastError()) {
             else => |err| return windows.unexpectedError(err),
         }
     }
     errdefer windows.CloseHandle(read_handle);
 
     var sattr_copy = sattr.*;
-    const write_handle = windows.kernel32.CreateFileW(
+    const write_handle = CreateFileW(
         pipe_path.ptr,
-        windows.GENERIC_WRITE,
+        GENERIC_WRITE,
         0,
         &sattr_copy,
-        windows.OPEN_EXISTING,
-        windows.FILE_ATTRIBUTE_NORMAL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
         null,
     );
     if (write_handle == windows.INVALID_HANDLE_VALUE) {
-        switch (windows.kernel32.GetLastError()) {
+        switch (windows.GetLastError()) {
             else => |err| return windows.unexpectedError(err),
         }
     }
     errdefer windows.CloseHandle(write_handle);
 
-    try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
+    if (SetHandleInformation(read_handle, HANDLE_FLAG_INHERIT, 0) == .FALSE)
+        return error.SetHandleInformationFailed;
 
     rd.* = read_handle;
     wr.* = write_handle;
