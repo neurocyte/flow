@@ -332,11 +332,11 @@ pub fn focus(self: *Self) void {
 pub fn unfocus(self: *Self) void {
     self.focused = false;
     self.reset_hover_pos();
-    self.file_link_highlight = null;
+    self.reset_file_link();
     tui.release_keyboard_focus(Widget.to(self));
 }
 
-fn set_file_link(self: *Self, link_: file_link.Dest) error{OutOfMemory}!void {
+fn set_file_link(self: *Self, link_: file_link.Dest, hl: FileLinkHighlight) error{OutOfMemory}!void {
     self.reset_file_link();
     var link: file_link.Dest = link_;
     switch (link) {
@@ -344,6 +344,7 @@ fn set_file_link(self: *Self, link_: file_link.Dest) error{OutOfMemory}!void {
         .dir => |*p| p.path = try self.allocator.dupe(u8, p.path),
     }
     self.file_link_ = link;
+    self.file_link_highlight = hl;
 }
 
 fn reset_file_link(self: *Self) void {
@@ -352,6 +353,7 @@ fn reset_file_link(self: *Self) void {
         .dir => |d| self.allocator.free(d.path),
     };
     self.file_link_ = null;
+    self.file_link_highlight = null;
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -494,11 +496,11 @@ fn reset_hover_pos(self: *Self) void {
 fn update_file_link_highlight(self: *Self) void {
     defer self.last_hover_pos = self.hover_pos;
     if (!tui.jump_mode() or self.vt.vt.back_screen != &self.vt.vt.back_screen_pri) {
-        self.file_link_highlight = null;
+        self.reset_file_link();
         return;
     }
     const pos = self.hover_pos orelse {
-        self.file_link_highlight = null;
+        self.reset_file_link();
         return;
     };
 
@@ -508,7 +510,7 @@ fn update_file_link_highlight(self: *Self) void {
     if (self.file_link_highlight) |hl| {
         if (pos.row == hl.row and pos.col >= hl.start_col and pos.col < hl.end_col)
             return;
-        self.file_link_highlight = null;
+        self.reset_file_link();
     }
 
     const screen = &self.vt.vt.back_screen_pri;
@@ -532,8 +534,7 @@ fn update_file_link_highlight(self: *Self) void {
     const start_col = col_at_byte.items[range.start];
     const end_col = col_at_byte.items[range.end];
     if (end_col <= start_col) return;
-    self.file_link_highlight = .{ .row = pos.row, .start_col = start_col, .end_col = end_col };
-    self.set_file_link(link) catch @panic("OOM terminal_view.set_file_link");
+    self.set_file_link(link, .{ .row = pos.row, .start_col = start_col, .end_col = end_col }) catch @panic("OOM terminal_view.set_file_link");
 }
 
 fn render_file_link_highlight(self: *Self, theme: *const Widget.Theme) void {
