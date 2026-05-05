@@ -558,6 +558,7 @@ pub fn build_exe(
                     .target = target,
                     .optimize = optimize_deps,
                     .gl = true,
+                    .dont_link_system_libs = true,
                     // Requires system packages: libgl-dev libx11-dev libxi-dev
                     //   libxcursor-dev libasound2-dev  (Debian/Ubuntu)
                 }) orelse break :blk tui_renderer_mod;
@@ -896,6 +897,7 @@ pub fn build_exe(
         exe.root_module.linkSystemLibrary("libdecor-0", .{});
         exe.root_module.linkSystemLibrary("wayland-egl", .{});
         exe.root_module.linkSystemLibrary("EGL", .{});
+        exe.root_module.linkSystemLibrary("GL", .{});
         exe.root_module.link_libc = true;
     }
 
