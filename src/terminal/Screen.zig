@@ -324,8 +324,9 @@ pub fn extractRowText(
     while (out.items.len > start_len and out.items[out.items.len - 1] == ' ') {
         out.items.len -= 1;
         if (col_at_byte) |m| m.items.len -= 1;
+        col -= 1;
     }
-    if (col_at_byte) |m| try m.append(allocator, self.width);
+    if (col_at_byte) |m| try m.append(allocator, col);
 }
 
 /// writes a cell to a location. 0 indexed
