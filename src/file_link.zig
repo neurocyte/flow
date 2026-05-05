@@ -103,6 +103,32 @@ pub fn parse_bracket_link(link: []const u8) error{InvalidFileLink}!Dest {
     return dest;
 }
 
+pub fn url_parse(
+    uri: []const u8,
+    out_path: *std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+) error{ InvalidFileLink, OutOfMemory }!Dest {
+    if (!std.mem.startsWith(u8, uri, "file://")) return error.InvalidFileLink;
+    const after_scheme = uri["file://".len..];
+    // Skip the hostname: everything up to the first '/' that begins the
+    // absolute path. RFC 8089 file URIs may include a hostname (or empty
+    // host as in `file:///`); either way we want the path component.
+    const path_start = std.mem.indexOfScalar(u8, after_scheme, '/') orelse return error.InvalidFileLink;
+    const enc = after_scheme[path_start..];
+    out_path.clearRetainingCapacity();
+    var i: usize = 0;
+    while (i < enc.len) : (i += 1) {
+        if (enc[i] == '%' and i + 2 < enc.len) {
+            const b = std.fmt.parseUnsigned(u8, enc[i + 1 .. i + 3], 16) catch return error.InvalidFileLink;
+            try out_path.append(allocator, b);
+            i += 2;
+        } else {
+            try out_path.append(allocator, enc[i]);
+        }
+    }
+    return parse(out_path.items);
+}
+
 pub const Range = struct {
     start: usize,
     end: usize,

@@ -517,6 +517,8 @@ fn update_file_link_highlight(self: *Self) void {
     if (pos.row >= screen.height) return;
     const screen_row: usize = (screen.visible_top -| self.vt.vt.scroll_offset) + pos.row;
 
+    if (self.try_set_osc8_highlight(screen, screen_row, pos)) return;
+
     var row_text: std.ArrayList(u8) = .empty;
     defer row_text.deinit(self.allocator);
     var col_at_byte: std.ArrayList(u16) = .empty;
@@ -535,6 +537,42 @@ fn update_file_link_highlight(self: *Self) void {
     const end_col = col_at_byte.items[range.end];
     if (end_col <= start_col) return;
     self.set_file_link(link, .{ .row = pos.row, .start_col = start_col, .end_col = end_col }) catch @panic("OOM terminal_view.set_file_link");
+}
+
+fn try_set_osc8_highlight(self: *Self, screen: *const Terminal.Screen, screen_row: usize, pos: HoverPos) bool {
+    if (screen.width == 0) return false;
+    const total_rows = screen.buf.len / screen.width;
+    if (screen_row >= total_rows) return false;
+    if (pos.col >= screen.width) return false;
+    const row_base = screen_row * screen.width;
+    const center = &screen.buf[row_base + pos.col];
+    if (center.uri.items.len == 0) return false;
+    const uri = center.uri.items;
+    const uri_id = center.uri_id.items;
+
+    var path_buf: std.ArrayList(u8) = .empty;
+    defer path_buf.deinit(self.allocator);
+    const link = file_link.url_parse(uri, &path_buf, self.allocator) catch return false;
+    switch (link) {
+        .file => |f| if (!f.exists) return false,
+        .dir => return false,
+    }
+
+    var start_col: u16 = pos.col;
+    while (start_col > 0) : (start_col -= 1) {
+        const cell = &screen.buf[row_base + start_col - 1];
+        if (!std.mem.eql(u8, cell.uri.items, uri)) break;
+        if (!std.mem.eql(u8, cell.uri_id.items, uri_id)) break;
+    }
+    var end_col: u16 = pos.col + 1;
+    while (end_col < screen.width) : (end_col += 1) {
+        const cell = &screen.buf[row_base + end_col];
+        if (!std.mem.eql(u8, cell.uri.items, uri)) break;
+        if (!std.mem.eql(u8, cell.uri_id.items, uri_id)) break;
+    }
+
+    self.set_file_link(link, .{ .row = pos.row, .start_col = start_col, .end_col = end_col }) catch @panic("OOM terminal_view.set_file_link");
+    return true;
 }
 
 fn render_file_link_highlight(self: *Self, theme: *const Widget.Theme) void {
