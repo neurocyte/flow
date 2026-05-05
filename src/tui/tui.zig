@@ -1677,6 +1677,18 @@ const cmds = struct {
                     return file_link.navigate(tp.self_pid(), &link),
                 else => {},
             }
+        } else if (get_active_editor()) |editor| {
+            if (editor.get_file_link_at_cursor(self.allocator, editor.get_primary().cursor)) |result| {
+                const link, _ = result;
+                defer switch (link) {
+                    .file => |f| self.allocator.free(f.path),
+                    .dir => |d| self.allocator.free(d.path),
+                };
+                switch (link) {
+                    .file => |file| if (file.exists) return file_link.navigate(tp.self_pid(), &link),
+                    .dir => return file_link.navigate(tp.self_pid(), &link),
+                }
+            }
         }
         return enter_mini_mode(self, @import("mode/mini/open_file.zig"), ctx);
     }
@@ -2713,6 +2725,21 @@ pub fn alt_scroll() bool {
 pub fn jump_mode() bool {
     const self = current();
     return self.jump_mode_;
+}
+
+pub fn write_state(writer: *std.Io.Writer) error{WriteFailed}!void {
+    const self = current();
+    try cbor.writeArrayHeader(writer, 2);
+    try cbor.writeValue(writer, self.color_scheme);
+    try cbor.writeValue(writer, self.color_scheme_locked);
+}
+
+pub fn extract_state(iter: *[]const u8) (error{MatchTuiStateFailed} || cbor.Error)!void {
+    const self = current();
+    if (!try cbor.matchValue(iter, .{
+        cbor.extract(&self.color_scheme),
+        cbor.extract(&self.color_scheme_locked),
+    })) return error.MatchTuiStateFailed;
 }
 
 pub fn terminal_has_focus() bool {

@@ -757,6 +757,7 @@ pub fn build_exe(
             .{ .name = "log", .module = log_mod },
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "thespian", .module = thespian_mod },
+            .{ .name = "file_link", .module = file_link_mod },
             .{ .name = "Buffer", .module = Buffer_mod },
             .{ .name = "tracy", .module = tracy_mod },
             .{ .name = "file_type_config", .module = file_type_config_mod },

@@ -245,6 +245,10 @@ pub const v = .{
 
 pub const vim = .{};
 
+pub const vue = .{
+    .language_server = .{ "vue-language-server", "--stdio" },
+};
+
 pub const xml = .{
     .formatter = .{ "xmllint", "--format", "-" },
 };

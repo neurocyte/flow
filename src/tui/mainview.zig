@@ -1741,21 +1741,24 @@ pub fn handle_editor_event(self: *Self, editor: *ed.Editor, m: tp.message) tp.re
 }
 
 pub fn location_update(self: *Self, editor: *ed.Editor, m: tp.message) tp.result {
-    var row: usize = 0;
-    var col: usize = 0;
+    var loc: project_manager.SourceLocation = .{ .src = .{
+        .path = editor.file_path orelse return,
+        .line = 0,
+        .column = 0,
+    } };
     const file_path = editor.file_path orelse return;
     const ephemeral = if (editor.buffer) |buffer| buffer.is_ephemeral() else false;
 
-    if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col) })) {
-        if (row == 0 and col == 0) return;
-        project_manager.update_mru(file_path, row, col, ephemeral) catch {};
-        return self.location_history_.update(file_path, .{ .row = row + 1, .col = col + 1 }, null);
+    if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&loc.src.line), tp.extract(&loc.src.column) })) {
+        if (loc.src.line == 0 and loc.src.column == 0) return;
+        project_manager.update_mru(loc, ephemeral) catch {};
+        return self.location_history_.update(file_path, .{ .row = loc.src.line + 1, .col = loc.src.column + 1 }, null);
     }
 
     var sel: location_history.Selection = .{};
-    if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&row), tp.extract(&col), tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) })) {
-        project_manager.update_mru(file_path, row, col, ephemeral) catch {};
-        return self.location_history_.update(file_path, .{ .row = row + 1, .col = col + 1 }, sel);
+    if (try m.match(.{ tp.any, tp.any, tp.any, tp.extract(&loc.src.line), tp.extract(&loc.src.column), tp.extract(&sel.begin.row), tp.extract(&sel.begin.col), tp.extract(&sel.end.row), tp.extract(&sel.end.col) })) {
+        project_manager.update_mru(loc, ephemeral) catch {};
+        return self.location_history_.update(file_path, .{ .row = loc.src.line + 1, .col = loc.src.column + 1 }, sel);
     }
 }
 
@@ -1766,9 +1769,11 @@ fn location_update_from_editor(self: *Self) void {
     if (editor.buffer) |buffer|
         buffer.set_last_view(self.active_view);
     const primary = editor.get_primary();
-    const row: usize = primary.cursor.row;
-    const col: usize = primary.cursor.col;
-    project_manager.update_mru(file_path, row, col, ephemeral) catch {};
+    project_manager.update_mru(.{ .src = .{
+        .path = file_path,
+        .line = primary.cursor.row,
+        .column = primary.cursor.col,
+    } }, ephemeral) catch {};
 }
 
 fn location_jump(from: tp.pid_ref, file_path: []const u8, cursor: location_history.Cursor, selection: ?location_history.Selection) void {
@@ -2086,6 +2091,8 @@ pub fn write_state(self: *Self, writer: *std.Io.Writer) WriteStateError!void {
             try tabs.write_state(writer);
 
     self.lsp_info.write_state(writer) catch return error.WriteFailed;
+
+    try tui.write_state(writer);
 }
 
 fn read_restore_info(self: *Self, io: std.Io, now: std.Io.Timestamp) !void {
@@ -2166,6 +2173,9 @@ fn extract_state(self: *Self, iter: *[]const u8, mode: enum { no_project, with_p
 
     self.lsp_info.extract_state(iter) catch |e|
         logger.print_err("mainview", "failed to restore LSP info: {}", .{e});
+
+    tui.extract_state(iter) catch |e|
+        logger.print_err("mainview", "failed to restore TUI : {}", .{e});
 
     const buffers = try self.buffer_manager.list_unordered(self.allocator);
     defer self.allocator.free(buffers);

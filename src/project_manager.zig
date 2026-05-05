@@ -7,9 +7,11 @@ const file_type_config = @import("file_type_config");
 const lsp_config = @import("lsp_config");
 const root = @import("soft_root").root;
 const Buffer = @import("Buffer");
+const file_link = @import("file_link");
 const builtin = @import("builtin");
 
 const Project = @import("Project.zig");
+pub const SourceLocation = Project.SourceLocation;
 
 pid: tp.pid_ref,
 
@@ -250,53 +252,53 @@ pub fn did_close(file_path: []const u8) (ProjectManagerError || ProjectError)!vo
     return send(.{ "did_close", project, file_path });
 }
 
-pub fn goto_definition(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn goto_definition(source_location: SourceLocation) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "goto_definition", project, file_path, row, col });
+    return send(.{ "goto_definition", project, source_location });
 }
 
-pub fn goto_declaration(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn goto_declaration(source_location: SourceLocation) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "goto_declaration", project, file_path, row, col });
+    return send(.{ "goto_declaration", project, source_location });
 }
 
-pub fn goto_implementation(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn goto_implementation(source_location: SourceLocation) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "goto_implementation", project, file_path, row, col });
+    return send(.{ "goto_implementation", project, source_location });
 }
 
-pub fn goto_type_definition(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn goto_type_definition(source_location: SourceLocation) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "goto_type_definition", project, file_path, row, col });
+    return send(.{ "goto_type_definition", project, source_location });
 }
 
-pub fn references(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn references(source_location: SourceLocation) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "references", project, file_path, row, col });
+    return send(.{ "references", project, source_location });
 }
 
-pub fn highlight_references(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn highlight_references(source_location: SourceLocation) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "highlight_references", project, file_path, row, col });
+    return send(.{ "highlight_references", project, source_location });
 }
 
-pub fn completion(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn completion(source_location: SourceLocation) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "completion", project, file_path, row, col });
+    return send(.{ "completion", project, source_location });
 }
 
 pub fn symbols(file_path: []const u8) (ProjectManagerError || ProjectError)!void {
@@ -306,26 +308,26 @@ pub fn symbols(file_path: []const u8) (ProjectManagerError || ProjectError)!void
     return send(.{ "symbols", project, file_path });
 }
 
-pub fn rename_symbol(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn rename_symbol(source_location: SourceLocation) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "rename_symbol", project, file_path, row, col });
+    return send(.{ "rename_symbol", project, source_location });
 }
 
-pub fn hover(file_path: []const u8, row: usize, col: usize) (ProjectManagerError || ProjectError)!void {
+pub fn hover(source_location: SourceLocation) (ProjectManagerError || ProjectError)!void {
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "hover", project, file_path, row, col });
+    return send(.{ "hover", project, source_location });
 }
 
-pub fn update_mru(file_path: []const u8, row: usize, col: usize, ephemeral: bool) (ProjectManagerError || ProjectError)!void {
+pub fn update_mru(source_location: SourceLocation, ephemeral: bool) (ProjectManagerError || ProjectError)!void {
     if (ephemeral) return;
     const project = tp.env.get().str("project");
     if (project.len == 0)
         return error.NoProject;
-    return send(.{ "update_mru", project, file_path, row, col });
+    return send(.{ "update_mru", project, source_location });
 }
 
 pub fn get_mru_position(allocator: std.mem.Allocator, file_path: []const u8, ctx: anytype) (ProjectManagerError || ProjectError)!void {
@@ -413,8 +415,6 @@ const Process = struct {
         var cbor_id: []const u8 = undefined;
         var params_cb: []const u8 = undefined;
         var max: usize = 0;
-        var row: usize = 0;
-        var col: usize = 0;
         var version: usize = 0;
         var text: []const u8 = undefined;
         var text_dst_ptr: usize = 0;
@@ -427,6 +427,7 @@ const Process = struct {
         var tag: []const u8 = undefined;
         var message: []const u8 = undefined;
         var vcs_id: []const u8 = undefined;
+        var source_location: SourceLocation = undefined;
 
         var eol_mode: Buffer.EolModeTag = @intFromEnum(Buffer.EolMode.lf);
 
@@ -451,8 +452,8 @@ const Process = struct {
         } else if (try cbor.match(m.buf, .{ "git", tp.extract(&context), tp.more })) {
             const project: *Project = @ptrFromInt(context);
             project.process_git(self.parent.ref(), m) catch {};
-        } else if (try cbor.match(m.buf, .{ "update_mru", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.update_mru(project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "update_mru", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.update_mru(project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "notify", tp.extract(&method), tp.extract_cbor(&params_cb) })) {
             self.dispatch_notify(project_directory, language_server, method, params_cb) catch |e| return self.logger.err("lsp-handling", e);
         } else if (try cbor.match(m.buf, .{ "child", tp.extract(&project_directory), tp.extract(&language_server), "request", tp.extract(&method), tp.extract_cbor(&cbor_id), tp.extract_cbor(&params_cb) })) {
@@ -503,26 +504,26 @@ const Process = struct {
             self.did_save(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "did_close", tp.extract(&project_directory), tp.extract(&path) })) {
             self.did_close(project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "goto_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.goto_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "goto_declaration", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.goto_declaration(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "goto_implementation", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.goto_implementation(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "goto_type_definition", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.goto_type_definition(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "references", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.references(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "highlight_references", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.highlight_references(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "goto_definition", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.goto_definition(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "goto_declaration", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.goto_declaration(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "goto_implementation", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.goto_implementation(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "goto_type_definition", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.goto_type_definition(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "references", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.references(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "highlight_references", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.highlight_references(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "symbols", tp.extract(&project_directory), tp.extract(&path) })) {
             self.symbols(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "completion", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.completion(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "rename_symbol", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.rename_symbol(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
-        } else if (try cbor.match(m.buf, .{ "hover", tp.extract(&project_directory), tp.extract(&path), tp.extract(&row), tp.extract(&col) })) {
-            self.hover(from, project_directory, path, row, col) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "completion", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.completion(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "rename_symbol", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.rename_symbol(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
+        } else if (try cbor.match(m.buf, .{ "hover", tp.extract(&project_directory), tp.extract(&source_location) })) {
+            self.hover(from, project_directory, &source_location) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "get_mru_position", tp.extract(&project_directory), tp.extract(&path) })) {
             self.get_mru_position(from, project_directory, path) catch |e| return from.forward_error(e, @errorReturnTrace()) catch error.ClientFailed;
         } else if (try cbor.match(m.buf, .{ "lsp", "msg", tp.extract(&tag), tp.extract(&message) })) {
@@ -731,46 +732,46 @@ const Process = struct {
         return project.did_close(file_path);
     }
 
-    fn goto_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.SendGotoRequestError)!void {
+    fn goto_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.SendGotoRequestError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_definition" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.goto_definition(from, file_path, row, col);
+        return project.goto_definition(from, args);
     }
 
-    fn goto_declaration(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.SendGotoRequestError)!void {
+    fn goto_declaration(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.SendGotoRequestError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_declaration" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.goto_declaration(from, file_path, row, col);
+        return project.goto_declaration(from, args);
     }
 
-    fn goto_implementation(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.SendGotoRequestError)!void {
+    fn goto_implementation(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.SendGotoRequestError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_implementation" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.goto_implementation(from, file_path, row, col);
+        return project.goto_implementation(from, args);
     }
 
-    fn goto_type_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.SendGotoRequestError)!void {
+    fn goto_type_definition(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.SendGotoRequestError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".goto_type_definition" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.goto_type_definition(from, file_path, row, col);
+        return project.goto_type_definition(from, args);
     }
 
-    fn references(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.SendGotoRequestError)!void {
+    fn references(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.SendGotoRequestError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".references" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.references(from, file_path, row, col);
+        return project.references(from, args);
     }
 
-    fn highlight_references(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.SendGotoRequestError)!void {
+    fn highlight_references(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.SendGotoRequestError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".highlight_references" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.highlight_references(from, file_path, row, col);
+        return project.highlight_references(from, args);
     }
 
     fn symbols(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.SymbolInformationError || Project.LspError)!void {
@@ -780,25 +781,25 @@ const Process = struct {
         return project.symbols(from, file_path);
     }
 
-    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.CompletionError || Project.LspError)!void {
+    fn completion(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.CompletionError || Project.LspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".completion" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.completion(from, file_path, row, col);
+        return project.completion(from, args);
     }
 
-    fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.GetLineOfFileError || Project.LspError)!void {
+    fn rename_symbol(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.GetLineOfFileError || Project.LspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".rename_symbol" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.rename_symbol(from, file_path, row, col);
+        return project.rename_symbol(from, args);
     }
 
-    fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || Project.LspError)!void {
+    fn hover(self: *Process, from: tp.pid_ref, project_directory: []const u8, args: *const SourceLocation) (ProjectError || Project.LspError)!void {
         const frame = tracy.initZone(@src(), .{ .name = module_name ++ ".hover" });
         defer frame.deinit();
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.hover(from, file_path, row, col);
+        return project.hover(from, args);
     }
 
     fn get_mru_position(self: *Process, from: tp.pid_ref, project_directory: []const u8, file_path: []const u8) (ProjectError || Project.RequestError)!void {
@@ -808,9 +809,9 @@ const Process = struct {
         return project.get_mru_position(from, file_path);
     }
 
-    fn update_mru(self: *Process, project_directory: []const u8, file_path: []const u8, row: usize, col: usize) (ProjectError || OutOfMemoryError)!void {
+    fn update_mru(self: *Process, project_directory: []const u8, args: *const SourceLocation) (ProjectError || OutOfMemoryError)!void {
         const project = self.projects.get(project_directory) orelse return error.NoProject;
-        return project.update_mru(file_path, row, col);
+        return project.update_mru(args);
     }
 
     fn dispatch_notify(self: *Process, project_directory: []const u8, language_server: []const u8, method: []const u8, params_cb: []const u8) (ProjectError || Project.DiagnosticError || Project.LogMessageError || cbor.JsonEncodeError)!void {

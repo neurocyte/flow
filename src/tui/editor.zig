@@ -12,6 +12,7 @@ const syntax = @import("syntax");
 const file_type_config = @import("file_type_config");
 const project_manager = @import("project_manager");
 const root_mod = @import("soft_root").root;
+const file_link = @import("file_link");
 
 const Plane = @import("renderer").Plane;
 const Cell = @import("renderer").Cell;
@@ -420,6 +421,10 @@ pub const Editor = struct {
         range: Match,
         view: View,
     } = null,
+    file_link_highlight: ?Match = null,
+
+    hover_pos: ?HoverPos = null,
+    last_hover_pos: ?HoverPos = null,
 
     completions: CompletionState = .empty,
     completions_request: ?CompletionState = .done,
@@ -439,6 +444,8 @@ pub const Editor = struct {
             args: []const u8,
         } = null,
     } = null,
+
+    const HoverPos = struct { row: usize, col: usize };
 
     const CompletionState = struct {
         data: std.ArrayListUnmanaged(u8) = .empty,
@@ -1123,6 +1130,7 @@ pub const Editor = struct {
         }
         self.style_cache_theme = theme.name;
         const cache: *StyleCache = &self.style_cache.?;
+        self.update_file_link_highlight();
         self.render_screen(theme, cache, focused, now);
         return self.scroll_dest != self.view.row or self.syntax_refresh_full;
     }
@@ -1305,6 +1313,7 @@ pub const Editor = struct {
             self.render_blame(theme, hl_row, ctx_.cell_map, now) catch {};
         self.render_column_highlights() catch {};
         self.render_cursors(theme, ctx_.cell_map, focused) catch {};
+        self.render_file_link_highlight(theme);
         if (self.info_box) |w| _ = w.render(theme);
     }
 
@@ -1454,6 +1463,25 @@ pub const Editor = struct {
                 if (self.is_point_in_selection(sel, y, x))
                     return self.render_selection_cell(theme, cell);
             };
+    }
+
+    fn render_file_link_highlight(self: *Self, theme: *const Widget.Theme) void {
+        const match = self.file_link_highlight orelse return;
+        const pos = self.screen_cursor(&match.begin) orelse return;
+        self.plane.cursor_move_yx(@intCast(pos.row), @intCast(pos.col));
+        var col = pos.col;
+        while (col < match.end.col) : (col += 1) {
+            self.plane.cursor_move_yx(@intCast(pos.row), @intCast(col));
+            self.render_file_link_highlight_cell(theme.editor_cursor_secondary);
+        }
+    }
+
+    inline fn render_file_link_highlight_cell(self: *Self, style: Widget.Theme.Style) void {
+        var cell = self.plane.cell_init();
+        _ = self.plane.at_cursor_cell(&cell) catch return;
+        cell.set_style(.{ .fs = .undercurl });
+        if (style.bg) |ul_col| cell.set_under_color(ul_col.color);
+        _ = self.plane.putc(&cell) catch {};
     }
 
     fn render_diagnostics(self: *Self, theme: *const Widget.Theme, pc_row: usize, hl_row: ?usize, cell_map: CellMap) bool {
@@ -2137,6 +2165,39 @@ pub const Editor = struct {
         });
     }
 
+    fn update_file_link_highlight(self: *Self) void {
+        defer self.last_hover_pos = self.hover_pos;
+        const pos = self.hover_pos orelse {
+            self.file_link_highlight = null;
+            return;
+        };
+
+        if (self.last_hover_pos) |last| if (last.row == pos.row and last.col == pos.col)
+            return;
+
+        const cursor: Cursor = .{ .row = pos.row, .col = pos.col };
+        if (self.file_link_highlight) |match| if (!cursor.within(match.to_selection())) {
+            self.file_link_highlight = null;
+        };
+
+        if (self.file_link_highlight != null)
+            return;
+
+        if (self.get_file_link_at_cursor(self.allocator, cursor)) |result| {
+            const link, const sel = result;
+            defer switch (link) {
+                .file => |f| self.allocator.free(f.path),
+                .dir => |d| self.allocator.free(d.path),
+            };
+            switch (link) {
+                .dir => {},
+                .file => |f| if (f.exists) {
+                    self.file_link_highlight = Match.from_selection(sel);
+                },
+            }
+        } else self.file_link_highlight = null;
+    }
+
     pub fn set_hover_content(self: *Self, range: Match, content: []const u8) !void {
         self.add_hover_highlight(range);
         if (content.len == 0) {
@@ -2436,6 +2497,42 @@ pub const Editor = struct {
                     break :ret root;
                 };
             };
+            self.collapse_cursors();
+            if (someone_stopped) break;
+        }
+        return if (someone_stopped) error.Stop else root;
+    }
+
+    const RowOrder = enum { asc, desc };
+
+    fn with_cursels_mut_repeat_by_row(self: *Self, root_: Buffer.Root, move: cursel_operator_mut, allocator: Allocator, ctx: Context, comptime order: RowOrder) error{Stop}!Buffer.Root {
+        var sfa = std.heap.stackFallback(256 * @sizeOf(usize), self.allocator);
+        const sfa_alloc = sfa.get();
+        var indices = std.ArrayList(usize).initCapacity(sfa_alloc, self.cursels.items.len) catch
+            return self.with_cursels_mut_repeat(root_, move, allocator, ctx);
+        defer indices.deinit(sfa_alloc);
+        for (self.cursels.items, 0..) |*cursel_, i| if (cursel_.*) |_| indices.appendAssumeCapacity(i);
+        std.sort.pdq(usize, indices.items, self, struct {
+            fn lessThan(s: *Self, a: usize, b: usize) bool {
+                const row_a = s.cursels.items[a].?.cursor.row;
+                const row_b = s.cursels.items[b].?.cursor.row;
+                return if (order == .asc) row_a < row_b else row_a > row_b;
+            }
+        }.lessThan);
+
+        var root = root_;
+        var someone_stopped = false;
+        var repeat: usize = 1;
+        _ = ctx.args.match(.{tp.extract(&repeat)}) catch false;
+        while (repeat > 0) : (repeat -= 1) {
+            for (indices.items) |idx| {
+                if (self.cursels.items[idx]) |*cursel| {
+                    root = self.with_cursel_mut(root, move, cursel, allocator) catch ret: {
+                        someone_stopped = true;
+                        break :ret root;
+                    };
+                }
+            }
             self.collapse_cursors();
             if (someone_stopped) break;
         }
@@ -2908,6 +3005,11 @@ pub const Editor = struct {
         const root = self.buf_root() catch return;
         const sel = primary.enable_selection(root, self.metrics);
         sel.end.move_abs(root, &self.view, @intCast(y_), @intCast(x_), self.metrics) catch return;
+        if (x < 0) {
+            const overshoot: usize = @intCast(-x);
+            sel.end.col = sel.end.col -| overshoot;
+            sel.end.target = sel.end.col;
+        }
         const initial = self.selection_drag_initial orelse sel.*;
         switch (self.selection_mode) {
             .char => {},
@@ -2954,6 +3056,23 @@ pub const Editor = struct {
 
     pub fn secondary_drag(self: *Self, y: c_int, x: c_int) !void {
         return self.primary_drag(y, x, root_mod.get_now());
+    }
+
+    pub fn update_hover_pos(self: *Self, y: usize, x: usize) void {
+        const pos: HoverPos = .{
+            .row = self.view.row + y,
+            .col = self.view.col + x,
+        };
+        self.hover_pos = pos;
+        if (self.last_hover_pos) |last| if (last.row == pos.row and last.col == pos.col)
+            return;
+        tui.need_render(@src());
+    }
+
+    pub fn reset_hover_pos(self: *Self) void {
+        self.hover_pos = null;
+        if (self.last_hover_pos) |_|
+            tui.need_render(@src());
     }
 
     fn get_animation_min_lag() f64 {
@@ -3108,6 +3227,31 @@ pub const Editor = struct {
 
     pub fn get_selection(self: *const Self, sel: Selection, text_allocator: Allocator) error{ Stop, OutOfMemory }![]u8 {
         return copy_selection(try self.buf_root(), sel, text_allocator, self.metrics);
+    }
+
+    /// Returns the file link destination under the cursor, or null if none.
+    /// Caller owns the `path` field in the returned Dest and must free it with `allocator`.
+    pub fn get_file_link_at_cursor(self: *const Self, allocator: Allocator, cursor: Cursor) ?struct { file_link.Dest, Selection } {
+        const root_ = self.buf_root() catch return null;
+        const line_w = root_.line_width(cursor.row, self.metrics) catch return null;
+        const line_sel: Selection = .{
+            .begin = .{ .row = cursor.row, .col = 0 },
+            .end = .{ .row = cursor.row, .col = line_w },
+        };
+        const line_text = copy_selection(root_, line_sel, self.allocator, self.metrics) catch return null;
+        defer self.allocator.free(line_text);
+        const byte_offset = root_.get_line_width_to_pos(cursor.row, cursor.col, self.metrics) catch return null;
+        const range = file_link.find_at_point(line_text, byte_offset) orelse return null;
+        const sel = Selection.from_pos(.{
+            .begin = .{ .row = cursor.row, .col = range.start },
+            .end = .{ .row = cursor.row, .col = range.end },
+        }, root_, self.metrics);
+        var dest = file_link.parse(line_text[range.start..range.end]) catch return null;
+        switch (dest) {
+            .file => |*f| f.path = allocator.dupe(u8, f.path) catch return null,
+            .dir => |*d| d.path = allocator.dupe(u8, d.path) catch return null,
+        }
+        return .{ dest, sel };
     }
 
     fn copy_word_at_cursor(self: *Self, text_allocator: Allocator) ![]const u8 {
@@ -4267,7 +4411,7 @@ pub const Editor = struct {
         const cut_text_raw = copy_selection(root, sel.*, sfa_allocator, self.metrics) catch return error.Stop;
         defer sfa_allocator.free(cut_text_raw);
 
-        const is_last_no_nl = sel.end.row == cursel.cursor.row;
+        const is_last_no_nl = sel.end.col != 0;
 
         var cut_text_buf: ?[]u8 = null;
         defer if (cut_text_buf) |t| sfa_allocator.free(t);
@@ -4304,7 +4448,7 @@ pub const Editor = struct {
 
     pub fn pull_up(self: *Self, ctx: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut_repeat(b.root, pull_cursel_up, b.allocator, ctx);
+        const root = try self.with_cursels_mut_repeat_by_row(b.root, pull_cursel_up, b.allocator, ctx, .asc);
         try self.update_buf(root, ctx.now);
         self.clamp(ctx.now);
     }
@@ -4353,7 +4497,7 @@ pub const Editor = struct {
 
     pub fn pull_down(self: *Self, ctx: Context) Result {
         const b = try self.buf_for_update();
-        const root = try self.with_cursels_mut_repeat(b.root, pull_cursel_down, b.allocator, ctx);
+        const root = try self.with_cursels_mut_repeat_by_row(b.root, pull_cursel_down, b.allocator, ctx, .desc);
         try self.update_buf(root, ctx.now);
         self.clamp(ctx.now);
     }
@@ -4928,6 +5072,7 @@ pub const Editor = struct {
 
     pub fn cancel(self: *Self, _: Context) Result {
         self.clear_info_box();
+        self.file_link_highlight = null;
         self.cancel_all_tabstops();
         self.cancel_all_selections();
         self.cancel_all_matches();
@@ -6747,33 +6892,59 @@ pub const Editor = struct {
     }
     pub const goto_byte_offset_meta: Meta = .{ .arguments = &.{.integer} };
 
-    const PmFunc = fn (file_path: []const u8, row: usize, col: usize) project_manager.Error!void;
+    const PmFunc = fn (source_location: project_manager.SourceLocation) project_manager.Error!void;
 
     fn pm_with_primary_cursor_pos(self: *Self, func: PmFunc) Result {
         const file_path = self.file_path orelse return;
         const primary = self.get_primary();
         const root = self.buf_root() catch return;
         const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
-        return func(file_path, primary.cursor.row, col);
+        return func(.{ .src = .{
+            .path = file_path,
+            .line = primary.cursor.row,
+            .column = col,
+        } });
+    }
+
+    fn pm_with_primary_cursor_pos_alt(self: *Self, func: PmFunc) Result {
+        const file_path = self.file_path orelse return;
+        const primary = self.get_primary();
+        const root = self.buf_root() catch return;
+        const col = try root.get_line_width_to_pos(primary.cursor.row, primary.cursor.col, self.metrics);
+
+        const alt_dest: ?file_link.FileDest = if (self.get_file_link_at_cursor(self.allocator, self.get_primary().cursor)) |result| switch (result.@"0") {
+            .file => |file| file,
+            .dir => |dir| blk: {
+                self.allocator.free(dir.path);
+                break :blk null;
+            },
+        } else null;
+        defer if (alt_dest) |link| self.allocator.free(link.path);
+
+        return func(.{ .src = .{
+            .path = file_path,
+            .line = primary.cursor.row,
+            .column = col,
+        }, .alternative_destination = if (alt_dest) |dest| if (dest.exists) alt_dest else null else null });
     }
 
     pub fn goto_definition(self: *Self, _: Context) Result {
-        return self.pm_with_primary_cursor_pos(project_manager.goto_definition);
+        return self.pm_with_primary_cursor_pos_alt(project_manager.goto_definition);
     }
     pub const goto_definition_meta: Meta = .{ .description = "Language: Goto definition" };
 
     pub fn goto_declaration(self: *Self, _: Context) Result {
-        return self.pm_with_primary_cursor_pos(project_manager.goto_declaration);
+        return self.pm_with_primary_cursor_pos_alt(project_manager.goto_declaration);
     }
     pub const goto_declaration_meta: Meta = .{ .description = "Language: Goto declaration" };
 
     pub fn goto_implementation(self: *Self, _: Context) Result {
-        return self.pm_with_primary_cursor_pos(project_manager.goto_implementation);
+        return self.pm_with_primary_cursor_pos_alt(project_manager.goto_implementation);
     }
     pub const goto_implementation_meta: Meta = .{ .description = "Language: Goto implementation" };
 
     pub fn goto_type_definition(self: *Self, _: Context) Result {
-        return self.pm_with_primary_cursor_pos(project_manager.goto_type_definition);
+        return self.pm_with_primary_cursor_pos_alt(project_manager.goto_type_definition);
     }
     pub const goto_type_definition_meta: Meta = .{ .description = "Language: Goto type definition" };
 
@@ -6918,10 +7089,12 @@ pub const Editor = struct {
     }
 
     pub fn hover_at(self: *Self, row: usize, col: usize) Result {
-        const file_path = self.file_path orelse return;
         const root = self.buf_root() catch return;
-        const pos = root.get_line_width_to_pos(row, col, self.metrics) catch return;
-        return project_manager.hover(file_path, row, pos);
+        return project_manager.hover(.{ .src = .{
+            .path = self.file_path orelse return,
+            .line = row,
+            .column = root.get_line_width_to_pos(row, col, self.metrics) catch return,
+        } });
     }
 
     pub fn add_hover_highlight(self: *Self, match_: Match) void {
@@ -7697,6 +7870,9 @@ pub const EditorWidget = struct {
                 if (tui.jump_mode()) {
                     self.update_hover_timer(.init);
                     self.hover_mouse_event = true;
+                    self.editor.update_hover_pos(@intCast(hover_y), @intCast(hover_x));
+                } else {
+                    self.editor.reset_hover_pos();
                 }
             }
         } else if (try m.match(.{ "B", tp.extract(&event), tp.extract(&btn), tp.any, tp.extract(&x), tp.extract(&y), tp.extract(&xpx), tp.extract(&ypx) })) {
@@ -7716,6 +7892,8 @@ pub const EditorWidget = struct {
         } else if (try m.match(.{ "A", tp.more })) {
             self.editor.add_match(m) catch {};
         } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
+            if (!self.hover)
+                self.editor.reset_hover_pos();
             if (tui.jump_mode()) {
                 self.update_hover_timer(.init);
                 tui.rdr().request_mouse_cursor_pointer(self.hover);
