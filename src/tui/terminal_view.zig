@@ -549,7 +549,7 @@ fn render_file_link_highlight(self: *Self, theme: *const Widget.Theme) void {
 inline fn render_file_link_highlight_cell(self: *Self, style: Widget.Theme.Style) void {
     var cell = self.plane.cell_init();
     _ = self.plane.at_cursor_cell(&cell) catch return;
-    cell.set_style(.{ .fs = .undercurl });
+    cell.cell.style.ul_style = .curly;
     if (style.bg) |ul_col| cell.set_under_color(ul_col.color);
     _ = self.plane.putc(&cell) catch {};
 }
