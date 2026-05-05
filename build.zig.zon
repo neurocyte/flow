@@ -43,13 +43,13 @@
             .lazy = true,
         },
         .wio = .{
-            .url = "git+https://github.com/ypsvlq/wio?ref=master#faed19d6b5e84d55910fb2751de2033e664da2b8",
-            .hash = "wio-0.0.0-8xHrrzJNBwC3Cu8MOSyYvokHuHvp-msfk_efgzUKbx0e",
+            .url = "git+https://github.com/ypsvlq/wio?ref=master#10ddf0db03440d0a56b398ff5c41b74c24bbcda0",
+            .hash = "wio-0.0.0-8xHrryhWBwAHo3NT_wlKKCyVbO0bHPPU4bDwQsGOg9p4",
             .lazy = true,
         },
         .sokol = .{
-            .url = "git+https://github.com/floooh/sokol-zig?ref=master#fa5aa645f6fa9cca1d70bb93a89312b4b7022ac3",
-            .hash = "sokol-0.1.0-pb1HK-HUNgDWWepemJMSKWMTj87v3aTfqnptRonvR9pm",
+            .url = "git+https://github.com/floooh/sokol-zig?ref=master#6ca71321c91e842fb32a8140802a546e50d8a086",
+            .hash = "sokol-0.1.0-pb1HK9lgNwAAB5SLJlpJQ09PZ2CVydxkNs0KaptLaTUD",
             .lazy = true,
         },
         .TrueType = .{
