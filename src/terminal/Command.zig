@@ -18,14 +18,6 @@ env_map: *const std.process.Environ.Map,
 
 pty: Pty,
 
-// execvpe searches PATH and accepts an explicit environment block.
-// It is available on Linux (glibc) and macOS/BSD libc.
-extern "c" fn execvpe(
-    file: [*:0]const u8,
-    argv: [*:null]const ?[*:0]const u8,
-    envp: [*:null]const ?[*:0]const u8,
-) c_int;
-
 pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     defer arena_allocator.deinit();
@@ -84,7 +76,8 @@ pub fn spawn(self: *Command, allocator: std.mem.Allocator) !void {
         }
 
         // exec
-        _ = execvpe(argv_buf.ptr[0].?, argv_buf.ptr, @ptrCast(envp.ptr));
+        _ = posix.system.execve(argv_buf.ptr[0].?, argv_buf.ptr, @ptrCast(envp.ptr));
+
         std.c.exit(127);
     }
 
