@@ -289,6 +289,45 @@ pub fn historySize(self: *const Screen) usize {
     return self.visible_top;
 }
 
+/// Append the trimmed plain-text contents of `row` of `self.buf` to `out`,
+/// where `row` is an absolute index in `self.buf` (0 is the oldest history
+/// row, `visible_top + height` is one past the bottom of the viewport).
+/// Trailing space cells are dropped. If `col_at_byte` is non-null, it is
+/// populated so that `col_at_byte[i]` is the display column of byte `i` in
+/// `out`, with the final entry equal to `self.width` (the column past the
+/// last cell).
+pub fn extractRowText(
+    self: *const Screen,
+    allocator: std.mem.Allocator,
+    row: usize,
+    out: *std.ArrayList(u8),
+    col_at_byte: ?*std.ArrayList(u16),
+) !void {
+    if (self.width == 0) return;
+    const total_rows = self.buf.len / self.width;
+    if (row >= total_rows) return;
+    const row_base = row * self.width;
+    const start_len = out.items.len;
+    var col: u16 = 0;
+    while (col < self.width) : (col += 1) {
+        const cell = &self.buf[row_base + col];
+        if (cell.char.items.len == 0) {
+            try out.append(allocator, ' ');
+            if (col_at_byte) |m| try m.append(allocator, col);
+        } else {
+            for (cell.char.items) |b| {
+                try out.append(allocator, b);
+                if (col_at_byte) |m| try m.append(allocator, col);
+            }
+        }
+    }
+    while (out.items.len > start_len and out.items[out.items.len - 1] == ' ') {
+        out.items.len -= 1;
+        if (col_at_byte) |m| m.items.len -= 1;
+    }
+    if (col_at_byte) |m| try m.append(allocator, self.width);
+}
+
 /// writes a cell to a location. 0 indexed
 pub fn print(
     self: *Screen,

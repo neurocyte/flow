@@ -497,6 +497,51 @@ const cmds = struct {
             tui.need_render(@src());
     }
     pub const terminal_scroll_down_meta: Meta = .{ .description = "Terminal: Scroll down" };
+
+    pub fn terminal_open_scrollback_buffer(self: *Self, _: Ctx) Result {
+        // Use the active back screen so an alt-screen app (vim/htop/...)
+        // gets a screenshot of just the visible viewport, while the
+        // primary screen also includes scrollback history.
+        const screen = self.vt.vt.back_screen;
+        const total_rows = screen.visible_top + screen.height;
+
+        var content: std.ArrayList(u8) = .empty;
+        defer content.deinit(self.allocator);
+        var row: usize = 0;
+        while (row < total_rows) : (row += 1) {
+            screen.extractRowText(self.allocator, row, &content, null) catch break;
+            content.append(self.allocator, '\n') catch break;
+        }
+
+        var buffer_name: std.ArrayList(u8) = .empty;
+        defer buffer_name.deinit(self.allocator);
+        try buffer_name.append(self.allocator, '*');
+        if (self.vt.title.items.len > 0) {
+            try buffer_name.appendSlice(self.allocator, self.vt.title.items);
+        } else {
+            var w: std.Io.Writer.Allocating = .init(self.allocator);
+            defer w.deinit();
+            get_running_cmd(&w.writer) catch {};
+            if (w.written().len > 0)
+                try buffer_name.appendSlice(self.allocator, w.written())
+            else
+                try buffer_name.appendSlice(self.allocator, "scrollback");
+        }
+        try buffer_name.append(self.allocator, '*');
+
+        if (tui.get_buffer_manager()) |bm|
+            if (bm.get_buffer_for_file(buffer_name.items)) |buf|
+                bm.delete_buffer(buf);
+
+        try command.executeName("create_scratch_buffer", command.fmt(.{
+            buffer_name.items, content.items, "text",
+        }));
+
+        if (tui.mainview()) |mv| if (mv.panel_maximized)
+            try command.executeName("toggle_maximize_panel", .empty());
+        self.unfocus();
+    }
+    pub const terminal_open_scrollback_buffer_meta: Meta = .{ .description = "Terminal: Open scrollback buffer" };
 };
 
 const Vt = struct {

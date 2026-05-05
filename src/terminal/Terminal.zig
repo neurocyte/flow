@@ -12,7 +12,7 @@ const is_windows = builtin.os.tag == .windows;
 pub const Command = if (is_windows) @import("CommandWindows.zig") else @import("Command.zig");
 const Pty = if (is_windows) @import("ConPTY.zig") else @import("Pty.zig");
 const Winsize = vaxis.Winsize;
-const Screen = @import("Screen.zig");
+pub const Screen = @import("Screen.zig");
 const Key = vaxis.Key;
 const Queue = vaxis.Queue(Event, 16);
 const key = @import("key.zig");

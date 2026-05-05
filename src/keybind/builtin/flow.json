@@ -622,6 +622,7 @@
             ["ctrl+shift+page_up", "terminal_scroll_up"],
             ["ctrl+alt+page_down", "terminal_scroll_down"],
             ["ctrl+alt+page_up", "terminal_scroll_up"],
+            ["ctrl+alt+g", "terminal_open_scrollback_buffer"],
             ["ctrl+j", "toggle_panel"],
             ["ctrl+shift+j", "toggle_maximize_panel"],
             ["ctrl+alt+home", "grow_panel"],
