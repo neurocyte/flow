@@ -47,8 +47,8 @@ pub const Cell = struct {
 
 pub const Cursor = struct {
     style: vaxis.Style = .{},
-    uri: std.ArrayList(u8) = undefined,
-    uri_id: std.ArrayList(u8) = undefined,
+    uri: std.ArrayList(u8) = .empty,
+    uri_id: std.ArrayList(u8) = .empty,
     col: u16 = 0,
     row: u16 = 0,
     pending_wrap: bool = false,
@@ -65,6 +65,30 @@ pub const Cursor = struct {
     pub fn isInsideScrollingRegion(self: Cursor, sr: ScrollingRegion) bool {
         return !self.isOutsideScrollingRegion(sr);
     }
+
+    pub fn copyFrom(dst: *Cursor, src: Cursor, allocator: std.mem.Allocator) !void {
+        dst.style = src.style;
+        dst.col = src.col;
+        dst.row = src.row;
+        dst.pending_wrap = src.pending_wrap;
+        dst.shape = src.shape;
+        dst.visible = src.visible;
+        dst.uri.clearRetainingCapacity();
+        try dst.uri.appendSlice(allocator, src.uri.items);
+        dst.uri_id.clearRetainingCapacity();
+        try dst.uri_id.appendSlice(allocator, src.uri_id.items);
+    }
+};
+
+/// Semantic prompt marks emitted by the shell via OSC 133
+pub const PromptMarkKind = enum { prompt_start, input_start, output_start, output_end };
+
+pub const PromptMark = struct {
+    kind: PromptMarkKind,
+    row: u32,
+    col: u16,
+    exit_code: ?i32 = null,
+    click_events: bool = false,
 };
 
 pub const ScrollingRegion = struct {
@@ -92,6 +116,9 @@ scrolling_region: ScrollingRegion,
 buf: []Cell = undefined,
 
 cursor: Cursor = .{},
+
+/// OSC 133 prompt/command markers
+prompt_marks: std.ArrayList(PromptMark) = .empty,
 
 csi_u_flags: vaxis.Key.KittyFlags = @bitCast(@as(u5, 0)),
 
@@ -130,6 +157,9 @@ pub fn deinit(self: *Screen, alloc: std.mem.Allocator) void {
         self.buf[i].uri.deinit(alloc);
         self.buf[i].uri_id.deinit(alloc);
     }
+    self.cursor.uri.deinit(alloc);
+    self.cursor.uri_id.deinit(alloc);
+    self.prompt_marks.deinit(alloc);
 
     alloc.free(self.buf);
 }
@@ -137,7 +167,7 @@ pub fn deinit(self: *Screen, alloc: std.mem.Allocator) void {
 /// Copy the visible area (or a scrolled-back view) to the destination screen
 /// `scroll_offset` is the number of history rows to look back (0 = live view)
 pub fn copyTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen, scroll_offset: usize) !void {
-    dst.cursor = self.cursor;
+    try dst.cursor.copyFrom(self.cursor, allocator);
     var dst_row: usize = 0;
     while (dst_row < self.height) : (dst_row += 1) {
         const src_row = (self.visible_top -| scroll_offset) + dst_row;
@@ -180,6 +210,30 @@ pub fn copyHistoryTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen) 
             dst.buf[dst_i].dirty = true;
         }
     }
+
+    const drop_start: u32 = @intCast(src_history - copy_rows);
+    const src_history_u32: u32 = @intCast(src_history);
+    try self.transferMarksRange(dst, allocator, drop_start, src_history_u32, 0);
+}
+
+fn transferMarksRange(
+    self: *const Screen,
+    dst: *Screen,
+    allocator: std.mem.Allocator,
+    src_top: u32,
+    src_bot: u32,
+    dst_top: u32,
+) !void {
+    for (self.prompt_marks.items) |mark| {
+        if (mark.row < src_top or mark.row >= src_bot) continue;
+        try dst.prompt_marks.append(allocator, .{
+            .kind = mark.kind,
+            .row = (mark.row - src_top) + dst_top,
+            .col = mark.col,
+            .exit_code = mark.exit_code,
+            .click_events = mark.click_events,
+        });
+    }
 }
 
 /// Copy the visible viewport from `self` into `dst` for a vertical resize
@@ -209,6 +263,10 @@ pub fn copyViewportTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen)
                 try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
             }
         }
+        const src_top: u32 = @intCast(self.visible_top);
+        const src_bot: u32 = @intCast(self.visible_top + old_h);
+        const dst_top: u32 = @intCast(dst.visible_top + pull);
+        try self.transferMarksRange(dst, allocator, src_top, src_bot, dst_top);
     } else {
         const keep_above = @min(old_cursor, new_h - 1);
         src_vp_start = old_cursor - keep_above;
@@ -244,9 +302,14 @@ pub fn copyViewportTo(self: *Screen, allocator: std.mem.Allocator, dst: *Screen)
                 try dst.buf[dst_i].copyFrom(allocator, self.buf[src_i]);
             }
         }
+
+        const src_top: u32 = @intCast(self.visible_top + src_vp_start - push);
+        const src_bot: u32 = @intCast(self.visible_top + src_vp_start + new_h);
+        const dst_top: u32 = @intCast(dst.visible_top - push);
+        try self.transferMarksRange(dst, allocator, src_top, src_bot, dst_top);
     }
 
-    dst.cursor = self.cursor;
+    try dst.cursor.copyFrom(self.cursor, allocator);
     dst.cursor.row = @intCast(new_cursor_row);
     dst.scrolling_region.bottom = @intCast(new_h - 1);
     dst.scrolling_region.right = @intCast(dst.width - 1);
@@ -287,6 +350,78 @@ inline fn rowIndex(self: *const Screen, row: usize, col: usize) usize {
 /// history lines available above the current viewport
 pub fn historySize(self: *const Screen) usize {
     return self.visible_top;
+}
+
+pub fn addPromptMark(
+    self: *Screen,
+    allocator: std.mem.Allocator,
+    kind: PromptMarkKind,
+    exit_code: ?i32,
+    click_events: bool,
+) !void {
+    const row: u32 = @intCast(self.visible_top + self.cursor.row);
+    const col: u16 = self.cursor.col;
+    if (self.prompt_marks.items.len > 0) {
+        const last = self.prompt_marks.items[self.prompt_marks.items.len - 1];
+        if (last.kind == kind and last.row == row and last.col == col) return;
+    }
+    try self.prompt_marks.append(allocator, .{
+        .kind = kind,
+        .row = row,
+        .col = col,
+        .exit_code = exit_code,
+        .click_events = click_events,
+    });
+}
+
+pub const CommandOutputRange = struct {
+    start: u32,
+    end: u32,
+    exit_code: ?i32,
+};
+
+pub fn lastCommandOutputRange(self: *const Screen) ?CommandOutputRange {
+    var i: usize = self.prompt_marks.items.len;
+    while (i > 0) {
+        i -= 1;
+        const start_mark = self.prompt_marks.items[i];
+        if (start_mark.kind != .output_start) continue;
+        for (self.prompt_marks.items[i + 1 ..]) |later| switch (later.kind) {
+            .output_end => return .{
+                .start = start_mark.row,
+                .end = later.row,
+                .exit_code = later.exit_code,
+            },
+            .prompt_start => return .{
+                .start = start_mark.row,
+                .end = later.row,
+                .exit_code = null,
+            },
+            else => {},
+        };
+        return .{
+            .start = start_mark.row,
+            .end = @intCast(self.visible_top + self.height),
+            .exit_code = null,
+        };
+    }
+    return null;
+}
+
+fn shiftMarksUp(self: *Screen, top: u32, bottom: u32, n: u32) void {
+    if (n == 0 or top > bottom) return;
+    var i: usize = 0;
+    while (i < self.prompt_marks.items.len) {
+        const r = self.prompt_marks.items[i].row;
+        if (r >= top and r < top + n) {
+            _ = self.prompt_marks.orderedRemove(i);
+        } else if (r >= top + n and r <= bottom) {
+            self.prompt_marks.items[i].row = r - n;
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
 }
 
 /// Append the trimmed plain-text contents of `row` of `self.buf` to `out`,
@@ -596,6 +731,10 @@ pub fn deleteLine(self: *Screen, n: usize) !void {
                 try self.buf[i].copyFrom(self.allocator, self.buf[i + stride]);
         }
     }
+
+    const sr_top: u32 = @intCast(self.visible_top + self.scrolling_region.top);
+    const sr_bottom: u32 = @intCast(self.visible_top + self.scrolling_region.bottom);
+    self.shiftMarksUp(sr_top, sr_bottom, @intCast(cnt));
 }
 
 /// insert n lines at the top of the scrolling region

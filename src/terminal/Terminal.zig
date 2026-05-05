@@ -936,6 +936,33 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                         }
                         try self.event_queue.push(.{ .pwd_change = self.working_directory.items });
                     },
+                    // OSC 8 ; <params> ; <uri>
+                    // Hyperlink. Stores the URI on the back-screen cursor so
+                    // subsequently written cells inherit it. An empty URI
+                    // closes the active hyperlink. The optional `id=...`
+                    // param (in colon-separated `key=value` pairs) groups
+                    // disjoint runs into one logical hyperlink.
+                    8 => {
+                        const after_semi = osc[semicolon + 1 ..];
+                        const second_semi = std.mem.indexOfScalar(u8, after_semi, ';') orelse {
+                            log.debug("unhandled osc: {s}", .{osc});
+                            continue;
+                        };
+                        const params = after_semi[0..second_semi];
+                        const uri = after_semi[second_semi + 1 ..];
+                        self.back_screen.cursor.uri.clearRetainingCapacity();
+                        self.back_screen.cursor.uri_id.clearRetainingCapacity();
+                        if (uri.len > 0) {
+                            try self.back_screen.cursor.uri.appendSlice(self.allocator, uri);
+                            var it = std.mem.tokenizeScalar(u8, params, ':');
+                            while (it.next()) |kv| {
+                                if (std.mem.startsWith(u8, kv, "id=")) {
+                                    try self.back_screen.cursor.uri_id.appendSlice(self.allocator, kv[3..]);
+                                    break;
+                                }
+                            }
+                        }
+                    },
                     // OSC 9 ; 4 ; <state> ; <progress>
                     // Progress notification. Silently ignored; we have no progress UI.
                     9 => {},
@@ -1027,6 +1054,42 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             .bg = self.app_bg_color,
                             .cursor = null,
                         } });
+                    },
+                    // OSC 133 ; <kind> [; <param> ...]
+                    // Semantic prompt marks (FinalTerm/iTerm2 conventions).
+                    // Only tracked on the primary back screen — alt-screen
+                    // apps don't emit shell prompt structure.
+                    133 => if (self.back_screen == &self.back_screen_pri) {
+                        const after_semi = osc[semicolon + 1 ..];
+                        if (after_semi.len > 0) {
+                            const kind: ?Screen.PromptMarkKind = switch (after_semi[0]) {
+                                'A' => .prompt_start,
+                                'B' => .input_start,
+                                'C' => .output_start,
+                                'D' => .output_end,
+                                else => null,
+                            };
+                            if (kind) |k| {
+                                var exit_code: ?i32 = null;
+                                var click_events: bool = false;
+                                if (after_semi.len > 1 and after_semi[1] == ';') {
+                                    var it = std.mem.tokenizeScalar(u8, after_semi[2..], ';');
+                                    while (it.next()) |tok| {
+                                        if (k == .output_end and exit_code == null) {
+                                            if (std.fmt.parseInt(i32, tok, 10)) |v| {
+                                                exit_code = v;
+                                                continue;
+                                            } else |_| {}
+                                        }
+                                        if (std.mem.startsWith(u8, tok, "click_events=") and
+                                            std.mem.eql(u8, tok["click_events=".len..], "1"))
+                                            click_events = true;
+                                    }
+                                }
+                                self.back_screen_pri.addPromptMark(self.allocator, k, exit_code, click_events) catch |e|
+                                    log.warn("addPromptMark failed: {s}", .{@errorName(e)});
+                            } else log.debug("unhandled osc: {s}", .{osc});
+                        }
                     },
                     else => log.debug("unhandled osc: {s}", .{osc}),
                 }
