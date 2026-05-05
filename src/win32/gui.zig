@@ -1234,7 +1234,7 @@ fn WndProc(
             const rgb = RGB.from_u24(@intCast(0xffffff & wparam));
             render.setBackground(
                 &stateFromHwnd(hwnd).render_state,
-                render.Color.initRgb(rgb.r, rgb.g, rgb.b),
+                render.Color.init(rgb.r, rgb.g, rgb.b, 255),
             );
             win32.invalidateHwnd(hwnd);
             return WM_APP_SET_BACKGROUND_RESULT;
@@ -1380,9 +1380,9 @@ fn sendResize(
 
 fn renderColorFromVaxis(color: vaxis.Color) render.Color {
     return switch (color) {
-        .default => render.Color.initRgb(0, 0, 0),
+        .default => render.Color.init(0, 0, 0, 255),
         .index => |idx| return @bitCast(@as(u32, xterm.colors[idx]) << 8 | 0xff),
-        .rgb => |rgb| render.Color.initRgb(rgb[0], rgb[1], rgb[2]),
+        .rgb => |rgb| render.Color.init(rgb[0], rgb[1], rgb[2], 255),
     };
 }
 

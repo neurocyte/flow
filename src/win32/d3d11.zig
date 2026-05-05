@@ -9,7 +9,8 @@ const GlyphIndexCache = @import("GlyphIndexCache");
 const TextRenderer = @import("DwriteRenderer.zig");
 
 const XY = @import("xy").XY;
-const gui_cell = @import("Cell");
+const gui_cell = @import("cell");
+const RGBA = @import("color").RGBA;
 
 pub const Font = TextRenderer.Font;
 pub const Fonts = TextRenderer.Fonts;
@@ -30,11 +31,10 @@ const global = struct {
     var d2d_factory: D2dFactory = undefined;
     var glyph_cache_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     var staging_texture: StagingTexture = .{};
-    var background: Rgba8 = .{ .r = 19, .g = 19, .b = 19, .a = 255 };
+    var background: RGBA = .{ .r = 19, .g = 19, .b = 19, .a = 255 };
 };
 
-pub const Color = gui_cell.Rgba8;
-const Rgba8 = gui_cell.Rgba8;
+pub const Color = RGBA;
 pub const Cell = gui_cell.Cell;
 
 // types shared with the shader
