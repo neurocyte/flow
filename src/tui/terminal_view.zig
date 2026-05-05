@@ -692,6 +692,36 @@ const cmds = struct {
         self.unfocus();
     }
     pub const terminal_open_scrollback_buffer_meta: Meta = .{ .description = "Terminal: Open scrollback buffer" };
+
+    pub fn terminal_open_last_command_output(self: *Self, _: Ctx) Result {
+        const screen = &self.vt.vt.back_screen_pri;
+        const range = screen.lastCommandOutputRange() orelse return;
+
+        var content: std.ArrayList(u8) = .empty;
+        defer content.deinit(self.allocator);
+        var row: u32 = range.start;
+        while (row < range.end) : (row += 1) {
+            screen.extractRowText(self.allocator, row, &content, null) catch break;
+            content.append(self.allocator, '\n') catch break;
+        }
+
+        var buffer_name: std.ArrayList(u8) = .empty;
+        defer buffer_name.deinit(self.allocator);
+        try buffer_name.appendSlice(self.allocator, "*output*");
+
+        if (tui.get_buffer_manager()) |bm|
+            if (bm.get_buffer_for_file(buffer_name.items)) |buf|
+                bm.delete_buffer(buf);
+
+        try command.executeName("create_scratch_buffer", command.fmt(.{
+            buffer_name.items, content.items, "text",
+        }));
+
+        if (tui.mainview()) |mv| if (mv.panel_maximized)
+            try command.executeName("toggle_maximize_panel", .empty());
+        self.unfocus();
+    }
+    pub const terminal_open_last_command_output_meta: Meta = .{ .description = "Terminal: Open last command output" };
 };
 
 const Vt = struct {
