@@ -559,8 +559,6 @@ pub fn build_exe(
                     .optimize = optimize_deps,
                     .gl = true,
                     .dont_link_system_libs = true,
-                    // Requires system packages: libgl-dev libx11-dev libxi-dev
-                    //   libxcursor-dev libasound2-dev  (Debian/Ubuntu)
                 }) orelse break :blk tui_renderer_mod;
 
                 const wio_mod = wio_dep.module("wio");
@@ -891,15 +889,10 @@ pub fn build_exe(
         }
     }
 
-    if (renderer == .gui and target.result.os.tag == .linux) {
-        exe.root_module.linkSystemLibrary("wayland-client", .{});
-        exe.root_module.linkSystemLibrary("xkbcommon", .{});
-        exe.root_module.linkSystemLibrary("libdecor-0", .{});
-        exe.root_module.linkSystemLibrary("wayland-egl", .{});
-        exe.root_module.linkSystemLibrary("EGL", .{});
-        exe.root_module.linkSystemLibrary("GL", .{});
-        exe.root_module.link_libc = true;
-    }
+    if (renderer == .gui) switch (target.result.os.tag) {
+        .linux => exe.root_module.linkSystemLibrary("GL", .{}),
+        else => {},
+    };
 
     const exe_install = b.addInstallArtifact(exe, exe_install_options);
     b.getInstallStep().dependOn(&exe_install.step);
