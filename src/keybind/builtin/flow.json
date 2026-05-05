@@ -639,7 +639,15 @@
             ["alt+!", "run_task"],
             ["alt+f9", "panel_next_widget_style"],
             ["ctrl+shift+q", "quit_without_saving"],
-            ["ctrl+alt+shift+r", "restart"]
+            ["ctrl+alt+shift+r", "restart"],
+
+            ["left_control", "enable_jump_mode"],
+            ["right_control", "enable_jump_mode"]
+        ],
+        "release": [
+            ["left_control", "disable_jump_mode"],
+            ["right_control", "disable_jump_mode"]
         ]
+
     }
 }

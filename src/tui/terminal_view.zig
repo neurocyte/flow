@@ -21,6 +21,7 @@ const keybind = @import("keybind");
 pub const Mode = keybind.Mode;
 const color = @import("color");
 const RGB = color.RGB;
+const file_link = @import("file_link");
 
 pub const name = @typeName(Self);
 
@@ -38,6 +39,14 @@ hover: bool = false,
 vt: *Vt,
 last_cmd: ?[]const u8,
 commands: Commands = undefined,
+
+hover_pos: ?HoverPos = null,
+last_hover_pos: ?HoverPos = null,
+file_link_highlight: ?FileLinkHighlight = null,
+file_link_: ?file_link.Dest = null,
+
+const HoverPos = struct { row: u16, col: u16 };
+const FileLinkHighlight = struct { row: u16, start_col: u16, end_col: u16 };
 
 pub fn create(allocator: Allocator, parent: Plane, ctx: command.Context) !Widget {
     const container = try WidgetList.createHStyled(
@@ -155,6 +164,7 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         return true;
     } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         tui.rdr().request_mouse_cursor_default(self.hover);
+        if (!self.hover) self.reset_hover_pos();
         tui.need_render(@src());
         return true;
     }
@@ -170,6 +180,15 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
         {
             const button: vaxis.Mouse.Button = @enumFromInt(btn);
             const is_press = try m.match(.{ "B", input.event.press, tp.more });
+
+            if (tui.jump_mode()) if (self.file_link_) |*link| switch (link.*) {
+                .file => |*fl| {
+                    navigate_to_file_link(fl);
+                    return true;
+                },
+                else => {},
+            };
+
             // Set focus on left/middle/right button press
             if (is_press) switch (button) {
                 .left, .middle, .right => switch (tui.set_focus_by_mouse_event()) {
@@ -245,6 +264,13 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
                 tui.need_render(@src());
                 return true;
             }
+            if (tui.jump_mode()) {
+                const rel = self.plane.abs_yx_to_rel(@intCast(row), @intCast(col));
+                if (rel[0] >= 0 and rel[1] >= 0)
+                    self.update_hover_pos(@intCast(rel[0]), @intCast(rel[1]));
+            } else {
+                self.reset_hover_pos();
+            }
             return false;
         }
     }
@@ -286,7 +312,8 @@ pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
             return true;
         }
     }
-    self.vt.vt.scrollToBottom();
+    if (!input.is_modifier(keypress))
+        self.vt.vt.scrollToBottom();
     self.vt.vt.update(.{ .key_press = key }) catch |e|
         std.log.err("terminal_view: input failed: {}", .{e});
     tui.need_render(@src());
@@ -304,10 +331,31 @@ pub fn focus(self: *Self) void {
 
 pub fn unfocus(self: *Self) void {
     self.focused = false;
+    self.reset_hover_pos();
+    self.file_link_highlight = null;
     tui.release_keyboard_focus(Widget.to(self));
 }
 
+fn set_file_link(self: *Self, link_: file_link.Dest) error{OutOfMemory}!void {
+    self.reset_file_link();
+    var link: file_link.Dest = link_;
+    switch (link) {
+        .file => |*p| p.path = try self.allocator.dupe(u8, p.path),
+        .dir => |*p| p.path = try self.allocator.dupe(u8, p.path),
+    }
+    self.file_link_ = link;
+}
+
+fn reset_file_link(self: *Self) void {
+    if (self.file_link_) |link| switch (link) {
+        .file => |f| self.allocator.free(f.path),
+        .dir => |d| self.allocator.free(d.path),
+    };
+    self.file_link_ = null;
+}
+
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    self.reset_file_link();
     if (self.last_cmd) |cmd| {
         self.allocator.free(cmd);
         self.last_cmd = null;
@@ -409,6 +457,9 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
         }
     }
 
+    self.update_file_link_highlight();
+    self.render_file_link_highlight(theme);
+
     if (!software_cursor and self.focused and tui.terminal_has_focus() and self.vt.vt.mode.cursor) {
         const scr = &tui.rdr().vx.screen;
         tui.rdr().cursor_enable(@intCast(scr.cursor.row), @intCast(scr.cursor.col), scr.cursor_shape) catch {};
@@ -424,6 +475,94 @@ fn resolve_color(c: *vaxis.Cell.Color, palette: [16][3]u8) void {
         },
         else => {},
     }
+}
+
+fn update_hover_pos(self: *Self, row: u16, col: u16) void {
+    const pos: HoverPos = .{ .row = row, .col = col };
+    self.hover_pos = pos;
+    if (self.last_hover_pos) |last| if (last.row == pos.row and last.col == pos.col)
+        return;
+    tui.need_render(@src());
+}
+
+fn reset_hover_pos(self: *Self) void {
+    self.hover_pos = null;
+    if (self.last_hover_pos) |_|
+        tui.need_render(@src());
+}
+
+fn update_file_link_highlight(self: *Self) void {
+    defer self.last_hover_pos = self.hover_pos;
+    if (!tui.jump_mode() or self.vt.vt.back_screen != &self.vt.vt.back_screen_pri) {
+        self.file_link_highlight = null;
+        return;
+    }
+    const pos = self.hover_pos orelse {
+        self.file_link_highlight = null;
+        return;
+    };
+
+    if (self.last_hover_pos) |last| if (last.row == pos.row and last.col == pos.col)
+        return;
+
+    if (self.file_link_highlight) |hl| {
+        if (pos.row == hl.row and pos.col >= hl.start_col and pos.col < hl.end_col)
+            return;
+        self.file_link_highlight = null;
+    }
+
+    const screen = &self.vt.vt.back_screen_pri;
+    if (pos.row >= screen.height) return;
+    const screen_row: usize = (screen.visible_top -| self.vt.vt.scroll_offset) + pos.row;
+
+    var row_text: std.ArrayList(u8) = .empty;
+    defer row_text.deinit(self.allocator);
+    var col_at_byte: std.ArrayList(u16) = .empty;
+    defer col_at_byte.deinit(self.allocator);
+    screen.extractRowText(self.allocator, screen_row, &row_text, &col_at_byte) catch return;
+    if (row_text.items.len == 0) return;
+
+    const byte_offset = byte_offset_for_col(col_at_byte.items, pos.col) orelse return;
+    const range = file_link.find_at_point(row_text.items, byte_offset) orelse return;
+    const link = file_link.parse(row_text.items[range.start..range.end]) catch return;
+    switch (link) {
+        .file => |f| if (!f.exists) return,
+        .dir => return,
+    }
+    const start_col = col_at_byte.items[range.start];
+    const end_col = col_at_byte.items[range.end];
+    if (end_col <= start_col) return;
+    self.file_link_highlight = .{ .row = pos.row, .start_col = start_col, .end_col = end_col };
+    self.set_file_link(link) catch @panic("OOM terminal_view.set_file_link");
+}
+
+fn render_file_link_highlight(self: *Self, theme: *const Widget.Theme) void {
+    const hl = self.file_link_highlight orelse return;
+    var col: u16 = hl.start_col;
+    while (col < hl.end_col) : (col += 1) {
+        self.plane.cursor_move_yx(@intCast(hl.row), @intCast(col));
+        self.render_file_link_highlight_cell(theme.editor_cursor_secondary);
+    }
+}
+
+inline fn render_file_link_highlight_cell(self: *Self, style: Widget.Theme.Style) void {
+    var cell = self.plane.cell_init();
+    _ = self.plane.at_cursor_cell(&cell) catch return;
+    cell.set_style(.{ .fs = .undercurl });
+    if (style.bg) |ul_col| cell.set_under_color(ul_col.color);
+    _ = self.plane.putc(&cell) catch {};
+}
+
+fn byte_offset_for_col(col_at_byte: []const u16, col: u16) ?usize {
+    if (col_at_byte.len == 0) return null;
+    // The final entry maps "one past the last byte" to its column. If the
+    // hovered column is at or beyond that, the hover is past end-of-line.
+    if (col >= col_at_byte[col_at_byte.len - 1]) return null;
+    var i: usize = 0;
+    while (i < col_at_byte.len - 1) : (i += 1) {
+        if (col_at_byte[i] <= col and col < col_at_byte[i + 1]) return i;
+    }
+    return null;
 }
 
 fn handle_child_exit(self: *Self, code: u8) void {
@@ -466,6 +605,16 @@ pub fn handle_resize(self: *Self, pos: Widget.Box) void {
     self.plane.move_yx(@intCast(pos.y), @intCast(pos.x)) catch return;
     self.plane.resize_simple(@intCast(pos.h), @intCast(pos.w)) catch return;
     self.vt.resize(pos);
+}
+
+fn navigate_to_file_link(dest: *const file_link.FileDest) void {
+    tp.self_pid().send(.{ "cmd", "navigate", .{
+        .file = dest.path,
+        .goto = .{ dest.line orelse 1, dest.column orelse 1 },
+    } }) catch |e| {
+        std.log.err("send navigate failed: {t}", .{e});
+        return;
+    };
 }
 
 fn receive_filter(_: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
