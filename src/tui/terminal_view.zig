@@ -159,10 +159,7 @@ fn re_run_cmd(self: *Self) !void {
 }
 
 pub fn receive(self: *Self, from: tp.pid_ref, m: tp.message) error{Exit}!bool {
-    if (try m.match(.{ "terminal_view", "output" })) {
-        tui.need_render(@src());
-        return true;
-    } else if (try m.match(.{ "H", tp.extract(&self.hover) })) {
+    if (try m.match(.{ "H", tp.extract(&self.hover) })) {
         tui.rdr().request_mouse_cursor_default(self.hover);
         if (!self.hover) self.reset_hover_pos();
         tui.need_render(@src());
@@ -380,55 +377,6 @@ pub fn shutdown(allocator: Allocator) void {
 }
 
 pub fn render(self: *Self, theme: *const Widget.Theme) bool {
-    // Drain the vt event queue.
-    while (self.vt.vt.tryEvent() catch null) |event| {
-        switch (event) {
-            .exited => |code| {
-                self.vt.process_exited = true;
-                self.handle_child_exit(code);
-                tui.need_render(@src());
-            },
-            .redraw, .bell => {},
-            .pwd_change => |path| {
-                self.vt.cwd.clearRetainingCapacity();
-                self.vt.cwd.appendSlice(self.allocator, path) catch {};
-            },
-            .title_change => |t| {
-                self.vt.title.clearRetainingCapacity();
-                self.vt.title.appendSlice(self.allocator, t) catch {};
-            },
-            .color_change => |cc| {
-                self.vt.app_fg = cc.fg;
-                self.vt.app_bg = cc.bg;
-                self.vt.app_cursor = cc.cursor;
-            },
-            .osc_copy => |text| {
-                // Terminal app wrote to clipboard via OSC 52.
-                // Add to flow clipboard history and forward to system clipboard.
-                const owned = tui.clipboard_allocator().dupe(u8, text) catch break;
-                tui.clipboard_clear_all();
-                tui.clipboard_start_group();
-                tui.clipboard_add_chunk(owned);
-                tui.clipboard_send_to_system() catch {};
-            },
-            .osc_paste_request => {
-                // Terminal app requested clipboard contents via OSC 52.
-                // Assemble from flow clipboard history and respond.
-                if (tui.clipboard_get_history()) |history| {
-                    var buf: std.Io.Writer.Allocating = .init(self.allocator);
-                    defer buf.deinit();
-                    var first = true;
-                    for (history) |chunk| {
-                        if (first) first = false else buf.writer.writeByte('\n') catch break;
-                        buf.writer.writeAll(chunk.text) catch break;
-                    }
-                    self.vt.vt.respondOsc52Paste(buf.written());
-                }
-            },
-            .shell_state_change => {},
-        }
-    }
-
     // Update the terminal's fg/bg color cache from the current theme so that
     // OSC 10/11 colour queries return accurate values.
     if (theme.editor.fg) |fg| self.vt.vt.fg_color = color.u24_to_u8s(fg.color);
@@ -638,7 +586,7 @@ fn show_exit_message(self: *Self, code: u8) void {
     w.writeAll("\x1b[0m\r\n") catch {};
     var parser: pty.Parser = .{ .buf = .init(self.allocator) };
     defer parser.buf.deinit();
-    _ = self.vt.vt.processOutput(&parser, msg.written()) catch {};
+    _ = self.vt.vt.processOutput(&parser, msg.written(), self, process_terminal_event) catch {};
 }
 
 pub fn handle_resize(self: *Self, pos: Widget.Box) void {
@@ -657,12 +605,68 @@ fn navigate_to_file_link(dest: *const file_link.FileDest) void {
     };
 }
 
-fn receive_filter(_: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
-    if (m.match(.{ "terminal_view", "output" }) catch false) {
-        tui.need_render(@src());
+fn receive_filter(self: *Self, _: tp.pid_ref, m: tp.message) MessageFilter.Error!bool {
+    var event: Terminal.Event = undefined;
+    if (m.match(.{ "VT", tp.extract(&event) }) catch false) {
+        try self.process_event(event);
         return true;
     }
     return false;
+}
+
+fn process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    return self.process_event(event) catch error.TerminalHandlerFailed;
+}
+
+fn process_event(self: *Self, event: Terminal.Event) MessageFilter.Error!void {
+    switch (event) {
+        .exited => |code| {
+            self.vt.process_exited = true;
+            self.handle_child_exit(code);
+            tui.need_render(@src());
+        },
+        .redraw, .bell => {
+            tui.need_render(@src());
+        },
+        .pwd_change => |path| {
+            self.vt.cwd.clearRetainingCapacity();
+            self.vt.cwd.appendSlice(self.allocator, path) catch {};
+        },
+        .title_change => |t| {
+            self.vt.title.clearRetainingCapacity();
+            self.vt.title.appendSlice(self.allocator, t) catch {};
+        },
+        .color_change => |cc| {
+            self.vt.app_fg = cc.fg;
+            self.vt.app_bg = cc.bg;
+            self.vt.app_cursor = cc.cursor;
+        },
+        .osc_copy => |text| {
+            // Terminal app wrote to clipboard via OSC 52.
+            // Add to flow clipboard history and forward to system clipboard.
+            const owned = try tui.clipboard_allocator().dupe(u8, text);
+            tui.clipboard_clear_all();
+            tui.clipboard_start_group();
+            tui.clipboard_add_chunk(owned);
+            tui.clipboard_send_to_system() catch {};
+        },
+        .osc_paste_request => {
+            // Terminal app requested clipboard contents via OSC 52.
+            // Assemble from flow clipboard history and respond.
+            if (tui.clipboard_get_history()) |history| {
+                var buf: std.Io.Writer.Allocating = .init(self.allocator);
+                defer buf.deinit();
+                var first = true;
+                for (history) |chunk| {
+                    if (first) first = false else buf.writer.writeByte('\n') catch break;
+                    buf.writer.writeAll(chunk.text) catch break;
+                }
+                self.vt.vt.respondOsc52Paste(buf.written());
+            }
+        },
+        .shell_state_change => {},
+    }
 }
 
 const Commands = command.Collection(cmds);
@@ -914,6 +918,19 @@ const pty_posix = struct {
         tp.receive(&self.receiver);
     }
 
+    fn pty_process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        return self.send_event(event) catch error.TerminalHandlerFailed;
+    }
+
+    fn send_event(self: *@This(), event: Terminal.Event) error{TerminalHandlerFailed}!void {
+        self.parent.send(.{ "VT", event }) catch return error.TerminalHandlerFailed;
+    }
+
+    fn send_event_result(self: *@This(), event: Terminal.Event) tp.result {
+        self.parent.send(.{ "VT", event }) catch return tp.exit_error(error.TerminalHandlerFailed, @errorReturnTrace());
+    }
+
     fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
         errdefer self.deinit();
 
@@ -927,7 +944,7 @@ const pty_posix = struct {
                     std.log.debug("terminal: pty exiting: EIO on read (process exited)", .{});
                     return tp.exit_normal();
                 },
-                error.SendFailed => {
+                error.TerminalHandlerFailed => {
                     std.log.debug("terminal: pty exiting: send to parent failed", .{});
                     return tp.exit_normal();
                 },
@@ -941,15 +958,13 @@ const pty_posix = struct {
             // Treat it the same as EIO: reap the child and signal exit.
             const code = self.vt.cmd.wait();
             std.log.debug("terminal: read_error from fd (err={d}), process exited with code={d}", .{ self.err_code, code });
-            self.vt.event_queue.push(.{ .exited = code }) catch {};
-            self.parent.send(.{ "terminal_view", "output" }) catch {};
+            try self.send_event_result(.{ .exited = code });
             return tp.exit_normal();
         } else if (try m.match(.{"sigchld"})) {
             // SIGCHLD fires when any child exits. Check if it's our child.
             if (self.vt.cmd.try_wait()) |code| {
                 std.log.debug("terminal: child exited (SIGCHLD) with code={d}", .{code});
-                self.vt.event_queue.push(.{ .exited = code }) catch {};
-                self.parent.send(.{ "terminal_view", "output" }) catch {};
+                try self.send_event_result(.{ .exited = code });
                 return tp.exit_normal();
             }
             // Not our child (or already reaped) - re-arm the signal and continue.
@@ -964,7 +979,7 @@ const pty_posix = struct {
         }
     }
 
-    fn read_and_process(self: *@This()) error{ Terminated, InputOutput, SendFailed, Unexpected }!void {
+    fn read_and_process(self: *@This()) error{ Terminated, InputOutput, TerminalHandlerFailed, Unexpected }!void {
         var buf: [4096]u8 = undefined;
 
         while (true) {
@@ -977,8 +992,7 @@ const pty_posix = struct {
                     // try_wait check here is just an extra safety net.
                     if (self.vt.cmd.try_wait()) |code| {
                         std.log.debug("terminal: child exited (detected via try_wait) with code={d}", .{code});
-                        self.vt.event_queue.push(.{ .exited = code }) catch {};
-                        self.parent.send(.{ "terminal_view", "output" }) catch {};
+                        try self.send_event(.{ .exited = code });
                         return error.InputOutput;
                     }
                     break;
@@ -986,8 +1000,7 @@ const pty_posix = struct {
                 error.InputOutput => {
                     const code = self.vt.cmd.wait();
                     std.log.debug("terminal: read EIO, process exited with code={d}", .{code});
-                    self.vt.event_queue.push(.{ .exited = code }) catch {};
-                    self.parent.send(.{ "terminal_view", "output" }) catch {};
+                    try self.send_event(.{ .exited = code });
                     return error.InputOutput;
                 },
                 error.SystemResources,
@@ -1007,18 +1020,16 @@ const pty_posix = struct {
             if (n == 0) {
                 const code = self.vt.cmd.wait();
                 std.log.debug("terminal: read returned 0 bytes (EOF), process exited with code={d}", .{code});
-                self.vt.event_queue.push(.{ .exited = code }) catch {};
-                self.parent.send(.{ "terminal_view", "output" }) catch {};
+                try self.send_event(.{ .exited = code });
                 return error.Terminated;
             }
 
-            defer self.parent.send(.{ "terminal_view", "output" }) catch {};
-
-            switch (self.vt.processOutput(&self.parser, buf[0..n]) catch |e| switch (e) {
+            switch (self.vt.processOutput(&self.parser, buf[0..n], self, pty_process_terminal_event) catch |e| switch (e) {
                 error.WriteFailed,
                 error.ReadFailed,
                 error.OutOfMemory,
                 error.Canceled,
+                error.TerminalHandlerFailed,
                 => {
                     std.log.debug("terminal: processOutput error: {} (pid={?})", .{ e, self.vt.cmd.pid });
                     return error.Unexpected;
@@ -1037,8 +1048,7 @@ const pty_posix = struct {
         // so we must detect it here rather than waiting forever.
         if (self.vt.cmd.try_wait()) |code| {
             std.log.debug("terminal: child exited (pre-wait_read check) with code={d}", .{code});
-            self.vt.event_queue.push(.{ .exited = code }) catch {};
-            self.parent.send(.{ "terminal_view", "output" }) catch {};
+            try self.send_event(.{ .exited = code });
             return error.InputOutput;
         }
 
@@ -1156,6 +1166,19 @@ const pty_windows = struct {
         ctx.self_pid.send(.{"child_exited"}) catch {};
     }
 
+    fn pty_process_terminal_event(ctx: *Terminal.Event.HandlerContext, event: Terminal.Event) error{TerminalHandlerFailed}!void {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        return self.send_event(event) catch error.TerminalHandlerFailed;
+    }
+
+    fn send_event(self: *@This(), event: Terminal.Event) error{TerminalHandlerFailed}!void {
+        self.parent.send(.{ "VT", event }) catch return error.TerminalHandlerFailed;
+    }
+
+    fn send_event_result(self: *@This(), event: Terminal.Event) tp.result {
+        self.parent.send(.{ "VT", event }) catch return tp.exit_error(error.TerminalHandlerFailed, @errorReturnTrace());
+    }
+
     fn pty_receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
         errdefer self.deinit();
 
@@ -1168,12 +1191,10 @@ const pty_windows = struct {
             if (self.stream) |s| s.cancel() catch {};
             const code = self.vt.cmd.wait();
             std.log.debug("terminal: child exited (process wait), code={d}", .{code});
-            self.vt.event_queue.push(.{ .exited = code }) catch {};
-            self.parent.send(.{ "terminal_view", "output" }) catch {};
+            try self.send_event_result(.{ .exited = code });
             return tp.exit_normal();
         } else if (try m.match(.{ "stream", "pty_out", "read_complete", tp.extract(&bytes) })) {
-            defer self.parent.send(.{ "terminal_view", "output" }) catch {};
-            switch (self.vt.processOutput(&self.parser, bytes) catch |e| {
+            switch (self.vt.processOutput(&self.parser, bytes, self, pty_process_terminal_event) catch |e| {
                 std.log.debug("terminal: processOutput error: {}", .{e});
                 return tp.exit_normal();
             }) {
@@ -1190,8 +1211,7 @@ const pty_windows = struct {
         } else if (try m.match(.{ "stream", "pty_out", "read_error", tp.extract(&err_code), tp.extract(&err_msg) })) {
             std.log.debug("terminal: ConPTY stream error: {d} {s}", .{ err_code, err_msg });
             const code = self.vt.cmd.wait();
-            self.vt.event_queue.push(.{ .exited = code }) catch {};
-            self.parent.send(.{ "terminal_view", "output" }) catch {};
+            try self.send_event_result(.{ .exited = code });
             return tp.exit_normal();
         } else if (try m.match(.{"quit"})) {
             std.log.debug("terminal: pty actor (windows) received quit", .{});

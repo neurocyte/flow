@@ -14,7 +14,6 @@ const Pty = if (is_windows) @import("ConPTY.zig") else @import("Pty.zig");
 const Winsize = vaxis.Winsize;
 pub const Screen = @import("Screen.zig");
 const Key = vaxis.Key;
-const Queue = vaxis.Queue(Event, 16);
 const key = @import("key.zig");
 const mouse = @import("mouse.zig");
 
@@ -39,6 +38,9 @@ pub const Event = union(enum) {
     },
     /// OSC 133 prompt mark received. Carries the current shell state
     shell_state_change: Screen.ShellState,
+
+    pub const Handler = *const fn (ctx: *HandlerContext, event: @This()) error{TerminalHandlerFailed}!void;
+    pub const HandlerContext = anyopaque;
 };
 
 const log = std.log.scoped(.terminal);
@@ -139,8 +141,6 @@ last_printed: []const u8 = "",
 /// Scratch buffer for decoding OSC 52 base64 clipboard data.
 osc52_buf: std.ArrayListUnmanaged(u8) = .empty,
 
-event_queue: Queue,
-
 /// initialize a Terminal. This sets the size of the underlying pty and allocates the sizes of the
 /// screen
 pub fn init(
@@ -201,7 +201,6 @@ pub fn init(
         .back_screen_pri = try Screen.initScrollback(allocator, opts.winsize.cols, opts.winsize.rows, opts.scrollback_size),
         .back_screen_alt = try Screen.init(allocator, opts.winsize.cols, opts.winsize.rows),
         .tab_stops = tabs,
-        .event_queue = .init(io),
     };
 }
 
@@ -380,10 +379,6 @@ pub fn shellState(self: *Terminal) Screen.ShellState {
     return self.back_screen_pri.shellState();
 }
 
-pub fn tryEvent(self: *Terminal) !?Event {
-    return try self.event_queue.tryPop();
-}
-
 pub fn update(self: *Terminal, event: InputEvent) !void {
     switch (event) {
         .key_press => |k| {
@@ -428,11 +423,12 @@ pub fn get_pty_writer(self: *Terminal) *std.Io.Writer {
 /// the shell has exited.
 /// `parser` is owned by the read loop and persists across calls so that
 /// partial escape sequences spanning multiple reads are handled correctly.
-pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
+pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8, context: *Event.HandlerContext, handle_event: Event.Handler) error{
     ReadFailed,
     WriteFailed,
     OutOfMemory,
     Canceled,
+    TerminalHandlerFailed,
 }!enum { exited, running } {
     var fixed_reader: std.Io.Reader = .fixed(data);
     const reader: *std.Io.Reader = &fixed_reader;
@@ -447,8 +443,10 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
         try self.back_mutex.lock(self.io);
         defer self.back_mutex.unlock(self.io);
 
-        if (!self.dirty and try self.event_queue.tryPush(.redraw))
+        if (!self.dirty) {
+            try handle_event(context, .redraw);
             self.dirty = true;
+        }
 
         switch (event) {
             .print => |str| {
@@ -466,7 +464,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     }
                 }
             },
-            .c0 => |b| try self.handleC0(b),
+            .c0 => |b| try self.handleC0(b, context, handle_event),
             .escape => |esc| {
                 const final = esc[esc.len - 1];
                 switch (final) {
@@ -904,7 +902,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     0 => {
                         self.title.clearRetainingCapacity();
                         try self.title.appendSlice(self.allocator, osc[semicolon + 1 ..]);
-                        try self.event_queue.push(.{ .title_change = self.title.items });
+                        try handle_event(context, .{ .title_change = self.title.items });
                     },
                     7 => {
                         // OSC 7 ; <scheme> <hostname> <path>
@@ -942,7 +940,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             } else enc[i];
                             try self.working_directory.append(self.allocator, b);
                         }
-                        try self.event_queue.push(.{ .pwd_change = self.working_directory.items });
+                        try handle_event(context, .{ .pwd_change = self.working_directory.items });
                     },
                     // OSC 8 ; <params> ; <uri>
                     // Hyperlink. Stores the URI on the back-screen cursor so
@@ -987,7 +985,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             );
                         } else {
                             self.app_fg_color = parseOscRgb(val);
-                            try self.event_queue.push(.{ .color_change = .{
+                            try handle_event(context, .{ .color_change = .{
                                 .fg = self.app_fg_color,
                                 .bg = self.app_bg_color,
                                 .cursor = self.app_cursor_color,
@@ -1007,7 +1005,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             );
                         } else {
                             self.app_bg_color = parseOscRgb(val);
-                            try self.event_queue.push(.{ .color_change = .{
+                            try handle_event(context, .{ .color_change = .{
                                 .fg = self.app_fg_color,
                                 .bg = self.app_bg_color,
                                 .cursor = self.app_cursor_color,
@@ -1028,7 +1026,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                             }
                         } else {
                             self.app_cursor_color = parseOscRgb(val);
-                            try self.event_queue.push(.{ .color_change = .{
+                            try handle_event(context, .{ .color_change = .{
                                 .fg = self.app_fg_color,
                                 .bg = self.app_bg_color,
                                 .cursor = self.app_cursor_color,
@@ -1037,11 +1035,11 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     },
                     // OSC 52 - clipboard access
                     // Format: 52;<targets>;<base64data|?>
-                    52 => try self.handleOsc52(osc[semicolon + 1 ..]),
+                    52 => try self.handleOsc52(osc[semicolon + 1 ..], context, handle_event),
                     // OSC 110/111/112 - reset fg/bg/cursor colour to default
                     110 => {
                         self.app_fg_color = null;
-                        try self.event_queue.push(.{ .color_change = .{
+                        try handle_event(context, .{ .color_change = .{
                             .fg = null,
                             .bg = self.app_bg_color,
                             .cursor = self.app_cursor_color,
@@ -1049,7 +1047,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     },
                     111 => {
                         self.app_bg_color = null;
-                        try self.event_queue.push(.{ .color_change = .{
+                        try handle_event(context, .{ .color_change = .{
                             .fg = self.app_fg_color,
                             .bg = null,
                             .cursor = self.app_cursor_color,
@@ -1057,7 +1055,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                     },
                     112 => {
                         self.app_cursor_color = null;
-                        try self.event_queue.push(.{ .color_change = .{
+                        try handle_event(context, .{ .color_change = .{
                             .fg = self.app_fg_color,
                             .bg = self.app_bg_color,
                             .cursor = null,
@@ -1095,7 +1093,7 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                                     }
                                 }
                                 if (self.back_screen_pri.addPromptMark(self.allocator, k, exit_code, click_events)) {
-                                    try self.event_queue.push(.{
+                                    try handle_event(context, .{
                                         .shell_state_change = self.back_screen_pri.shellState(),
                                     });
                                 } else |e| log.warn("addPromptMark failed: {s}", .{@errorName(e)});
@@ -1111,12 +1109,12 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
     return false;
 }
 
-inline fn handleC0(self: *Terminal, b: ansi.C0) !void {
+inline fn handleC0(self: *Terminal, b: ansi.C0, context: anytype, handle_event: anytype) !void {
     switch (b) {
         .NUL, .SOH, .STX => {},
         .EOT => {},
         .ENQ => {},
-        .BEL => try self.event_queue.push(.bell),
+        .BEL => try handle_event(context, .bell),
         .BS => self.back_screen.cursorLeft(1),
         .HT => self.horizontalTab(1),
         .LF, .VT, .FF => try self.back_screen.index(),
@@ -1223,19 +1221,19 @@ fn parseOscRgb(spec: []const u8) ?[3]u8 {
 }
 
 /// Handle OSC 52 clipboard read/write from the terminal application.
-fn handleOsc52(self: *Terminal, rest: []const u8) !void {
+fn handleOsc52(self: *Terminal, rest: []const u8, context: anytype, handle_event: anytype) !void {
     // rest is "<targets>;<base64data|?>"
     const second_semi = std.mem.indexOfScalar(u8, rest, ';') orelse return;
     const data = rest[second_semi + 1 ..];
     if (std.mem.eql(u8, data, "?")) {
-        try self.event_queue.push(.osc_paste_request);
+        try handle_event(context, .osc_paste_request);
     } else {
         const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(data) catch return;
         self.osc52_buf.clearRetainingCapacity();
         self.osc52_buf.ensureTotalCapacity(self.allocator, decoded_len) catch return;
         self.osc52_buf.items.len = decoded_len;
         std.base64.standard.Decoder.decode(self.osc52_buf.items, data) catch return;
-        try self.event_queue.push(.{ .osc_copy = self.osc52_buf.items });
+        try handle_event(context, .{ .osc_copy = self.osc52_buf.items });
     }
 }
 
