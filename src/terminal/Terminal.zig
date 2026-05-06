@@ -37,6 +37,8 @@ pub const Event = union(enum) {
         bg: ?[3]u8,
         cursor: ?[3]u8,
     },
+    /// OSC 133 prompt mark received. Carries the current shell state
+    shell_state_change: Screen.ShellState,
 };
 
 const log = std.log.scoped(.terminal);
@@ -1092,8 +1094,11 @@ pub fn processOutput(self: *Terminal, parser: *Parser, data: []const u8) error{
                                             click_events = true;
                                     }
                                 }
-                                self.back_screen_pri.addPromptMark(self.allocator, k, exit_code, click_events) catch |e|
-                                    log.warn("addPromptMark failed: {s}", .{@errorName(e)});
+                                if (self.back_screen_pri.addPromptMark(self.allocator, k, exit_code, click_events)) {
+                                    try self.event_queue.push(.{
+                                        .shell_state_change = self.back_screen_pri.shellState(),
+                                    });
+                                } else |e| log.warn("addPromptMark failed: {s}", .{@errorName(e)});
                             } else log.debug("unhandled osc: {s}", .{osc});
                         }
                     },

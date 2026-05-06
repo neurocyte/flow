@@ -425,6 +425,7 @@ pub fn render(self: *Self, theme: *const Widget.Theme) bool {
                     self.vt.vt.respondOsc52Paste(buf.written());
                 }
             },
+            .shell_state_change => {},
         }
     }
 
