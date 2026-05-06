@@ -408,6 +408,44 @@ pub fn lastCommandOutputRange(self: *const Screen) ?CommandOutputRange {
     return null;
 }
 
+pub const ShellState = union(enum) {
+    at_prompt: struct { last_exit_code: ?i32 = null },
+    at_prompt_with_input: struct { last_exit_code: ?i32 = null },
+    running: struct { task_description: ?[]const u8 = null },
+    exited: struct { exit_code: i32 },
+};
+
+pub fn shellState(self: *const Screen) ShellState {
+    if (self.prompt_marks.items.len == 0) return .{ .running = .{} };
+    const last = self.prompt_marks.items[self.prompt_marks.items.len - 1];
+    return switch (last.kind) {
+        .prompt_start => .{ .at_prompt = .{
+            .last_exit_code = self.lastExitCode(),
+        } },
+        .input_start => .{ .at_prompt_with_input = .{
+            .last_exit_code = self.lastExitCode(),
+        } },
+        .output_start => .{ .running = .{} },
+        .output_end => .{ .at_prompt = .{
+            .last_exit_code = last.exit_code,
+        } },
+    };
+}
+
+fn lastExitCode(self: *const Screen) ?i32 {
+    var i: usize = self.prompt_marks.items.len;
+    while (i > 0) {
+        i -= 1;
+        const m = self.prompt_marks.items[i];
+        switch (m.kind) {
+            .output_end => return m.exit_code,
+            .output_start => return null,
+            else => {},
+        }
+    }
+    return null;
+}
+
 fn shiftMarksUp(self: *Screen, top: u32, bottom: u32, n: u32) void {
     if (n == 0 or top > bottom) return;
     var i: usize = 0;

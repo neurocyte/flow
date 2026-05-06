@@ -372,6 +372,12 @@ pub fn scrollToBottom(self: *Terminal) void {
     for (self.back_screen_pri.buf) |*cell| cell.dirty = true;
 }
 
+pub fn shellState(self: *Terminal) Screen.ShellState {
+    if (self.back_screen != &self.back_screen_pri)
+        return .{ .running = .{} };
+    return self.back_screen_pri.shellState();
+}
+
 pub fn tryEvent(self: *Terminal) !?Event {
     return try self.event_queue.tryPop();
 }
