@@ -290,6 +290,13 @@ pub fn cat_file(context_: usize, object: []const u8) Error!void {
     }.result, exit_null(tag));
 }
 
+pub fn check_ignore(context_: usize, file_path: []const u8) Error!void {
+    const tag = @src().fn_name;
+    try git(context_, .{ "check-ignore", "-q", file_path }, struct {
+        fn result(_: usize, _: tp.pid_ref, _: []const u8) void {}
+    }.result, exit_result(tag));
+}
+
 fn git_line_output(context_: usize, comptime tag: []const u8, cmd: anytype) Error!void {
     try git_err(context_, cmd, struct {
         fn result(context: usize, parent: tp.pid_ref, output: []const u8) void {
@@ -355,6 +362,14 @@ fn exit_null_on_error(comptime tag: []const u8) shell.ExitHandler {
         fn exit(context: usize, parent: tp.pid_ref, _: []const u8, _: []const u8, exit_code: i64) void {
             if (exit_code > 0)
                 parent.send(.{ module_name, context, tag, null }) catch {};
+        }
+    }.exit;
+}
+
+fn exit_result(comptime tag: []const u8) shell.ExitHandler {
+    return struct {
+        fn exit(context: usize, parent: tp.pid_ref, _: []const u8, _: []const u8, exit_code: i64) void {
+            parent.send(.{ module_name, context, tag, exit_code }) catch {};
         }
     }.exit;
 }
