@@ -17,6 +17,10 @@ pub const Font = struct {
     cell_size: XY(u16),
     scale: f32 = 0,
     ascent_px: i32 = 0,
+    /// Top edge of the underline bar, in pixels from the top of the cell.
+    underline_position: i32 = 0,
+    /// Thickness of the underline bar, in pixels (>= 1).
+    underline_thickness: u16 = 1,
     tt: ?TrueType = null,
     /// Synthetic boldness: number of 1-pixel dilation passes applied after
     /// rasterization.  0 = no change, 1 = slightly bolder, 2 = bolder still.
@@ -86,11 +90,23 @@ pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
 
     try self.font_data.append(self.allocator, data);
 
+    // Underline metrics: the TrueType package doesn't expose post/OS-2
+    // tables, so use a heuristic derived from cell geometry. Roughly
+    // matches what most fonts specify: thickness ≈ size / 14, position
+    // about ⅓ of the way into the descender region.
+    const ul_thk_px: u16 = @max(1, @as(u16, @intCast(@divFloor(@as(i32, @intCast(size_px)), 14))));
+    const cell_h_i: i32 = @intCast(cell_h);
+    const descender: i32 = @max(1, cell_h_i - ascent_px);
+    const ul_pos_unclamped: i32 = ascent_px + @divFloor(descender, 3);
+    const ul_top: i32 = @max(0, @min(cell_h_i - @as(i32, ul_thk_px), ul_pos_unclamped));
+
     return Font{
         .tt = tt, // TrueType holds a slice into `data` which is now owned by self.font_data
         .cell_size = .{ .x = cell_w, .y = cell_h },
         .scale = scale,
         .ascent_px = ascent_px,
+        .underline_position = ul_top,
+        .underline_thickness = ul_thk_px,
     };
 }
 

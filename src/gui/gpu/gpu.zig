@@ -484,6 +484,8 @@ pub fn paint(
         .cursor_row = cursor.row,
         .cursor_shape = @intFromEnum(cursor.shape),
         .cursor_vis = if (cursor.vis) 1 else 0,
+        .underline_position = font.underline_position,
+        .underline_thickness = font.underline_thickness,
         .cursor_color = cursor.color.to_vec4(),
         .sec_cursor_color = sec_color.to_vec4(),
         .bg_color = global.background.to_vec4(),

@@ -20,6 +20,9 @@ pub const FsParams = extern struct {
     cursor_row: i32,
     cursor_shape: i32, // 0=block, 1=beam, 2=underline
     cursor_vis: i32, // 0=hidden, 1=visible
+    // Underline metrics in pixels from the top of the cell
+    underline_position: i32, // top edge of the underline bar
+    underline_thickness: i32, // thickness in pixels (>= 1)
     cursor_color: [4]f32, // RGBA normalized [0,1]
     // Secondary cursor colour (positions encoded in ShaderCell._pad)
     sec_cursor_color: [4]f32, // RGBA normalized [0,1]

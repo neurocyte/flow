@@ -25,6 +25,10 @@ pub const BackendFont = union(Backend) {
 /// change.  Backend-specific data lives in `backend`.
 pub const Font = struct {
     cell_size: XY(u16),
+    /// Top edge of the underline bar, in pixels from the top of the cell.
+    underline_position: i32 = 0,
+    /// Thickness of the underline bar, in pixels (>= 1).
+    underline_thickness: u16 = 1,
     backend: BackendFont,
 };
 
@@ -63,11 +67,21 @@ pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
     switch (self.active) {
         .truetype => {
             const f = try self.tt.loadFont(name, size_px);
-            return .{ .cell_size = f.cell_size, .backend = .{ .truetype = f } };
+            return .{
+                .cell_size = f.cell_size,
+                .underline_position = f.underline_position,
+                .underline_thickness = f.underline_thickness,
+                .backend = .{ .truetype = f },
+            };
         },
         .freetype => {
             const f = try self.ft.loadFont(name, size_px);
-            return .{ .cell_size = f.cell_size, .backend = .{ .freetype = f } };
+            return .{
+                .cell_size = f.cell_size,
+                .underline_position = f.underline_position,
+                .underline_thickness = f.underline_thickness,
+                .backend = .{ .freetype = f },
+            };
         },
     }
 }

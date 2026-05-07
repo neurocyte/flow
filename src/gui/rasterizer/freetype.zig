@@ -25,6 +25,10 @@ pub const Fonts = struct {};
 pub const Font = struct {
     cell_size: XY(u16) = .{ .x = 8, .y = 16 },
     ascent_px: i32 = 0,
+    /// Top edge of the underline bar, in pixels from the top of the cell.
+    underline_position: i32 = 0,
+    /// Thickness of the underline bar, in pixels (>= 1).
+    underline_thickness: u16 = 1,
     face: c.FT_Face = null,
     /// Outline emboldening strength in 26.6 fixed-point pixels (64 = 1px).
     /// 0 = no emboldening.  Weight 1 → 32 (0.5px), weight 2 → 64 (1px), etc.
@@ -78,9 +82,29 @@ pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
         if (adv > 0) cell_w = @intCast(adv);
     }
 
+    // Underline metrics: face fields are in font units. y_scale is 16.16 fixed
+    // and produces 26.6 pixel values when multiplied with font units >> 16.
+    // underline_position is the *centre* of the bar, with the y-axis pointing
+    // up from the baseline (negative = below baseline, the usual case).
+    const y_scale: i64 = @intCast(face.*.size.*.metrics.y_scale);
+    const ul_pos_units: i64 = @intCast(face.*.underline_position);
+    const ul_thk_units: i64 = @intCast(face.*.underline_thickness);
+    const ul_pos_q6: i64 = @divFloor(ul_pos_units * y_scale, 1 << 16);
+    const ul_thk_q6: i64 = @divFloor(ul_thk_units * y_scale, 1 << 16);
+    const ul_pos_px: i32 = @intCast(@divFloor(ul_pos_q6 + 32, 64));
+    const ul_thk_px_raw: i32 = @intCast(@divFloor(ul_thk_q6 + 32, 64));
+    const ul_thk_px: u16 = @intCast(@max(1, ul_thk_px_raw));
+    // Convert from baseline-up centre to cell-top-down top-edge.
+    const ul_centre_from_top: i32 = ascent_px - ul_pos_px;
+    const ul_top_unclamped: i32 = ul_centre_from_top - @divTrunc(@as(i32, ul_thk_px), 2);
+    const cell_h_i: i32 = @intCast(cell_h);
+    const ul_top: i32 = @max(0, @min(cell_h_i - @as(i32, ul_thk_px), ul_top_unclamped));
+
     return .{
         .cell_size = .{ .x = cell_w, .y = cell_h },
         .ascent_px = ascent_px,
+        .underline_position = ul_top,
+        .underline_thickness = ul_thk_px,
         .face = face,
     };
 }
