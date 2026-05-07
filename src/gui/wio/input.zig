@@ -151,6 +151,8 @@ pub fn codepointFromButton(b: wio.Button, mods: Mods) ?u21 {
 pub const mouse_button_left: u8 = 0;
 pub const mouse_button_middle: u8 = 1;
 pub const mouse_button_right: u8 = 2;
+pub const mouse_button_back: u8 = 128;
+pub const mouse_button_forward: u8 = 129;
 
 // Map modifier wio.Button values to kitty protocol codepoints (vaxis.Key.*).
 // Returns 0 for non-modifier buttons.
@@ -183,8 +185,8 @@ pub fn mouseButtonId(b: wio.Button) ?u8 {
         .mouse_left => mouse_button_left,
         .mouse_right => mouse_button_right,
         .mouse_middle => mouse_button_middle,
-        .mouse_back => 3,
-        .mouse_forward => 4,
+        .mouse_back => mouse_button_back,
+        .mouse_forward => mouse_button_forward,
         else => null,
     };
 }
