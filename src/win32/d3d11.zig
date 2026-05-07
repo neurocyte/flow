@@ -179,6 +179,7 @@ pub const WindowState = struct {
             global.glyph_cache_arena.allocator(),
             codepoint,
             right_half,
+            0, // face: regular (d3d11 renderer is single-face)
         ) catch |e| oom(e)) {
             .newly_reserved => |reserved| {
                 // var render_success = false;
@@ -323,6 +324,9 @@ pub fn paint(
                 .glyph_index = blank_space_glyph_index,
                 .background = global.background,
                 .foreground = global.background,
+                .underline = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+                .ul_style = 0,
+                .strikethrough = 0,
             });
         }
     }

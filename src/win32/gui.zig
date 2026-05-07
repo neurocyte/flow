@@ -1125,6 +1125,9 @@ fn WndProc(
                         .glyph_index = state.render_state.generateGlyph(font, codepoint, if (width == 1) .single else .left),
                         .background = renderColorFromVaxis(screen_cell.style.bg),
                         .foreground = renderColorFromVaxis(screen_cell.style.fg),
+                        .underline = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+                        .ul_style = 0,
+                        .strikethrough = 0,
                     };
                 }
                 prev_width = width;
