@@ -51,6 +51,8 @@ const fs_src =
     \\uniform int cursor_row;
     \\uniform int cursor_shape;
     \\uniform int cursor_vis;
+    \\uniform int underline_position;
+    \\uniform int underline_thickness;
     \\uniform vec4 cursor_color;
     \\uniform vec4 sec_cursor_color;
     \\uniform vec4 bg_color;
@@ -140,40 +142,41 @@ const fs_src =
     \\                float((ul_packed >>  8u) & 255u) / 255.0,
     \\                float( ul_packed         & 255u) / 255.0
     \\            );
-    \\        int thick = max(1, cell_size_y / 16);
-    \\        int ul_top = cell_size_y - max(2, thick + 1);
-    \\        bool draw = false;
+    \\        int thick = max(1, underline_thickness);
+    \\        int ul_top = clamp(underline_position, 0, cell_size_y - thick);
+    \\        float ul_alpha = 0.0;
     \\        if (ul_style == 1u) {
-    \\            draw = (cell_px_y >= ul_top) && (cell_px_y < ul_top + thick);
+    \\            if ((cell_px_y >= ul_top) && (cell_px_y < ul_top + thick)) ul_alpha = 1.0;
     \\        } else if (ul_style == 2u) {
-    \\            int upper_top = ul_top - 2 * thick;
-    \\            draw = ((cell_px_y >= upper_top) && (cell_px_y < upper_top + thick)) ||
-    \\                   ((cell_px_y >= ul_top)    && (cell_px_y < ul_top    + thick));
+    \\            int upper_top = max(0, ul_top - 2 * thick);
+    \\            if (((cell_px_y >= upper_top) && (cell_px_y < upper_top + thick)) ||
+    \\                ((cell_px_y >= ul_top)    && (cell_px_y < ul_top    + thick))) ul_alpha = 1.0;
     \\        } else if (ul_style == 3u) {
-    \\            // Curly: sine wave with amplitude > stroke so the wave is visible
+    \\            // Curly: sine wave with Wu-style per-row antialiasing.
     \\            int amp = max(1, cell_size_y / 16);
-    \\            int center_y = cell_size_y - amp - 1;
-    \\            int stroke = max(1, thick);
+    \\            float center_y = float(ul_top) + float(thick) * 0.5;
     \\            float ph = float(cell_px_x) / float(cell_size_x) * 6.2831853;
-    \\            int wave_y = center_y + int(round(sin(ph) * float(amp)));
-    \\            draw = (cell_px_y >= wave_y) && (cell_px_y < wave_y + stroke);
+    \\            float wave_y = center_y + sin(ph) * float(amp);
+    \\            float half_stroke = float(thick) * 0.5;
+    \\            float dist = abs(float(cell_px_y) + 0.5 - wave_y);
+    \\            ul_alpha = clamp(half_stroke + 0.5 - dist, 0.0, 1.0);
     \\        } else if (ul_style == 4u) {
     \\            int period = max(2, 2 * thick);
-    \\            draw = (cell_px_y >= ul_top) && (cell_px_y < ul_top + thick) &&
-    \\                   ((cell_px_x % period) < (period / 2));
+    \\            if ((cell_px_y >= ul_top) && (cell_px_y < ul_top + thick) &&
+    \\                ((cell_px_x % period) < (period / 2))) ul_alpha = 1.0;
     \\        } else if (ul_style == 5u) {
     \\            int seg = max(2, cell_size_x / 4);
-    \\            draw = (cell_px_y >= ul_top) && (cell_px_y < ul_top + thick) &&
-    \\                   ((cell_px_x % (2 * seg)) < seg);
+    \\            if ((cell_px_y >= ul_top) && (cell_px_y < ul_top + thick) &&
+    \\                ((cell_px_x % (2 * seg)) < seg)) ul_alpha = 1.0;
     \\        }
-    \\        if (draw) composed = ul_rgb;
+    \\        if (ul_alpha > 0.0) composed = mix(composed, ul_rgb, ul_alpha);
     \\    }
     \\
     \\    // Strikethrough at vertical midline (uses final_fg so it inverts under block cursor)
     \\    if (strike) {
-    \\        int thick = max(1, cell_size_y / 16);
-    \\        int sy = cell_size_y / 2;
-    \\        if (cell_px_y >= sy && cell_px_y < sy + thick) composed = final_fg;
+    \\        int sthick = max(1, underline_thickness);
+    \\        int sy = cell_size_y / 2 - sthick / 2;
+    \\        if (cell_px_y >= sy && cell_px_y < sy + sthick) composed = final_fg;
     \\    }
     \\
     \\    frag_color = vec4(composed, 1.0);
@@ -200,9 +203,11 @@ pub fn shaderDesc(backend: sg.Backend) sg.ShaderDesc {
             desc.uniform_blocks[0].glsl_uniforms[6] = .{ .type = .INT, .glsl_name = "cursor_row" };
             desc.uniform_blocks[0].glsl_uniforms[7] = .{ .type = .INT, .glsl_name = "cursor_shape" };
             desc.uniform_blocks[0].glsl_uniforms[8] = .{ .type = .INT, .glsl_name = "cursor_vis" };
-            desc.uniform_blocks[0].glsl_uniforms[9] = .{ .type = .FLOAT4, .glsl_name = "cursor_color" };
-            desc.uniform_blocks[0].glsl_uniforms[10] = .{ .type = .FLOAT4, .glsl_name = "sec_cursor_color" };
-            desc.uniform_blocks[0].glsl_uniforms[11] = .{ .type = .FLOAT4, .glsl_name = "bg_color" };
+            desc.uniform_blocks[0].glsl_uniforms[9] = .{ .type = .INT, .glsl_name = "underline_position" };
+            desc.uniform_blocks[0].glsl_uniforms[10] = .{ .type = .INT, .glsl_name = "underline_thickness" };
+            desc.uniform_blocks[0].glsl_uniforms[11] = .{ .type = .FLOAT4, .glsl_name = "cursor_color" };
+            desc.uniform_blocks[0].glsl_uniforms[12] = .{ .type = .FLOAT4, .glsl_name = "sec_cursor_color" };
+            desc.uniform_blocks[0].glsl_uniforms[13] = .{ .type = .FLOAT4, .glsl_name = "bg_color" };
 
             // Glyph atlas texture: R8 → sample_type = FLOAT
             desc.views[0].texture = .{
