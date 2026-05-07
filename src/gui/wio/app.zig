@@ -95,8 +95,19 @@ var cursor_dirty: std.atomic.Value(bool) = .init(false);
 // Window attention request
 var attention_pending: std.atomic.Value(bool) = .init(false);
 
-// Current font — written and read only from the wio thread (after gpu.init).
-var wio_font: gpu.Font = .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } };
+// Current font set — written and read only from the wio thread (after gpu.init).
+var wio_font_set: gpu.FontSet = .{
+    .cell_size = .{ .x = 8, .y = 16 },
+    .underline_position = 0,
+    .underline_thickness = 1,
+    .faces = .{
+        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } },
+        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } },
+        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } },
+        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } },
+    },
+    .synth = .{ false, false, false, false },
+};
 
 // ── Public API (called from tui thread) ───────────────────────────────────
 
@@ -151,6 +162,8 @@ pub fn updateScreen(
             .default => RGBA.init(0, 0, 0, 0),
             else => colorFromVaxis(vc.style.ul),
         };
+        const face: u8 = (@as(u8, @intFromBool(vc.style.bold)) << 0) |
+            (@as(u8, @intFromBool(vc.style.italic)) << 1);
         gc.* = .{
             .glyph_index = 0,
             .background = colorFromVaxis(if (vc.style.reverse) vc.style.fg else vc.style.bg),
@@ -158,6 +171,7 @@ pub fn updateScreen(
             .underline = ul_color,
             .ul_style = @intFromEnum(vc.style.ul_style),
             .strikethrough = if (vc.style.strikethrough) 1 else 0,
+            .face = face,
         };
         // Decode first codepoint from the grapheme cluster.
         const g = vc.char.grapheme;
@@ -357,8 +371,8 @@ fn pixelToCellPos(pos: wio.Position) CellPos {
     // are all expressed in physical pixels, matching the GPU coordinate space.
     const x: i32 = @intFromFloat(@as(f32, @floatFromInt(pos.x)) * dpi_scale);
     const y: i32 = @intFromFloat(@as(f32, @floatFromInt(pos.y)) * dpi_scale);
-    const cw: i32 = wio_font.cell_size.x;
-    const ch: i32 = wio_font.cell_size.y;
+    const cw: i32 = wio_font_set.cell_size.x;
+    const ch: i32 = wio_font_set.cell_size.y;
     return .{
         .col = @divTrunc(x, cw),
         .row = @divTrunc(y, ch),
@@ -367,14 +381,17 @@ fn pixelToCellPos(pos: wio.Position) CellPos {
     };
 }
 
-// Reload wio_font from current settings.  Called only from the wio thread.
+// Reload wio_font_set from current settings.  Called only from the wio thread.
 fn reloadFont() void {
     const name = if (font_name_len > 0) font_name_buf[0..font_name_len] else "monospace";
     const size_physical: u16 = @intFromFloat(@round(@as(f32, @floatFromInt(font_size_px)) * dpi_scale));
     gpu.setRasterizerBackend(font_backend);
-    var f = gpu.loadFont(name, @max(size_physical, 4)) catch return;
-    gpu.setFontWeight(&f, font_weight);
-    wio_font = f;
+    const set = gpu.loadFontSet(.{
+        .name = name,
+        .size_px = @max(size_physical, 4),
+        .weight = font_weight,
+    }) catch return;
+    wio_font_set = set;
 }
 
 // Check dirty flag and reload if needed.
@@ -649,7 +666,7 @@ fn wioLoop() void {
                 }
 
                 state.size = .{ .x = win_size.width, .y = win_size.height };
-                const font = wio_font;
+                const font_set = wio_font_set;
 
                 if (background_dirty.swap(false, .acq_rel)) {
                     const color_u32 = background_color.load(.acquire);
@@ -678,14 +695,16 @@ fn wioLoop() void {
                         else => .single,
                     };
                     const glyph_cp = if (w == 0) prev_cp else cp;
-                    cell.glyph_index = state.generateGlyph(font, glyph_cp, kind);
+                    const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
+                    const per_face = font_set.faces[@intFromEnum(face)];
+                    cell.glyph_index = state.generateGlyph(per_face, face, glyph_cp, kind);
                     if (w != 0) prev_cp = cp;
                 }
 
                 gpu.paint(
                     &state,
                     .{ .x = win_size.width, .y = win_size.height },
-                    font,
+                    font_set,
                     s.height,
                     s.width,
                     0,
@@ -708,8 +727,8 @@ fn sendResize(
     cell_width: *u16,
     cell_height: *u16,
 ) void {
-    cell_width.* = @intCast(@divTrunc(sz.width, wio_font.cell_size.x));
-    cell_height.* = @intCast(@divTrunc(sz.height, wio_font.cell_size.y));
+    cell_width.* = @intCast(@divTrunc(sz.width, wio_font_set.cell_size.x));
+    cell_height.* = @intCast(@divTrunc(sz.height, wio_font_set.cell_size.y));
     state.size = .{ .x = sz.width, .y = sz.height };
     tui_pid.send(.{
         "RDR",                        "Resize",

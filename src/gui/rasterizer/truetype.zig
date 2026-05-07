@@ -25,6 +25,8 @@ pub const Font = struct {
     /// Synthetic boldness: number of 1-pixel dilation passes applied after
     /// rasterization.  0 = no change, 1 = slightly bolder, 2 = bolder still.
     weight: u8 = 0,
+    /// Italic synthesis is unsupported (has no effect) here
+    italic_synth: bool = false,
 };
 
 pub const Fonts = struct {};
@@ -49,7 +51,10 @@ pub fn deinit(self: *Self) void {
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
     const path = try font_finder.findFont(self.allocator, name);
     defer self.allocator.free(path);
+    return self.loadFontFromPath(path, size_px);
+}
 
+pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     const io = root.get_io();
     const f = try std.Io.Dir.cwd().openFile(io, path, .{});
     defer f.close(io);

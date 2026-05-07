@@ -11,6 +11,8 @@ const XY = @import("xy").XY;
 const builtin_shader = @import("builtin.glsl.zig");
 
 pub const Font = Rasterizer.Font;
+pub const FontSet = Rasterizer.FontSet;
+pub const Face = Rasterizer.Face;
 pub const GlyphKind = Rasterizer.GlyphKind;
 pub const RasterizerBackend = Rasterizer.Backend;
 pub const Cell = @import("cell").Cell;
@@ -126,6 +128,10 @@ pub fn loadFont(name: []const u8, size_px: u16) !Font {
     return global.rasterizer.loadFont(name, size_px);
 }
 
+pub fn loadFontSet(opts: Rasterizer.LoadOpts) !FontSet {
+    return global.rasterizer.loadFontSet(opts);
+}
+
 pub fn setRasterizerBackend(backend: RasterizerBackend) void {
     global.rasterizer.setBackend(backend);
 }
@@ -232,6 +238,7 @@ pub const WindowState = struct {
     pub fn generateGlyph(
         state: *WindowState,
         font: Font,
+        face: Face,
         codepoint: u21,
         kind: Rasterizer.GlyphKind,
     ) u32 {
@@ -276,6 +283,7 @@ pub const WindowState = struct {
             global.glyph_cache_arena.allocator(),
             codepoint,
             right_half,
+            @intFromEnum(face),
         ) catch |e| oom(e)) {
             .newly_reserved => |reserved| {
                 // Rasterize into a staging buffer then upload the relevant
@@ -375,7 +383,7 @@ fn flushGlyphAtlas(state: *WindowState) void {
 pub fn paint(
     state: *WindowState,
     client_size: XY(u32),
-    font: Font,
+    font_set: FontSet,
     row_count: u16,
     col_count: u16,
     top: u16,
@@ -383,11 +391,11 @@ pub fn paint(
     cursor: CursorInfo,
     secondary_cursors: []const CursorInfo,
 ) void {
-    const shader_col_count: u16 = @intCast(@divTrunc(client_size.x, font.cell_size.x));
-    const shader_row_count: u16 = @intCast(@divTrunc(client_size.y, font.cell_size.y));
+    const shader_col_count: u16 = @intCast(@divTrunc(client_size.x, font_set.cell_size.x));
+    const shader_row_count: u16 = @intCast(@divTrunc(client_size.y, font_set.cell_size.y));
 
     const copy_col_count: u16 = @min(col_count, shader_col_count);
-    const blank_glyph_index = state.generateGlyph(font, ' ', .single);
+    const blank_glyph_index = state.generateGlyph(font_set.faces[@intFromEnum(Face.regular)], .regular, ' ', .single);
 
     const alloc = global.glyph_cache_arena.allocator();
     state.updateCellImage(alloc, shader_col_count, shader_row_count);
@@ -475,8 +483,8 @@ pub fn paint(
         .init(255, 255, 255, 255);
 
     const fs_params = builtin_shader.FsParams{
-        .cell_size_x = font.cell_size.x,
-        .cell_size_y = font.cell_size.y,
+        .cell_size_x = font_set.cell_size.x,
+        .cell_size_y = font_set.cell_size.y,
         .col_count = shader_col_count,
         .row_count = shader_row_count,
         .viewport_height = @intCast(client_size.y),
@@ -484,8 +492,8 @@ pub fn paint(
         .cursor_row = cursor.row,
         .cursor_shape = @intFromEnum(cursor.shape),
         .cursor_vis = if (cursor.vis) 1 else 0,
-        .underline_position = font.underline_position,
-        .underline_thickness = font.underline_thickness,
+        .underline_position = font_set.underline_position,
+        .underline_thickness = font_set.underline_thickness,
         .cursor_color = cursor.color.to_vec4(),
         .sec_cursor_color = sec_color.to_vec4(),
         .bg_color = global.background.to_vec4(),

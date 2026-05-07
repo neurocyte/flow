@@ -33,6 +33,9 @@ pub const Font = struct {
     /// Outline emboldening strength in 26.6 fixed-point pixels (64 = 1px).
     /// 0 = no emboldening.  Weight 1 → 32 (0.5px), weight 2 → 64 (1px), etc.
     weight_strength: i64 = 0,
+    /// apply a 12° shear before rasterization
+    /// Used as a fallback when no real italic is available
+    italic_synth: bool = false,
 };
 
 library: c.FT_Library,
@@ -51,7 +54,10 @@ pub fn deinit(self: *Self) void {
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
     const path = try font_finder.findFont(self.allocator, name);
     defer self.allocator.free(path);
+    return self.loadFontFromPath(path, size_px);
+}
 
+pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     const path_z = try self.allocator.dupeZ(u8, path);
     defer self.allocator.free(path_z);
 
@@ -142,6 +148,17 @@ pub fn render(
     if (font.weight_strength > 0) {
         const s: c.FT_Pos = @intCast(font.weight_strength);
         _ = c.FT_Outline_EmboldenXY(&face.*.glyph.*.outline, s, s);
+    }
+
+    // Synthetic italic: 12 degree shear of the outline
+    if (font.italic_synth) {
+        var shear: c.FT_Matrix = .{
+            .xx = 0x10000,
+            .xy = 13932,
+            .yx = 0,
+            .yy = 0x10000,
+        };
+        c.FT_Outline_Transform(&face.*.glyph.*.outline, &shear);
     }
 
     if (c.FT_Render_Glyph(face.*.glyph, c.FT_RENDER_MODE_NORMAL) != 0) return;
