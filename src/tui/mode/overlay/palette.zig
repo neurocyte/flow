@@ -536,6 +536,38 @@ pub fn Create(options: type) type {
             }
             pub const palette_menu_up_meta: Meta = .{};
 
+            pub fn palette_menu_right(self: *Self, _: Ctx) Result {
+                if (self.menu.selected) |selected| {
+                    if (selected == self.view_rows - 1 and
+                        self.view_pos + self.view_rows < self.total_items)
+                    {
+                        self.view_pos += 1;
+                        try self.start_query(0);
+                        self.menu.select_last();
+                        self.selection_updated();
+                        return;
+                    }
+                }
+                self.menu.select_down();
+                self.selection_updated();
+            }
+            pub const palette_menu_right_meta: Meta = .{};
+
+            pub fn palette_menu_left(self: *Self, _: Ctx) Result {
+                if (self.menu.selected) |selected| {
+                    if (selected == 0 and self.view_pos > 0) {
+                        self.view_pos -= 1;
+                        try self.start_query(0);
+                        self.menu.select_first();
+                        self.selection_updated();
+                        return;
+                    }
+                }
+                self.menu.select_up();
+                self.selection_updated();
+            }
+            pub const palette_menu_left_meta: Meta = .{};
+
             pub fn palette_menu_pagedown(self: *Self, _: Ctx) Result {
                 if (self.total_items > self.view_rows) {
                     self.view_pos += self.view_rows;

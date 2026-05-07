@@ -306,6 +306,16 @@ const cmds = struct {
     }
     pub const palette_menu_up_meta: Meta = .{};
 
+    pub fn palette_menu_right(self: *Self, _: Ctx) Result {
+        self.menu.select_down();
+    }
+    pub const palette_menu_right_meta: Meta = .{};
+
+    pub fn palette_menu_left(self: *Self, _: Ctx) Result {
+        self.menu.select_up();
+    }
+    pub const palette_menu_left_meta: Meta = .{};
+
     pub fn palette_menu_pagedown(self: *Self, _: Ctx) Result {
         self.menu.select_last();
     }

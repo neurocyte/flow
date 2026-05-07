@@ -400,6 +400,8 @@
             ["escape", "palette_menu_cancel"],
             ["up", "palette_menu_up"],
             ["down", "palette_menu_down"],
+            ["left", "palette_menu_left"],
+            ["right", "palette_menu_right"],
             ["page_up", "palette_menu_pageup"],
             ["page_down", "palette_menu_pagedown"],
             ["home", "palette_menu_top"],
