@@ -6,8 +6,8 @@
 
     .dependencies = .{
         .syntax = .{
-            .url = "git+https://github.com/neurocyte/flow-syntax?ref=master#7f60a617e8668172b845f24cedb482fb2ed45715",
-            .hash = "flow_syntax-0.7.2-X8jOoexkAQAJv_Qo4HwkJxwnjuvnc5b9i4DgcsbIIbvb",
+            .url = "git+https://github.com/neurocyte/flow-syntax?ref=master#0d8837fce134fb02c37d844d1d306cdbd44cef87",
+            .hash = "flow_syntax-0.7.2-X8jOoexkAQAzt0txlbKcoIbjaJyKZTHFFR5-iA3oO5if",
         },
         .flags = .{
             .url = "git+https://github.com/neurocyte/flags?ref=main#68c1ae1fadcbcadc5ae10912bb95a547ca04d71f",
@@ -18,8 +18,8 @@
             .hash = "dizzy-1.0.0-q40X4aGRAADKbMiB82-6NSGBDG4Cd4wZxQN4kiYDQu-8",
         },
         .thespian = .{
-            .url = "git+https://github.com/neurocyte/thespian?ref=master#1a48e3f959d6e80ab58b6cdadb9129535d026159",
-            .hash = "thespian-0.0.1-owFOjtQDBwDY95u_k5cmUJikx2PfnxnImXC21GdtBhal",
+            .url = "git+https://github.com/neurocyte/thespian?ref=master#bf54119a1cb2ba66c7ac3b7ce2d34f3328c39455",
+            .hash = "thespian-0.0.1-owFOjtQDBwBvymPXX1TgK1qRPngjL_S4Xo0V3MDlRYvT",
         },
         .themes = .{
             .url = "https://github.com/neurocyte/flow-themes/releases/download/master-e03b6d03d41e24d7a32ada8dd6c29acec964b0df/flow-themes.tar.gz",
