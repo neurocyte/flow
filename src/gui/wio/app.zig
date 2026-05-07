@@ -51,7 +51,7 @@ var screen_pending: std.atomic.Value(bool) = .init(false);
 var screen_snap: ?ScreenSnapshot = null;
 var tui_pid: thespian.pid = undefined;
 var last_mods: input_translate.Mods = .{};
-var font_size_px: u16 = 16;
+var font_size_pt: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
 var font_weight: u16 = 400;
@@ -216,14 +216,14 @@ pub fn requestRender() void {
 }
 
 pub fn setFontSize(size_px: f32) void {
-    font_size_px = @intFromFloat(@max(4, size_px));
+    font_size_pt = @intFromFloat(@max(4, size_px));
     saveConfig();
     font_dirty.store(true, .release);
     requestRender();
 }
 
 pub fn adjustFontSize(delta: f32) void {
-    const new: f32 = @as(f32, @floatFromInt(font_size_px)) + delta;
+    const new: f32 = @as(f32, @floatFromInt(font_size_pt)) + delta;
     setFontSize(new);
 }
 
@@ -361,7 +361,7 @@ pub fn loadConfig() void {
     const conf, _ = root.read_config(gui_config, config_arena);
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
-    font_size_px = conf.fontsize;
+    font_size_pt = conf.fontsize;
     font_weight = if (conf.fontweight < 100) 400 else conf.fontweight; // fallback for old gui_config files
     font_weight_bold_offset = conf.fontweight_bold_offset;
     font_backend = conf.fontbackend;
@@ -375,7 +375,7 @@ pub fn loadConfig() void {
 
 fn saveConfig() void {
     var conf, _ = root.read_config(gui_config, config_arena);
-    conf.fontsize = @truncate(font_size_px);
+    conf.fontsize = @truncate(font_size_pt);
     conf.fontweight = font_weight;
     conf.fontweight_bold_offset = font_weight_bold_offset;
     conf.fontbackend = font_backend;
@@ -426,7 +426,7 @@ fn pixelToCellPos(pos: wio.Position) CellPos {
 // Reload wio_font_set from current settings.  Called only from the wio thread.
 fn reloadFont() void {
     const name = if (font_name_len > 0) font_name_buf[0..font_name_len] else "monospace";
-    const size_physical: u16 = @intFromFloat(@round(@as(f32, @floatFromInt(font_size_px)) * dpi_scale));
+    const size_physical: u16 = @intFromFloat(@round(@as(f32, @floatFromInt(font_size_pt)) * (4.0 / 3.0) * dpi_scale));
     gpu.setRasterizerBackend(font_backend);
     gpu.setHinting(font_hinting);
     const set = gpu.loadFontSet(.{
