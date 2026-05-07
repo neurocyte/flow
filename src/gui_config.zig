@@ -1,6 +1,6 @@
 fontface: []const u8 = "IosevkaTerm Nerd Font Mono",
 fontsize: u8 = 14,
-fontweight: u16 = 400,
+fontweight: u16 = 500,
 fontweight_bold_offset: u16 = 300,
 fontbackend: RasterizerBackend = .freetype,
 fonthinting: Hinting = .normal,
