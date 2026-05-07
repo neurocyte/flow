@@ -54,7 +54,8 @@ var last_mods: input_translate.Mods = .{};
 var font_size_px: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
-var font_weight: u8 = 0;
+var font_weight: u16 = 400;
+var font_weight_bold_offset: u16 = 300;
 var font_backend: gpu.RasterizerBackend = .freetype;
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
@@ -251,15 +252,26 @@ pub fn setFontFace(name: []const u8) void {
     requestRender();
 }
 
-pub fn setFontWeight(weight: u8) void {
+pub fn setFontWeight(weight: u16) void {
     font_weight = weight;
     saveConfig();
     font_dirty.store(true, .release);
     requestRender();
 }
 
-pub fn getFontWeight() u8 {
+pub fn getFontWeight() u16 {
     return font_weight;
+}
+
+pub fn setFontWeightBoldOffset(offset: u16) void {
+    font_weight_bold_offset = offset;
+    saveConfig();
+    font_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn getFontWeightBoldOffset() u16 {
+    return font_weight_bold_offset;
 }
 
 pub fn setRasterizerBackend(backend: gpu.RasterizerBackend) void {
@@ -326,7 +338,8 @@ pub fn loadConfig() void {
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
     font_size_px = conf.fontsize;
-    font_weight = conf.fontweight;
+    font_weight = if (conf.fontweight < 100) 400 else conf.fontweight; // fallback for old gui_config files
+    font_weight_bold_offset = conf.fontweight_bold_offset;
     font_backend = conf.fontbackend;
     const name = conf.fontface;
     const copy_len = @min(name.len, font_name_buf.len);
@@ -338,6 +351,7 @@ fn saveConfig() void {
     var conf, _ = root.read_config(gui_config, config_arena);
     conf.fontsize = @truncate(font_size_px);
     conf.fontweight = font_weight;
+    conf.fontweight_bold_offset = font_weight_bold_offset;
     conf.fontbackend = font_backend;
     conf.fontface = getFontName();
     root.write_config(conf, config_arena) catch
@@ -390,6 +404,7 @@ fn reloadFont() void {
         .name = name,
         .size_px = @max(size_physical, 4),
         .weight = font_weight,
+        .bold_offset = font_weight_bold_offset,
     }) catch return;
     wio_font_set = set;
 }

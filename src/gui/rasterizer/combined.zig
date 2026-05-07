@@ -41,16 +41,6 @@ pub const Font = struct {
     backend: BackendFont,
 };
 
-/// Set emboldening weight on a font (0 = normal).
-/// For TrueType: number of morphological dilation passes.
-/// For FreeType: outline inflation at 32 units per weight step (0.5px each).
-pub fn setFontWeight(font: *Font, w: u8) void {
-    switch (font.backend) {
-        .truetype => |*f| f.weight = w,
-        .freetype => |*f| f.weight_strength = @as(i64, w) * 32,
-    }
-}
-
 fn setItalicSynth(font: *Font, on: bool) void {
     switch (font.backend) {
         .truetype => |*f| f.italic_synth = on,
@@ -70,7 +60,8 @@ pub const FontSet = struct {
 pub const LoadOpts = struct {
     name: []const u8,
     size_px: u16,
-    weight: u8 = 0,
+    weight: u16 = 400,
+    bold_offset: u16 = 300,
 };
 
 const Self = @This();
@@ -123,25 +114,51 @@ fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     }
 }
 
-const FaceQuery = struct { face: Face, suffix: []const u8 };
-const face_queries = [_]FaceQuery{
-    .{ .face = .bold, .suffix = "Bold" },
-    .{ .face = .italic, .suffix = "Italic" },
-    .{ .face = .bold_italic, .suffix = "Bold Italic" },
-};
-
-fn buildQuery(alloc: std.mem.Allocator, name: []const u8, suffix: []const u8) ![]u8 {
-    return std.fmt.allocPrint(alloc, "{s}:style={s}", .{ name, suffix });
+/// Map CSS-style weight (100..900) to fontconfig's weight scale
+fn cssToFcWeight(css: u16) u16 {
+    const c = std.math.clamp(css, 100, 900);
+    return switch ((c + 50) / 100) {
+        0, 1 => 0, // Thin
+        2 => 40, // ExtraLight
+        3 => 50, // Light
+        4 => 80, // Regular
+        5 => 100, // Medium
+        6 => 180, // SemiBold
+        7 => 200, // Bold
+        8 => 205, // ExtraBold
+        else => 210, // Black
+    };
 }
+
+fn boldCssWeight(css_regular: u16, offset: u16) u16 {
+    return @min(900, css_regular + offset);
+}
+
+fn buildQuery(
+    alloc: std.mem.Allocator,
+    name: []const u8,
+    css_weight: u16,
+    italic: bool,
+) ![]u8 {
+    const fc_w = cssToFcWeight(css_weight);
+    const slant: u16 = if (italic) 100 else 0; // ITALIC=100, ROMAN=0
+    return std.fmt.allocPrint(alloc, "{s}:weight={d}:slant={d}", .{ name, fc_w, slant });
+}
+
+const FaceSpec = struct { face: Face, css_weight: u16, italic: bool };
 
 pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
     const alloc = self.tt.allocator;
+    const reg_w = opts.weight;
+    const bold_w = boldCssWeight(reg_w, opts.bold_offset);
+    const have_bold_face = bold_w != reg_w;
 
-    const regular_path = try font_finder.findFont(alloc, opts.name);
+    const reg_query = try buildQuery(alloc, opts.name, reg_w, false);
+    defer alloc.free(reg_query);
+    const regular_path = try font_finder.findFont(alloc, reg_query);
     defer alloc.free(regular_path);
 
-    var regular = try self.loadFontFromPath(regular_path, opts.size_px);
-    if (opts.weight > 0) setFontWeight(&regular, opts.weight);
+    const regular = try self.loadFontFromPath(regular_path, opts.size_px);
 
     var set: FontSet = .{
         .cell_size = regular.cell_size,
@@ -151,12 +168,22 @@ pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
         .synth = .{ false, true, true, true },
     };
 
-    // try to load via fontconfig, fall back to synthesis
-    inline for (face_queries) |q| {
-        const idx = @intFromEnum(q.face);
+    const face_specs = [_]FaceSpec{
+        .{ .face = .bold, .css_weight = bold_w, .italic = false },
+        .{ .face = .italic, .css_weight = reg_w, .italic = true },
+        .{ .face = .bold_italic, .css_weight = bold_w, .italic = true },
+    };
+
+    inline for (face_specs) |spec| {
+        const idx = @intFromEnum(spec.face);
+        const wants_bold = spec.face == .bold or spec.face == .bold_italic;
         var installed = false;
 
-        if (buildQuery(alloc, opts.name, q.suffix)) |query| {
+        if (wants_bold and !have_bold_face) {
+            // Skip lookup; bold-italic would otherwise alias onto the italic
+            // file (its path differs from regular_path), so we'd install a
+            // non-bold italic into the bold-italic slot.
+        } else if (buildQuery(alloc, opts.name, spec.css_weight, spec.italic)) |query| {
             defer alloc.free(query);
             if (font_finder.findFont(alloc, query)) |path| {
                 defer alloc.free(path);
@@ -183,14 +210,8 @@ pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
         } else |_| {}
 
         if (!installed) {
-            // Synthesis fallback
-            const wants_bold = q.face == .bold or q.face == .bold_italic;
-            const wants_italic = q.face == .italic or q.face == .bold_italic;
-            if (wants_bold) {
-                // Add one extra weight step over regular
-                setFontWeight(&set.faces[idx], opts.weight + 1);
-            }
-            if (wants_italic) setItalicSynth(&set.faces[idx], true);
+            // No real face available
+            if (spec.italic) setItalicSynth(&set.faces[idx], true);
             set.synth[idx] = true;
         }
     }

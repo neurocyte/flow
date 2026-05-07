@@ -136,10 +136,6 @@ pub fn setRasterizerBackend(backend: RasterizerBackend) void {
     global.rasterizer.setBackend(backend);
 }
 
-pub fn setFontWeight(font: *Font, w: u8) void {
-    Rasterizer.setFontWeight(font, w);
-}
-
 pub fn setBackground(color: RGBA) void {
     global.background = color;
 }

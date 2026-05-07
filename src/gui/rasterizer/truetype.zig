@@ -22,9 +22,6 @@ pub const Font = struct {
     /// Thickness of the underline bar, in pixels (>= 1).
     underline_thickness: u16 = 1,
     tt: ?TrueType = null,
-    /// Synthetic boldness: number of 1-pixel dilation passes applied after
-    /// rasterization.  0 = no change, 1 = slightly bolder, 2 = bolder still.
-    weight: u8 = 0,
     /// Italic synthesis is unsupported (has no effect) here
     italic_synth: bool = false,
 };
@@ -153,28 +150,6 @@ pub fn render(
     const dims = tt.glyphBitmap(alloc, &pixels, glyph, font.scale, font.scale) catch return;
 
     if (dims.width == 0 or dims.height == 0) return;
-
-    // Synthetic emboldening: morphological dilation.  Each pass expands every
-    // lit pixel one step right and one step down, thickening all strokes by
-    // ~1px per pass without changing the glyph's bounding box.
-    for (0..font.weight) |_| {
-        // Dilate right: each pixel takes the max of itself and its left neighbour.
-        // Iterate right-to-left so we don't cascade within one pass.
-        for (0..dims.height) |row| {
-            var col: usize = dims.width - 1;
-            while (col > 0) : (col -= 1) {
-                const i = row * dims.width + col;
-                pixels.items[i] = @max(pixels.items[i], pixels.items[i - 1]);
-            }
-        }
-        // Dilate down: each pixel takes the max of itself and its upper neighbour.
-        for (1..dims.height) |row| {
-            for (0..dims.width) |col| {
-                const i = row * dims.width + col;
-                pixels.items[i] = @max(pixels.items[i], pixels.items[i - dims.width]);
-            }
-        }
-    }
 
     for (0..dims.height) |row| {
         const dst_y: i32 = font.ascent_px + @as(i32, dims.off_y) + @as(i32, @intCast(row));

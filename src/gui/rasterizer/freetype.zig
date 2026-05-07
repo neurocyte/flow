@@ -1,11 +1,5 @@
-/// FreeType-based glyph rasterizer.
-/// Satisfies the GlyphRasterizer interface (see GlyphRasterizer.zig).
-///
-/// Advantages over the TrueType rasterizer:
-///   - FT_Outline_EmboldenXY provides high-quality synthetic bold by inflating
-///     the glyph outline before rasterization, avoiding the ugly pixel-smearing
-///     of post-rasterization morphological dilation.
-///   - FreeType's hinting engine often produces crisper results at small sizes.
+/// FreeType-based glyph rasterizer
+
 const std = @import("std");
 const c = @cImport({
     @cInclude("ft2build.h");
@@ -30,9 +24,6 @@ pub const Font = struct {
     /// Thickness of the underline bar, in pixels (>= 1).
     underline_thickness: u16 = 1,
     face: c.FT_Face = null,
-    /// Outline emboldening strength in 26.6 fixed-point pixels (64 = 1px).
-    /// 0 = no emboldening.  Weight 1 → 32 (0.5px), weight 2 → 64 (1px), etc.
-    weight_strength: i64 = 0,
     /// apply a 12° shear before rasterization
     /// Used as a fallback when no real italic is available
     italic_synth: bool = false,
@@ -144,11 +135,6 @@ pub fn render(
     // not match our computed cell metrics).
     const load_flags: c.FT_Int32 = c.FT_LOAD_DEFAULT | c.FT_LOAD_NO_BITMAP;
     if (c.FT_Load_Char(face, codepoint, load_flags) != 0) return;
-
-    if (font.weight_strength > 0) {
-        const s: c.FT_Pos = @intCast(font.weight_strength);
-        _ = c.FT_Outline_EmboldenXY(&face.*.glyph.*.outline, s, s);
-    }
 
     // Synthetic italic: 12 degree shear of the outline
     if (font.italic_synth) {
