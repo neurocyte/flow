@@ -15,6 +15,7 @@ pub const Fonts = struct {};
 pub const font_finder = TT.font_finder;
 
 pub const Backend = @import("gui_config").RasterizerBackend;
+pub const Hinting = @import("gui_config").Hinting;
 
 pub const Face = enum(u2) {
     regular = 0,
@@ -48,6 +49,26 @@ fn setItalicSynth(font: *Font, on: bool) void {
     }
 }
 
+fn applyLineHeightToFace(font: *Font, top_pad: i32, target_h: i32) void {
+    const target_h_u: u16 = @intCast(target_h);
+    const ul_thk: i32 = @intCast(font.underline_thickness);
+    const new_ul: i32 = @max(0, @min(target_h - ul_thk, font.underline_position + top_pad));
+    font.cell_size.y = target_h_u;
+    font.underline_position = new_ul;
+    switch (font.backend) {
+        .truetype => |*f| {
+            f.cell_size.y = target_h_u;
+            f.ascent_px += top_pad;
+            f.underline_position = new_ul;
+        },
+        .freetype => |*f| {
+            f.cell_size.y = target_h_u;
+            f.ascent_px += top_pad;
+            f.underline_position = new_ul;
+        },
+    }
+}
+
 pub const FontSet = struct {
     cell_size: XY(u16),
     underline_position: i32,
@@ -62,6 +83,7 @@ pub const LoadOpts = struct {
     size_px: u16,
     weight: u16 = 400,
     bold_offset: u16 = 300,
+    line_height_pct: u8 = 100,
 };
 
 const Self = @This();
@@ -83,6 +105,10 @@ pub fn deinit(self: *Self) void {
 
 pub fn setBackend(self: *Self, backend: Backend) void {
     self.active = backend;
+}
+
+pub fn setHinting(self: *Self, h: Hinting) void {
+    self.ft.hinting = h;
 }
 
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
@@ -214,6 +240,17 @@ pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
             if (spec.italic) setItalicSynth(&set.faces[idx], true);
             set.synth[idx] = true;
         }
+    }
+
+    const pct = std.math.clamp(opts.line_height_pct, 50, 200);
+    if (pct != 100) {
+        const orig_h: i32 = @intCast(set.cell_size.y);
+        const target_h: i32 = @max(1, @divFloor(orig_h * @as(i32, pct), 100));
+        const top_pad: i32 = @divFloor(target_h - orig_h, 2);
+        const ul_thk: i32 = @intCast(set.underline_thickness);
+        set.cell_size.y = @intCast(target_h);
+        set.underline_position = @max(0, @min(target_h - ul_thk, set.underline_position + top_pad));
+        for (&set.faces) |*f| applyLineHeightToFace(f, top_pad, target_h);
     }
 
     return set;

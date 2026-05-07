@@ -57,6 +57,8 @@ var font_name_len: usize = 0;
 var font_weight: u16 = 400;
 var font_weight_bold_offset: u16 = 300;
 var font_backend: gpu.RasterizerBackend = .freetype;
+var font_hinting: gpu.Hinting = .normal;
+var font_line_height: u8 = 100;
 var font_dirty: std.atomic.Value(bool) = .init(true);
 var stop_requested: std.atomic.Value(bool) = .init(false);
 
@@ -285,6 +287,28 @@ pub fn getRasterizerBackend() gpu.RasterizerBackend {
     return font_backend;
 }
 
+pub fn setHinting(h: gpu.Hinting) void {
+    font_hinting = h;
+    saveConfig();
+    font_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn getHinting() gpu.Hinting {
+    return font_hinting;
+}
+
+pub fn setLineHeight(pct: u8) void {
+    font_line_height = pct;
+    saveConfig();
+    font_dirty.store(true, .release);
+    requestRender();
+}
+
+pub fn getLineHeight() u8 {
+    return font_line_height;
+}
+
 pub fn setWindowTitle(title: []const u8) void {
     const io = root.get_io();
     title_mutex.lockUncancelable(io);
@@ -341,6 +365,8 @@ pub fn loadConfig() void {
     font_weight = if (conf.fontweight < 100) 400 else conf.fontweight; // fallback for old gui_config files
     font_weight_bold_offset = conf.fontweight_bold_offset;
     font_backend = conf.fontbackend;
+    font_hinting = conf.fonthinting;
+    font_line_height = if (conf.lineheight == 0) 100 else conf.lineheight;
     const name = conf.fontface;
     const copy_len = @min(name.len, font_name_buf.len);
     @memcpy(font_name_buf[0..copy_len], name[0..copy_len]);
@@ -353,6 +379,8 @@ fn saveConfig() void {
     conf.fontweight = font_weight;
     conf.fontweight_bold_offset = font_weight_bold_offset;
     conf.fontbackend = font_backend;
+    conf.fonthinting = font_hinting;
+    conf.lineheight = font_line_height;
     conf.fontface = getFontName();
     root.write_config(conf, config_arena) catch
         log.err("failed to write gui config file", .{});
@@ -400,11 +428,13 @@ fn reloadFont() void {
     const name = if (font_name_len > 0) font_name_buf[0..font_name_len] else "monospace";
     const size_physical: u16 = @intFromFloat(@round(@as(f32, @floatFromInt(font_size_px)) * dpi_scale));
     gpu.setRasterizerBackend(font_backend);
+    gpu.setHinting(font_hinting);
     const set = gpu.loadFontSet(.{
         .name = name,
         .size_px = @max(size_physical, 4),
         .weight = font_weight,
         .bold_offset = font_weight_bold_offset,
+        .line_height_pct = font_line_height,
     }) catch return;
     wio_font_set = set;
 }

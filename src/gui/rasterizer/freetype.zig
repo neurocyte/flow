@@ -1,5 +1,4 @@
 /// FreeType-based glyph rasterizer
-
 const std = @import("std");
 const c = @cImport({
     @cInclude("ft2build.h");
@@ -13,6 +12,7 @@ pub const font_finder = @import("font_finder");
 const Self = @This();
 
 pub const GlyphKind = enum { single, left, right };
+pub const Hinting = @import("gui_config").Hinting;
 
 pub const Fonts = struct {};
 
@@ -31,6 +31,7 @@ pub const Font = struct {
 
 library: c.FT_Library,
 allocator: std.mem.Allocator,
+hinting: Hinting = .normal,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var library: c.FT_Library = undefined;
@@ -113,8 +114,6 @@ pub fn render(
     kind: GlyphKind,
     staging_buf: []u8,
 ) void {
-    _ = self;
-
     const buf_w: i32 = @as(i32, @intCast(font.cell_size.x)) * 2;
     const buf_h: i32 = @intCast(font.cell_size.y);
     const x_offset: i32 = switch (kind) {
@@ -130,10 +129,15 @@ pub fn render(
 
     const face = font.face orelse return;
 
-    // Load with FT_LOAD_NO_BITMAP so we always get an outline (needed for
-    // FT_Outline_EmboldenXY; also avoids embedded bitmap strikes which may
-    // not match our computed cell metrics).
-    const load_flags: c.FT_Int32 = c.FT_LOAD_DEFAULT | c.FT_LOAD_NO_BITMAP;
+    // FT_LOAD_NO_BITMAP forces an outline (needed for italic-synth shearing,
+    // and avoids embedded bitmap strikes that may not match our cell metrics).
+    const hint_flags: c_long = switch (self.hinting) {
+        .none => c.FT_LOAD_NO_HINTING,
+        .slight => c.FT_LOAD_TARGET_LIGHT,
+        .normal => c.FT_LOAD_TARGET_NORMAL,
+        .mono => c.FT_LOAD_TARGET_MONO,
+    };
+    const load_flags: c.FT_Int32 = @intCast(c.FT_LOAD_DEFAULT | c.FT_LOAD_NO_BITMAP | hint_flags);
     if (c.FT_Load_Char(face, codepoint, load_flags) != 0) return;
 
     // Synthetic italic: 12 degree shear of the outline
@@ -147,7 +151,11 @@ pub fn render(
         c.FT_Outline_Transform(&face.*.glyph.*.outline, &shear);
     }
 
-    if (c.FT_Render_Glyph(face.*.glyph, c.FT_RENDER_MODE_NORMAL) != 0) return;
+    const render_mode: c.FT_Render_Mode = if (self.hinting == .mono)
+        c.FT_RENDER_MODE_MONO
+    else
+        c.FT_RENDER_MODE_NORMAL;
+    if (c.FT_Render_Glyph(face.*.glyph, render_mode) != 0) return;
 
     const bm = face.*.glyph.*.bitmap;
     if (bm.rows == 0 or bm.width == 0) return;
@@ -156,6 +164,7 @@ pub fn render(
     const pitch: u32 = @intCast(bm.pitch);
     const off_x: i32 = face.*.glyph.*.bitmap_left;
     const off_y: i32 = font.ascent_px - face.*.glyph.*.bitmap_top;
+    const is_mono = bm.pixel_mode == c.FT_PIXEL_MODE_MONO;
 
     var row: u32 = 0;
     while (row < bm.rows) : (row += 1) {
@@ -167,10 +176,16 @@ pub fn render(
             const dst_x = x_offset + off_x + @as(i32, @intCast(col));
             if (dst_x < 0 or dst_x >= buf_w) continue;
 
-            const src_idx = row * pitch + col;
             const dst_idx: usize = @intCast(dst_y * buf_w + dst_x);
-            if (dst_idx < staging_buf.len)
-                staging_buf[dst_idx] = bm.buffer[src_idx];
+            if (dst_idx >= staging_buf.len) continue;
+
+            const px: u8 = if (is_mono) blk: {
+                // 1 bit per pixel, MSB first within each byte.
+                const byte = bm.buffer[row * pitch + (col >> 3)];
+                const bit: u3 = @intCast(7 - (col & 7));
+                break :blk if ((byte >> bit) & 1 != 0) 0xFF else 0x00;
+            } else bm.buffer[row * pitch + col];
+            staging_buf[dst_idx] = px;
         }
     }
 }

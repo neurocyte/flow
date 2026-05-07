@@ -15,6 +15,7 @@ pub const FontSet = Rasterizer.FontSet;
 pub const Face = Rasterizer.Face;
 pub const GlyphKind = Rasterizer.GlyphKind;
 pub const RasterizerBackend = Rasterizer.Backend;
+pub const Hinting = Rasterizer.Hinting;
 pub const Cell = @import("cell").Cell;
 pub const RGBA = @import("color").RGBA;
 
@@ -134,6 +135,10 @@ pub fn loadFontSet(opts: Rasterizer.LoadOpts) !FontSet {
 
 pub fn setRasterizerBackend(backend: RasterizerBackend) void {
     global.rasterizer.setBackend(backend);
+}
+
+pub fn setHinting(h: Hinting) void {
+    global.rasterizer.setHinting(h);
 }
 
 pub fn setBackground(color: RGBA) void {

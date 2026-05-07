@@ -611,6 +611,7 @@ pub fn build_exe(
                         .{ .name = "xy", .module = gui_xy_mod },
                         .{ .name = "geometric", .module = geometric_mod },
                         .{ .name = "font_finder", .module = font_finder_mod },
+                        .{ .name = "gui_config", .module = gui_config_mod },
                     },
                 });
                 freetype_rasterizer_mod.linkSystemLibrary("freetype2", .{});
