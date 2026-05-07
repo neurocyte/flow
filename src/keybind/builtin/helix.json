@@ -62,7 +62,6 @@
             ["alt+u", "undo"],
             ["alt+,", "remove_primary_selection"],
 
-            ["alt+C", "copy_selection_on_next_line"],
             ["alt+I", "select_all_children"],
             ["alt+shift+down", "select_all_children"],
             ["alt+U", "redo"],
@@ -87,6 +86,7 @@
             ["O", ["enter_mode", "insert"], ["smart_insert_line_before"]],
 
             ["C", "add_cursor_down"],
+            ["alt+C", "add_cursor_up"],
 
             ["S", "split_selection"],
             ["X", "extend_to_line_bounds"],
@@ -329,7 +329,8 @@
 
             ["alt+,", "remove_primary_selection"],
 
-            ["alt+C", "copy_selection_on_next_line"],
+            ["C", "add_cursor_down"],
+            ["alt+C", "add_cursor_up"],
 
             ["alt+I", "select_all_children"],
             ["alt+shift+down", "select_all_children"],
@@ -363,8 +364,6 @@
             ["A", ["enter_mode", "insert"], ["move_end"]],
 
             ["O", ["enter_mode", "insert"], ["smart_insert_line_before"]],
-
-            ["C", "copy_selection_on_next_line"],
 
             ["S", "split_selection"],
 
