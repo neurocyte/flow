@@ -95,9 +95,16 @@ const fs_src =
     \\                              gr * cell_size_y + cell_px_y);
     \\    float glyph_alpha = texelFetch(glyph_tex_glyph_smp, atlas_coord, 0).r;
     \\
+    \\    // Decoration field (bits: 31..8=ul_color RRGGBB, 7..5=ul_style,
+    \\    // 4=strikethrough, 0=secondary cursor flag)
+    \\    uint deco = cell.a;
+    \\    uint ul_style = (deco >> 5u) & 7u;
+    \\    bool strike = ((deco >> 4u) & 1u) != 0u;
+    \\    uint ul_packed = deco >> 8u;
+    \\
     \\    // Cursor detection
     \\    bool is_primary   = (cursor_vis != 0) && (col == cursor_col) && (row == cursor_row);
-    \\    bool is_secondary = (cell.a != 0u);
+    \\    bool is_secondary = (deco & 1u) != 0u;
     \\
     \\    vec3 final_bg = bg.rgb;
     \\    vec3 final_fg = fg.rgb;
@@ -119,7 +126,54 @@ const fs_src =
     \\        }
     \\    }
     \\
-    \\    frag_color = vec4(mix(final_bg, final_fg, fg.a * glyph_alpha), 1.0);
+    \\    vec3 composed = mix(final_bg, final_fg, fg.a * glyph_alpha);
+    \\
+    \\    // Underline overlay
+    \\    if (ul_style != 0u) {
+    \\        vec3 ul_rgb = (ul_packed == 0u)
+    \\            ? final_fg
+    \\            : vec3(
+    \\                float((ul_packed >> 16u) & 255u) / 255.0,
+    \\                float((ul_packed >>  8u) & 255u) / 255.0,
+    \\                float( ul_packed         & 255u) / 255.0
+    \\            );
+    \\        int thick = max(1, cell_size_y / 16);
+    \\        int ul_top = cell_size_y - max(2, thick + 1);
+    \\        bool draw = false;
+    \\        if (ul_style == 1u) {
+    \\            draw = (cell_px_y >= ul_top) && (cell_px_y < ul_top + thick);
+    \\        } else if (ul_style == 2u) {
+    \\            int upper_top = ul_top - 2 * thick;
+    \\            draw = ((cell_px_y >= upper_top) && (cell_px_y < upper_top + thick)) ||
+    \\                   ((cell_px_y >= ul_top)    && (cell_px_y < ul_top    + thick));
+    \\        } else if (ul_style == 3u) {
+    \\            // Curly: sine wave with amplitude > stroke so the wave is visible
+    \\            int amp = max(1, cell_size_y / 16);
+    \\            int center_y = cell_size_y - amp - 1;
+    \\            int stroke = max(1, thick);
+    \\            float ph = float(cell_px_x) / float(cell_size_x) * 6.2831853;
+    \\            int wave_y = center_y + int(round(sin(ph) * float(amp)));
+    \\            draw = (cell_px_y >= wave_y) && (cell_px_y < wave_y + stroke);
+    \\        } else if (ul_style == 4u) {
+    \\            int period = max(2, 2 * thick);
+    \\            draw = (cell_px_y >= ul_top) && (cell_px_y < ul_top + thick) &&
+    \\                   ((cell_px_x % period) < (period / 2));
+    \\        } else if (ul_style == 5u) {
+    \\            int seg = max(2, cell_size_x / 4);
+    \\            draw = (cell_px_y >= ul_top) && (cell_px_y < ul_top + thick) &&
+    \\                   ((cell_px_x % (2 * seg)) < seg);
+    \\        }
+    \\        if (draw) composed = ul_rgb;
+    \\    }
+    \\
+    \\    // Strikethrough at vertical midline (uses final_fg so it inverts under block cursor)
+    \\    if (strike) {
+    \\        int thick = max(1, cell_size_y / 16);
+    \\        int sy = cell_size_y / 2;
+    \\        if (cell_px_y >= sy && cell_px_y < sy + thick) composed = final_fg;
+    \\    }
+    \\
+    \\    frag_color = vec4(composed, 1.0);
     \\}
 ;
 

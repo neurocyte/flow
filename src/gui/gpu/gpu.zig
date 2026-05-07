@@ -44,13 +44,31 @@ fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
 //   .r = glyph_index  (u32)
 //   .g = bg packed    (RGBA bit-cast to u32: r<<24|g<<16|b<<8|a)
 //   .b = fg packed    (same)
-//   .a = 0 (reserved)
+//   .a = decoration field
+//
+// Decoration field bit layout:
+//   31..8 : underline color RRGGBB (24 bits, 0 → use fg)
+//    7..5 : ul_style (3 bits, 0=off..5=dashed)
+//    4    : strikethrough flag
+//    0    : secondary-cursor flag
 const ShaderCell = extern struct {
     glyph_index: u32,
     bg: u32,
     fg: u32,
-    _pad: u32 = 0,
+    deco: u32 = 0,
 };
+
+fn packDeco(src: Cell) u32 {
+    const ulc = src.underline;
+    // ulc.a == 0 signals "use foreground"; keep packed RGB at zero in that case.
+    const color24: u32 = if (ulc.a == 0)
+        0
+    else
+        (@as(u32, ulc.r) << 24) | (@as(u32, ulc.g) << 16) | (@as(u32, ulc.b) << 8);
+    const style: u32 = (@as(u32, src.ul_style) & 7) << 5;
+    const strike: u32 = if (src.strikethrough != 0) (@as(u32, 1) << 4) else 0;
+    return color24 | style | strike;
+}
 
 const global = struct {
     var init_called: bool = false;
@@ -391,6 +409,7 @@ pub fn paint(
                 .glyph_index = src.glyph_index,
                 .bg = src.background.to_u32(),
                 .fg = src.foreground.to_u32(),
+                .deco = packDeco(src),
             };
         }
         for (copy_len..shader_col_count) |ci| {
@@ -402,11 +421,11 @@ pub fn paint(
         }
     }
 
-    // Mark secondary cursor cells in the _pad field (read by fragment shader).
+    // Mark secondary cursor cells (bit 0 of deco field, read by fragment shader).
     for (secondary_cursors) |sc| {
         if (!sc.vis) continue;
         if (sc.row >= shader_row_count or sc.col >= shader_col_count) continue;
-        shader_cells[@as(usize, sc.row) * shader_col_count + sc.col]._pad = 1;
+        shader_cells[@as(usize, sc.row) * shader_col_count + sc.col].deco |= 1;
     }
 
     // Upload glyph atlas to GPU if any new glyphs were rasterized this frame.

@@ -147,10 +147,17 @@ pub fn updateScreen(
 
     // Convert vaxis cells → gpu.Cell (colours only; glyph indices filled on GPU thread).
     for (vx_screen.buf[0..cell_count], new_cells, new_codepoints, new_widths) |*vc, *gc, *cp, *wt| {
+        const ul_color: RGBA = switch (vc.style.ul) {
+            .default => RGBA.init(0, 0, 0, 0),
+            else => colorFromVaxis(vc.style.ul),
+        };
         gc.* = .{
             .glyph_index = 0,
             .background = colorFromVaxis(if (vc.style.reverse) vc.style.fg else vc.style.bg),
             .foreground = colorFromVaxis(if (vc.style.reverse) vc.style.bg else vc.style.fg),
+            .underline = ul_color,
+            .ul_style = @intFromEnum(vc.style.ul_style),
+            .strikethrough = if (vc.style.strikethrough) 1 else 0,
         };
         // Decode first codepoint from the grapheme cluster.
         const g = vc.char.grapheme;
