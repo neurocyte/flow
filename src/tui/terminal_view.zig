@@ -354,6 +354,7 @@ fn reset_file_link(self: *Self) void {
 }
 
 pub fn deinit(self: *Self, allocator: Allocator) void {
+    tui.message_filters().remove_ptr(self);
     self.reset_file_link();
     if (self.last_cmd) |cmd| {
         self.allocator.free(cmd);
