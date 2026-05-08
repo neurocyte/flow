@@ -42,10 +42,10 @@ pub const Font = struct {
     backend: BackendFont,
 };
 
-fn setItalicSynth(font: *Font, on: bool) void {
+fn applySynthFlags(font: *Font, italic: bool, bold: bool) void {
     switch (font.backend) {
-        .truetype => |*f| f.italic_synth = on,
-        .freetype => |*f| f.italic_synth = on,
+        .truetype => |*f| f.synth = .{ .italic = italic, .bold = bold },
+        .freetype => |*f| f.synth = .{ .italic = italic, .bold = bold },
     }
 }
 
@@ -140,51 +140,69 @@ fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     }
 }
 
-/// Map CSS-style weight (100..900) to fontconfig's weight scale
-fn cssToFcWeight(css: u16) u16 {
-    const c = std.math.clamp(css, 100, 900);
-    return switch ((c + 50) / 100) {
-        0, 1 => 0, // Thin
-        2 => 40, // ExtraLight
-        3 => 50, // Light
-        4 => 80, // Regular
-        5 => 100, // Medium
-        6 => 180, // SemiBold
-        7 => 200, // Bold
-        8 => 205, // ExtraBold
-        else => 210, // Black
-    };
-}
-
 fn boldCssWeight(css_regular: u16, offset: u16) u16 {
     return @min(900, css_regular + offset);
 }
 
-fn buildQuery(
-    alloc: std.mem.Allocator,
-    name: []const u8,
+const FaceResolution = struct { font: Font, is_real_match: bool };
+
+fn resolveActive(
+    self: *Self,
+    family: []const u8,
     css_weight: u16,
     italic: bool,
-) ![]u8 {
-    const fc_w = cssToFcWeight(css_weight);
-    const slant: u16 = if (italic) 100 else 0; // ITALIC=100, ROMAN=0
-    return std.fmt.allocPrint(alloc, "{s}:weight={d}:slant={d}", .{ name, fc_w, slant });
+    size_px: u16,
+    is_baseline: bool,
+) !FaceResolution {
+    switch (self.active) {
+        .truetype => {
+            const r = try self.tt.resolveFace(.{
+                .family = family,
+                .css_weight = css_weight,
+                .italic = italic,
+                .size_px = size_px,
+                .is_baseline = is_baseline,
+            });
+            return .{
+                .font = .{
+                    .cell_size = r.font.cell_size,
+                    .underline_position = r.font.underline_position,
+                    .underline_thickness = r.font.underline_thickness,
+                    .backend = .{ .truetype = r.font },
+                },
+                .is_real_match = r.is_real_match,
+            };
+        },
+        .freetype => {
+            const r = try self.ft.resolveFace(.{
+                .family = family,
+                .css_weight = css_weight,
+                .italic = italic,
+                .size_px = size_px,
+                .is_baseline = is_baseline,
+            });
+            return .{
+                .font = .{
+                    .cell_size = r.font.cell_size,
+                    .underline_position = r.font.underline_position,
+                    .underline_thickness = r.font.underline_thickness,
+                    .backend = .{ .freetype = r.font },
+                },
+                .is_real_match = r.is_real_match,
+            };
+        },
+    }
 }
 
 const FaceSpec = struct { face: Face, css_weight: u16, italic: bool };
 
 pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
-    const alloc = self.tt.allocator;
     const reg_w = opts.weight;
     const bold_w = boldCssWeight(reg_w, opts.bold_offset);
     const have_bold_face = bold_w != reg_w;
 
-    const reg_query = try buildQuery(alloc, opts.name, reg_w, false);
-    defer alloc.free(reg_query);
-    const regular_path = try font_finder.findFont(alloc, reg_query);
-    defer alloc.free(regular_path);
-
-    const regular = try self.loadFontFromPath(regular_path, opts.size_px);
+    const reg_res = try resolveActive(self, opts.name, reg_w, false, opts.size_px, true);
+    const regular = reg_res.font;
 
     var set: FontSet = .{
         .cell_size = regular.cell_size,
@@ -205,39 +223,29 @@ pub fn loadFontSet(self: *Self, opts: LoadOpts) !FontSet {
         const wants_bold = spec.face == .bold or spec.face == .bold_italic;
         var installed = false;
 
-        if (wants_bold and !have_bold_face) {
-            // Skip lookup; bold-italic would otherwise alias onto the italic
-            // file (its path differs from regular_path), so we'd install a
-            // non-bold italic into the bold-italic slot.
-        } else if (buildQuery(alloc, opts.name, spec.css_weight, spec.italic)) |query| {
-            defer alloc.free(query);
-            if (font_finder.findFont(alloc, query)) |path| {
-                defer alloc.free(path);
-                if (!std.mem.eql(u8, path, regular_path)) {
-                    if (self.loadFontFromPath(path, opts.size_px)) |candidate| {
-                        if (candidate.cell_size.x == regular.cell_size.x and
-                            candidate.cell_size.y == regular.cell_size.y)
-                        {
-                            set.faces[idx] = candidate;
-                            set.synth[idx] = false;
-                            installed = true;
-                        } else {
-                            log.warn("rejecting face '{s}': cell {}x{} != regular {}x{}", .{
-                                path,
-                                candidate.cell_size.x,
-                                candidate.cell_size.y,
-                                regular.cell_size.x,
-                                regular.cell_size.y,
-                            });
-                        }
-                    } else |_| {}
+        if (!(wants_bold and !have_bold_face)) {
+            if (resolveActive(self, opts.name, spec.css_weight, spec.italic, opts.size_px, false)) |r| {
+                if (r.is_real_match) {
+                    if (r.font.cell_size.x == regular.cell_size.x and
+                        r.font.cell_size.y == regular.cell_size.y)
+                    {
+                        set.faces[idx] = r.font;
+                        set.synth[idx] = false;
+                        installed = true;
+                    } else {
+                        log.warn("rejecting face: cell {}x{} != regular {}x{}", .{
+                            r.font.cell_size.x,
+                            r.font.cell_size.y,
+                            regular.cell_size.x,
+                            regular.cell_size.y,
+                        });
+                    }
                 }
             } else |_| {}
-        } else |_| {}
+        }
 
         if (!installed) {
-            // No real face available
-            if (spec.italic) setItalicSynth(&set.faces[idx], true);
+            applySynthFlags(&set.faces[idx], spec.italic, wants_bold);
             set.synth[idx] = true;
         }
     }

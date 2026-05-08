@@ -16,6 +16,12 @@ pub const Hinting = @import("gui_config").Hinting;
 
 pub const Fonts = struct {};
 
+pub const SynthFlags = packed struct(u8) {
+    italic: bool = false,
+    bold: bool = false,
+    _pad: u6 = 0,
+};
+
 pub const Font = struct {
     cell_size: XY(u16) = .{ .x = 8, .y = 16 },
     ascent_px: i32 = 0,
@@ -24,14 +30,28 @@ pub const Font = struct {
     /// Thickness of the underline bar, in pixels (>= 1).
     underline_thickness: u16 = 1,
     face: c.FT_Face = null,
-    /// apply a 12° shear before rasterization
-    /// Used as a fallback when no real italic is available
-    italic_synth: bool = false,
+    synth: SynthFlags = .{},
+};
+
+pub const FaceRequest = struct {
+    family: []const u8,
+    css_weight: u16,
+    italic: bool,
+    size_px: u16,
+    /// regular face for a font set
+    is_baseline: bool,
+};
+
+pub const FaceResolution = struct {
+    font: Font,
+    /// face differs from baseline
+    is_real_match: bool,
 };
 
 library: c.FT_Library,
 allocator: std.mem.Allocator,
 hinting: Hinting = .normal,
+regular_path: ?[]u8 = null,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     var library: c.FT_Library = undefined;
@@ -40,6 +60,8 @@ pub fn init(allocator: std.mem.Allocator) !Self {
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.regular_path) |p| self.allocator.free(p);
+    self.regular_path = null;
     _ = c.FT_Done_FreeType(self.library);
 }
 
@@ -107,6 +129,39 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
     };
 }
 
+/// Resolve a face for a given family + weight + style
+pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
+    if (req.is_baseline) {
+        if (self.regular_path) |old| self.allocator.free(old);
+        self.regular_path = null;
+    }
+
+    const path = try font_finder.findFontVariant(
+        self.allocator,
+        req.family,
+        req.css_weight,
+        req.italic,
+    );
+    errdefer self.allocator.free(path);
+
+    const is_real = if (req.is_baseline)
+        true
+    else if (self.regular_path) |reg|
+        !std.mem.eql(u8, path, reg)
+    else
+        true;
+
+    const font = try self.loadFontFromPath(path, req.size_px);
+
+    if (req.is_baseline) {
+        self.regular_path = path; // transfer ownership
+    } else {
+        self.allocator.free(path);
+    }
+
+    return .{ .font = font, .is_real_match = is_real };
+}
+
 pub fn render(
     self: *const Self,
     font: Font,
@@ -141,7 +196,7 @@ pub fn render(
     if (c.FT_Load_Char(face, codepoint, load_flags) != 0) return;
 
     // Synthetic italic: 12 degree shear of the outline
-    if (font.italic_synth) {
+    if (font.synth.italic) {
         var shear: c.FT_Matrix = .{
             .xx = 0x10000,
             .xy = 13932,

@@ -13,6 +13,12 @@ pub const GlyphKind = enum {
     right,
 };
 
+pub const SynthFlags = packed struct(u8) {
+    italic: bool = false, // noop for TrueType
+    bold: bool = false, // noop for TrueType
+    _pad: u6 = 0,
+};
+
 pub const Font = struct {
     cell_size: XY(u16),
     scale: f32 = 0,
@@ -22,14 +28,29 @@ pub const Font = struct {
     /// Thickness of the underline bar, in pixels (>= 1).
     underline_thickness: u16 = 1,
     tt: ?TrueType = null,
-    /// Italic synthesis is unsupported (has no effect) here
-    italic_synth: bool = false,
+    synth: SynthFlags = .{},
 };
 
 pub const Fonts = struct {};
 
+pub const FaceRequest = struct {
+    family: []const u8,
+    css_weight: u16,
+    italic: bool,
+    size_px: u16,
+    /// regular face font set
+    is_baseline: bool,
+};
+
+pub const FaceResolution = struct {
+    font: Font,
+    /// face differs from baseline
+    is_real_match: bool,
+};
+
 allocator: std.mem.Allocator,
 font_data: std.ArrayListUnmanaged([]u8),
+regular_path: ?[]u8 = null,
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     return .{
@@ -39,6 +60,8 @@ pub fn init(allocator: std.mem.Allocator) !Self {
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.regular_path) |p| self.allocator.free(p);
+    self.regular_path = null;
     for (self.font_data.items) |data| {
         self.allocator.free(data);
     }
@@ -112,6 +135,39 @@ pub fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
         .underline_position = ul_top,
         .underline_thickness = ul_thk_px,
     };
+}
+
+/// Resolve a face for a given family + weight + style
+pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
+    if (req.is_baseline) {
+        if (self.regular_path) |old| self.allocator.free(old);
+        self.regular_path = null;
+    }
+
+    const path = try font_finder.findFontVariant(
+        self.allocator,
+        req.family,
+        req.css_weight,
+        req.italic,
+    );
+    errdefer self.allocator.free(path);
+
+    const is_real = if (req.is_baseline)
+        true
+    else if (self.regular_path) |reg|
+        !std.mem.eql(u8, path, reg)
+    else
+        true;
+
+    const font = try self.loadFontFromPath(path, req.size_px);
+
+    if (req.is_baseline) {
+        self.regular_path = path; // transfer ownership
+    } else {
+        self.allocator.free(path);
+    }
+
+    return .{ .font = font, .is_real_match = is_real };
 }
 
 pub fn render(

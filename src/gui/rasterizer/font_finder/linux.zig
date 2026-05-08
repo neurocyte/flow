@@ -76,3 +76,37 @@ pub fn find(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
 
     return allocator.dupe(u8, std.mem.sliceTo(file, 0));
 }
+
+/// Map CSS-style weight (100..900) to fontconfig's weight scale
+fn cssToFcWeight(css: u16) u16 {
+    const c = std.math.clamp(css, 100, 900);
+    return switch ((c + 50) / 100) {
+        0, 1 => 0, // Thin
+        2 => 40, // ExtraLight
+        3 => 50, // Light
+        4 => 80, // Regular
+        5 => 100, // Medium
+        6 => 180, // SemiBold
+        7 => 200, // Bold
+        8 => 205, // ExtraBold
+        else => 210, // Black
+    };
+}
+
+/// Resolve a specific weight + slant variant of a family
+pub fn findVariant(
+    allocator: std.mem.Allocator,
+    family: []const u8,
+    css_weight: u16,
+    italic: bool,
+) ![]u8 {
+    const fc_weight = cssToFcWeight(css_weight);
+    const slant: u16 = if (italic) 100 else 0; // ITALIC=100, ROMAN=0
+    const query = try std.fmt.allocPrint(
+        allocator,
+        "{s}:weight={d}:slant={d}",
+        .{ family, fc_weight, slant },
+    );
+    defer allocator.free(query);
+    return find(allocator, query);
+}
