@@ -734,7 +734,7 @@ fn wioLoop() void {
 
                 var prev_cp: u21 = ' ';
                 for (cells_with_glyphs, s.codepoints, s.widths) |*cell, cp, w| {
-                    const kind: gpu.GlyphKind = switch (w) {
+                    const split: gpu.GlyphSplit = switch (w) {
                         2 => .left,
                         0 => .right,
                         else => .single,
@@ -742,7 +742,7 @@ fn wioLoop() void {
                     const glyph_cp = if (w == 0) prev_cp else cp;
                     const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
                     const per_face = font_set.faces[@intFromEnum(face)];
-                    cell.glyph_index = state.generateGlyph(per_face, face, glyph_cp, kind);
+                    cell.glyph_index = state.generateGlyph(per_face, face, glyph_cp, split);
                     if (w != 0) prev_cp = cp;
                 }
 

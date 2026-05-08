@@ -7,11 +7,19 @@ const root = @import("soft_root").root;
 
 const Self = @This();
 
-pub const GlyphKind = enum {
+pub const GlyphSplit = enum {
     single,
     left,
     right,
 };
+
+pub const RasterFormat = enum(u2) {
+    alpha = 0,
+    subpixel = 1,
+    color = 2,
+};
+
+pub const RenderResult = struct { format: RasterFormat };
 
 pub const SynthFlags = packed struct(u8) {
     italic: bool = false, // noop for TrueType
@@ -170,44 +178,41 @@ pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
     return .{ .font = font, .is_real_match = is_real };
 }
 
+/// Rasterize a glyph into the staging buffer
+/// The staging buffer is RGBA8
+/// alpha format is written into the red channel
 pub fn render(
     self: *const Self,
     font: Font,
     codepoint: u21,
-    kind: GlyphKind,
+    split: GlyphSplit,
     staging_buf: []u8,
-) void {
-    // Always use 2*cell_w as the row stride so it matches the staging buffer
-    // width allocated by generateGlyph (which always allocates 2*cell_w wide).
+) RenderResult {
     const buf_w: i32 = @as(i32, @intCast(font.cell_size.x)) * 2;
     const buf_h: i32 = @intCast(font.cell_size.y);
-    const x_offset: i32 = switch (kind) {
+    const x_offset: i32 = switch (split) {
         .single, .left => 0,
         .right => @intCast(font.cell_size.x),
     };
     const cw: i32 = @intCast(font.cell_size.x);
     const ch: i32 = @intCast(font.cell_size.y);
 
-    // Block element characters, box-drawing, and related Unicode symbols are
-    // rasterized geometrically rather than through the TrueType anti-aliasing path.
-    // Anti-aliased edges produce partial-alpha pixels at cell boundaries, creating
-    // visible seams between adjacent cells when fg ≠ bg.
-    if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return;
-    if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return;
-    if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return;
+    if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
 
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const tt = font.tt orelse return;
+    const tt = font.tt orelse return .{ .format = .alpha };
 
     var pixels = std.ArrayList(u8).empty;
 
     const glyph = tt.codepointGlyphIndex(codepoint);
-    const dims = tt.glyphBitmap(alloc, &pixels, glyph, font.scale, font.scale) catch return;
+    const dims = tt.glyphBitmap(alloc, &pixels, glyph, font.scale, font.scale) catch return .{ .format = .alpha };
 
-    if (dims.width == 0 or dims.height == 0) return;
+    if (dims.width == 0 or dims.height == 0) return .{ .format = .alpha };
 
     for (0..dims.height) |row| {
         const dst_y: i32 = font.ascent_px + @as(i32, dims.off_y) + @as(i32, @intCast(row));
@@ -218,11 +223,12 @@ pub fn render(
             if (dst_x < 0 or dst_x >= buf_w) continue;
 
             const src_idx = row * dims.width + col;
-            const dst_idx: usize = @intCast(dst_y * buf_w + dst_x);
+            const dst_idx: usize = @as(usize, @intCast(dst_y * buf_w + dst_x)) * 4;
 
             if (src_idx < pixels.items.len and dst_idx < staging_buf.len) {
                 staging_buf[dst_idx] = pixels.items[src_idx];
             }
         }
     }
+    return .{ .format = .alpha };
 }

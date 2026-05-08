@@ -10,11 +10,19 @@ pub const Font = struct {
 
 pub const Fonts = struct {};
 
-pub const GlyphKind = enum {
+pub const GlyphSplit = enum {
     single,
     left,
     right,
 };
+
+pub const RasterFormat = enum(u2) {
+    alpha = 0,
+    subpixel = 1,
+    color = 2,
+};
+
+pub const RenderResult = struct { format: RasterFormat };
 
 pub fn init(allocator: std.mem.Allocator) !Self {
     _ = allocator;
@@ -37,13 +45,14 @@ pub fn render(
     self: *const Self,
     font: Font,
     codepoint: u21,
-    kind: GlyphKind,
+    split: GlyphSplit,
     staging_buf: []u8,
-) void {
+) RenderResult {
     _ = self;
     _ = font;
     _ = codepoint;
-    _ = kind;
+    _ = split;
     // Blank glyph — caller has already zeroed staging_buf.
     _ = staging_buf;
+    return .{ .format = .alpha };
 }

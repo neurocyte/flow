@@ -5,7 +5,8 @@
 ///
 /// All functions take the same parameter set:
 ///   cp      — Unicode codepoint
-///   buf     — A8 staging buffer (width = buf_w, height = buf_h)
+///   buf     — RGBA8 staging buffer (4 bytes/pixel; alpha is written into the
+///             red channel, other channels are left untouched)
 ///   buf_w   — buffer row stride in pixels (always 2*cell_w for wide glyphs)
 ///   buf_h   — buffer height in pixels (= cell height)
 ///   x0      — left edge of this cell within buf (0 for left/single, cell_w for right)
@@ -24,7 +25,7 @@ pub fn fillRect(buf: []u8, buf_w: i32, buf_h: i32, x0: i32, y0: i32, x1: i32, y1
     while (y < cy1) : (y += 1) {
         var x = cx0;
         while (x < cx1) : (x += 1) {
-            buf[@intCast(y * buf_w + x)] = 255;
+            buf[@as(usize, @intCast(y * buf_w + x)) * 4] = 255;
         }
     }
 }
@@ -52,8 +53,8 @@ fn drawRoundedCornerArea(
             const dx: f32 = @as(f32, @floatFromInt(cx)) + 0.5 - corner_fx;
             if (dx * dx + dy * dy >= r2) {
                 const idx = cy * buf_w + cx;
-                if (idx >= 0 and idx < @as(i32, @intCast(buf.len)))
-                    buf[@intCast(idx)] = 255;
+                if (idx >= 0 and (@as(usize, @intCast(idx)) * 4) < buf.len)
+                    buf[@as(usize, @intCast(idx)) * 4] = 255;
             }
         }
     }
@@ -101,7 +102,7 @@ pub fn renderBlockElement(
                 var x = x0 + @mod(y, 2);
                 while (x < x1) : (x += 2) {
                     if (x >= 0 and x < buf_w and y >= 0 and y < buf_h)
-                        buf[@intCast(y * buf_w + x)] = 255;
+                        buf[@as(usize, @intCast(y * buf_w + x)) * 4] = 255;
                 }
             }
         },
@@ -118,7 +119,7 @@ pub fn renderBlockElement(
                 var x = x0 + @mod(y, 2);
                 while (x < x1) : (x += 2) {
                     if (x >= 0 and x < buf_w and y >= 0 and y < buf_h)
-                        buf[@intCast(y * buf_w + x)] = 0;
+                        buf[@as(usize, @intCast(y * buf_w + x)) * 4] = 0;
                 }
             }
         },

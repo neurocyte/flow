@@ -13,7 +13,8 @@ const builtin_shader = @import("builtin.glsl.zig");
 pub const Font = Rasterizer.Font;
 pub const FontSet = Rasterizer.FontSet;
 pub const Face = Rasterizer.Face;
-pub const GlyphKind = Rasterizer.GlyphKind;
+pub const GlyphSplit = Rasterizer.GlyphSplit;
+pub const RasterFormat = Rasterizer.RasterFormat;
 pub const RasterizerBackend = Rasterizer.Backend;
 pub const Hinting = Rasterizer.Hinting;
 pub const Cell = @import("cell").Cell;
@@ -53,6 +54,7 @@ fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
 //   31..8 : underline color RRGGBB (24 bits, 0 → use fg)
 //    7..5 : ul_style (3 bits, 0=off..5=dashed)
 //    4    : strikethrough flag
+//    3..2 : glyph_kind (00=alpha, 01=subpixel, 10=color, 11=reserved)
 //    0    : secondary-cursor flag
 const ShaderCell = extern struct {
     glyph_index: u32,
@@ -61,7 +63,7 @@ const ShaderCell = extern struct {
     deco: u32 = 0,
 };
 
-fn packDeco(src: Cell) u32 {
+fn packDeco(src: Cell, kind: u2) u32 {
     const ulc = src.underline;
     // ulc.a == 0 signals "use foreground"; keep packed RGB at zero in that case.
     const color24: u32 = if (ulc.a == 0)
@@ -70,7 +72,8 @@ fn packDeco(src: Cell) u32 {
         (@as(u32, ulc.r) << 24) | (@as(u32, ulc.g) << 16) | (@as(u32, ulc.b) << 8);
     const style: u32 = (@as(u32, src.ul_style) & 7) << 5;
     const strike: u32 = if (src.strikethrough != 0) (@as(u32, 1) << 4) else 0;
-    return color24 | style | strike;
+    const kbits: u32 = (@as(u32, kind) & 3) << 2;
+    return color24 | style | strike | kbits;
 }
 
 const global = struct {
@@ -200,7 +203,7 @@ pub const WindowState = struct {
         state.glyph_image = sg.makeImage(.{
             .width = pixel_size.x,
             .height = pixel_size.y,
-            .pixel_format = .R8,
+            .pixel_format = .RGBA8,
             .usage = .{ .dynamic_update = true },
         });
         state.glyph_view = sg.makeView(.{
@@ -241,7 +244,7 @@ pub const WindowState = struct {
         font: Font,
         face: Face,
         codepoint: u21,
-        kind: Rasterizer.GlyphKind,
+        split: Rasterizer.GlyphSplit,
     ) u32 {
         const atlas_cell_count = getAtlasCellCount(font.cell_size);
         const atlas_total: u32 = @as(u32, atlas_cell_count.x) * @as(u32, atlas_cell_count.y);
@@ -275,7 +278,7 @@ pub const WindowState = struct {
             break :blk &(state.glyph_index_cache.?);
         };
 
-        const right_half: bool = switch (kind) {
+        const right_half: bool = switch (split) {
             .single, .left => false,
             .right => true,
         };
@@ -287,18 +290,18 @@ pub const WindowState = struct {
             @intFromEnum(face),
         ) catch |e| oom(e)) {
             .newly_reserved => |reserved| {
-                // Rasterize into a staging buffer then upload the relevant
-                // portion to the atlas.
+                // Rasterize into RGBA staging buffer then upload to the atlas
                 const staging_w: u32 = @as(u32, font.cell_size.x) * 2;
                 const staging_h: u32 = font.cell_size.y;
                 var staging_buf = global.glyph_cache_arena.allocator().alloc(
                     u8,
-                    staging_w * staging_h,
+                    staging_w * staging_h * 4,
                 ) catch |e| oom(e);
                 defer global.glyph_cache_arena.allocator().free(staging_buf);
                 @memset(staging_buf, 0);
 
-                global.rasterizer.render(font, codepoint, kind, staging_buf);
+                const rr = global.rasterizer.render(font, codepoint, split, staging_buf);
+                cache.nodes[reserved.index].kind = @intFromEnum(rr.format);
 
                 // Atlas cell position for this glyph index
                 const atlas_col: u16 = @intCast(reserved.index % atlas_cell_count.x);
@@ -312,16 +315,18 @@ pub const WindowState = struct {
                 const glyph_h: u16 = font.cell_size.y;
 
                 // Build a sub-region buffer for sokol updateImage
+                const glyph_row_bytes: u32 = @as(u32, glyph_w) * 4;
+                const staging_row_bytes: u32 = staging_w * 4;
                 var region_buf = global.glyph_cache_arena.allocator().alloc(
                     u8,
-                    @as(u32, glyph_w) * @as(u32, glyph_h),
+                    glyph_row_bytes * @as(u32, glyph_h),
                 ) catch |e| oom(e);
                 defer global.glyph_cache_arena.allocator().free(region_buf);
 
                 for (0..glyph_h) |row_i| {
-                    const src_off = row_i * staging_w + src_x;
-                    const dst_off = row_i * glyph_w;
-                    @memcpy(region_buf[dst_off .. dst_off + glyph_w], staging_buf[src_off .. src_off + glyph_w]);
+                    const src_off = row_i * staging_row_bytes + @as(u32, src_x) * 4;
+                    const dst_off = row_i * glyph_row_bytes;
+                    @memcpy(region_buf[dst_off .. dst_off + glyph_row_bytes], staging_buf[src_off .. src_off + glyph_row_bytes]);
                 }
 
                 // Write into the CPU-side atlas shadow.  The GPU upload is
@@ -336,12 +341,13 @@ pub const WindowState = struct {
     }
 };
 
-// CPU-side shadow copy of the glyph atlas (R8, row-major).
+// CPU-side shadow copy of the glyph atlas (RGBA8, row-major).
 // Kept alive for the process lifetime; resized when the atlas image grows.
 var atlas_cpu: ?[]u8 = null;
 var atlas_cpu_size: XY(u16) = .{ .x = 0, .y = 0 };
 
 // Blit one glyph cell into the CPU-side atlas shadow.
+// pixels is RGBA8 with stride = w * 4.
 fn blitAtlasCpu(
     state: *const WindowState,
     x: u16,
@@ -351,20 +357,22 @@ fn blitAtlasCpu(
     pixels: []const u8,
 ) void {
     const asz = state.glyph_image_size;
-    const total: usize = @as(usize, asz.x) * @as(usize, asz.y);
+    const total_bytes: usize = @as(usize, asz.x) * @as(usize, asz.y) * 4;
 
     if (!atlas_cpu_size.eql(asz)) {
         if (atlas_cpu) |old| std.heap.page_allocator.free(old);
-        atlas_cpu = std.heap.page_allocator.alloc(u8, total) catch |e| oom(e);
+        atlas_cpu = std.heap.page_allocator.alloc(u8, total_bytes) catch |e| oom(e);
         @memset(atlas_cpu.?, 0);
         atlas_cpu_size = asz;
     }
 
     const buf = atlas_cpu.?;
+    const row_bytes: usize = @as(usize, w) * 4;
+    const atlas_row_bytes: usize = @as(usize, asz.x) * 4;
     for (0..h) |row_i| {
-        const src_off = row_i * w;
-        const dst_off = (@as(usize, y) + row_i) * asz.x + x;
-        @memcpy(buf[dst_off .. dst_off + w], pixels[src_off .. src_off + w]);
+        const src_off = row_i * row_bytes;
+        const dst_off = (@as(usize, y) + row_i) * atlas_row_bytes + @as(usize, x) * 4;
+        @memcpy(buf[dst_off .. dst_off + row_bytes], pixels[src_off .. src_off + row_bytes]);
     }
 }
 
@@ -372,11 +380,11 @@ fn blitAtlasCpu(
 // Must be called outside a sokol render pass.
 fn flushGlyphAtlas(state: *WindowState) void {
     const asz = state.glyph_image_size;
-    const total: usize = @as(usize, asz.x) * @as(usize, asz.y);
+    const total_bytes: usize = @as(usize, asz.x) * @as(usize, asz.y) * 4;
     const buf = atlas_cpu orelse return;
 
     var img_data: sg.ImageData = .{};
-    img_data.mip_levels[0] = .{ .ptr = buf.ptr, .size = total };
+    img_data.mip_levels[0] = .{ .ptr = buf.ptr, .size = total_bytes };
     sg.updateImage(state.glyph_image, img_data);
     state.glyph_atlas_dirty = false;
 }
@@ -403,6 +411,9 @@ pub fn paint(
 
     const shader_cells = state.cell_buf.items[0 .. @as(u32, shader_col_count) * @as(u32, shader_row_count)];
 
+    // cache holds the per-glyph format
+    const cache_nodes: ?[]GlyphIndexCache.Node = if (state.glyph_index_cache) |*c| c.nodes else null;
+
     for (0..shader_row_count) |row_i| {
         const src_row = blk: {
             const r = top + @as(u16, @intCast(row_i));
@@ -414,11 +425,15 @@ pub fn paint(
 
         for (0..copy_len) |ci| {
             const src = cells[src_row_offset + ci];
+            const kind: u2 = if (cache_nodes) |nodes|
+                (if (src.glyph_index < nodes.len) nodes[src.glyph_index].kind else 0)
+            else
+                0;
             shader_cells[dst_row_offset + ci] = .{
                 .glyph_index = src.glyph_index,
                 .bg = src.background.to_u32(),
                 .fg = src.foreground.to_u32(),
-                .deco = packDeco(src),
+                .deco = packDeco(src, kind),
             };
         }
         for (copy_len..shader_col_count) |ci| {

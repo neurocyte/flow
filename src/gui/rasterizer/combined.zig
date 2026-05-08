@@ -10,7 +10,9 @@ const FT = @import("ft_rasterizer");
 
 const log = std.log.scoped(.rasterizer);
 
-pub const GlyphKind = TT.GlyphKind;
+pub const GlyphSplit = TT.GlyphSplit;
+pub const RasterFormat = TT.RasterFormat;
+pub const RenderResult = TT.RenderResult;
 pub const Fonts = struct {};
 pub const font_finder = TT.font_finder;
 
@@ -268,11 +270,17 @@ pub fn render(
     self: *const Self,
     font: Font,
     codepoint: u21,
-    kind: GlyphKind,
+    split: GlyphSplit,
     staging_buf: []u8,
-) void {
-    switch (font.backend) {
-        .truetype => |f| self.tt.render(f, codepoint, kind, staging_buf),
-        .freetype => |f| self.ft.render(f, codepoint, @enumFromInt(@intFromEnum(kind)), staging_buf),
-    }
+) RenderResult {
+    return switch (font.backend) {
+        .truetype => |f| blk: {
+            const r = self.tt.render(f, codepoint, split, staging_buf);
+            break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
+        },
+        .freetype => |f| blk: {
+            const r = self.ft.render(f, codepoint, @enumFromInt(@intFromEnum(split)), staging_buf);
+            break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
+        },
+    };
 }

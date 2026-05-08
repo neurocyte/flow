@@ -2,8 +2,12 @@
 // Targets the GLCORE backend only (OpenGL 4.10 core profile).
 //
 // Vertex stage:  full-screen quad from gl_VertexID (no vertex buffer needed)
-// Fragment stage: cell-grid renderer — reads a RGBA32UI cell texture and an
-//                 R8 glyph-atlas texture and blends fg over bg per pixel.
+// Fragment stage: cell-grid renderer - reads a RGBA32UI cell texture and an
+//                 RGBA8 glyph-atlas texture and blends fg over bg per pixel.
+//                 The glyph atlas carries one of three formats per glyph,
+//                 encoded in deco bits 3..2: alpha (R-channel coverage),
+//                 subpixel (per-channel RGB coverage), or premultiplied RGBA
+//                 color.
 
 const sg = @import("sokol").gfx;
 
@@ -98,13 +102,14 @@ const fs_src =
     \\    int gr = gi / cells_per_row;
     \\    ivec2 atlas_coord = ivec2(gc * cell_size_x + cell_px_x,
     \\                              gr * cell_size_y + cell_px_y);
-    \\    float glyph_alpha = texelFetch(glyph_tex_glyph_smp, atlas_coord, 0).r;
+    \\    vec4 glyph_sample = texelFetch(glyph_tex_glyph_smp, atlas_coord, 0);
     \\
     \\    // Decoration field (bits: 31..8=ul_color RRGGBB, 7..5=ul_style,
-    \\    // 4=strikethrough, 0=secondary cursor flag)
+    \\    // 4=strikethrough, 3..2=glyph_kind, 0=secondary cursor flag)
     \\    uint deco = cell.a;
     \\    uint ul_style = (deco >> 5u) & 7u;
     \\    bool strike = ((deco >> 4u) & 1u) != 0u;
+    \\    uint glyph_kind = (deco >> 2u) & 3u;
     \\    uint ul_packed = deco >> 8u;
     \\
     \\    // Cursor detection
@@ -131,7 +136,21 @@ const fs_src =
     \\        }
     \\    }
     \\
-    \\    vec3 composed = mix(final_bg, final_fg, fg.a * glyph_alpha);
+    \\    vec3 composed;
+    \\    if (glyph_kind == 0u) {
+    \\        // Alpha coverage in the red channel; blend fg over bg.
+    \\        composed = mix(final_bg, final_fg, fg.a * glyph_sample.r);
+    \\    } else if (glyph_kind == 1u) {
+    \\        // Per-channel subpixel coverage.
+    \\        composed = vec3(
+    \\            mix(final_bg.r, final_fg.r, fg.a * glyph_sample.r),
+    \\            mix(final_bg.g, final_fg.g, fg.a * glyph_sample.g),
+    \\            mix(final_bg.b, final_fg.b, fg.a * glyph_sample.b)
+    \\        );
+    \\    } else {
+    \\        // Premultiplied RGBA color glyph composited over background.
+    \\        composed = glyph_sample.rgb + final_bg * (1.0 - glyph_sample.a);
+    \\    }
     \\
     \\    // Underline overlay
     \\    if (ul_style != 0u) {
@@ -209,7 +228,7 @@ pub fn shaderDesc(backend: sg.Backend) sg.ShaderDesc {
             desc.uniform_blocks[0].glsl_uniforms[12] = .{ .type = .FLOAT4, .glsl_name = "sec_cursor_color" };
             desc.uniform_blocks[0].glsl_uniforms[13] = .{ .type = .FLOAT4, .glsl_name = "bg_color" };
 
-            // Glyph atlas texture: R8 → sample_type = FLOAT
+            // Glyph atlas texture: RGBA8 → sample_type = FLOAT
             desc.views[0].texture = .{
                 .stage = .FRAGMENT,
                 .image_type = ._2D,

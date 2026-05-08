@@ -1,12 +1,14 @@
 const GlyphIndexCache = @This();
 const std = @import("std");
 
-const Node = struct {
+pub const Node = struct {
     prev: ?u32,
     next: ?u32,
     codepoint: ?u21,
     right_half: ?bool,
     face: u2,
+    /// glyph format: 0=alpha, 1=subpixel, 2=color.
+    kind: u2 = 0,
 };
 
 const MapKey = struct {
@@ -33,8 +35,22 @@ pub fn init(allocator: std.mem.Allocator, capacity: u32) error{OutOfMemory}!Glyp
 
 pub fn clearRetainingCapacity(self: *GlyphIndexCache) void {
     self.map.clearRetainingCapacity();
-    self.nodes[0] = .{ .prev = null, .next = 1, .codepoint = null, .right_half = null, .face = 0 };
-    self.nodes[self.nodes.len - 1] = .{ .prev = @intCast(self.nodes.len - 2), .next = null, .codepoint = null, .right_half = null, .face = 0 };
+    self.nodes[0] = .{
+        .prev = null,
+        .next = 1,
+        .codepoint = null,
+        .right_half = null,
+        .face = 0,
+        .kind = 0,
+    };
+    self.nodes[self.nodes.len - 1] = .{
+        .prev = @intCast(self.nodes.len - 2),
+        .next = null,
+        .codepoint = null,
+        .right_half = null,
+        .face = 0,
+        .kind = 0,
+    };
     for (self.nodes[1 .. self.nodes.len - 1], 1..) |*node, index| {
         node.* = .{
             .prev = @intCast(index - 1),
@@ -42,6 +58,7 @@ pub fn clearRetainingCapacity(self: *GlyphIndexCache) void {
             .codepoint = null,
             .right_half = null,
             .face = 0,
+            .kind = 0,
         };
     }
     self.front = 0;

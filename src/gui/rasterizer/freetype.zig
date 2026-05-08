@@ -11,8 +11,16 @@ pub const font_finder = @import("font_finder");
 
 const Self = @This();
 
-pub const GlyphKind = enum { single, left, right };
+pub const GlyphSplit = enum { single, left, right };
 pub const Hinting = @import("gui_config").Hinting;
+
+pub const RasterFormat = enum(u2) {
+    alpha = 0,
+    subpixel = 1,
+    color = 2,
+};
+
+pub const RenderResult = struct { format: RasterFormat };
 
 pub const Fonts = struct {};
 
@@ -162,27 +170,30 @@ pub fn resolveFace(self: *Self, req: FaceRequest) !FaceResolution {
     return .{ .font = font, .is_real_match = is_real };
 }
 
+/// Rasterize a glyph into the staging buffer
+/// The staging buffer is RGBA8
+/// alpha format is written into the red channel
 pub fn render(
     self: *const Self,
     font: Font,
     codepoint: u21,
-    kind: GlyphKind,
+    split: GlyphSplit,
     staging_buf: []u8,
-) void {
+) RenderResult {
     const buf_w: i32 = @as(i32, @intCast(font.cell_size.x)) * 2;
     const buf_h: i32 = @intCast(font.cell_size.y);
-    const x_offset: i32 = switch (kind) {
+    const x_offset: i32 = switch (split) {
         .single, .left => 0,
         .right => @intCast(font.cell_size.x),
     };
     const cw: i32 = @intCast(font.cell_size.x);
     const ch: i32 = @intCast(font.cell_size.y);
 
-    if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return;
-    if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return;
-    if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return;
+    if (geometric.renderBlockElement(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    if (geometric.renderBoxDrawing(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
+    if (geometric.renderExtendedBlocks(codepoint, staging_buf, buf_w, buf_h, x_offset, cw, ch)) return .{ .format = .alpha };
 
-    const face = font.face orelse return;
+    const face = font.face orelse return .{ .format = .alpha };
 
     // FT_LOAD_NO_BITMAP forces an outline (needed for italic-synth shearing,
     // and avoids embedded bitmap strikes that may not match our cell metrics).
@@ -193,7 +204,7 @@ pub fn render(
         .mono => c.FT_LOAD_TARGET_MONO,
     };
     const load_flags: c.FT_Int32 = @intCast(c.FT_LOAD_DEFAULT | c.FT_LOAD_NO_BITMAP | hint_flags);
-    if (c.FT_Load_Char(face, codepoint, load_flags) != 0) return;
+    if (c.FT_Load_Char(face, codepoint, load_flags) != 0) return .{ .format = .alpha };
 
     // Synthetic italic: 12 degree shear of the outline
     if (font.synth.italic) {
@@ -210,11 +221,11 @@ pub fn render(
         c.FT_RENDER_MODE_MONO
     else
         c.FT_RENDER_MODE_NORMAL;
-    if (c.FT_Render_Glyph(face.*.glyph, render_mode) != 0) return;
+    if (c.FT_Render_Glyph(face.*.glyph, render_mode) != 0) return .{ .format = .alpha };
 
     const bm = face.*.glyph.*.bitmap;
-    if (bm.rows == 0 or bm.width == 0) return;
-    if (bm.pitch <= 0) return; // skip bottom-up bitmaps (unusual for normal mode)
+    if (bm.rows == 0 or bm.width == 0) return .{ .format = .alpha };
+    if (bm.pitch <= 0) return .{ .format = .alpha }; // skip bottom-up bitmaps (unusual for normal mode)
 
     const pitch: u32 = @intCast(bm.pitch);
     const off_x: i32 = face.*.glyph.*.bitmap_left;
@@ -231,7 +242,7 @@ pub fn render(
             const dst_x = x_offset + off_x + @as(i32, @intCast(col));
             if (dst_x < 0 or dst_x >= buf_w) continue;
 
-            const dst_idx: usize = @intCast(dst_y * buf_w + dst_x);
+            const dst_idx: usize = @as(usize, @intCast(dst_y * buf_w + dst_x)) * 4;
             if (dst_idx >= staging_buf.len) continue;
 
             const px: u8 = if (is_mono) blk: {
@@ -243,4 +254,5 @@ pub fn render(
             staging_buf[dst_idx] = px;
         }
     }
+    return .{ .format = .alpha };
 }
