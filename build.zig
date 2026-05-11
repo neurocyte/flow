@@ -267,7 +267,7 @@ pub fn build_exe(
 
     var version_info: std.Io.Writer.Allocating = .init(b.allocator);
     defer version_info.deinit();
-    gen_version_info(b, target, &version_info.writer, optimize) catch |e| {
+    gen_version_info(b, target, &version_info.writer, optimize, renderer) catch |e| {
         if (b.release_mode != .off)
             std.debug.panic("gen_version failed: {any}", .{e});
         version_info.clearRetainingCapacity();
@@ -992,6 +992,7 @@ fn gen_version_info(
     target: std.Build.ResolvedTarget,
     writer: anytype,
     optimize: std.builtin.OptimizeMode,
+    renderer: Renderer,
 ) !void {
     var code: u8 = 0;
 
@@ -1029,11 +1030,12 @@ fn gen_version_info(
     const diff = std.mem.trimEnd(u8, diff_, "\r\n ");
     const target_triple = try target.result.zigTriple(b.allocator);
 
-    try writer.print("Flow Control: a programmer's text editor\n\nversion: {s}{s}\ncommitted: {s}\ntarget: {s}\n", .{
+    try writer.print("Flow Control: a programmer's text editor\n\nversion: {s}{s}\ncommitted: {s}\ntarget: {s}\nrenderer: {t}\n", .{
         version,
         if (diff.len > 0) "-dirty" else "",
         date,
         target_triple,
+        renderer,
     });
 
     if (branch.len > 0) if (tracking_branch.len > 0)
