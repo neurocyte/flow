@@ -515,7 +515,7 @@ pub fn paint(
             shader_col_count,
             shader_row_count,
         },
-        .viewport = .{ @intCast(client_size.y), 0, 0, 0 },
+        .viewport = .{ @intCast(client_size.y), @intCast(client_size.x), 0, 0 },
         .cursor_pos = .{
             cursor.col,
             cursor.row,

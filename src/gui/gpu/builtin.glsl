@@ -12,18 +12,23 @@
 @ctype vec4 [4]f32
 
 @vs vs
+// top-left = (0,0), bottom-right = (1,1) on all platforms
+out vec2 v_uv;
 void main() {
     int id = gl_VertexIndex;
-    float x = 2.0 * (float(id & 1) - 0.5);
-    float y = -(float(id >> 1) - 0.5) * 2.0;
-    gl_Position = vec4(x, y, 0.0, 1.0);
+    float u = float(id & 1);
+    float v = float(id >> 1);
+    v_uv = vec2(u, v);
+    gl_Position = vec4(2.0 * u - 1.0, 1.0 - 2.0 * v, 0.0, 1.0);
 }
 @end
 
 @fs fs
+in vec2 v_uv;
+
 layout(binding=0) uniform fs_params {
     ivec4 cell_size;      // .xy = cell px size, .zw = col_count, row_count
-    ivec4 viewport;       // .x = viewport_height, .yzw = pad
+    ivec4 viewport;       // .x = viewport_height, .y = viewport_width, .zw = pad
     ivec4 cursor_pos;     // .x = col, .y = row, .z = shape, .w = vis
     ivec4 underline_info; // .x = position, .y = thickness, .zw = pad
     vec4 cursor_color;
@@ -57,6 +62,7 @@ void main() {
     int col_count = cell_size.z;
     int row_count = cell_size.w;
     int viewport_height = viewport.x;
+    int viewport_width = viewport.y;
     int cursor_col = cursor_pos.x;
     int cursor_row = cursor_pos.y;
     int cursor_shape = cursor_pos.z;
@@ -64,9 +70,9 @@ void main() {
     int underline_position = underline_info.x;
     int underline_thickness = underline_info.y;
 
-    // Convert gl_FragCoord (bottom-left origin) to top-left origin.
-    int px = int(gl_FragCoord.x);
-    int py = viewport_height - 1 - int(gl_FragCoord.y);
+    // v_uv: (0,0) top-left, (1,1) bottom-right — portable across GL/D3D.
+    int px = int(v_uv.x * float(viewport_width));
+    int py = int(v_uv.y * float(viewport_height));
     int col = px / cell_size_x;
     int row = py / cell_size_y;
 
