@@ -11,6 +11,7 @@ const XY = @import("xy").XY;
 const shader = @import("shader");
 
 pub const Font = Rasterizer.Font;
+pub const RasterizerFont = Rasterizer.RasterizerFont;
 pub const FontSet = Rasterizer.FontSet;
 pub const Face = Rasterizer.Face;
 pub const GlyphSplit = Rasterizer.GlyphSplit;

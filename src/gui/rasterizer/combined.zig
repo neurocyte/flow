@@ -1,20 +1,24 @@
-/// Combined rasterizer — wraps TrueType and FreeType backends with runtime switching.
-/// Satisfies the GlyphRasterizer interface (see GlyphRasterizer.zig).
+/// Runtime switchable rasterizer
 ///
-/// The active backend is changed via setBackend().  Callers must reload fonts
-/// after switching (the Font struct's .backend tag must match the active backend).
 const std = @import("std");
+const builtin = @import("builtin");
 const XY = @import("xy").XY;
-const TT = @import("tt_rasterizer");
-const FT = @import("ft_rasterizer");
+
+const is_windows = builtin.os.tag == .windows;
+
+const TT = if (is_windows) void else @import("tt_rasterizer");
+const FT = if (is_windows) void else @import("ft_rasterizer");
+const DW = if (is_windows) @import("dw_rasterizer") else void;
+
+const Primary = if (is_windows) DW else TT;
 
 const log = std.log.scoped(.rasterizer);
 
-pub const GlyphSplit = TT.GlyphSplit;
-pub const RasterFormat = TT.RasterFormat;
-pub const RenderResult = TT.RenderResult;
+pub const GlyphSplit = Primary.GlyphSplit;
+pub const RasterFormat = Primary.RasterFormat;
+pub const RenderResult = Primary.RenderResult;
 pub const Fonts = struct {};
-pub const font_finder = TT.font_finder;
+pub const font_finder = Primary.font_finder;
 
 pub const Backend = @import("gui_config").RasterizerBackend;
 pub const Hinting = @import("gui_config").Hinting;
@@ -26,28 +30,37 @@ pub const Face = enum(u2) {
     bold_italic = 3,
 };
 
-/// Backend-specific font data.
-pub const BackendFont = union(Backend) {
-    truetype: TT.Font,
-    freetype: FT.Font,
-};
+/// rasterizer specific font data
+pub const RasterizerFont = if (is_windows)
+    union(Backend) {
+        dwrite: DW.Font,
+    }
+else
+    union(Backend) {
+        truetype: TT.Font,
+        freetype: FT.Font,
+    };
 
-/// Combined font handle.  `cell_size` is hoisted to the top level so all
-/// existing callers that do `font.cell_size.x / .y` continue to work without
-/// change.  Backend-specific data lives in `backend`.
+/// combined font handle
 pub const Font = struct {
     cell_size: XY(u16),
     /// Top edge of the underline bar, in pixels from the top of the cell.
     underline_position: i32 = 0,
     /// Thickness of the underline bar, in pixels (>= 1).
     underline_thickness: u16 = 1,
-    backend: BackendFont,
+    backend: RasterizerFont,
 };
 
 fn applySynthFlags(font: *Font, italic: bool, bold: bool) void {
-    switch (font.backend) {
-        .truetype => |*f| f.synth = .{ .italic = italic, .bold = bold },
-        .freetype => |*f| f.synth = .{ .italic = italic, .bold = bold },
+    if (is_windows) {
+        switch (font.backend) {
+            .dwrite => |*f| f.synth = .{ .italic = italic, .bold = bold },
+        }
+    } else {
+        switch (font.backend) {
+            .truetype => |*f| f.synth = .{ .italic = italic, .bold = bold },
+            .freetype => |*f| f.synth = .{ .italic = italic, .bold = bold },
+        }
     }
 }
 
@@ -57,17 +70,27 @@ fn applyLineHeightToFace(font: *Font, top_pad: i32, target_h: i32) void {
     const new_ul: i32 = @max(0, @min(target_h - ul_thk, font.underline_position + top_pad));
     font.cell_size.y = target_h_u;
     font.underline_position = new_ul;
-    switch (font.backend) {
-        .truetype => |*f| {
-            f.cell_size.y = target_h_u;
-            f.ascent_px += top_pad;
-            f.underline_position = new_ul;
-        },
-        .freetype => |*f| {
-            f.cell_size.y = target_h_u;
-            f.ascent_px += top_pad;
-            f.underline_position = new_ul;
-        },
+    if (is_windows) {
+        switch (font.backend) {
+            .dwrite => |*f| {
+                f.cell_size.y = target_h_u;
+                f.ascent_px += top_pad;
+                f.underline_position = new_ul;
+            },
+        }
+    } else {
+        switch (font.backend) {
+            .truetype => |*f| {
+                f.cell_size.y = target_h_u;
+                f.ascent_px += top_pad;
+                f.underline_position = new_ul;
+            },
+            .freetype => |*f| {
+                f.cell_size.y = target_h_u;
+                f.ascent_px += top_pad;
+                f.underline_position = new_ul;
+            },
+        }
     }
 }
 
@@ -90,19 +113,29 @@ pub const LoadOpts = struct {
 
 const Self = @This();
 
-active: Backend = .truetype,
-tt: TT,
-ft: FT,
+active: Backend = if (is_windows) .dwrite else .truetype,
+tt: if (is_windows) void else TT = if (is_windows) {} else undefined,
+ft: if (is_windows) void else FT = if (is_windows) {} else undefined,
+dw: if (is_windows) DW else void = if (is_windows) undefined else {},
 
 pub fn init(allocator: std.mem.Allocator) !Self {
-    const tt = try TT.init(allocator);
-    const ft = try FT.init(allocator);
-    return .{ .tt = tt, .ft = ft };
+    if (is_windows) {
+        const dw = try DW.init(allocator);
+        return .{ .dw = dw };
+    } else {
+        const tt = try TT.init(allocator);
+        const ft = try FT.init(allocator);
+        return .{ .tt = tt, .ft = ft };
+    }
 }
 
 pub fn deinit(self: *Self) void {
-    self.tt.deinit();
-    self.ft.deinit();
+    if (is_windows) {
+        self.dw.deinit();
+    } else {
+        self.tt.deinit();
+        self.ft.deinit();
+    }
 }
 
 pub fn setBackend(self: *Self, backend: Backend) void {
@@ -110,35 +143,54 @@ pub fn setBackend(self: *Self, backend: Backend) void {
 }
 
 pub fn setHinting(self: *Self, h: Hinting) void {
-    self.ft.hinting = h;
+    if (is_windows) {
+        self.dw.hinting = h;
+    } else {
+        self.ft.hinting = h;
+    }
 }
 
 pub fn loadFont(self: *Self, name: []const u8, size_px: u16) !Font {
-    const path = try font_finder.findFont(self.tt.allocator, name);
-    defer self.tt.allocator.free(path);
+    const allocator = if (is_windows) self.dw.allocator else self.tt.allocator;
+    const path = try font_finder.findFont(allocator, name);
+    defer allocator.free(path);
     return self.loadFontFromPath(path, size_px);
 }
 
 fn loadFontFromPath(self: *Self, path: []const u8, size_px: u16) !Font {
-    switch (self.active) {
-        .truetype => {
-            const f = try self.tt.loadFontFromPath(path, size_px);
-            return .{
-                .cell_size = f.cell_size,
-                .underline_position = f.underline_position,
-                .underline_thickness = f.underline_thickness,
-                .backend = .{ .truetype = f },
-            };
-        },
-        .freetype => {
-            const f = try self.ft.loadFontFromPath(path, size_px);
-            return .{
-                .cell_size = f.cell_size,
-                .underline_position = f.underline_position,
-                .underline_thickness = f.underline_thickness,
-                .backend = .{ .freetype = f },
-            };
-        },
+    if (is_windows) {
+        switch (self.active) {
+            .dwrite => {
+                const f = try self.dw.loadFontFromPath(path, size_px);
+                return .{
+                    .cell_size = f.cell_size,
+                    .underline_position = f.underline_position,
+                    .underline_thickness = f.underline_thickness,
+                    .backend = .{ .dwrite = f },
+                };
+            },
+        }
+    } else {
+        switch (self.active) {
+            .truetype => {
+                const f = try self.tt.loadFontFromPath(path, size_px);
+                return .{
+                    .cell_size = f.cell_size,
+                    .underline_position = f.underline_position,
+                    .underline_thickness = f.underline_thickness,
+                    .backend = .{ .truetype = f },
+                };
+            },
+            .freetype => {
+                const f = try self.ft.loadFontFromPath(path, size_px);
+                return .{
+                    .cell_size = f.cell_size,
+                    .underline_position = f.underline_position,
+                    .underline_thickness = f.underline_thickness,
+                    .backend = .{ .freetype = f },
+                };
+            },
+        }
     }
 }
 
@@ -156,43 +208,66 @@ fn resolveActive(
     size_px: u16,
     is_baseline: bool,
 ) !FaceResolution {
-    switch (self.active) {
-        .truetype => {
-            const r = try self.tt.resolveFace(.{
-                .family = family,
-                .css_weight = css_weight,
-                .italic = italic,
-                .size_px = size_px,
-                .is_baseline = is_baseline,
-            });
-            return .{
-                .font = .{
-                    .cell_size = r.font.cell_size,
-                    .underline_position = r.font.underline_position,
-                    .underline_thickness = r.font.underline_thickness,
-                    .backend = .{ .truetype = r.font },
-                },
-                .is_real_match = r.is_real_match,
-            };
-        },
-        .freetype => {
-            const r = try self.ft.resolveFace(.{
-                .family = family,
-                .css_weight = css_weight,
-                .italic = italic,
-                .size_px = size_px,
-                .is_baseline = is_baseline,
-            });
-            return .{
-                .font = .{
-                    .cell_size = r.font.cell_size,
-                    .underline_position = r.font.underline_position,
-                    .underline_thickness = r.font.underline_thickness,
-                    .backend = .{ .freetype = r.font },
-                },
-                .is_real_match = r.is_real_match,
-            };
-        },
+    if (is_windows) {
+        switch (self.active) {
+            .dwrite => {
+                const r = try self.dw.resolveFace(.{
+                    .family = family,
+                    .css_weight = css_weight,
+                    .italic = italic,
+                    .size_px = size_px,
+                    .is_baseline = is_baseline,
+                });
+                return .{
+                    .font = .{
+                        .cell_size = r.font.cell_size,
+                        .underline_position = r.font.underline_position,
+                        .underline_thickness = r.font.underline_thickness,
+                        .backend = .{ .dwrite = r.font },
+                    },
+                    .is_real_match = r.is_real_match,
+                };
+            },
+        }
+    } else {
+        switch (self.active) {
+            .truetype => {
+                const r = try self.tt.resolveFace(.{
+                    .family = family,
+                    .css_weight = css_weight,
+                    .italic = italic,
+                    .size_px = size_px,
+                    .is_baseline = is_baseline,
+                });
+                return .{
+                    .font = .{
+                        .cell_size = r.font.cell_size,
+                        .underline_position = r.font.underline_position,
+                        .underline_thickness = r.font.underline_thickness,
+                        .backend = .{ .truetype = r.font },
+                    },
+                    .is_real_match = r.is_real_match,
+                };
+            },
+            .freetype => {
+                const r = try self.ft.resolveFace(.{
+                    .family = family,
+                    .css_weight = css_weight,
+                    .italic = italic,
+                    .size_px = size_px,
+                    .is_baseline = is_baseline,
+                });
+                return .{
+                    .font = .{
+                        .cell_size = r.font.cell_size,
+                        .underline_position = r.font.underline_position,
+                        .underline_thickness = r.font.underline_thickness,
+                        .backend = .{ .freetype = r.font },
+                    },
+                    .is_real_match = r.is_real_match,
+                };
+            },
+        }
     }
 }
 
@@ -273,14 +348,23 @@ pub fn render(
     split: GlyphSplit,
     staging_buf: []u8,
 ) RenderResult {
-    return switch (font.backend) {
-        .truetype => |f| blk: {
-            const r = self.tt.render(f, codepoint, split, staging_buf);
-            break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
-        },
-        .freetype => |f| blk: {
-            const r = self.ft.render(f, codepoint, @enumFromInt(@intFromEnum(split)), staging_buf);
-            break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
-        },
-    };
+    if (is_windows) {
+        return switch (font.backend) {
+            .dwrite => |f| blk: {
+                const r = self.dw.render(f, codepoint, split, staging_buf);
+                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
+            },
+        };
+    } else {
+        return switch (font.backend) {
+            .truetype => |f| blk: {
+                const r = self.tt.render(f, codepoint, split, staging_buf);
+                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
+            },
+            .freetype => |f| blk: {
+                const r = self.ft.render(f, codepoint, @enumFromInt(@intFromEnum(split)), staging_buf);
+                break :blk .{ .format = @enumFromInt(@intFromEnum(r.format)) };
+            },
+        };
+    }
 }

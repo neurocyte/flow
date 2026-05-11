@@ -8,6 +8,7 @@
 //     post data to shared state protected by a mutex and wake the wio thread.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const wio = @import("wio");
 const sg = @import("sokol").gfx;
 const slog = @import("sokol").log;
@@ -20,6 +21,15 @@ const RGBA = @import("color").RGBA;
 const input_translate = @import("input.zig");
 const root = @import("soft_root").root;
 const gui_config = @import("gui_config");
+
+const default_rasterizer: gpu.RasterizerBackend = if (builtin.os.tag == .windows)
+    .dwrite
+else
+    .freetype;
+const rasterizer_font: gpu.RasterizerFont = if (builtin.os.tag == .windows)
+    .{ .dwrite = .{} }
+else
+    .{ .freetype = .{} };
 
 const log = std.log.scoped(.wio_app);
 
@@ -56,7 +66,7 @@ var font_name_buf: [256]u8 = undefined;
 var font_name_len: usize = 0;
 var font_weight: u16 = 400;
 var font_weight_bold_offset: u16 = 300;
-var font_backend: gpu.RasterizerBackend = .freetype;
+var font_backend: gpu.RasterizerBackend = default_rasterizer;
 var font_hinting: gpu.Hinting = .normal;
 var font_line_height: u8 = 100;
 var font_dirty: std.atomic.Value(bool) = .init(true);
@@ -104,10 +114,10 @@ var wio_font_set: gpu.FontSet = .{
     .underline_position = 0,
     .underline_thickness = 1,
     .faces = .{
-        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } },
-        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } },
-        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } },
-        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = .{ .freetype = .{} } },
+        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = rasterizer_font },
+        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = rasterizer_font },
+        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = rasterizer_font },
+        .{ .cell_size = .{ .x = 8, .y = 16 }, .backend = rasterizer_font },
     },
     .synth = .{ false, false, false, false },
 };
