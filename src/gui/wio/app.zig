@@ -22,6 +22,9 @@ const input_translate = @import("input.zig");
 const root = @import("soft_root").root;
 const gui_config = @import("gui_config");
 
+const D3D11Swapchain = if (builtin.os.tag == .windows) @import("d3d11_swapchain") else void;
+const win32 = if (builtin.os.tag == .windows) @import("win32").everything else void;
+
 const default_rasterizer: gpu.RasterizerBackend = if (builtin.os.tag == .windows)
     .dwrite
 else
@@ -490,7 +493,7 @@ fn wioLoop() void {
         .app_id = if (window_class_len > 0) window_class_buf[0..window_class_len] else "flow",
         .size = .{ .width = 1280, .height = 720 },
         .scale = 1.0,
-        .gl_options = gl_options,
+        .gl_options = if (builtin.os.tag == .windows) null else gl_options,
     }) catch |e| {
         log.err("wio.createWindow failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
@@ -498,23 +501,43 @@ fn wioLoop() void {
     };
     defer window.destroy();
 
-    const context = window.glCreateContext(.{ .options = gl_options }) catch |e| {
-        log.err("wio.glCreateContext failed: {s}", .{@errorName(e)});
-        tui_pid.send(.{"quit"}) catch {};
-        return;
-    };
-    window.glMakeContextCurrent(context);
+    if (builtin.os.tag != .windows) {
+        const context = window.glCreateContext(.{ .options = gl_options }) catch |e| {
+            log.err("wio.glCreateContext failed: {s}", .{@errorName(e)});
+            tui_pid.send(.{"quit"}) catch {};
+            return;
+        };
+        window.glMakeContextCurrent(context);
 
-    // Disable EGL vsync throttling so eglSwapBuffers() returns immediately.
-    // Without this, eglSwapBuffers() blocks waiting for a frame callback from
-    // the compositor. Compositors do not send frame callbacks for surfaces on
-    // background virtual desktops, so any paint while the window is hidden
-    // causes eglSwapBuffers() to stall indefinitely, freezing the Wayland
-    // event loop and triggering an "Application Not Responding" dialog.
-    window.glSwapInterval(0);
+        // Disable EGL vsync throttling so eglSwapBuffers() returns immediately.
+        // Without this, eglSwapBuffers() blocks waiting for a frame callback from
+        // the compositor. Compositors do not send frame callbacks for surfaces on
+        // background virtual desktops, so any paint while the window is hidden
+        // causes eglSwapBuffers() to stall indefinitely, freezing the Wayland
+        // event loop and triggering an "Application Not Responding" dialog.
+        window.glSwapInterval(0);
+    }
+
+    var swapchain: if (builtin.os.tag == .windows) D3D11Swapchain else void = undefined;
+    if (builtin.os.tag == .windows) {
+        // FIXME: wio uses a different zigwin32 instance
+        const hwnd: win32.HWND = @ptrCast(window.backend.window);
+        swapchain = D3D11Swapchain.init(hwnd, 1280, 720) catch |e| {
+            log.err("d3d11_swapchain.init failed: {s}", .{@errorName(e)});
+            tui_pid.send(.{"quit"}) catch {};
+            return;
+        };
+    }
+    defer if (builtin.os.tag == .windows) swapchain.deinit();
+
+    const sg_env: sg.Environment = if (builtin.os.tag == .windows) .{
+        .defaults = .{ .color_format = .RGBA8, .depth_format = .NONE, .sample_count = 1 },
+        .d3d11 = .{ .device = swapchain.device, .device_context = swapchain.context },
+    } else .{};
 
     sg.setup(.{
         .logger = .{ .func = slog.func },
+        .environment = sg_env,
     });
     defer sg.shutdown();
 
@@ -545,6 +568,10 @@ fn wioLoop() void {
         }
     }
 
+    if (builtin.os.tag == .windows) {
+        swapchain.resize(@intCast(win_size.width), @intCast(win_size.height)) catch {};
+    }
+
     // Notify the tui that the window is ready
     reloadFont();
     sendResize(win_size, &state, &cell_width, &cell_height);
@@ -572,6 +599,11 @@ fn wioLoop() void {
                 },
                 .size_physical => |sz| {
                     win_size = sz;
+                    if (builtin.os.tag == .windows) {
+                        swapchain.resize(@intCast(sz.width), @intCast(sz.height)) catch |e| {
+                            log.err("swapchain.resize failed: {s}", .{@errorName(e)});
+                        };
+                    }
                     sendResize(sz, &state, &cell_width, &cell_height);
                 },
                 .button_press => |btn| {
@@ -756,6 +788,7 @@ fn wioLoop() void {
                     if (w != 0) prev_cp = cp;
                 }
 
+                const render_view: ?*const anyopaque = if (builtin.os.tag == .windows) swapchain.rtv else null;
                 gpu.paint(
                     &state,
                     .{ .x = win_size.width, .y = win_size.height },
@@ -766,9 +799,14 @@ fn wioLoop() void {
                     cells_with_glyphs,
                     s.cursor,
                     s.secondary_cursors,
+                    render_view,
                 );
                 sg.commit();
-                window.glSwapBuffers();
+                if (builtin.os.tag == .windows) {
+                    swapchain.present();
+                } else {
+                    window.glSwapBuffers();
+                }
             }
         }
     }

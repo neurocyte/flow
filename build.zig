@@ -689,6 +689,20 @@ pub fn build_exe(
                     },
                 });
 
+                if (target.result.os.tag == .windows) {
+                    const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
+                    const win32_mod = win32_dep.module("win32");
+                    const d3d11_swapchain_mod = b.createModule(.{
+                        .root_source_file = b.path("src/gui/wio/d3d11_swapchain.zig"),
+                        .target = target,
+                        .imports = &.{
+                            .{ .name = "win32", .module = win32_mod },
+                        },
+                    });
+                    app_mod.addImport("d3d11_swapchain", d3d11_swapchain_mod);
+                    app_mod.addImport("win32", win32_mod);
+                }
+
                 const mod = b.createModule(.{
                     .root_source_file = b.path("src/renderer/gui/renderer.zig"),
                     .imports = &.{

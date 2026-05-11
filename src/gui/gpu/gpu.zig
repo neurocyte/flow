@@ -4,6 +4,7 @@
 // (the thread that called sg.setup()).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const sg = @import("sokol").gfx;
 const Rasterizer = @import("rasterizer");
 const GlyphIndexCache = @import("GlyphIndexCache");
@@ -400,6 +401,7 @@ pub fn paint(
     cells: []const Cell,
     cursor: CursorInfo,
     secondary_cursors: []const CursorInfo,
+    swapchain_render_view: ?*const anyopaque, // windows only
 ) void {
     const shader_col_count: u16 = @intCast(@divTrunc(client_size.x, font_set.cell_size.x));
     const shader_row_count: u16 = @intCast(@divTrunc(client_size.y, font_set.cell_size.y));
@@ -475,7 +477,14 @@ pub fn paint(
     };
 
     sg.beginPass(.{
-        .swapchain = .{
+        .swapchain = if (builtin.os.tag == .windows) .{
+            .width = @intCast(client_size.x),
+            .height = @intCast(client_size.y),
+            .sample_count = 1,
+            .color_format = .RGBA8,
+            .depth_format = .NONE,
+            .d3d11 = .{ .render_view = swapchain_render_view },
+        } else .{
             .width = @intCast(client_size.x),
             .height = @intCast(client_size.y),
             .sample_count = 1,
