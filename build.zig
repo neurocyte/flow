@@ -603,12 +603,15 @@ pub fn build_exe(
                 });
 
                 if (target.result.os.tag == .windows) {
+                    const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
+                    const win32_mod = win32_dep.module("win32");
                     const dwrite_rasterizer_mod = b.createModule(.{
                         .root_source_file = b.path("src/gui/rasterizer/dwrite.zig"),
                         .target = target,
                         .imports = &.{
                             .{ .name = "xy", .module = gui_xy_mod },
                             .{ .name = "gui_config", .module = gui_config_mod },
+                            .{ .name = "win32", .module = win32_mod },
                         },
                     });
                     combined_rasterizer_mod.addImport("dw_rasterizer", dwrite_rasterizer_mod);
