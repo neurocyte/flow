@@ -557,7 +557,10 @@ pub fn build_exe(
                 const sokol_dep = b.lazyDependency("sokol", .{
                     .target = target,
                     .optimize = optimize_deps,
-                    .gl = true,
+                    .gl = switch (target.result.os.tag) {
+                        .windows => false,
+                        else => true,
+                    },
                     .dont_link_system_libs = true,
                 }) orelse break :blk tui_renderer_mod;
 
@@ -569,7 +572,10 @@ pub fn build_exe(
                     .shdc_dep = sokol_dep.builder.dependency("shdc", .{}),
                     .input = "src/gui/gpu/builtin.glsl",
                     .output = "builtin.glsl.zig",
-                    .slang = .{ .glsl410 = true },
+                    .slang = switch (target.result.os.tag) {
+                        .windows => .{ .hlsl5 = true },
+                        else => .{ .glsl410 = true },
+                    },
                     .format = .sokol_zig,
                 }) catch |e| std.debug.panic("sokol-shdc createModule failed: {s}", .{@errorName(e)});
 
@@ -848,7 +854,11 @@ pub fn build_exe(
     });
     const c_mod = c_step.createModule();
 
-    const exe_name = if (renderer != .terminal) "flow-gui" else "flow";
+    const exe_name = switch (renderer) {
+        .terminal => "flow",
+        .d3d11 => "flow-d3d11",
+        .gui => "flow-gui",
+    };
 
     const exe = b.addExecutable(.{
         .name = exe_name,
@@ -858,7 +868,10 @@ pub fn build_exe(
             .optimize = optimize,
             .strip = strip,
         }),
-        .win32_manifest = b.path("src/win32/flow.manifest"),
+        .win32_manifest = if (renderer == .gui)
+            null // .gui uses wio manifest
+        else
+            b.path("src/win32/flow.manifest"),
     });
 
     if (use_llvm) |value| {
@@ -902,6 +915,13 @@ pub fn build_exe(
 
     if (renderer == .gui) switch (target.result.os.tag) {
         .linux => exe.root_module.linkSystemLibrary("GL", .{}),
+        .windows => {
+            exe.root_module.linkSystemLibrary("d3d11", .{});
+            exe.root_module.linkSystemLibrary("dxgi", .{});
+            exe.root_module.linkSystemLibrary("dwrite", .{});
+            exe.root_module.linkSystemLibrary("d2d1", .{});
+            exe.root_module.linkSystemLibrary("ole32", .{});
+        },
         else => {},
     };
 
