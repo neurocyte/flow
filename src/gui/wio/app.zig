@@ -421,11 +421,16 @@ const CellPos = struct {
 };
 
 fn pixelToCellPos(pos: wio.Position) CellPos {
-    // Mouse positions are in logical pixels; cell_size is in physical pixels.
-    // Scale up to physical before dividing so that col/row and sub-cell offsets
-    // are all expressed in physical pixels, matching the GPU coordinate space.
-    const x: i32 = @intFromFloat(@as(f32, @floatFromInt(pos.x)) * dpi_scale);
-    const y: i32 = @intFromFloat(@as(f32, @floatFromInt(pos.y)) * dpi_scale);
+    // win32 backend reports mouse coords in physical pixels
+    // wayland and x11 backends report logical pixels
+    const x: i32 = if (builtin.os.tag == .windows)
+        @intCast(pos.x)
+    else
+        @intFromFloat(@as(f32, @floatFromInt(pos.x)) * dpi_scale);
+    const y: i32 = if (builtin.os.tag == .windows)
+        @intCast(pos.y)
+    else
+        @intFromFloat(@as(f32, @floatFromInt(pos.y)) * dpi_scale);
     const cw: i32 = wio_font_set.cell_size.x;
     const ch: i32 = wio_font_set.cell_size.y;
     return .{
