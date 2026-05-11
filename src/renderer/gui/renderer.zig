@@ -486,14 +486,8 @@ pub fn set_terminal_working_directory(self: *Self, absolute_path: []const u8) vo
     _ = absolute_path;
 }
 
-pub fn copy_to_windows_clipboard(self: *Self, text: []const u8) void {
-    _ = self;
-    _ = text;
-}
-
-pub fn request_windows_clipboard(self: *Self) void {
-    _ = self;
-}
+pub const copy_to_windows_clipboard = @import("tuirenderer").copy_to_windows_clipboard;
+pub const request_windows_clipboard = @import("tuirenderer").request_windows_clipboard;
 
 pub fn request_mouse_cursor(self: *Self, shape: MouseCursorShape, push_or_pop: bool) void {
     _ = self;
