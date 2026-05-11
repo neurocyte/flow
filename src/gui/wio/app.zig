@@ -474,6 +474,11 @@ fn wioLoop() void {
     const io = root.get_io();
     const allocator = root.get_init().gpa;
 
+    if (builtin.os.tag == .windows) {
+        // force PerMonitorV2 DPI awareness regardless of manifest
+        _ = win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+
     wio.init(allocator, io, .{}) catch |e| {
         log.err("wio.init failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
