@@ -527,7 +527,11 @@ fn wioLoop() void {
     if (builtin.os.tag == .windows) {
         // FIXME: wio uses a different zigwin32 instance
         const hwnd: win32.HWND = @ptrCast(window.backend.window);
-        swapchain = D3D11Swapchain.init(hwnd, 1280, 720) catch |e| {
+        var rect: win32.RECT = .{ .left = 0, .top = 0, .right = 1280, .bottom = 720 };
+        _ = win32.GetClientRect(hwnd, &rect);
+        const cw: u32 = @intCast(@max(1, rect.right - rect.left));
+        const ch: u32 = @intCast(@max(1, rect.bottom - rect.top));
+        swapchain = D3D11Swapchain.init(hwnd, cw, ch) catch |e| {
             log.err("d3d11_swapchain.init failed: {s}", .{@errorName(e)});
             tui_pid.send(.{"quit"}) catch {};
             return;
