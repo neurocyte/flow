@@ -8,7 +8,7 @@ const sg = @import("sokol").gfx;
 const Rasterizer = @import("rasterizer");
 const GlyphIndexCache = @import("GlyphIndexCache");
 const XY = @import("xy").XY;
-const builtin_shader = @import("builtin.glsl.zig");
+const shader = @import("shader");
 
 pub const Font = Rasterizer.Font;
 pub const FontSet = Rasterizer.FontSet;
@@ -94,7 +94,7 @@ pub fn init(allocator: std.mem.Allocator) !void {
     global.glyph_cache_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 
     // Build shader + pipeline
-    const shd = sg.makeShader(builtin_shader.shaderDesc(sg.queryBackend()));
+    const shd = sg.makeShader(shader.builtinShaderDesc(sg.queryBackend()));
 
     var pip_desc: sg.PipelineDesc = .{ .shader = shd };
     pip_desc.primitive_type = .TRIANGLE_STRIP;
@@ -498,25 +498,33 @@ pub fn paint(
     else
         .init(255, 255, 255, 255);
 
-    const fs_params = builtin_shader.FsParams{
-        .cell_size_x = font_set.cell_size.x,
-        .cell_size_y = font_set.cell_size.y,
-        .col_count = shader_col_count,
-        .row_count = shader_row_count,
-        .viewport_height = @intCast(client_size.y),
-        .cursor_col = cursor.col,
-        .cursor_row = cursor.row,
-        .cursor_shape = @intFromEnum(cursor.shape),
-        .cursor_vis = if (cursor.vis) 1 else 0,
-        .underline_position = font_set.underline_position,
-        .underline_thickness = font_set.underline_thickness,
+    const fs_params = shader.FsParams{
+        .cell_size = .{
+            font_set.cell_size.x,
+            font_set.cell_size.y,
+            shader_col_count,
+            shader_row_count,
+        },
+        .viewport = .{ @intCast(client_size.y), 0, 0, 0 },
+        .cursor_pos = .{
+            cursor.col,
+            cursor.row,
+            @intFromEnum(cursor.shape),
+            if (cursor.vis) 1 else 0,
+        },
+        .underline_info = .{
+            font_set.underline_position,
+            font_set.underline_thickness,
+            0,
+            0,
+        },
         .cursor_color = cursor.color.to_vec4(),
         .sec_cursor_color = sec_color.to_vec4(),
         .bg_color = global.background.to_vec4(),
     };
-    sg.applyUniforms(0, .{
+    sg.applyUniforms(shader.UB_fs_params, .{
         .ptr = &fs_params,
-        .size = @sizeOf(builtin_shader.FsParams),
+        .size = @sizeOf(shader.FsParams),
     });
 
     sg.draw(0, 4, 1);

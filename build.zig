@@ -564,6 +564,15 @@ pub fn build_exe(
                 const wio_mod = wio_dep.module("wio");
                 const sokol_mod = sokol_dep.module("sokol");
 
+                const shdc = @import("sokol").shdc;
+                const shader_mod = shdc.createModule(b, "shader", sokol_mod, .{
+                    .shdc_dep = sokol_dep.builder.dependency("shdc", .{}),
+                    .input = "src/gui/gpu/builtin.glsl",
+                    .output = "builtin.glsl.zig",
+                    .slang = .{ .glsl410 = true },
+                    .format = .sokol_zig,
+                }) catch |e| std.debug.panic("sokol-shdc createModule failed: {s}", .{@errorName(e)});
+
                 const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
                 const gui_cell_mod = b.createModule(.{
                     .root_source_file = b.path("src/gui/cell.zig"),
@@ -637,6 +646,7 @@ pub fn build_exe(
                         .{ .name = "xy", .module = gui_xy_mod },
                         .{ .name = "cell", .module = gui_cell_mod },
                         .{ .name = "GlyphIndexCache", .module = gui_glyph_cache_mod },
+                        .{ .name = "shader", .module = shader_mod },
                     },
                 });
 
