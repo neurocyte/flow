@@ -85,8 +85,10 @@ fn store_reset(self: *Self) void {
 }
 
 fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
+    var src: []const u8 = undefined;
+    var context: []const u8 = undefined;
     var output: []const u8 = undefined;
-    if (try m.match(.{ "log", "error", tp.string, tp.string, "->", tp.extract(&output) })) {
+    if (try m.match(.{ "log", "error", tp.extract(&src), tp.extract(&context), "->", tp.extract(&output) })) {
         if (self.subscriber) |subscriber| {
             subscriber.send_raw(m) catch {};
         } else {
@@ -95,10 +97,10 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         if (!self.no_stderr) {
             var stderr_buffer: [1024]u8 = undefined;
             var stderr_writer = std.Io.File.stderr().writer(std.Options.debug_io, &stderr_buffer);
-            stderr_writer.interface.print("{s}\n", .{output}) catch {};
+            stderr_writer.interface.print("flow {s}: error in {s}: {s}\n", .{ src, context, output }) catch {};
             stderr_writer.interface.flush() catch {};
         }
-    } else if (try m.match(.{ "log", tp.string, tp.extract(&output) })) {
+    } else if (try m.match(.{ "log", tp.extract(&src), tp.extract(&output) })) {
         if (self.subscriber) |subscriber| {
             subscriber.send_raw(m) catch {};
         } else {
@@ -107,7 +109,7 @@ fn receive(self: *Self, from: tp.pid_ref, m: tp.message) tp.result {
         if (!self.no_stdout) {
             var stdout_buffer: [1024]u8 = undefined;
             var stdout_writer = std.Io.File.stdout().writer(std.Options.debug_io, &stdout_buffer);
-            stdout_writer.interface.print("{s}\n", .{output}) catch {};
+            stdout_writer.interface.print("flow {s}: {s}\n", .{ src, output }) catch {};
             stdout_writer.interface.flush() catch {};
         }
     } else if (try m.match(.{"subscribe"})) {
