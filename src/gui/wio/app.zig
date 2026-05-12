@@ -80,6 +80,9 @@ var stop_requested: std.atomic.Value(bool) = .init(false);
 var background_color: std.atomic.Value(u32) = .init(RGBA.init(0, 255, 255, 255).to_u32()); // warning yellow, we should never see the default
 var background_dirty: std.atomic.Value(bool) = .init(false);
 
+var dark_mode: std.atomic.Value(bool) = .init(true);
+var dark_mode_dirty: std.atomic.Value(bool) = .init(true);
+
 var config_arena_instance: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const config_arena = config_arena_instance.allocator();
 
@@ -406,6 +409,12 @@ pub fn setBackground(color: RGBA) void {
     wio.cancelWait();
 }
 
+pub fn enableDarkMode(enabled: bool) void {
+    dark_mode.store(enabled, .release);
+    dark_mode_dirty.store(true, .release);
+    wio.cancelWait();
+}
+
 pub fn requestAttention() void {
     attention_pending.store(true, .release);
     wio.cancelWait();
@@ -528,10 +537,12 @@ fn wioLoop() void {
         window.glSwapInterval(0);
     }
 
+    // FIXME: wio uses a different zigwin32 instance
+    const hwnd: if (builtin.os.tag == .windows) win32.HWND else void =
+        if (builtin.os.tag == .windows) @ptrCast(window.backend.window) else {};
+
     var swapchain: if (builtin.os.tag == .windows) D3D11Swapchain else void = undefined;
     if (builtin.os.tag == .windows) {
-        // FIXME: wio uses a different zigwin32 instance
-        const hwnd: win32.HWND = @ptrCast(window.backend.window);
         var rect: win32.RECT = .{ .left = 0, .top = 0, .right = 1280, .bottom = 720 };
         _ = win32.GetClientRect(hwnd, &rect);
         const cw: u32 = @intCast(@max(1, rect.right - rect.left));
@@ -779,6 +790,10 @@ fn wioLoop() void {
                     });
                 }
 
+                if (builtin.os.tag == .windows and dark_mode_dirty.swap(false, .acq_rel)) {
+                    applyDarkTitlebar(hwnd, dark_mode.load(.acquire));
+                }
+
                 // Regenerate glyph indices using the GPU state.
                 // For double-wide characters vaxis emits width=2 for the left
                 // cell and width=0 (continuation) for the right cell.  The
@@ -883,4 +898,18 @@ fn syncModifiers() input_translate.Mods {
     }
     last_mods = mods;
     return mods;
+}
+
+const ID_ICON_FLOW = 1; // must match src/win32/flow.rc
+
+fn applyDarkTitlebar(hwnd: win32.HWND, dark: bool) void {
+    if (builtin.os.tag != .windows) return;
+    const value: c_int = if (dark) 1 else 0;
+    const hr = win32.DwmSetWindowAttribute(
+        hwnd,
+        win32.DWMWA_USE_IMMERSIVE_DARK_MODE,
+        &value,
+        @sizeOf(@TypeOf(value)),
+    );
+    if (hr < 0) log.warn("DwmSetWindowAttribute(dark={}) failed", .{dark});
 }
