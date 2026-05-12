@@ -1098,6 +1098,11 @@ fn current_theme(self: *const Self) *const Widget.Theme {
     };
 }
 
+pub fn get_color_scheme() Widget.Theme.Type {
+    const self = current();
+    return self.color_scheme;
+}
+
 fn toggle_idle_action(self: *Self, action: IdleAction) !bool {
     var enable: bool = true;
 

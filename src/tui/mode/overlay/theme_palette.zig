@@ -33,9 +33,12 @@ pub const defaultValue: ValueType = .{};
 pub fn load_entries(palette: *Type) !usize {
     var longest_hint: usize = 0;
     var idx: usize = 0;
+    const color_scheme = tui.get_color_scheme();
     try set_previous_theme(palette, tui.theme().name);
     for (Widget.list_themes()) |theme_name_| {
         const theme = Widget.get_theme_by_name(palette.allocator, theme_name_) orelse continue;
+        if (theme.type != color_scheme) continue;
+
         idx += 1;
         (try palette.entries.addOne(palette.allocator)).* = .{
             .label = theme.description,
