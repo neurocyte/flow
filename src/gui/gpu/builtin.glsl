@@ -2,12 +2,14 @@
 // builtin.glsl - sokol-shdc source for the builtin grid shader.
 //
 // Vertex stage:  full-screen quad from gl_VertexIndex (no vertex buffer needed)
-// Fragment stage: cell-grid renderer - reads a RGBA32UI cell texture and an
-//                 RGBA8 glyph-atlas texture and blends fg over bg per pixel.
-//                 The glyph atlas carries one of three formats per glyph,
+// Fragment stage: cell-grid renderer - reads an RGBA8 cell texture (4 texels
+//                 per cell: glyph_index bytes, bg color, fg color, deco
+//                 bytes, stored at 4x cell-grid width) and an RGBA8
+//                 glyph-atlas texture and blends fg over bg per pixel. The
+//                 glyph atlas carries one of three formats per glyph,
 //                 encoded in deco bits 3..2: alpha (R-channel coverage),
-//                 subpixel (per-channel RGB coverage), or premultiplied RGBA
-//                 color.
+//                 subpixel (per-channel RGB coverage), or premultiplied
+//                 RGBA color.
 //------------------------------------------------------------------------------
 @ctype vec4 [4]f32
 
@@ -37,24 +39,16 @@ layout(binding=0) uniform fs_params {
 };
 
 layout(binding=0) uniform texture2D glyph_tex;
-layout(binding=1) uniform utexture2D cell_tex;
+layout(binding=1) uniform texture2D cell_tex;
 layout(binding=0) uniform sampler glyph_smp;
 layout(binding=1) uniform sampler cell_smp;
 
 @image_sample_type glyph_tex unfilterable_float
+@image_sample_type cell_tex float
 @sampler_type glyph_smp nonfiltering
 @sampler_type cell_smp nonfiltering
 
 out vec4 frag_color;
-
-vec4 unpack_rgba(uint v) {
-    return vec4(
-        float((v >> 24u) & 255u) / 255.0,
-        float((v >> 16u) & 255u) / 255.0,
-        float((v >>  8u) & 255u) / 255.0,
-        float( v         & 255u) / 255.0
-    );
-}
 
 void main() {
     int cell_size_x = cell_size.x;
@@ -81,10 +75,27 @@ void main() {
         return;
     }
 
-    // Fetch cell: texel = (glyph_index, bg_packed, fg_packed, deco)
-    uvec4 cell = texelFetch(usampler2D(cell_tex, cell_smp), ivec2(col, row), 0);
-    vec4 bg = unpack_rgba(cell.g);
-    vec4 fg = unpack_rgba(cell.b);
+    // Fetch the 4 RGBA8 texels that make up this cell.
+    //   t_gi = glyph_index bytes (little-endian)
+    //   bg   = bg color (RGBA8 vec4; bytes are stored ABGR per the RGBA
+    //          packed-struct layout, so swizzle with .abgr to recover RGBA)
+    //   fg   = fg color (same .abgr swizzle)
+    //   t_dc = deco bytes (little-endian)
+    ivec2 cell_base = ivec2(col * 4, row);
+    vec4 t_gi = texelFetch(sampler2D(cell_tex, cell_smp), cell_base + ivec2(0, 0), 0);
+    vec4 bg   = texelFetch(sampler2D(cell_tex, cell_smp), cell_base + ivec2(1, 0), 0).abgr;
+    vec4 fg   = texelFetch(sampler2D(cell_tex, cell_smp), cell_base + ivec2(2, 0), 0).abgr;
+    vec4 t_dc = texelFetch(sampler2D(cell_tex, cell_smp), cell_base + ivec2(3, 0), 0);
+
+    // Reassemble u32 fields from RGBA8 byte channels
+    uint gi_u =  uint(t_gi.r * 255.0 + 0.5)
+              | (uint(t_gi.g * 255.0 + 0.5) << 8u)
+              | (uint(t_gi.b * 255.0 + 0.5) << 16u)
+              | (uint(t_gi.a * 255.0 + 0.5) << 24u);
+    uint deco =  uint(t_dc.r * 255.0 + 0.5)
+              | (uint(t_dc.g * 255.0 + 0.5) << 8u)
+              | (uint(t_dc.b * 255.0 + 0.5) << 16u)
+              | (uint(t_dc.a * 255.0 + 0.5) << 24u);
 
     // Pixel coordinates within the cell
     int cell_px_x = px % cell_size_x;
@@ -93,7 +104,7 @@ void main() {
     // Glyph atlas lookup
     ivec2 atlas_size = textureSize(sampler2D(glyph_tex, glyph_smp), 0);
     int cells_per_row = atlas_size.x / cell_size_x;
-    int gi = int(cell.r);
+    int gi = int(gi_u);
     int gc = gi % cells_per_row;
     int gr = gi / cells_per_row;
     ivec2 atlas_coord = ivec2(gc * cell_size_x + cell_px_x,
@@ -102,7 +113,6 @@ void main() {
 
     // Decoration field (bits: 31..8=ul_color RRGGBB, 7..5=ul_style,
     // 4=strikethrough, 3..2=glyph_kind, 0=secondary cursor flag)
-    uint deco = cell.a;
     uint ul_style = (deco >> 5u) & 7u;
     bool strike = ((deco >> 4u) & 1u) != 0u;
     uint glyph_kind = (deco >> 2u) & 3u;

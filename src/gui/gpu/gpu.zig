@@ -45,7 +45,11 @@ fn getAtlasCellCount(cell_size: XY(u16)) XY(u16) {
     };
 }
 
-// Shader cell layout for the RGBA32UI cell texture.
+// Shader cell layout. Stored on the GPU as 4 RGBA8 texels per cell:
+//   texel 0 = glyph_index bytes (LE),
+//   texel 1 = bg color (r,g,b,a),
+//   texel 2 = fg color,
+//   texel 3 = deco bytes (LE).
 // Each texel encodes one terminal cell:
 //   .r = glyph_index  (u32)
 //   .g = bg packed    (RGBA bit-cast to u32: r<<24|g<<16|b<<8|a)
@@ -165,7 +169,7 @@ pub const WindowState = struct {
     glyph_view: sg.View = .{},
     glyph_image_size: XY(u16) = .{ .x = 0, .y = 0 },
 
-    // Cell grid (RGBA32UI 2D texture + view), updated each frame
+    // Cell grid (RGBA8 2D texture, 4 texels per cell), updated each frame
     cell_image: sg.Image = .{},
     cell_view: sg.View = .{},
     cell_image_size: XY(u16) = .{ .x = 0, .y = 0 },
@@ -225,9 +229,9 @@ pub const WindowState = struct {
             if (state.cell_image.id != 0) sg.destroyImage(state.cell_image);
 
             state.cell_image = sg.makeImage(.{
-                .width = cols,
+                .width = cols * 4,
                 .height = rows,
-                .pixel_format = .RGBA32UI,
+                .pixel_format = .RGBA8,
                 .usage = .{ .dynamic_update = true },
             });
             state.cell_view = sg.makeView(.{
