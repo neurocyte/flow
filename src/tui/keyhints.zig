@@ -83,8 +83,9 @@ fn render(mode: *keybind.Mode, bindings: []const keybind.Binding, theme: *const 
                 widget_style.border.sie,
             }) catch {};
             top_layer_.cursor_move_yx(@intCast(top_layer_.window.height -| 1), @intCast(4));
-            _ = top_layer_.print("{s} S-f1 or C-A-? for more {s}", .{
+            _ = top_layer_.print("{s} {s} for more {s}", .{
                 widget_style.border.sib,
+                keybind.current_namespace().scroll_hints_text,
                 widget_style.border.sie,
             }) catch {};
         }
