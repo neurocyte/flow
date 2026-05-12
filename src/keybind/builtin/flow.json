@@ -347,7 +347,7 @@
             ["c", "open_config"],
             ["g", "open_gui_config"],
             ["k", "open_keybind_config"],
-            ["f", "change_fontface"],
+            ["F", "change_fontface"],
             ["ctrl+f ctrl+f ctrl+f ctrl+f ctrl+f", "home_sheeran"],
             ["ctrl+shift+r", "restart"],
             ["v", "open_version_info"],
