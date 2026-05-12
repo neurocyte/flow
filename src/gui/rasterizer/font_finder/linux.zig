@@ -33,8 +33,7 @@ pub fn list(allocator: std.mem.Allocator) ![][]u8 {
         try names.append(allocator, try allocator.dupe(u8, std.mem.sliceTo(family, 0)));
     }
 
-    const result = try names.toOwnedSlice(allocator);
-    std.mem.sort([]u8, result, {}, struct {
+    std.mem.sort([]u8, names.items, {}, struct {
         fn lessThan(_: void, a: []u8, b: []u8) bool {
             return std.ascii.lessThanIgnoreCase(a, b);
         }
@@ -42,15 +41,17 @@ pub fn list(allocator: std.mem.Allocator) ![][]u8 {
 
     // Remove adjacent duplicates that survived the sort.
     var w: usize = 0;
-    for (result) |name| {
-        if (w == 0 or !std.ascii.eqlIgnoreCase(result[w - 1], name)) {
-            result[w] = name;
+    for (names.items) |name| {
+        if (w == 0 or !std.ascii.eqlIgnoreCase(names.items[w - 1], name)) {
+            names.items[w] = name;
             w += 1;
         } else {
             allocator.free(name);
         }
     }
-    return result[0..w];
+    names.shrinkRetainingCapacity(w);
+
+    return try names.toOwnedSlice(allocator);
 }
 
 pub fn find(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
