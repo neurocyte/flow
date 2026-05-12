@@ -19,6 +19,8 @@ pub const style = @import("style.zig").StyleBits;
 pub const styles = @import("style.zig");
 pub const GraphemeCache = @import("GraphemeCache.zig");
 
+pub const ColorScheme = enum { dark, light };
+
 const Self = @This();
 pub const log_name = "vaxis";
 
@@ -487,6 +489,11 @@ pub fn set_terminal_style(self: *Self, style_: Style) void {
         self.vx.setTerminalForegroundColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
     if (style_.bg) |color|
         self.vx.setTerminalBackgroundColor(self.tty.writer(), vaxis.Cell.Color.rgbFromUint(@intCast(color.color)).rgb) catch {};
+}
+
+pub fn set_color_scheme(self: *Self, scheme: ColorScheme) void {
+    _ = self;
+    _ = scheme;
 }
 
 pub fn set_terminal_cursor_color(self: *Self, color: Color) void {

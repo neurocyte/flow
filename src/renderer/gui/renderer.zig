@@ -22,6 +22,8 @@ pub const StyleBits = @import("tuirenderer").style;
 pub const style = StyleBits;
 pub const styles = @import("tuirenderer").styles;
 
+pub const ColorScheme = enum { dark, light };
+
 pub const Error = error{
     UnexpectedRendererEvent,
     OutOfMemory,
@@ -413,6 +415,11 @@ pub fn set_terminal_title(self: *Self, text: []const u8) void {
 pub fn set_terminal_style(self: *Self, style_: Style) void {
     _ = self;
     if (style_.bg) |bg| app.setBackground(themeColorToGpu(bg));
+}
+
+pub fn set_color_scheme(self: *Self, scheme: ColorScheme) void {
+    _ = self;
+    _ = scheme;
 }
 
 pub fn adjust_fontsize(self: *Self, amount: f32) void {

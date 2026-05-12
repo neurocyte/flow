@@ -2220,6 +2220,10 @@ fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
         self.rdr_.set_terminal_secondary_cursor_color(theme_.editor_cursor_secondary.bg orelse theme_.editor_cursor.bg.?);
     if (build_options.gui or self.config_.enable_terminal_color_scheme)
         self.rdr_.set_terminal_style(theme_.editor);
+    self.rdr_.set_color_scheme(switch (self.color_scheme) {
+        .dark => .dark,
+        .light => .light,
+    });
 }
 
 pub fn get_cursor_shape() renderer.CursorShape {

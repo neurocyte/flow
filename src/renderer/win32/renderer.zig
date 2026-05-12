@@ -23,6 +23,8 @@ const gui = @import("gui");
 pub const style = StyleBits;
 pub const styles = @import("tuirenderer").styles;
 
+pub const ColorScheme = enum { dark, light };
+
 pub const Error = error{
     UnexpectedRendererEvent,
     OutOfMemory,
@@ -413,6 +415,11 @@ fn update_window_style(self: *Self) void {
     if (self.style_) |style_| {
         if (style_.bg) |color| gui.set_window_background(hwnd, @intCast(color.color));
     }
+}
+
+pub fn set_color_scheme(self: *Self, scheme: ColorScheme) void {
+    _ = self;
+    _ = scheme;
 }
 
 pub fn adjust_fontsize(self: *Self, amount: f32) void {
