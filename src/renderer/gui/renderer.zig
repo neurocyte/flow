@@ -7,6 +7,7 @@ const RGBA = @import("color").RGBA;
 pub const vaxis = @import("vaxis");
 const Style = @import("theme").Style;
 const Color = @import("theme").Color;
+const ColorScheme = @import("theme").Type;
 pub const CursorShape = vaxis.Cell.CursorShape;
 pub const MouseCursorShape = vaxis.Mouse.Shape;
 
@@ -21,8 +22,6 @@ pub const Cell = @import("tuirenderer").Cell;
 pub const StyleBits = @import("tuirenderer").style;
 pub const style = StyleBits;
 pub const styles = @import("tuirenderer").styles;
-
-pub const ColorScheme = enum { dark, light };
 
 pub const Error = error{
     UnexpectedRendererEvent,

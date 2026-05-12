@@ -85,7 +85,7 @@ query_cache_: *syntax.QueryCache,
 frames_rendered_: usize = 0,
 clipboard: ?std.ArrayList(ClipboardEntry) = null,
 clipboard_current_group_number: usize = 0,
-color_scheme: ColorScheme = .dark,
+color_scheme: Widget.Theme.Type = .dark,
 color_scheme_locked: bool = false,
 hint_mode: HintMode = .prefix,
 last_palette: ?LastPalette = null,
@@ -96,8 +96,6 @@ alt_scroll_: bool = false,
 jump_mode_: bool = false,
 
 auto_run_timer: ?tp.Cancellable = null,
-
-pub const ColorScheme = enum { dark, light };
 
 const HintMode = enum { none, prefix, all };
 
@@ -1079,14 +1077,14 @@ fn set_theme_by_name(self: *Self, name: []const u8, action: enum { none, store }
     }
 }
 
-fn force_color_scheme(self: *Self, color_scheme: ColorScheme) void {
+fn force_color_scheme(self: *Self, color_scheme: Widget.Theme.Type) void {
     self.color_scheme = color_scheme;
     self.color_scheme_locked = true;
     self.set_terminal_style(self.current_theme());
     self.logger.print("color scheme: {t} ({s})", .{ self.color_scheme, self.current_theme().name });
 }
 
-fn set_color_scheme(self: *Self, color_scheme: ColorScheme) void {
+fn set_color_scheme(self: *Self, color_scheme: Widget.Theme.Type) void {
     if (self.color_scheme_locked) return;
     self.color_scheme = color_scheme;
     self.set_terminal_style(self.current_theme());
@@ -1959,7 +1957,7 @@ pub fn active_theme() *const Widget.Theme {
     return current().current_theme();
 }
 
-pub fn active_color_scheme() ColorScheme {
+pub fn active_color_scheme() Widget.Theme.Type {
     return current().color_scheme;
 }
 
@@ -2222,10 +2220,7 @@ fn set_terminal_style(self: *Self, theme_: *const Widget.Theme) void {
         self.rdr_.set_terminal_secondary_cursor_color(theme_.editor_cursor_secondary.bg orelse theme_.editor_cursor.bg.?);
     if (build_options.gui or self.config_.enable_terminal_color_scheme)
         self.rdr_.set_terminal_style(theme_.editor);
-    self.rdr_.set_color_scheme(switch (theme_.type) {
-        .dark => .dark,
-        .light => .light,
-    });
+    self.rdr_.set_color_scheme(theme_.type);
 }
 
 pub fn get_cursor_shape() renderer.CursorShape {

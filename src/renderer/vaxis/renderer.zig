@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const log = @import("log");
 const Style = @import("theme").Style;
 const Color = @import("theme").Color;
+const ColorScheme = @import("theme").Type;
 pub const vaxis = @import("vaxis");
 const input = @import("input");
 const builtin = @import("builtin");
@@ -18,8 +19,6 @@ pub const MouseCursorShape = vaxis.Mouse.Shape;
 pub const style = @import("style.zig").StyleBits;
 pub const styles = @import("style.zig");
 pub const GraphemeCache = @import("GraphemeCache.zig");
-
-pub const ColorScheme = enum { dark, light };
 
 const Self = @This();
 pub const log_name = "vaxis";
