@@ -552,6 +552,7 @@ fn wioLoop() void {
             tui_pid.send(.{"quit"}) catch {};
             return;
         };
+        applyWindowIcons(hwnd);
     }
     defer if (builtin.os.tag == .windows) swapchain.deinit();
 
@@ -912,4 +913,24 @@ fn applyDarkTitlebar(hwnd: win32.HWND, dark: bool) void {
         @sizeOf(@TypeOf(value)),
     );
     if (hr < 0) log.warn("DwmSetWindowAttribute(dark={}) failed", .{dark});
+}
+
+fn applyWindowIcons(hwnd: win32.HWND) void {
+    if (builtin.os.tag != .windows) return;
+    const hinst = win32.GetModuleHandleW(null);
+    const dpi = win32.GetDpiForWindow(hwnd);
+    const small_x = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CXSMICON), dpi);
+    const small_y = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CYSMICON), dpi);
+    const large_x = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CXICON), dpi);
+    const large_y = win32.GetSystemMetricsForDpi(@intFromEnum(win32.SM_CYICON), dpi);
+    const small = win32.LoadImageW(hinst, @ptrFromInt(ID_ICON_FLOW), .ICON, small_x, small_y, win32.LR_SHARED) orelse {
+        log.warn("LoadImage small icon failed", .{});
+        return;
+    };
+    const large = win32.LoadImageW(hinst, @ptrFromInt(ID_ICON_FLOW), .ICON, large_x, large_y, win32.LR_SHARED) orelse {
+        log.warn("LoadImage large icon failed", .{});
+        return;
+    };
+    _ = win32.SendMessageW(hwnd, win32.WM_SETICON, win32.ICON_SMALL, @bitCast(@intFromPtr(small)));
+    _ = win32.SendMessageW(hwnd, win32.WM_SETICON, win32.ICON_BIG, @bitCast(@intFromPtr(large)));
 }
