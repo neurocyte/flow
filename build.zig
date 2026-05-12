@@ -549,12 +549,12 @@ pub fn build_exe(
                 break :blk mod;
             },
             .gui => {
-                const wio_dep = b.lazyDependency("wio", .{
+                const wio_dep_lazy = b.lazyDependency("wio", .{
                     .target = target,
                     .optimize = optimize_deps,
                     .enable_opengl = true,
-                }) orelse break :blk tui_renderer_mod;
-                const sokol_dep = b.lazyDependency("sokol", .{
+                });
+                const sokol_dep_lazy = b.lazyDependency("sokol", .{
                     .target = target,
                     .optimize = optimize_deps,
                     .gl = switch (target.result.os.tag) {
@@ -562,12 +562,15 @@ pub fn build_exe(
                         else => true,
                     },
                     .dont_link_system_libs = true,
-                }) orelse break :blk tui_renderer_mod;
+                });
+
+                const wio_dep = wio_dep_lazy orelse break :blk tui_renderer_mod;
+                const sokol_dep = sokol_dep_lazy orelse break :blk tui_renderer_mod;
 
                 const wio_mod = wio_dep.module("wio");
                 const sokol_mod = sokol_dep.module("sokol");
 
-                const shdc = @import("sokol").shdc;
+                const shdc = if (b.lazyImport(@This(), "sokol")) |sokol| sokol.shdc else break :blk tui_renderer_mod;
                 const shader_mod = shdc.createModule(b, "shader", sokol_mod, .{
                     .shdc_dep = sokol_dep.builder.dependency("shdc", .{}),
                     .input = "src/gui/gpu/builtin.glsl",
