@@ -1206,14 +1206,24 @@ const cmds = struct {
     pub const set_theme_meta: Meta = .{ .arguments = &.{.string} };
 
     pub fn theme_next(self: *Self, _: Ctx) Result {
-        const name = Widget.get_next_theme_by_name(self.current_theme().name);
-        return self.set_theme_by_name(name, .store);
+        var name = self.current_theme().name;
+        while (true) {
+            name = Widget.get_next_theme_by_name(name);
+            const theme_ = Widget.get_theme_by_name(self.allocator, name) orelse @panic("unknown theme");
+            if (theme_.type == self.color_scheme)
+                return self.set_theme_by_name(name, .store);
+        }
     }
     pub const theme_next_meta: Meta = .{ .description = "Next color theme" };
 
     pub fn theme_prev(self: *Self, _: Ctx) Result {
-        const name = Widget.get_prev_theme_by_name(self.current_theme().name);
-        return self.set_theme_by_name(name, .store);
+        var name = self.current_theme().name;
+        while (true) {
+            name = Widget.get_prev_theme_by_name(name);
+            const theme_ = Widget.get_theme_by_name(self.allocator, name) orelse @panic("unknown theme");
+            if (theme_.type == self.color_scheme)
+                return self.set_theme_by_name(name, .store);
+        }
     }
     pub const theme_prev_meta: Meta = .{ .description = "Previous color theme" };
 
