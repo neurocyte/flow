@@ -73,6 +73,7 @@ pub fn main(init: std.process.Init) anyerror!void {
             .restore_session = "Restore restart session",
             .show_input = "Open the input view on start",
             .show_log = "Open the log view on start",
+            .log_stdout = "Log to stdout",
             .language = "Force the language of the file to be opened",
             .list_languages = "Show available languages",
             .no_syntax = "Disable syntax highlighting",
@@ -114,6 +115,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         restore_session: bool,
         show_input: bool,
         show_log: bool,
+        log_stdout: bool,
         language: ?[]const u8,
         list_languages: bool,
         no_syntax: bool,
@@ -238,6 +240,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     env.set("no-alternate", args.no_alternate);
     env.set("show-input", args.show_input);
     env.set("show-log", args.show_log);
+    env.set("log-stdout", args.log_stdout);
     env.set("no-sleep", args.no_sleep);
     env.set("no-syntax", args.no_syntax);
     env.set("syntax-report-timing", args.syntax_report_timing);

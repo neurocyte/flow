@@ -154,7 +154,8 @@ const InitError = error{
     keybind.LoadError;
 
 fn init(allocator: Allocator) InitError!*Self {
-    log.stdout(.disable);
+    if (!tp.env.get().is("log-stdout"))
+        log.stdout(.disable);
 
     var conf, const conf_bufs = root.read_config(@import("config"), allocator);
 
@@ -217,7 +218,8 @@ fn init(allocator: Allocator) InitError!*Self {
     self.rdr_.dispatch_event = dispatch_event;
     try self.rdr_.run();
 
-    log.stderr(.disable);
+    if (!tp.env.get().is("log-stdout"))
+        log.stderr(.disable);
 
     try project_manager.start();
 
