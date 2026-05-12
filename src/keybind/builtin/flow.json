@@ -275,6 +275,8 @@
 
             ["left_control", "enable_jump_mode"],
             ["right_control", "enable_jump_mode"],
+            ["left_super", "enable_jump_mode"],
+            ["right_super", "enable_jump_mode"],
             ["left_alt", "enable_fast_scroll"],
             ["right_alt", "enable_fast_scroll"],
             ["left_shift", "enable_alt_scroll"],
@@ -283,6 +285,8 @@
         "release": [
             ["left_control", "disable_jump_mode"],
             ["right_control", "disable_jump_mode"],
+            ["left_super", "disable_jump_mode"],
+            ["right_super", "disable_jump_mode"],
             ["left_alt", "disable_fast_scroll"],
             ["right_alt", "disable_fast_scroll"],
             ["left_shift", "disable_alt_scroll"],
@@ -647,11 +651,15 @@
             ["ctrl+alt+shift+r", "restart"],
 
             ["left_control", "enable_jump_mode"],
-            ["right_control", "enable_jump_mode"]
+            ["right_control", "enable_jump_mode"],
+            ["left_super", "enable_jump_mode"],
+            ["right_super", "enable_jump_mode"]
         ],
         "release": [
             ["left_control", "disable_jump_mode"],
-            ["right_control", "disable_jump_mode"]
+            ["right_control", "disable_jump_mode"],
+            ["left_super", "disable_jump_mode"],
+            ["right_super", "disable_jump_mode"]
         ]
 
     }
