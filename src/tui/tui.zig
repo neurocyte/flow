@@ -218,7 +218,7 @@ fn init(allocator: Allocator) InitError!*Self {
     self.rdr_.dispatch_mouse = dispatch_mouse;
     self.rdr_.dispatch_mouse_drag = dispatch_mouse_drag;
     self.rdr_.dispatch_event = dispatch_event;
-    try self.rdr_.run();
+    try self.rdr_.run(if (self.render_pid) |*p| p.ref() else null);
 
     if (!tp.env.get().is("log-stdout"))
         log.stderr(.disable);

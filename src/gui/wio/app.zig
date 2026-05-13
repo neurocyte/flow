@@ -63,6 +63,7 @@ var screen_mutex: std.Io.Mutex = .init;
 var screen_pending: std.atomic.Value(bool) = .init(false);
 var screen_snap: ?ScreenSnapshot = null;
 var tui_pid: thespian.pid = undefined;
+var render_pid: ?thespian.pid = null;
 var last_mods: input_translate.Mods = .{};
 var font_size_pt: u16 = 16;
 var font_name_buf: [256]u8 = undefined;
@@ -130,8 +131,13 @@ var wio_font_set: gpu.FontSet = .{
 
 // ── Public API (called from tui thread) ───────────────────────────────────
 
-pub fn start() !std.Thread {
+pub fn start(render_pid_ref: ?thespian.pid_ref) !std.Thread {
     tui_pid = thespian.self_pid().clone();
+    if (render_pid) |*p| {
+        p.deinit();
+        render_pid = null;
+    }
+    if (render_pid_ref) |r| render_pid = r.clone();
     font_name_len = 0;
     window_class_len = 0;
     stop_requested.store(false, .release);
@@ -602,6 +608,9 @@ fn wioLoop() void {
     reloadFont();
     sendResize(win_size, &state, &cell_width, &cell_height);
     tui_pid.send(.{ "RDR", "WindowCreated", @as(usize, 0) }) catch {};
+
+    if (render_pid) |*rp|
+        rp.send(.{ "window_ready", window.getRefreshRate() }) catch {};
 
     var held_buttons = input_translate.ButtonSet{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };

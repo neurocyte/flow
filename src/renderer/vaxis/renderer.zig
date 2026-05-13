@@ -201,7 +201,8 @@ fn handleSegfaultPosixNoAbort(stderr: *std.Io.Writer, sig: std.posix.SIG, info: 
     debug.dumpSegfaultInfoPosix(stderr, sig, code, addr, ctx_ptr);
 }
 
-pub fn run(self: *Self) Error!void {
+pub fn run(self: *Self, render_pid: ?@import("thespian").pid_ref) Error!void {
+    _ = render_pid;
     self.vx.sgr = .legacy;
     self.vx.enable_workarounds = true;
 

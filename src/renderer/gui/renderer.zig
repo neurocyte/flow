@@ -121,8 +121,21 @@ const RenderActor = struct {
         tp.receive(&self.receiver);
     }
 
-    fn receive(_: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
+    fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
         if (try m.match(.{ "tick", tp.more })) return;
+        var refresh_mhz: u32 = 0;
+        if (try m.match(.{ "window_ready", tp.extract(&refresh_mhz) })) {
+            if (refresh_mhz > 0) {
+                const period_us = @as(u64, std.time.us_per_s) * 1000 / refresh_mhz;
+                self.frame_clock.stop() catch {};
+                self.frame_clock.deinit();
+                self.frame_clock = tp.metronome.init(period_us) catch |e|
+                    return tp.exit_error(e, @errorReturnTrace());
+                self.frame_clock.start() catch |e|
+                    return tp.exit_error(e, @errorReturnTrace());
+            }
+            return;
+        }
         if (try m.match(.{"shutdown"})) return tp.exit_normal();
         return tp.unexpected(m);
     }
@@ -175,7 +188,7 @@ pub fn deinit(self: *Self) void {
     self.secondary_cursors.deinit(self.allocator);
 }
 
-pub fn run(self: *Self) Error!void {
+pub fn run(self: *Self, render_pid: ?tp.pid_ref) Error!void {
     if (self.thread) |_| return;
     // Do a dummy resize to fully initialise vaxis internal state
     var drop: std.Io.Writer.Discarding = .init(&.{});
@@ -184,7 +197,7 @@ pub fn run(self: *Self) Error!void {
         &drop.writer,
         .{ .rows = 25, .cols = 80, .x_pixel = 0, .y_pixel = 0 },
     ) catch return error.VaxisResizeError;
-    self.thread = try app.start();
+    self.thread = try app.start(render_pid);
 }
 
 fn fmtmsg(self: *Self, value: anytype) std.Io.Writer.Error![]const u8 {
