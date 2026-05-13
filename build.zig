@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
     const strip = b.option(bool, "strip", "Disable debug information (default: no)");
     // workaround for arch linux relocation type R_X86_64_PC64 linker issue, revert when we move to zig-0.17-dev - CJ 2026-05-02
     // const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
-    const use_llvm: ?bool = if (builtin.os.tag == .linux) true else false;
+    const use_llvm: ?bool = true;
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
     const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (default), gui") orelse .terminal;
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
@@ -338,7 +338,7 @@ pub fn build_exe(
         .target = target,
         .optimize = optimize_deps,
         .use_tree_sitter = use_tree_sitter,
-        .@"use-llvm" = if (builtin.os.tag == .linux) true else false,
+        .@"use-llvm" = use_llvm,
     });
     const syntax_mod = syntax_dep.module("syntax");
 
