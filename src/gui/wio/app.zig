@@ -609,8 +609,10 @@ fn wioLoop() void {
     sendResize(win_size, &state, &cell_width, &cell_height);
     tui_pid.send(.{ "RDR", "WindowCreated", @as(usize, 0) }) catch {};
 
+    const refresh_rate = window.getRefreshRate();
     if (render_pid) |*rp|
-        rp.send(.{ "window_ready", window.getRefreshRate() }) catch {};
+        rp.send(.{ "window_ready", refresh_rate }) catch {};
+    tui_pid.send(.{ "frame_rate", refresh_rate }) catch {};
 
     var held_buttons = input_translate.ButtonSet{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
