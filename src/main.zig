@@ -179,7 +179,7 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     thespian.stack_trace_on_errors = args.debug_dump_on_error;
 
-    var ctx = try thespian.context.init(a);
+    var ctx = try thespian.context.init(a, .{});
     defer ctx.deinit();
 
     const env = thespian.env.init();

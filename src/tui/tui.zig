@@ -34,6 +34,7 @@ const Allocator = std.mem.Allocator;
 
 allocator: Allocator,
 rdr_: renderer,
+render_pid: ?tp.pid = null,
 top_layer_: ?*renderer.Layer = null,
 config_: @import("config"),
 config_bufs: [][]const u8,
@@ -135,6 +136,9 @@ fn start(args: StartArgs) tp.result {
     _ = tp.set_trap(true);
     var self = init(args.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
     errdefer self.deinit();
+    if (@hasDecl(renderer, "spawn")) {
+        self.render_pid = renderer.spawn(args.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
     tp.receive(&self.receiver);
 }
 
@@ -324,6 +328,10 @@ fn deinit(self: *Self) void {
     self.frame_clock.deinit();
     self.rdr_.stop();
     self.rdr_.deinit();
+    if (self.render_pid) |*p| {
+        p.send(.{"shutdown"}) catch {};
+        p.deinit();
+    }
     self.logger.deinit();
     self.query_cache_.deinit();
     root.free_config(self.allocator, self.config_bufs);

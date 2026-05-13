@@ -3,6 +3,7 @@ pub const log_name = "renderer";
 
 const std = @import("std");
 const cbor = @import("cbor");
+const tp = @import("thespian");
 const RGBA = @import("color").RGBA;
 pub const vaxis = @import("vaxis");
 const Style = @import("theme").Style;
@@ -80,6 +81,39 @@ const global = struct {
 fn oom(e: error{OutOfMemory}) noreturn {
     @panic(@errorName(e));
 }
+
+pub fn spawn(allocator: std.mem.Allocator) !tp.pid {
+    return try tp.spawn_pinned(
+        allocator,
+        RenderActor.StartArgs{ .parent = tp.self_pid().clone() },
+        RenderActor.start,
+        "render",
+        null,
+    );
+}
+
+const RenderActor = struct {
+    parent: tp.pid,
+    receiver: tp.Receiver(*@This()),
+
+    const StartArgs = struct { parent: tp.pid };
+
+    fn start(args: StartArgs) tp.result {
+        _ = tp.set_trap(true);
+        var self: @This() = .{ .parent = args.parent, .receiver = undefined };
+        self.receiver = .init(receive, dtor, &self);
+        tp.receive(&self.receiver);
+    }
+
+    fn receive(_: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
+        if (try m.match(.{"shutdown"})) return tp.exit_normal();
+        return tp.unexpected(m);
+    }
+
+    fn dtor(self: *@This()) void {
+        self.parent.deinit();
+    }
+};
 
 pub fn init(
     allocator: std.mem.Allocator,
