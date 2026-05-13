@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 const optimize_deps = .ReleaseFast;
 
-pub const Renderer = enum { terminal, gui, d3d11 };
+pub const Renderer = enum { terminal, gui };
 
 pub fn build(b: *std.Build) void {
     const all_targets = b.option(bool, "all_targets", "Build all known good targets during release builds (default: no)") orelse false;
@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) void {
     // const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
     const use_llvm: ?bool = if (builtin.os.tag == .linux) true else false;
     const pie = b.option(bool, "pie", "Produce an executable with position independent code (default: none)");
-    const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (TUI, default), d3d11 (GPU on Windows via DirectWrite), gui (GPU on Linux/macOS/Windows via wio+sokol_gfx)") orelse .terminal;
+    const renderer = b.option(Renderer, "renderer", "Renderer backend: terminal (default), gui") orelse .terminal;
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     const run_step = b.step("run", "Run the app");
@@ -126,9 +126,9 @@ fn build_release(
         .{ .{ .cpu_arch = .x86_64, .os_tag = .macos }, .terminal },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .macos }, .terminal },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .windows }, .terminal },
-        .{ .{ .cpu_arch = .x86_64, .os_tag = .windows }, .d3d11 },
+        .{ .{ .cpu_arch = .x86_64, .os_tag = .windows }, .gui },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .terminal },
-        .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .d3d11 },
+        .{ .{ .cpu_arch = .aarch64, .os_tag = .windows }, .gui },
         .{ .{ .cpu_arch = .x86_64, .os_tag = .freebsd }, .terminal },
         .{ .{ .cpu_arch = .aarch64, .os_tag = .freebsd }, .terminal },
     } else blk: {
@@ -146,7 +146,7 @@ fn build_release(
                 },
                 .windows => &.{
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
-                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .d3d11 },
+                    .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .gui },
                 },
                 else => &.{
                     .{ .{ .cpu_arch = native_target.cpu.arch, .os_tag = native_target.os.tag }, .terminal },
@@ -165,7 +165,7 @@ fn build_release(
             },
             .windows => &.{
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
-                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .d3d11 },
+                .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .gui },
             },
             else => &.{
                 .{ .{ .cpu_arch = selected_target.cpu_arch, .os_tag = selected_target.os_tag, .abi = selected_target.abi }, .terminal },
@@ -499,55 +499,6 @@ pub fn build_exe(
     const renderer_mod = blk: {
         switch (renderer) {
             .terminal => break :blk tui_renderer_mod,
-            .d3d11 => {
-                const win32_dep = b.lazyDependency("win32", .{}) orelse break :blk tui_renderer_mod;
-                const win32_mod = win32_dep.module("win32");
-                const gui_xy_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xy.zig") });
-                const gui_cell_mod = b.createModule(.{
-                    .root_source_file = b.path("src/gui/cell.zig"),
-                    .imports = &.{
-                        .{ .name = "color", .module = color_mod },
-                    },
-                });
-                const gui_glyph_cache_mod = b.createModule(.{ .root_source_file = b.path("src/gui/GlyphIndexCache.zig") });
-                const gui_xterm_mod = b.createModule(.{ .root_source_file = b.path("src/gui/xterm.zig") });
-                const gui_mod = b.createModule(.{
-                    .root_source_file = b.path("src/win32/gui.zig"),
-                    .imports = &.{
-                        .{ .name = "build_options", .module = options_mod },
-                        .{ .name = "soft_root", .module = soft_root_mod },
-                        .{ .name = "win32", .module = win32_mod },
-                        .{ .name = "cbor", .module = cbor_mod },
-                        .{ .name = "thespian", .module = thespian_mod },
-                        .{ .name = "input", .module = input_mod },
-                        .{ .name = "vaxis", .module = vaxis_mod },
-                        .{ .name = "color", .module = color_mod },
-                        .{ .name = "gui_config", .module = gui_config_mod },
-                        .{ .name = "tracy", .module = tracy_mod },
-                        .{ .name = "xy", .module = gui_xy_mod },
-                        .{ .name = "cell", .module = gui_cell_mod },
-                        .{ .name = "GlyphIndexCache", .module = gui_glyph_cache_mod },
-                        .{ .name = "xterm", .module = gui_xterm_mod },
-                    },
-                });
-                gui_mod.addIncludePath(b.path("src/win32"));
-
-                const mod = b.createModule(.{
-                    .root_source_file = b.path("src/renderer/win32/renderer.zig"),
-                    .imports = &.{
-                        .{ .name = "theme", .module = themes_dep.module("theme") },
-                        .{ .name = "soft_root", .module = soft_root_mod },
-                        .{ .name = "win32", .module = win32_mod },
-                        .{ .name = "cbor", .module = cbor_mod },
-                        .{ .name = "thespian", .module = thespian_mod },
-                        .{ .name = "input", .module = input_mod },
-                        .{ .name = "gui", .module = gui_mod },
-                        .{ .name = "tuirenderer", .module = tui_renderer_mod },
-                        .{ .name = "vaxis", .module = vaxis_mod },
-                    },
-                });
-                break :blk mod;
-            },
             .gui => {
                 const wio_dep_lazy = b.lazyDependency("wio", .{
                     .target = target,
@@ -890,7 +841,6 @@ pub fn build_exe(
 
     const exe_name = switch (renderer) {
         .terminal => "flow",
-        .d3d11 => "flow-d3d11",
         .gui => "flow-gui",
     };
 
@@ -902,10 +852,11 @@ pub fn build_exe(
             .optimize = optimize,
             .strip = strip,
         }),
-        .win32_manifest = if (renderer == .gui)
-            null // .gui uses wio manifest
+        // .gui uses wio's manifest; .terminal uses ours.
+        .win32_manifest = if (renderer == .terminal)
+            b.path("src/win32/flow.manifest")
         else
-            b.path("src/win32/flow.manifest"),
+            null,
     });
 
     if (use_llvm) |value| {
