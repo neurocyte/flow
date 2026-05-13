@@ -509,7 +509,7 @@ fn wioLoop() void {
 
     var window = wio.createWindow(.{
         .title = "flow",
-        .app_id = if (window_class_len > 0) window_class_buf[0..window_class_len] else "flow",
+        .app_id = if (window_class_len > 0) window_class_buf[0..window_class_len] else "flow-control",
         .size = .{ .width = 1280, .height = 720 },
         .scale = 1.0,
         .gl_options = if (builtin.os.tag == .windows) null else gl_options,
