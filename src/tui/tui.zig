@@ -137,7 +137,7 @@ fn start(args: StartArgs) tp.result {
     var self = init(args.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
     errdefer self.deinit();
     if (@hasDecl(renderer, "spawn")) {
-        self.render_pid = renderer.spawn(args.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.render_pid = renderer.spawn(args.allocator, self.config_.frame_rate) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
     tp.receive(&self.receiver);
 }

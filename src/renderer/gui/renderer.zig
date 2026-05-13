@@ -82,10 +82,13 @@ fn oom(e: error{OutOfMemory}) noreturn {
     @panic(@errorName(e));
 }
 
-pub fn spawn(allocator: std.mem.Allocator) !tp.pid {
+pub fn spawn(allocator: std.mem.Allocator, frame_rate_fallback: usize) !tp.pid {
     return try tp.spawn_pinned(
         allocator,
-        RenderActor.StartArgs{ .parent = tp.self_pid().clone() },
+        RenderActor.StartArgs{
+            .parent = tp.self_pid().clone(),
+            .frame_rate_fallback = @intCast(frame_rate_fallback),
+        },
         RenderActor.start,
         "render",
         null,
@@ -94,23 +97,39 @@ pub fn spawn(allocator: std.mem.Allocator) !tp.pid {
 
 const RenderActor = struct {
     parent: tp.pid,
+    frame_clock: tp.metronome,
     receiver: tp.Receiver(*@This()),
 
-    const StartArgs = struct { parent: tp.pid };
+    const StartArgs = struct {
+        parent: tp.pid,
+        frame_rate_fallback: u32,
+    };
 
     fn start(args: StartArgs) tp.result {
         _ = tp.set_trap(true);
-        var self: @This() = .{ .parent = args.parent, .receiver = undefined };
+        const period_us = std.time.us_per_s / @max(args.frame_rate_fallback, 1);
+        const frame_clock = tp.metronome.init(period_us) catch |e|
+            return tp.exit_error(e, @errorReturnTrace());
+        frame_clock.start() catch |e|
+            return tp.exit_error(e, @errorReturnTrace());
+        var self: @This() = .{
+            .parent = args.parent,
+            .frame_clock = frame_clock,
+            .receiver = undefined,
+        };
         self.receiver = .init(receive, dtor, &self);
         tp.receive(&self.receiver);
     }
 
     fn receive(_: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
+        if (try m.match(.{ "tick", tp.more })) return;
         if (try m.match(.{"shutdown"})) return tp.exit_normal();
         return tp.unexpected(m);
     }
 
     fn dtor(self: *@This()) void {
+        self.frame_clock.stop() catch {};
+        self.frame_clock.deinit();
         self.parent.deinit();
     }
 };
