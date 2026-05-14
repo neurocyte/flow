@@ -329,10 +329,7 @@ fn deinit(self: *Self) void {
     self.frame_clock.deinit();
     self.rdr_.stop();
     self.rdr_.deinit();
-    if (self.render_pid) |*p| {
-        p.send(.{"shutdown"}) catch {};
-        p.deinit();
-    }
+    if (self.render_pid) |*p| p.deinit();
     self.logger.deinit();
     self.query_cache_.deinit();
     root.free_config(self.allocator, self.config_bufs);

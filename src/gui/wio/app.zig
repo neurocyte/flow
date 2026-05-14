@@ -3,9 +3,16 @@
 // Threading model:
 //   - start() is called from the tui/actor thread; it clones the caller's
 //     thespian PID and spawns the wio loop on a new thread.
-//   - The wio thread owns the GL context and all sokol/GPU state.
-//   - requestRender() / updateScreen() can be called from any thread; they
-//     post data to shared state protected by a mutex and wake the wio thread.
+//   - The wio thread owns the wio.Window, runs the OS message pump, and
+//     forwards events to either the tui (input) or the render actor (size,
+//     refresh_rate). It does NOT touch the GL context, sokol, gpu, or the
+//     D3D11 swapchain. Those all live on the render actor's thread.
+//   - The render actor owns the GL/D3D context, sokol, gpu state, and the
+//     paint loop. It ticks on a frame metronome at the screen refresh rate
+//     and pulls the latest screen snapshot from screen_snap on each tick.
+//   - updateScreen() can be called from any thread; it stashes a snapshot
+//     under screen_mutex and sets screen_pending. The render actor reads
+//     these on its next tick.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -83,6 +90,11 @@ var background_dirty: std.atomic.Value(bool) = .init(false);
 
 var dark_mode: std.atomic.Value(bool) = .init(true);
 var dark_mode_dirty: std.atomic.Value(bool) = .init(true);
+
+// Set by the wio thread after createWindow; read by the render actor.
+var gui_window: ?*wio.Window = null;
+// Set by the render actor's shutdown handler; awaited by stop().
+var render_shutdown_done: std.atomic.Value(bool) = .init(false);
 
 var config_arena_instance: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const config_arena = config_arena_instance.allocator();
@@ -233,12 +245,10 @@ pub fn updateScreen(
     };
 
     screen_pending.store(true, .release);
-    wio.cancelWait();
 }
 
 pub fn requestRender() void {
     screen_pending.store(true, .release);
-    wio.cancelWait();
 }
 
 pub fn setFontSize(size_px: f32) void {
@@ -416,13 +426,11 @@ pub fn setBackground(color: RGBA) void {
     const color_u32: u32 = (@as(u32, color.r) << 24) | (@as(u32, color.g) << 16) | (@as(u32, color.b) << 8) | color.a;
     background_color.store(color_u32, .release);
     background_dirty.store(true, .release);
-    wio.cancelWait();
 }
 
 pub fn enableDarkMode(enabled: bool) void {
     dark_mode.store(enabled, .release);
     dark_mode_dirty.store(true, .release);
-    wio.cancelWait();
 }
 
 pub fn requestAttention() void {
@@ -460,7 +468,8 @@ fn pixelToCellPos(pos: wio.Position) CellPos {
     };
 }
 
-// Reload wio_font_set from current settings.  Called only from the wio thread.
+// Reload wio_font_set from current settings.  Called only from the render
+// actor's thread (sg/gpu state is owned by the render actor).
 fn reloadFont() void {
     const name = if (font_name_len > 0) font_name_buf[0..font_name_len] else "monospace";
     const size_physical: u16 = @intFromFloat(@round(@as(f32, @floatFromInt(font_size_pt)) * (4.0 / 3.0) * dpi_scale));
@@ -476,14 +485,6 @@ fn reloadFont() void {
     wio_font_set = set;
 }
 
-// Check dirty flag and reload if needed.
-fn maybeReloadFont(win_size: wio.Size, state: *gpu.WindowState, cell_width: *u16, cell_height: *u16) void {
-    if (font_dirty.swap(false, .acq_rel)) {
-        reloadFont();
-        sendResize(win_size, state, cell_width, cell_height);
-    }
-}
-
 fn colorFromVaxis(color: vaxis.Cell.Color) RGBA {
     return switch (color) {
         .default => gpu.getBackground(),
@@ -493,6 +494,10 @@ fn colorFromVaxis(color: vaxis.Cell.Color) RGBA {
 }
 
 // ── wio main loop (runs on dedicated thread) ──────────────────────────────
+//
+// Only the OS message pump runs here. GL/D3D/sg/gpu/paint all live on the
+// render actor's thread. This thread forwards size_physical/refresh_rate to
+// the render actor and input/focus/etc. to tui.
 
 fn wioLoop() void {
     const io = root.get_io();
@@ -510,19 +515,12 @@ fn wioLoop() void {
     };
     defer wio.deinit();
 
-    const gl_options: wio.GlOptions = .{
-        .major_version = 3,
-        .minor_version = 3,
-        .profile = .core,
-        .forward_compatible = true,
-    };
-
     var window = wio.createWindow(.{
         .title = "flow",
         .app_id = if (window_class_len > 0) window_class_buf[0..window_class_len] else "flow-control",
         .size = .{ .width = 1280, .height = 720 },
         .scale = 1.0,
-        .gl_options = if (builtin.os.tag == .windows) null else gl_options,
+        .gl_options = if (builtin.os.tag == .windows) null else gl_options(),
     }) catch |e| {
         log.err("wio.createWindow failed: {s}", .{@errorName(e)});
         tui_pid.send(.{"quit"}) catch {};
@@ -530,90 +528,33 @@ fn wioLoop() void {
     };
     defer window.destroy();
 
-    if (builtin.os.tag != .windows) {
-        const context = window.glCreateContext(.{ .options = gl_options }) catch |e| {
-            log.err("wio.glCreateContext failed: {s}", .{@errorName(e)});
-            tui_pid.send(.{"quit"}) catch {};
-            return;
-        };
-        window.glMakeContextCurrent(context);
-
-        // Disable EGL vsync throttling so eglSwapBuffers() returns immediately.
-        // Without this, eglSwapBuffers() blocks waiting for a frame callback from
-        // the compositor. Compositors do not send frame callbacks for surfaces on
-        // background virtual desktops, so any paint while the window is hidden
-        // causes eglSwapBuffers() to stall indefinitely, freezing the Wayland
-        // event loop and triggering an "Application Not Responding" dialog.
-        window.glSwapInterval(0);
-    }
-
-    // FIXME: wio uses a different zigwin32 instance
-    const hwnd: if (builtin.os.tag == .windows) win32.HWND else void =
-        if (builtin.os.tag == .windows) @ptrCast(window.backend.window) else {};
-
-    var swapchain: if (builtin.os.tag == .windows) D3D11Swapchain else void = undefined;
     if (builtin.os.tag == .windows) {
-        var rect: win32.RECT = .{ .left = 0, .top = 0, .right = 1280, .bottom = 720 };
-        _ = win32.GetClientRect(hwnd, &rect);
-        const cw: u32 = @intCast(@max(1, rect.right - rect.left));
-        const ch: u32 = @intCast(@max(1, rect.bottom - rect.top));
-        swapchain = D3D11Swapchain.init(hwnd, cw, ch) catch |e| {
-            log.err("d3d11_swapchain.init failed: {s}", .{@errorName(e)});
-            tui_pid.send(.{"quit"}) catch {};
-            return;
-        };
+        // FIXME: wio uses a different zigwin32 instance
+        const hwnd: win32.HWND = @ptrCast(window.backend.window);
         applyWindowIcons(hwnd);
     }
-    defer if (builtin.os.tag == .windows) swapchain.deinit();
 
-    const sg_env: sg.Environment = if (builtin.os.tag == .windows) .{
-        .defaults = .{ .color_format = .RGBA8, .depth_format = .NONE, .sample_count = 1 },
-        .d3d11 = .{ .device = swapchain.device, .device_context = swapchain.context },
-    } else .{};
+    gui_window = &window;
 
-    sg.setup(.{
-        .logger = .{ .func = slog.func },
-        .environment = sg_env,
-    });
-    defer sg.shutdown();
-
-    gpu.init(allocator) catch |e| {
-        log.err("gpu.init failed: {s}", .{@errorName(e)});
-        tui_pid.send(.{"quit"}) catch {};
-        return;
-    };
-    defer gpu.deinit();
-
-    var state = gpu.WindowState.init();
-    defer state.deinit();
-
-    // Current window sizes (updated by size_* events).
-    var win_size: wio.Size = .{ .width = 1280, .height = 720 };
-    // Cell grid dimensions (updated on resize)
-    var cell_width: u16 = 80;
-    var cell_height: u16 = 24;
-
-    // Drain the initial wio events (scale + size_* + refresh_rate) that are queued
-    // synchronously during createWindow.  This ensures dpi_scale and win_size are
-    // correct before the first reloadFont / sendResize, avoiding a brief render at
-    // the wrong scale.  refresh_rate is forwarded to the render actor.
+    // Initial wio events (scale, size_physical, refresh_rate) are queued
+    // synchronously during createWindow. Forward them to the render actor so
+    // it has the correct initial state. The render actor will handle font
+    // load + GPU init in its window_ready handler.
+    var initial_size: wio.Size = .{ .width = 1280, .height = 720 };
     while (window.getEvent()) |event| {
         switch (event) {
             .scale => |s| dpi_scale = s,
-            .size_physical => |sz| win_size = sz,
+            .size_physical => |sz| initial_size = sz,
             .refresh_rate => |r| if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {},
             else => {},
         }
     }
 
-    if (builtin.os.tag == .windows) {
-        swapchain.resize(@intCast(win_size.width), @intCast(win_size.height)) catch {};
-    }
-
-    // Notify the tui that the window is ready
-    reloadFont();
-    sendResize(win_size, &state, &cell_width, &cell_height);
-    tui_pid.send(.{ "RDR", "WindowCreated", @as(usize, 0) }) catch {};
+    if (render_pid) |*rp| rp.send(.{
+        "window_ready",
+        @as(u32, @intCast(initial_size.width)),
+        @as(u32, @intCast(initial_size.height)),
+    }) catch {};
 
     var held_buttons = input_translate.ButtonSet{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
@@ -622,9 +563,6 @@ fn wioLoop() void {
     while (running) {
         wio.wait(.{});
         if (stop_requested.load(.acquire)) break;
-
-        // Reload font if settings changed (font_dirty set by TUI thread).
-        maybeReloadFont(win_size, &state, &cell_width, &cell_height);
 
         while (window.getEvent()) |event| {
             switch (event) {
@@ -639,13 +577,11 @@ fn wioLoop() void {
                     if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
                 },
                 .size_physical => |sz| {
-                    win_size = sz;
-                    if (builtin.os.tag == .windows) {
-                        swapchain.resize(@intCast(sz.width), @intCast(sz.height)) catch |e| {
-                            log.err("swapchain.resize failed: {s}", .{@errorName(e)});
-                        };
-                    }
-                    sendResize(sz, &state, &cell_width, &cell_height);
+                    if (render_pid) |*rp| rp.send(.{
+                        "resize",
+                        @as(u32, @intCast(sz.width)),
+                        @as(u32, @intCast(sz.height)),
+                    }) catch {};
                 },
                 .button_press => |btn| {
                     held_buttons.press(btn);
@@ -775,88 +711,236 @@ fn wioLoop() void {
         if (attention_pending.swap(false, .acq_rel)) {
             window.requestAttention();
         }
+    }
 
-        // Paint if the tui pushed new screen data.
-        // Take ownership of the snap (set screen_snap = null under the mutex)
-        // so the TUI thread cannot free the backing memory while we use it.
-        if (screen_pending.swap(false, .acq_rel)) {
-            screen_mutex.lockUncancelable(io);
-            const snap = screen_snap;
-            screen_snap = null; // wio thread now owns this allocation
-            screen_mutex.unlock(io);
-
-            if (snap) |s| {
-                defer {
-                    allocator.free(s.cells);
-                    allocator.free(s.codepoints);
-                    allocator.free(s.widths);
-                    allocator.free(s.secondary_cursors);
-                }
-
-                state.size = .{ .x = win_size.width, .y = win_size.height };
-                const font_set = wio_font_set;
-
-                if (background_dirty.swap(false, .acq_rel)) {
-                    const color_u32 = background_color.load(.acquire);
-                    gpu.setBackground(.{
-                        .r = @truncate(color_u32 >> 24),
-                        .g = @truncate(color_u32 >> 16),
-                        .b = @truncate(color_u32 >> 8),
-                        .a = @truncate(color_u32),
-                    });
-                }
-
-                if (builtin.os.tag == .windows and dark_mode_dirty.swap(false, .acq_rel)) {
-                    applyDarkTitlebar(hwnd, dark_mode.load(.acquire));
-                }
-
-                // Regenerate glyph indices using the GPU state.
-                // For double-wide characters vaxis emits width=2 for the left
-                // cell and width=0 (continuation) for the right cell.  The
-                // right cell has no codepoint of its own; we reuse the one
-                // from the preceding wide-start cell.
-                const cells_with_glyphs = allocator.alloc(gpu.Cell, s.cells.len) catch continue;
-                defer allocator.free(cells_with_glyphs);
-                @memcpy(cells_with_glyphs, s.cells);
-
-                var prev_cp: u21 = ' ';
-                for (cells_with_glyphs, s.codepoints, s.widths) |*cell, cp, w| {
-                    const split: gpu.GlyphSplit = switch (w) {
-                        2 => .left,
-                        0 => .right,
-                        else => .single,
-                    };
-                    const glyph_cp = if (w == 0) prev_cp else cp;
-                    const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
-                    const per_face = font_set.faces[@intFromEnum(face)];
-                    cell.glyph_index = state.generateGlyph(per_face, face, glyph_cp, split);
-                    if (w != 0) prev_cp = cp;
-                }
-
-                const render_view: ?*const anyopaque = if (builtin.os.tag == .windows) swapchain.rtv else null;
-                gpu.paint(
-                    &state,
-                    .{ .x = win_size.width, .y = win_size.height },
-                    font_set,
-                    s.height,
-                    s.width,
-                    0,
-                    cells_with_glyphs,
-                    s.cursor,
-                    s.secondary_cursors,
-                    render_view,
-                );
-                sg.commit();
-                if (builtin.os.tag == .windows) {
-                    swapchain.present();
-                } else {
-                    window.glSwapBuffers();
-                }
-            }
-        }
+    if (render_pid) |*rp| rp.send(.{"shutdown"}) catch {};
+    while (!render_shutdown_done.load(.acquire)) {
+        std.atomic.spinLoopHint();
+        std.Thread.yield() catch break;
     }
 
     tui_pid.send(.{"quit"}) catch {};
+}
+
+fn gl_options() wio.GlOptions {
+    return .{
+        .major_version = 3,
+        .minor_version = 3,
+        .profile = .core,
+        .forward_compatible = true,
+    };
+}
+
+// ── Render actor worker functions (run on the render actor's thread) ──────
+//
+// The render actor calls these from its message handlers. The wio thread
+// must not touch any state set up here.
+
+const RenderCtx = struct {
+    state: gpu.WindowState,
+    swapchain: if (builtin.os.tag == .windows) D3D11Swapchain else void,
+    hwnd: if (builtin.os.tag == .windows) win32.HWND else void,
+    win_size: wio.Size,
+    target_size: wio.Size,
+    cell_width: u16,
+    cell_height: u16,
+};
+
+var render_ctx: ?RenderCtx = null;
+
+pub fn renderActorWindowReady(initial_w: u32, initial_h: u32) void {
+    const allocator = root.get_init().gpa;
+    const window = gui_window orelse {
+        log.err("renderActorWindowReady: gui_window is null", .{});
+        tui_pid.send(.{"quit"}) catch {};
+        return;
+    };
+
+    if (builtin.os.tag != .windows) {
+        const ctx = window.glCreateContext(.{ .options = gl_options() }) catch |e| {
+            log.err("wio.glCreateContext failed: {s}", .{@errorName(e)});
+            tui_pid.send(.{"quit"}) catch {};
+            return;
+        };
+        window.glMakeContextCurrent(ctx);
+
+        // Disable EGL vsync throttling so eglSwapBuffers() returns immediately.
+        // Without this, eglSwapBuffers() blocks waiting for a frame callback
+        // from the compositor. Compositors do not send frame callbacks for
+        // surfaces on background virtual desktops, so any paint while the
+        // window is hidden causes eglSwapBuffers() to stall indefinitely.
+        window.glSwapInterval(0);
+    }
+
+    const hwnd: if (builtin.os.tag == .windows) win32.HWND else void =
+        if (builtin.os.tag == .windows) @ptrCast(window.backend.window) else {};
+
+    var swapchain: if (builtin.os.tag == .windows) D3D11Swapchain else void = undefined;
+    if (builtin.os.tag == .windows) {
+        swapchain = D3D11Swapchain.init(hwnd, @intCast(@max(1, initial_w)), @intCast(@max(1, initial_h))) catch |e| {
+            log.err("d3d11_swapchain.init failed: {s}", .{@errorName(e)});
+            tui_pid.send(.{"quit"}) catch {};
+            return;
+        };
+    }
+
+    const sg_env: sg.Environment = if (builtin.os.tag == .windows) .{
+        .defaults = .{ .color_format = .RGBA8, .depth_format = .NONE, .sample_count = 1 },
+        .d3d11 = .{ .device = swapchain.device, .device_context = swapchain.context },
+    } else .{};
+
+    sg.setup(.{
+        .logger = .{ .func = slog.func },
+        .environment = sg_env,
+    });
+
+    gpu.init(allocator) catch |e| {
+        log.err("gpu.init failed: {s}", .{@errorName(e)});
+        sg.shutdown();
+        tui_pid.send(.{"quit"}) catch {};
+        return;
+    };
+
+    const initial_size: wio.Size = .{ .width = @intCast(initial_w), .height = @intCast(initial_h) };
+    render_ctx = .{
+        .state = gpu.WindowState.init(),
+        .swapchain = swapchain,
+        .hwnd = hwnd,
+        .win_size = initial_size,
+        .target_size = initial_size,
+        .cell_width = 80,
+        .cell_height = 24,
+    };
+
+    reloadFont();
+    sendResize(initial_size, &render_ctx.?.state, &render_ctx.?.cell_width, &render_ctx.?.cell_height);
+    tui_pid.send(.{ "RDR", "WindowCreated", @as(usize, 0) }) catch {};
+}
+
+pub fn renderActorResize(w: u32, h: u32) void {
+    if (render_ctx) |*ctx| {
+        ctx.target_size = .{ .width = @intCast(w), .height = @intCast(h) };
+    }
+}
+
+pub fn renderActorTick() void {
+    const ctx = if (render_ctx) |*c| c else return;
+    const allocator = root.get_init().gpa;
+    const io = root.get_io();
+
+    // On Windows the wio thread can be parked inside DefWindowProc's modal
+    // resize/move loop, so the ("resize", w, h) message from the wio thread
+    // doesn't arrive until the user releases the mouse. Poll the live client
+    // rect directly so we keep repainting during the drag.
+    if (builtin.os.tag == .windows) {
+        var rect: win32.RECT = undefined;
+        if (win32.GetClientRect(ctx.hwnd, &rect) != 0) {
+            const w: u16 = @intCast(@max(1, rect.right - rect.left));
+            const h: u16 = @intCast(@max(1, rect.bottom - rect.top));
+            ctx.target_size = .{ .width = w, .height = h };
+        }
+    }
+
+    // Resize the swapchain (Win32) and WindowState if the target changed.
+    if (ctx.target_size.width != ctx.win_size.width or ctx.target_size.height != ctx.win_size.height) {
+        ctx.win_size = ctx.target_size;
+        if (builtin.os.tag == .windows) {
+            ctx.swapchain.resize(@intCast(ctx.win_size.width), @intCast(ctx.win_size.height)) catch |e| {
+                log.err("swapchain.resize failed: {s}", .{@errorName(e)});
+            };
+        }
+        sendResize(ctx.win_size, &ctx.state, &ctx.cell_width, &ctx.cell_height);
+    }
+
+    // Reload font if settings changed (font_dirty set from any thread).
+    if (font_dirty.swap(false, .acq_rel)) {
+        reloadFont();
+        sendResize(ctx.win_size, &ctx.state, &ctx.cell_width, &ctx.cell_height);
+    }
+
+    // Apply dark titlebar (Win32). This is a window attribute API; it's safe
+    // from any thread but conceptually belongs near the paint.
+    if (builtin.os.tag == .windows and dark_mode_dirty.swap(false, .acq_rel)) {
+        applyDarkTitlebar(ctx.hwnd, dark_mode.load(.acquire));
+    }
+
+    // Only paint when there's a new screen snapshot.
+    if (!screen_pending.swap(false, .acq_rel)) return;
+
+    screen_mutex.lockUncancelable(io);
+    const snap_opt = screen_snap;
+    screen_snap = null;
+    screen_mutex.unlock(io);
+
+    const s = snap_opt orelse return;
+    defer {
+        allocator.free(s.cells);
+        allocator.free(s.codepoints);
+        allocator.free(s.widths);
+        allocator.free(s.secondary_cursors);
+    }
+
+    ctx.state.size = .{ .x = ctx.win_size.width, .y = ctx.win_size.height };
+    const font_set = wio_font_set;
+
+    if (background_dirty.swap(false, .acq_rel)) {
+        const color_u32 = background_color.load(.acquire);
+        gpu.setBackground(.{
+            .r = @truncate(color_u32 >> 24),
+            .g = @truncate(color_u32 >> 16),
+            .b = @truncate(color_u32 >> 8),
+            .a = @truncate(color_u32),
+        });
+    }
+
+    const cells_with_glyphs = allocator.alloc(gpu.Cell, s.cells.len) catch return;
+    defer allocator.free(cells_with_glyphs);
+    @memcpy(cells_with_glyphs, s.cells);
+
+    var prev_cp: u21 = ' ';
+    for (cells_with_glyphs, s.codepoints, s.widths) |*cell, cp, w| {
+        const split: gpu.GlyphSplit = switch (w) {
+            2 => .left,
+            0 => .right,
+            else => .single,
+        };
+        const glyph_cp = if (w == 0) prev_cp else cp;
+        const face: gpu.Face = @enumFromInt(@as(u2, @truncate(cell.face)));
+        const per_face = font_set.faces[@intFromEnum(face)];
+        cell.glyph_index = ctx.state.generateGlyph(per_face, face, glyph_cp, split);
+        if (w != 0) prev_cp = cp;
+    }
+
+    const render_view: ?*const anyopaque = if (builtin.os.tag == .windows) ctx.swapchain.rtv else null;
+    gpu.paint(
+        &ctx.state,
+        .{ .x = ctx.win_size.width, .y = ctx.win_size.height },
+        font_set,
+        s.height,
+        s.width,
+        0,
+        cells_with_glyphs,
+        s.cursor,
+        s.secondary_cursors,
+        render_view,
+    );
+    sg.commit();
+    if (builtin.os.tag == .windows) {
+        ctx.swapchain.present();
+    } else if (gui_window) |w| {
+        w.glSwapBuffers();
+    }
+}
+
+pub fn renderActorShutdown() void {
+    if (render_ctx) |*ctx| {
+        ctx.state.deinit();
+        if (builtin.os.tag == .windows) ctx.swapchain.deinit();
+        gpu.deinit();
+        sg.shutdown();
+        render_ctx = null;
+    }
+    render_shutdown_done.store(true, .release);
 }
 
 fn sendResize(

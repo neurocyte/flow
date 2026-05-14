@@ -111,6 +111,7 @@ const RenderActor = struct {
     frame_rate: u32,
     frame_rate_fallback: u32,
     receiver: tp.Receiver(*@This()),
+    initialized: bool = false,
 
     const StartArgs = struct {
         allocator: std.mem.Allocator,
@@ -138,7 +139,18 @@ const RenderActor = struct {
     fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
         errdefer self.deinit();
         if (try m.match(.{ "tick", tp.more })) {
-            // try self.parent.send(.{ "render", "tick" });
+            if (self.initialized) app.renderActorTick();
+            return;
+        }
+        var w: u32 = 0;
+        var h: u32 = 0;
+        if (try m.match(.{ "window_ready", tp.extract(&w), tp.extract(&h) })) {
+            app.renderActorWindowReady(w, h);
+            self.initialized = true;
+            return;
+        }
+        if (try m.match(.{ "resize", tp.extract(&w), tp.extract(&h) })) {
+            app.renderActorResize(w, h);
             return;
         }
         var refresh_mhz: u32 = 0;
@@ -149,7 +161,12 @@ const RenderActor = struct {
             std.log.info("frame rate (Hz): {}", .{self.frame_rate});
             return;
         }
-        if (try m.match(.{"shutdown"})) return tp.exit_normal();
+        if (try m.match(.{"shutdown"})) {
+            self.frame_clock.stop() catch {};
+            app.renderActorShutdown();
+            self.initialized = false;
+            return tp.exit_normal();
+        }
         return tp.unexpected(m);
     }
 
