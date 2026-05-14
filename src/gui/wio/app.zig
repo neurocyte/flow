@@ -137,7 +137,11 @@ pub fn start(render_pid_ref: ?thespian.pid_ref) !std.Thread {
         p.deinit();
         render_pid = null;
     }
-    if (render_pid_ref) |r| render_pid = r.clone();
+    if (render_pid_ref) |r| {
+        render_pid = r.clone();
+    } else {
+        @panic("wio.app no renderer");
+    }
     font_name_len = 0;
     window_class_len = 0;
     stop_requested.store(false, .release);
@@ -612,7 +616,6 @@ fn wioLoop() void {
     const refresh_rate = window.getRefreshRate();
     if (render_pid) |*rp|
         rp.send(.{ "window_ready", refresh_rate }) catch {};
-    tui_pid.send(.{ "frame_rate", refresh_rate }) catch {};
 
     var held_buttons = input_translate.ButtonSet{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };

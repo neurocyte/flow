@@ -82,10 +82,19 @@ fn oom(e: error{OutOfMemory}) noreturn {
     @panic(@errorName(e));
 }
 
-pub fn spawn(allocator: std.mem.Allocator, frame_rate_fallback: usize) !tp.pid {
+pub fn spawn(io: std.Io, a: std.mem.Allocator, frame_rate_fallback: usize) error{
+    SystemResources,
+    LockedMemoryLimitExceeded,
+    OutOfMemory,
+    ThreadQuotaExceeded,
+    ThespianSpawnFailed,
+    ThespianContextCreateFailed,
+}!tp.pid {
     return try tp.spawn_pinned(
-        allocator,
+        io,
+        a,
         RenderActor.StartArgs{
+            .allocator = a,
             .parent = tp.self_pid().clone(),
             .frame_rate_fallback = @intCast(frame_rate_fallback),
         },
@@ -96,44 +105,48 @@ pub fn spawn(allocator: std.mem.Allocator, frame_rate_fallback: usize) !tp.pid {
 }
 
 const RenderActor = struct {
+    allocator: std.mem.Allocator,
     parent: tp.pid,
     frame_clock: tp.metronome,
+    frame_rate: u32,
+    frame_rate_fallback: u32,
     receiver: tp.Receiver(*@This()),
 
     const StartArgs = struct {
+        allocator: std.mem.Allocator,
         parent: tp.pid,
         frame_rate_fallback: u32,
     };
 
     fn start(args: StartArgs) tp.result {
-        _ = tp.set_trap(true);
         const period_us = std.time.us_per_s / @max(args.frame_rate_fallback, 1);
-        const frame_clock = tp.metronome.init(period_us) catch |e|
-            return tp.exit_error(e, @errorReturnTrace());
-        frame_clock.start() catch |e|
-            return tp.exit_error(e, @errorReturnTrace());
-        var self: @This() = .{
+        const self = args.allocator.create(@This()) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        errdefer args.allocator.destroy(self);
+        self.* = .{
+            .allocator = args.allocator,
             .parent = args.parent,
-            .frame_clock = frame_clock,
+            .frame_clock = tp.metronome.init(period_us) catch |e| return tp.exit_error(e, @errorReturnTrace()),
+            .frame_rate = args.frame_rate_fallback,
+            .frame_rate_fallback = args.frame_rate_fallback,
             .receiver = undefined,
         };
-        self.receiver = .init(receive, dtor, &self);
+        self.receiver = .init(receive, dtor, self);
         tp.receive(&self.receiver);
+        self.frame_clock.start() catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
     fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) tp.result {
-        if (try m.match(.{ "tick", tp.more })) return;
+        errdefer self.deinit();
+        if (try m.match(.{ "tick", tp.more })) {
+            // try self.parent.send(.{ "render", "tick" });
+            return;
+        }
         var refresh_mhz: u32 = 0;
         if (try m.match(.{ "window_ready", tp.extract(&refresh_mhz) })) {
-            if (refresh_mhz > 0) {
-                const period_us = @as(u64, std.time.us_per_s) * 1000 / refresh_mhz;
-                self.frame_clock.stop() catch {};
-                self.frame_clock.deinit();
-                self.frame_clock = tp.metronome.init(period_us) catch |e|
-                    return tp.exit_error(e, @errorReturnTrace());
-                self.frame_clock.start() catch |e|
-                    return tp.exit_error(e, @errorReturnTrace());
-            }
+            if (refresh_mhz > 0 and refresh_mhz / 1000 != self.frame_rate)
+                try self.set_refresh_rate(refresh_mhz);
+            try self.parent.send(.{ "render", "frame_rate", self.frame_rate });
+            std.log.warn("frame rate (Hz): {}", .{self.frame_rate});
             return;
         }
         if (try m.match(.{"shutdown"})) return tp.exit_normal();
@@ -141,9 +154,21 @@ const RenderActor = struct {
     }
 
     fn dtor(self: *@This()) void {
-        self.frame_clock.stop() catch {};
         self.frame_clock.deinit();
         self.parent.deinit();
+    }
+
+    fn deinit(self: *@This()) void {
+        self.frame_clock.stop() catch {};
+    }
+
+    fn set_refresh_rate(self: *@This(), refresh_mhz: u32) tp.result {
+        const period_us = @as(u64, std.time.us_per_s) * 1000 / refresh_mhz;
+        self.frame_rate = refresh_mhz / 1000;
+        self.frame_clock.stop() catch {};
+        self.frame_clock.deinit();
+        self.frame_clock = tp.metronome.init(period_us) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.frame_clock.start() catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 };
 

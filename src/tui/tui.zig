@@ -136,9 +136,6 @@ fn start(args: StartArgs) tp.result {
     _ = tp.set_trap(true);
     var self = init(args.allocator) catch |e| return tp.exit_error(e, @errorReturnTrace());
     errdefer self.deinit();
-    if (@hasDecl(renderer, "spawn")) {
-        self.render_pid = renderer.spawn(args.allocator, self.config_.frame_rate) catch |e| return tp.exit_error(e, @errorReturnTrace());
-    }
     tp.receive(&self.receiver);
 }
 
@@ -212,6 +209,9 @@ fn init(allocator: Allocator) InitError!*Self {
     };
     instance_ = self;
     defer instance_ = null;
+
+    if (@hasDecl(renderer, "spawn"))
+        self.render_pid = try renderer.spawn(root.get_io(), root.get_init().gpa, self.config_.frame_rate);
 
     self.rdr_.set_sgr_pixel_mode_support(self.config_.enable_sgr_pixel_mode_support);
     self.rdr_.handler_ctx = self;
