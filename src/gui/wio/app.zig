@@ -593,13 +593,15 @@ fn wioLoop() void {
     var cell_width: u16 = 80;
     var cell_height: u16 = 24;
 
-    // Drain the initial wio events (scale + size_*) that are queued synchronously
-    // during createWindow.  This ensures dpi_scale and win_size are correct before
-    // the first reloadFont / sendResize, avoiding a brief render at the wrong scale.
+    // Drain the initial wio events (scale + size_* + refresh_rate) that are queued
+    // synchronously during createWindow.  This ensures dpi_scale and win_size are
+    // correct before the first reloadFont / sendResize, avoiding a brief render at
+    // the wrong scale.  refresh_rate is forwarded to the render actor.
     while (window.getEvent()) |event| {
         switch (event) {
             .scale => |s| dpi_scale = s,
             .size_physical => |sz| win_size = sz,
+            .refresh_rate => |r| if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {},
             else => {},
         }
     }
@@ -612,10 +614,6 @@ fn wioLoop() void {
     reloadFont();
     sendResize(win_size, &state, &cell_width, &cell_height);
     tui_pid.send(.{ "RDR", "WindowCreated", @as(usize, 0) }) catch {};
-
-    const refresh_rate = window.getRefreshRate();
-    if (render_pid) |*rp|
-        rp.send(.{ "window_ready", refresh_rate }) catch {};
 
     var held_buttons = input_translate.ButtonSet{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
@@ -636,6 +634,9 @@ fn wioLoop() void {
                 .scale => |s| {
                     dpi_scale = s;
                     font_dirty.store(true, .release);
+                },
+                .refresh_rate => |r| {
+                    if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
                 },
                 .size_physical => |sz| {
                     win_size = sz;

@@ -504,6 +504,21 @@ fn receive_safe(self: *Self, from: tp.pid_ref, m: tp.message) !void {
         return;
     }
 
+    var new_frame_rate: usize = 0;
+    if (try m.match(.{ "render", "frame_rate", tp.extract(&new_frame_rate) })) {
+        if (new_frame_rate == 0 or new_frame_rate == self.config_.frame_rate)
+            return;
+        self.config_.frame_rate = new_frame_rate;
+        self.frame_time = std.time.us_per_s / new_frame_rate;
+        tp.env.get().num_set("frame-rate", @intCast(new_frame_rate));
+        self.frame_clock.stop() catch {};
+        self.frame_clock.deinit();
+        self.frame_clock = try tp.metronome.init(self.frame_time);
+        if (self.frame_clock_running)
+            try self.frame_clock.start();
+        return;
+    }
+
     var counter: usize = undefined;
     if (try m.match(.{ "tick", tp.extract(&counter) })) {
         self.render();

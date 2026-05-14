@@ -142,11 +142,11 @@ const RenderActor = struct {
             return;
         }
         var refresh_mhz: u32 = 0;
-        if (try m.match(.{ "window_ready", tp.extract(&refresh_mhz) })) {
-            if (refresh_mhz > 0 and refresh_mhz / 1000 != self.frame_rate)
-                try self.set_refresh_rate(refresh_mhz);
+        if (try m.match(.{ "refresh_rate", tp.extract(&refresh_mhz) })) {
+            if (refresh_mhz == 0 or refresh_mhz / 1000 == self.frame_rate) return;
+            try self.set_refresh_rate(refresh_mhz);
             try self.parent.send(.{ "render", "frame_rate", self.frame_rate });
-            std.log.warn("frame rate (Hz): {}", .{self.frame_rate});
+            std.log.info("frame rate (Hz): {}", .{self.frame_rate});
             return;
         }
         if (try m.match(.{"shutdown"})) return tp.exit_normal();
