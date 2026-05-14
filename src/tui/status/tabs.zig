@@ -900,20 +900,20 @@ const Tab = struct {
         plane.home();
 
         plane.set_style(.{
-            .fg = self.tab_style.active_left_fg.from_theme(theme),
-            .bg = self.tab_style.active_left_bg.from_theme(theme),
+            .fg = self.tab_style.unfocused_active_left_fg.from_theme(theme),
+            .bg = self.tab_style.unfocused_active_left_bg.from_theme(theme),
         });
         _ = plane.putstr(self.tab_style.unfocused_active_left) catch {};
 
         plane.set_style(.{
             .fg = self.tab_style.unfocused_active_fg.from_theme(theme),
-            .bg = self.tab_style.active_bg.from_theme(theme),
+            .bg = self.tab_style.unfocused_active_bg.from_theme(theme),
         });
         self.render_content(plane, label, hover, self.tab_style.unfocused_active_fg.from_theme(theme), theme);
 
         plane.set_style(.{
-            .fg = self.tab_style.active_right_fg.from_theme(theme),
-            .bg = self.tab_style.active_right_bg.from_theme(theme),
+            .fg = self.tab_style.unfocused_active_right_fg.from_theme(theme),
+            .bg = self.tab_style.unfocused_active_right_bg.from_theme(theme),
         });
         _ = plane.putstr(self.tab_style.unfocused_active_right) catch {};
     }
@@ -930,20 +930,20 @@ const Tab = struct {
         plane.home();
 
         plane.set_style(.{
-            .fg = self.tab_style.inactive_left_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_left_bg.from_theme(theme),
+            .fg = self.tab_style.unfocused_inactive_left_fg.from_theme(theme),
+            .bg = self.tab_style.unfocused_inactive_left_bg.from_theme(theme),
         });
         _ = plane.putstr(self.tab_style.unfocused_inactive_left) catch {};
 
         plane.set_style(.{
-            .fg = self.tab_style.inactive_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_bg.from_theme(theme),
+            .fg = self.tab_style.unfocused_inactive_fg.from_theme(theme),
+            .bg = self.tab_style.unfocused_inactive_bg.from_theme(theme),
         });
         self.render_content(plane, label, hover, self.tab_style.unfocused_inactive_fg.from_theme(theme), theme);
 
         plane.set_style(.{
-            .fg = self.tab_style.inactive_right_fg.from_theme(theme),
-            .bg = self.tab_style.inactive_right_bg.from_theme(theme),
+            .fg = self.tab_style.unfocused_inactive_right_fg.from_theme(theme),
+            .bg = self.tab_style.unfocused_inactive_right_bg.from_theme(theme),
         });
         _ = plane.putstr(self.tab_style.unfocused_inactive_right) catch {};
     }
