@@ -127,7 +127,7 @@ const Commands = command.Collection(cmds);
 
 const StartArgs = struct { allocator: Allocator };
 
-pub fn spawn(allocator: Allocator, ctx: *tp.context, eh: anytype, env: ?*const tp.env) !tp.pid {
+pub fn spawn(allocator: Allocator, ctx: *tp.context, eh: anytype, env: ?tp.env) !tp.pid {
     return try ctx.spawn_link(StartArgs{ .allocator = allocator }, start, "tui", eh, env);
 }
 
@@ -144,12 +144,13 @@ fn start(args: StartArgs) tp.result {
 
 const InitError = error{
     OutOfMemory,
-    UnknownTheme,
+    ThespianContextCreateFailed,
     ThespianMetronomeInitFailed,
     ThespianMetronomeStartFailed,
-    ThespianTimeoutInitFailed,
     ThespianSignalInitFailed,
     ThespianSpawnFailed,
+    ThespianTimeoutInitFailed,
+    UnknownTheme,
 } || renderer.Error ||
     root.ConfigDirError ||
     root.ConfigWriteError ||

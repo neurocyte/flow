@@ -230,7 +230,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         }
     }
 
-    const log_proc = try log.spawn(&ctx, a, &env);
+    const log_proc = try log.spawn(&ctx, a, env);
     defer log_proc.deinit();
     log.set_std_log_pid(log_proc.ref());
     defer log.set_std_log_pid(null);
@@ -251,7 +251,7 @@ pub fn main(init: std.process.Init) anyerror!void {
     if (args.class) |s| env.str_set("window-class", s);
 
     var eh = thespian.make_exit_handler({}, print_exit_status);
-    const tui_proc = try tui.spawn(a, &ctx, &eh, &env);
+    const tui_proc = try tui.spawn(a, &ctx, &eh, env);
     defer tui_proc.deinit();
 
     var links: std.ArrayList(file_link.Dest) = .empty;

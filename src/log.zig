@@ -26,7 +26,7 @@ const StartArgs = struct {
     allocator: std.mem.Allocator,
 };
 
-pub fn spawn(ctx: *tp.context, allocator: std.mem.Allocator, env: ?*const tp.env) !tp.pid {
+pub fn spawn(ctx: *tp.context, allocator: std.mem.Allocator, env: ?tp.env) !tp.pid {
     return try ctx.spawn_link(StartArgs{ .allocator = allocator }, Self.start, "log", null, env);
 }
 
