@@ -211,7 +211,7 @@ fn init(allocator: Allocator) InitError!*Self {
     defer instance_ = null;
 
     if (@hasDecl(renderer, "spawn"))
-        self.render_pid = try renderer.spawn(root.get_io(), root.get_init().gpa, self.config_.frame_rate);
+        self.render_pid = try renderer.spawn(root.get_io(), root.get_init().gpa);
 
     self.rdr_.set_sgr_pixel_mode_support(self.config_.enable_sgr_pixel_mode_support);
     self.rdr_.handler_ctx = self;

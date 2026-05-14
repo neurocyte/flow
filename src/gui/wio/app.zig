@@ -245,10 +245,12 @@ pub fn updateScreen(
     };
 
     screen_pending.store(true, .release);
+    if (render_pid) |*rp| rp.send(.{ "tick", @as(usize, 0) }) catch {};
 }
 
 pub fn requestRender() void {
     screen_pending.store(true, .release);
+    if (render_pid) |*rp| rp.send(.{ "tick", @as(usize, 0) }) catch {};
 }
 
 pub fn setFontSize(size_px: f32) void {
