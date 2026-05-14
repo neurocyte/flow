@@ -558,6 +558,8 @@ fn wioLoop() void {
         @as(u32, @intCast(initial_size.height)),
     }) catch {};
 
+    window.setEventCallback(onWioEventSync, null);
+
     var held_buttons = input_translate.ButtonSet{};
     var mouse_pos: wio.Position = .{ .x = 0, .y = 0 };
     var running = true;
@@ -578,12 +580,9 @@ fn wioLoop() void {
                 .refresh_rate => |r| {
                     if (render_pid) |*rp| rp.send(.{ "refresh_rate", r }) catch {};
                 },
-                .size_physical => |sz| {
-                    if (render_pid) |*rp| rp.send(.{
-                        "resize",
-                        @as(u32, @intCast(sz.width)),
-                        @as(u32, @intCast(sz.height)),
-                    }) catch {};
+                .size_physical => {
+                    // Handled by onWioEventSync - runs inline from the
+                    // wndproc so it works during Win32 modal pumps too.
                 },
                 .button_press => |btn| {
                     held_buttons.press(btn);
@@ -733,6 +732,20 @@ fn gl_options() wio.GlOptions {
     };
 }
 
+// Synchronous wio event hook
+fn onWioEventSync(_: ?*anyopaque, event: wio.Event) void {
+    switch (event) {
+        .size_physical => |sz| {
+            if (render_pid) |*rp| rp.send(.{
+                "resize",
+                @as(u32, @intCast(sz.width)),
+                @as(u32, @intCast(sz.height)),
+            }) catch {};
+        },
+        else => {},
+    }
+}
+
 // ── Render actor worker functions (run on the render actor's thread) ──────
 //
 // The render actor calls these from its message handlers. The wio thread
@@ -821,7 +834,10 @@ pub fn renderActorWindowReady(initial_w: u32, initial_h: u32) void {
 
 pub fn renderActorResize(w: u32, h: u32) void {
     if (render_ctx) |*ctx| {
-        ctx.target_size = .{ .width = @intCast(w), .height = @intCast(h) };
+        const new_size: wio.Size = .{ .width = @intCast(w), .height = @intCast(h) };
+        if (new_size.width == ctx.target_size.width and new_size.height == ctx.target_size.height) return;
+        ctx.target_size = new_size;
+        sendResize(new_size, &ctx.state, &ctx.cell_width, &ctx.cell_height);
     }
 }
 
